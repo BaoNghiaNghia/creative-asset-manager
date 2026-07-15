@@ -11,3 +11,10 @@
 .tree-toggle{display:grid;place-items:center;width:24px;height:32px;padding:0;font-size:11px}
 .tree-label{min-width:0;padding:7px 8px 7px 0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tree-children{margin-left:18px;border-left:1px solid #dce1e8;padding-left:4px}
+
+.google-login{display:flex;align-items:center;gap:9px;margin-top:10px;padding:9px 10px;border:1px solid #d8dde5;border-radius:8px;background:#fff;color:#344054;font-weight:650;cursor:pointer}
+.google-login span{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#4285f4;color:#fff;font-weight:800}
+.header-login{margin-left:auto;padding:8px 13px;border:1px solid #d8dde5;border-radius:8px;background:#fff;color:#344054;font-weight:650;cursor:pointer}
+.account{display:flex;align-items:center;gap:9px;margin-left:auto}
+.account .avatar{object-fit:cover}
+.account button{border:0;background:transparent;color:#6b7785;font-size:12px;cursor:pointer}
