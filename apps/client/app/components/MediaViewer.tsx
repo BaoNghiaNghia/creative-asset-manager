@@ -32,7 +32,7 @@ export function MediaViewer({ item, onClose }: Props) {
     aria-label={"Preview " + item.name}
     onMouseDown={event => event.target === event.currentTarget && onClose()}
   >
-    <div className="media-viewer-panel">
+    <div className={"media-viewer-panel " + item.kind}>
       <div className="media-viewer-toolbar">
         <div>
           <strong title={item.name}>{item.name}</strong>
@@ -57,6 +57,7 @@ export function MediaViewer({ item, onClose }: Props) {
         /> : <img
           src={mediaUrl}
           alt={item.name}
+          draggable={false}
           onError={() => setFailed(true)}
         />}
       </div>
