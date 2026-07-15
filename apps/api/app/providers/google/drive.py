@@ -54,3 +54,31 @@ class GoogleDriveClient:
             page_token = data.get("nextPageToken")
             if not page_token:
                 return files
+
+
+async def open_media_stream(access_token: str, item_id: str, range_header: str | None):
+    """Open an authenticated Drive media stream without buffering it in the API."""
+    client = httpx.AsyncClient(timeout=httpx.Timeout(20, read=None))
+    headers = {"Authorization": f"Bearer {access_token}"}
+    if range_header:
+        headers["Range"] = range_header
+
+    request = client.build_request(
+        "GET",
+        f"https://www.googleapis.com/drive/v3/files/{item_id}",
+        params={"alt": "media", "supportsAllDrives": "true"},
+        headers=headers,
+    )
+    response = await client.send(request, stream=True)
+    try:
+        response.raise_for_status()
+    except Exception:
+        await response.aclose()
+        await client.aclose()
+        raise
+    return client, response
+
+
+async def close_media_stream(client: httpx.AsyncClient, response: httpx.Response):
+    await response.aclose()
+    await client.aclose()
