@@ -48,8 +48,22 @@ export function AssetGrid({
   onCancelPrefetch,
   onPreview,
 }: Props) {
+  function resultAncestors(item: Asset) {
+    if (
+      !item.ancestor_ids?.length
+      || item.ancestor_ids.length !== item.ancestor_names?.length
+    ) return path;
+
+    return item.ancestor_ids.map((id, index): Asset => ({
+      id,
+      name: item.ancestor_names?.[index] || "Folder",
+      kind: "folder",
+      mime_type: "application/vnd.google-apps.folder",
+    }));
+  }
+
   function openItem(item: Asset) {
-    if (item.kind === "folder") onOpen(item.id, path);
+    if (item.kind === "folder") onOpen(item.id, resultAncestors(item));
     else if (item.kind === "image" || item.kind === "video") onPreview(item);
   }
 
