@@ -376,3 +376,54 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 }
 .search-progress.complete>i{background:#26a269}
 @media(prefers-reduced-motion:reduce){.search-progress>i{transition:none}}
+
+
+/* Account-level background indexing displayed inside the search control */
+.search-box.indexing,.search-box.index-failed{overflow:hidden;isolation:isolate}
+.search-box.indexing::before{
+  content:"";
+  position:absolute;
+  z-index:0;
+  inset:0 auto 0 0;
+  width:var(--index-progress,0%);
+  background:linear-gradient(90deg,#e8efff,#edf4ff);
+  transition:width .35s ease;
+}
+ .search-box.indexing>*{position:relative;z-index:1}
+.search-box.indexing::after{
+  content:"";
+  position:absolute;
+  z-index:2;
+  right:0;
+  bottom:0;
+  left:0;
+  height:3px;
+  background:linear-gradient(90deg,#2f65d5 var(--index-progress,0%),#dce3ec 0);
+}
+.search-box.index-failed{background:#fff3f3}
+.search-box input:disabled{cursor:not-allowed;color:#596779;-webkit-text-fill-color:#596779;opacity:1}
+.index-percent-badge,.index-ready-badge{
+  flex:0 0 auto!important;
+  padding:3px 7px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.index-percent-badge{background:#dce8ff;color:#2457b8!important}
+.index-ready-badge{background:#e4f5eb;color:#237a4b!important}
+.index-retry{
+  position:relative;
+  z-index:3;
+  flex:0 0 auto;
+  padding:4px 9px;
+  border:0;
+  border-radius:6px;
+  background:#b42318;
+  color:#fff;
+  cursor:pointer;
+  font-size:11px;
+  font-weight:700;
+}
+.index-retry:hover{background:#941d14}
+@media(prefers-reduced-motion:reduce){.search-box.indexing::before{transition:none}}
