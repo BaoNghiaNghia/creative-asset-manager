@@ -12,9 +12,9 @@ FOLDER = "application/vnd.google-apps.folder"
 ProgressCallback = Callable[[dict], Awaitable[None]]
 
 
-async def _report(progress: ProgressCallback | None, **event) -> None:
-    if progress:
-        await progress(event)
+async def _report(callback: ProgressCallback | None, **event) -> None:
+    if callback:
+        await callback(event)
 
 
 MOCK = [
