@@ -33,7 +33,7 @@ async def login():
         access_type="offline",
         prompt="consent",
     )
-    remember_state(state)
+    remember_state(state, getattr(flow, "code_verifier", None))
     return RedirectResponse(authorization_url)
 
 
@@ -64,12 +64,15 @@ async def callback(
         return client_redirect(auth_error="incomplete", auth_request=request_id)
 
     try:
-        consume_state(state)
+        code_verifier = consume_state(state)
     except HTTPException:
         logger.warning("Google OAuth state is invalid or expired request_id=%s", request_id)
         return client_redirect(auth_error="state", auth_request=request_id)
 
     flow = oauth_flow(state)
+    if code_verifier:
+        flow.code_verifier = code_verifier
+
     try:
         # State is validated above. Passing the one-time code directly avoids
         # OAuthlib rejecting an otherwise valid HTTP localhost callback while
