@@ -28,6 +28,12 @@ STATE_TTL_SECONDS = 600
 
 
 @dataclass
+class OAuthTransaction:
+    expires_at: float
+    code_verifier: str | None
+
+
+@dataclass
 class GoogleSession:
     access_token: str
     refresh_token: str | None
@@ -36,7 +42,7 @@ class GoogleSession:
 
 
 _sessions: dict[str, GoogleSession] = {}
-_pending_states: dict[str, float] = {}
+_pending_states: dict[str, OAuthTransaction] = {}
 
 
 def _settings() -> tuple[str, str, str]:
@@ -73,18 +79,22 @@ def oauth_flow(state: str | None = None) -> Flow:
     return flow
 
 
-def remember_state(state: str) -> None:
+def remember_state(state: str, code_verifier: str | None) -> None:
     now = time.time()
-    for key, expires_at in list(_pending_states.items()):
-        if expires_at <= now:
+    for key, transaction in list(_pending_states.items()):
+        if transaction.expires_at <= now:
             _pending_states.pop(key, None)
-    _pending_states[state] = now + STATE_TTL_SECONDS
+    _pending_states[state] = OAuthTransaction(
+        expires_at=now + STATE_TTL_SECONDS,
+        code_verifier=code_verifier,
+    )
 
 
-def consume_state(state: str) -> None:
-    expires_at = _pending_states.pop(state, 0)
-    if expires_at <= time.time():
+def consume_state(state: str) -> str | None:
+    transaction = _pending_states.pop(state, None)
+    if not transaction or transaction.expires_at <= time.time():
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state.")
+    return transaction.code_verifier
 
 
 def validate_granted_scopes(credentials: Credentials) -> None:
