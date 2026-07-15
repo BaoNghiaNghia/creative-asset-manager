@@ -71,9 +71,10 @@ async def callback(
 
     flow = oauth_flow(state)
     try:
-        # Passing the full callback response is the supported web-server flow and
-        # keeps redirect URI, state, issuer, and code parsing in one place.
-        flow.fetch_token(authorization_response=str(request.url))
+        # State is validated above. Passing the one-time code directly avoids
+        # OAuthlib rejecting an otherwise valid HTTP localhost callback while
+        # the token request itself still goes to Google's HTTPS endpoint.
+        flow.fetch_token(code=code)
     except Exception as exc:
         logger.exception(
             "Google OAuth token exchange failed request_id=%s error_type=%s",
