@@ -9,6 +9,8 @@ type Asset = {
 };
 
 type Tag = { id: string; name: string; color: string };
+type GoogleUser = { id: string; name?: string; email?: string; picture?: string };
+type AuthState = { authenticated: boolean; user: GoogleUser | null };
 type Folder = { parent: Asset; children: Asset[] };
 type TreeCache = Record<string, Asset[]>;
 
@@ -66,6 +68,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null });
 
   async function fetchFolder(id: string): Promise<Folder> {
     const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id));
@@ -120,9 +123,19 @@ export default function App() {
   }
 
   useEffect(() => {
+    fetch("/api/auth/google/session")
+      .then(response => response.json())
+      .then(setAuth)
+      .catch(() => setAuth({ authenticated: false, user: null }));
     open();
     fetch("/api/tags").then(response => response.json()).then(setTags).catch(() => setTags([]));
   }, []);
+
+  async function logout() {
+    await fetch("/api/auth/google/logout", { method: "POST" });
+    setAuth({ authenticated: false, user: null });
+    await open();
+  }
 
   const visible = useMemo(
     () => items.filter(item => item.name.toLowerCase().includes(query.toLowerCase())),
@@ -151,9 +164,12 @@ export default function App() {
 
   return <main className="shell">
     <aside>
-      <div className="brand"><b>C</b><span><strong>Creative assets</strong><small>Google Drive</small></span></div>
+      <div className="brand"><b>C</b><span><strong>Creative assets</strong><small>{auth.user?.email || "Google Drive"}</small></span></div>
       <p>SOURCES</p>
       <button className={"source " + (activeId === "root" ? "active" : "")} onClick={() => open("root")}>◆ My Drive</button>
+      {!auth.authenticated && <button className="google-login" onClick={() => window.location.assign("/api/auth/google/login")}>
+        <span>G</span> Sign in with Google
+      </button>}
       <div className="tree">
         {rootFolders.map(folder => <TreeNode
           key={folder.id}
@@ -172,7 +188,13 @@ export default function App() {
     </aside>
 
     <section>
-      <header><label>⌕<input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search this folder" /></label><div className="avatar">BN</div></header>
+      <header>
+        <label>⌕<input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search this folder" /></label>
+        {auth.authenticated ? <div className="account">
+          {auth.user?.picture ? <img className="avatar" src={auth.user.picture} alt="" referrerPolicy="no-referrer" /> : <div className="avatar">{auth.user?.name?.slice(0, 2) || "G"}</div>}
+          <button onClick={logout}>Sign out</button>
+        </div> : <button className="header-login" onClick={() => window.location.assign("/api/auth/google/login")}>Sign in with Google</button>}
+      </header>
       <nav>
         <div>{path.map((folder, index) => <button key={folder.id} onClick={() => open(folder.id, path.slice(0, index))}>{folder.name}</button>)}</div>
         <button className="upload">＋ Upload</button>
