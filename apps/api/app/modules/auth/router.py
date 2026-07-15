@@ -1,5 +1,7 @@
 import logging
 import os
+import secrets
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -18,6 +20,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/google", tags=["auth"])
 
 
+def client_redirect(**params: str) -> RedirectResponse:
+    client_url = os.getenv("CLIENT_URL", "http://localhost:5173")
+    separator = "&" if "?" in client_url else "?"
+    return RedirectResponse(client_url + separator + urlencode(params))
+
+
 @router.get("/login")
 async def login():
     flow = oauth_flow()
@@ -31,38 +39,63 @@ async def login():
 
 @router.get("/callback")
 async def callback(
-    state: str = Query(...),
+    request: Request,
+    state: str | None = Query(None),
     code: str | None = Query(None),
     error: str | None = Query(None),
+    error_description: str | None = Query(None),
 ):
-    if error:
-        raise HTTPException(status_code=400, detail=f"Google authorization failed: {error}")
-    if not code:
-        raise HTTPException(status_code=400, detail="Google did not return an authorization code.")
+    request_id = secrets.token_hex(6)
 
-    consume_state(state)
-    flow = oauth_flow(state)
+    if error:
+        logger.warning(
+            "Google OAuth was denied request_id=%s error=%s",
+            request_id,
+            error,
+        )
+        return client_redirect(
+            auth_error="denied",
+            auth_request=request_id,
+            auth_message=error_description or error,
+        )
+
+    if not state or not code:
+        logger.warning("Google OAuth callback is incomplete request_id=%s", request_id)
+        return client_redirect(auth_error="incomplete", auth_request=request_id)
 
     try:
-        flow.fetch_token(code=code)
+        consume_state(state)
+    except HTTPException:
+        logger.warning("Google OAuth state is invalid or expired request_id=%s", request_id)
+        return client_redirect(auth_error="state", auth_request=request_id)
+
+    flow = oauth_flow(state)
+    try:
+        # Passing the full callback response is the supported web-server flow and
+        # keeps redirect URI, state, issuer, and code parsing in one place.
+        flow.fetch_token(authorization_response=str(request.url))
     except Exception as exc:
-        logger.exception("Google OAuth token exchange failed")
-        raise HTTPException(
-            status_code=400,
-            detail="Google token exchange failed. Check the API terminal for the exact error.",
-        ) from exc
+        logger.exception(
+            "Google OAuth token exchange failed request_id=%s error_type=%s",
+            request_id,
+            type(exc).__name__,
+        )
+        return client_redirect(auth_error="token_exchange", auth_request=request_id)
 
     try:
         session_id, _ = await create_session(flow.credentials)
+    except PermissionError:
+        logger.warning("Google Drive scope was not granted request_id=%s", request_id)
+        return client_redirect(auth_error="scope", auth_request=request_id)
     except Exception as exc:
-        logger.exception("Google OAuth user profile request failed")
-        raise HTTPException(
-            status_code=400,
-            detail="Google sign-in succeeded, but the user profile could not be loaded. Check the API terminal.",
-        ) from exc
+        logger.exception(
+            "Google OAuth user profile failed request_id=%s error_type=%s",
+            request_id,
+            type(exc).__name__,
+        )
+        return client_redirect(auth_error="profile", auth_request=request_id)
 
-    client_url = os.getenv("CLIENT_URL", "http://localhost:5173")
-    response = RedirectResponse(client_url)
+    response = client_redirect(google="connected")
     response.set_cookie(
         SESSION_COOKIE,
         session_id,
