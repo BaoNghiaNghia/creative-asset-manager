@@ -561,3 +561,83 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   .source-onboarding{padding:42px 20px}
   .source-cards{grid-template-columns:1fr}
 }
+
+
+/* Context-aware empty states for folders and search results */
+.assets-empty{
+  display:flex;
+  min-height:clamp(300px,46vh,470px);
+  padding:42px 32px 80px;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+.assets-empty-icon{
+  display:grid;
+  width:72px;
+  height:72px;
+  place-items:center;
+  border:1px solid #dce7fb;
+  border-radius:20px;
+  background:#f1f5ff;
+  color:#3566cc;
+  box-shadow:0 8px 24px #315ea612;
+}
+.assets-empty-icon.search{
+  border-color:#e1e6ec;
+  background:#f5f7f9;
+  color:#66768a;
+}
+.assets-empty-icon svg{
+  width:40px;
+  height:40px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.6;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.assets-empty h2{
+  margin:18px 0 7px;
+  color:#202b38;
+  font-size:18px;
+  line-height:1.3;
+}
+.assets-empty p{
+  max-width:440px;
+  margin:0;
+  color:#6c7887;
+  font-size:13px;
+  line-height:1.55;
+}
+.assets-empty-actions{
+  display:flex;
+  margin-top:20px;
+  flex-wrap:wrap;
+  justify-content:center;
+  gap:9px;
+}
+.assets-empty-actions button{
+  min-height:36px;
+  padding:8px 14px;
+  border:1px solid transparent;
+  border-radius:8px;
+  cursor:pointer;
+  font:inherit;
+  font-size:12px;
+  font-weight:750;
+  transition:background .15s ease,border-color .15s ease,box-shadow .15s ease,transform .15s ease;
+}
+.assets-empty-actions button:hover{transform:translateY(-1px)}
+.assets-empty-actions button:focus-visible{outline:3px solid #9bb8f066;outline-offset:2px}
+.assets-empty-actions .primary{background:#2e5ee8;color:#fff;box-shadow:0 4px 12px #2e5ee82b}
+.assets-empty-actions .primary:hover{background:#244fd0}
+.assets-empty-actions .secondary{border-color:#d7dee8;background:#fff;color:#344054}
+.assets-empty-actions .secondary:hover{border-color:#b9c5d5;background:#f8fafc}
+
+@media(max-width:760px){
+  .assets-empty{min-height:320px;padding:36px 20px 64px}
+  .assets-empty-icon{width:64px;height:64px;border-radius:18px}
+  .assets-empty-icon svg{width:35px;height:35px}
+}
