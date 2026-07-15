@@ -35,9 +35,24 @@ type Props = {
   onToggle: (id: string) => void;
   onPrefetch: (id: string) => void;
   onCancelPrefetch: () => void;
+  onPreview: (item: Asset) => void;
 };
 
-export function AssetGrid({ items, path, selected, onOpen, onToggle, onPrefetch, onCancelPrefetch }: Props) {
+export function AssetGrid({
+  items,
+  path,
+  selected,
+  onOpen,
+  onToggle,
+  onPrefetch,
+  onCancelPrefetch,
+  onPreview,
+}: Props) {
+  function openItem(item: Asset) {
+    if (item.kind === "folder") onOpen(item.id, path);
+    else if (item.kind === "image" || item.kind === "video") onPreview(item);
+  }
+
   return <div className="grid">
     {items.map(item => <article
       className={selected.has(item.id) ? "selected" : ""}
@@ -46,11 +61,11 @@ export function AssetGrid({ items, path, selected, onOpen, onToggle, onPrefetch,
       onPointerLeave={onCancelPrefetch}
     >
       <button className="check" onClick={() => onToggle(item.id)}>{selected.has(item.id) ? "✓" : ""}</button>
-      <button className={"preview " + item.kind} onDoubleClick={() => item.kind === "folder" && onOpen(item.id, path)}>
+      <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
         <AssetPreview item={item} />
       </button>
       <div>
-        <button className="name" onDoubleClick={() => item.kind === "folder" && onOpen(item.id, path)}>{item.name}</button>
+        <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>
         <small>{item.kind === "folder" ? "Folder" : item.modified_at ? new Date(item.modified_at).toLocaleDateString() : item.mime_type}</small>
       </div>
     </article>)}
