@@ -77,8 +77,12 @@ export default function App() {
           {explorer.metadataIndex.state === "running" && <span className="index-percent-badge">
             {explorer.metadataIndex.progress}%
           </span>}
-          {explorer.metadataIndex.state === "completed" && !explorer.query && <span className="index-ready-badge">
-            ✓ Ready
+          {explorer.metadataIndex.state === "completed" && !explorer.query && <span
+            className={"index-ready-badge " + (explorer.metadataIndex.skipped_folders ? "warning" : "")}
+          >
+            {explorer.metadataIndex.skipped_folders
+              ? `⚠ Ready · ${explorer.metadataIndex.skipped_folders} skipped`
+              : "✓ Ready"}
           </span>}
           {explorer.metadataIndex.state === "failed" && <button
             type="button"
@@ -107,6 +111,11 @@ export default function App() {
           Sign in with Google
         </button>}
       </header>
+
+      {explorer.metadataIndex.state === "failed" && <div className="indexing-error" role="alert">
+        <strong>Google Drive metadata indexing failed.</strong>
+        <span>{explorer.metadataIndex.error || "Check the API terminal for the detailed traceback."}</span>
+      </div>}
 
       <nav>
         <div>{explorer.path.map((folder, index) => <button
