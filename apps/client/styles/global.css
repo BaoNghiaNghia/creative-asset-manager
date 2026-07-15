@@ -427,3 +427,20 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 }
 .index-retry:hover{background:#941d14}
 @media(prefers-reduced-motion:reduce){.search-box.indexing::before{transition:none}}
+
+
+/* Actionable background-index diagnostics */
+.index-ready-badge.warning{background:#fff1cf;color:#8a5b0b!important}
+.indexing-error{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:10px 34px 0;
+  padding:9px 12px;
+  border:1px solid #efb3ad;
+  border-radius:8px;
+  background:#fff3f2;
+  color:#8f1d1d;
+  font-size:12px;
+}
+.indexing-error span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
