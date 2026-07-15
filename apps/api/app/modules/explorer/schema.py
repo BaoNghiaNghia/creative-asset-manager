@@ -40,6 +40,7 @@ class SearchResponse(BaseModel):
     indexed_count: int
     index_source: Literal["directus", "memory"]
     truncated: bool = False
+    skipped_folders: int = 0
 
 
 class IndexRequest(BaseModel):
@@ -55,6 +56,7 @@ class IndexStatus(BaseModel):
     indexed_count: int = 0
     processed_folders: int = 0
     pending_folders: int = 0
+    skipped_folders: int = 0
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
