@@ -4,6 +4,8 @@ export type Asset = {
   kind: "folder" | "image" | "video" | "pdf" | "document" | "other";
   mime_type: string;
   modified_at?: string;
+  thumbnail_url?: string;
+  web_url?: string;
 };
 
 export type Tag = { id: string; name: string; color: string };
