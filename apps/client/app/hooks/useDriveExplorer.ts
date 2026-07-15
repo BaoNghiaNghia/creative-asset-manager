@@ -5,6 +5,8 @@ import type {
   DriveIndexStatus,
   Folder,
   OAuthErrorState,
+  Provider,
+  ProviderSessions,
   SearchResponse,
   Tag,
   TreeCache,
@@ -32,16 +34,24 @@ const emptyIndexStatus: DriveIndexStatus = {
   skipped_folders: 0,
 };
 
+const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : "root";
+
 const oauthMessages: Record<string, string> = {
   denied: "Google access was cancelled or denied.",
   incomplete: "Google returned an incomplete authorization response.",
   state: "The sign-in request expired. Please start again.",
   token_exchange: "Google could not complete the secure token exchange.",
-  scope: "The required Google Drive read-only permission was not granted.",
-  profile: "Google connected, but the account profile could not be loaded.",
+  scope: "The required read-only permission was not granted.",
+  profile: "The cloud account connected, but its profile could not be loaded.",
 };
 
 export function useDriveExplorer() {
+  const [provider, setProvider] = useState<Provider>("google-drive");
+  const [authByProvider, setAuthByProvider] = useState<ProviderSessions>({
+    "google-drive": { authenticated: false, user: null, checking: true },
+    sharepoint: { authenticated: false, user: null, checking: true },
+  });
+  const auth = authByProvider[provider];
   const [path, setPath] = useState<Asset[]>([]);
   const [items, setItems] = useState<Asset[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -62,7 +72,6 @@ export function useDriveExplorer() {
   const [searchError, setSearchError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null, checking: true });
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
   const [indexRetryKey, setIndexRetryKey] = useState(0);
@@ -87,36 +96,37 @@ export function useDriveExplorer() {
     setSearchError("");
   }
 
-  async function fetchFolder(id: string): Promise<Folder> {
-    const cached = folderCache.current.get(id);
+  async function fetchFolder(id: string, source: Provider = provider): Promise<Folder> {
+    const key = source + ":" + id;
+    const cached = folderCache.current.get(key);
     if (cached) return cached;
 
-    const pending = folderRequests.current.get(id);
+    const pending = folderRequests.current.get(key);
     if (pending) return pending;
 
     const request = (async () => {
-      const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id));
+      const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id) + "&provider=" + encodeURIComponent(source));
       if (!response.ok) throw Error((await response.json()).detail);
       const folder = await response.json() as Folder;
-      folderCache.current.set(id, folder);
+      folderCache.current.set(key, folder);
       return folder;
     })();
 
-    folderRequests.current.set(id, request);
+    folderRequests.current.set(key, request);
     try {
       return await request;
     } finally {
-      folderRequests.current.delete(id);
+      folderRequests.current.delete(key);
     }
   }
 
-  function cacheFolders(id: string, children: Asset[]) {
+  function cacheFolders(id: string, children: Asset[], source: Provider = provider) {
     const folders = children.filter(item => item.kind === "folder");
-    treeFolderCache.current.set(id, folders);
+    treeFolderCache.current.set(source + ":" + id, folders);
     setChildrenByParent(current => ({ ...current, [id]: folders }));
   }
 
-  function hydrateTreePath(nodes: Asset[]) {
+  function hydrateTreePath(nodes: Asset[], source: Provider = provider) {
     if (nodes.length < 2) return;
 
     setChildrenByParent(current => {
@@ -129,7 +139,7 @@ export function useDriveExplorer() {
           ? children
           : [...children, child];
         next[parent.id] = merged;
-        treeFolderCache.current.set(parent.id, merged);
+        treeFolderCache.current.set(source + ":" + parent.id, merged);
       }
       return next;
     });
@@ -140,35 +150,36 @@ export function useDriveExplorer() {
     });
   }
 
-  async function fetchTreeFolders(id: string): Promise<Asset[]> {
-    const cached = treeFolderCache.current.get(id);
+  async function fetchTreeFolders(id: string, source: Provider = provider): Promise<Asset[]> {
+    const key = source + ":" + id;
+    const cached = treeFolderCache.current.get(key);
     if (cached) return cached;
 
-    const fullFolder = folderCache.current.get(id);
+    const fullFolder = folderCache.current.get(key);
     if (fullFolder) return fullFolder.children.filter(item => item.kind === "folder");
 
-    const fullRequest = folderRequests.current.get(id);
+    const fullRequest = folderRequests.current.get(key);
     if (fullRequest) {
       const folder = await fullRequest;
       return folder.children.filter(item => item.kind === "folder");
     }
 
-    const pending = treeFolderRequests.current.get(id);
+    const pending = treeFolderRequests.current.get(key);
     if (pending) return pending;
 
     const request = (async () => {
-      const response = await fetch("/api/explorer/folders?parent_id=" + encodeURIComponent(id));
+      const response = await fetch("/api/explorer/folders?parent_id=" + encodeURIComponent(id) + "&provider=" + encodeURIComponent(source));
       if (!response.ok) throw Error((await response.json()).detail);
       const folders = await response.json() as Asset[];
-      treeFolderCache.current.set(id, folders);
+      treeFolderCache.current.set(key, folders);
       return folders;
     })();
 
-    treeFolderRequests.current.set(id, request);
+    treeFolderRequests.current.set(key, request);
     try {
       return await request;
     } finally {
-      treeFolderRequests.current.delete(id);
+      treeFolderRequests.current.delete(key);
     }
   }
 
@@ -178,16 +189,17 @@ export function useDriveExplorer() {
   }
 
   function scheduleFolderPrefetch(id: string) {
-    if (folderCache.current.has(id) || folderRequests.current.has(id)) return;
+    const key = provider + ":" + id;
+    if (folderCache.current.has(key) || folderRequests.current.has(key)) return;
     cancelFolderPrefetch();
     prefetchTimer.current = window.setTimeout(() => {
-      void fetchFolder(id).catch(() => undefined);
+      void fetchFolder(id, provider).catch(() => undefined);
     }, 180);
   }
 
-  async function open(id = "root", ancestors: Asset[] = []) {
+  async function open(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider) {
     const requestSequence = ++openSequence.current;
-    const cached = folderCache.current.has(id);
+    const cached = folderCache.current.has(source + ":" + id);
     setLoading(!cached);
     setError("");
     setSelected(new Set());
@@ -196,13 +208,13 @@ export function useDriveExplorer() {
     cancelFolderPrefetch();
 
     try {
-      const folder = await fetchFolder(id);
+      const folder = await fetchFolder(id, source);
       if (requestSequence !== openSequence.current) return;
       const nextPath = [...ancestors, folder.parent];
       setItems(folder.children);
       setPath(nextPath);
-      hydrateTreePath(nextPath);
-      cacheFolders(id, folder.children);
+      hydrateTreePath(nextPath, source);
+      cacheFolders(id, folder.children, source);
       setExpanded(current => new Set(current).add(id));
     } catch (reason) {
       if (requestSequence === openSequence.current) {
@@ -223,9 +235,9 @@ export function useDriveExplorer() {
       return;
     }
 
-    const cached = treeFolderCache.current.get(node.id);
+    const cached = treeFolderCache.current.get(provider + ":" + node.id);
     if (cached) {
-      cacheFolders(node.id, cached);
+      cacheFolders(node.id, cached, provider);
       setExpanded(current => new Set(current).add(node.id));
       return;
     }
@@ -233,8 +245,8 @@ export function useDriveExplorer() {
     setLoadingTreeIds(current => new Set(current).add(node.id));
     setError("");
     try {
-      const folders = await fetchTreeFolders(node.id);
-      cacheFolders(node.id, folders);
+      const folders = await fetchTreeFolders(node.id, provider);
+      cacheFolders(node.id, folders, provider);
       setExpanded(current => new Set(current).add(node.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to expand folder");
@@ -247,11 +259,11 @@ export function useDriveExplorer() {
     }
   }
 
-  function clearExplorer() {
+  function clearExplorer(source: Provider = provider) {
     setPath([]);
     setItems([]);
     setChildrenByParent({});
-    setExpanded(new Set(["root"]));
+    setExpanded(new Set([rootId(source)]));
     setSelected(new Set());
     setQuery("");
     resetSearch();
@@ -270,43 +282,32 @@ export function useDriveExplorer() {
     const params = new URLSearchParams(window.location.search);
     const errorCode = params.get("auth_error");
     const requestId = params.get("auth_request") || undefined;
-
-    if (errorCode) {
-      setOauthError({
-        message: oauthMessages[errorCode] || "Google sign-in could not be completed.",
-        requestId,
-      });
-    }
-
-    if (errorCode || params.has("google")) {
-      params.delete("auth_error");
-      params.delete("auth_request");
-      params.delete("auth_message");
-      params.delete("google");
+    const preferred: Provider = params.has("microsoft") || params.get("auth_provider") === "microsoft" ? "sharepoint" : "google-drive";
+    if (errorCode) setOauthError({ message: oauthMessages[errorCode] || "Cloud sign-in could not be completed.", requestId });
+    if (errorCode || params.has("google") || params.has("microsoft")) {
+      ["auth_error", "auth_request", "auth_message", "auth_provider", "google", "microsoft"].forEach(key => params.delete(key));
       const cleanQuery = params.toString();
       window.history.replaceState({}, "", window.location.pathname + (cleanQuery ? "?" + cleanQuery : ""));
     }
-
-    async function initialize() {
-      try {
-        const response = await fetch("/api/auth/google/session");
-        const session = await response.json() as Omit<AuthState, "checking">;
-        setAuth({ ...session, checking: false });
-        if (session.authenticated) await open();
-        else clearExplorer();
-      } catch {
-        setAuth({ authenticated: false, user: null, checking: false });
-        clearExplorer();
-      }
+    async function readSession(url: string): Promise<Omit<AuthState, "checking">> {
+      try { const response = await fetch(url); if (!response.ok) throw Error(); return await response.json(); }
+      catch { return { authenticated: false, user: null }; }
     }
-
+    async function initialize() {
+      const [google, sharepoint] = await Promise.all([readSession("/api/auth/google/session"), readSession("/api/auth/microsoft/session")]);
+      const sessions: ProviderSessions = {
+        "google-drive": { ...google, checking: false },
+        sharepoint: { ...sharepoint, checking: false },
+      };
+      const selected: Provider = preferred === "sharepoint" && sharepoint.authenticated ? "sharepoint"
+        : google.authenticated ? "google-drive" : sharepoint.authenticated ? "sharepoint" : preferred;
+      setAuthByProvider(sessions); setProvider(selected);
+      if (sessions[selected].authenticated) await open(rootId(selected), [], selected);
+      else clearExplorer(selected);
+    }
     void initialize();
     fetch("/api/tags").then(response => response.json()).then(setTags).catch(() => setTags([]));
-
-    return () => {
-      openSequence.current += 1;
-      cancelFolderPrefetch();
-    };
+    return () => { openSequence.current += 1; cancelFolderPrefetch(); };
   }, []);
 
   useEffect(() => {
@@ -325,7 +326,7 @@ export function useDriveExplorer() {
 
     async function poll() {
       try {
-        const response = await fetch("/api/explorer/index/status");
+        const response = await fetch("/api/explorer/index/status?provider=" + encodeURIComponent(provider));
         if (!response.ok) throw Error("Unable to read indexing status");
         const status = await response.json() as DriveIndexStatus;
         if (applyStatus(status) === "running") {
@@ -348,14 +349,14 @@ export function useDriveExplorer() {
       setMetadataIndex({
         ...emptyIndexStatus,
         state: "running",
-        status: "Starting Google Drive metadata index",
+        status: "Starting " + (provider === "sharepoint" ? "SharePoint" : "Google Drive") + " metadata index",
         progress: 1,
       });
       try {
         const response = await fetch("/api/explorer/index/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ root_id: "root" }),
+          body: JSON.stringify({ provider, root_id: rootId(provider) }),
         });
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
@@ -382,7 +383,7 @@ export function useDriveExplorer() {
       cancelled = true;
       window.clearTimeout(pollTimer);
     };
-  }, [auth.authenticated, indexRetryKey]);
+  }, [auth.authenticated, indexRetryKey, provider]);
 
   useEffect(() => {
     const normalizedQuery = query.trim();
@@ -417,6 +418,7 @@ export function useDriveExplorer() {
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify({
+            provider,
             query: normalizedQuery,
             root_id: currentFolder.id,
             ancestor_ids: path.slice(0, -1).map(folder => folder.id),
@@ -488,12 +490,17 @@ export function useDriveExplorer() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [auth.authenticated, metadataIndex.state, path, query]);
+  }, [auth.authenticated, metadataIndex.state, path, provider, query]);
+
+  async function selectProvider(source: Provider) {
+    setProvider(source); setOauthError(null); clearExplorer(source);
+    if (authByProvider[source].authenticated) await open(rootId(source), [], source);
+  }
 
   async function logout() {
-    await fetch("/api/auth/google/logout", { method: "POST" });
-    setAuth({ authenticated: false, user: null, checking: false });
-    clearExplorer();
+    await fetch(provider === "sharepoint" ? "/api/auth/microsoft/logout" : "/api/auth/google/logout", { method: "POST" });
+    setAuthByProvider(current => ({ ...current, [provider]: { authenticated: false, user: null, checking: false } }));
+    clearExplorer(provider);
   }
 
   function toggleSelection(id: string) {
@@ -508,7 +515,7 @@ export function useDriveExplorer() {
     const response = await fetch("/api/tags/assign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ item_ids: [...selected], tag_id: tagId }),
+      body: JSON.stringify({ provider, item_ids: [...selected], tag_id: tagId }),
     });
     response.ok ? setSelected(new Set()) : setError("Unable to assign tag");
   }
@@ -547,11 +554,14 @@ export function useDriveExplorer() {
     searchError,
     loading,
     error,
+    provider,
     auth,
+    authByProvider,
     oauthError,
     metadataIndex,
     searchReady: metadataIndex.state === "completed",
     retryMetadataIndex: () => setIndexRetryKey(current => current + 1),
+    selectProvider,
     open,
     toggleTree,
     scheduleFolderPrefetch,
