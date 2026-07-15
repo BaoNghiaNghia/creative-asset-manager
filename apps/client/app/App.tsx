@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 type Asset = {
   id: string;
@@ -16,6 +16,37 @@ type Folder = { parent: Asset; children: Asset[] };
 type TreeCache = Record<string, Asset[]>;
 
 const icons = { folder: "📁", image: "▧", video: "▶", pdf: "PDF", document: "DOC", other: "◇" };
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 480;
+const DEFAULT_SIDEBAR_WIDTH = 256;
+
+function ChevronIcon({ expanded = false }: { expanded?: boolean }) {
+  return <svg className={"chevron-icon " + (expanded ? "expanded" : "")} viewBox="0 0 16 16" aria-hidden="true">
+    <path d="m6 3.5 4.5 4.5L6 12.5" />
+  </svg>;
+}
+
+function DriveIcon() {
+  return <svg className="drive-icon" viewBox="0 0 20 20" aria-hidden="true">
+    <path d="M6.2 2.5h5.1l5.9 10.2-2.6 4.6H9.4l2.6-4.6h5.2" />
+    <path d="m6.2 2.5-5.8 10.2L3 17.3h6.4L12 12.7 6.2 2.5Z" />
+  </svg>;
+}
+
+function FolderTreeIcon() {
+  return <svg className="folder-tree-icon" viewBox="0 0 18 18" aria-hidden="true">
+    <path d="M2.5 5.25h5l1.3 1.5h6.7v7.75h-13Z" />
+    <path d="M2.5 5.25V3.5h4.1l1.3 1.75" />
+  </svg>;
+}
+
+function SidebarIcon({ open }: { open: boolean }) {
+  return <svg viewBox="0 0 18 18" aria-hidden="true">
+    <rect x="2.25" y="3" width="13.5" height="12" rx="1.5" />
+    <path d="M6.25 3v12" />
+    <path d={open ? "m11 6-3 3 3 3" : "m9 6 3 3-3 3"} />
+  </svg>;
+}
 
 type TreeNodeProps = {
   node: Asset;
@@ -38,10 +69,11 @@ function TreeNode({ node, ancestors, activeId, childrenByParent, expanded, onOpe
         onClick={() => onToggle(node)}
         aria-label={(isExpanded ? "Collapse " : "Expand ") + node.name}
       >
-        {isExpanded ? "▾" : "▸"}
+        <ChevronIcon expanded={isExpanded} />
       </button>
       <button className="tree-label" onClick={() => onOpen(node.id, ancestors)}>
-        {node.name}
+        <FolderTreeIcon />
+        <span>{node.name}</span>
       </button>
     </div>
     {isExpanded && children.length > 0 && <div className="tree-children">
@@ -71,6 +103,49 @@ export default function App() {
   const [error, setError] = useState("");
   const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null, checking: true });
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(window.localStorage.getItem("cam-sidebar-width"));
+    return Number.isFinite(saved) && saved >= MIN_SIDEBAR_WIDTH && saved <= MAX_SIDEBAR_WIDTH
+      ? saved
+      : DEFAULT_SIDEBAR_WIDTH;
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("cam-sidebar-collapsed") === "true",
+  );
+  const resizingSidebar = useRef(false);
+
+  useEffect(() => {
+    function resizeSidebar(event: PointerEvent) {
+      if (!resizingSidebar.current) return;
+      const nextWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, event.clientX));
+      setSidebarWidth(nextWidth);
+      window.localStorage.setItem("cam-sidebar-width", String(nextWidth));
+    }
+
+    function stopResizingSidebar() {
+      if (!resizingSidebar.current) return;
+      resizingSidebar.current = false;
+      document.body.classList.remove("resizing-sidebar");
+    }
+
+    window.addEventListener("pointermove", resizeSidebar);
+    window.addEventListener("pointerup", stopResizingSidebar);
+    return () => {
+      window.removeEventListener("pointermove", resizeSidebar);
+      window.removeEventListener("pointerup", stopResizingSidebar);
+    };
+  }, []);
+
+  function startSidebarResize(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    resizingSidebar.current = true;
+    document.body.classList.add("resizing-sidebar");
+  }
+
+  function setSidebarVisibility(collapsed: boolean) {
+    setSidebarCollapsed(collapsed);
+    window.localStorage.setItem("cam-sidebar-collapsed", String(collapsed));
+  }
 
   async function fetchFolder(id: string): Promise<Folder> {
     const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id));
@@ -210,12 +285,18 @@ export default function App() {
   const activeId = path.at(-1)?.id;
   const rootFolders = childrenByParent.root ?? [];
 
-  return <main className="shell">
-    <aside>
+  return <main
+    className={"shell " + (sidebarCollapsed ? "sidebar-collapsed" : "")}
+    style={{ "--sidebar-width": sidebarWidth + "px" } as CSSProperties}
+  >
+    <aside className="sidebar">
+      <button className="sidebar-collapse" onClick={() => setSidebarVisibility(true)} aria-label="Collapse sidebar" title="Collapse sidebar">
+        <SidebarIcon open />
+      </button>
       <div className="brand"><b>C</b><span><strong>Creative assets</strong><small>{auth.user?.email || "Google Drive"}</small></span></div>
       <p>SOURCES</p>
       {auth.checking ? <div className="source-skeleton"><i /><i /><i /></div> : auth.authenticated ? <>
-        <button className={"source " + (activeId === "root" ? "active" : "")} onClick={() => open("root")}>◆ My Drive</button>
+        <button className={"source " + (activeId === "root" ? "active" : "")} onClick={() => open("root")}><DriveIcon /><span>My Drive</span></button>
         <div className="tree">
           {rootFolders.map(folder => <TreeNode
             key={folder.id}
@@ -237,7 +318,11 @@ export default function App() {
       <p>TAGS</p>
       {tags.map(tag => <button className="tag" key={tag.id}><i style={{ background: tag.color }} />{tag.name}</button>)}
       {auth.authenticated && <div className="connected-user"><span className="status-dot" /> Connected to Google Drive</div>}
+      <div className="sidebar-resizer" onPointerDown={startSidebarResize} role="separator" aria-label="Resize sidebar" aria-orientation="vertical" />
     </aside>
+    {sidebarCollapsed && <button className="sidebar-restore" onClick={() => setSidebarVisibility(false)} aria-label="Open sidebar" title="Open sidebar">
+      <SidebarIcon open={false} />
+    </button>}
 
     <section>
       <header>
