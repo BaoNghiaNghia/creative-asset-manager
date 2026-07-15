@@ -8,7 +8,7 @@ class TagService:
     def __init__(self):
         self.url, self.token = os.getenv("DIRECTUS_URL"), os.getenv("DIRECTUS_TOKEN")
 
-    async def list(self):
+    async def list_tags(self):
         if not self.url or not self.token: return DEMO_TAGS
         async with httpx.AsyncClient(headers={"Authorization": f"Bearer {self.token}"}) as client:
             response = await client.get(f"{self.url.rstrip('/')}/items/asset_tags", params={"fields": "id,name,color", "sort": "name"})
