@@ -149,3 +149,67 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   backdrop-filter:blur(3px);
 }
 @media(prefers-reduced-motion:reduce){.preview-thumbnail{transition:none}.grid article:hover .preview-thumbnail{transform:none}}
+
+
+/* Full-screen image and video viewer */
+.media-viewer{
+  position:fixed;
+  z-index:1000;
+  inset:0;
+  display:grid;
+  place-items:center;
+  padding:28px;
+  background:#0b101acc;
+  backdrop-filter:blur(8px);
+}
+.media-viewer-panel{
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  width:min(1180px,96vw);
+  height:min(820px,92vh);
+  overflow:hidden;
+  border:1px solid #ffffff24;
+  border-radius:14px;
+  background:#111722;
+  box-shadow:0 28px 80px #0009;
+}
+.media-viewer-toolbar{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  min-width:0;
+  padding:12px 14px 12px 18px;
+  border-bottom:1px solid #ffffff1c;
+  color:#fff;
+}
+.media-viewer-toolbar>div{display:flex;min-width:0;flex:1;flex-direction:column}
+.media-viewer-toolbar strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.media-viewer-toolbar small{margin-top:2px;color:#aeb8c7;font-size:11px}
+.media-viewer-toolbar a{flex:0 0 auto;color:#a9c3ff;font-size:12px;text-decoration:none}
+.media-viewer-toolbar a:hover{text-decoration:underline}
+.media-viewer-toolbar button{
+  display:grid;
+  place-items:center;
+  flex:0 0 auto;
+  width:34px;
+  height:34px;
+  padding:0;
+  border:1px solid #ffffff24;
+  border-radius:8px;
+  background:#ffffff0d;
+  color:#fff;
+  cursor:pointer;
+  font-size:22px;
+}
+.media-viewer-toolbar button:hover{background:#ffffff1a;border-color:#ffffff40}
+.media-viewer-stage{display:grid;place-items:center;min-height:0;padding:18px;background:#080c13}
+.media-viewer-stage img,.media-viewer-stage video{display:block;max-width:100%;max-height:100%;object-fit:contain;border-radius:6px}
+.media-viewer-stage video{width:100%;height:100%;background:#000}
+.media-viewer-error{display:flex;flex-direction:column;gap:6px;color:#fff;text-align:center}
+.media-viewer-error span{color:#aeb8c7;font-size:13px}
+@media(max-width:760px){
+  .media-viewer{padding:0}
+  .media-viewer-panel{width:100vw;height:100vh;border:0;border-radius:0}
+  .media-viewer-stage{padding:8px}
+  .media-viewer-toolbar a{display:none}
+}
