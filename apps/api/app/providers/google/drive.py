@@ -11,7 +11,6 @@ class GoogleDriveClient:
             base_url="https://www.googleapis.com/drive/v3",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=httpx.Timeout(20, connect=8),
-            http2=True,
         )
 
     async def __aenter__(self):
