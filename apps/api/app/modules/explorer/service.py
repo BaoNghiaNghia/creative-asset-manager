@@ -1,6 +1,8 @@
 import asyncio
+import os
 
-from app.modules.explorer.schema import AssetNode, FolderListing
+from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
+from app.modules.metadata.service import MetadataService, schedule_metadata_index
 from app.providers.google.drive import GoogleDriveClient
 
 FOLDER = "application/vnd.google-apps.folder"
@@ -13,7 +15,12 @@ MOCK = [
 
 
 class ExplorerService:
-    async def list_folder(self, parent_id: str, access_token: str | None) -> FolderListing:
+    async def list_folder(
+        self,
+        parent_id: str,
+        access_token: str | None,
+        account_id: str = "developer",
+    ) -> FolderListing:
         if access_token:
             async with GoogleDriveClient(access_token) as client:
                 parent, children = await asyncio.gather(
@@ -27,6 +34,9 @@ class ExplorerService:
                 else next(item for item in MOCK if item.id == parent_id)
             )
             children = [item for item in MOCK if item.parent_id == parent_id]
+
+        metadata = MetadataService(account_id)
+        schedule_metadata_index(metadata.index_listing(parent, children))
         return FolderListing(parent=parent, children=children)
 
     async def list_folders(self, parent_id: str, access_token: str | None) -> list[AssetNode]:
@@ -34,3 +44,128 @@ class ExplorerService:
             async with GoogleDriveClient(access_token) as client:
                 return await client.children(parent_id, folders_only=True)
         return [item for item in MOCK if item.parent_id == parent_id and item.kind == "folder"]
+
+    async def search_subtree(
+        self,
+        body: SearchRequest,
+        access_token: str | None,
+        account_id: str,
+    ) -> SearchResponse:
+        metadata = MetadataService(account_id)
+        rows = await metadata.list_subtree(body.root_id)
+        by_item = {row["item_id"]: row for row in rows}
+        max_items = int(os.getenv("DIRECTUS_METADATA_MAX_ITEMS", "20000"))
+        concurrency = max(1, int(os.getenv("DIRECTUS_METADATA_CONCURRENCY", "6")))
+        truncated = False
+
+        if access_token:
+            async with GoogleDriveClient(access_token) as client:
+                root_row = by_item.get(body.root_id)
+                if not root_row:
+                    root_asset = await client.get(body.root_id)
+                    root_row = metadata.make_row(
+                        root_asset,
+                        body.ancestor_ids,
+                        body.ancestor_names,
+                    )
+                    await metadata.upsert([root_row])
+                    by_item[body.root_id] = root_row
+
+                queued: set[str] = set()
+                queue = [
+                    row
+                    for row in by_item.values()
+                    if row.get("kind") == "folder" and metadata.needs_refresh(row)
+                ]
+                queued.update(row["item_id"] for row in queue)
+
+                while queue and len(by_item) < max_items:
+                    batch, queue = queue[:concurrency], queue[concurrency:]
+                    results = await asyncio.gather(
+                        *(client.children(row["item_id"]) for row in batch),
+                        return_exceptions=True,
+                    )
+
+                    for parent_row, result in zip(batch, results):
+                        if isinstance(result, Exception):
+                            raise result
+
+                        remaining = max_items - len(by_item)
+                        children = result[:remaining]
+                        if len(children) < len(result):
+                            truncated = True
+
+                        ancestor_ids = [
+                            *list(parent_row.get("ancestor_ids") or []),
+                            parent_row["item_id"],
+                        ]
+                        ancestor_names = [
+                            *list(parent_row.get("ancestor_names") or []),
+                            parent_row.get("name") or "Folder",
+                        ]
+                        parent_asset = metadata.to_asset(parent_row)
+                        indexed_parent = metadata.make_row(
+                            parent_asset,
+                            list(parent_row.get("ancestor_ids") or []),
+                            list(parent_row.get("ancestor_names") or []),
+                            children_indexed=True,
+                        )
+                        child_rows = [
+                            metadata.make_row(child, ancestor_ids, ancestor_names)
+                            for child in children
+                        ]
+
+                        prepared_children = []
+                        for child_row in child_rows:
+                            existing = by_item.get(child_row["item_id"])
+                            if existing and existing.get("children_indexed"):
+                                child_row["children_indexed"] = True
+                                child_row["indexed_at"] = existing.get("indexed_at")
+                            by_item[child_row["item_id"]] = child_row
+                            prepared_children.append(child_row)
+
+                            if (
+                                child_row.get("kind") == "folder"
+                                and child_row["item_id"] not in queued
+                                and metadata.needs_refresh(child_row)
+                            ):
+                                queue.append(child_row)
+                                queued.add(child_row["item_id"])
+
+                        by_item[indexed_parent["item_id"]] = indexed_parent
+                        await metadata.upsert([indexed_parent, *prepared_children])
+
+                        if truncated:
+                            queue = []
+                            break
+        else:
+            root = by_item.get(body.root_id)
+            if not root:
+                root_asset = (
+                    AssetNode(id="root", name="My Drive", kind="folder", mime_type=FOLDER, has_children=True)
+                    if body.root_id == "root"
+                    else next(item for item in MOCK if item.id == body.root_id)
+                )
+                root = metadata.make_row(root_asset, body.ancestor_ids, body.ancestor_names)
+                by_item[body.root_id] = root
+
+            queue = [root]
+            while queue:
+                parent_row = queue.pop(0)
+                children = [item for item in MOCK if item.parent_id == parent_row["item_id"]]
+                ancestor_ids = [*list(parent_row.get("ancestor_ids") or []), parent_row["item_id"]]
+                ancestor_names = [*list(parent_row.get("ancestor_names") or []), parent_row["name"]]
+                for child in children:
+                    row = metadata.make_row(child, ancestor_ids, ancestor_names)
+                    by_item[child.id] = row
+                    if child.kind == "folder":
+                        queue.append(row)
+            await metadata.upsert(list(by_item.values()))
+
+        indexed_rows = list(by_item.values())
+        return SearchResponse(
+            items=metadata.search(indexed_rows, body.query, body.root_id, body.limit),
+            indexed_count=max(0, len(indexed_rows) - 1),
+            index_source=metadata.source,
+            truncated=truncated,
+        )
