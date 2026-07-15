@@ -444,3 +444,17 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   font-size:12px;
 }
 .indexing-error span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+
+/* Multiple cloud sources */
+.provider-login{
+  margin-top:4px;
+  border:1px dashed #c9d1dc;
+  background:#fff;
+  color:#526174;
+}
+.provider-login:hover{border-color:#7d9ee8;background:#f3f7ff;color:#2457b8}
+.provider-login small{margin-left:auto;color:#7b8796;font-size:10px}
+.source-connected{flex:0 0 auto;width:7px;height:7px;margin-left:auto;border-radius:50%;background:#26a269;box-shadow:0 0 0 3px #26a2691f}
+.sharepoint-icon rect{fill:#1677d2;stroke:#0f5fae}
+.sharepoint-icon path{stroke:#fff}
