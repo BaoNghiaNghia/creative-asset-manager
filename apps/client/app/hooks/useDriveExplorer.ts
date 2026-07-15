@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, AuthState, Folder, OAuthErrorState, Tag, TreeCache } from "../types";
+import { searchAssets } from "../utils/searchAssets";
 
 const oauthMessages: Record<string, string> = {
   denied: "Google access was cancelled or denied.",
@@ -248,7 +249,7 @@ export function useDriveExplorer() {
   }
 
   const visibleItems = useMemo(
-    () => items.filter(item => item.name.toLowerCase().includes(query.toLowerCase())),
+    () => searchAssets(items, query),
     [items, query],
   );
 
