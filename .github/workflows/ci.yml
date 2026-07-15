@@ -27,3 +27,5 @@ jobs:
           python-version: "3.12"
       - run: pip install -r apps/api/requirements.txt
       - run: python -m compileall -q apps/api/app
+      - run: python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
+        working-directory: apps/api
