@@ -8,7 +8,15 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
-from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
+from app.modules.explorer.indexing import get_index_status, start_index_job
+from app.modules.explorer.schema import (
+    AssetNode,
+    FolderListing,
+    IndexRequest,
+    IndexStatus,
+    SearchRequest,
+    SearchResponse,
+)
 from app.modules.explorer.service import ExplorerService
 from app.providers.google.auth import get_access_token, get_session
 from app.providers.google.drive import close_media_stream, open_media_stream
@@ -52,6 +60,19 @@ async def folders(request: Request, parent_id: str = Query("root")):
         raise
     except (httpx.HTTPError, StopIteration) as exc:
         raise _drive_error(exc) from exc
+
+
+@router.post("/index/start", response_model=IndexStatus)
+async def start_index(request: Request, body: IndexRequest):
+    """Start or reuse the account-scoped background Drive metadata indexing job."""
+    token = await get_access_token(request)
+    return start_index_job(_account_id(request), token, body)
+
+
+@router.get("/index/status", response_model=IndexStatus)
+async def index_status(request: Request):
+    """Return live progress for the signed-in account's metadata indexing job."""
+    return get_index_status(_account_id(request))
 
 
 @router.post("/search", response_model=SearchResponse)
