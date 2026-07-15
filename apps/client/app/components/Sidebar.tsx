@@ -24,7 +24,7 @@ type Props = {
 };
 
 const sources: Array<{ provider: Provider; label: string; login: string }> = [
-  { provider: "google-drive", label: "My Drive", login: "/api/auth/google/login" },
+  { provider: "google-drive", label: "Google Drive", login: "/api/auth/google/login" },
   { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/login" },
 ];
 
@@ -43,7 +43,7 @@ export function Sidebar({
     </button>
     <div className="brand">
       <b>C</b>
-      <span><strong>Creative assets</strong><small>{auth.user?.email || (provider === "sharepoint" ? "SharePoint" : "Google Drive")}</small></span>
+      <span><strong>Creative assets</strong><small>{auth.user?.email || "Google Drive · SharePoint"}</small></span>
     </div>
     <p>SOURCES</p>
     {Object.values(authByProvider).some(session => session.checking)
