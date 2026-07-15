@@ -8,7 +8,8 @@ type Props = {
 
 export function MediaViewer({ item, onClose }: Props) {
   const [failed, setFailed] = useState(false);
-  const mediaUrl = "/api/explorer/media/" + encodeURIComponent(item.id);
+  const mediaUrl = "/api/explorer/media/" + encodeURIComponent(item.id)
+    + "?provider=" + encodeURIComponent(item.provider);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -38,14 +39,14 @@ export function MediaViewer({ item, onClose }: Props) {
           <strong title={item.name}>{item.name}</strong>
           <small>{item.mime_type}</small>
         </div>
-        {item.web_url && <a href={item.web_url} target="_blank" rel="noreferrer">Open in Drive</a>}
+        {item.web_url && <a href={item.web_url} target="_blank" rel="noreferrer">Open in source</a>}
         <button onClick={onClose} aria-label="Close preview" title="Close preview" autoFocus>×</button>
       </div>
 
       <div className="media-viewer-stage">
         {failed ? <div className="media-viewer-error">
           <strong>Preview unavailable</strong>
-          <span>Google Drive could not stream this file.</span>
+          <span>The connected cloud provider could not stream this file.</span>
         </div> : item.kind === "video" ? <video
           src={mediaUrl}
           poster={item.thumbnail_url}
