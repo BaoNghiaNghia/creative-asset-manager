@@ -131,7 +131,7 @@ class MetadataService:
                 row = response.json()["data"]
                 _memory[memory_key] = row
                 return row
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             logger.warning("Directus metadata lookup failed: %s", type(exc).__name__)
             return None
 
@@ -171,7 +171,7 @@ class MetadataService:
                 for row in response.json()["data"]:
                     rows[row["id"]] = row
                     _memory[(self.account_id, row["item_id"])] = row
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             logger.warning("Directus subtree read failed; using memory index: %s", type(exc).__name__)
         return list(rows.values())
 
@@ -235,7 +235,7 @@ class MetadataService:
                     if row_id in existing
                     and any(row.get(key) != existing[row_id].get(key) for key in row)
                 ))
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             logger.warning("Directus metadata upsert failed; memory index remains available: %s", type(exc).__name__)
 
     async def index_listing(self, parent: AssetNode, children: list[AssetNode]) -> None:
