@@ -10,7 +10,7 @@ type Asset = {
 
 type Tag = { id: string; name: string; color: string };
 type GoogleUser = { id: string; name?: string; email?: string; picture?: string };
-type AuthState = { authenticated: boolean; user: GoogleUser | null; checking: boolean };
+type AuthState = { authenticated: boolean; user: GoogleUser | null; checking: boolean };\ntype OAuthErrorState = { message: string; requestId?: string } | null;
 type Folder = { parent: Asset; children: Asset[] };
 type TreeCache = Record<string, Asset[]>;
 
@@ -68,7 +68,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null, checking: true });
+  const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null, checking: true });\n  const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
 
   async function fetchFolder(id: string): Promise<Folder> {
     const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id));
@@ -134,6 +134,32 @@ export default function App() {
   }
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const errorCode = params.get("auth_error");
+    const requestId = params.get("auth_request") || undefined;
+    const messages: Record<string, string> = {
+      denied: "Google access was cancelled or denied.",
+      incomplete: "Google returned an incomplete authorization response.",
+      state: "The sign-in request expired. Please start again.",
+      token_exchange: "Google could not complete the secure token exchange.",
+      scope: "The required Google Drive read-only permission was not granted.",
+      profile: "Google connected, but the account profile could not be loaded.",
+    };
+    if (errorCode) {
+      setOauthError({
+        message: messages[errorCode] || "Google sign-in could not be completed.",
+        requestId,
+      });
+    }
+    if (errorCode || params.has("google")) {
+      params.delete("auth_error");
+      params.delete("auth_request");
+      params.delete("auth_message");
+      params.delete("google");
+      const cleanQuery = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (cleanQuery ? "?" + cleanQuery : ""));
+    }
+
     async function initialize() {
       try {
         const response = await fetch("/api/auth/google/session");
@@ -224,6 +250,11 @@ export default function App() {
         {auth.authenticated && <button className="upload">＋ Upload</button>}
       </nav>
       {auth.checking ? <div className="state">Checking Google connection…</div> : !auth.authenticated ? <div className="drive-empty">
+        {oauthError && <div className="oauth-error">
+          <strong>Google sign-in failed</strong>
+          <span>{oauthError.message}</span>
+          {oauthError.requestId && <small>Request ID: {oauthError.requestId}</small>}
+        </div>}
         <span className="drive-empty-icon">◆</span>
         <h1>Connect your Google Drive</h1>
         <p>Sign in with Google to browse your complete folder tree and files.</p>
