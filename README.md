@@ -28,7 +28,21 @@ Copy .env.example into your runtime environment. Keep Google and Directus tokens
 
 ## Directus collections
 
-Create asset_tags with id, name and color fields. Create asset_tag_assignments with provider, item_id and tag_id fields, and add a unique constraint on provider + item_id + tag_id.
+Create `asset_tags` with `id`, `name` and `color` fields. Create `asset_tag_assignments` with `provider`, `item_id` and `tag_id` fields, and add a unique constraint on `provider + item_id + tag_id`.
+
+Recursive search uses an `asset_metadata` collection as a Google Drive metadata index. Create these fields:
+
+- `id`: string primary key, length 64
+- `provider`, `account_id`, `item_id`, `parent_id`, `name`, `normalized_name`, `kind`, `mime_type`: string
+- `size`: big integer, nullable
+- `modified_at`, `indexed_at`: datetime, nullable
+- `thumbnail_url`, `web_url`, `ancestor_path`: text, nullable
+- `ancestor_ids`, `ancestor_names`: JSON
+- `children_indexed`: boolean, default false
+
+Give the static Directus token read/create/update permissions on `asset_metadata`. Add indexes for `account_id`, `parent_id`, `normalized_name`, and `ancestor_path`; add a unique index for `provider + account_id + item_id`.
+
+Folder listings are indexed in the background. A search covers the current folder and every descendant, crawls only missing or stale branches, and keeps an in-memory fallback when Directus is unavailable. The first search of a large uncached tree can take longer; later searches reuse the Directus index until `DIRECTUS_METADATA_TTL_SECONDS` expires.
 
 ## Connect a Google Drive account
 
