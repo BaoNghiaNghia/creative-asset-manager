@@ -92,13 +92,36 @@ export default function App() {
         : <>
           {explorer.error && <div className="error">{explorer.error}</div>}
           <div className="title">
-            <span>
+            <span className="search-summary">
               <h1>{explorer.path.at(-1)?.name || "My Drive"}</h1>
               <small>{explorer.searching
-                ? "Indexing and searching subfolders…"
-                : explorer.query
-                  ? `${explorer.visibleItems.length} results in this folder and subfolders`
-                  : `${explorer.items.length} items`}</small>
+                ? `${explorer.searchStatus} · ${explorer.searchProgress}%`
+                : explorer.searchComplete
+                  ? `Completed · 100% · ${explorer.visibleItems.length} results (${explorer.searchIndexedCount} indexed)`
+                  : explorer.query
+                    ? `${explorer.visibleItems.length} results in this folder and subfolders`
+                    : `${explorer.items.length} items`}</small>
+              {(explorer.searching || explorer.searchComplete) && <>
+                <div
+                  className={"search-progress " + (explorer.searchComplete ? "complete" : "")}
+                  role="progressbar"
+                  aria-label="Folder metadata indexing progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={explorer.searchProgress}
+                >
+                  <i style={{ width: explorer.searchProgress + "%" }} />
+                </div>
+                {explorer.searching && <em>
+                  {explorer.searchProcessedFolders} folders processed
+                  {explorer.searchPendingFolders > 0
+                    ? ` · at least ${explorer.searchPendingFolders} remaining`
+                    : ""}
+                  {explorer.searchIndexedCount > 0
+                    ? ` · ${explorer.searchIndexedCount} items indexed`
+                    : ""}
+                </em>}
+              </>}
             </span>
             <b>▦　☷</b>
           </div>
