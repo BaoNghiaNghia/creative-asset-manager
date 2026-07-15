@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from collections.abc import Awaitable, Callable
 
@@ -6,6 +7,7 @@ from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest,
 from app.modules.metadata.service import MetadataService, schedule_metadata_index
 from app.providers.google.drive import GoogleDriveClient
 
+logger = logging.getLogger(__name__)
 FOLDER = "application/vnd.google-apps.folder"
 ProgressCallback = Callable[[dict], Awaitable[None]]
 
@@ -68,6 +70,7 @@ class ExplorerService:
         max_items = int(os.getenv("DIRECTUS_METADATA_MAX_ITEMS", "20000"))
         concurrency = max(1, int(os.getenv("DIRECTUS_METADATA_CONCURRENCY", "6")))
         truncated = False
+        skipped_folders = 0
         await _report(
             progress,
             status=f"Loaded {max(0, len(by_item) - 1)} indexed items",
@@ -117,7 +120,42 @@ class ExplorerService:
 
                     for batch_index, (parent_row, result) in enumerate(zip(batch, results)):
                         if isinstance(result, Exception):
-                            raise result
+                            if parent_row["item_id"] == body.root_id:
+                                raise result
+
+                            skipped_folders += 1
+                            processed_folders += 1
+                            remaining_folders = len(queue) + len(batch) - batch_index - 1
+                            known_folders = processed_folders + remaining_folders
+                            percent = max(
+                                progress_percent,
+                                min(90, 10 + round(80 * processed_folders / max(known_folders, 1))),
+                            )
+                            progress_percent = percent
+                            logger.warning(
+                                "Skipping inaccessible Drive folder %s during metadata indexing: %s",
+                                parent_row["item_id"],
+                                type(result).__name__,
+                            )
+                            parent_asset = metadata.to_asset(parent_row)
+                            await metadata.upsert([
+                                metadata.make_row(
+                                    parent_asset,
+                                    list(parent_row.get("ancestor_ids") or []),
+                                    list(parent_row.get("ancestor_names") or []),
+                                    children_indexed=True,
+                                )
+                            ])
+                            await _report(
+                                progress,
+                                status=f"Skipped {skipped_folders} inaccessible folders",
+                                progress=percent,
+                                indexed_count=max(0, len(by_item) - 1),
+                                processed_folders=processed_folders,
+                                pending_folders=remaining_folders,
+                                skipped_folders=skipped_folders,
+                            )
+                            continue
 
                         remaining = max_items - len(by_item)
                         children = result[:remaining]
@@ -178,6 +216,7 @@ class ExplorerService:
                             indexed_count=max(0, len(by_item) - 1),
                             processed_folders=processed_folders,
                             pending_folders=remaining_folders,
+                            skipped_folders=skipped_folders,
                         )
 
                         if truncated:
@@ -227,10 +266,12 @@ class ExplorerService:
             indexed_count=max(0, len(indexed_rows) - 1),
             processed_folders=processed_folders,
             pending_folders=0,
+            skipped_folders=skipped_folders,
         )
         return SearchResponse(
             items=metadata.search(indexed_rows, body.query, body.root_id, body.limit),
             indexed_count=max(0, len(indexed_rows) - 1),
             index_source=metadata.source,
             truncated=truncated,
+            skipped_folders=skipped_folders,
         )
