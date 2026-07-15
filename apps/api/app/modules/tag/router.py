@@ -12,5 +12,5 @@ async def tags():
 
 @router.post("/assign")
 async def assign(body: AssignTagsRequest):
-    try: return {"assignments": await TagService().assign(body.item_ids, body.tag_id)}
+    try: return {"assignments": await TagService().assign(body.item_ids, body.tag_id, body.provider)}
     except httpx.HTTPError as exc: raise HTTPException(502, "Unable to assign tag") from exc
