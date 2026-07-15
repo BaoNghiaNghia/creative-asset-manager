@@ -29,6 +29,7 @@ const emptyIndexStatus: DriveIndexStatus = {
   indexed_count: 0,
   processed_folders: 0,
   pending_folders: 0,
+  skipped_folders: 0,
 };
 
 const oauthMessages: Record<string, string> = {
