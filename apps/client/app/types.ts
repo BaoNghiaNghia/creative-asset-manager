@@ -15,6 +15,7 @@ export type SearchResponse = {
   indexed_count: number;
   index_source: "directus" | "memory";
   truncated: boolean;
+  skipped_folders: number;
 };
 
 export type Tag = { id: string; name: string; color: string };
@@ -32,6 +33,7 @@ export type DriveIndexStatus = {
   indexed_count: number;
   processed_folders: number;
   pending_folders: number;
+  skipped_folders: number;
   started_at?: string;
   completed_at?: string;
   error?: string;
