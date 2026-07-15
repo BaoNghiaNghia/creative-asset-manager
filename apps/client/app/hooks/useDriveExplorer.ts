@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Asset,
   AuthState,
+  DriveIndexStatus,
   Folder,
   OAuthErrorState,
   SearchResponse,
@@ -19,6 +20,15 @@ type SearchStreamEvent = {
   pending_folders?: number;
   detail?: string;
   data?: SearchResponse;
+};
+
+const emptyIndexStatus: DriveIndexStatus = {
+  state: "idle",
+  status: "Waiting to index Google Drive",
+  progress: 0,
+  indexed_count: 0,
+  processed_folders: 0,
+  pending_folders: 0,
 };
 
 const oauthMessages: Record<string, string> = {
@@ -53,6 +63,8 @@ export function useDriveExplorer() {
   const [error, setError] = useState("");
   const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null, checking: true });
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
+  const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
+  const [indexRetryKey, setIndexRetryKey] = useState(0);
 
   const folderCache = useRef(new Map<string, Folder>());
   const folderRequests = useRef(new Map<string, Promise<Folder>>());
@@ -297,6 +309,81 @@ export function useDriveExplorer() {
   }, []);
 
   useEffect(() => {
+    if (!auth.authenticated) {
+      setMetadataIndex({ ...emptyIndexStatus });
+      return;
+    }
+
+    let cancelled = false;
+    let pollTimer: number | undefined;
+
+    function applyStatus(status: DriveIndexStatus) {
+      if (!cancelled) setMetadataIndex(status);
+      return status.state;
+    }
+
+    async function poll() {
+      try {
+        const response = await fetch("/api/explorer/index/status");
+        if (!response.ok) throw Error("Unable to read indexing status");
+        const status = await response.json() as DriveIndexStatus;
+        if (applyStatus(status) === "running") {
+          pollTimer = window.setTimeout(() => void poll(), 750);
+        }
+      } catch (reason) {
+        if (!cancelled) {
+          setMetadataIndex(current => ({
+            ...current,
+            state: "failed",
+            status: "Unable to read metadata indexing status",
+            error: reason instanceof Error ? reason.message : "Index status request failed",
+          }));
+        }
+      }
+    }
+
+    async function start() {
+      setQuery("");
+      setMetadataIndex({
+        ...emptyIndexStatus,
+        state: "running",
+        status: "Starting Google Drive metadata index",
+        progress: 1,
+      });
+      try {
+        const response = await fetch("/api/explorer/index/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ root_id: "root" }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw Error(body.detail || "Unable to start metadata indexing");
+        }
+        const status = await response.json() as DriveIndexStatus;
+        if (applyStatus(status) === "running") {
+          pollTimer = window.setTimeout(() => void poll(), 250);
+        }
+      } catch (reason) {
+        if (!cancelled) {
+          setMetadataIndex({
+            ...emptyIndexStatus,
+            state: "failed",
+            status: "Metadata indexing failed",
+            error: reason instanceof Error ? reason.message : "Unable to start metadata indexing",
+          });
+        }
+      }
+    }
+
+    void start();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(pollTimer);
+    };
+  }, [auth.authenticated, indexRetryKey]);
+
+  useEffect(() => {
     const normalizedQuery = query.trim();
     const currentFolder = path.at(-1);
 
@@ -308,7 +395,12 @@ export function useDriveExplorer() {
     setSearchPendingFolders(0);
     setSearchError("");
 
-    if (!auth.authenticated || !currentFolder || normalizedQuery.length < 2) {
+    if (
+      !auth.authenticated
+      || metadataIndex.state !== "completed"
+      || !currentFolder
+      || normalizedQuery.length < 2
+    ) {
       setSearchIndexedCount(0);
       setSearchIndexSource(null);
       setSearchTruncated(false);
@@ -395,7 +487,7 @@ export function useDriveExplorer() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [auth.authenticated, path, query]);
+  }, [auth.authenticated, metadataIndex.state, path, query]);
 
   async function logout() {
     await fetch("/api/auth/google/logout", { method: "POST" });
@@ -456,6 +548,9 @@ export function useDriveExplorer() {
     error,
     auth,
     oauthError,
+    metadataIndex,
+    searchReady: metadataIndex.state === "completed",
+    retryMetadataIndex: () => setIndexRetryKey(current => current + 1),
     open,
     toggleTree,
     scheduleFolderPrefetch,
