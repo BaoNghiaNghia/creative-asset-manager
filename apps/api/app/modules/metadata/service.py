@@ -12,8 +12,7 @@ import httpx
 from app.modules.explorer.schema import AssetNode
 
 logger = logging.getLogger(__name__)
-PROVIDER = "google-drive"
-_memory: dict[tuple[str, str], dict] = {}
+_memory: dict[tuple[str, str, str], dict] = {}
 _index_tasks: set[asyncio.Task] = set()
 
 
@@ -37,8 +36,9 @@ def _marker_path(ancestor_ids: list[str]) -> str:
 
 
 class MetadataService:
-    def __init__(self, account_id: str):
+    def __init__(self, account_id: str, provider: str = "google-drive"):
         self.account_id = account_id
+        self.provider = provider
         self.url = (os.getenv("DIRECTUS_URL") or "").rstrip("/")
         self.token = os.getenv("DIRECTUS_TOKEN") or ""
         self.collection = os.getenv("DIRECTUS_METADATA_COLLECTION", "asset_metadata")
@@ -53,7 +53,7 @@ class MetadataService:
         return "directus" if self.configured else "memory"
 
     def stable_id(self, item_id: str) -> str:
-        value = f"{PROVIDER}:{self.account_id}:{item_id}".encode()
+        value = f"{self.provider}:{self.account_id}:{item_id}".encode()
         return hashlib.sha256(value).hexdigest()
 
     def make_row(
@@ -67,7 +67,7 @@ class MetadataService:
         modified_at = asset.modified_at.isoformat() if asset.modified_at else None
         return {
             "id": self.stable_id(asset.id),
-            "provider": PROVIDER,
+            "provider": self.provider,
             "account_id": self.account_id,
             "item_id": asset.id,
             "parent_id": asset.parent_id,
@@ -88,6 +88,7 @@ class MetadataService:
 
     def to_asset(self, row: dict) -> AssetNode:
         return AssetNode(
+            provider=row.get("provider") or self.provider,
             id=row["item_id"],
             name=row.get("name") or "Untitled",
             kind=row.get("kind") or "other",
@@ -112,7 +113,7 @@ class MetadataService:
         return merged
 
     async def get(self, item_id: str) -> dict | None:
-        memory_key = (self.account_id, item_id)
+        memory_key = (self.provider, self.account_id, item_id)
         if memory_key in _memory:
             return _memory[memory_key]
         if not self.configured:
@@ -138,8 +139,9 @@ class MetadataService:
     async def list_subtree(self, root_id: str) -> list[dict]:
         rows = {
             row["id"]: row
-            for (account_id, _), row in _memory.items()
-            if account_id == self.account_id
+            for (provider, account_id, _), row in _memory.items()
+            if provider == self.provider
+            and account_id == self.account_id
             and (row.get("item_id") == root_id or f"|{root_id}|" in (row.get("ancestor_path") or ""))
         }
         if not self.configured:
@@ -147,7 +149,7 @@ class MetadataService:
 
         filter_value = {
             "_and": [
-                {"provider": {"_eq": PROVIDER}},
+                {"provider": {"_eq": self.provider}},
                 {"account_id": {"_eq": self.account_id}},
                 {
                     "_or": [
@@ -170,7 +172,7 @@ class MetadataService:
                 response.raise_for_status()
                 for row in response.json()["data"]:
                     rows[row["id"]] = row
-                    _memory[(self.account_id, row["item_id"])] = row
+                    _memory[(self.provider, self.account_id, row["item_id"])] = row
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             logger.warning("Directus subtree read failed; using memory index: %s", type(exc).__name__)
         return list(rows.values())
@@ -181,7 +183,7 @@ class MetadataService:
 
         unique = {row["id"]: row for row in rows}
         for row_id, row in list(unique.items()):
-            memory_key = (self.account_id, row["item_id"])
+            memory_key = (self.provider, self.account_id, row["item_id"])
             merged = self._merge(_memory.get(memory_key), row)
             unique[row_id] = merged
             _memory[memory_key] = merged
