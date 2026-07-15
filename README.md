@@ -8,7 +8,8 @@ A web-based explorer for creative assets stored in Google Drive. Source files an
 - Grid view, folder search, multi-select and bulk tagging
 - Directus tag storage using the stable key provider + item_id
 - Demo mode when credentials are not configured
-- Provider boundary ready for a later SharePoint adapter
+- Google Drive and SharePoint adapters with independent OAuth sessions
+- SharePoint hierarchy normalized as Site → Document library → Folder/File
 
 ## Development
 
@@ -60,3 +61,27 @@ Folder listings are indexed in the background. A search covers the current folde
 The MVP requests openid, email, profile, and drive.readonly. The Drive scope permits read-only access to the account's complete Drive and is classified by Google as restricted. Public production deployments must complete Google's applicable OAuth verification requirements.
 
 OAuth refresh tokens are held only in the API process for this local MVP. Restarting the API signs users out. Before production, persist refresh tokens in encrypted server-side storage and replace the in-memory session store with Redis or a database-backed session store.
+
+
+## Connect SharePoint
+
+1. Open Microsoft Entra admin center and create an **App registration**.
+2. Choose the organizational account type appropriate for your tenant.
+3. Under **Authentication**, add this Web redirect URI:
+
+       http://localhost:8000/api/auth/microsoft/callback
+
+4. Under **API permissions → Microsoft Graph → Delegated permissions**, add:
+   - `User.Read`
+   - `Sites.Read.All`
+   - `Files.Read.All`
+5. Grant admin consent if required by your tenant policy.
+6. Create a client secret and copy its **Value** (not its secret ID).
+7. Add `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, and `MICROSOFT_TENANT_ID` to `.env`.
+8. Restart the API. The sidebar now shows **Connect SharePoint** next to Google Drive.
+
+The SharePoint adapter discovers sites, then lists each site's document libraries and their DriveItems through Microsoft Graph. For a deterministic single-site setup, set `SHAREPOINT_SITE_HOSTNAME` and `SHAREPOINT_SITE_PATH`, for example `contoso.sharepoint.com` and `sites/Creative`. Without these values, the adapter searches accessible sites and falls back to followed sites.
+
+Both cloud sessions are independent. Switching sources clears only the active explorer view and reloads the selected provider. Directus metadata and tag assignments are separated by `provider + account_id + item_id`.
+
+Microsoft access and refresh tokens are currently held in API process memory, matching the Google Drive MVP. Restarting the API requires signing in again.
