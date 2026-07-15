@@ -55,6 +55,7 @@ export function AssetGrid({
     ) return path;
 
     return item.ancestor_ids.map((id, index): Asset => ({
+      provider: item.provider,
       id,
       name: item.ancestor_names?.[index] || "Folder",
       kind: "folder",
