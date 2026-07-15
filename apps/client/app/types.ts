@@ -1,4 +1,7 @@
+export type Provider = "google-drive" | "sharepoint";
+
 export type Asset = {
+  provider: Provider;
   id: string;
   name: string;
   kind: "folder" | "image" | "video" | "pdf" | "document" | "other";
@@ -19,8 +22,8 @@ export type SearchResponse = {
 };
 
 export type Tag = { id: string; name: string; color: string };
-export type GoogleUser = { id: string; name?: string; email?: string; picture?: string };
-export type AuthState = { authenticated: boolean; user: GoogleUser | null; checking: boolean };
+export type CloudUser = { id: string; name?: string; email?: string; picture?: string };
+export type AuthState = { authenticated: boolean; user: CloudUser | null; checking: boolean };
 export type OAuthErrorState = { message: string; requestId?: string } | null;
 export type Folder = { parent: Asset; children: Asset[] };
 export type TreeCache = Record<string, Asset[]>;
@@ -38,3 +41,6 @@ export type DriveIndexStatus = {
   completed_at?: string;
   error?: string;
 };
+
+
+export type ProviderSessions = Record<Provider, AuthState>;
