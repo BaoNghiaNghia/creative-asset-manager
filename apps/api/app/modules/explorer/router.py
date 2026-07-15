@@ -14,84 +14,127 @@ from app.modules.explorer.schema import (
     FolderListing,
     IndexRequest,
     IndexStatus,
+    Provider,
     SearchRequest,
     SearchResponse,
 )
 from app.modules.explorer.service import ExplorerService
-from app.providers.google.auth import get_access_token, get_session
-from app.providers.google.drive import close_media_stream, open_media_stream
+from app.providers.google.auth import get_access_token as get_google_token
+from app.providers.google.auth import get_session as get_google_session
+from app.providers.google.drive import close_media_stream as close_google_media
+from app.providers.google.drive import open_media_stream as open_google_media
+from app.providers.microsoft.auth import get_access_token as get_microsoft_token
+from app.providers.microsoft.auth import get_session as get_microsoft_session
+from app.providers.microsoft.sharepoint import close_media_stream as close_sharepoint_media
+from app.providers.microsoft.sharepoint import open_media_stream as open_sharepoint_media
 
 router = APIRouter(prefix="/explorer", tags=["explorer"])
 
 
-def _account_id(request: Request) -> str:
-    session = get_session(request)
+def _account_id(request: Request, provider: Provider) -> str:
+    session = (
+        get_microsoft_session(request)
+        if provider == "sharepoint"
+        else get_google_session(request)
+    )
     if not session:
-        return "developer"
-    return str(session.user.get("id") or session.user.get("email") or "google-user")
+        return f"{provider}:developer"
+    return str(session.user.get("id") or session.user.get("email") or f"{provider}-user")
 
 
-def _drive_error(exc: Exception, detail: str = "Unable to load Google Drive folder") -> HTTPException:
+async def _access_token(request: Request, provider: Provider) -> str | None:
+    token = (
+        await get_microsoft_token(request)
+        if provider == "sharepoint"
+        else await get_google_token(request)
+    )
+    if provider == "sharepoint" and not token:
+        raise HTTPException(status_code=401, detail="Connect SharePoint before browsing files.")
+    return token
+
+
+def _provider_error(exc: Exception, detail: str) -> HTTPException:
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
-        if status in {401, 403, 404, 416}:
+        if status in {401, 403, 404, 416, 429}:
             return HTTPException(status_code=status, detail=detail)
+    if isinstance(exc, (PermissionError, ValueError)):
+        return HTTPException(status_code=401, detail=str(exc))
     return HTTPException(status_code=502, detail=detail)
 
 
 @router.get("/children", response_model=FolderListing)
-async def children(request: Request, parent_id: str = Query("root")):
+async def children(
+    request: Request,
+    parent_id: str = Query("root"),
+    provider: Provider = Query("google-drive"),
+):
     try:
-        token = await get_access_token(request)
-        return await ExplorerService().list_folder(parent_id, token, _account_id(request))
+        token = await _access_token(request, provider)
+        return await ExplorerService().list_folder(
+            parent_id,
+            token,
+            _account_id(request, provider),
+            provider,
+        )
     except HTTPException:
         raise
-    except (httpx.HTTPError, StopIteration) as exc:
-        raise _drive_error(exc) from exc
+    except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:
+        raise _provider_error(exc, f"Unable to load {provider} folder") from exc
 
 
 @router.get("/folders", response_model=list[AssetNode])
-async def folders(request: Request, parent_id: str = Query("root")):
-    """Fast tree expansion endpoint: fetch folder children only."""
+async def folders(
+    request: Request,
+    parent_id: str = Query("root"),
+    provider: Provider = Query("google-drive"),
+):
     try:
-        token = await get_access_token(request)
-        return await ExplorerService().list_folders(parent_id, token)
+        token = await _access_token(request, provider)
+        return await ExplorerService().list_folders(parent_id, token, provider)
     except HTTPException:
         raise
-    except (httpx.HTTPError, StopIteration) as exc:
-        raise _drive_error(exc) from exc
+    except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:
+        raise _provider_error(exc, f"Unable to expand {provider} folder") from exc
 
 
 @router.post("/index/start", response_model=IndexStatus)
 async def start_index(request: Request, body: IndexRequest):
-    """Start or reuse the account-scoped background Drive metadata indexing job."""
-    token = await get_access_token(request)
-    return start_index_job(_account_id(request), token, body)
+    token = await _access_token(request, body.provider)
+    return start_index_job(
+        _account_id(request, body.provider),
+        token,
+        body,
+    )
 
 
 @router.get("/index/status", response_model=IndexStatus)
-async def index_status(request: Request):
-    """Return live progress for the signed-in account's metadata indexing job."""
-    return get_index_status(_account_id(request))
+async def index_status(
+    request: Request,
+    provider: Provider = Query("google-drive"),
+):
+    return get_index_status(_account_id(request, provider), provider)
 
 
 @router.post("/search", response_model=SearchResponse)
 async def search(request: Request, body: SearchRequest):
-    """Search the current Drive folder and all descendants through the metadata index."""
     try:
-        token = await get_access_token(request)
-        return await ExplorerService().search_subtree(body, token, _account_id(request))
+        token = await _access_token(request, body.provider)
+        return await ExplorerService().search_subtree(
+            body,
+            token,
+            _account_id(request, body.provider),
+        )
     except HTTPException:
         raise
-    except (httpx.HTTPError, StopIteration) as exc:
-        raise _drive_error(exc, "Unable to search Google Drive metadata") from exc
+    except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:
+        raise _provider_error(exc, f"Unable to search {body.provider} metadata") from exc
 
 
 @router.post("/search/stream")
 async def search_stream(request: Request, body: SearchRequest):
-    """Stream newline-delimited search progress followed by the final result."""
-    token = await get_access_token(request)
-    account_id = _account_id(request)
+    token = await _access_token(request, body.provider)
+    account_id = _account_id(request, body.provider)
 
     async def events():
         queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -114,7 +157,7 @@ async def search_stream(request: Request, body: SearchRequest):
                     "data": jsonable_encoder(result),
                 })
             except Exception as exc:
-                error = _drive_error(exc, "Unable to search Google Drive metadata")
+                error = _provider_error(exc, f"Unable to search {body.provider} metadata")
                 await queue.put({
                     "type": "error",
                     "status": "Search failed",
@@ -146,18 +189,19 @@ async def search_stream(request: Request, body: SearchRequest):
 
 
 @router.get("/media/{item_id}")
-async def media(request: Request, item_id: str):
-    """Stream private Drive media and preserve Range responses for video seeking."""
+async def media(
+    request: Request,
+    item_id: str,
+    provider: Provider = Query("google-drive"),
+):
     try:
-        token = await get_access_token(request)
+        token = await _access_token(request, provider)
         if not token:
-            raise HTTPException(status_code=401, detail="Connect Google Drive to preview files.")
+            raise HTTPException(status_code=401, detail=f"Connect {provider} to preview files.")
 
-        client, upstream = await open_media_stream(
-            token,
-            item_id,
-            request.headers.get("range"),
-        )
+        opener = open_sharepoint_media if provider == "sharepoint" else open_google_media
+        closer = close_sharepoint_media if provider == "sharepoint" else close_google_media
+        client, upstream = await opener(token, item_id, request.headers.get("range"))
         passthrough_headers = {
             name: value
             for name in ("content-length", "content-range", "accept-ranges", "etag", "last-modified")
@@ -170,9 +214,9 @@ async def media(request: Request, item_id: str):
             status_code=upstream.status_code,
             media_type=upstream.headers.get("content-type", "application/octet-stream"),
             headers=passthrough_headers,
-            background=BackgroundTask(close_media_stream, client, upstream),
+            background=BackgroundTask(closer, client, upstream),
         )
     except HTTPException:
         raise
-    except httpx.HTTPError as exc:
-        raise _drive_error(exc, "Unable to stream Google Drive file") from exc
+    except (httpx.HTTPError, PermissionError, ValueError) as exc:
+        raise _provider_error(exc, f"Unable to stream {provider} file") from exc
