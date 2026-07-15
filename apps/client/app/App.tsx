@@ -10,7 +10,8 @@ type Asset = {
 
 type Tag = { id: string; name: string; color: string };
 type GoogleUser = { id: string; name?: string; email?: string; picture?: string };
-type AuthState = { authenticated: boolean; user: GoogleUser | null; checking: boolean };\ntype OAuthErrorState = { message: string; requestId?: string } | null;
+type AuthState = { authenticated: boolean; user: GoogleUser | null; checking: boolean };
+type OAuthErrorState = { message: string; requestId?: string } | null;
 type Folder = { parent: Asset; children: Asset[] };
 type TreeCache = Record<string, Asset[]>;
 
@@ -68,7 +69,8 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null, checking: true });\n  const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
+  const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null, checking: true });
+  const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
 
   async function fetchFolder(id: string): Promise<Folder> {
     const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id));
