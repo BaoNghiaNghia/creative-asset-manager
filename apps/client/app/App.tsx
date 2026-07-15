@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from "react";
 import { AssetGrid } from "./components/AssetGrid";
 import { DriveEmpty } from "./components/DriveEmpty";
+import { EmptyAssets } from "./components/EmptyAssets";
 import { SidebarIcon } from "./components/Icons";
 import { MediaViewer } from "./components/MediaViewer";
 import { Sidebar } from "./components/Sidebar";
@@ -193,9 +194,12 @@ export default function App() {
             onPreview={setPreviewItem}
           />}
 
-          {!explorer.loading && !explorer.searching && !explorer.visibleItems.length && <div className="state">
-            {explorer.query ? "No matching folders or files" : "No assets found"}
-          </div>}
+          {!explorer.loading && !explorer.searching && !explorer.visibleItems.length && <EmptyAssets
+            query={explorer.query}
+            path={explorer.path}
+            onClearSearch={() => explorer.setQuery("")}
+            onOpen={explorer.open}
+          />}
           {explorer.selected.size > 0 && <div className="bulk">
             <b>{explorer.selected.size} selected</b>
             {explorer.tags.map(tag => <button key={tag.id} onClick={() => explorer.applyTag(tag.id)}>
