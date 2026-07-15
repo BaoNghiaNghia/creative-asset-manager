@@ -466,7 +466,7 @@ export default function App() {
             key={item.id}
             onPointerEnter={() => item.kind === "folder" && scheduleFolderPrefetch(item.id)}
             onPointerLeave={cancelFolderPrefetch}
-          >>
+          >
             <button className="check" onClick={() => toggle(item.id)}>{selected.has(item.id) ? "✓" : ""}</button>
             <button className={"preview " + item.kind} onDoubleClick={() => item.kind === "folder" && open(item.id, path)}><span>{icons[item.kind]}</span></button>
             <div>
