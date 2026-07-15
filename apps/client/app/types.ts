@@ -23,3 +23,16 @@ export type AuthState = { authenticated: boolean; user: GoogleUser | null; check
 export type OAuthErrorState = { message: string; requestId?: string } | null;
 export type Folder = { parent: Asset; children: Asset[] };
 export type TreeCache = Record<string, Asset[]>;
+
+
+export type DriveIndexStatus = {
+  state: "idle" | "running" | "completed" | "failed";
+  status: string;
+  progress: number;
+  indexed_count: number;
+  processed_folders: number;
+  pending_folders: number;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+};
