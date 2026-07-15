@@ -14,8 +14,8 @@ from starlette.concurrency import run_in_threadpool
 
 SCOPES = [
     "openid",
-    "email",
-    "profile",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 SESSION_COOKIE = "cam_google_session"
