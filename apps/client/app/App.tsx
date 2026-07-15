@@ -61,17 +61,19 @@ type TreeNodeProps = {
 function TreeNode({ node, ancestors, activeId, childrenByParent, expanded, onOpen, onToggle }: TreeNodeProps) {
   const isExpanded = expanded.has(node.id);
   const children = childrenByParent[node.id] ?? [];
+  const childrenLoaded = Object.prototype.hasOwnProperty.call(childrenByParent, node.id);
+  const canExpand = !childrenLoaded || children.length > 0;
 
   return <div className="tree-node">
     <div className={"tree-row " + (activeId === node.id ? "active" : "")}>
-      <button
+      {canExpand ? <button
         className="tree-toggle"
         onClick={() => onToggle(node)}
         aria-label={(isExpanded ? "Collapse " : "Expand ") + node.name}
       >
         <ChevronIcon expanded={isExpanded} />
-      </button>
-      <button className="tree-label" onClick={() => onOpen(node.id, ancestors)}>
+      </button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
+      <button className="tree-label" title={node.name} onClick={() => onOpen(node.id, ancestors)}>
         <FolderTreeIcon />
         <span>{node.name}</span>
       </button>
