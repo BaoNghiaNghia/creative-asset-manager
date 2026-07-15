@@ -1,14 +1,17 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { AssetGrid } from "./components/AssetGrid";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { SidebarIcon } from "./components/Icons";
+import { MediaViewer } from "./components/MediaViewer";
 import { Sidebar } from "./components/Sidebar";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
+import type { Asset } from "./types";
 
 export default function App() {
   const explorer = useDriveExplorer();
   const sidebar = useResizableSidebar();
+  const [previewItem, setPreviewItem] = useState<Asset | null>(null);
   const activeId = explorer.path.at(-1)?.id;
   const rootFolders = explorer.childrenByParent.root ?? [];
 
@@ -95,6 +98,7 @@ export default function App() {
             onToggle={explorer.toggleSelection}
             onPrefetch={explorer.scheduleFolderPrefetch}
             onCancelPrefetch={explorer.cancelFolderPrefetch}
+            onPreview={setPreviewItem}
           />}
 
           {!explorer.loading && !explorer.visibleItems.length && <div className="state">No assets found</div>}
@@ -107,5 +111,7 @@ export default function App() {
           </div>}
         </>}
     </section>
+
+    {previewItem && <MediaViewer item={previewItem} onClose={() => setPreviewItem(null)} />}
   </main>;
 }
