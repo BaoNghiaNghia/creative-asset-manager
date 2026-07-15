@@ -1,0 +1,10 @@
+# Shell scripts must use Unix line endings, including on Windows checkouts.
+*.sh text eol=lf
+Makefile text eol=lf
+
+# Keep source and configuration files consistent in WSL and CI.
+*.py text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
