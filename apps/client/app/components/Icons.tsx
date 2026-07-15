@@ -11,6 +11,13 @@ export function DriveIcon() {
   </svg>;
 }
 
+export function SharePointIcon() {
+  return <svg className="drive-icon sharepoint-icon" viewBox="0 0 20 20" aria-hidden="true">
+    <rect x="2" y="3" width="10" height="14" rx="2" />
+    <path d="M12 6h6v8h-6M5.5 8.25c.6-.55 2.6-.55 3.1.15.45.65-.05 1.05-1.45 1.35-1.35.3-1.85.75-1.35 1.45.55.75 2.55.75 3.15.05" />
+  </svg>;
+}
+
 export function FolderTreeIcon() {
   return <svg className="folder-tree-icon" viewBox="0 0 18 18" aria-hidden="true">
     <path d="M2.5 5.25h5l1.3 1.5h6.7v7.75h-13Z" />
