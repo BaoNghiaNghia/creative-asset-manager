@@ -12,18 +12,17 @@ A web-based explorer for creative assets stored in Google Drive. Source files an
 
 ## Development
 
-API:
+API (creates/repairs the virtual environment and installs dependencies automatically):
 
-    cd apps/api
-    python -m venv .venv
-    pip install -r requirements.txt
-    uvicorn app.main:app --reload
+    make api
 
 Client:
 
-    cd apps/client
-    npm install
-    npm run dev
+    make client
+
+You can also launch the API directly with:
+
+    bash scripts/dev-api.sh
 
 Copy .env.example into your runtime environment. Keep Google and Directus tokens server-side. With GOOGLE_DRIVE_ACCESS_TOKEN empty, the API returns demo data.
 
