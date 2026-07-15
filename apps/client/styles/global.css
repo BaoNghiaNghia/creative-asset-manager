@@ -18,3 +18,20 @@
 .account{display:flex;align-items:center;gap:9px;margin-left:auto}
 .account .avatar{object-fit:cover}
 .account button{border:0;background:transparent;color:#6b7785;font-size:12px;cursor:pointer}
+
+.connect-drive{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:14px;border:1px solid #dfe4eb;border-radius:10px;background:#fff}
+.connect-drive .google-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#4285f4;color:#fff;font-weight:800}
+.connect-drive strong{font-size:13px}
+.connect-drive small{color:#6b7785;line-height:1.45}
+.connect-drive button,.drive-empty button{width:100%;margin-top:3px;padding:8px 10px;border:0;border-radius:7px;background:#1f5eea;color:#fff;font-weight:700;cursor:pointer}
+.source-skeleton{display:flex;flex-direction:column;gap:8px;padding:4px 2px}
+.source-skeleton i{display:block;height:32px;border-radius:7px;background:linear-gradient(90deg,#e8ebef 25%,#f4f5f7 50%,#e8ebef 75%);background-size:200% 100%;animation:tree-pulse 1.3s infinite}
+.source-skeleton i:nth-child(2),.source-skeleton i:nth-child(3){height:24px;margin-left:20px}
+.connected-user{display:flex;align-items:center;gap:7px;margin-top:auto;padding:10px 6px;color:#6b7785;font-size:11px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:#26a269;box-shadow:0 0 0 3px #26a2691f}
+.drive-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:430px;padding:40px;text-align:center}
+.drive-empty-icon{display:grid;place-items:center;width:54px;height:54px;border-radius:15px;background:#e8eefc;color:#1f5eea;font-size:24px}
+.drive-empty h1{margin:18px 0 6px;font-size:22px}
+.drive-empty p{max-width:390px;margin:0 0 18px;color:#6b7785}
+.drive-empty button{width:auto;padding:10px 18px}
+@keyframes tree-pulse{to{background-position:-200% 0}}
