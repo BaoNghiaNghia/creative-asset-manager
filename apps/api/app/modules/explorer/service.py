@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
 from app.modules.metadata.service import MetadataService, schedule_metadata_index
 from app.providers.google.drive import GoogleDriveClient
+from app.providers.microsoft.sharepoint import SharePointClient
 
 logger = logging.getLogger(__name__)
 FOLDER = "application/vnd.google-apps.folder"
@@ -31,29 +32,41 @@ class ExplorerService:
         parent_id: str,
         access_token: str | None,
         account_id: str = "developer",
+        provider: str = "google-drive",
     ) -> FolderListing:
         if access_token:
-            async with GoogleDriveClient(access_token) as client:
+            client_type = SharePointClient if provider == "sharepoint" else GoogleDriveClient
+            async with client_type(access_token) as client:
                 parent, children = await asyncio.gather(
                     client.get(parent_id),
                     client.children(parent_id),
                 )
-        else:
+        elif provider == "google-drive":
             parent = (
                 AssetNode(id="root", name="My Drive", kind="folder", mime_type=FOLDER, has_children=True)
                 if parent_id == "root"
                 else next(item for item in MOCK if item.id == parent_id)
             )
             children = [item for item in MOCK if item.parent_id == parent_id]
+        else:
+            raise PermissionError("Connect SharePoint to browse files.")
 
-        metadata = MetadataService(account_id)
+        metadata = MetadataService(account_id, provider)
         schedule_metadata_index(metadata.index_listing(parent, children))
         return FolderListing(parent=parent, children=children)
 
-    async def list_folders(self, parent_id: str, access_token: str | None) -> list[AssetNode]:
+    async def list_folders(
+        self,
+        parent_id: str,
+        access_token: str | None,
+        provider: str = "google-drive",
+    ) -> list[AssetNode]:
         if access_token:
-            async with GoogleDriveClient(access_token) as client:
+            client_type = SharePointClient if provider == "sharepoint" else GoogleDriveClient
+            async with client_type(access_token) as client:
                 return await client.children(parent_id, folders_only=True)
+        if provider == "sharepoint":
+            raise PermissionError("Connect SharePoint to browse folders.")
         return [item for item in MOCK if item.parent_id == parent_id and item.kind == "folder"]
 
     async def search_subtree(
@@ -63,7 +76,7 @@ class ExplorerService:
         account_id: str,
         progress: ProgressCallback | None = None,
     ) -> SearchResponse:
-        metadata = MetadataService(account_id)
+        metadata = MetadataService(account_id, body.provider)
         await _report(progress, status="Reading metadata index", progress=3, processed_folders=0, pending_folders=0)
         rows = await metadata.list_subtree(body.root_id)
         by_item = {row["item_id"]: row for row in rows}
@@ -81,7 +94,8 @@ class ExplorerService:
         )
 
         if access_token:
-            async with GoogleDriveClient(access_token) as client:
+            client_type = SharePointClient if body.provider == "sharepoint" else GoogleDriveClient
+            async with client_type(access_token) as client:
                 root_row = by_item.get(body.root_id)
                 if not root_row:
                     root_asset = await client.get(body.root_id)
@@ -223,6 +237,8 @@ class ExplorerService:
                             queue = []
                             break
         else:
+            if body.provider == "sharepoint":
+                raise PermissionError("Connect SharePoint before indexing metadata.")
             await _report(progress, status="Indexing demo metadata", progress=20, processed_folders=0, pending_folders=1)
             root = by_item.get(body.root_id)
             if not root:
