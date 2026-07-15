@@ -10,6 +10,17 @@ import type {
 } from "../types";
 import { searchAssets } from "../utils/searchAssets";
 
+type SearchStreamEvent = {
+  type: "progress" | "result" | "error";
+  status?: string;
+  progress?: number;
+  indexed_count?: number;
+  processed_folders?: number;
+  pending_folders?: number;
+  detail?: string;
+  data?: SearchResponse;
+};
+
 const oauthMessages: Record<string, string> = {
   denied: "Google access was cancelled or denied.",
   incomplete: "Google returned an incomplete authorization response.",
@@ -30,6 +41,10 @@ export function useDriveExplorer() {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Asset[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchProgress, setSearchProgress] = useState(0);
+  const [searchStatus, setSearchStatus] = useState("Preparing search");
+  const [searchProcessedFolders, setSearchProcessedFolders] = useState(0);
+  const [searchPendingFolders, setSearchPendingFolders] = useState(0);
   const [searchIndexedCount, setSearchIndexedCount] = useState(0);
   const [searchIndexSource, setSearchIndexSource] = useState<"directus" | "memory" | null>(null);
   const [searchTruncated, setSearchTruncated] = useState(false);
@@ -49,6 +64,10 @@ export function useDriveExplorer() {
   function resetSearch() {
     setSearchResults(null);
     setSearching(false);
+    setSearchProgress(0);
+    setSearchStatus("Preparing search");
+    setSearchProcessedFolders(0);
+    setSearchPendingFolders(0);
     setSearchIndexedCount(0);
     setSearchIndexSource(null);
     setSearchTruncated(false);
@@ -283,6 +302,10 @@ export function useDriveExplorer() {
 
     setSearchResults(null);
     setSearching(false);
+    setSearchProgress(0);
+    setSearchStatus("Preparing search");
+    setSearchProcessedFolders(0);
+    setSearchPendingFolders(0);
     setSearchError("");
 
     if (!auth.authenticated || !currentFolder || normalizedQuery.length < 2) {
@@ -296,7 +319,7 @@ export function useDriveExplorer() {
     const timer = window.setTimeout(async () => {
       setSearching(true);
       try {
-        const response = await fetch("/api/explorer/search", {
+        const response = await fetch("/api/explorer/search/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -312,15 +335,56 @@ export function useDriveExplorer() {
           const body = await response.json().catch(() => ({}));
           throw Error(body.detail || "Unable to search Drive metadata");
         }
+        if (!response.body) throw Error("Search progress stream is unavailable");
 
-        const result = await response.json() as SearchResponse;
-        setSearchResults(result.items);
-        setSearchIndexedCount(result.indexed_count);
-        setSearchIndexSource(result.index_source);
-        setSearchTruncated(result.truncated);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let receivedResult = false;
+
+        function handleEvent(event: SearchStreamEvent) {
+          if (event.type === "error") {
+            throw Error(event.detail || "Unable to search subfolders");
+          }
+
+          if (event.status) setSearchStatus(event.status);
+          if (typeof event.progress === "number") {
+            setSearchProgress(current => Math.max(current, Math.min(100, event.progress || 0)));
+          }
+          if (typeof event.indexed_count === "number") setSearchIndexedCount(event.indexed_count);
+          if (typeof event.processed_folders === "number") {
+            setSearchProcessedFolders(event.processed_folders);
+          }
+          if (typeof event.pending_folders === "number") {
+            setSearchPendingFolders(event.pending_folders);
+          }
+
+          if (event.type === "result" && event.data) {
+            receivedResult = true;
+            setSearchResults(event.data.items);
+            setSearchIndexedCount(event.data.indexed_count);
+            setSearchIndexSource(event.data.index_source);
+            setSearchTruncated(event.data.truncated);
+            setSearchStatus("Search complete");
+            setSearchProgress(100);
+            setSearchPendingFolders(0);
+          }
+        }
+
+        while (true) {
+          const { done, value } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          lines.filter(Boolean).forEach(line => handleEvent(JSON.parse(line) as SearchStreamEvent));
+          if (done) break;
+        }
+        if (buffer.trim()) handleEvent(JSON.parse(buffer) as SearchStreamEvent);
+        if (!receivedResult) throw Error("Search ended before results were ready");
       } catch (reason) {
         if (!controller.signal.aborted) {
           setSearchError(reason instanceof Error ? reason.message : "Unable to search subfolders");
+          setSearchStatus("Search failed");
         }
       } finally {
         if (!controller.signal.aborted) setSearching(false);
@@ -379,6 +443,11 @@ export function useDriveExplorer() {
     query,
     setQuery,
     searching,
+    searchProgress,
+    searchStatus,
+    searchProcessedFolders,
+    searchPendingFolders,
+    searchComplete: query.trim().length >= 2 && searchResults !== null && !searching,
     searchIndexedCount,
     searchIndexSource,
     searchTruncated,
