@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Asset, AuthState, Folder, OAuthErrorState, Tag, TreeCache } from "../types";
+import type {
+  Asset,
+  AuthState,
+  Folder,
+  OAuthErrorState,
+  SearchResponse,
+  Tag,
+  TreeCache,
+} from "../types";
 import { searchAssets } from "../utils/searchAssets";
 
 const oauthMessages: Record<string, string> = {
@@ -20,6 +28,12 @@ export function useDriveExplorer() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["root"]));
   const [loadingTreeIds, setLoadingTreeIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Asset[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchIndexedCount, setSearchIndexedCount] = useState(0);
+  const [searchIndexSource, setSearchIndexSource] = useState<"directus" | "memory" | null>(null);
+  const [searchTruncated, setSearchTruncated] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null, checking: true });
@@ -31,6 +45,15 @@ export function useDriveExplorer() {
   const treeFolderRequests = useRef(new Map<string, Promise<Asset[]>>());
   const prefetchTimer = useRef<number | undefined>(undefined);
   const openSequence = useRef(0);
+
+  function resetSearch() {
+    setSearchResults(null);
+    setSearching(false);
+    setSearchIndexedCount(0);
+    setSearchIndexSource(null);
+    setSearchTruncated(false);
+    setSearchError("");
+  }
 
   async function fetchFolder(id: string): Promise<Folder> {
     const cached = folderCache.current.get(id);
@@ -59,6 +82,30 @@ export function useDriveExplorer() {
     const folders = children.filter(item => item.kind === "folder");
     treeFolderCache.current.set(id, folders);
     setChildrenByParent(current => ({ ...current, [id]: folders }));
+  }
+
+  function hydrateTreePath(nodes: Asset[]) {
+    if (nodes.length < 2) return;
+
+    setChildrenByParent(current => {
+      const next = { ...current };
+      for (let index = 0; index < nodes.length - 1; index += 1) {
+        const parent = nodes[index];
+        const child = nodes[index + 1];
+        const children = next[parent.id] ?? [];
+        const merged = children.some(item => item.id === child.id)
+          ? children
+          : [...children, child];
+        next[parent.id] = merged;
+        treeFolderCache.current.set(parent.id, merged);
+      }
+      return next;
+    });
+    setExpanded(current => {
+      const next = new Set(current);
+      nodes.slice(0, -1).forEach(node => next.add(node.id));
+      return next;
+    });
   }
 
   async function fetchTreeFolders(id: string): Promise<Asset[]> {
@@ -112,13 +159,17 @@ export function useDriveExplorer() {
     setLoading(!cached);
     setError("");
     setSelected(new Set());
+    setQuery("");
+    resetSearch();
     cancelFolderPrefetch();
 
     try {
       const folder = await fetchFolder(id);
       if (requestSequence !== openSequence.current) return;
+      const nextPath = [...ancestors, folder.parent];
       setItems(folder.children);
-      setPath([...ancestors, folder.parent]);
+      setPath(nextPath);
+      hydrateTreePath(nextPath);
       cacheFolders(id, folder.children);
       setExpanded(current => new Set(current).add(id));
     } catch (reason) {
@@ -171,6 +222,7 @@ export function useDriveExplorer() {
     setExpanded(new Set(["root"]));
     setSelected(new Set());
     setQuery("");
+    resetSearch();
     setError("");
     setLoading(false);
     setLoadingTreeIds(new Set());
@@ -225,6 +277,62 @@ export function useDriveExplorer() {
     };
   }, []);
 
+  useEffect(() => {
+    const normalizedQuery = query.trim();
+    const currentFolder = path.at(-1);
+
+    setSearchResults(null);
+    setSearching(false);
+    setSearchError("");
+
+    if (!auth.authenticated || !currentFolder || normalizedQuery.length < 2) {
+      setSearchIndexedCount(0);
+      setSearchIndexSource(null);
+      setSearchTruncated(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSearching(true);
+      try {
+        const response = await fetch("/api/explorer/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            query: normalizedQuery,
+            root_id: currentFolder.id,
+            ancestor_ids: path.slice(0, -1).map(folder => folder.id),
+            ancestor_names: path.slice(0, -1).map(folder => folder.name),
+            limit: 300,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw Error(body.detail || "Unable to search Drive metadata");
+        }
+
+        const result = await response.json() as SearchResponse;
+        setSearchResults(result.items);
+        setSearchIndexedCount(result.indexed_count);
+        setSearchIndexSource(result.index_source);
+        setSearchTruncated(result.truncated);
+      } catch (reason) {
+        if (!controller.signal.aborted) {
+          setSearchError(reason instanceof Error ? reason.message : "Unable to search subfolders");
+        }
+      } finally {
+        if (!controller.signal.aborted) setSearching(false);
+      }
+    }, 320);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [auth.authenticated, path, query]);
+
   async function logout() {
     await fetch("/api/auth/google/logout", { method: "POST" });
     setAuth({ authenticated: false, user: null, checking: false });
@@ -248,9 +356,15 @@ export function useDriveExplorer() {
     response.ok ? setSelected(new Set()) : setError("Unable to assign tag");
   }
 
-  const visibleItems = useMemo(
+  const localResults = useMemo(
     () => searchAssets(items, query),
     [items, query],
+  );
+  const visibleItems = useMemo(
+    () => query.trim().length >= 2 && searchResults !== null
+      ? searchAssets(searchResults, query)
+      : localResults,
+    [localResults, query, searchResults],
   );
 
   return {
@@ -264,6 +378,11 @@ export function useDriveExplorer() {
     loadingTreeIds,
     query,
     setQuery,
+    searching,
+    searchIndexedCount,
+    searchIndexSource,
+    searchTruncated,
+    searchError,
     loading,
     error,
     auth,
