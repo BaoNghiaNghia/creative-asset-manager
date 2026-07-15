@@ -5,6 +5,7 @@ type Props = {
   node: Asset;
   ancestors: Asset[];
   activeId?: string;
+  activePathIds: Set<string>;
   childrenByParent: TreeCache;
   expanded: Set<string>;
   loadingNodes: Set<string>;
@@ -18,6 +19,7 @@ export function DriveTreeNode({
   node,
   ancestors,
   activeId,
+  activePathIds,
   childrenByParent,
   expanded,
   loadingNodes,
@@ -31,10 +33,13 @@ export function DriveTreeNode({
   const children = childrenByParent[node.id] ?? [];
   const childrenLoaded = Object.prototype.hasOwnProperty.call(childrenByParent, node.id);
   const canExpand = !childrenLoaded || children.length > 0;
+  const isCurrent = activeId === node.id;
+  const isAncestor = !isCurrent && activePathIds.has(node.id);
+  const rowState = isCurrent ? "active" : isAncestor ? "active-path" : "";
 
   return <div className="tree-node">
     <div
-      className={"tree-row " + (activeId === node.id ? "active" : "")}
+      className={"tree-row " + rowState}
       onPointerEnter={() => onPrefetch(node.id)}
       onPointerLeave={onCancelPrefetch}
     >
@@ -57,6 +62,7 @@ export function DriveTreeNode({
         node={child}
         ancestors={[...ancestors, node]}
         activeId={activeId}
+        activePathIds={activePathIds}
         childrenByParent={childrenByParent}
         expanded={expanded}
         loadingNodes={loadingNodes}
