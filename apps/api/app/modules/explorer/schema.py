@@ -40,3 +40,21 @@ class SearchResponse(BaseModel):
     indexed_count: int
     index_source: Literal["directus", "memory"]
     truncated: bool = False
+
+
+class IndexRequest(BaseModel):
+    root_id: str = "root"
+    ancestor_ids: list[str] = Field(default_factory=list)
+    ancestor_names: list[str] = Field(default_factory=list)
+
+
+class IndexStatus(BaseModel):
+    state: Literal["idle", "running", "completed", "failed"] = "idle"
+    status: str = "Waiting to index Google Drive"
+    progress: int = Field(default=0, ge=0, le=100)
+    indexed_count: int = 0
+    processed_folders: int = 0
+    pending_folders: int = 0
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
