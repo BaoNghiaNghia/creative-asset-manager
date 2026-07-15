@@ -1,9 +1,11 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 from app.modules.explorer.schema import IndexRequest, IndexStatus, SearchRequest
 from app.modules.explorer.service import ExplorerService
 
+logger = logging.getLogger(__name__)
 _jobs: dict[str, IndexStatus] = {}
 _tasks: dict[str, asyncio.Task] = {}
 
@@ -35,6 +37,7 @@ def start_index_job(
         job.indexed_count = int(event.get("indexed_count") or job.indexed_count)
         job.processed_folders = int(event.get("processed_folders") or 0)
         job.pending_folders = int(event.get("pending_folders") or 0)
+        job.skipped_folders = int(event.get("skipped_folders") or job.skipped_folders)
 
     async def run():
         try:
@@ -51,7 +54,12 @@ def start_index_job(
                 progress=report,
             )
             job.state = "completed"
-            job.status = "Google Drive metadata is ready"
+            job.skipped_folders = result.skipped_folders
+            job.status = (
+                f"Metadata ready; skipped {result.skipped_folders} inaccessible folders"
+                if result.skipped_folders
+                else "Google Drive metadata is ready"
+            )
             job.progress = 100
             job.indexed_count = result.indexed_count
             job.pending_folders = 0
@@ -59,6 +67,7 @@ def start_index_job(
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            logger.exception("Google Drive metadata indexing failed for the current account")
             job.state = "failed"
             job.status = "Metadata indexing failed"
             job.error = str(exc) or type(exc).__name__
