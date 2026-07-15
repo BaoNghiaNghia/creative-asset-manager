@@ -1,5 +1,10 @@
+import asyncio
+import contextlib
+import json
+
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
@@ -59,6 +64,64 @@ async def search(request: Request, body: SearchRequest):
         raise
     except (httpx.HTTPError, StopIteration) as exc:
         raise _drive_error(exc, "Unable to search Google Drive metadata") from exc
+
+
+@router.post("/search/stream")
+async def search_stream(request: Request, body: SearchRequest):
+    """Stream newline-delimited search progress followed by the final result."""
+    token = await get_access_token(request)
+    account_id = _account_id(request)
+
+    async def events():
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def progress(event: dict):
+            await queue.put({"type": "progress", **event})
+
+        async def execute():
+            try:
+                result = await ExplorerService().search_subtree(
+                    body,
+                    token,
+                    account_id,
+                    progress=progress,
+                )
+                await queue.put({
+                    "type": "result",
+                    "status": "Search complete",
+                    "progress": 100,
+                    "data": jsonable_encoder(result),
+                })
+            except Exception as exc:
+                error = _drive_error(exc, "Unable to search Google Drive metadata")
+                await queue.put({
+                    "type": "error",
+                    "status": "Search failed",
+                    "progress": 100,
+                    "detail": error.detail,
+                })
+
+        task = asyncio.create_task(execute())
+        try:
+            while True:
+                event = await queue.get()
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+                if event["type"] in {"result", "error"}:
+                    break
+        finally:
+            if not task.done():
+                task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/media/{item_id}")
