@@ -13,14 +13,18 @@ export default function App() {
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
   const activeId = explorer.path.at(-1)?.id;
-  const rootFolders = explorer.childrenByParent.root ?? [];
+  const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : "root";
+  const rootFolders = explorer.childrenByParent[sourceRootId] ?? [];
+  const sourceName = explorer.provider === "sharepoint" ? "SharePoint" : "Google Drive";
 
   return <main
     className={"shell " + (sidebar.collapsed ? "sidebar-collapsed" : "")}
     style={{ "--sidebar-width": sidebar.width + "px" } as CSSProperties}
   >
     <Sidebar
+      provider={explorer.provider}
       auth={explorer.auth}
+      authByProvider={explorer.authByProvider}
       tags={explorer.tags}
       path={explorer.path}
       activeId={activeId}
@@ -28,6 +32,7 @@ export default function App() {
       childrenByParent={explorer.childrenByParent}
       expanded={explorer.expanded}
       loadingNodes={explorer.loadingTreeIds}
+      onSelectProvider={explorer.selectProvider}
       onOpen={explorer.open}
       onToggle={explorer.toggleTree}
       onPrefetch={explorer.scheduleFolderPrefetch}
@@ -66,7 +71,7 @@ export default function App() {
             onChange={event => explorer.setQuery(event.target.value)}
             onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
             placeholder={!explorer.auth.authenticated
-              ? "Sign in with Google to search"
+              ? `Sign in to ${sourceName} to search`
               : explorer.metadataIndex.state === "running"
                 ? explorer.metadataIndex.status
                 : explorer.metadataIndex.state === "failed"
@@ -106,14 +111,16 @@ export default function App() {
           <button onClick={explorer.logout}>Sign out</button>
         </div> : <button
           className="header-login"
-          onClick={() => window.location.assign("/api/auth/google/login")}
+          onClick={() => window.location.assign(explorer.provider === "sharepoint"
+            ? "/api/auth/microsoft/login"
+            : "/api/auth/google/login")}
         >
-          Sign in with Google
+          Sign in with {explorer.provider === "sharepoint" ? "Microsoft" : "Google"}
         </button>}
       </header>
 
       {explorer.metadataIndex.state === "failed" && <div className="indexing-error" role="alert">
-        <strong>Google Drive metadata indexing failed.</strong>
+        <strong>{sourceName} metadata indexing failed.</strong>
         <span>{explorer.metadataIndex.error || "Check the API terminal for the detailed traceback."}</span>
       </div>}
 
@@ -128,7 +135,7 @@ export default function App() {
       </nav>
 
       {explorer.auth.checking ? <div className="state">Checking Google connection…</div>
-        : !explorer.auth.authenticated ? <DriveEmpty oauthError={explorer.oauthError} />
+        : !explorer.auth.authenticated ? <DriveEmpty oauthError={explorer.oauthError} provider={explorer.provider} />
         : <>
           {explorer.error && <div className="error">{explorer.error}</div>}
           <div className="title">
