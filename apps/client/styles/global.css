@@ -285,3 +285,21 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   box-shadow:inset 3px 0 #2f65d5;
 }
 .tree-row.active:hover{background:#dce6fb}
+
+
+/* Softer ancestor path; current folder has no left accent */
+.source.active-path,
+.tree-row.active-path{
+  background:#f6f8fd;
+  color:#365f9f;
+}
+.tree-row.active-path .tree-label{color:#365f9f}
+.tree-row.active-path .tree-toggle{color:#6681ac}
+.tree-row.active-path .folder-tree-icon{
+  fill:#a9c2ef;
+  stroke:#6f91c8;
+}
+.source.active-path:hover,
+.tree-row.active-path:hover{background:#f1f4fb}
+.tree-row.active{background:#e1e9fb;box-shadow:none}
+.tree-row.active:hover{background:#dce6fb}
