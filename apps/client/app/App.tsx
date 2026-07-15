@@ -47,13 +47,22 @@ export default function App() {
 
     <section>
       <header>
-        <label>
-          ⌕
+        <label className="search-box">
+          <span aria-hidden="true">⌕</span>
           <input
             value={explorer.query}
             onChange={event => explorer.setQuery(event.target.value)}
-            placeholder="Search this folder"
+            onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
+            placeholder="Search folders and files here"
+            aria-label="Search folders and files in this folder"
           />
+          {explorer.query && <button
+            type="button"
+            className="search-clear"
+            onClick={() => explorer.setQuery("")}
+            aria-label="Clear search"
+            title="Clear search"
+          >×</button>}
         </label>
         {explorer.auth.authenticated ? <div className="account">
           {explorer.auth.user?.picture
@@ -85,7 +94,9 @@ export default function App() {
           <div className="title">
             <span>
               <h1>{explorer.path.at(-1)?.name || "My Drive"}</h1>
-              <small>{explorer.items.length} items</small>
+              <small>{explorer.query
+                ? `${explorer.visibleItems.length} of ${explorer.items.length} items`
+                : `${explorer.items.length} items`}</small>
             </span>
             <b>▦　☷</b>
           </div>
@@ -101,7 +112,9 @@ export default function App() {
             onPreview={setPreviewItem}
           />}
 
-          {!explorer.loading && !explorer.visibleItems.length && <div className="state">No assets found</div>}
+          {!explorer.loading && !explorer.visibleItems.length && <div className="state">
+            {explorer.query ? "No matching folders or files" : "No assets found"}
+          </div>}
           {explorer.selected.size > 0 && <div className="bulk">
             <b>{explorer.selected.size} selected</b>
             {explorer.tags.map(tag => <button key={tag.id} onClick={() => explorer.applyTag(tag.id)}>
