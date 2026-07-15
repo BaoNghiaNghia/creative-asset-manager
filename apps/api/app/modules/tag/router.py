@@ -7,7 +7,7 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 
 @router.get("", response_model=list[Tag])
 async def tags():
-    try: return await TagService().list()
+    try: return await TagService().list_tags()
     except httpx.HTTPError as exc: raise HTTPException(502, "Unable to load Directus tags") from exc
 
 @router.post("/assign")
