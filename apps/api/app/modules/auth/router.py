@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -13,6 +14,7 @@ from app.providers.google.auth import (
     remove_session,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/google", tags=["auth"])
 
 
@@ -21,7 +23,6 @@ async def login():
     flow = oauth_flow()
     authorization_url, state = flow.authorization_url(
         access_type="offline",
-        include_granted_scopes="true",
         prompt="consent",
     )
     remember_state(state)
@@ -41,11 +42,24 @@ async def callback(
 
     consume_state(state)
     flow = oauth_flow(state)
+
     try:
         flow.fetch_token(code=code)
+    except Exception as exc:
+        logger.exception("Google OAuth token exchange failed")
+        raise HTTPException(
+            status_code=400,
+            detail="Google token exchange failed. Check the API terminal for the exact error.",
+        ) from exc
+
+    try:
         session_id, _ = await create_session(flow.credentials)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="Could not complete Google authorization.") from exc
+        logger.exception("Google OAuth user profile request failed")
+        raise HTTPException(
+            status_code=400,
+            detail="Google sign-in succeeded, but the user profile could not be loaded. Check the API terminal.",
+        ) from exc
 
     client_url = os.getenv("CLIENT_URL", "http://localhost:5173")
     response = RedirectResponse(client_url)
