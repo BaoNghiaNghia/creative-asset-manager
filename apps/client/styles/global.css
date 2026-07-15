@@ -261,3 +261,27 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
     max-height:100%;
   }
 }
+
+
+/* Highlight the complete path to the current Drive folder */
+.source.active-path,
+.tree-row.active-path{
+  background:#f0f4ff;
+  color:#2457b8;
+}
+.tree-row.active-path .tree-label{
+  color:#2457b8;
+  font-weight:700;
+}
+.tree-row.active-path .tree-toggle{color:#4771bd}
+.tree-row.active-path .folder-tree-icon{
+  fill:#8db3f8;
+  stroke:#4776c8;
+}
+.source.active-path:hover,
+.tree-row.active-path:hover{background:#e9effd}
+.tree-row.active{
+  background:#e1e9fb;
+  box-shadow:inset 3px 0 #2f65d5;
+}
+.tree-row.active:hover{background:#dce6fb}
