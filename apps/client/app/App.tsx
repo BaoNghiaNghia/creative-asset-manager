@@ -71,7 +71,7 @@ export default function App() {
             onChange={event => explorer.setQuery(event.target.value)}
             onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
             placeholder={!explorer.auth.authenticated
-              ? `Sign in to ${sourceName} to search`
+              ? "Connect Google Drive or SharePoint to search"
               : explorer.metadataIndex.state === "running"
                 ? explorer.metadataIndex.status
                 : explorer.metadataIndex.state === "failed"
@@ -107,16 +107,13 @@ export default function App() {
         {explorer.auth.authenticated ? <div className="account">
           {explorer.auth.user?.picture
             ? <img className="avatar" src={explorer.auth.user.picture} alt="" referrerPolicy="no-referrer" />
-            : <div className="avatar">{explorer.auth.user?.name?.slice(0, 2) || "G"}</div>}
+            : <div className="avatar">{explorer.auth.user?.name?.slice(0, 2) || (explorer.provider === "sharepoint" ? "S" : "G")}</div>}
           <button onClick={explorer.logout}>Sign out</button>
-        </div> : <button
-          className="header-login"
-          onClick={() => window.location.assign(explorer.provider === "sharepoint"
-            ? "/api/auth/microsoft/login"
-            : "/api/auth/google/login")}
-        >
-          Sign in with {explorer.provider === "sharepoint" ? "Microsoft" : "Google"}
-        </button>}
+        </div> : <div className="header-sources" aria-label="Available cloud sources">
+          <span className="google">G</span><b>Google Drive</b>
+          <i />
+          <span className="microsoft">S</span><b>SharePoint</b>
+        </div>}
       </header>
 
       {explorer.metadataIndex.state === "failed" && <div className="indexing-error" role="alert">
@@ -124,18 +121,23 @@ export default function App() {
         <span>{explorer.metadataIndex.error || "Check the API terminal for the detailed traceback."}</span>
       </div>}
 
-      <nav>
+      {explorer.auth.authenticated && <nav>
         <div>{explorer.path.map((folder, index) => <button
           key={folder.id}
           onClick={() => explorer.open(folder.id, explorer.path.slice(0, index))}
         >
           {folder.name}
         </button>)}</div>
-        {explorer.auth.authenticated && <button className="upload">＋ Upload</button>}
-      </nav>
+        <button className="upload">＋ Upload</button>
+      </nav>}
 
       {explorer.auth.checking ? <div className="state">Checking Google connection…</div>
-        : !explorer.auth.authenticated ? <DriveEmpty oauthError={explorer.oauthError} provider={explorer.provider} />
+        : !explorer.auth.authenticated ? <DriveEmpty
+          oauthError={explorer.oauthError}
+          activeProvider={explorer.provider}
+          authByProvider={explorer.authByProvider}
+          onSelectProvider={explorer.selectProvider}
+        />
         : <>
           {explorer.error && <div className="error">{explorer.error}</div>}
           <div className="title">
