@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# This file is intentionally normalized to LF by .gitattributes.
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
