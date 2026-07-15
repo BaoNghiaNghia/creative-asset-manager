@@ -1,6 +1,31 @@
+import { useState } from "react";
 import type { Asset } from "../types";
 
 const icons = { folder: "📁", image: "▧", video: "▶", pdf: "PDF", document: "DOC", other: "◇" };
+
+function AssetPreview({ item }: { item: Asset }) {
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const canShowThumbnail = (item.kind === "image" || item.kind === "video")
+    && Boolean(item.thumbnail_url)
+    && !thumbnailFailed;
+
+  if (!canShowThumbnail) {
+    return <span className="preview-fallback">{icons[item.kind]}</span>;
+  }
+
+  return <>
+    <img
+      className="preview-thumbnail"
+      src={item.thumbnail_url}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setThumbnailFailed(true)}
+    />
+    {item.kind === "video" && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
+  </>;
+}
 
 type Props = {
   items: Asset[];
@@ -22,7 +47,7 @@ export function AssetGrid({ items, path, selected, onOpen, onToggle, onPrefetch,
     >
       <button className="check" onClick={() => onToggle(item.id)}>{selected.has(item.id) ? "✓" : ""}</button>
       <button className={"preview " + item.kind} onDoubleClick={() => item.kind === "folder" && onOpen(item.id, path)}>
-        <span>{icons[item.kind]}</span>
+        <AssetPreview item={item} />
       </button>
       <div>
         <button className="name" onDoubleClick={() => item.kind === "folder" && onOpen(item.id, path)}>{item.name}</button>
