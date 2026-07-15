@@ -54,24 +54,33 @@ type TreeNodeProps = {
   activeId?: string;
   childrenByParent: TreeCache;
   expanded: Set<string>;
+  loadingNodes: Set<string>;
   onOpen: (id: string, ancestors: Asset[]) => void;
   onToggle: (node: Asset) => void;
+  onPrefetch: (id: string) => void;
+  onCancelPrefetch: () => void;
 };
 
-function TreeNode({ node, ancestors, activeId, childrenByParent, expanded, onOpen, onToggle }: TreeNodeProps) {
+function TreeNode({ node, ancestors, activeId, childrenByParent, expanded, loadingNodes, onOpen, onToggle, onPrefetch, onCancelPrefetch }: TreeNodeProps) {
   const isExpanded = expanded.has(node.id);
+  const isLoading = loadingNodes.has(node.id);
   const children = childrenByParent[node.id] ?? [];
   const childrenLoaded = Object.prototype.hasOwnProperty.call(childrenByParent, node.id);
   const canExpand = !childrenLoaded || children.length > 0;
 
   return <div className="tree-node">
-    <div className={"tree-row " + (activeId === node.id ? "active" : "")}>
+    <div
+      className={"tree-row " + (activeId === node.id ? "active" : "")}
+      onPointerEnter={() => onPrefetch(node.id)}
+      onPointerLeave={onCancelPrefetch}
+    >
       {canExpand ? <button
-        className="tree-toggle"
+        className={"tree-toggle " + (isLoading ? "loading" : "")}
         onClick={() => onToggle(node)}
         aria-label={(isExpanded ? "Collapse " : "Expand ") + node.name}
+        disabled={isLoading}
       >
-        <ChevronIcon expanded={isExpanded} />
+        {isLoading ? <span className="tree-loading" /> : <ChevronIcon expanded={isExpanded} />}
       </button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
       <button className="tree-label" title={node.name} onClick={() => onOpen(node.id, ancestors)}>
         <FolderTreeIcon />
@@ -86,8 +95,11 @@ function TreeNode({ node, ancestors, activeId, childrenByParent, expanded, onOpe
         activeId={activeId}
         childrenByParent={childrenByParent}
         expanded={expanded}
+        loadingNodes={loadingNodes}
         onOpen={onOpen}
         onToggle={onToggle}
+        onPrefetch={onPrefetch}
+        onCancelPrefetch={onCancelPrefetch}
       />)}
     </div>}
   </div>;
@@ -115,6 +127,13 @@ export default function App() {
     () => window.localStorage.getItem("cam-sidebar-collapsed") === "true",
   );
   const resizingSidebar = useRef(false);
+  const folderCache = useRef(new Map<string, Folder>());
+  const folderRequests = useRef(new Map<string, Promise<Folder>>());
+  const treeFolderCache = useRef(new Map<string, Asset[]>());
+  const treeFolderRequests = useRef(new Map<string, Promise<Asset[]>>());
+  const prefetchTimer = useRef<number | undefined>(undefined);
+  const openSequence = useRef(0);
+  const [loadingTreeIds, setLoadingTreeIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     function resizeSidebar(event: PointerEvent) {
@@ -150,33 +169,100 @@ export default function App() {
   }
 
   async function fetchFolder(id: string): Promise<Folder> {
-    const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id));
-    if (!response.ok) throw Error((await response.json()).detail);
-    return response.json();
+    const cached = folderCache.current.get(id);
+    if (cached) return cached;
+
+    const pending = folderRequests.current.get(id);
+    if (pending) return pending;
+
+    const request = (async () => {
+      const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id));
+      if (!response.ok) throw Error((await response.json()).detail);
+      const folder = await response.json() as Folder;
+      folderCache.current.set(id, folder);
+      return folder;
+    })();
+
+    folderRequests.current.set(id, request);
+    try {
+      return await request;
+    } finally {
+      folderRequests.current.delete(id);
+    }
   }
 
   function cacheFolders(id: string, children: Asset[]) {
-    setChildrenByParent(current => ({
-      ...current,
-      [id]: children.filter(item => item.kind === "folder"),
-    }));
+    const folders = children.filter(item => item.kind === "folder");
+    treeFolderCache.current.set(id, folders);
+    setChildrenByParent(current => ({ ...current, [id]: folders }));
+  }
+
+  async function fetchTreeFolders(id: string): Promise<Asset[]> {
+    const cached = treeFolderCache.current.get(id);
+    if (cached) return cached;
+
+    const fullFolder = folderCache.current.get(id);
+    if (fullFolder) return fullFolder.children.filter(item => item.kind === "folder");
+
+    const fullRequest = folderRequests.current.get(id);
+    if (fullRequest) {
+      const folder = await fullRequest;
+      return folder.children.filter(item => item.kind === "folder");
+    }
+
+    const pending = treeFolderRequests.current.get(id);
+    if (pending) return pending;
+
+    const request = (async () => {
+      const response = await fetch("/api/explorer/folders?parent_id=" + encodeURIComponent(id));
+      if (!response.ok) throw Error((await response.json()).detail);
+      const folders = await response.json() as Asset[];
+      treeFolderCache.current.set(id, folders);
+      return folders;
+    })();
+
+    treeFolderRequests.current.set(id, request);
+    try {
+      return await request;
+    } finally {
+      treeFolderRequests.current.delete(id);
+    }
+  }
+
+  function cancelFolderPrefetch() {
+    window.clearTimeout(prefetchTimer.current);
+    prefetchTimer.current = undefined;
+  }
+
+  function scheduleFolderPrefetch(id: string) {
+    if (folderCache.current.has(id) || folderRequests.current.has(id)) return;
+    cancelFolderPrefetch();
+    prefetchTimer.current = window.setTimeout(() => {
+      void fetchFolder(id).catch(() => undefined);
+    }, 180);
   }
 
   async function open(id = "root", ancestors: Asset[] = []) {
-    setLoading(true);
+    const requestSequence = ++openSequence.current;
+    const cached = folderCache.current.has(id);
+    setLoading(!cached);
     setError("");
     setSelected(new Set());
+    cancelFolderPrefetch();
 
     try {
       const folder = await fetchFolder(id);
+      if (requestSequence !== openSequence.current) return;
       setItems(folder.children);
       setPath([...ancestors, folder.parent]);
       cacheFolders(id, folder.children);
       setExpanded(current => new Set(current).add(id));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to load folder");
+      if (requestSequence === openSequence.current) {
+        setError(reason instanceof Error ? reason.message : "Unable to load folder");
+      }
     } finally {
-      setLoading(false);
+      if (requestSequence === openSequence.current) setLoading(false);
     }
   }
 
@@ -190,14 +276,27 @@ export default function App() {
       return;
     }
 
+    const cached = treeFolderCache.current.get(node.id);
+    if (cached) {
+      cacheFolders(node.id, cached);
+      setExpanded(current => new Set(current).add(node.id));
+      return;
+    }
+
+    setLoadingTreeIds(current => new Set(current).add(node.id));
+    setError("");
     try {
-      if (!childrenByParent[node.id]) {
-        const folder = await fetchFolder(node.id);
-        cacheFolders(node.id, folder.children);
-      }
+      const folders = await fetchTreeFolders(node.id);
+      cacheFolders(node.id, folders);
       setExpanded(current => new Set(current).add(node.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to expand folder");
+    } finally {
+      setLoadingTreeIds(current => {
+        const next = new Set(current);
+        next.delete(node.id);
+        return next;
+      });
     }
   }
 
@@ -210,6 +309,13 @@ export default function App() {
     setQuery("");
     setError("");
     setLoading(false);
+    setLoadingTreeIds(new Set());
+    folderCache.current.clear();
+    folderRequests.current.clear();
+    treeFolderCache.current.clear();
+    treeFolderRequests.current.clear();
+    openSequence.current += 1;
+    cancelFolderPrefetch();
   }
 
   useEffect(() => {
@@ -307,8 +413,11 @@ export default function App() {
             activeId={activeId}
             childrenByParent={childrenByParent}
             expanded={expanded}
+            loadingNodes={loadingTreeIds}
             onOpen={open}
             onToggle={toggleTree}
+            onPrefetch={scheduleFolderPrefetch}
+            onCancelPrefetch={cancelFolderPrefetch}
           />)}
         </div>
       </> : <div className="connect-drive">
@@ -352,7 +461,12 @@ export default function App() {
         {error && <div className="error">{error}</div>}
         <div className="title"><span><h1>{path.at(-1)?.name || "My Drive"}</h1><small>{items.length} items</small></span><b>▦　☷</b></div>
         {loading ? <div className="state">Loading assets…</div> : <div className="grid">
-          {visible.map(item => <article className={selected.has(item.id) ? "selected" : ""} key={item.id}>
+          {visible.map(item => <article
+            className={selected.has(item.id) ? "selected" : ""}
+            key={item.id}
+            onPointerEnter={() => item.kind === "folder" && scheduleFolderPrefetch(item.id)}
+            onPointerLeave={cancelFolderPrefetch}
+          >>
             <button className="check" onClick={() => toggle(item.id)}>{selected.has(item.id) ? "✓" : ""}</button>
             <button className={"preview " + item.kind} onDoubleClick={() => item.kind === "folder" && open(item.id, path)}><span>{icons[item.kind]}</span></button>
             <div>
