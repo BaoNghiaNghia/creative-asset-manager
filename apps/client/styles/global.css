@@ -77,3 +77,41 @@
   .shell,.shell.sidebar-collapsed{grid-template-columns:1fr}
   .sidebar,.sidebar-restore{display:none}
 }
+
+
+/* Interaction polish */
+.source,.tag,.tree-row,.grid article,.preview,.name,.check,.upload,nav div button,.account button,.header-login,.connect-drive button,.drive-empty button{
+  transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease,transform .16s ease;
+}
+.source:hover{background:#e9edf4;color:#24324a}
+.source.active:hover{background:#dfe8fb;color:#1849b5}
+.tag{display:flex;align-items:center;width:100%;border-radius:7px;cursor:pointer}
+.tag:hover{background:#e9edf4;color:#24324a}
+.tree-row:hover{background:#e9edf4}
+.tree-row.active:hover{background:#dfe8fb}
+.tree-row:hover .folder-tree-icon{filter:saturate(1.12) brightness(.98)}
+.tree-toggle-placeholder{display:block;width:28px;height:32px}
+.tree-label:hover{color:#24324a}
+.tree-row.active .tree-label:hover{color:#1849b5}
+.tree-toggle:focus-visible,.tree-label:focus-visible,.source:focus-visible,.tag:focus-visible,.check:focus-visible,.preview:focus-visible,.name:focus-visible,.upload:focus-visible,nav div button:focus-visible,.account button:focus-visible,.header-login:focus-visible,.connect-drive button:focus-visible,.drive-empty button:focus-visible{
+  outline:2px solid #4f7ff0;
+  outline-offset:2px;
+}
+nav div button{border-radius:6px;padding:5px 7px;cursor:pointer}
+nav div button:hover{background:#eef2f7;color:#1f5eea}
+.upload{cursor:pointer;box-shadow:0 2px 5px #1f5eea24}
+.upload:hover,.connect-drive button:hover,.drive-empty button:hover{background:#164fd3;transform:translateY(-1px);box-shadow:0 6px 14px #1f5eea2e}
+.upload:active,.connect-drive button:active,.drive-empty button:active{transform:translateY(0)}
+.grid article:hover{transform:translateY(-2px);border-color:#cbd4e1;box-shadow:0 8px 22px #18213317}
+.grid article:hover .preview{background:#e9edf3}
+.grid article:hover .preview.folder{background:#f5eedc}
+.preview,.name,.check{cursor:pointer}
+.name:hover{color:#1f5eea}
+.check:hover{border-color:#527deb;box-shadow:0 0 0 3px #527deb1c}
+.account button{padding:6px 8px;border-radius:6px}
+.account button:hover{background:#eef2f7;color:#b42318}
+.header-login:hover{border-color:#aeb9c7;background:#f6f8fb;color:#1f5eea}
+@media(prefers-reduced-motion:reduce){
+  .source,.tag,.tree-row,.grid article,.preview,.name,.check,.upload,nav div button,.account button,.header-login,.connect-drive button,.drive-empty button{transition:none}
+  .grid article:hover,.upload:hover,.connect-drive button:hover,.drive-empty button:hover{transform:none}
+}
