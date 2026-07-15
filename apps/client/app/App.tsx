@@ -47,15 +47,46 @@ export default function App() {
 
     <section>
       <header>
-        <label className={"search-box " + (explorer.searching ? "searching" : "")}>
+        <label
+          className={[
+            "search-box",
+            explorer.searching ? "searching" : "",
+            explorer.metadataIndex.state === "running" ? "indexing" : "",
+            explorer.metadataIndex.state === "failed" ? "index-failed" : "",
+          ].filter(Boolean).join(" ")}
+          style={{ "--index-progress": explorer.metadataIndex.progress + "%" } as CSSProperties}
+          title={explorer.metadataIndex.state === "completed"
+            ? `${explorer.metadataIndex.indexed_count} Drive items indexed`
+            : explorer.metadataIndex.status}
+        >
           <span aria-hidden="true">⌕</span>
           <input
             value={explorer.query}
+            disabled={!explorer.auth.authenticated || !explorer.searchReady}
             onChange={event => explorer.setQuery(event.target.value)}
             onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
-            placeholder="Search this folder and subfolders"
+            placeholder={!explorer.auth.authenticated
+              ? "Sign in with Google to search"
+              : explorer.metadataIndex.state === "running"
+                ? explorer.metadataIndex.status
+                : explorer.metadataIndex.state === "failed"
+                  ? "Metadata indexing failed"
+                  : "Search this folder and subfolders"}
             aria-label="Search folders and files in this folder and all subfolders"
           />
+          {explorer.metadataIndex.state === "running" && <span className="index-percent-badge">
+            {explorer.metadataIndex.progress}%
+          </span>}
+          {explorer.metadataIndex.state === "completed" && !explorer.query && <span className="index-ready-badge">
+            ✓ Ready
+          </span>}
+          {explorer.metadataIndex.state === "failed" && <button
+            type="button"
+            className="index-retry"
+            onClick={explorer.retryMetadataIndex}
+          >
+            Retry
+          </button>}
           {explorer.query && <button
             type="button"
             className="search-clear"
