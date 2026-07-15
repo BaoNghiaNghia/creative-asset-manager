@@ -1,3 +1,5 @@
+import asyncio
+
 from app.modules.explorer.schema import AssetNode, FolderListing
 from app.providers.google.drive import GoogleDriveClient
 
@@ -13,8 +15,11 @@ MOCK = [
 class ExplorerService:
     async def list_folder(self, parent_id: str, access_token: str | None) -> FolderListing:
         if access_token:
-            client = GoogleDriveClient(access_token)
-            parent, children = await client.get(parent_id), await client.children(parent_id)
+            async with GoogleDriveClient(access_token) as client:
+                parent, children = await asyncio.gather(
+                    client.get(parent_id),
+                    client.children(parent_id),
+                )
         else:
             parent = (
                 AssetNode(id="root", name="My Drive", kind="folder", mime_type=FOLDER, has_children=True)
@@ -23,3 +28,9 @@ class ExplorerService:
             )
             children = [item for item in MOCK if item.parent_id == parent_id]
         return FolderListing(parent=parent, children=children)
+
+    async def list_folders(self, parent_id: str, access_token: str | None) -> list[AssetNode]:
+        if access_token:
+            async with GoogleDriveClient(access_token) as client:
+                return await client.children(parent_id, folders_only=True)
+        return [item for item in MOCK if item.parent_id == parent_id and item.kind == "folder"]
