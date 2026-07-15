@@ -6,6 +6,15 @@ export type Asset = {
   modified_at?: string;
   thumbnail_url?: string;
   web_url?: string;
+  ancestor_ids?: string[];
+  ancestor_names?: string[];
+};
+
+export type SearchResponse = {
+  items: Asset[];
+  indexed_count: number;
+  index_source: "directus" | "memory";
+  truncated: boolean;
 };
 
 export type Tag = { id: string; name: string; color: string };
