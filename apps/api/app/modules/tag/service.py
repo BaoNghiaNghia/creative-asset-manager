@@ -15,8 +15,8 @@ class TagService:
             response.raise_for_status()
             return response.json()["data"]
 
-    async def assign(self, item_ids: list[str], tag_id: str):
-        rows = [{"provider": "google-drive", "item_id": item_id, "tag_id": tag_id} for item_id in item_ids]
+    async def assign(self, item_ids: list[str], tag_id: str, provider: str = "google-drive"):
+        rows = [{"provider": provider, "item_id": item_id, "tag_id": tag_id} for item_id in item_ids]
         if not self.url or not self.token: return rows
         async with httpx.AsyncClient(headers={"Authorization": f"Bearer {self.token}"}) as client:
             response = await client.post(f"{self.url.rstrip('/')}/items/asset_tag_assignments", json=rows)
