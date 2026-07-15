@@ -12,7 +12,12 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from starlette.concurrency import run_in_threadpool
 
-# Google can return canonical scope aliases in the token response. OAuthlib\n# may otherwise reject a valid grant before we can validate it explicitly.\nos.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")\n\nDRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"\nSCOPES = [
+# Google can return canonical scope aliases in the token response. OAuthlib
+# may otherwise reject a valid grant before we can validate it explicitly.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
+DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
