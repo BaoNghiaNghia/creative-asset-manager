@@ -79,7 +79,7 @@ export function searchAssets(items: Asset[], query: string) {
   const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
   const ranked = items.flatMap(item => {
     const normalizedName = normalizeText(item.name);
-    const words = normalizedName.split(/[\s._\-()[\]{}]+/).filter(Boolean);
+    const words = normalizedName.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
     let score = item.kind === "folder" ? 1 : 0;
 
     for (const token of tokens) {
