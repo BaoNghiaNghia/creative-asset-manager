@@ -115,3 +115,10 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   .source,.tag,.tree-row,.grid article,.preview,.name,.check,.upload,nav div button,.account button,.header-login,.connect-drive button,.drive-empty button{transition:none}
   .grid article:hover,.upload:hover,.connect-drive button:hover,.drive-empty button:hover{transform:none}
 }
+
+
+/* Async tree feedback */
+.tree-toggle:disabled{cursor:wait;opacity:1}
+.tree-loading{width:13px;height:13px;border:2px solid #b8c4d3;border-top-color:#1f5eea;border-radius:50%;animation:tree-spin .65s linear infinite}
+@keyframes tree-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.tree-loading{animation-duration:1.4s}}
