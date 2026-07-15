@@ -35,3 +35,8 @@
 .drive-empty p{max-width:390px;margin:0 0 18px;color:#6b7785}
 .drive-empty button{width:auto;padding:10px 18px}
 @keyframes tree-pulse{to{background-position:-200% 0}}
+
+.oauth-error{display:flex;flex-direction:column;gap:5px;width:min(520px,100%);margin-bottom:24px;padding:13px 15px;border:1px solid #f1b8b8;border-radius:9px;background:#fff3f3;color:#8f1d1d;text-align:left}
+.oauth-error strong{font-size:13px}
+.oauth-error span{font-size:12px;line-height:1.45}
+.oauth-error small{color:#a75353;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
