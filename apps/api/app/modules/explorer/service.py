@@ -1,11 +1,20 @@
 import asyncio
 import os
+from collections.abc import Awaitable, Callable
 
 from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
 from app.modules.metadata.service import MetadataService, schedule_metadata_index
 from app.providers.google.drive import GoogleDriveClient
 
 FOLDER = "application/vnd.google-apps.folder"
+ProgressCallback = Callable[[dict], Awaitable[None]]
+
+
+async def _report(progress: ProgressCallback | None, **event) -> None:
+    if progress:
+        await progress(event)
+
+
 MOCK = [
     AssetNode(id="campaigns", name="Campaigns", kind="folder", mime_type=FOLDER, parent_id="root", has_children=True),
     AssetNode(id="brand", name="Brand library", kind="folder", mime_type=FOLDER, parent_id="root", has_children=True),
@@ -50,13 +59,23 @@ class ExplorerService:
         body: SearchRequest,
         access_token: str | None,
         account_id: str,
+        progress: ProgressCallback | None = None,
     ) -> SearchResponse:
         metadata = MetadataService(account_id)
+        await _report(progress, status="Reading metadata index", progress=3, processed_folders=0, pending_folders=0)
         rows = await metadata.list_subtree(body.root_id)
         by_item = {row["item_id"]: row for row in rows}
         max_items = int(os.getenv("DIRECTUS_METADATA_MAX_ITEMS", "20000"))
         concurrency = max(1, int(os.getenv("DIRECTUS_METADATA_CONCURRENCY", "6")))
         truncated = False
+        await _report(
+            progress,
+            status=f"Loaded {max(0, len(by_item) - 1)} indexed items",
+            progress=8,
+            indexed_count=max(0, len(by_item) - 1),
+            processed_folders=0,
+            pending_folders=0,
+        )
 
         if access_token:
             async with GoogleDriveClient(access_token) as client:
@@ -78,6 +97,16 @@ class ExplorerService:
                     if row.get("kind") == "folder" and metadata.needs_refresh(row)
                 ]
                 queued.update(row["item_id"] for row in queue)
+                processed_folders = 0
+                progress_percent = 10
+                await _report(
+                    progress,
+                    status="Scanning Drive folders" if queue else "Metadata index is up to date",
+                    progress=10 if queue else 92,
+                    indexed_count=max(0, len(by_item) - 1),
+                    processed_folders=0,
+                    pending_folders=len(queue),
+                )
 
                 while queue and len(by_item) < max_items:
                     batch, queue = queue[:concurrency], queue[concurrency:]
@@ -86,7 +115,7 @@ class ExplorerService:
                         return_exceptions=True,
                     )
 
-                    for parent_row, result in zip(batch, results):
+                    for batch_index, (parent_row, result) in enumerate(zip(batch, results)):
                         if isinstance(result, Exception):
                             raise result
 
@@ -134,11 +163,28 @@ class ExplorerService:
 
                         by_item[indexed_parent["item_id"]] = indexed_parent
                         await metadata.upsert([indexed_parent, *prepared_children])
+                        processed_folders += 1
+                        remaining_folders = len(queue) + len(batch) - batch_index - 1
+                        known_folders = processed_folders + remaining_folders
+                        percent = max(
+                            progress_percent,
+                            min(90, 10 + round(80 * processed_folders / max(known_folders, 1))),
+                        )
+                        progress_percent = percent
+                        await _report(
+                            progress,
+                            status=f"Indexed {processed_folders} of at least {known_folders} folders",
+                            progress=percent,
+                            indexed_count=max(0, len(by_item) - 1),
+                            processed_folders=processed_folders,
+                            pending_folders=remaining_folders,
+                        )
 
                         if truncated:
                             queue = []
                             break
         else:
+            await _report(progress, status="Indexing demo metadata", progress=20, processed_folders=0, pending_folders=1)
             root = by_item.get(body.root_id)
             if not root:
                 root_asset = (
@@ -150,6 +196,7 @@ class ExplorerService:
                 by_item[body.root_id] = root
 
             queue = [root]
+            processed_folders = 0
             while queue:
                 parent_row = queue.pop(0)
                 children = [item for item in MOCK if item.parent_id == parent_row["item_id"]]
@@ -160,9 +207,27 @@ class ExplorerService:
                     by_item[child.id] = row
                     if child.kind == "folder":
                         queue.append(row)
+                processed_folders += 1
+                known_folders = processed_folders + len(queue)
+                await _report(
+                    progress,
+                    status=f"Indexed {processed_folders} of at least {known_folders} folders",
+                    progress=min(90, 20 + round(70 * processed_folders / max(known_folders, 1))),
+                    indexed_count=max(0, len(by_item) - 1),
+                    processed_folders=processed_folders,
+                    pending_folders=len(queue),
+                )
             await metadata.upsert(list(by_item.values()))
 
         indexed_rows = list(by_item.values())
+        await _report(
+            progress,
+            status="Searching indexed metadata",
+            progress=95,
+            indexed_count=max(0, len(indexed_rows) - 1),
+            processed_folders=processed_folders,
+            pending_folders=0,
+        )
         return SearchResponse(
             items=metadata.search(indexed_rows, body.query, body.root_id, body.limit),
             indexed_count=max(0, len(indexed_rows) - 1),
