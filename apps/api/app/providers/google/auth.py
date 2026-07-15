@@ -12,11 +12,11 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from starlette.concurrency import run_in_threadpool
 
-SCOPES = [
+# Google can return canonical scope aliases in the token response. OAuthlib\n# may otherwise reject a valid grant before we can validate it explicitly.\nos.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")\n\nDRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"\nSCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/drive.readonly",
+    DRIVE_READONLY_SCOPE,
 ]
 SESSION_COOKIE = "cam_google_session"
 STATE_TTL_SECONDS = 600
@@ -82,7 +82,14 @@ def consume_state(state: str) -> None:
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state.")
 
 
+def validate_granted_scopes(credentials: Credentials) -> None:
+    granted = set(credentials.granted_scopes or credentials.scopes or [])
+    if DRIVE_READONLY_SCOPE not in granted:
+        raise PermissionError("The required Google Drive read-only scope was not granted.")
+
+
 async def create_session(credentials: Credentials) -> tuple[str, GoogleSession]:
+    validate_granted_scopes(credentials)
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.get(
             "https://openidconnect.googleapis.com/v1/userinfo",
