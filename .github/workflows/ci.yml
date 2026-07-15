@@ -30,3 +30,18 @@ jobs:
       - run: python -m compileall -q apps/api/app
       - run: python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
         working-directory: apps/api
+      - name: Verify Google OAuth PKCE transaction
+        working-directory: apps/api
+        env:
+          GOOGLE_CLIENT_ID: test-client.apps.googleusercontent.com
+          GOOGLE_CLIENT_SECRET: test-secret
+        run: |
+          python - <<'PY'
+          from app.providers.google.auth import consume_state, oauth_flow, remember_state
+
+          flow = oauth_flow()
+          _, state = flow.authorization_url(access_type="offline", prompt="consent")
+          assert flow.code_verifier
+          remember_state(state, flow.code_verifier)
+          assert consume_state(state) == flow.code_verifier
+          PY
