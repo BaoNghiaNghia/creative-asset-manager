@@ -37,6 +37,8 @@ export function Sidebar({
   onResizeStart,
 }: Props) {
   const rootAncestors = path.length > 0 && path[0].id === "root" ? [path[0]] : [];
+  const activePathIds = new Set(path.map(folder => folder.id));
+  const sourceState = activeId === "root" ? "active" : activePathIds.has("root") ? "active-path" : "";
 
   return <aside className="sidebar">
     <button className="sidebar-collapse" onClick={onCollapse} aria-label="Collapse sidebar" title="Collapse sidebar">
@@ -48,7 +50,7 @@ export function Sidebar({
     </div>
     <p>SOURCES</p>
     {auth.checking ? <div className="source-skeleton"><i /><i /><i /></div> : auth.authenticated ? <>
-      <button className={"source " + (activeId === "root" ? "active" : "")} onClick={() => onOpen("root", [])}>
+      <button className={"source " + sourceState} onClick={() => onOpen("root", [])}>
         <DriveIcon /><span>My Drive</span>
       </button>
       <div className="tree">
@@ -57,6 +59,7 @@ export function Sidebar({
           node={folder}
           ancestors={rootAncestors}
           activeId={activeId}
+          activePathIds={activePathIds}
           childrenByParent={childrenByParent}
           expanded={expanded}
           loadingNodes={loadingNodes}
