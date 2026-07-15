@@ -45,3 +45,28 @@ jobs:
           remember_state(state, flow.code_verifier)
           assert consume_state(state) == flow.code_verifier
           PY
+      - name: Verify Microsoft OAuth PKCE and SharePoint opaque IDs
+        working-directory: apps/api
+        env:
+          MICROSOFT_CLIENT_ID: test-client
+          MICROSOFT_CLIENT_SECRET: test-secret
+          MICROSOFT_TENANT_ID: organizations
+        run: |
+          python - <<'PY'
+          import base64
+          import hashlib
+          from urllib.parse import parse_qs, urlparse
+
+          from app.providers.microsoft.auth import authorization_url, consume_state
+          from app.providers.microsoft.mapper import make_id, parse_id
+
+          query = parse_qs(urlparse(authorization_url()).query)
+          verifier = consume_state(query["state"][0])
+          challenge = base64.urlsafe_b64encode(
+              hashlib.sha256(verifier.encode()).digest()
+          ).rstrip(b"=").decode()
+          assert challenge == query["code_challenge"][0]
+
+          opaque_id = make_id("item", "drive:id", "item/id")
+          assert parse_id(opaque_id) == ("item", ["drive:id", "item/id"])
+          PY
