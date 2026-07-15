@@ -47,14 +47,14 @@ export default function App() {
 
     <section>
       <header>
-        <label className="search-box">
+        <label className={"search-box " + (explorer.searching ? "searching" : "")}>
           <span aria-hidden="true">⌕</span>
           <input
             value={explorer.query}
             onChange={event => explorer.setQuery(event.target.value)}
             onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
-            placeholder="Search folders and files here"
-            aria-label="Search folders and files in this folder"
+            placeholder="Search this folder and subfolders"
+            aria-label="Search folders and files in this folder and all subfolders"
           />
           {explorer.query && <button
             type="button"
@@ -94,12 +94,21 @@ export default function App() {
           <div className="title">
             <span>
               <h1>{explorer.path.at(-1)?.name || "My Drive"}</h1>
-              <small>{explorer.query
-                ? `${explorer.visibleItems.length} of ${explorer.items.length} items`
-                : `${explorer.items.length} items`}</small>
+              <small>{explorer.searching
+                ? "Indexing and searching subfolders…"
+                : explorer.query
+                  ? `${explorer.visibleItems.length} results in this folder and subfolders`
+                  : `${explorer.items.length} items`}</small>
             </span>
             <b>▦　☷</b>
           </div>
+
+          {explorer.searchError && <div className="search-warning">
+            Subfolder search is temporarily unavailable. Showing matches from the current folder.
+          </div>}
+          {explorer.searchTruncated && <div className="search-warning">
+            Search reached the metadata indexing limit; refine the query for more precise results.
+          </div>}
 
           {explorer.loading ? <div className="state">Loading assets…</div> : <AssetGrid
             items={explorer.visibleItems}
@@ -112,7 +121,7 @@ export default function App() {
             onPreview={setPreviewItem}
           />}
 
-          {!explorer.loading && !explorer.visibleItems.length && <div className="state">
+          {!explorer.loading && !explorer.searching && !explorer.visibleItems.length && <div className="state">
             {explorer.query ? "No matching folders or files" : "No assets found"}
           </div>}
           {explorer.selected.size > 0 && <div className="bulk">
