@@ -5,3 +5,8 @@ pydantic-settings==2.10.1
 python-dotenv==1.2.2
 google-auth==2.55.2
 google-auth-oauthlib==1.4.0
+SQLAlchemy==2.0.41
+psycopg[binary]==3.2.9
+alembic==1.18.5
+Pillow==12.3.0
+jsonschema==4.26.0

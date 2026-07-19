@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Asset,
+  AssetMetadata,
+  AssetMetadataMap,
   AuthState,
   DriveIndexStatus,
   Folder,
@@ -10,6 +12,7 @@ import type {
   SearchResponse,
   Tag,
   TreeCache,
+  VisibilityFilter,
 } from "../types";
 import { searchAssets } from "../utils/searchAssets";
 
@@ -55,6 +58,8 @@ export function useDriveExplorer() {
   const [path, setPath] = useState<Asset[]>([]);
   const [items, setItems] = useState<Asset[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [metadataByItem, setMetadataByItem] = useState<AssetMetadataMap>({});
+  const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [childrenByParent, setChildrenByParent] = useState<TreeCache>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["root"]));
@@ -265,6 +270,7 @@ export function useDriveExplorer() {
     setChildrenByParent({});
     setExpanded(new Set([rootId(source)]));
     setSelected(new Set());
+    setMetadataByItem({});
     setQuery("");
     resetSearch();
     setError("");
@@ -511,31 +517,131 @@ export function useDriveExplorer() {
     });
   }
 
+  function mergeMetadata(metadata: AssetMetadata[]) {
+    setMetadataByItem(current => {
+      const next = { ...current };
+      metadata.forEach(item => {
+        next[item.item_id] = item;
+      });
+      return next;
+    });
+  }
+
   async function applyTag(tagId: string) {
+    setError("");
     const response = await fetch("/api/tags/assign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ provider, item_ids: [...selected], tag_id: tagId }),
     });
-    response.ok ? setSelected(new Set()) : setError("Unable to assign tag");
+    if (!response.ok) {
+      setError("Unable to assign tag");
+      return;
+    }
+    const body = await response.json() as { items: AssetMetadata[] };
+    mergeMetadata(body.items);
+    setSelected(new Set());
+  }
+
+  async function rateItems(itemIds: string[], rating: number | null) {
+    setError("");
+    const response = await fetch("/api/metadata/rating", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, item_ids: itemIds, rating }),
+    });
+    if (!response.ok) {
+      setError("Unable to save asset rating");
+      return false;
+    }
+    const body = await response.json() as { items: AssetMetadata[] };
+    mergeMetadata(body.items);
+    return true;
+  }
+
+  async function rateAsset(item: Asset, rating: number | null) {
+    await rateItems([item.id], rating);
+  }
+
+  async function applyRating(rating: number | null) {
+    if (await rateItems([...selected], rating)) setSelected(new Set());
+  }
+
+  function changeVisibilityFilter(filter: VisibilityFilter) {
+    setVisibilityFilter(filter);
+    setSelected(new Set());
   }
 
   const localResults = useMemo(
     () => searchAssets(items, query),
     [items, query],
   );
-  const visibleItems = useMemo(
+  const matchedItems = useMemo(
     () => query.trim().length >= 2 && searchResults !== null
       ? searchAssets(searchResults, query)
       : localResults,
     [localResults, query, searchResults],
   );
 
+  const visibleItems = useMemo(
+    () => visibilityFilter === "all"
+      ? matchedItems
+      : matchedItems.filter(item =>
+        item.kind === "folder"
+        || metadataByItem[item.id]?.tag_ids.includes(visibilityFilter)
+      ),
+    [matchedItems, metadataByItem, visibilityFilter],
+  );
+
+  const visibilityFilterReady = visibilityFilter === "all"
+    || matchedItems.every(item =>
+      item.kind === "folder" || metadataByItem[item.id] !== undefined
+    );
+
+  useEffect(() => {
+    if (!auth.authenticated || matchedItems.length === 0) return;
+
+    const controller = new AbortController();
+    const itemIds = [...new Set(matchedItems.map(item => item.id))];
+
+    async function loadMetadata() {
+      try {
+        const batches: string[][] = [];
+        for (let index = 0; index < itemIds.length; index += 500) {
+          batches.push(itemIds.slice(index, index + 500));
+        }
+        const metadata = await Promise.all(batches.map(async batch => {
+          const response = await fetch("/api/metadata/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+            body: JSON.stringify({ provider, item_ids: batch }),
+          });
+          if (!response.ok) throw Error("Unable to load asset metadata");
+          const body = await response.json() as { items: AssetMetadata[] };
+          return body.items;
+        }));
+        if (!controller.signal.aborted) mergeMetadata(metadata.flat());
+      } catch (reason) {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : "Unable to load asset metadata");
+        }
+      }
+    }
+
+    void loadMetadata();
+    return () => controller.abort();
+  }, [auth.authenticated, provider, matchedItems]);
+
   return {
     path,
     items,
     visibleItems,
     tags,
+    metadataByItem,
+    visibilityFilter,
+    visibilityFilterReady,
+    setVisibilityFilter: changeVisibilityFilter,
     selected,
     childrenByParent,
     expanded,
@@ -569,6 +675,8 @@ export function useDriveExplorer() {
     logout,
     toggleSelection,
     applyTag,
+    rateAsset,
+    applyRating,
     clearSelection: () => setSelected(new Set()),
   };
 }

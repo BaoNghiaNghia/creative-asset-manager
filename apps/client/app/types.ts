@@ -1,4 +1,5 @@
 export type Provider = "google-drive" | "sharepoint";
+export type VisibilityFilter = "all" | "public" | "draft";
 
 export type Asset = {
   provider: Provider;
@@ -21,7 +22,15 @@ export type SearchResponse = {
   skipped_folders: number;
 };
 
-export type Tag = { id: string; name: string; color: string };
+export type Tag = {
+  id: string;
+  name: string;
+  color: string;
+  group_key?: string;
+  is_system?: boolean;
+};
+export type AssetMetadata = { item_id: string; tag_ids: string[]; rating: number | null };
+export type AssetMetadataMap = Record<string, AssetMetadata>;
 export type CloudUser = { id: string; name?: string; email?: string; picture?: string };
 export type AuthState = { authenticated: boolean; user: CloudUser | null; checking: boolean };
 export type OAuthErrorState = { message: string; requestId?: string } | null;

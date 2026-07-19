@@ -1,0 +1,19 @@
+{
+  "analysis": {
+    "creative": {
+      "visual_entities": [
+        {
+          "species": "Cat"
+        }
+      ],
+      "audiences": [
+        {
+          "label": "MAMA"
+        }
+      ],
+      "brand": {
+        "heritage": "EST. 2015"
+      }
+    }
+  }
+}

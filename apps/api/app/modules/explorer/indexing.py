@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from app.modules.explorer.schema import IndexRequest, IndexStatus, SearchRequest
 from app.modules.explorer.service import ExplorerService
+from app.providers.source_factory import create_source_provider
 
 logger = logging.getLogger(__name__)
 _jobs: dict[str, IndexStatus] = {}
@@ -47,7 +48,7 @@ def start_index_job(
 
     async def run():
         try:
-            result = await ExplorerService().search_subtree(
+            result = await ExplorerService(create_source_provider).search_subtree(
                 SearchRequest(
                     provider=body.provider,
                     query="__metadata_index_only__",

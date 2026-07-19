@@ -641,3 +641,132 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   .assets-empty-icon{width:64px;height:64px;border-radius:18px}
   .assets-empty-icon svg{width:35px;height:35px}
 }
+
+
+/* Persistent workflow tags and 1–5 star ratings */
+.asset-metadata{
+  display:flex;
+  min-height:20px;
+  margin-top:9px;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.asset-status{
+  display:inline-flex;
+  align-items:center;
+  padding:3px 7px;
+  border-radius:999px;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.04em;
+  line-height:1;
+  text-transform:uppercase;
+}
+.asset-status.public{background:#e3f5ea;color:#237a4b}
+.asset-status.draft{background:#fff2cf;color:#8a6112}
+.asset-rating{display:flex;margin-left:auto;gap:1px}
+.asset-rating button{
+  width:18px;
+  height:20px;
+  padding:0;
+  border:0;
+  border-radius:4px;
+  background:transparent;
+  color:#c7ced8;
+  cursor:pointer;
+  font-size:14px;
+  line-height:20px;
+  transition:color .14s ease,background .14s ease,transform .14s ease;
+}
+.asset-rating button.filled{color:#f2b01e}
+.asset-rating button:hover{
+  background:#fff5d9;
+  color:#e5a50a;
+  transform:scale(1.12);
+}
+.asset-rating button:focus-visible{outline:2px solid #4f7ff0;outline-offset:1px}
+
+.bulk{
+  left:50%;
+  max-width:calc(100vw - 28px);
+  padding:10px 12px;
+  flex-wrap:wrap;
+  justify-content:center;
+  box-shadow:0 14px 38px #10182845;
+}
+.bulk>b{white-space:nowrap;font-size:12px}
+.bulk-divider{width:1px;height:28px;background:#ffffff26}
+.bulk-group{display:flex;align-items:center;gap:5px}
+.bulk-group>small{margin-right:2px;color:#aeb8c7;font-size:9px;font-weight:750;text-transform:uppercase}
+.bulk-group button{cursor:pointer;white-space:nowrap;font-size:11px}
+.bulk-group button:hover{background:#3b4657}
+.bulk-rating button{min-width:30px;padding:7px 6px;color:#ffd166}
+.bulk-close{
+  width:30px;
+  height:30px;
+  padding:0!important;
+  border-radius:50%!important;
+  color:#cbd3df!important;
+  font-size:18px!important;
+}
+.bulk button:focus-visible{outline:2px solid #8fb0ff;outline-offset:1px}
+
+@media(max-width:760px){
+  .asset-rating button{width:17px}
+  .bulk{bottom:12px;width:calc(100vw - 20px)}
+  .bulk-divider{display:none}
+  .bulk-group{width:100%;justify-content:center}
+  .bulk-group>small{min-width:52px}
+}
+@media(prefers-reduced-motion:reduce){
+  .asset-rating button{transition:none}
+  .asset-rating button:hover{transform:none}
+}
+
+
+/* Visibility filter: folders remain visible, files follow workflow tags */
+.title-actions{
+  display:flex;
+  align-items:center;
+  gap:14px;
+}
+.title-actions>b{color:#243244;font-size:13px;white-space:nowrap}
+.visibility-filter{
+  display:inline-flex;
+  padding:3px;
+  border:1px solid #dfe5ec;
+  border-radius:9px;
+  background:#f3f5f8;
+  gap:2px;
+}
+.visibility-filter button{
+  min-width:58px;
+  padding:6px 11px;
+  border:0;
+  border-radius:6px;
+  background:transparent;
+  color:#697586;
+  cursor:pointer;
+  font-size:11px;
+  font-weight:750;
+  text-transform:capitalize;
+  transition:background-color .15s ease,color .15s ease,box-shadow .15s ease;
+}
+.visibility-filter button:hover{background:#e8ecf2;color:#344054}
+.visibility-filter button.active{
+  background:#fff;
+  color:#2457b8;
+  box-shadow:0 1px 3px #1018281f,0 0 0 1px #d8e1f1;
+}
+.visibility-filter button:focus-visible{outline:2px solid #4f7ff0;outline-offset:2px}
+
+@media(max-width:760px){
+  .title{align-items:flex-start;gap:14px;flex-direction:column}
+  .title-actions{width:100%;justify-content:space-between}
+  .visibility-filter{flex:1}
+  .visibility-filter button{flex:1;min-width:0}
+}
+@media(prefers-reduced-motion:reduce){
+  .visibility-filter button{transition:none}
+}

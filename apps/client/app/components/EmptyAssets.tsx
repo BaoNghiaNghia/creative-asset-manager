@@ -1,9 +1,11 @@
-import type { Asset } from "../types";
+import type { Asset, VisibilityFilter } from "../types";
 
 type EmptyAssetsProps = {
   query: string;
   path: Asset[];
+  visibilityFilter: VisibilityFilter;
   onClearSearch: () => void;
+  onClearFilter: () => void;
   onOpen: (id: string, ancestors?: Asset[]) => void;
 };
 
@@ -25,9 +27,18 @@ function EmptyIllustration({ search }: { search: boolean }) {
   </svg>;
 }
 
-export function EmptyAssets({ query, path, onClearSearch, onOpen }: EmptyAssetsProps) {
+export function EmptyAssets({
+  query,
+  path,
+  visibilityFilter,
+  onClearSearch,
+  onClearFilter,
+  onOpen,
+}: EmptyAssetsProps) {
   const searchQuery = query.trim();
   const isSearch = Boolean(searchQuery);
+  const isFiltered = visibilityFilter !== "all";
+  const filterName = visibilityFilter === "public" ? "public" : "draft";
   const parent = path.at(-2);
 
   const openParent = () => {
@@ -36,22 +47,35 @@ export function EmptyAssets({ query, path, onClearSearch, onOpen }: EmptyAssetsP
   };
 
   return <section className="assets-empty" aria-live="polite">
-    <span className={"assets-empty-icon " + (isSearch ? "search" : "folder")}>
-      <EmptyIllustration search={isSearch} />
+    <span className={"assets-empty-icon " + (isSearch && !isFiltered ? "search" : "folder")}>
+      <EmptyIllustration search={isSearch && !isFiltered} />
     </span>
 
-    <h2>{isSearch ? `No results for “${searchQuery}”` : "This folder is empty"}</h2>
+    <h2>
+      {isFiltered
+        ? isSearch
+          ? `No ${filterName} assets matching “${searchQuery}”`
+          : `No ${filterName} assets here`
+        : isSearch
+          ? `No results for “${searchQuery}”`
+          : "This folder is empty"}
+    </h2>
     <p>
-      {isSearch
-        ? "Try a shorter name, check the spelling, or search with another keyword."
-        : "There are no folders or files here yet. Choose another folder or add assets using Upload."}
+      {isFiltered
+        ? `Folders stay visible in this view. Only files tagged ${filterName} are shown.`
+        : isSearch
+          ? "Try a shorter name, check the spelling, or search with another keyword."
+          : "There are no folders or files here yet. Choose another folder or add assets using Upload."}
     </p>
 
     <div className="assets-empty-actions">
-      {isSearch && <button className="primary" type="button" onClick={onClearSearch}>
+      {isFiltered && <button className="primary" type="button" onClick={onClearFilter}>
+        Show all assets
+      </button>}
+      {isSearch && <button className={isFiltered ? "secondary" : "primary"} type="button" onClick={onClearSearch}>
         Clear search
       </button>}
-      {!isSearch && parent && <button className="secondary" type="button" onClick={openParent}>
+      {!isSearch && !isFiltered && parent && <button className="secondary" type="button" onClick={openParent}>
         Back to {parent.name}
       </button>}
     </div>

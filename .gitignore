@@ -20,7 +20,14 @@ dist/
 **/dist/
 .vite/
 **/.vite/
+*.tsbuildinfo
 apps/client/package-lock.json
+
+# Local application database
+apps/api/data/
+*.db
+*.db-shm
+*.db-wal
 
 # Editors and operating systems
 .DS_Store

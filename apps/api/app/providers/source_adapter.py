@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+from app.domain.providers.contracts import (
+    AssetDownloadStream,
+    ExternalAssetCandidate,
+    GetSourceAssetInput,
+    ListSourceChangesInput,
+    OpenSourceAssetInput,
+    SourceChangePage,
+)
+from app.modules.explorer.schema import AssetNode
+
+
+def candidate_from_node(
+    node: AssetNode,
+    *,
+    source_type: str,
+    source_id: str,
+) -> ExternalAssetCandidate:
+    modified_at = node.modified_at.isoformat() if node.modified_at else None
+    return ExternalAssetCandidate(
+        source_type=source_type,  # type: ignore[arg-type]
+        source_id=source_id,
+        external_asset_id=node.id,
+        filename=node.name,
+        mime_type=node.mime_type,
+        size_bytes=node.size,
+        source_modified_at=modified_at,
+        source_metadata=node.model_dump(mode="json"),
+    )
+
+
+class BaseSourceAdapter:
+    source_type: str
+
+    def __init__(self, access_token: str, client_factory: Callable[[str], Any]):
+        self._access_token = access_token
+        self._client_factory = client_factory
+        self._client: Any | None = None
+
+    async def __aenter__(self):
+        self._client = self._client_factory(self._access_token)
+        await self._client.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback) -> None:
+        if self._client is not None:
+            await self._client.__aexit__(exc_type, exc, traceback)
+            self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            raise RuntimeError("source adapter must be used as an async context manager")
+        return self._client
+
+    async def get_node(self, item_id: str) -> AssetNode:
+        return await self.client.get(item_id)
+
+    async def list_children(
+        self, parent_id: str, *, folders_only: bool = False
+    ) -> list[AssetNode]:
+        return await self.client.children(parent_id, folders_only=folders_only)
+
+    async def get_asset(self, input: GetSourceAssetInput) -> ExternalAssetCandidate:
+        node = await self.get_node(input.external_asset_id)
+        return candidate_from_node(
+            node,
+            source_type=self.source_type,
+            source_id=input.source_id,
+        )
+
+    async def list_changes(self, input: ListSourceChangesInput) -> SourceChangePage:
+        raise NotImplementedError("incremental source sync is introduced in Step 06")
+
+    async def open_download_stream(
+        self, input: OpenSourceAssetInput
+    ) -> AssetDownloadStream:
+        raise NotImplementedError

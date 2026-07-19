@@ -1,0 +1,133 @@
+import unittest
+
+import httpx
+
+from app.domain.providers.contracts import StorageProviderError, StoreAssetInput
+from app.providers.google.storage import GoogleDriveAssetStorage
+
+
+async def body(value: bytes):
+    yield value
+
+
+class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
+    async def test_existing_remote_asset_is_returned_without_upload(self) -> None:
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "id": "remote-1",
+                            "parents": ["managed-root"],
+                            "webViewLink": "https://drive.google.com/file/remote-1",
+                            "size": "3",
+                        }
+                    ]
+                },
+            )
+
+        provider = GoogleDriveAssetStorage(
+            "storage-token",
+            root_folder_id="managed-root",
+            transport=httpx.MockTransport(handler),
+        )
+        result = await provider.store_asset(
+            StoreAssetInput(
+                tenant_id="tenant-a",
+                asset_id="asset-1",
+                content_hash="a" * 64,
+                body=body(b"new"),
+                filename="creative.png",
+            )
+        )
+        self.assertEqual(result.remote_file_id, "remote-1")
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].method, "GET")
+        self.assertNotIn("storage-token", str(requests[0].url))
+
+    async def test_retry_finds_uploaded_file_and_does_not_duplicate(self) -> None:
+        remote = None
+        upload_count = 0
+        uploaded_body = b""
+
+        async def handler(request):
+            nonlocal remote, upload_count, uploaded_body
+            if request.method == "GET":
+                return httpx.Response(200, json={"files": [remote] if remote else []})
+            if request.method == "POST":
+                upload_count += 1
+                metadata = __import__("json").loads((await request.aread()).decode())
+                self.assertEqual(metadata["name"], f"{'b' * 64}.png")
+                self.assertEqual(metadata["parents"], ["managed-root"])
+                self.assertEqual(metadata["appProperties"]["cam_asset_id"], "asset-1")
+                return httpx.Response(
+                    200,
+                    headers={"location": "https://www.googleapis.com/upload/session-1"},
+                )
+            uploaded_body = await request.aread()
+            remote = {
+                "id": "remote-1",
+                "parents": ["managed-root"],
+                "webViewLink": "https://drive.google.com/file/remote-1",
+                "size": str(len(uploaded_body)),
+            }
+            return httpx.Response(200, json=remote)
+
+        provider = GoogleDriveAssetStorage(
+            "storage-token",
+            root_folder_id="managed-root",
+            transport=httpx.MockTransport(handler),
+        )
+        first = await provider.store_asset(
+            StoreAssetInput(
+                tenant_id="tenant-a",
+                asset_id="asset-1",
+                content_hash="b" * 64,
+                body=body(b"abc"),
+                content_type="image/png",
+                size_bytes=3,
+                filename="creative.png",
+            )
+        )
+        second = await provider.store_asset(
+            StoreAssetInput(
+                tenant_id="tenant-a",
+                asset_id="asset-1",
+                content_hash="b" * 64,
+                body=body(b"must-not-upload"),
+                filename="renamed.png",
+            )
+        )
+        self.assertEqual(first.remote_file_id, second.remote_file_id)
+        self.assertEqual(uploaded_body, b"abc")
+        self.assertEqual(upload_count, 1)
+
+    async def test_retryable_google_failure_is_classified(self) -> None:
+        provider = GoogleDriveAssetStorage(
+            "storage-token",
+            root_folder_id="managed-root",
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(503, text="unavailable")
+            ),
+        )
+        with self.assertRaises(StorageProviderError) as context:
+            await provider.store_asset(
+                StoreAssetInput(
+                    tenant_id="tenant-a",
+                    asset_id="asset-1",
+                    content_hash="c" * 64,
+                    body=body(b"abc"),
+                )
+            )
+        self.assertTrue(context.exception.retryable)
+
+    async def test_metadata_sidecars_are_not_implemented(self) -> None:
+        provider = GoogleDriveAssetStorage(
+            "storage-token", root_folder_id="managed-root"
+        )
+        with self.assertRaisesRegex(NotImplementedError, "Step 19"):
+            await provider.store_metadata_sidecar(None)  # type: ignore[arg-type]

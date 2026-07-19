@@ -1,0 +1,161 @@
+# Architecture Review
+
+## Current completed step
+
+Step 12 — Search projection builder.
+
+## Review summary
+
+- Repository-local architecture rules and ADR-001 through ADR-006 now exist.
+- All 15 rollout flags are centralized in the API settings service.
+- Every flag defaults to false and is not consumed by a runtime feature path.
+- Strict boolean validation runs at FastAPI startup.
+- Configuration defaults, valid values, invalid values, and central cached access are covered by tests.
+- Step 01 introduced no route, migration, worker, provider, database, or UI behavior.
+
+## Feature flags
+
+All Step 01 flags remain disabled. Enabling a flag currently has no product effect; later steps must implement behavior behind the relevant flag and update this review.
+
+## Validation results
+
+- API/configuration tests: 5 passed, including FastAPI startup and health smoke coverage.
+- Python compile check for `app` and `tests`: passed.
+- Client production build: passed (TypeScript and Vite).
+- Step 01 diff check passed with no migration or worker changes.
+
+## Step 02 review
+
+- Source, storage, and AI provider-neutral contracts are defined without external SDK imports.
+- Google Drive and SharePoint adapters wrap the existing clients.
+- `ExplorerService` receives a source-provider factory and has no concrete cloud-provider import.
+- Existing route declarations and response models are unchanged.
+- Incremental changes, storage, and AI remain disabled skeletons.
+- Fourteen API/contract/adapter tests pass with RuntimeWarning treated as an error.
+- No migration or worker files changed.
+
+## Phase 3 review — Steps 03 and 04
+
+- Added the five tenant-scoped asset registry tables and Alembic revision `0001_asset_registry`.
+- Database constraints enforce source identity, tenant content identity, tenant-safe links, and cursor identity.
+- Repository operations cover source/asset upsert, content lookup/create, idempotent linking, soft deletion, and cursors.
+- SHA-256 is calculated incrementally from original byte streams without whole-file buffering.
+- Provider checksum/version optimization uses separately stored hash-confirmed markers.
+- Concurrent transactions recover from the unique content conflict and converge on one asset.
+- Same bytes deduplicate across filenames/providers within a tenant; different tenants remain isolated.
+- `CONTENT_DEDUP_ENABLED` remains false and no explorer/search/worker route invokes the new service.
+- Migration upgrade/downgrade, repository, hashing, behavior, and concurrency tests pass.
+- No route or worker was added.
+
+## Phase 4 review — Step 05
+
+- Added `processing_jobs` and `outbox_events` with Alembic revision `0002_processing_jobs_outbox`.
+- Job creation is tenant-idempotent and retries reuse the same stable job row.
+- PostgreSQL claims with `FOR UPDATE SKIP LOCKED`; SQLite/test uses atomic conditional `UPDATE ... RETURNING`.
+- Claims use renewable leases; expired leases recover while exhausted leases become terminal failures.
+- Failures use bounded exponential backoff and respect `max_attempts`.
+- Outbox writes share the caller transaction with domain mutations and publishing is idempotent.
+- The worker loop is opt-in, sleeps on an empty queue, and no process is started by the application.
+- `PROCESSING_JOBS_ENABLED` remains false; no API, ingestion, search, or UI behavior changed.
+- Migration, concurrency, lease, retry, idempotency, transaction rollback, and idle polling tests pass.
+- Full API suite: 42 passed with `RuntimeWarning` treated as an error; Python compile and client production build passed.
+
+## Phase 5 review — Step 06
+
+- Google Drive Changes and SharePoint drive Delta adapters now return provider-neutral change pages.
+- Cursors are tenant/source scoped and committed only with the source assets and idempotent download jobs from the same page.
+- Rename/folder move updates mutable metadata without scheduling content work; checksum/content-version overwrite schedules a new download version.
+- Delete and unchanged restore are idempotent; reconciliation soft-deletes observations missing from a complete provider scan.
+- `source_sync` is a supported durable job type, but no handler or scheduler is registered.
+- `INCREMENTAL_SOURCE_SYNC_ENABLED` remains false; current explorer behavior is unchanged and no migration was added.
+
+## Phase 6 review — Step 07
+
+- Added an HTTPS-only, allowlisted, DNS-validating streamed image downloader.
+- Every redirect repeats hostname and address validation and respects a bounded redirect count.
+- Connect/read timeouts, byte, width, height and pixel limits are configurable.
+- Requests are pinned to the validated public IP while retaining original Host/TLS SNI.
+- SHA-256 is calculated while streaming; magic bytes and a full Pillow decode validate image content independently of Content-Type.
+- Signed URL credentials/query/fragment are redacted and temporary files are removed on all exits.
+- `EXTERNAL_ASSET_DOWNLOADER_ENABLED` remains false; no ingestion route or worker registration was added.
+- Full API suite: 63 passed with `RuntimeWarning` treated as an error; Python compile passed.
+
+## Phase 6 review — Step 08
+
+- Added GoogleDriveAssetStorage with credentials and root folder independent from Source Drive.
+- Deterministic content-hash filenames and Drive appProperties bind remote files to internal assets.
+- Remote lookup plus the database uniqueness constraint makes retries idempotent.
+- asset_storage_objects persists status, retries, errors, remote file/folder IDs and web URL.
+- Metadata sidecars remain unimplemented and are owned by Step 19.
+- MANAGED_ASSET_STORAGE_ENABLED remains false; no route or worker was registered.
+- Added Alembic revision 0003_managed_asset_storage.
+
+## Phase 7 review — Step 09
+
+- Added tenant-versioned metadata_profiles with dynamic optional JSON Schema and search configuration.
+- Added asset_ai_analyses as immutable history linked tenant-safely to canonical assets and profiles.
+- metadata_json, optional raw_response_json, and versioned search_projection use PostgreSQL JSONB.
+- Normal analysis is database-idempotent; forced analysis creates new history without overwriting completed results.
+- No fixed asset-category schema, AI provider call, route, or worker was added.
+- DYNAMIC_AI_METADATA_ENABLED remains false.
+- Added Alembic revision 0004_dynamic_ai_metadata.
+
+## Phase 7 review — Step 09B
+
+- The metadata boundary requires an object root and valid finite JSON.
+- Configurable byte, depth, node, array and string limits reject oversized or adversarial documents.
+- Optional profile JSON Schema errors include stable codes and document paths.
+- Validation deep-copies accepted data and never mutates or aliases caller input.
+- jsonschema 4.26.0 is pinned.
+- Targeted Step 09/09B suite: 17 passed with RuntimeWarning treated as an error.
+- Full API suite: 89 passed; Python compile, Alembic single-head check, and client production build passed.
+- The Step 05 outbox test fixture now uses a fixed available timestamp and no longer depends on wall-clock time.
+
+## Phase 8 review — Step 10
+
+- Added deterministic nested object/array traversal with index-free logical paths.
+- Strings and finite numbers are extracted; booleans are opt-in and nulls are ignored.
+- Work is bounded by depth, node, array item, and extracted-value limits.
+- Global and profile path exclusions remove URLs, credentials, tokens, base64, vectors, embeddings, coordinates, bounding boxes, provider IDs, and debug payloads.
+
+## Phase 8 review — Step 11
+
+- Added NFKC Unicode normalization, case folding, punctuation normalization, and whitespace collapse.
+- Meaningful short words are preserved; integer-like numbers, years, and useful phrases are retained.
+- Terms are deduplicated deterministically and bounded without modifying source metadata.
+
+## Phase 8 review — Step 12
+
+- Added the stable seven-field SearchProjectionBuilder and flat/deep equivalence fixtures.
+- Profile config controls text paths, facets, include-all behavior, booleans, exclusions, and query-only boosts.
+- SearchProjectionService rebuilds only from stored metadata and persists projection/version separately.
+- SEARCH_PROJECTION_ENABLED remains false; no route, worker, Elasticsearch mapping, or AI call was added.
+- Targeted Steps 10–12 suite: 30 passed.
+- Full API suite: 119 passed; Python compile, Alembic single-head, client build, and shared TypeScript contract check passed.
+
+## Risks and follow-up
+
+- Existing configuration outside the new flags still uses direct `os.getenv`; it should migrate incrementally when touched, not through a broad rewrite.
+- The working tree contained pre-existing uncommitted metadata/tag changes during Steps 00 and 01; reviewers must separate those from foundation changes.
+- PostgreSQL-specific `FOR UPDATE SKIP LOCKED` is implemented but still needs validation against the production PostgreSQL version and connection pool.
+- SharePoint incremental sources require a concrete document-library `drive_id` in external source metadata.
+- Reconciliation currently keeps the seen external IDs in memory; very large libraries should move this marker into PostgreSQL.
+- Managed Drive storage requires a separately provisioned write-capable credential and root folder.
+- PostgreSQL JSONB, partial-index and concurrent upload behavior still need live PostgreSQL/Google Drive staging validation.
+- Concurrent storage execution relies on Step 05 job claiming; callers must not bypass the durable job ownership boundary.
+- Sensitive-value heuristics intentionally favor exclusion and may omit unusually long base64-like human labels.
+- Profile search configuration changes require a projection rebuild, but never another AI analysis.
+
+## Rollback
+
+Keep `PROCESSING_JOBS_ENABLED=false`, stop any manually started consumer, export pending/failed records if needed, then downgrade `0002_processing_jobs_outbox` to `0001_asset_registry`. This drops only the two Step 05 tables.
+
+Steps 06 and 07 add no migration. Roll them back by keeping both flags false, removing direct callers, and removing the sync/downloader modules; remove Pillow if no other feature uses it.
+
+For Step 08, keep MANAGED_ASSET_STORAGE_ENABLED false, stop storage consumers,
+export remote IDs, then downgrade 0003 to 0002; remote Drive files remain. For
+Step 09, disable metadata flags, export history, then downgrade 0004 to 0003.
+
+Steps 10–12 add no migration. Roll back by keeping SEARCH_PROJECTION_ENABLED
+false, removing callers and the traverser/normalizer/projection modules. Existing
+metadata_json and stored analysis history remain authoritative and unchanged.

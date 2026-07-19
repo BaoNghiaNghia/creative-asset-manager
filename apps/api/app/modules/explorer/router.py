@@ -19,6 +19,7 @@ from app.modules.explorer.schema import (
     SearchResponse,
 )
 from app.modules.explorer.service import ExplorerService
+from app.providers.source_factory import create_source_provider
 from app.providers.google.auth import get_access_token as get_google_token
 from app.providers.google.auth import get_session as get_google_session
 from app.providers.google.drive import close_media_stream as close_google_media
@@ -71,7 +72,7 @@ async def children(
 ):
     try:
         token = await _access_token(request, provider)
-        return await ExplorerService().list_folder(
+        return await ExplorerService(create_source_provider).list_folder(
             parent_id,
             token,
             _account_id(request, provider),
@@ -91,7 +92,7 @@ async def folders(
 ):
     try:
         token = await _access_token(request, provider)
-        return await ExplorerService().list_folders(parent_id, token, provider)
+        return await ExplorerService(create_source_provider).list_folders(parent_id, token, provider)
     except HTTPException:
         raise
     except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:
@@ -120,7 +121,7 @@ async def index_status(
 async def search(request: Request, body: SearchRequest):
     try:
         token = await _access_token(request, body.provider)
-        return await ExplorerService().search_subtree(
+        return await ExplorerService(create_source_provider).search_subtree(
             body,
             token,
             _account_id(request, body.provider),
@@ -144,7 +145,7 @@ async def search_stream(request: Request, body: SearchRequest):
 
         async def execute():
             try:
-                result = await ExplorerService().search_subtree(
+                result = await ExplorerService(create_source_provider).search_subtree(
                     body,
                     token,
                     account_id,

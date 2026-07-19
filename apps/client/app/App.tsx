@@ -9,6 +9,8 @@ import { useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
 import type { Asset } from "./types";
 
+const visibilityFilters = ["all", "public", "draft"] as const;
+
 export default function App() {
   const explorer = useDriveExplorer();
   const sidebar = useResizableSidebar();
@@ -150,7 +152,11 @@ export default function App() {
                   ? `Completed · 100% · ${explorer.visibleItems.length} results (${explorer.searchIndexedCount} indexed)`
                   : explorer.query
                     ? `${explorer.visibleItems.length} results in this folder and subfolders`
-                    : `${explorer.items.length} items`}</small>
+                    : !explorer.visibilityFilterReady
+                      ? "Loading asset labels…"
+                      : explorer.visibilityFilter === "all"
+                        ? `${explorer.items.length} items`
+                        : `${explorer.visibleItems.length} items shown`}</small>
               {(explorer.searching || explorer.searchComplete) && <>
                 <div
                   className={"search-progress " + (explorer.searchComplete ? "complete" : "")}
@@ -173,7 +179,18 @@ export default function App() {
                 </em>}
               </>}
             </span>
-            <b>▦　☷</b>
+            <div className="title-actions">
+              <div className="visibility-filter" role="group" aria-label="Filter assets by visibility">
+                {visibilityFilters.map(filter => <button
+                  key={filter}
+                  type="button"
+                  className={explorer.visibilityFilter === filter ? "active" : ""}
+                  aria-pressed={explorer.visibilityFilter === filter}
+                  onClick={() => explorer.setVisibilityFilter(filter)}
+                >{filter}</button>)}
+              </div>
+              <b aria-label="Layout options">▦　☷</b>
+            </div>
           </div>
 
           {explorer.searchError && <div className="search-warning">
@@ -187,25 +204,46 @@ export default function App() {
             items={explorer.visibleItems}
             path={explorer.path}
             selected={explorer.selected}
+            metadataByItem={explorer.metadataByItem}
             onOpen={explorer.open}
             onToggle={explorer.toggleSelection}
             onPrefetch={explorer.scheduleFolderPrefetch}
             onCancelPrefetch={explorer.cancelFolderPrefetch}
             onPreview={setPreviewItem}
+            onRate={explorer.rateAsset}
           />}
 
-          {!explorer.loading && !explorer.searching && !explorer.visibleItems.length && <EmptyAssets
+          {!explorer.loading && !explorer.searching && !explorer.visibilityFilterReady && !explorer.visibleItems.length &&
+            <div className="state">Loading asset labels…</div>}
+
+          {!explorer.loading && !explorer.searching && explorer.visibilityFilterReady && !explorer.visibleItems.length && <EmptyAssets
             query={explorer.query}
             path={explorer.path}
+            visibilityFilter={explorer.visibilityFilter}
             onClearSearch={() => explorer.setQuery("")}
+            onClearFilter={() => explorer.setVisibilityFilter("all")}
             onOpen={explorer.open}
           />}
           {explorer.selected.size > 0 && <div className="bulk">
             <b>{explorer.selected.size} selected</b>
-            {explorer.tags.map(tag => <button key={tag.id} onClick={() => explorer.applyTag(tag.id)}>
-              <i style={{ background: tag.color }} />{tag.name}
-            </button>)}
-            <button onClick={explorer.clearSelection}>×</button>
+            <span className="bulk-divider" />
+            <div className="bulk-group">
+              <small>Visibility</small>
+              {explorer.tags.map(tag => <button key={tag.id} onClick={() => explorer.applyTag(tag.id)}>
+                <i style={{ background: tag.color }} />{tag.name}
+              </button>)}
+            </div>
+            <span className="bulk-divider" />
+            <div className="bulk-group bulk-rating">
+              <small>Rating</small>
+              {[1, 2, 3, 4, 5].map(rating => <button
+                key={rating}
+                onClick={() => explorer.applyRating(rating)}
+                aria-label={`Set rating to ${rating} stars`}
+                title={`Set rating to ${rating} stars`}
+              >{rating}★</button>)}
+            </div>
+            <button className="bulk-close" onClick={explorer.clearSelection} aria-label="Clear selection">×</button>
           </div>}
         </>}
     </section>
