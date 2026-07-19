@@ -134,3 +134,43 @@ Append-oriented analysis history for a canonical content version.
 
 Revision 0004_dynamic_ai_metadata creates both tables. Its downgrade removes
 only Step 09 tables; legacy asset_metadata and tags are unaffected.
+
+## External ingestion API
+
+### external_api_credentials
+
+Tenant/source-scoped credentials for an `external_api` source.
+
+- Only a SHA-256 API-key fingerprint and short display prefix are stored.
+- Composite tenant/source foreign keys prevent cross-tenant authorization.
+- Credentials support revocation, activation, and a positive per-minute limit.
+
+### external_api_rate_limits
+
+Atomic fixed-window request counters keyed by credential and UTC minute.
+
+- Unique credential/window identity is the concurrency boundary.
+- PostgreSQL and SQLite use conflict-aware atomic increments.
+
+### asset_ingestions
+
+One accepted supplier request and its canonical body hash.
+
+- Unique `(tenant_id, external_source_id, idempotency_key)` is the final
+  idempotency and concurrency guard.
+- Composite foreign keys guarantee the credential, source, and ingestion share
+  the same tenant/source boundary.
+- Aggregate status is derived from persisted item statuses.
+
+### asset_ingestion_items
+
+Per-item request data, durable processing status, and job/source-asset links.
+
+- External asset IDs are unique within an ingestion.
+- Position is unique within an ingestion for deterministic response ordering.
+- Source-asset links are tenant-enforcing; source deletion is restricted while
+  referenced by an ingestion audit record.
+
+Revision `0005_external_ingestions` creates all four tables. Its downgrade
+removes only Step 18 records; queued processing jobs can retain inert JSON
+references and should be drained or archived before downgrade.

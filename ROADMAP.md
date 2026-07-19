@@ -29,7 +29,7 @@
 - [ ] 15 Single-asset AI analysis
 - [ ] 16 Pilot evaluation
 - [ ] 17 AI batch processing
-- [ ] 18 External ingestion API
+- [x] 18 External ingestion API
 - [ ] 19 Metadata sidecar export
 
 ## Operations and product

@@ -2,20 +2,20 @@
 
 ## Current completed step
 
-Step 14 — Search query parser and Elasticsearch query builder.
+Step 18 — Authenticated asynchronous external ingestion API.
 
 ## Review summary
 
 - Repository-local architecture rules and ADR-001 through ADR-006 now exist.
 - All 15 rollout flags are centralized in the API settings service.
-- Every flag defaults to false and is not consumed by a runtime feature path.
+- Every flag defaults to false; completed capabilities consume only their dedicated flag.
 - Strict boolean validation runs at FastAPI startup.
 - Configuration defaults, valid values, invalid values, and central cached access are covered by tests.
 - Step 01 introduced no route, migration, worker, provider, database, or UI behavior.
 
 ## Feature flags
 
-All Step 01 flags remain disabled. Enabling a flag currently has no product effect; later steps must implement behavior behind the relevant flag and update this review.
+All flags remain disabled by default. Implemented capabilities stay inactive until their dedicated flag is explicitly enabled.
 
 ## Validation results
 
@@ -190,3 +190,44 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   both aliases to the previous physical index if a staging switch occurred,
   then removing the v2 adapter/parser. PostgreSQL projections and v1 search
   remain unchanged.
+
+## Phase 11 review — Step 18
+
+- Added authenticated `POST`, status, and paginated item endpoints under
+  `/api/v1/asset-ingestions`, gated by `EXTERNAL_INGESTION_API_ENABLED`.
+- High-entropy bearer API keys are stored only as SHA-256 fingerprints and are
+  bound by database constraints to one tenant and one `external_api` source.
+- Request bodies are bounded to 1 MiB and 1,000 unique items; external IDs,
+  HTTPS URLs, filenames, checksums, and timezone-aware modified timestamps are
+  validated before persistence.
+- Canonical JSON hashing and the unique tenant/source/idempotency-key constraint
+  make retries and concurrent duplicate requests converge on one ingestion.
+- Same key plus a different canonical request returns HTTP 409.
+- Accepted requests persist ingestion/item state and enqueue only durable
+  `source_asset_download` jobs in the same transaction. No request-time
+  download, storage, AI analysis, or Elasticsearch indexing occurs.
+- Database fixed-window counters enforce per-credential rate limits atomically.
+- Added Alembic revision `0005_external_ingestions`; upgrade and step-scoped
+  downgrade are covered by migration tests.
+- `EXTERNAL_INGESTION_API_ENABLED` remains false by default.
+- Targeted Step 18 suite: 13 passed. Full API suite: 158 passed with
+  `RuntimeWarning` treated as an error; Python compile, Alembic single-head,
+  migration rollback, and client production build passed.
+
+## Phase 11 risks and rollback
+
+- Credential provisioning/rotation is currently an admin/repository operation;
+  a dedicated admin UI or secret-manager integration is still required.
+- Signed download URLs must remain in PostgreSQL/job payloads until workers use
+  them; logs and validation errors do not echo those values, but production
+  database encryption, retention, and access policies remain operational duties.
+- Fixed-window rate-limit rows require periodic retention cleanup at scale.
+- PostgreSQL `ON CONFLICT ... RETURNING` rate limiting and high-concurrency
+  ingestion still need staging validation against the production database and
+  connection pool.
+- The Step 18 API enqueues existing job types only; with processing workers
+  disabled, accepted items intentionally remain queued.
+- Roll back by keeping `EXTERNAL_INGESTION_API_ENABLED=false`, stopping external
+  callers, exporting audit/status records if needed, and downgrading
+  `0005_external_ingestions` to `0004_dynamic_ai_metadata`. Existing processing
+  jobs may retain inert JSON references to removed ingestion item IDs.
