@@ -2,7 +2,7 @@
 
 ## Current completed step
 
-Step 12 — Search projection builder.
+Step 14 — Search query parser and Elasticsearch query builder.
 
 ## Review summary
 
@@ -159,3 +159,34 @@ Step 09, disable metadata flags, export history, then downgrade 0004 to 0003.
 Steps 10–12 add no migration. Roll back by keeping SEARCH_PROJECTION_ENABLED
 false, removing callers and the traverser/normalizer/projection modules. Existing
 metadata_json and stored analysis history remain authoritative and unchanged.
+
+## Phase 9 review — Steps 13 and 14
+
+- Added an HTTP-based Elasticsearch v2 infrastructure adapter with versioned
+  physical indices and independent read/write aliases.
+- The strict stable mapping uses flattened facets, nested path_values, and a
+  lowercase/Unicode/punctuation analyzer; metadata_json is absent.
+- Bounded bulk indexing uses asset_id as the document ID and idempotent
+  doc-as-upsert semantics.
+- Read/write aliases switch in one atomic API request and return their prior
+  targets for explicit rollback.
+- Added a provider-neutral parser for single terms, soft AND, comma strict AND,
+  phrases, explicit OR, qualified terms, and qualified phrases.
+- Query normalization reuses MetadataNormalizer. Malformed input falls back to
+  safe plain-text fields; every query is tenant-filtered.
+- ELASTICSEARCH_V2_ENABLED and SEARCH_QUERY_PARSER_V2_ENABLED remain false. No
+  route, worker, API response, or current v1 search behavior changed.
+- Added parser, builder, feature-gate, mapping, mocked HTTP integration, alias,
+  bulk-upsert, and required result fixture coverage.
+- Full API suite: 145 passed; Python compile, Alembic single-head, and client
+  production build passed.
+
+## Phase 9 risks and rollback
+
+- The adapter still needs staging validation against the production
+  Elasticsearch version, permissions, analyzer behavior, shard sizing, and
+  realistic bulk payload sizes.
+- No migration was added. Roll back by leaving both v2 flags false, switching
+  both aliases to the previous physical index if a staging switch occurred,
+  then removing the v2 adapter/parser. PostgreSQL projections and v1 search
+  remain unchanged.

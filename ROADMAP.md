@@ -21,8 +21,8 @@
 - [x] 10 Metadata traverser
 - [x] 11 Metadata normalizer
 - [x] 12 Search projection builder
-- [ ] 13 Elasticsearch v2 index
-- [ ] 14 Search query parser
+- [x] 13 Elasticsearch v2 index
+- [x] 14 Search query parser
 
 ## AI and APIs
 

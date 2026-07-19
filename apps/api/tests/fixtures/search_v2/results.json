@@ -1,0 +1,28 @@
+{
+  "documents": [
+    {
+      "asset_id": "simple-cat",
+      "search_terms": ["cat", "mama", "est 2015"],
+      "normalized_terms": ["cat", "mama", "est", "2015"],
+      "phrases": ["est 2015"]
+    },
+    {
+      "asset_id": "nested-cat",
+      "search_terms": ["cat", "mama", "est 2015"],
+      "normalized_terms": ["cat", "mama", "est", "2015"],
+      "phrases": ["est 2015"]
+    },
+    {
+      "asset_id": "dog-est",
+      "search_terms": ["dog", "est 2015"],
+      "normalized_terms": ["dog", "est", "2015"],
+      "phrases": ["est 2015"]
+    },
+    {
+      "asset_id": "dog-only",
+      "search_terms": ["dog"],
+      "normalized_terms": ["dog"],
+      "phrases": []
+    }
+  ]
+}

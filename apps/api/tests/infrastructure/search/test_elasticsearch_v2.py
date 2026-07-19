@@ -1,0 +1,106 @@
+import json
+import unittest
+
+import httpx
+
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.modules.search.index_types import SearchIndexDocument
+
+
+class ElasticsearchV2MappingTest(unittest.TestCase):
+    def test_mapping_is_strict_and_stable(self) -> None:
+        definition = ElasticsearchV2Index.index_definition()
+        properties = definition["mappings"]["properties"]
+        self.assertEqual(definition["mappings"]["dynamic"], "strict")
+        self.assertEqual(properties["facets"]["type"], "flattened")
+        self.assertEqual(properties["path_values"]["type"], "nested")
+        self.assertNotIn("metadata_json", properties)
+        self.assertEqual(
+            set(properties),
+            {"asset_id", "tenant_id", "filename", "folder_path", "search_text", "search_terms", "normalized_terms", "phrases", "numbers", "facets", "path_values", "metadata_profile", "metadata_profile_version", "search_projection_version"},
+        )
+
+    def test_analyzer_normalizes_case_unicode_and_punctuation(self) -> None:
+        analysis = ElasticsearchV2Index.index_definition()["settings"]["analysis"]
+        analyzer = analysis["analyzer"]["cam_text_v2"]
+        self.assertEqual(analyzer["char_filter"], ["cam_punctuation"])
+        self.assertEqual(analyzer["filter"], ["lowercase", "asciifolding"])
+
+
+class ElasticsearchV2HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            if request.method == "HEAD":
+                return httpx.Response(200)
+            if request.url.path.startswith("/_alias/"):
+                alias = request.url.path.rsplit("/", 1)[-1]
+                value = (
+                    {"is_write_index": True}
+                    if alias.endswith("-write")
+                    else {}
+                )
+                return httpx.Response(200, json={"creative-assets-v2-000001": {"aliases": {alias: value}}})
+            if request.url.path == "/_bulk":
+                return httpx.Response(200, json={"errors": False, "items": []})
+            if request.url.path.endswith("/_search"):
+                return httpx.Response(200, json={"hits": {"hits": []}})
+            return httpx.Response(200, json={"acknowledged": True})
+
+        self.client = httpx.AsyncClient(base_url="http://elastic.test", transport=httpx.MockTransport(handler))
+        self.index = ElasticsearchV2Index(
+            ElasticsearchV2Config("http://elastic.test", bulk_batch_size=1), client=self.client
+        )
+
+    async def asyncTearDown(self) -> None:
+        await self.client.aclose()
+
+    @staticmethod
+    def document(asset_id: str = "asset-1") -> SearchIndexDocument:
+        return SearchIndexDocument(
+            asset_id=asset_id, tenant_id="tenant-a", filename="cat.png",
+            folder_path="animals", search_text="cat mama est 2015",
+            search_terms=("cat", "mama", "est 2015"),
+            normalized_terms=("cat", "mama", "est", "2015"),
+            phrases=("est 2015",), numbers=("2015",),
+            facets={"subject": ("cat",)},
+            path_values=({"path": "subject", "value": "cat"},),
+            metadata_profile="default", metadata_profile_version="1",
+            search_projection_version="search-projection-v1",
+        )
+
+    async def test_create_uses_versioned_physical_name(self) -> None:
+        name = await self.index.create_index("000002")
+        self.assertEqual(name, "creative-assets-v2-000002")
+        self.assertEqual(self.requests[-1].url.path, f"/{name}")
+
+    async def test_bulk_uses_asset_id_and_doc_as_upsert(self) -> None:
+        count = await self.index.bulk_upsert([self.document(), self.document("asset-2")])
+        self.assertEqual(count, 2)
+        bulk_requests = [item for item in self.requests if item.url.path == "/_bulk"]
+        self.assertEqual(len(bulk_requests), 2)
+        lines = bulk_requests[0].content.decode().splitlines()
+        self.assertEqual(json.loads(lines[0])["update"]["_id"], "asset-1")
+        self.assertTrue(json.loads(lines[1])["doc_as_upsert"])
+        self.assertNotIn("metadata_json", json.loads(lines[1])["doc"])
+
+    async def test_alias_switch_is_atomic_and_returns_rollback_target(self) -> None:
+        result = await self.index.switch_aliases("creative-assets-v2-000002")
+        alias_requests = [item for item in self.requests if item.url.path == "/_aliases"]
+        self.assertEqual(len(alias_requests), 1)
+        actions = json.loads(alias_requests[0].content)["actions"]
+        self.assertEqual(len(actions), 4)
+        self.assertTrue(actions[-1]["add"]["is_write_index"])
+        self.assertEqual(result.previous_read_indices, ("creative-assets-v2-000001",))
+        await self.index.rollback_aliases(result.previous_read_indices[0])
+        self.assertEqual(len([item for item in self.requests if item.url.path == "/_aliases"]), 2)
+
+    async def test_search_reads_through_read_alias(self) -> None:
+        await self.index.search({"query": {"match_all": {}}})
+        self.assertEqual(self.requests[-1].url.path, "/creative-assets-v2-read/_search")
+
+
+if __name__ == "__main__":
+    unittest.main()

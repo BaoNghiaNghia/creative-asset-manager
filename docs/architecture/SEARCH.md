@@ -52,3 +52,45 @@ Boosts remain separate query configuration.
 
 SEARCH_PROJECTION_ENABLED remains false. Existing search and Elasticsearch
 flows are unchanged until their later rollout steps.
+
+## Phase 9 Elasticsearch v2
+
+Physical indices are versioned as `<prefix>-v2-<version>`. Applications read
+through `<prefix>-v2-read` and write through `<prefix>-v2-write`. Both aliases
+are switched in one aliases API request, and a switch returns the prior targets
+for explicit rollback.
+
+The v2 mapping uses `dynamic: strict` and has only these stable fields:
+
+- asset_id and tenant_id
+- filename and folder_path
+- search_text, search_terms, normalized_terms, phrases, and numbers
+- flattened facets
+- nested path_values with path and value
+- metadata_profile, metadata_profile_version, and search_projection_version
+
+metadata_json is deliberately absent. Bulk updates use asset_id as the
+Elasticsearch document ID and doc-as-upsert semantics.
+
+## Phase 9 query language
+
+The provider-neutral parser supports:
+
+- one term as a single keyword query
+- space-separated terms as soft AND
+- comma-separated clauses as strict AND
+- quoted phrases
+- explicit, case-insensitive OR
+- qualified terms and phrases
+
+Qualified names are allowlisted through stable field aliases, configured
+facets, or configured path_values. Invalid syntax and unknown qualifiers fall
+back to normalized plain-text clauses without using user input as a field name.
+Every generated query includes a tenant_id filter.
+
+Boost precedence is exact number, exact phrase, exact search term, configured
+path, normalized term, filename, search_text, then folder path. Index-time
+projection and query parsing both reuse MetadataNormalizer.
+
+ELASTICSEARCH_V2_ENABLED and SEARCH_QUERY_PARSER_V2_ENABLED remain false. The
+v1 search path is unchanged and no new route or worker is registered.
