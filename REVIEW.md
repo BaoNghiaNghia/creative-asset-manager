@@ -330,3 +330,33 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   requires production query-plan and latency validation on large tenants.
 - Roll back by reverting the Step 21A commit. No database downgrade, worker
   action, remote cleanup, or feature-flag change is required.
+
+## Phase 13 review — Step 22
+
+- Added a controlled rollout runbook covering the deployment checklist,
+  migration order, flag enablement order, isolated pilot procedure, general
+  rollback, Elasticsearch alias rollback, worker drain, AI budget emergency
+  stop, provider outage response, and backfill throttling.
+- The runbook preserves PostgreSQL authority, Elasticsearch rebuildability, and
+  non-authoritative sidecars. It contains no automatic flag mutation.
+- Documented the current hard control gap: feature flags and worker claims are
+  not tenant-gated. Shared multi-tenant pilot rollout is blocked; use an
+  isolated deployment containing only the pilot tenant until tenant allowlists
+  and tenant-filtered job claiming are implemented.
+- No application behavior, dependency, API route, worker, or database migration
+  was added in Step 22.
+- Configuration regression suite: 4 passed and confirms every feature flag
+  still defaults to false. Step 21A's full API suite (175), component suite (7),
+  and client build were already green before the documentation-only step.
+
+### Step 22 risks and rollback
+
+- Tenant gates, tenant-filtered worker claims, a durable drain endpoint,
+  automated AI budget circuit breaker, search comparison dashboards, and
+  provider-specific pause controls remain required before shared production
+  rollout.
+- Operational thresholds and owners must be filled with environment-specific
+  values before use; the runbook deliberately does not invent production SLOs
+  or credentials.
+- Roll back Step 22 by reverting its documentation commit. No database,
+  provider, search alias, worker, or feature-flag rollback is required.

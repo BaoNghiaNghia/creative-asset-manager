@@ -39,4 +39,4 @@
   - [x] 21A Processing status badges
   - [ ] 21B Asset details
   - [ ] 21C Search syntax
-- [ ] 22 Controlled rollout
+- [x] 22 Controlled rollout
