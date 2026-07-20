@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
@@ -24,6 +25,9 @@ from app.modules.ai_metadata.analysis_image import (
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.ai_metadata.validator import MetadataDocumentValidator
+from app.modules.ai_governance.metrics import AI_METRICS
+from app.modules.ai_governance.repository import AiGovernanceRepository
+from app.modules.ai_governance.service import AiBudgetService, usage_units
 from app.modules.assets.model import AssetModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.storage.repository import ManagedStorageRepository
@@ -31,7 +35,7 @@ from app.modules.storage.repository import ManagedStorageRepository
 
 @dataclass(frozen=True, slots=True)
 class AiAnalysisOutcome:
-    status: Literal["completed", "retryable_failure", "non_retryable_failure", "cancelled"]
+    status: Literal["completed", "retryable_failure", "non_retryable_failure", "cancelled", "budget_blocked"]
     error_code: str | None = None
     error_message: str | None = None
 
@@ -61,6 +65,8 @@ class AiAnalysisService:
         analysis_id: str,
         worker_id: str,
         is_cancelled: Callable[[], bool] | None = None,
+        job_id: str | None = None,
+        pilot_run_id: str | None = None,
     ) -> AiAnalysisOutcome:
         if not (
             self.settings.DYNAMIC_AI_METADATA_ENABLED
@@ -73,6 +79,12 @@ class AiAnalysisService:
             )
 
         attempt_count = 0
+        operation_key = None
+        reservation_id = None
+        provider_name = str(getattr(self.ai_provider, "provider_name", "gemini"))
+        provider_model = str(getattr(self.ai_provider, "model", self.settings.GEMINI_MODEL))
+        estimated_cost_micros = 0
+        profile_name = profile_version = prompt_version = asset_id = None
         try:
             with self.session_factory() as session:
                 repository = AiMetadataRepository(session, self.validator)
@@ -159,6 +171,8 @@ class AiAnalysisService:
                     size_bytes=asset.size_bytes,
                 )
                 prompt = profile.prompt_template.replace("{{ asset }}", asset.id)
+                prompt_version = claimed.prompt_version
+                asset_id = asset.id
                 profile_name = profile.profile_name
                 profile_version = profile.profile_version
                 schema = profile.optional_json_schema
@@ -194,6 +208,43 @@ class AiAnalysisService:
                 repository.set_stage(analysis_id, "analyzing")
                 session.commit()
 
+            operation_key = f"analysis:{analysis_id}:attempt:{attempt_count}"
+            estimated_input_units = max(1, (len(prompt) + 3) // 4)
+            with self.session_factory() as session:
+                governance = AiGovernanceRepository(session)
+                rate = governance.resolve_cost_rate(provider_name, provider_model)
+                estimated_cost_micros = governance.estimate_cost(
+                    rate, estimated_input_units,
+                    self.settings.AI_ESTIMATED_OUTPUT_UNITS, 1,
+                )
+                decision = AiBudgetService(governance, self.settings).reserve(
+                    tenant_id=tenant_id, operation_key=operation_key,
+                    estimated_cost_micros=estimated_cost_micros,
+                    analysis_id=analysis_id, job_id=job_id, pilot_run_id=pilot_run_id,
+                    currency=rate.currency if rate else "USD",
+                )
+                reservation_id = decision.reservation_id
+                if not decision.allowed:
+                    AiMetadataRepository(session, self.validator).mark_budget_blocked(
+                        analysis_id, code=decision.code or "budget_blocked",
+                        reason=decision.reason or "AI budget blocked this operation.",
+                    )
+                    governance.record_usage(tenant_id=tenant_id, operation_key=operation_key, values={
+                        "asset_id": asset_id, "analysis_id": analysis_id, "job_id": job_id,
+                        "provider": provider_name, "model": provider_model,
+                        "metadata_profile": profile_name, "metadata_profile_version": profile_version,
+                        "prompt_version": prompt_version, "input_units": 0, "output_units": 0,
+                        "media_units": 0, "locally_estimated_cost_micros": estimated_cost_micros,
+                        "currency": rate.currency if rate else "USD", "latency_ms": 0,
+                        "outcome": "budget_blocked", "retry_count": max(0, attempt_count - 1),
+                    })
+                    session.commit()
+                    return AiAnalysisOutcome(
+                        "budget_blocked" if decision.action == "defer" else "non_retryable_failure",
+                        decision.code, decision.reason,
+                    )
+                session.commit()
+            provider_started = time.monotonic()
             result = await self.ai_provider.analyze_single(
                 AiMetadataAnalysisInput(
                     tenant_id=tenant_id,
@@ -207,6 +258,38 @@ class AiAnalysisService:
                     is_cancelled=is_cancelled,
                 )
             )
+            provider_latency_ms = int((time.monotonic() - provider_started) * 1000)
+            input_units, output_units, media_units = usage_units(result.usage)
+            with self.session_factory() as session:
+                governance = AiGovernanceRepository(session)
+                rate = governance.resolve_cost_rate(provider_name, result.model or provider_model)
+                local_actual = governance.estimate_cost(rate, input_units, output_units, media_units)
+                reported = result.usage.get("costMicros")
+                reported_micros = max(0, int(reported)) if isinstance(reported, (int, float)) else None
+                actual_cost = reported_micros if reported_micros is not None else local_actual
+                if reservation_id:
+                    AiBudgetService(governance, self.settings).reconcile(reservation_id, actual_cost)
+                governance.record_usage(tenant_id=tenant_id, operation_key=operation_key, values={
+                    "asset_id": asset_id, "analysis_id": analysis_id, "job_id": job_id,
+                    "provider": result.provider or provider_name, "model": result.model or provider_model,
+                    "metadata_profile": profile_name, "metadata_profile_version": profile_version,
+                    "prompt_version": prompt_version, "input_units": input_units,
+                    "output_units": output_units, "media_units": media_units,
+                    "provider_reported_cost_micros": reported_micros,
+                    "locally_estimated_cost_micros": local_actual,
+                    "currency": rate.currency if rate else "USD", "latency_ms": provider_latency_ms,
+                    "outcome": "completed", "retry_count": max(0, attempt_count - 1),
+                    "provider_request_id": result.provider_request_id,
+                })
+                session.commit()
+            AI_METRICS.increment("ai_requests", provider=provider_name, outcome="completed")
+            AI_METRICS.increment("input_units", provider=provider_name, outcome="completed", value=input_units)
+            AI_METRICS.increment("output_units", provider=provider_name, outcome="completed", value=output_units)
+            AI_METRICS.increment("estimated_cost_micros", provider=provider_name, outcome="completed", value=local_actual)
+            AI_METRICS.increment("actual_cost_micros", provider=provider_name, outcome="completed", value=actual_cost)
+            AI_METRICS.increment("media_units", provider=provider_name, outcome="completed", value=media_units)
+            AI_METRICS.increment("breaker_state", provider=provider_name, outcome="closed")
+            AI_METRICS.latency(provider_name, "completed", provider_latency_ms)
             with self.session_factory() as session:
                 repository = AiMetadataRepository(session, self.validator)
                 repository.set_stage(analysis_id, "validating")
@@ -225,6 +308,11 @@ class AiAnalysisService:
                     for item in validation.errors
                 ]
                 retryable = attempt_count < self.settings.AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS
+                with self.session_factory() as session:
+                    if operation_key:
+                        AiGovernanceRepository(session).record_usage(tenant_id=tenant_id, operation_key=operation_key, values={"outcome": "invalid_metadata"})
+                        session.commit()
+                AI_METRICS.increment("invalid_metadata", provider=provider_name, outcome="validation_failed")
                 await self._record_failure(
                     analysis_id,
                     code="metadata_validation_failed",
@@ -293,6 +381,23 @@ class AiAnalysisService:
                 str(exc),
             )
         except AiProviderError as exc:
+            if operation_key and reservation_id:
+                latency_ms = int((time.monotonic() - provider_started) * 1000) if "provider_started" in locals() else 0
+                with self.session_factory() as session:
+                    governance = AiGovernanceRepository(session)
+                    AiBudgetService(governance, self.settings).reconcile(reservation_id, estimated_cost_micros)
+                    governance.record_usage(tenant_id=tenant_id, operation_key=operation_key, values={
+                        "asset_id": asset_id, "analysis_id": analysis_id, "job_id": job_id,
+                        "provider": provider_name, "model": provider_model,
+                        "metadata_profile": profile_name, "metadata_profile_version": profile_version,
+                        "prompt_version": prompt_version, "input_units": 0, "output_units": 0,
+                        "media_units": 0, "locally_estimated_cost_micros": estimated_cost_micros,
+                        "currency": "USD", "latency_ms": latency_ms, "outcome": "provider_failed",
+                        "retry_count": max(0, attempt_count - 1),
+                    })
+                    session.commit()
+                AI_METRICS.increment("ai_failures", provider=provider_name, outcome=exc.code)
+                AI_METRICS.latency(provider_name, "provider_failed", latency_ms)
             if exc.code == "analysis_cancelled":
                 return await self._cancel(analysis_id)
             invalid_output = exc.code in {

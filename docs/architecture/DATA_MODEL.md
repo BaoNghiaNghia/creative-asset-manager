@@ -255,3 +255,25 @@ claim transaction to pre-filter provider eligibility and reserve/release durable
 concurrency capacity. Revision `0010_tenant_processing_policies` creates this
 state. Before downgrade, globally disable and drain workers. The downgrade
 removes policy/audit data and claim metadata but preserves queued jobs.
+
+## Step 27 AI governance and pilot evaluation
+
+Migration `0011_ai_governance_pilot` adds:
+
+- `ai_cost_rates`: immutable provider/model/effective-date rates.
+- `tenant_ai_budget_policies`: tenant daily, monthly and pilot limits with UTC
+  period boundaries and defer/reject behavior.
+- `ai_budget_accounts`: PostgreSQL-authoritative actual and reserved integer
+  micro-cost totals by tenant and period.
+- `ai_budget_reservations`: idempotent provider-operation reservations.
+- `ai_usage_records`: one idempotent, secret-free usage record per provider
+  operation/attempt.
+- `ai_budget_events`: warning, denial and operator audit events.
+- `ai_pilot_runs` and `ai_pilot_items`: durable selection, enqueue,
+  cancellation/resume and reporting state.
+
+All tenant-owned pilot relationships use tenant-qualified lookup/constraints.
+`asset_ai_analyses.status` additionally permits `budget_blocked`. Cost rates
+are currency units per provider unit; all persisted totals ending in
+`_micros` are 64-bit integer millionths. Downgrade to `0010` removes only
+Step 27 governance/pilot data and restores the previous analysis status check.

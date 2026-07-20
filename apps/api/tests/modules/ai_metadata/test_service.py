@@ -237,3 +237,35 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(outcome.error_code, "ai_single_analysis_disabled")
         self.assertEqual(ai.calls, 0)
+
+
+    async def test_budget_breaker_blocks_before_provider_invocation(self):
+        from datetime import datetime, timezone
+        from app.modules.ai_governance.model import (
+            AiCostRateModel, AiUsageRecordModel, TenantAiBudgetPolicyModel,
+        )
+        from app.modules.ai_metadata.model import AssetAiAnalysisModel
+        with self.factory() as session:
+            session.add(AiCostRateModel(
+                provider="gemini", model=self.settings.GEMINI_MODEL,
+                effective_at=datetime.now(timezone.utc),
+                input_unit_cost=0, output_unit_cost=0, media_unit_cost=.001,
+                currency="USD",
+            ))
+            session.add(TenantAiBudgetPolicyModel(
+                tenant_id="tenant-a", enabled=True, daily_limit_micros=500,
+                warning_threshold_percent=80, hard_stop_threshold_percent=100,
+            ))
+            session.commit()
+        ai = FakeAi({"subject": "cat"})
+        outcome = await AiAnalysisService(
+            session_factory=self.factory, storage_provider=self.storage,
+            ai_provider=ai, settings=self.settings,
+        ).analyze(tenant_id="tenant-a", analysis_id=self.analysis_id, worker_id="worker-a")
+        self.assertEqual(outcome.status, "budget_blocked")
+        self.assertEqual(ai.calls, 0)
+        with self.factory() as session:
+            analysis=session.get(AssetAiAnalysisModel,self.analysis_id)
+            self.assertEqual(analysis.status,"budget_blocked")
+            usage=session.scalar(select(AiUsageRecordModel))
+            self.assertEqual(usage.outcome,"budget_blocked")

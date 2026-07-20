@@ -57,6 +57,8 @@ class AssetAnalyzeJobHandler:
                 analysis_id=analysis_id,
                 worker_id=context.job.lease_owner,
                 is_cancelled=lambda: context.is_cancelled,
+                job_id=context.job.id,
+                pilot_run_id=context.job.payload.get("pilot_run_id"),
             )
         )
         if outcome.status == "completed":
@@ -80,6 +82,11 @@ class AssetAnalyzeJobHandler:
                             coordinator.enqueue(pipeline, "search_projection_build")
                         session.commit()
             return JobHandlerResult.completed()
+        if outcome.status == "budget_blocked":
+            return JobHandlerResult.retryable(
+                outcome.error_code or "budget_blocked",
+                outcome.error_message or "AI budget blocked this job.",
+            )
         if outcome.status == "retryable_failure":
             return JobHandlerResult.retryable(
                 outcome.error_code or "analysis_failed",

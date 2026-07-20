@@ -20,6 +20,7 @@ FEATURE_FLAG_NAMES = (
     "SEARCH_QUERY_PARSER_V2_ENABLED",
     "EXTERNAL_INGESTION_API_ENABLED",
     "DRIVE_METADATA_SIDECAR_ENABLED",
+    "AI_EMERGENCY_STOP_ENABLED",
 )
 
 
@@ -43,6 +44,7 @@ class Settings(BaseSettings):
     SEARCH_QUERY_PARSER_V2_ENABLED: bool = False
     EXTERNAL_INGESTION_API_ENABLED: bool = False
     DRIVE_METADATA_SIDECAR_ENABLED: bool = False
+    AI_EMERGENCY_STOP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
@@ -54,6 +56,8 @@ class Settings(BaseSettings):
     AI_ANALYSIS_MAX_PIXELS: int = 24_000_000
     AI_ANALYSIS_JPEG_QUALITY: int = 88
     AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS: int = 2
+    AI_ESTIMATED_OUTPUT_UNITS: int = 4096
+    AI_PILOT_CONFIRMATION_THRESHOLD_MICROS: int = 1_000_000
     GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN: str | None = None
     GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID: str | None = None
 
@@ -118,8 +122,11 @@ class Settings(BaseSettings):
             self.AI_ANALYSIS_MAX_HEIGHT,
             self.AI_ANALYSIS_MAX_PIXELS,
             self.AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS,
+            self.AI_ESTIMATED_OUTPUT_UNITS,
         ) <= 0:
             raise ValueError("AI analysis limits must be positive")
+        if self.AI_PILOT_CONFIRMATION_THRESHOLD_MICROS < 0:
+            raise ValueError("AI_PILOT_CONFIRMATION_THRESHOLD_MICROS cannot be negative")
         if not 1 <= self.AI_ANALYSIS_JPEG_QUALITY <= 95:
             raise ValueError("AI_ANALYSIS_JPEG_QUALITY must be between 1 and 95")
         if self.DYNAMIC_AI_METADATA_ENABLED and self.AI_SINGLE_ANALYSIS_ENABLED and not self.GEMINI_API_KEY:

@@ -537,3 +537,47 @@ metadata_json and stored analysis history remain authoritative and unchanged.
 - Next recommended step: staging-test one tenant with PostgreSQL and provider
   outages before implementing later roadmap steps. AI budgets/pilot evaluation
   remain deliberately out of scope.
+
+## Phase 17 review — Step 27
+
+- Files changed: central config/database/API composition; AI metadata
+  model/repository/service/handler; AI governance models, repository, budget
+  service, pilot evaluator, metrics, schemas and admin router; pilot CLI;
+  migration 0011; governance/service/config tests; data model, step and operator
+  documentation.
+- Migration added: `0011_ai_governance_pilot`, including tested downgrade to
+  `0010_tenant_processing_policies`.
+- Behavior: idempotent provider-operation usage accounting, effective-dated
+  provider/model rates, UTC daily/monthly/pilot budgets, atomic reservations,
+  reconciliation of actual/billable failures, budget-blocked analysis state,
+  deterministic asynchronous pilots, cancellation/resume, JSON/CSV reports and
+  authenticated budget/cost/metrics operations.
+- Feature flags: `AI_EMERGENCY_STOP_ENABLED` is new and defaults to false.
+  Existing AI and worker rollout flags remain false; Step 27 enables no AI
+  execution by itself.
+- Security: usage/audit/report records omit prompts, images, credentials, signed
+  URLs and raw provider payloads. Admin operations reuse Step 26 tenant/platform
+  authorization.
+- Tests: focused governance, concurrency, tenant isolation, pilot and analysis
+  breaker tests pass without Gemini calls. Full API regression suite: 234 passed with RuntimeWarning treated as an error.
+  Migration upgrade/downgrade, Python compile, Alembic single-head and diff checks passed.
+
+### Step 27 risks and rollback
+
+- Cost rates must be entered and reviewed by operators; a missing rate estimates
+  zero, so production rollout must treat cost-rate configuration as a
+  prerequisite.
+- UTC is the only supported budget boundary in this step. Tenant-local billing
+  periods require a later migration and DST-aware tests.
+- Atomic account updates prevent trivial multi-worker overspend, but real
+  PostgreSQL load and provider-reported cost variance still require staging
+  validation. Conservative reservations should include adequate output/media
+  headroom.
+- The emergency flag follows existing settings lifecycle; restart/drain workers
+  after changing it. Tenant policies cannot override it.
+- Roll back by enabling the emergency stop, pausing tenant AI, draining workers,
+  exporting reports, reverting Step 27 and downgrading 0011 to 0010. Assets,
+  completed metadata and projections remain intact.
+- Next recommended step: load-test one tenant on PostgreSQL with real rate
+  configuration and simulated Gemini billing/timeouts before expanding pilot
+  size. Steps 28–33 and AI batch processing remain out of scope.

@@ -55,7 +55,7 @@ class AssetAiAnalysisModel(Base):
             name="fk_asset_ai_analyses_tenant_profile",
         ),
         CheckConstraint(
-            "status IN ('pending', 'running', 'completed', 'failed')",
+            "status IN ('pending', 'running', 'completed', 'failed', 'budget_blocked')",
             name="ck_asset_ai_analyses_status",
         ),
         CheckConstraint("attempt_count >= 0", name="ck_asset_ai_analyses_attempt_count"),

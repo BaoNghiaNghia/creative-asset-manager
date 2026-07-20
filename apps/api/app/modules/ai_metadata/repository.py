@@ -192,6 +192,21 @@ class AiMetadataRepository:
         self.session.flush()
         return analysis
 
+    def mark_budget_blocked(self, analysis_id: str, *, code: str, reason: str) -> AssetAiAnalysisModel:
+        analysis = self._analysis(analysis_id)
+        if analysis.status == "completed":
+            return analysis
+        analysis.status = "budget_blocked"
+        analysis.processing_stage = "budget_blocked"
+        analysis.last_error_code = code[:100]
+        analysis.last_error_message = reason
+        analysis.failure_retryable = True
+        analysis.claimed_by = None
+        analysis.lease_expires_at = None
+        analysis.updated_at = utcnow()
+        self.session.flush()
+        return analysis
+
     def fail_analysis(
         self, analysis_id: str, *, error_code: str, error_message: str,
         retryable: bool | None = None,
