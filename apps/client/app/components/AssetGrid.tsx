@@ -68,6 +68,7 @@ type Props = {
   onCancelPrefetch: () => void;
   onPreview: (item: Asset) => void;
   onRate: (item: Asset, rating: number | null) => void;
+  onDetails: (item: Asset) => void;
 };
 
 export function AssetGrid({
@@ -81,6 +82,7 @@ export function AssetGrid({
   onCancelPrefetch,
   onPreview,
   onRate,
+  onDetails,
 }: Props) {
   function resultAncestors(item: Asset) {
     if (
@@ -109,6 +111,7 @@ export function AssetGrid({
       onPointerEnter={() => item.kind === "folder" && onPrefetch(item.id)}
       onPointerLeave={onCancelPrefetch}
     >
+      {item.internal_asset_id && <button className="asset-info" onClick={() => onDetails(item)} aria-label={"View details for " + item.name}>i</button>}
       <button className="check" onClick={() => onToggle(item.id)}>{selected.has(item.id) ? "✓" : ""}</button>
       <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
         <AssetPreview item={item} />

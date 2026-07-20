@@ -37,8 +37,8 @@
 - [x] 20 Projection rebuild and reindex
 - [ ] 21 UI and admin operations
   - [x] 21A Processing status badges
-  - [ ] 21B Asset details
-  - [ ] 21C Search syntax
+  - [x] 21B Asset details
+  - [x] 21C Search syntax
 - [x] 22 Controlled rollout
 - [x] 23 Worker runtime, health checks, and graceful draining
 - [x] 24 Gemini single-asset metadata analysis
@@ -46,3 +46,5 @@
 - [x] 26 Tenant-scoped rollout, tenant-filtered claiming, and pause controls
 - [x] 27 Pilot evaluator, AI cost metrics, and AI budget circuit breaker
 - [x] 28 Durable AI batch submission, polling, import, and selective retry
+
+- [x] 29 Asset details UI, Search v2 UI, and authorized async operations

@@ -1,5 +1,7 @@
 import { useState, type CSSProperties } from "react";
 import { AssetGrid } from "./components/AssetGrid";
+import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
+import { SearchV2Controls } from "./components/SearchV2Controls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
 import { SidebarIcon } from "./components/Icons";
@@ -15,6 +17,15 @@ export default function App() {
   const explorer = useDriveExplorer();
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
+  const [detailsAssetId, setDetailsAssetId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("asset"));
+  function openDetails(item: Asset) {
+    if (!item.internal_asset_id) return;
+    setDetailsAssetId(item.internal_asset_id);
+    const params = new URLSearchParams(window.location.search); params.set("asset", item.internal_asset_id); window.history.replaceState({}, "", window.location.pathname + "?" + params);
+  }
+  function closeDetails() {
+    setDetailsAssetId(null); const params = new URLSearchParams(window.location.search); params.delete("asset"); window.history.replaceState({}, "", window.location.pathname + (params.toString() ? "?" + params : ""));
+  }
   const activeId = explorer.path.at(-1)?.id;
   const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : "root";
   const rootFolders = explorer.childrenByParent[sourceRootId] ?? [];
@@ -193,6 +204,8 @@ export default function App() {
             </div>
           </div>
 
+          {explorer.searchV2.active && <SearchV2Controls capabilities={explorer.searchV2.capabilities} facets={explorer.searchV2.facets} selected={explorer.searchV2.selectedFacets} parsed={explorer.searchV2.parsed} onToggle={explorer.searchV2.toggleFacet} />}
+
           {explorer.searchError && <div className="search-warning">
             Subfolder search is temporarily unavailable. Showing matches from the current folder.
           </div>}
@@ -211,6 +224,7 @@ export default function App() {
             onCancelPrefetch={explorer.cancelFolderPrefetch}
             onPreview={setPreviewItem}
             onRate={explorer.rateAsset}
+            onDetails={openDetails}
           />}
 
           {!explorer.loading && !explorer.searching && !explorer.visibilityFilterReady && !explorer.visibleItems.length &&
@@ -249,5 +263,6 @@ export default function App() {
     </section>
 
     {previewItem && <MediaViewer item={previewItem} onClose={() => setPreviewItem(null)} />}
+    {detailsAssetId && explorer.auth.authenticated && <AssetDetailsPanel assetId={detailsAssetId} onClose={closeDetails} />}
   </main>;
 }

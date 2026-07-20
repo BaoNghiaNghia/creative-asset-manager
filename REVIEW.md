@@ -629,3 +629,28 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   budgets, metadata and projections are retained.
 - Next recommended step: run a small budget-capped Gemini batch for one tenant,
   validate recovery and billing, then implement Step 29 separately.
+
+
+## Phase 19 review  Step 29
+
+- Files changed: tenant-scoped asset details schemas/router, Search v2 schemas/router,
+  Elasticsearch configuration, explorer integration, bounded JSON viewer, details
+  panel, search syntax/facet/debug controls, tests and architecture documentation.
+- Migrations added: none. PostgreSQL remains authoritative and existing records are
+  projected read-only.
+- Behavior: operators can inspect identity/source/storage/analysis/projection/job and
+  pipeline history, then enqueue authorized reanalysis, projection, indexing or retry
+  work. Search v2 is selected only through effective global and tenant rollout gates.
+- Tests: backend tenant isolation, authentication, URL redaction and smoke/config;
+  frontend bounded metadata, search controls, status badges, TypeScript and production
+  build.
+- Feature flags: no new flag. Existing ELASTICSEARCH_V2_ENABLED,
+  SEARCH_QUERY_PARSER_V2_ENABLED and tenant search_v2_enabled remain upper bounds.
+- Known risks: real Elasticsearch facet aggregation and high-cardinality tenant data
+  require staging validation; v2 results whose source registry link was deleted are
+  intentionally omitted; queued-job cancellation is terminal and audit event support
+  remains a later operational enhancement.
+- Rollback: disable global or tenant Search v2 to restore v1, then revert Step 29. No
+  migration downgrade is required.
+- Next recommended step: staging UX/accessibility validation with one enabled tenant
+  and production-like metadata before implementing Step 30.

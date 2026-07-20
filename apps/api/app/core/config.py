@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     AI_BATCH_MAX_ITEM_ATTEMPTS: int = 3
     GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN: str | None = None
     GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID: str | None = None
+    ELASTICSEARCH_URL: str | None = None
+    ELASTICSEARCH_INDEX_PREFIX: str = "creative-assets"
 
 
     WORKER_ID: str | None = None

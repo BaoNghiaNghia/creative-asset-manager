@@ -21,6 +21,10 @@ export type Asset = {
   web_url?: string;
   ancestor_ids?: string[];
   ancestor_names?: string[];
+  internal_asset_id?: string;
+  external_source_id?: string;
+  folder_path?: string;
+  score?: number;
 };
 
 export type SearchResponse = {
@@ -67,3 +71,31 @@ export type DriveIndexStatus = {
 
 
 export type ProviderSessions = Record<Provider, AuthState>;
+
+export type SearchCapabilities = {
+  selected_version: "v1" | "v2";
+  v2_available: boolean;
+  parser_available: boolean;
+  debug_allowed: boolean;
+  facet_names: string[];
+  examples: string[];
+};
+export type SearchFacetBucket = { value: string; count: number };
+export type ParsedQueryDebug = {
+  mode: string;
+  clauses: Array<{ kind: string; field?: string | null; value: string }>;
+};
+export type AssetDetails = {
+  asset: Record<string, unknown>;
+  sources: Array<Record<string, unknown>>;
+  storage: Array<Record<string, unknown>>;
+  active_analysis: Record<string, any> | null;
+  analysis_history: Array<Record<string, any>>;
+  analysis_total: number;
+  jobs: Array<Record<string, any>>;
+  job_total: number;
+  pipelines: Array<Record<string, any>>;
+  lifecycle_status: string;
+  can_administer: boolean;
+  limits: { max_json_nodes: number; max_json_depth: number };
+};

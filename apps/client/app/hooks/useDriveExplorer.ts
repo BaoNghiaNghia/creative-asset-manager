@@ -15,6 +15,7 @@ import type {
   VisibilityFilter,
 } from "../types";
 import { searchAssets } from "../utils/searchAssets";
+import { useSearchV2 } from "./useSearchV2";
 
 type SearchStreamEvent = {
   type: "progress" | "result" | "error";
@@ -64,7 +65,7 @@ export function useDriveExplorer() {
   const [childrenByParent, setChildrenByParent] = useState<TreeCache>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["root"]));
   const [loadingTreeIds, setLoadingTreeIds] = useState<Set<string>>(new Set());
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
   const [searchResults, setSearchResults] = useState<Asset[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState(0);
@@ -80,6 +81,7 @@ export function useDriveExplorer() {
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
   const [indexRetryKey, setIndexRetryKey] = useState(0);
+  const searchV2 = useSearchV2(auth.authenticated, provider, query);
 
   const folderCache = useRef(new Map<string, Folder>());
   const folderRequests = useRef(new Map<string, Promise<Folder>>());
@@ -208,7 +210,6 @@ export function useDriveExplorer() {
     setLoading(!cached);
     setError("");
     setSelected(new Set());
-    setQuery("");
     resetSearch();
     cancelFolderPrefetch();
 
@@ -351,7 +352,6 @@ export function useDriveExplorer() {
     }
 
     async function start() {
-      setQuery("");
       setMetadataIndex({
         ...emptyIndexStatus,
         state: "running",
@@ -402,6 +402,8 @@ export function useDriveExplorer() {
     setSearchProcessedFolders(0);
     setSearchPendingFolders(0);
     setSearchError("");
+
+    if (searchV2.active) return;
 
     if (
       !auth.authenticated
@@ -496,7 +498,7 @@ export function useDriveExplorer() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [auth.authenticated, metadataIndex.state, path, provider, query]);
+  }, [auth.authenticated, metadataIndex.state, path, provider, query, searchV2.active]);
 
   async function selectProvider(source: Provider) {
     setProvider(source); setOauthError(null); clearExplorer(source);
@@ -577,10 +579,12 @@ export function useDriveExplorer() {
     [items, query],
   );
   const matchedItems = useMemo(
-    () => query.trim().length >= 2 && searchResults !== null
-      ? searchAssets(searchResults, query)
-      : localResults,
-    [localResults, query, searchResults],
+    () => searchV2.active && query.trim().length >= 1
+      ? searchV2.items
+      : query.trim().length >= 2 && searchResults !== null
+        ? searchAssets(searchResults, query)
+        : localResults,
+    [localResults, query, searchResults, searchV2.active, searchV2.items],
   );
 
   const visibleItems = useMemo(
@@ -648,16 +652,16 @@ export function useDriveExplorer() {
     loadingTreeIds,
     query,
     setQuery,
-    searching,
+    searching: searchV2.active ? searchV2.loading : searching,
     searchProgress,
     searchStatus,
     searchProcessedFolders,
     searchPendingFolders,
-    searchComplete: query.trim().length >= 2 && searchResults !== null && !searching,
+    searchComplete: searchV2.active ? query.trim().length >= 1 && !searchV2.loading && !searchV2.error : query.trim().length >= 2 && searchResults !== null && !searching,
     searchIndexedCount,
     searchIndexSource,
     searchTruncated,
-    searchError,
+    searchError: searchV2.active ? searchV2.error : searchError,
     loading,
     error,
     provider,
@@ -665,7 +669,8 @@ export function useDriveExplorer() {
     authByProvider,
     oauthError,
     metadataIndex,
-    searchReady: metadataIndex.state === "completed",
+    searchReady: searchV2.active || metadataIndex.state === "completed",
+    searchV2,
     retryMetadataIndex: () => setIndexRetryKey(current => current + 1),
     selectProvider,
     open,

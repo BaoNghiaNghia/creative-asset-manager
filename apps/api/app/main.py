@@ -17,6 +17,8 @@ from app.modules.explorer.router import router as explorer_router
 from app.modules.external_ingestion.router import router as external_ingestion_router
 from app.modules.metadata.router import router as metadata_router
 from app.modules.processing_policy.router import router as processing_policy_router
+from app.modules.asset_details.router import router as asset_details_router
+from app.modules.search.router import router as search_router
 from app.modules.tag.router import router as tag_router
 
 
@@ -44,6 +46,8 @@ app.include_router(tag_router, prefix="/api")
 app.include_router(external_ingestion_router)
 app.include_router(metadata_router, prefix="/api")
 app.include_router(processing_policy_router)
+app.include_router(asset_details_router)
+app.include_router(search_router)
 
 
 @app.get("/health")

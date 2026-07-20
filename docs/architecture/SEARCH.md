@@ -106,3 +106,14 @@ Reindex creates a new versioned physical index and bulk-upserts directly into
 that target. Read/write aliases switch atomically only after the run has no
 failed items and no cancellation. Dry-run never mutates projections,
 Elasticsearch indices, or aliases. No operation invokes AI.
+
+
+## Step 29 client contract
+
+The client discovers the effective search version through
+`GET /api/v1/search/capabilities`. Query and configured facet selections use
+URL parameters (`q` and `facet.<name>`). V2 results always carry
+`asset_id`, `external_source_id`, provider and provider external asset ID; the
+UI must not collapse those identities. Parsed query debug is administrator-only.
+If v2 is disabled globally or for the tenant, the existing explorer search stays
+active.
