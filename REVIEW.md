@@ -360,3 +360,55 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   or credentials.
 - Roll back Step 22 by reverting its documentation commit. No database,
   provider, search alias, worker, or feature-flag rollback is required.
+
+## Phase 14 review — Step 23
+
+- Added a real `apps/worker/main.py` composition root that validates central
+  settings, probes the database, initializes provider boundaries, builds the
+  handler registry, exposes health HTTP, installs SIGTERM/SIGINT handlers, and
+  exits non-zero on startup failure.
+- Added a provider-neutral typed handler contract with immutable job/tenant
+  identity, payload, shared dependencies, shutdown/cancellation signals,
+  contextual logger, and explicit completed/retryable/non-retryable/cancelled
+  outcomes.
+- Explicitly registered `source_sync`, `source_asset_download`,
+  `asset_store`, `asset_analyze`, `search_projection_build`,
+  `asset_index`, `metadata_sidecar_export`, and `outbox_dispatch`.
+  Pipeline stages not wired in Step 23 terminate with structured
+  `unsupported_handler` rather than false success.
+- Added independent-session lease heartbeat, ownership-loss cancellation, and a
+  finalization guard that never completes work after lease loss or uncertain
+  heartbeat.
+- Added graceful draining: readiness becomes false and claims stop immediately;
+  heartbeat continues through the grace period; cooperative cancellation
+  releases work, while unresponsive work remains recoverable by lease expiry.
+- Added `/live`, `/ready`, and `/health` with safe state only, plus JSON
+  worker logs carrying worker/job/tenant/entity/attempt/lease/duration/outcome
+  context without job payloads or startup credentials.
+- Extended processing transitions with direct non-retryable failure and explicit
+  release; no schema or migration was required.
+- `PROCESSING_JOBS_ENABLED` remains false by default. No API route, API response,
+  Gemini integration, or end-to-end ingestion pipeline changed.
+- Step 23/config/processing targeted suite: 28 passed. Full API suite: 189 passed
+  with `RuntimeWarning` treated as an error. Python compile, Alembic single-head,
+  and diff whitespace checks passed.
+
+### Step 23 risks and rollback
+
+- The runtime is deliberately single-concurrency per process; scale-out uses
+  additional worker processes and the existing atomic database claim.
+- Current production composition has no complete pipeline handlers, so enabling
+  the worker before later handler wiring will terminally fail queued known jobs
+  as unsupported. Keep the flag false until the selected handlers are supplied.
+- Heartbeat database uncertainty is treated conservatively as lost ownership.
+  A handler that ignores cancellation may continue in its daemon thread until
+  process exit, but the runtime cannot finalize it and another worker cannot
+  recover it until lease expiry.
+- PostgreSQL lease renewal, shutdown timing under orchestration, health-port
+  binding, and database pool sizing still require staging validation.
+- Roll back by setting `PROCESSING_JOBS_ENABLED=false`, sending SIGTERM, waiting
+  through the drain/lease window, and reverting Step 23. No database downgrade,
+  provider cleanup, Elasticsearch change, or API rollback is required.
+- Next recommended step: wire one idempotent handler at a time behind its own
+  existing feature flag, beginning with source synchronization or download,
+  with live PostgreSQL lease tests before shared rollout.

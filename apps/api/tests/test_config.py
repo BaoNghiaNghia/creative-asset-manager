@@ -61,6 +61,18 @@ class SettingsTest(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 Settings()
 
+    def test_invalid_worker_heartbeat_fails_validation(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "WORKER_LEASE_SECONDS": "10",
+                "WORKER_HEARTBEAT_SECONDS": "10",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(ValidationError):
+                Settings()
+
     def test_cached_settings_use_the_central_environment_source(self) -> None:
         with patch.dict(
             os.environ,

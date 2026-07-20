@@ -229,6 +229,50 @@ class ProcessingRepository:
         self.session.flush()
         return job
 
+    def fail_job_non_retryable(
+        self,
+        *,
+        job_id: str,
+        worker_id: str,
+        error_code: str,
+        error_message: str,
+        now: datetime | None = None,
+    ) -> ProcessingJobModel:
+        failed_at = now or utcnow()
+        job = self._owned_processing_job(job_id, worker_id)
+        job.status = JobStatus.FAILED.value
+        job.completed_at = failed_at
+        job.last_error_code = error_code[:100]
+        job.last_error_message = error_message
+        job.claimed_by = None
+        job.claimed_at = None
+        job.lease_expires_at = None
+        job.updated_at = failed_at
+        self.session.flush()
+        return job
+
+    def release_job(
+        self,
+        *,
+        job_id: str,
+        worker_id: str,
+        error_code: str = "worker_interrupted",
+        error_message: str = "Worker released the job during shutdown.",
+        now: datetime | None = None,
+    ) -> ProcessingJobModel:
+        released_at = now or utcnow()
+        job = self._owned_processing_job(job_id, worker_id)
+        job.status = JobStatus.RETRY.value
+        job.next_attempt_at = released_at
+        job.last_error_code = error_code[:100]
+        job.last_error_message = error_message
+        job.claimed_by = None
+        job.claimed_at = None
+        job.lease_expires_at = None
+        job.updated_at = released_at
+        self.session.flush()
+        return job
+
     def claim_next_outbox_event(
         self,
         *,
