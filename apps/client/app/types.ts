@@ -1,5 +1,14 @@
 export type Provider = "google-drive" | "sharepoint";
 export type VisibilityFilter = "all" | "public" | "draft";
+export type AssetProcessingStatus =
+  | "discovered"
+  | "stored"
+  | "analyzing"
+  | "metadata_ready"
+  | "indexed"
+  | "duplicate"
+  | "failed";
+
 
 export type Asset = {
   provider: Provider;
@@ -29,7 +38,12 @@ export type Tag = {
   group_key?: string;
   is_system?: boolean;
 };
-export type AssetMetadata = { item_id: string; tag_ids: string[]; rating: number | null };
+export type AssetMetadata = {
+  item_id: string;
+  tag_ids: string[];
+  rating: number | null;
+  processing_status: AssetProcessingStatus;
+};
 export type AssetMetadataMap = Record<string, AssetMetadata>;
 export type CloudUser = { id: string; name?: string; email?: string; picture?: string };
 export type AuthState = { authenticated: boolean; user: CloudUser | null; checking: boolean };

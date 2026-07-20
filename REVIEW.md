@@ -298,3 +298,35 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   needed, then downgrade `0007_search_operations` to
   `0006_metadata_sidecars`. Downgrade does not revert stored projections, delete
   physical Elasticsearch indices, or change aliases.
+
+## Phase 13 review — Step 21A
+
+- Added tenant/provider-scoped processing status projections for `discovered`,
+  `stored`, `analyzing`, `metadata_ready`, `indexed`, `duplicate`, and
+  `failed`.
+- Statuses are derived read-only from PostgreSQL registry/source links, managed
+  storage, latest analysis, latest relevant processing jobs, and completed
+  reindex operations. No parallel status source or migration was added.
+- Existing metadata query, rating, and tag responses now preserve the current
+  processing status without adding a route or changing their request shape.
+- Added a compact accessible `AssetStatusBadge` to the existing asset grid;
+  unrelated explorer views and interactions were not redesigned.
+- Added Vitest as the client component-test convention and a reusable
+  `npm test` command.
+- New API/service tests: 3 passed. New component cases: 7 passed. Full API
+  suite: 175 passed with `RuntimeWarning` treated as an error. Client
+  production build passed.
+- No feature flags were enabled or added.
+
+### Step 21A risks and rollback
+
+- Status derivation currently resolves UI items by tenant, provider source type,
+  and external asset ID. Tenants with multiple sources of the same provider and
+  colliding external IDs need source-key context in a future API revision.
+- One primary badge intentionally uses lifecycle precedence; an indexed
+  duplicate displays `indexed`, while full provenance remains a Step 21B
+  asset-details concern.
+- The batched query is bounded by the existing 500-item metadata request but
+  requires production query-plan and latency validation on large tenants.
+- Roll back by reverting the Step 21A commit. No database downgrade, worker
+  action, remote cleanup, or feature-flag change is required.

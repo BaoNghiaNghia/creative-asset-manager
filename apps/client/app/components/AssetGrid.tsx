@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
+import { AssetStatusBadge } from "./AssetStatusBadge";
 
 const icons = { folder: "📁", image: "▧", video: "▶", pdf: "PDF", document: "DOC", other: "◇" };
 
@@ -39,7 +40,10 @@ function AssetMetadataBar({
   const visibility = metadata?.tag_ids.find(tag => tag === "public" || tag === "draft");
 
   return <div className="asset-metadata">
-    {visibility && <span className={"asset-status " + visibility}>{visibility}</span>}
+    <span className="asset-labels">
+      {metadata && <AssetStatusBadge status={metadata.processing_status} />}
+      {visibility && <span className={"asset-status " + visibility}>{visibility}</span>}
+    </span>
     {item.kind !== "folder" && <span className="asset-rating" aria-label="Asset rating">
       {[1, 2, 3, 4, 5].map(star => <button
         key={star}

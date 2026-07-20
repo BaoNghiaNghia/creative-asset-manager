@@ -770,3 +770,46 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 @media(prefers-reduced-motion:reduce){
   .visibility-filter button{transition:none}
 }
+
+/* Asset processing lifecycle badges */
+.asset-labels{
+  display:flex;
+  min-width:0;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:4px;
+}
+.processing-status{
+  display:inline-flex;
+  min-width:0;
+  align-items:center;
+  gap:4px;
+  padding:3px 7px;
+  border-radius:999px;
+  background:#eef1f5;
+  color:#596579;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.02em;
+  line-height:1;
+  white-space:nowrap;
+}
+.processing-status i{
+  display:block;
+  flex:0 0 auto;
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:currentColor;
+}
+.processing-status.stored{background:#e8f0ff;color:#315ea8}
+.processing-status.analyzing{background:#f0eaff;color:#7048b8}
+.processing-status.metadata_ready{background:#ddf5f3;color:#19746d}
+.processing-status.indexed{background:#e1f5e9;color:#237a4b}
+.processing-status.duplicate{background:#fff1d6;color:#8a6112}
+.processing-status.failed{background:#fde7e7;color:#b42318}
+.processing-status.analyzing i{animation:processing-pulse .85s ease-in-out infinite alternate}
+@keyframes processing-pulse{to{opacity:.3;transform:scale(.72)}}
+@media(prefers-reduced-motion:reduce){
+  .processing-status.analyzing i{animation:none}
+}

@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.metadata.asset_service import serialize_asset_metadata
 from app.modules.metadata.repository import AssetMetadataRepository
 from app.modules.tag.repository import TagRepository
@@ -15,6 +16,7 @@ class TagService:
         self.session = session
         self.tags = TagRepository(session)
         self.metadata = AssetMetadataRepository(session)
+        self.processing_statuses = AssetProcessingStatusService(session)
 
     def list_tags(self) -> list[Tag]:
         return [
@@ -38,9 +40,14 @@ class TagService:
         tag = self.tags.get(tag_id)
         if tag is None:
             raise UnknownTagError(f"Unknown tag: {tag_id}")
+        metadata = self.metadata.assign_tag(
+            account_id,
+            provider,
+            item_ids,
+            tag,
+        )
+        statuses = self.processing_statuses.list(account_id, provider, item_ids)
         return [
-            serialize_asset_metadata(metadata)
-            for metadata in self.metadata.assign_tag(
-                account_id, provider, item_ids, tag
-            )
+            serialize_asset_metadata(item, statuses[item.item_id])
+            for item in metadata
         ]
