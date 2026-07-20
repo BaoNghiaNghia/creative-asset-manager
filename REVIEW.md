@@ -500,3 +500,40 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   authoritative asset/analysis/search data are retained.
 - Next recommended step: add encrypted refresh-token credential storage and a
   Google/SharePoint worker resolver before any tenant rollout.
+
+
+## Phase 16 review — Step 26
+
+- Files changed: processing policy models/repository/service/claim/auth/router/
+  schemas; processing job model/repository/service/runtime/bootstrap; pipeline
+  provider classification; central config and API composition; migration 0010;
+  policy/auth/migration tests; data model and rollout documentation.
+- Migration added: `0010_tenant_processing_policies` with a tested downgrade to
+  `0009_durable_asset_pipeline`.
+- Behavior: explicit tenant/stage rollout, generic provider pause, pre-lease SQL
+  eligibility, database-backed tenant/category/provider concurrency, graceful
+  pause/resume, tenant job counts and audited admin operations.
+- Feature flags: no new pipeline feature is enabled. Existing global flags remain
+  false and are strict emergency upper bounds. Cache TTL and admin allowlist are
+  operational configuration, not enablement flags.
+- Tests: 21 focused config/policy/auth/migration tests passed; the full API
+  regression suite passed with 225 tests and RuntimeWarning treated as error.
+
+### Step 26 risks and rollback
+
+- Active counters depend on all job finalization paths using the processing
+  repository. Manual database edits can create drift; operators should pause and
+  reconcile before editing jobs directly.
+- Worker global job-type bounds are composed at startup, so an emergency global
+  disable requires worker restart; the admin effective-policy response reflects
+  the disable immediately even while its configured policy is cached.
+- Existing OAuth sessions are not a durable enterprise identity/RBAC store. The
+  explicit administrator allowlist is the production-safe platform path until a
+  durable account/role model is introduced.
+- PostgreSQL `SKIP LOCKED` and concurrent counter reservations require staging
+  load validation even though SQLite concurrency and migration tests pass.
+- Roll back by globally disabling processing, pausing pilots, draining workers,
+  reverting Step 26, and downgrading 0010 to 0009. Queued jobs are preserved.
+- Next recommended step: staging-test one tenant with PostgreSQL and provider
+  outages before implementing later roadmap steps. AI budgets/pilot evaluation
+  remain deliberately out of scope.

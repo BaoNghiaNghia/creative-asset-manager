@@ -223,3 +223,35 @@ operator status data. It never stores signed URLs, credentials or file bytes.
 
 Revision `0009_durable_asset_pipeline` creates this table. Its downgrade removes
 only pipeline state; authoritative asset, metadata and processing records remain.
+
+
+## Tenant processing rollout policies
+
+### tenant_processing_policies
+
+The authoritative tenant gate for the asynchronous pipeline. Every stage is
+opt-in and defaults disabled. Global environment feature flags are emergency
+upper bounds and cannot be overridden by these rows. Pause metadata is retained
+for operations and running counters enforce database-backed tenant/category
+concurrency across worker processes.
+
+### tenant_provider_policies
+
+Generic `(tenant_id, provider_key, provider_scope)` policy for source, storage,
+AI and search providers. Missing rows inherit the enabled tenant stage; explicit
+rows can disable/pause a provider and impose an active-job limit without adding
+provider-specific columns.
+
+### processing_policy_audits
+
+Append-only policy-change audit containing actor, tenant, action, reason, before
+and after JSON documents, provider identity where applicable, and timestamp.
+Credentials and authentication tokens are never copied into audit documents.
+
+### processing_jobs policy fields
+
+`provider_key`, `provider_scope`, and `concurrency_accounted` allow the atomic
+claim transaction to pre-filter provider eligibility and reserve/release durable
+concurrency capacity. Revision `0010_tenant_processing_policies` creates this
+state. Before downgrade, globally disable and drain workers. The downgrade
+removes policy/audit data and claim metadata but preserves queued jobs.

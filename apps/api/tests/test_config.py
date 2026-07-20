@@ -72,6 +72,11 @@ class SettingsTest(unittest.TestCase):
         ):
             with self.assertRaises(ValidationError):
                 Settings()
+    def test_invalid_processing_policy_cache_ttl_fails_validation(self) -> None:
+        with patch.dict(os.environ, {"PROCESSING_POLICY_CACHE_TTL_SECONDS": "0"}, clear=True):
+            with self.assertRaises(ValidationError):
+                Settings()
+
     def test_gemini_key_is_required_only_when_single_analysis_is_enabled(self) -> None:
         with patch.dict(
             os.environ,

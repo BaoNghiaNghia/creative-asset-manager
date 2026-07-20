@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.processing.types import JOB_TYPES, JobStatus, OutboxStatus
 from app.modules.processing.model import OutboxEventModel, ProcessingJobModel
+from app.modules.processing_policy.claim import TenantAwareJobClaimer
 
 
 class JobOwnershipError(RuntimeError):
@@ -37,6 +38,8 @@ class ProcessingRepository:
         priority: int = 0,
         max_attempts: int = 5,
         next_attempt_at: datetime | None = None,
+        provider_key: str | None = None,
+        provider_scope: str | None = None,
     ) -> ProcessingJobModel:
         if job_type not in JOB_TYPES:
             raise ValueError(f"Unsupported job type: {job_type}")
@@ -53,6 +56,8 @@ class ProcessingRepository:
                     idempotency_key=idempotency_key,
                     payload_json=dict(payload or {}),
                     priority=priority,
+                    provider_key=provider_key,
+                    provider_scope=provider_scope,
                     max_attempts=max_attempts,
                     next_attempt_at=next_attempt_at or utcnow(),
                 )
@@ -107,11 +112,19 @@ class ProcessingRepository:
         worker_id: str,
         lease_seconds: int,
         now: datetime | None = None,
+        enforce_tenant_policy: bool = False,
+        allowed_job_types: tuple[str, ...] = JOB_TYPES,
     ) -> ProcessingJobModel | None:
         claimed_at = now or utcnow()
         self._terminalize_exhausted_jobs(claimed_at)
         eligibility = self._job_eligibility(claimed_at)
         lease_expires_at = claimed_at + timedelta(seconds=lease_seconds)
+
+        if enforce_tenant_policy:
+            return TenantAwareJobClaimer(self.session).claim(
+                worker_id=worker_id, lease_seconds=lease_seconds,
+                now=claimed_at, allowed_job_types=allowed_job_types,
+            )
 
         if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
             job = self.session.scalar(
@@ -192,6 +205,7 @@ class ProcessingRepository:
         job.completed_at = completed_at
         job.claimed_by = None
         job.claimed_at = None
+        TenantAwareJobClaimer(self.session).release(job)
         job.lease_expires_at = None
         job.last_error_code = None
         job.last_error_message = None
@@ -216,6 +230,7 @@ class ProcessingRepository:
         job.last_error_message = error_message
         job.claimed_by = None
         job.claimed_at = None
+        TenantAwareJobClaimer(self.session).release(job)
         job.lease_expires_at = None
         job.updated_at = failed_at
         if job.attempt_count >= job.max_attempts:
@@ -244,6 +259,7 @@ class ProcessingRepository:
         job.completed_at = failed_at
         job.last_error_code = error_code[:100]
         job.last_error_message = error_message
+        TenantAwareJobClaimer(self.session).release(job)
         job.claimed_by = None
         job.claimed_at = None
         job.lease_expires_at = None
@@ -266,6 +282,7 @@ class ProcessingRepository:
         job.next_attempt_at = released_at
         job.last_error_code = error_code[:100]
         job.last_error_message = error_message
+        TenantAwareJobClaimer(self.session).release(job)
         job.claimed_by = None
         job.claimed_at = None
         job.lease_expires_at = None
@@ -432,6 +449,7 @@ class ProcessingRepository:
         )
 
     def _terminalize_exhausted_jobs(self, now: datetime) -> None:
+        TenantAwareJobClaimer(self.session).release_exhausted(now)
         self.session.execute(
             update(ProcessingJobModel)
             .where(

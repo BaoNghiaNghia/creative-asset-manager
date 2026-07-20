@@ -73,6 +73,8 @@ def enqueue_asset_analysis(
             entity_id=analysis.id,
             idempotency_key=f"asset-analyze:{analysis.id}",
             payload={"analysis_id": analysis.id, "asset_id": analysis.asset_id},
+            provider_key="gemini",
+            provider_scope="ai",
         )
         session.commit()
         return EnqueueAssetAnalysisResponse(

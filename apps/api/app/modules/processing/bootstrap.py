@@ -34,6 +34,23 @@ from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
 _STANDARD_LOG_FIELDS = set(logging.makeLogRecord({}).__dict__)
 
+_JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
+    "source_sync": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "INCREMENTAL_SOURCE_SYNC_ENABLED"),
+    "source_asset_download": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "CONTENT_DEDUP_ENABLED"),
+    "asset_store": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
+    "asset_analyze": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_SINGLE_ANALYSIS_ENABLED"),
+    "search_projection_build": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "SEARCH_PROJECTION_ENABLED"),
+    "asset_index": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
+    "metadata_sidecar_export": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DRIVE_METADATA_SIDECAR_ENABLED"),
+}
+
+def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
+    return tuple(
+        job_type for job_type, flags in _JOB_GLOBAL_FLAGS.items()
+        if all(bool(getattr(settings, flag)) for flag in flags)
+    )
+
+
 
 class JsonWorkerLogFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -112,6 +129,8 @@ def build_worker_runtime(
             heartbeat_seconds=settings.WORKER_HEARTBEAT_SECONDS,
             idle_poll_seconds=settings.WORKER_IDLE_POLL_SECONDS,
             drain_timeout_seconds=settings.WORKER_DRAIN_TIMEOUT_SECONDS,
+            enforce_tenant_policy=True,
+            allowed_job_types=globally_enabled_job_types(settings),
         ),
         dependencies=dependencies,
         registry=build_handler_registry(

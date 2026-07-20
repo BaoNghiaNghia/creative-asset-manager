@@ -30,10 +30,14 @@ class ProcessingJobService:
         return queued_job, outbox_event
 
     def claim_next(
-        self, *, worker_id: str, lease_seconds: int, now: datetime | None = None
+        self, *, worker_id: str, lease_seconds: int, now: datetime | None = None,
+        enforce_tenant_policy: bool = False,
+        allowed_job_types: tuple[str, ...] | None = None,
     ) -> ProcessingJobModel | None:
         job = self.repository.claim_next_job(
-            worker_id=worker_id, lease_seconds=lease_seconds, now=now
+            worker_id=worker_id, lease_seconds=lease_seconds, now=now,
+            enforce_tenant_policy=enforce_tenant_policy,
+            allowed_job_types=allowed_job_types or (),
         )
         self.repository.session.commit()
         return job

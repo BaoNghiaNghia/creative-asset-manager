@@ -28,6 +28,8 @@ class WorkerRuntimeConfig:
     heartbeat_seconds: float = 15.0
     idle_poll_seconds: float = 2.0
     drain_timeout_seconds: float = 30.0
+    enforce_tenant_policy: bool = False
+    allowed_job_types: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.worker_id:
@@ -159,6 +161,8 @@ class WorkerRuntime:
                 model = service.claim_next(
                     worker_id=self.config.worker_id,
                     lease_seconds=self.config.lease_seconds,
+                    enforce_tenant_policy=self.config.enforce_tenant_policy,
+                    allowed_job_types=self.config.allowed_job_types,
                 )
             self.health.set_database_available(True)
         except Exception as exc:

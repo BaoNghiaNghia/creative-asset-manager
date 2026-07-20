@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -35,6 +35,7 @@ class ProcessingJobModel(Base):
         ),
         Index("ix_processing_jobs_lease", "status", "lease_expires_at"),
         Index("ix_processing_jobs_entity", "tenant_id", "entity_type", "entity_id"),
+        Index("ix_processing_jobs_policy_claim", "tenant_id", "job_type", "provider_key", "provider_scope", "status", "next_attempt_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -44,6 +45,9 @@ class ProcessingJobModel(Base):
     entity_id: Mapped[str] = mapped_column(String(255), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
     payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    provider_key: Mapped[str | None] = mapped_column(String(64))
+    provider_scope: Mapped[str | None] = mapped_column(String(32))
+    concurrency_accounted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

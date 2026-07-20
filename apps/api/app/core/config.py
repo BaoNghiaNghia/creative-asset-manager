@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     WORKER_HEALTH_PORT: int = 8081
     WORKER_LOG_LEVEL: str = "INFO"
     AI_ANALYSIS_LEASE_SECONDS: int = 300
+    PROCESSING_POLICY_CACHE_TTL_SECONDS: float = 5.0
+    PROCESSING_POLICY_ADMIN_IDS: str = ""
 
     @field_validator(*FEATURE_FLAG_NAMES, mode="before")
     @classmethod
@@ -105,6 +107,8 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_HEALTH_PORT must be between 1 and 65535")
         if self.GEMINI_TIMEOUT_SECONDS <= 0:
             raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive")
+        if not 0 < self.PROCESSING_POLICY_CACHE_TTL_SECONDS <= 60:
+            raise ValueError("PROCESSING_POLICY_CACHE_TTL_SECONDS must be between 0 and 60")
         if self.AI_ANALYSIS_LEASE_SECONDS <= 0:
             raise ValueError("AI_ANALYSIS_LEASE_SECONDS must be positive")
         if min(

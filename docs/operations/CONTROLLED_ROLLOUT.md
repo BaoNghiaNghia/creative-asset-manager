@@ -339,3 +339,30 @@ The following controls remain required before shared multi-tenant rollout:
 - provider-specific producer pause controls.
 
 Until those exist, use isolation and manual operational approval.
+
+
+## Tenant policy rollout (Step 26)
+
+1. Apply migration `0010_tenant_processing_policies` while all global pipeline
+   flags remain false.
+2. Set `PROCESSING_POLICY_ADMIN_IDS` to the platform administrator account IDs.
+3. Use `/api/v1/admin/processing-policies/{tenant_id}` to configure exactly one
+   pilot tenant. Set `pipeline_enabled` and only the required stage booleans.
+4. Configure provider rows before rollout when provider-specific concurrency or
+   pause control is required (`google_drive/source`, `sharepoint/source`,
+   `google_drive/storage`, `gemini/ai`, `elasticsearch/search`).
+5. Enable global flags last. Effective eligibility is global AND tenant AND not
+   paused. Workers calculate the globally permitted job types at startup and the
+   SQL claim filters tenant/provider policy before acquiring a lease.
+6. Observe the tenant job-count endpoint and active counters. Increase limits
+   gradually. PostgreSQL counters are transactionally reserved with the lease.
+
+Emergency stop: disable the relevant global feature flag and restart workers.
+This bypasses the short policy cache because global bounds are evaluated on every
+effective-policy read and worker job-type bounds are rebuilt at startup. For a
+single tenant/provider, call pause; queued jobs remain intact and running jobs
+finish normally. Resume makes them claimable again.
+
+Rollback: disable global processing, pause all pilot tenants, allow graceful
+drain through the lease window, revert Step 26 code, then downgrade `0010` to
+`0009_durable_asset_pipeline`. Export audits first if retention is required.

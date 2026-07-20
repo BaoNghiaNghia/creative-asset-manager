@@ -273,6 +273,8 @@ class AiAnalysisService:
                         f"asset-index:{completed.id}:"
                         f"{projection_result.projection_version}:{projection_checksum}"
                     ),
+                    provider_key="elasticsearch",
+                    provider_scope="search",
                     payload={
                         "asset_id": completed.asset_id,
                         "analysis_id": completed.id,

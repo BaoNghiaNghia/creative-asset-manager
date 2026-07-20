@@ -8,6 +8,13 @@ from app.modules.pipeline.state import PipelineState
 from app.modules.processing.repository import ProcessingRepository
 
 
+PROVIDER_FOR_JOB = {
+    "asset_store": ("google_drive", "storage"),
+    "asset_analyze": ("gemini", "ai"),
+    "asset_index": ("elasticsearch", "search"),
+    "metadata_sidecar_export": ("google_drive", "storage"),
+}
+
 STATE_FOR_JOB = {
     "source_asset_download": PipelineState.DOWNLOAD_PENDING,
     "asset_store": PipelineState.STORAGE_PENDING,
@@ -41,15 +48,26 @@ class AssetPipelineService:
     def enqueue(self, pipeline: AssetPipelineModel, job_type: str, *,
                 entity_type: str = "asset_pipeline", entity_id: str | None = None,
                 payload: Mapping[str, Any] | None = None,
-                transition: bool = True) -> None:
+                transition: bool = True, provider_key: str | None = None,
+                provider_scope: str | None = None) -> None:
         target = STATE_FOR_JOB[job_type]
         if transition and pipeline.state != target.value:
             self.pipelines.transition(pipeline, target)
+        inferred_provider = PROVIDER_FOR_JOB.get(job_type)
+        if inferred_provider:
+            provider_key = provider_key or inferred_provider[0]
+            provider_scope = provider_scope or inferred_provider[1]
+        elif job_type == "source_asset_download":
+            provider_key = provider_key or (pipeline.status_data_json or {}).get("source_provider")
+            if provider_key is None and pipeline.origin_type == "ingestion_item":
+                provider_key = "external_api"
+            provider_scope = provider_scope or "source"
         self.jobs.create_job(
             tenant_id=pipeline.tenant_id, job_type=job_type,
             entity_type=entity_type, entity_id=entity_id or pipeline.id,
             idempotency_key=f"pipeline:{pipeline.id}:{job_type}:{self._identity(pipeline, job_type)}",
             payload={"pipeline_id": pipeline.id, "correlation_id": pipeline.correlation_id, **dict(payload or {})},
+            provider_key=provider_key, provider_scope=provider_scope,
         )
 
     @staticmethod

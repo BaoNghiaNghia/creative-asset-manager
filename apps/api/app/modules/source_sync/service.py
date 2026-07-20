@@ -124,6 +124,8 @@ class SourceSyncService:
                                 f"{new_marker or candidate.source_modified_at or 'unknown'}"
                             ),
                             payload={"source_asset_id": source_asset.id},
+                            provider_key=source.source_type,
+                            provider_scope="source",
                         )
                         jobs_created += int(self.processing.count_jobs() > before)
                 if page.next_cursor is not None:

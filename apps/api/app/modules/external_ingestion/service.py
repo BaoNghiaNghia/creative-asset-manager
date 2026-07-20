@@ -122,6 +122,8 @@ class ExternalIngestionService:
                     entity_type="asset_ingestion_item",
                     entity_id=item.id,
                     idempotency_key=f"external-ingestion-item:{item.id}",
+                    provider_key="external_api",
+                    provider_scope="source",
                     payload={
                         "ingestion_id": ingestion.id,
                         "ingestion_item_id": item.id,
