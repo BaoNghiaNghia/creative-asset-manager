@@ -54,11 +54,11 @@ async def list_sharepoint_delta(
     drive_id = str(input.source_metadata.get("drive_id") or "")
     if not drive_id:
         raise ValueError("SharePoint source metadata must contain drive_id")
-    if input.cursor and not input.reconciliation:
+    if input.cursor:
         url = _safe_graph_cursor(input.cursor)
     else:
         url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/delta"
-    params = None if input.cursor and not input.reconciliation else {
+    params = None if input.cursor else {
         "$top": str(input.page_size),
         "$select": (
             "id,name,size,createdDateTime,lastModifiedDateTime,webUrl,parentReference,"

@@ -21,6 +21,7 @@ from app.modules.external_ingestion.router import router
 from app.modules.processing.model import ProcessingJobModel
 
 
+SENSITIVE_KEY = "v1:eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg="
 TOKEN_A = "supplier-a-token-00000000000000000001"
 TOKEN_B = "supplier-b-token-00000000000000000001"
 
@@ -68,7 +69,8 @@ class ExternalIngestionApiTest(unittest.TestCase):
 
         app.dependency_overrides[get_db] = database_override
         app.dependency_overrides[get_settings] = lambda: Settings(
-            EXTERNAL_INGESTION_API_ENABLED=True
+            EXTERNAL_INGESTION_API_ENABLED=True,
+            SENSITIVE_URL_ENCRYPTION_KEYS=SENSITIVE_KEY,
         )
         self.app = app
         self.client = TestClient(app)

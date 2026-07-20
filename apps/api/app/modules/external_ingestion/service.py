@@ -102,7 +102,21 @@ class ExternalIngestionService:
                 credential_id=credential.id,
                 idempotency_key=idempotency_key,
                 request_hash=request_hash,
-                request_json=document,
+                request_json={
+                    "source_id": request.source_id,
+                    "items": [
+                        {
+                            "external_asset_id": item["external_asset_id"],
+                            "checksum": item.get("checksum"),
+                            "filename": item.get("filename"),
+                            "modified_at": (
+                                item["modified_at"].isoformat()
+                                if item.get("modified_at") else None
+                            ),
+                        }
+                        for item in item_documents
+                    ],
+                },
                 items=item_documents,
             )
             for item in items:
@@ -124,17 +138,11 @@ class ExternalIngestionService:
                     idempotency_key=f"external-ingestion-item:{item.id}",
                     provider_key="external_api",
                     provider_scope="source",
+                    # Payloads contain stable references only. The worker resolves the
+                    # encrypted URL through a tenant-scoped repository at execution time.
                     payload={
                         "ingestion_id": ingestion.id,
                         "ingestion_item_id": item.id,
-                        "external_source_id": request.source_id,
-                        "external_asset_id": item.external_asset_id,
-                        "download_url": item.download_url,
-                        "provider_checksum": item.provider_checksum,
-                        "filename": item.filename,
-                        "source_modified_at": (
-                            item.source_modified_at.isoformat() if item.source_modified_at else None
-                        ),
                     },
                 )
                 item.processing_job_id = job.id

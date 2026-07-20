@@ -13,6 +13,8 @@ from app.modules.search import operations_model as search_operation_models  # no
 from app.modules.ai_metadata import model as ai_metadata_models  # noqa: F401
 from app.modules.metadata import model as metadata_models  # noqa: F401
 from app.modules.tag import model as tag_models  # noqa: F401
+from app.modules.source_sync import model as source_sync_models  # noqa: F401
+from app.modules.retention import model as retention_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

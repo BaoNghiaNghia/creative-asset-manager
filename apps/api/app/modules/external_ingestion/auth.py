@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.modules.external_ingestion.model import ExternalApiCredentialModel
+from app.modules.external_ingestion.security import sensitive_url_cipher
 from app.modules.external_ingestion.repository import (
     ExternalIngestionRepository,
     RateLimitExceededError,
@@ -43,6 +44,7 @@ def authenticate_external_api(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     session: Session = Depends(get_db),
     _enabled: None = Depends(require_external_ingestion_enabled),
+    settings: Settings = Depends(get_settings),
 ) -> ExternalApiContext:
     if credentials is None or credentials.scheme.casefold() != "bearer":
         raise HTTPException(
@@ -50,7 +52,11 @@ def authenticate_external_api(
             detail="Missing API bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    repository = ExternalIngestionRepository(session)
+    repository = ExternalIngestionRepository(
+        session,
+        url_cipher=sensitive_url_cipher(settings),
+        url_retention_hours=settings.RETENTION_INGESTION_URL_HOURS,
+    )
     credential = repository.authenticate(credentials.credentials)
     if credential is None:
         raise HTTPException(

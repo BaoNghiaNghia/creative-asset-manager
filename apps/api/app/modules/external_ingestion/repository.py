@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
@@ -10,7 +10,10 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_url_queries
 from app.modules.assets.model import ExternalSourceModel
+from app.modules.auth_persistence.encryption import TokenCipher
+from app.modules.external_ingestion.security import url_aad
 from app.modules.external_ingestion.model import (
     AssetIngestionItemModel,
     AssetIngestionModel,
@@ -36,8 +39,16 @@ def hash_api_key(raw_key: str) -> str:
 class ExternalIngestionRepository:
     """Persistence boundary; methods flush but the service owns commits."""
 
-    def __init__(self, session: Session):
+    def __init__(
+        self,
+        session: Session,
+        *,
+        url_cipher: TokenCipher | None = None,
+        url_retention_hours: int = 24,
+    ):
         self.session = session
+        self.url_cipher = url_cipher
+        self.url_retention_hours = url_retention_hours
 
     def create_credential(
         self,
@@ -178,19 +189,30 @@ class ExternalIngestionRepository:
         )
         self.session.add(ingestion)
         self.session.flush()
-        records = [
-            AssetIngestionItemModel(
+        if self.url_cipher is None:
+            raise RuntimeError("sensitive URL encryption is not configured")
+        records = []
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=self.url_retention_hours)
+        for position, item in enumerate(items):
+            record = AssetIngestionItemModel(
+                id=f"ingi_{uuid4().hex}",
                 tenant_id=tenant_id,
                 ingestion_id=ingestion.id,
                 position=position,
                 external_asset_id=str(item["external_asset_id"]),
-                download_url=str(item["download_url"]),
+                download_url=None,
                 provider_checksum=item.get("checksum"),
                 filename=item.get("filename"),
                 source_modified_at=item.get("modified_at"),
+                download_url_expires_at=expires_at,
             )
-            for position, item in enumerate(items)
-        ]
+            encrypted = self.url_cipher.encrypt(
+                str(item["download_url"]),
+                aad=url_aad(tenant_id, record.id),
+            )
+            record.download_url_ciphertext = encrypted.ciphertext
+            record.download_url_key_version = encrypted.key_version
+            records.append(record)
         self.session.add_all(records)
         self.session.flush()
         return ingestion, records
@@ -269,7 +291,7 @@ class ExternalIngestionRepository:
         item.status = status
         item.source_asset_id = source_asset_id
         item.last_error_code = error_code
-        item.last_error_message = error_message
+        item.last_error_message = redact_url_queries(error_message)
         item.updated_at = changed_at
         item.completed_at = changed_at if status in {"completed", "failed"} else None
         self.session.flush()
@@ -301,6 +323,46 @@ class ExternalIngestionRepository:
         )
         self.session.flush()
         return item
+
+    def resolve_download_url(self, *, tenant_id: str, item_id: str) -> str:
+        item = self.session.scalar(select(AssetIngestionItemModel).where(
+            AssetIngestionItemModel.tenant_id == tenant_id,
+            AssetIngestionItemModel.id == item_id,
+        ))
+        if item is None:
+            raise LookupError(item_id)
+        now = datetime.now(timezone.utc)
+        expires_at = item.download_url_expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if item.download_url_redacted_at is not None or (
+            expires_at is not None and expires_at <= now
+        ):
+            raise RuntimeError("external ingestion URL has expired")
+        if item.download_url_ciphertext is not None:
+            if self.url_cipher is None or item.download_url_key_version is None:
+                raise RuntimeError("sensitive URL decryption is not configured")
+            value = self.url_cipher.decrypt(
+                item.download_url_ciphertext,
+                key_version=item.download_url_key_version,
+                aad=url_aad(tenant_id, item.id),
+            )
+            if value is None:
+                raise RuntimeError("external ingestion URL is unavailable")
+            return value
+        if item.download_url is not None:  # legacy row awaiting cleanup
+            return item.download_url
+        raise RuntimeError("external ingestion URL is unavailable")
+
+    def mark_url_consumed(self, *, tenant_id: str, item_id: str, now: datetime | None = None) -> None:
+        item = self.session.scalar(select(AssetIngestionItemModel).where(
+            AssetIngestionItemModel.tenant_id == tenant_id,
+            AssetIngestionItemModel.id == item_id,
+        ))
+        if item is None:
+            raise LookupError(item_id)
+        item.download_url_consumed_at = now or datetime.now(timezone.utc)
+        self.session.flush()
 
     def recover_idempotency_conflict(
         self,

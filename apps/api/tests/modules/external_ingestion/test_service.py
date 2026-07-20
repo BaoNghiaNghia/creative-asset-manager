@@ -13,6 +13,7 @@ from app.modules.external_ingestion.model import (
     AssetIngestionModel,
     ExternalApiCredentialModel,
 )
+from app.modules.auth_persistence.encryption import TokenCipher
 from app.modules.external_ingestion.repository import (
     ExternalIngestionRepository,
     IdempotencyConflictError,
@@ -80,7 +81,9 @@ class ExternalIngestionServiceTest(unittest.TestCase):
 
     def create(self, key: str, body: AssetIngestionRequest | None = None):
         with self.sessions() as session:
-            repository = ExternalIngestionRepository(session)
+            repository = ExternalIngestionRepository(
+                session, url_cipher=TokenCipher({"v1": b"x" * 32}, "v1")
+            )
             credential = session.get(ExternalApiCredentialModel, self.credential_id)
             return ExternalIngestionService(
                 repository,

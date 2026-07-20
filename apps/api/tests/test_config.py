@@ -25,6 +25,7 @@ FEATURE_FLAGS = (
     "DRIVE_METADATA_SIDECAR_ENABLED",
     "AI_EMERGENCY_STOP_ENABLED",
     "AI_BATCH_FALLBACK_TO_SINGLE_ENABLED",
+    "RETENTION_CLEANUP_ENABLED",
 )
 
 
@@ -122,6 +123,16 @@ class SettingsTest(unittest.TestCase):
             os.environ["GEMINI_API_KEY"] = "test-only"
             settings = Settings()
         self.assertEqual(settings.GEMINI_API_KEY, "test-only")
+
+    def test_external_ingestion_requires_sensitive_url_encryption_key(self) -> None:
+        with patch.dict(os.environ, {"EXTERNAL_INGESTION_API_ENABLED": "true"}, clear=True):
+            with self.assertRaises(ValidationError):
+                Settings()
+        with patch.dict(os.environ, {
+            "EXTERNAL_INGESTION_API_ENABLED": "true",
+            "SENSITIVE_URL_ENCRYPTION_KEYS": "v1:eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg=",
+        }, clear=True):
+            self.assertTrue(Settings().EXTERNAL_INGESTION_API_ENABLED)
 
     def test_cached_settings_use_the_central_environment_source(self) -> None:
         with patch.dict(

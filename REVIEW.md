@@ -732,3 +732,39 @@ metadata_json and stored analysis history remain authoritative and unchanged.
 - Next recommended step: observe several pull-request runs, tune timeouts only
   from measured data, and address the locked frontend audit findings before
   implementing Step 32 separately.
+
+
+## Phase 22 review - Step 32
+
+- Files changed: source reconciliation run/generation models, source sync
+  repository/service, encrypted external-ingestion URL persistence, stable job
+  payloads, shared URL redaction, retention cleanup model/service/handler/
+  scheduler, worker registration/configuration, migration, tests and runbook.
+- Migration added: `0014_reconciliation_retention`; upgrade adds sync run and
+  cleanup state plus generation and encrypted URL columns. Step-scoped rollback
+  to 0013 is tested and uses a non-sensitive URL tombstone where plaintext
+  cannot be restored.
+- Behavior introduced: full reconciliation is page-bounded and resumable;
+  missing records are marked only after successful enumeration. Signed URLs are
+  encrypted and resolved by tenant/item ID. Cleanup uses the existing durable
+  queue, tenant claim gate, leases, cancellation, bounded pages, checkpoints,
+  dry-run and count-only logging.
+- Tests run/results: 287 backend unit/migration tests passed with 11
+  real-service tests skipped in the unit invocation; all 11 PostgreSQL 16,
+  Elasticsearch, migration and durable-pipeline integration tests passed.
+  Python compilation and git whitespace validation passed.
+- Feature flags: `RETENTION_CLEANUP_ENABLED` defaults false. Global processing
+  and tenant pipeline policy remain upper bounds. External ingestion now
+  requires a dedicated sensitive-URL encryption key ring.
+- Known risks: migration 0014 tombstones legacy plaintext URLs, so queued
+  legacy external ingestions need a fresh idempotency key. PostgreSQL
+  production-scale reconciliation still needs staging soak validation.
+  Temporary search/export operation items are deleted after retention;
+  authoritative sidecar/storage references are preserved.
+- Rollback: disable cleanup, pause/drain source jobs, revert Step 32 and
+  downgrade to 0013. Run/checkpoint history is removed; assets and source
+  identity remain.
+- Next recommended step: deploy all flags false, migrate staging, run one
+  multi-page Drive and SharePoint reconciliation with injected timeout/resume,
+  then enable cleanup for one tenant. Do not begin Step 33 until retention
+  counts and worker recovery are observed.

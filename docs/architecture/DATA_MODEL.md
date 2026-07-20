@@ -328,3 +328,20 @@ Secret-free events for connection creation/reconnect/refresh, reconnect-required
 key rotation and session revocation. Revision 0013 adds all four tables. Its
 downgrade removes persistent auth state only after login is disabled and users
 are informed that reconnection will be required.
+
+
+## Step 32 reconciliation generations and retention
+
+Revision `0014_reconciliation_retention` adds `source_sync_runs`, with one
+tenant/source generation, durable page checkpoint, counts, terminal timestamps
+and structured errors. `source_assets.last_seen_generation` and
+`last_seen_at` make the final missing-item sweep set-based and bounded by
+provider page size. A partial unique active-run index prevents two running full
+generations for one source.
+
+`asset_ingestion_items` gains versioned encrypted URL ciphertext, expiry,
+consumption and redaction timestamps. Plaintext is nullable and new requests do
+not persist plaintext URLs. `retention_cleanup_runs` stores tenant/policy
+scope, record types, dry-run state, cursor, count metrics, cancellation and
+checkpoint version. Cleanup preserves assets, content hashes, source identity,
+metadata, projections and audits.

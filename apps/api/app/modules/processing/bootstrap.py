@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.redaction import redact_url_queries, sanitize_log_value
 from app.core.database import SessionLocal, engine
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
@@ -29,6 +30,8 @@ from app.modules.pipeline.handlers import (
     SourceAssetDownloadJobHandler,
 )
 from app.modules.processing.registry import build_handler_registry
+from app.modules.retention.handler import RetentionCleanupJobHandler
+from app.modules.retention.scheduler import RetentionCleanupScheduler
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
 from app.providers.ai.unconfigured import UnconfiguredAiMetadataProvider
 from app.providers.ai.gemini import GeminiAiMetadataProvider
@@ -52,6 +55,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "search_projection_build": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "SEARCH_PROJECTION_ENABLED"),
     "asset_index": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
     "metadata_sidecar_export": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DRIVE_METADATA_SIDECAR_ENABLED"),
+    "retention_cleanup": ("PROCESSING_JOBS_ENABLED", "RETENTION_CLEANUP_ENABLED"),
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
@@ -66,14 +70,16 @@ class JsonWorkerLogFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "level": record.levelname,
-            "event": record.getMessage(),
+            "event": redact_url_queries(record.getMessage()),
             "logger": record.name,
         }
         for key, value in record.__dict__.items():
             if key not in _STANDARD_LOG_FIELDS and key not in {"message", "asctime"}:
-                payload[key] = value
+                payload[key] = sanitize_log_value(value)
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            payload["exception"] = redact_url_queries(
+                self.formatException(record.exc_info)
+            )
         return json.dumps(payload, default=str, separators=(",", ":"))
 
 
@@ -107,6 +113,8 @@ def build_worker_runtime(
 ) -> WorkerRuntime:
     worker_id = settings.WORKER_ID or default_worker_id()
     probe_database(session_factory)
+    if settings.PROCESSING_JOBS_ENABLED and settings.RETENTION_CLEANUP_ENABLED:
+        RetentionCleanupScheduler(session_factory, settings).schedule_known_tenants()
     storage_provider = UnconfiguredAssetStorageProvider()
     if (
         settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN
@@ -156,6 +164,7 @@ def build_worker_runtime(
                 ("search_projection_build", SearchProjectionBuildJobHandler(settings)),
                 ("asset_index", AssetIndexJobHandler(settings)),
                 ("metadata_sidecar_export", MetadataSidecarExportJobHandler(settings)),
+                ("retention_cleanup", RetentionCleanupJobHandler(settings)),
             )
         ),
         health=WorkerHealthState(worker_id),

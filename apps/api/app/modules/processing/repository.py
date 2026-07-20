@@ -7,6 +7,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_url_queries
 from app.domain.processing.types import JOB_TYPES, JobStatus, OutboxStatus
 from app.modules.processing.model import OutboxEventModel, ProcessingJobModel
 from app.modules.processing_policy.claim import TenantAwareJobClaimer
@@ -227,7 +228,7 @@ class ProcessingRepository:
         failed_at = now or utcnow()
         job = self._owned_processing_job(job_id, worker_id)
         job.last_error_code = error_code[:100]
-        job.last_error_message = error_message
+        job.last_error_message = redact_url_queries(error_message)
         job.claimed_by = None
         job.claimed_at = None
         TenantAwareJobClaimer(self.session).release(job)
@@ -258,7 +259,7 @@ class ProcessingRepository:
         job.status = JobStatus.FAILED.value
         job.completed_at = failed_at
         job.last_error_code = error_code[:100]
-        job.last_error_message = error_message
+        job.last_error_message = redact_url_queries(error_message)
         TenantAwareJobClaimer(self.session).release(job)
         job.claimed_by = None
         job.claimed_at = None
@@ -281,7 +282,7 @@ class ProcessingRepository:
         job.status = JobStatus.RETRY.value
         job.next_attempt_at = released_at
         job.last_error_code = error_code[:100]
-        job.last_error_message = error_message
+        job.last_error_message = redact_url_queries(error_message)
         TenantAwareJobClaimer(self.session).release(job)
         job.claimed_by = None
         job.claimed_at = None
@@ -380,7 +381,7 @@ class ProcessingRepository:
         if event.status != OutboxStatus.PROCESSING.value or event.claimed_by != worker_id:
             raise JobOwnershipError(event_id)
         event.last_error_code = error_code[:100]
-        event.last_error_message = error_message
+        event.last_error_message = redact_url_queries(error_message)
         event.claimed_by = None
         event.claimed_at = None
         event.lease_expires_at = None

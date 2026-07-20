@@ -61,6 +61,10 @@ class SourceAssetModel(Base):
         ),
         UniqueConstraint("tenant_id", "id", name="uq_source_assets_tenant_id"),
         Index("ix_source_assets_tenant_deleted", "tenant_id", "deleted_at"),
+        Index(
+            "ix_source_assets_reconciliation_generation",
+            "tenant_id", "external_source_id", "last_seen_generation", "deleted_at",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -77,6 +81,8 @@ class SourceAssetModel(Base):
     hashed_provider_checksum: Mapped[str | None] = mapped_column(String(255))
     hashed_provider_version: Mapped[str | None] = mapped_column(String(255))
     source_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    last_seen_generation: Mapped[int | None] = mapped_column(BigInteger)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

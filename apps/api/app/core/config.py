@@ -23,6 +23,7 @@ FEATURE_FLAG_NAMES = (
     "AI_EMERGENCY_STOP_ENABLED",
     "AI_BATCH_FALLBACK_TO_SINGLE_ENABLED",
     "PERSISTENT_AUTH_ENABLED",
+    "RETENTION_CLEANUP_ENABLED",
 )
 
 
@@ -49,6 +50,7 @@ class Settings(BaseSettings):
     AI_EMERGENCY_STOP_ENABLED: bool = False
     AI_BATCH_FALLBACK_TO_SINGLE_ENABLED: bool = False
     PERSISTENT_AUTH_ENABLED: bool = False
+    RETENTION_CLEANUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
@@ -86,6 +88,20 @@ class Settings(BaseSettings):
     PROCESSING_POLICY_ADMIN_IDS: str = ""
     OAUTH_TOKEN_ENCRYPTION_KEYS: str = ""
     OAUTH_ACTIVE_KEY_VERSION: str = "v1"
+    SENSITIVE_URL_ENCRYPTION_KEYS: str = ""
+    SENSITIVE_URL_ACTIVE_KEY_VERSION: str = "v1"
+    RETENTION_INGESTION_URL_HOURS: int = 24
+    RETENTION_COMPLETED_INGESTION_DAYS: int = 30
+    RETENTION_RAW_AI_RESPONSE_DAYS: int = 7
+    RETENTION_COMPLETED_JOB_DAYS: int = 30
+    RETENTION_DEAD_LETTER_DAYS: int = 30
+    RETENTION_RATE_LIMIT_HOURS: int = 2
+    RETENTION_OUTBOX_DAYS: int = 30
+    RETENTION_TEMP_EXPORT_DAYS: int = 7
+    RETENTION_SOURCE_SYNC_RUN_DAYS: int = 30
+    RETENTION_CLEANUP_BATCH_SIZE: int = 500
+    RETENTION_CLEANUP_MAX_ROWS: int = 5000
+    RETENTION_CLEANUP_INTERVAL_SECONDS: int = 86400
     AUTH_SESSION_TTL_SECONDS: int = 30 * 24 * 60 * 60
     AUTH_STATE_TTL_SECONDS: int = 600
     AUTH_REFRESH_LEASE_SECONDS: int = 30
@@ -146,6 +162,40 @@ class Settings(BaseSettings):
                 raise ValueError("AUTH_COOKIE_SECURE must be true in production")
             if self.AUTH_COOKIE_SAMESITE == "none" and not self.AUTH_COOKIE_SECURE:
                 raise ValueError("SameSite=None requires secure cookies")
+        if self.EXTERNAL_INGESTION_API_ENABLED:
+            import base64
+            versions = set()
+            for item in self.SENSITIVE_URL_ENCRYPTION_KEYS.split(","):
+                if not item.strip() or ":" not in item:
+                    raise ValueError("SENSITIVE_URL_ENCRYPTION_KEYS must contain versioned keys")
+                version, encoded = item.strip().split(":", 1)
+                try:
+                    decoded = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+                except Exception as exc:
+                    raise ValueError("SENSITIVE_URL_ENCRYPTION_KEYS is invalid") from exc
+                if not version or version in versions or len(decoded) != 32:
+                    raise ValueError("Sensitive URL keys require unique versions and 32-byte values")
+                versions.add(version)
+            if self.SENSITIVE_URL_ACTIVE_KEY_VERSION not in versions:
+                raise ValueError("SENSITIVE_URL_ACTIVE_KEY_VERSION is unavailable")
+        retention_values = (
+            self.RETENTION_INGESTION_URL_HOURS,
+            self.RETENTION_COMPLETED_INGESTION_DAYS,
+            self.RETENTION_RAW_AI_RESPONSE_DAYS,
+            self.RETENTION_COMPLETED_JOB_DAYS,
+            self.RETENTION_DEAD_LETTER_DAYS,
+            self.RETENTION_RATE_LIMIT_HOURS,
+            self.RETENTION_OUTBOX_DAYS,
+            self.RETENTION_TEMP_EXPORT_DAYS,
+            self.RETENTION_SOURCE_SYNC_RUN_DAYS,
+            self.RETENTION_CLEANUP_BATCH_SIZE,
+            self.RETENTION_CLEANUP_MAX_ROWS,
+            self.RETENTION_CLEANUP_INTERVAL_SECONDS,
+        )
+        if min(retention_values) <= 0:
+            raise ValueError("Retention settings must be positive")
+        if self.RETENTION_CLEANUP_BATCH_SIZE > self.RETENTION_CLEANUP_MAX_ROWS:
+            raise ValueError("RETENTION_CLEANUP_BATCH_SIZE cannot exceed RETENTION_CLEANUP_MAX_ROWS")
         if min(self.AUTH_SESSION_TTL_SECONDS, self.AUTH_STATE_TTL_SECONDS, self.AUTH_REFRESH_LEASE_SECONDS) <= 0:
             raise ValueError("Authentication TTL and lease settings must be positive")
         if not self.AUTH_COOKIE_PATH.startswith("/"):

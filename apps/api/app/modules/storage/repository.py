@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_url_queries
 from app.modules.storage.model import AssetStorageObjectModel
 
 
@@ -91,7 +92,7 @@ class ManagedStorageRepository:
     ) -> None:
         now = utcnow()
         record.last_error_code = error_code[:100]
-        record.last_error_message = error_message
+        record.last_error_message = redact_url_queries(error_message)
         if retryable and record.attempt_count < max_attempts:
             record.status = "retry"
             record.next_attempt_at = now + timedelta(

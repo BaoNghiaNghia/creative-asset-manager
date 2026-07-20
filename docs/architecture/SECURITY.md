@@ -71,3 +71,19 @@ atomically consumed once. Refresh uses a database lease so replicas do not
 rotate one refresh token concurrently. Logs, audits, metrics and APIs exclude
 plaintext tokens. See docs/operations/AUTH_PERSISTENCE.md for migration, key
 rotation and rollback.
+
+
+## Sensitive URL lifecycle and retention (Step 32)
+
+Signed external URLs use a dedicated versioned AES-256-GCM key ring. Associated
+data binds ciphertext to tenant and ingestion item. Request history omits URL
+values, and processing jobs store only stable ingestion/item IDs. Tenant-scoped
+repository resolution decrypts immediately before use. Query parameters are
+removed before errors become durable or logs are emitted.
+
+Expired or consumed URL ciphertext is tombstoned by bounded retention cleanup.
+Completed payloads and raw provider/AI responses follow explicit central
+retention settings. Dead-letter cleanup retains status and error classification
+while removing payloads and detailed messages. Cleanup logs expose counts and
+record types only. Authoritative asset identity and append-only audit data are
+not cleanup targets.

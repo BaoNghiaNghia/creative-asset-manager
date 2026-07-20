@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_url_queries
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.pipeline.state import PipelineState, validate_transition
 
@@ -69,7 +70,7 @@ class AssetPipelineRepository:
         validate_transition(pipeline.state, target.value)
         pipeline.state = target.value
         pipeline.last_error_code = error_code[:100] if error_code else None
-        pipeline.last_error_message = error_message
+        pipeline.last_error_message = redact_url_queries(error_message)
         pipeline.failure_retryable = retryable
         if status_data:
             pipeline.status_data_json = {**(pipeline.status_data_json or {}), **dict(status_data)}

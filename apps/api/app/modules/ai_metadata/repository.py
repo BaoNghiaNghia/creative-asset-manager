@@ -10,6 +10,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_url_queries
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel, utcnow
 from app.modules.ai_metadata.validator import MetadataDocumentValidator
 from app.modules.assets.model import AssetModel
@@ -199,7 +200,7 @@ class AiMetadataRepository:
         analysis.status = "budget_blocked"
         analysis.processing_stage = "budget_blocked"
         analysis.last_error_code = code[:100]
-        analysis.last_error_message = reason
+        analysis.last_error_message = redact_url_queries(reason)
         analysis.failure_retryable = True
         analysis.claimed_by = None
         analysis.lease_expires_at = None
@@ -219,7 +220,7 @@ class AiMetadataRepository:
         now = utcnow()
         analysis.status = "failed" if terminal else "pending"
         analysis.last_error_code = error_code[:100]
-        analysis.last_error_message = error_message
+        analysis.last_error_message = redact_url_queries(error_message)
         analysis.failure_retryable = retryable
         analysis.validation_errors_json = validation_errors
         analysis.processing_stage = "failed" if terminal else "retry"

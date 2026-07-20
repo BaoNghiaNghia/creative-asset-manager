@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import JSON, and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_url_queries
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
 from app.modules.search.operations_model import (
@@ -178,7 +179,7 @@ class SearchOperationRepository:
             self.session.add(item)
         item.status = status
         item.last_error_code = type(error).__name__[:100] if error else None
-        item.last_error_message = str(error) if error else None
+        item.last_error_message = redact_url_queries(str(error)) if error else None
         item.updated_at = utcnow()
         item.completed_at = utcnow() if status in {"completed", "failed", "skipped"} else None
         self.session.flush()
@@ -236,7 +237,7 @@ class SearchOperationRepository:
             raise ValueError("invalid terminal status")
         run.status = status
         run.last_error_code = type(error).__name__[:100] if error else None
-        run.last_error_message = str(error) if error else None
+        run.last_error_message = redact_url_queries(str(error)) if error else None
         run.completed_at = utcnow()
         run.updated_at = utcnow()
         self.session.flush()

@@ -45,7 +45,7 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
             version = connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
             ).scalar_one()
-        self.assertEqual(version, "0013_persistent_oauth_sessions")
+        self.assertEqual(version, "0014_reconciliation_retention")
 
     def test_tenant_constraints_and_source_identity(self) -> None:
         marker = uuid4().hex

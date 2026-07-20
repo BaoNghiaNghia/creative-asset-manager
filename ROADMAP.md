@@ -52,3 +52,5 @@
 - [x] 30 Persistent encrypted OAuth tokens and distributed sessions
 
 - [x] 31 PostgreSQL and Elasticsearch integration CI plus end-to-end pipeline tests
+
+- [x] 32 Reconciliation generation markers, sensitive URL retention, and cleanup jobs
