@@ -90,12 +90,15 @@ class AiBudgetService:
         now=now or datetime.now(timezone.utc)
         reservation=self.session.scalar(select(AiBudgetReservationModel).where(AiBudgetReservationModel.id==reservation_id))
         if reservation is None: raise LookupError(reservation_id)
-        if reservation.status in {"reconciled","released","denied"}: return reservation
+        if reservation.status in {"released","denied"}: return reservation
+        previous = reservation.actual_cost_micros if reservation.status == "reconciled" else 0
+        reserved_release = 0 if reservation.status == "reconciled" else reservation.estimated_cost_micros
+        actual_delta = actual_cost_micros - previous
         for value in reservation.account_keys_json:
             currency,period_type,period_key=value.split(":",2)
             self.session.execute(update(AiBudgetAccountModel).where(
                 AiBudgetAccountModel.tenant_id==reservation.tenant_id,AiBudgetAccountModel.period_type==period_type,AiBudgetAccountModel.period_key==period_key,AiBudgetAccountModel.currency==currency,
-            ).values(reserved_micros=AiBudgetAccountModel.reserved_micros-reservation.estimated_cost_micros,actual_micros=AiBudgetAccountModel.actual_micros+actual_cost_micros,updated_at=now).execution_options(synchronize_session=False))
+            ).values(reserved_micros=AiBudgetAccountModel.reserved_micros-reserved_release,actual_micros=AiBudgetAccountModel.actual_micros+actual_delta,updated_at=now).execution_options(synchronize_session=False))
         reservation.actual_cost_micros=actual_cost_micros; reservation.status="reconciled"; reservation.updated_at=now; self.session.flush(); return reservation
 
 def usage_units(usage: Mapping[str, Any]) -> tuple[int,int,int]:

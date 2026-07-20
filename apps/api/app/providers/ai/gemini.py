@@ -4,10 +4,17 @@ import base64
 import json
 from collections.abc import Mapping
 from typing import Any
+from collections.abc import AsyncIterator
 
 import httpx
 
 from app.domain.providers.contracts import (
+    AiBatchResult,
+    AiBatchResultsInput,
+    AiBatchStatus,
+    AiBatchStatusInput,
+    AiBatchSubmission,
+    AiBatchSubmissionInput,
     AiMetadataAnalysisInput,
     AiMetadataAnalysisResult,
     AiProviderError,
@@ -18,6 +25,9 @@ class GeminiAiMetadataProvider:
     """Gemini REST adapter. Domain code never depends on a Google AI SDK."""
 
     provider_name = "gemini"
+    supports_batch = True
+    batch_max_items = 100
+    batch_max_request_bytes = 20_000_000
 
     def __init__(
         self,
@@ -104,6 +114,224 @@ class GeminiAiMetadataProvider:
             },
             raw_response=payload,
         )
+
+    async def submit_batch(self, input: AiBatchSubmissionInput) -> AiBatchSubmission:
+        existing = await self._find_batch(input.display_name)
+        if existing is not None:
+            return AiBatchSubmission(
+                provider_batch_id=str(existing["name"]),
+                state=self._normalize_batch_state(existing.get("state")),
+            )
+        requests = []
+        try:
+            with open(input.input_path, "r", encoding="utf-8") as source:
+                for line in source:
+                    value = json.loads(line)
+                    requests.append({
+                        "request": {
+                            "contents": [{"role": "user", "parts": [
+                                {"text": value["prompt"]},
+                                {"inlineData": {
+                                    "mimeType": value["image_mime_type"],
+                                    "data": value["image_base64"],
+                                }},
+                            ]}],
+                            "generationConfig": {"responseMimeType": "application/json"},
+                        },
+                        "metadata": {"key": value["custom_item_id"]},
+                    })
+        except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise AiProviderError(
+                "Gemini batch input could not be read.",
+                code="gemini_batch_invalid_input", retryable=False,
+            ) from exc
+        body = {"batch": {
+            "displayName": input.display_name,
+            "inputConfig": {"requests": {"requests": requests}},
+        }}
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{input.model}:batchGenerateContent"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
+                response = await client.post(
+                    url, headers={"x-goog-api-key": self._api_key}, json=body)
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            recovered = await self._find_batch(input.display_name)
+            if recovered is not None:
+                return AiBatchSubmission(
+                    provider_batch_id=str(recovered["name"]),
+                    state=self._normalize_batch_state(recovered.get("state")),
+                )
+            raise AiProviderError(
+                "Gemini batch submission outcome is ambiguous.",
+                code="gemini_batch_submission_ambiguous", retryable=True,
+            ) from exc
+        self._raise_for_status(response)
+        payload = self._response_object(response)
+        name = payload.get("name") or (payload.get("batch") or {}).get("name")
+        if not name:
+            raise AiProviderError(
+                "Gemini batch submission omitted its resource name.",
+                code="gemini_batch_submission_ambiguous", retryable=True,
+            )
+        return AiBatchSubmission(
+            provider_batch_id=str(name),
+            state=self._normalize_batch_state(
+                payload.get("state") or (payload.get("batch") or {}).get("state")),
+            provider_request_id=payload.get("responseId"),
+        )
+
+    async def get_batch_status(self, input: AiBatchStatusInput) -> AiBatchStatus:
+        operation = await self._get_batch(input.provider_batch_id)
+        payload = self._batch_resource(operation)
+        error = operation.get("error") or payload.get("error") or {}
+        return AiBatchStatus(
+            state=self._normalize_batch_state(payload.get("state")),
+            retry_after_seconds=self._retry_after(operation),
+            usage=dict(payload.get("usageMetadata") or operation.get("usageMetadata") or {}),
+            error_code=str(error.get("code")) if error else None,
+            error_message=str(error.get("message")) if error else None,
+        )
+
+    async def stream_batch_results(
+        self, input: AiBatchResultsInput
+    ) -> AsyncIterator[AiBatchResult]:
+        operation = await self._get_batch(input.provider_batch_id)
+        payload = self._batch_resource(operation)
+        destination = payload.get("dest") or payload.get("destination") or payload.get("output") or {}
+        responses = destination.get("inlinedResponses") or destination.get("inlined_responses") or []
+        if isinstance(responses, Mapping):
+            responses = (
+                responses.get("inlinedResponses")
+                or responses.get("inlined_responses")
+                or []
+            )
+        start = int(input.cursor or "-1") + 1
+        for index, value in enumerate(responses):
+            if index < start:
+                continue
+            metadata = value.get("metadata") or {}
+            custom_id = str(metadata.get("key") or value.get("key") or "")
+            error = value.get("error")
+            if error:
+                code = str(error.get("status") or error.get("code") or "provider_item_failed")
+                yield AiBatchResult(
+                    custom_item_id=custom_id, error_code=code,
+                    error_message=str(error.get("message") or "Gemini rejected batch item."),
+                    retryable=code in {"429", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"},
+                )
+                continue
+            response = value.get("response") or value.get("inlineResponse") or {}
+            try:
+                text = self._candidate_text(response)
+                document = json.loads(text)
+                if not isinstance(document, Mapping):
+                    raise TypeError("metadata root")
+                candidate = (response.get("candidates") or [{}])[0]
+                result = AiMetadataAnalysisResult(
+                    metadata=dict(document), provider=self.provider_name,
+                    model=response.get("modelVersion") or self.model,
+                    provider_request_id=response.get("responseId"),
+                    usage=dict(response.get("usageMetadata") or {}),
+                    provider_metadata={
+                        "finish_reason": candidate.get("finishReason"),
+                        "model_version": response.get("modelVersion"),
+                    },
+                    raw_response=response,
+                )
+                yield AiBatchResult(custom_item_id=custom_id, result=result)
+            except (AiProviderError, TypeError, json.JSONDecodeError) as exc:
+                yield AiBatchResult(
+                    custom_item_id=custom_id,
+                    error_code="gemini_invalid_batch_result",
+                    error_message=str(exc), retryable=True,
+                )
+
+    async def cancel_batch(self, input: AiBatchStatusInput) -> bool:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/"
+            f"{input.provider_batch_id}:cancel"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
+                response = await client.post(
+                    url, headers={"x-goog-api-key": self._api_key}, json={})
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise AiProviderError(
+                "Gemini batch cancellation could not be confirmed.",
+                code="gemini_batch_cancel_transport", retryable=True,
+            ) from exc
+        self._raise_for_status(response)
+        return True
+
+    async def _get_batch(self, name: str) -> dict[str, Any]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/{name}"
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
+                response = await client.get(url, headers={"x-goog-api-key": self._api_key})
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise AiProviderError(
+                "Gemini batch status could not be retrieved.",
+                code="gemini_batch_transport_error", retryable=True,
+            ) from exc
+        self._raise_for_status(response)
+        return self._response_object(response)
+
+    async def _find_batch(self, display_name: str) -> dict[str, Any] | None:
+        url = "https://generativelanguage.googleapis.com/v1beta/batches?pageSize=100"
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
+                response = await client.get(url, headers={"x-goog-api-key": self._api_key})
+        except (httpx.TimeoutException, httpx.NetworkError):
+            return None
+        if response.status_code >= 400:
+            return None
+        payload = self._response_object(response)
+        for operation in payload.get("batches") or payload.get("operations") or []:
+            value = self._batch_resource(operation)
+            if value.get("displayName") == display_name:
+                if not value.get("name") and operation.get("name"):
+                    value["name"] = operation["name"]
+                return value
+        return None
+
+    @staticmethod
+    def _normalize_batch_state(value: Any) -> str:
+        state = str(value or "JOB_STATE_PENDING").upper()
+        return {
+            "JOB_STATE_PENDING": "pending",
+            "JOB_STATE_RUNNING": "running",
+            "JOB_STATE_SUCCEEDED": "completed",
+            "JOB_STATE_FAILED": "failed",
+            "JOB_STATE_CANCELLED": "cancelled",
+            "JOB_STATE_EXPIRED": "expired",
+            "BATCH_STATE_PENDING": "pending",
+            "BATCH_STATE_RUNNING": "running",
+            "BATCH_STATE_SUCCEEDED": "completed",
+            "BATCH_STATE_FAILED": "failed",
+            "BATCH_STATE_CANCELLED": "cancelled",
+            "BATCH_STATE_EXPIRED": "expired",
+        }.get(state, state.lower())
+
+    @staticmethod
+    def _batch_resource(operation: Mapping[str, Any]) -> dict[str, Any]:
+        for key in ("response", "metadata"):
+            value = operation.get(key)
+            if isinstance(value, Mapping) and any(
+                field in value for field in ("displayName", "state", "output")
+            ):
+                return dict(value)
+        return dict(operation)
+
+    @staticmethod
+    def _retry_after(payload: Mapping[str, Any]) -> float | None:
+        value = payload.get("retryAfterSeconds")
+        try:
+            return max(0.0, float(value)) if value is not None else None
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _response_object(response: httpx.Response) -> dict[str, Any]:

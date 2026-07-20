@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,12 +22,12 @@ from app.modules.ai_metadata.analysis_image import (
 )
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.ai_metadata.repository import AiMetadataRepository
+from app.modules.ai_metadata.result_importer import AiAnalysisResultImporter
 from app.modules.ai_metadata.validator import MetadataDocumentValidator
 from app.modules.ai_governance.metrics import AI_METRICS
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.ai_governance.service import AiBudgetService, usage_units
 from app.modules.assets.model import AssetModel
-from app.modules.processing.repository import ProcessingRepository
 from app.modules.storage.repository import ManagedStorageRepository
 
 
@@ -295,81 +293,31 @@ class AiAnalysisService:
                 repository.set_stage(analysis_id, "validating")
                 session.commit()
 
-            validation = self.validator.validate(result.metadata, json_schema=schema)
-            if not validation.valid:
-                errors = [
-                    {
-                        "code": item.code,
-                        "message": item.message,
-                        "path": list(item.path),
-                        "limit": item.limit,
-                        "actual": item.actual,
-                    }
-                    for item in validation.errors
-                ]
-                retryable = attempt_count < self.settings.AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS
-                with self.session_factory() as session:
-                    if operation_key:
-                        AiGovernanceRepository(session).record_usage(tenant_id=tenant_id, operation_key=operation_key, values={"outcome": "invalid_metadata"})
-                        session.commit()
-                AI_METRICS.increment("invalid_metadata", provider=provider_name, outcome="validation_failed")
-                await self._record_failure(
-                    analysis_id,
-                    code="metadata_validation_failed",
-                    message="AI metadata failed safety or profile validation.",
-                    retryable=retryable,
-                    validation_errors=errors,
+            with self.session_factory() as session:
+                imported = AiAnalysisResultImporter(
+                    session, self.settings, validator=self.validator,
+                    projection_builder=self.projection_builder,
+                ).import_result(
+                    tenant_id=tenant_id, analysis_id=analysis_id, result=result,
+                )
+                analysis = AiMetadataRepository(session, self.validator).get_analysis(analysis_id)
+                if imported.status == "invalid_metadata" and operation_key:
+                    AiGovernanceRepository(session).record_usage(
+                        tenant_id=tenant_id, operation_key=operation_key,
+                        values={"outcome": "invalid_metadata"},
+                    )
+                retryable = bool(analysis.failure_retryable)
+                session.commit()
+            if imported.status == "invalid_metadata":
+                AI_METRICS.increment(
+                    "invalid_metadata", provider=provider_name,
+                    outcome="validation_failed",
                 )
                 return AiAnalysisOutcome(
                     "retryable_failure" if retryable else "non_retryable_failure",
                     "metadata_validation_failed",
                     "AI metadata failed safety or profile validation.",
                 )
-            metadata = validation.document or {}
-            projection_result = self.projection_builder.build(metadata, search_config)
-            projection = projection_result.projection.to_document()
-            encoded = json.dumps(
-                projection, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-            ).encode("utf-8")
-            projection_checksum = hashlib.sha256(encoded).hexdigest()
-
-            with self.session_factory() as session:
-                repository = AiMetadataRepository(session, self.validator)
-                current = repository.get_analysis(analysis_id)
-                if current.status == "completed":
-                    return AiAnalysisOutcome("completed")
-                repository.set_stage(analysis_id, "projection_ready")
-                completed = repository.complete_analysis(
-                    analysis_id=analysis_id,
-                    metadata=metadata,
-                    raw_response=result.raw_response,
-                    store_raw_response=self.settings.AI_STORE_RAW_RESPONSE_ENABLED,
-                    search_projection=projection,
-                    search_projection_version=projection_result.projection_version,
-                    projection_checksum=projection_checksum,
-                    provider_request_id=result.provider_request_id,
-                    usage=result.usage,
-                    provider_metadata=result.provider_metadata,
-                    ai_model=result.model,
-                )
-                ProcessingRepository(session).create_job(
-                    tenant_id=tenant_id,
-                    job_type="asset_index",
-                    entity_type="asset",
-                    entity_id=completed.asset_id,
-                    idempotency_key=(
-                        f"asset-index:{completed.id}:"
-                        f"{projection_result.projection_version}:{projection_checksum}"
-                    ),
-                    provider_key="elasticsearch",
-                    provider_scope="search",
-                    payload={
-                        "asset_id": completed.asset_id,
-                        "analysis_id": completed.id,
-                        "projection_version": projection_result.projection_version,
-                    },
-                )
-                session.commit()
             return AiAnalysisOutcome("completed")
         except AnalysisImageError as exc:
             await self._record_failure(

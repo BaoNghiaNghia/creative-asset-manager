@@ -581,3 +581,51 @@ metadata_json and stored analysis history remain authoritative and unchanged.
 - Next recommended step: load-test one tenant on PostgreSQL with real rate
   configuration and simulated Gemini billing/timeouts before expanding pilot
   size. Steps 28–33 and AI batch processing remain out of scope.
+
+
+## Phase 18 review  Step 28
+
+- Files changed: provider contracts and TypeScript transport types; Gemini and
+  unconfigured AI adapters; durable AI batch model/repository/service/handlers;
+  shared single/batch result importer; governance reconciliation; processing
+  job types, policy classification and bootstrap; central configuration;
+  migration 0012; provider, service, configuration and migration tests; provider,
+  data model, step and operator documentation.
+- Migration added: `0012_ai_batch_processing`, including upgrade and tested
+  downgrade to `0011_ai_governance_pilot`.
+- Behavior: compatible-only tenant batch grouping, bounded disk-backed request
+  preparation, budget reservation before provider submission, stable ambiguous
+  submission recovery, provider-guided polling, streamed resumable out-of-order
+  import, shared metadata validation/projection/index handoff, batch/item usage
+  accounting, cancellation and selective retry.
+- Feature flags: `AI_BATCH_ANALYSIS_ENABLED` remains false and gates all new
+  worker types. `AI_BATCH_FALLBACK_TO_SINGLE_ENABLED` is new, defaults false,
+  and independently gates explicit single-item fallback. Existing global,
+  tenant, pause, provider and concurrency gates remain upper bounds.
+- Security: temporary input is mode 0600 and always removed; queued payloads
+  contain database IDs only; usage/errors omit credentials, signed URLs and
+  raw provider requests.
+- Tests: 246 full API tests passed with RuntimeWarning treated as an error after
+  final safety refinements. Batch service covers grouping, budgets, duplicate
+  submit, ambiguity, polling, out-of-order/duplicate/unknown/invalid/missing
+  results, resume, cancellation and usage idempotency without real Gemini calls.
+  Migration upgrade/downgrade and Gemini adapter contract tests passed.
+
+### Step 28 risks and rollback
+
+- Gemini inline Batch API requests/results are bounded to 20 MB, but still have
+  a bounded in-memory representation inside the HTTP adapter. Staging must
+  validate worker memory and provider limits before increasing configured caps.
+- Provider batch creation has no native idempotency key. Stable display-name
+  lookup reduces duplicate risk, but an unresolved network partition remains an
+  ambiguous operator-visible state and must not be bypassed with a new key.
+- Cost rates, tenant budgets and provider billing semantics must be configured
+  and reviewed. Terminal billable failures use conservative reservation
+  reconciliation until provider totals are available.
+- Real PostgreSQL multi-worker claims, Gemini throttling/expiry, long-running
+  cancellation and large result import require staging fault injection.
+- Roll back by disabling batch analysis, pausing tenant AI, draining workers,
+  reverting Step 28 and downgrading 0012 to 0011. Completed analyses, usage,
+  budgets, metadata and projections are retained.
+- Next recommended step: run a small budget-capped Gemini batch for one tenant,
+  validate recovery and billing, then implement Step 29 separately.

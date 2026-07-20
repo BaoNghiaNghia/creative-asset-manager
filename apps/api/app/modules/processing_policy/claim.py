@@ -10,7 +10,7 @@ from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
 
 
-AI_JOB_TYPES = ("asset_analyze",)
+AI_JOB_TYPES = ("asset_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items")
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download")
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export")
 
@@ -19,6 +19,11 @@ STAGE_POLICY = {
     "source_asset_download": "download_enabled",
     "asset_store": "managed_storage_enabled",
     "asset_analyze": "ai_analysis_enabled",
+    "ai_batch_prepare": "ai_analysis_enabled",
+    "ai_batch_submit": "ai_analysis_enabled",
+    "ai_batch_poll": "ai_analysis_enabled",
+    "ai_batch_import": "ai_analysis_enabled",
+    "ai_batch_retry_items": "ai_analysis_enabled",
     "search_projection_build": "search_v2_enabled",
     "asset_index": "search_v2_enabled",
     "metadata_sidecar_export": "sidecar_enabled",

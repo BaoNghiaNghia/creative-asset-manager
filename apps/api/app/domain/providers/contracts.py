@@ -162,6 +162,56 @@ class AiMetadataAnalysisResult:
     provider_metadata: Mapping[str, Any] = field(default_factory=dict)
     raw_response: Mapping[str, Any] | None = None
 
+@dataclass(frozen=True, slots=True)
+class AiBatchSubmissionInput:
+    tenant_id: str
+    submission_key: str
+    display_name: str
+    model: str
+    input_path: str
+    item_count: int
+    total_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class AiBatchSubmission:
+    provider_batch_id: str
+    state: str
+    provider_request_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AiBatchStatusInput:
+    tenant_id: str
+    provider_batch_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class AiBatchStatus:
+    state: str
+    retry_after_seconds: float | None = None
+    usage: Mapping[str, Any] = field(default_factory=dict)
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AiBatchResult:
+    custom_item_id: str
+    result: AiMetadataAnalysisResult | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    retryable: bool = False
+    provider_item_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AiBatchResultsInput:
+    tenant_id: str
+    provider_batch_id: str
+    cursor: str | None = None
+
+
 @runtime_checkable
 
 class AssetSourceProvider(Protocol):
@@ -187,6 +237,23 @@ class AssetStorageProvider(Protocol):
 
 @runtime_checkable
 class AiMetadataProvider(Protocol):
+    @property
+    def supports_batch(self) -> bool: ...
+
     async def analyze_single(
         self, input: AiMetadataAnalysisInput
     ) -> AiMetadataAnalysisResult: ...
+
+    async def submit_batch(
+        self, input: AiBatchSubmissionInput
+    ) -> AiBatchSubmission: ...
+
+    async def get_batch_status(
+        self, input: AiBatchStatusInput
+    ) -> AiBatchStatus: ...
+
+    def stream_batch_results(
+        self, input: AiBatchResultsInput
+    ) -> AsyncIterator[AiBatchResult]: ...
+
+    async def cancel_batch(self, input: AiBatchStatusInput) -> bool: ...

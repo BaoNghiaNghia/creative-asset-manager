@@ -67,3 +67,13 @@ Tenant, asset, and analysis appProperties form the deterministic remote lookup.
 If the file exists, Drive media update replaces its bytes; otherwise the adapter
 creates one resumable JSON upload. Sidecars are explicitly non-authoritative and
 contain neither provider credentials nor raw authentication data.
+
+
+## Step 28 AI batch provider capability
+
+`AiMetadataProvider` now advertises batch capability and exposes provider-neutral
+submit, status, streamed-result and cancel operations. The Gemini adapter owns
+all Batch API REST shapes, bounded inline request conversion, stable display-name
+recovery and provider state normalization. Unconfigured or unsupported adapters
+fail closed. Batch consumers use stable custom item IDs and never depend on
+provider result order.

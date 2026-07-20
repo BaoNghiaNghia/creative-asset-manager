@@ -45,3 +45,4 @@
 - [x] 25 Durable end-to-end asset pipeline
 - [x] 26 Tenant-scoped rollout, tenant-filtered claiming, and pause controls
 - [x] 27 Pilot evaluator, AI cost metrics, and AI budget circuit breaker
+- [x] 28 Durable AI batch submission, polling, import, and selective retry

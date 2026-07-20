@@ -14,7 +14,7 @@ STAGE_GLOBALS = {
     "source_sync_enabled": ("UNIFIED_ASSET_INGESTION_ENABLED", "INCREMENTAL_SOURCE_SYNC_ENABLED", "PROCESSING_JOBS_ENABLED"),
     "download_enabled": ("UNIFIED_ASSET_INGESTION_ENABLED", "CONTENT_DEDUP_ENABLED", "PROCESSING_JOBS_ENABLED"),
     "managed_storage_enabled": ("UNIFIED_ASSET_INGESTION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED", "PROCESSING_JOBS_ENABLED"),
-    "ai_analysis_enabled": ("UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_SINGLE_ANALYSIS_ENABLED", "PROCESSING_JOBS_ENABLED"),
+    "ai_analysis_enabled": ("UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "PROCESSING_JOBS_ENABLED"),
     "search_v2_enabled": ("UNIFIED_ASSET_INGESTION_ENABLED", "SEARCH_PROJECTION_ENABLED", "ELASTICSEARCH_V2_ENABLED", "PROCESSING_JOBS_ENABLED"),
     "sidecar_enabled": ("UNIFIED_ASSET_INGESTION_ENABLED", "DRIVE_METADATA_SIDECAR_ENABLED", "PROCESSING_JOBS_ENABLED"),
 }
@@ -72,6 +72,13 @@ class ProcessingPolicyService:
             stage: all(bool(getattr(self.settings, flag)) for flag in flags)
             for stage, flags in STAGE_GLOBALS.items()
         }
+        bounds["ai_analysis_enabled"] = (
+            bounds["ai_analysis_enabled"]
+            and (
+                self.settings.AI_SINGLE_ANALYSIS_ENABLED
+                or self.settings.AI_BATCH_ANALYSIS_ENABLED
+            )
+        )
         paused = bool(configured.get("processing_paused"))
         pipeline_effective = bool(configured.get("pipeline_enabled")) and bounds["pipeline_enabled"] and not paused
         effective = {

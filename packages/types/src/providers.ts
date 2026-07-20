@@ -106,8 +106,53 @@ export interface AiMetadataAnalysisResult {
   providerRequestId?: string;
 }
 
+export interface AiBatchSubmissionInput {
+  tenantId: string;
+  submissionKey: string;
+  displayName: string;
+  model: string;
+  inputPath: string;
+  itemCount: number;
+  totalBytes: number;
+}
+
+export interface AiBatchSubmission {
+  providerBatchId: string;
+  state: string;
+  providerRequestId?: string;
+}
+
+export interface AiBatchStatusInput {
+  tenantId: string;
+  providerBatchId: string;
+}
+
+export interface AiBatchStatus {
+  state: string;
+  retryAfterSeconds?: number;
+  usage?: Record<string, unknown>;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface AiBatchResult {
+  customItemId: string;
+  result?: AiMetadataAnalysisResult;
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  providerItemId?: string;
+}
+
 export interface AiMetadataProvider {
+  readonly supportsBatch: boolean;
   analyzeSingle(
     input: AiMetadataAnalysisInput
   ): Promise<AiMetadataAnalysisResult>;
+  submitBatch(input: AiBatchSubmissionInput): Promise<AiBatchSubmission>;
+  getBatchStatus(input: AiBatchStatusInput): Promise<AiBatchStatus>;
+  streamBatchResults(
+    input: AiBatchStatusInput & { cursor?: string }
+  ): AsyncIterable<AiBatchResult>;
+  cancelBatch(input: AiBatchStatusInput): Promise<boolean>;
 }

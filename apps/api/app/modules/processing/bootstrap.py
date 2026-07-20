@@ -16,6 +16,11 @@ from app.core.database import SessionLocal, engine
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
+from app.modules.ai_batch.handlers import (
+    AiBatchImportJobHandler, AiBatchPollJobHandler,
+    AiBatchPrepareJobHandler, AiBatchRetryItemsJobHandler,
+    AiBatchSubmitJobHandler,
+)
 from app.modules.pipeline.handlers import (
     AssetIndexJobHandler,
     AssetStoreJobHandler,
@@ -39,6 +44,11 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "source_asset_download": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "CONTENT_DEDUP_ENABLED"),
     "asset_store": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "asset_analyze": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_SINGLE_ANALYSIS_ENABLED"),
+    "ai_batch_prepare": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
+    "ai_batch_submit": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
+    "ai_batch_poll": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
+    "ai_batch_import": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
+    "ai_batch_retry_items": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
     "search_projection_build": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "SEARCH_PROJECTION_ENABLED"),
     "asset_index": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
     "metadata_sidecar_export": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DRIVE_METADATA_SIDECAR_ENABLED"),
@@ -138,6 +148,11 @@ def build_worker_runtime(
                 ("source_asset_download", SourceAssetDownloadJobHandler(settings)),
                 ("asset_store", AssetStoreJobHandler(settings)),
                 ("asset_analyze", AssetAnalyzeJobHandler(settings)),
+                ("ai_batch_prepare", AiBatchPrepareJobHandler(settings)),
+                ("ai_batch_submit", AiBatchSubmitJobHandler(settings)),
+                ("ai_batch_poll", AiBatchPollJobHandler(settings)),
+                ("ai_batch_import", AiBatchImportJobHandler(settings)),
+                ("ai_batch_retry_items", AiBatchRetryItemsJobHandler(settings)),
                 ("search_projection_build", SearchProjectionBuildJobHandler(settings)),
                 ("asset_index", AssetIndexJobHandler(settings)),
                 ("metadata_sidecar_export", MetadataSidecarExportJobHandler(settings)),

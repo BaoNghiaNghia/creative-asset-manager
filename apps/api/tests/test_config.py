@@ -23,7 +23,8 @@ FEATURE_FLAGS = (
     "SEARCH_QUERY_PARSER_V2_ENABLED",
     "EXTERNAL_INGESTION_API_ENABLED",
     "DRIVE_METADATA_SIDECAR_ENABLED",
-            "AI_EMERGENCY_STOP_ENABLED",
+    "AI_EMERGENCY_STOP_ENABLED",
+    "AI_BATCH_FALLBACK_TO_SINGLE_ENABLED",
 )
 
 
@@ -93,6 +94,34 @@ class SettingsTest(unittest.TestCase):
             settings = Settings()
         self.assertEqual(settings.GEMINI_API_KEY, "test-only")
 
+
+    def test_invalid_batch_limits_fail_validation(self) -> None:
+        for name, value in (
+            ("AI_BATCH_MAX_ITEMS", "0"),
+            ("AI_BATCH_MAX_REQUEST_BYTES", "0"),
+            ("AI_BATCH_MINIMUM_AGE_SECONDS", "-1"),
+            ("AI_BATCH_POLL_INTERVAL_SECONDS", "0"),
+            ("AI_BATCH_MAX_ITEM_ATTEMPTS", "0"),
+        ):
+            with self.subTest(setting=name):
+                with patch.dict(os.environ, {name: value}, clear=True):
+                    with self.assertRaises(ValidationError):
+                        Settings()
+
+    def test_gemini_key_is_required_when_batch_analysis_is_enabled(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DYNAMIC_AI_METADATA_ENABLED": "true",
+                "AI_BATCH_ANALYSIS_ENABLED": "true",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(ValidationError):
+                Settings()
+            os.environ["GEMINI_API_KEY"] = "test-only"
+            settings = Settings()
+        self.assertEqual(settings.GEMINI_API_KEY, "test-only")
 
     def test_cached_settings_use_the_central_environment_source(self) -> None:
         with patch.dict(

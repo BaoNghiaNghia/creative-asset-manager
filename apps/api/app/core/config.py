@@ -21,6 +21,7 @@ FEATURE_FLAG_NAMES = (
     "EXTERNAL_INGESTION_API_ENABLED",
     "DRIVE_METADATA_SIDECAR_ENABLED",
     "AI_EMERGENCY_STOP_ENABLED",
+    "AI_BATCH_FALLBACK_TO_SINGLE_ENABLED",
 )
 
 
@@ -45,6 +46,7 @@ class Settings(BaseSettings):
     EXTERNAL_INGESTION_API_ENABLED: bool = False
     DRIVE_METADATA_SIDECAR_ENABLED: bool = False
     AI_EMERGENCY_STOP_ENABLED: bool = False
+    AI_BATCH_FALLBACK_TO_SINGLE_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
@@ -58,6 +60,11 @@ class Settings(BaseSettings):
     AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS: int = 2
     AI_ESTIMATED_OUTPUT_UNITS: int = 4096
     AI_PILOT_CONFIRMATION_THRESHOLD_MICROS: int = 1_000_000
+    AI_BATCH_MAX_ITEMS: int = 100
+    AI_BATCH_MAX_REQUEST_BYTES: int = 20_000_000
+    AI_BATCH_MINIMUM_AGE_SECONDS: int = 300
+    AI_BATCH_POLL_INTERVAL_SECONDS: float = 30.0
+    AI_BATCH_MAX_ITEM_ATTEMPTS: int = 3
     GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN: str | None = None
     GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID: str | None = None
 
@@ -123,14 +130,25 @@ class Settings(BaseSettings):
             self.AI_ANALYSIS_MAX_PIXELS,
             self.AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS,
             self.AI_ESTIMATED_OUTPUT_UNITS,
+            self.AI_BATCH_MAX_ITEMS,
+            self.AI_BATCH_MAX_REQUEST_BYTES,
+            self.AI_BATCH_MAX_ITEM_ATTEMPTS,
         ) <= 0:
             raise ValueError("AI analysis limits must be positive")
+        if self.AI_BATCH_MINIMUM_AGE_SECONDS < 0:
+            raise ValueError("AI_BATCH_MINIMUM_AGE_SECONDS cannot be negative")
+        if self.AI_BATCH_POLL_INTERVAL_SECONDS <= 0:
+            raise ValueError("AI_BATCH_POLL_INTERVAL_SECONDS must be positive")
         if self.AI_PILOT_CONFIRMATION_THRESHOLD_MICROS < 0:
             raise ValueError("AI_PILOT_CONFIRMATION_THRESHOLD_MICROS cannot be negative")
         if not 1 <= self.AI_ANALYSIS_JPEG_QUALITY <= 95:
             raise ValueError("AI_ANALYSIS_JPEG_QUALITY must be between 1 and 95")
-        if self.DYNAMIC_AI_METADATA_ENABLED and self.AI_SINGLE_ANALYSIS_ENABLED and not self.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is required when single AI analysis is enabled")
+        if (
+            self.DYNAMIC_AI_METADATA_ENABLED
+            and (self.AI_SINGLE_ANALYSIS_ENABLED or self.AI_BATCH_ANALYSIS_ENABLED)
+            and not self.GEMINI_API_KEY
+        ):
+            raise ValueError("GEMINI_API_KEY is required when AI analysis is enabled")
         return self
 
 @lru_cache

@@ -277,3 +277,27 @@ All tenant-owned pilot relationships use tenant-qualified lookup/constraints.
 are currency units per provider unit; all persisted totals ending in
 `_micros` are 64-bit integer millionths. Downgrade to `0010` removes only
 Step 27 governance/pilot data and restores the previous analysis status check.
+
+
+## Step 28 durable AI batch processing
+
+### ai_batch_jobs
+
+One tenant-scoped orchestration record per logical provider submission. A unique
+tenant/submission key protects retry idempotency and a unique provider/batch ID
+protects recovered external submissions. The record stores compatibility
+identity, provider state, bounded input checksum/size, polling and import
+attempts, resumable result cursor, aggregate counts, cancellation, cost/usage,
+errors and timestamps.
+
+### ai_batch_items
+
+One stable custom item ID per analysis within a batch. Tenant-qualified batch and
+asset foreign keys prevent cross-tenant association. Unique tenant/analysis
+membership prevents an analysis from joining multiple batches. Each item stores
+attempt/result state, provider item identity, budget reservation/operation,
+usage/cost, retry classification and timestamps.
+
+Revision `0012_ai_batch_processing` creates both tables. Downgrade removes only
+batch orchestration records; assets, analysis history, metadata, projections,
+usage and budget accounting remain authoritative.
