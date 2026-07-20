@@ -2,7 +2,7 @@
 
 ## Current completed step
 
-Step 18 — Authenticated asynchronous external ingestion API.
+Step 19 — Idempotent Google Drive metadata sidecar export.
 
 ## Review summary
 
@@ -231,3 +231,32 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   callers, exporting audit/status records if needed, and downgrading
   `0005_external_ingestions` to `0004_dynamic_ai_metadata`. Existing processing
   jobs may retain inert JSON references to removed ingestion item IDs.
+## Phase 12 review — Step 19
+
+- Added deterministic `cam-metadata-sidecar-v1` documents built only from
+  PostgreSQL assets, source links, completed analysis identity, sanitized
+  `metadata_json`, and search projection version.
+- Raw AI responses, source metadata, credentials, auth values, secret-like keys,
+  and signed URLs are excluded or redacted.
+- Google Drive lookup uses tenant, asset, and analysis appProperties. A retry
+  updates the same remote JSON file instead of creating another sidecar.
+- Durable `metadata_sidecar_exports` state tracks document hash, remote identity,
+  attempts, retry backoff, and terminal failure independently of analysis state.
+- Provider I/O starts only after completed analysis and export-attempt state are
+  committed; a sidecar failure cannot roll back completed metadata.
+- `DRIVE_METADATA_SIDECAR_ENABLED` remains false by default and no worker starts
+  automatically.
+- Added Alembic revision `0006_metadata_sidecars` with step-scoped downgrade.
+- Targeted Step 19 suite: 9 passed; full API suite: 163 passed with
+  `RuntimeWarning` treated as an error. Python compile and Alembic single-head
+  checks passed.
+
+### Step 19 risks and rollback
+
+- Google Drive appProperties lookup provides retry idempotency, while concurrent
+  remote creation still relies on the database/job lease preventing two owners.
+- Existing duplicate remote sidecars are treated as a non-retryable integrity
+  failure and require operator cleanup.
+- Disable `DRIVE_METADATA_SIDECAR_ENABLED`, stop sidecar consumers, export audit
+  records if needed, then downgrade `0006_metadata_sidecars` to
+  `0005_external_ingestions`. Remote JSON exports are intentionally retained.

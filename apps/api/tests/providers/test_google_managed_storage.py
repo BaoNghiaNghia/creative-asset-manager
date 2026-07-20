@@ -2,7 +2,11 @@ import unittest
 
 import httpx
 
-from app.domain.providers.contracts import StorageProviderError, StoreAssetInput
+from app.domain.providers.contracts import (
+    StorageProviderError,
+    StoreAssetInput,
+    StoreMetadataSidecarInput,
+)
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 
@@ -125,9 +129,60 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertTrue(context.exception.retryable)
 
-    async def test_metadata_sidecars_are_not_implemented(self) -> None:
+    async def test_metadata_sidecar_create_then_update_reuses_remote_file(self) -> None:
+        remote = None
+        methods = []
+        uploaded_documents = []
+
+        async def handler(request):
+            nonlocal remote
+            methods.append(request.method)
+            if request.method == "GET":
+                return httpx.Response(200, json={"files": [remote] if remote else []})
+            if request.method == "POST":
+                metadata = __import__("json").loads((await request.aread()).decode())
+                self.assertEqual(metadata["appProperties"]["cam_analysis_id"], "analysis-1")
+                return httpx.Response(
+                    200,
+                    headers={"location": "https://www.googleapis.com/upload/sidecar-1"},
+                )
+            uploaded_documents.append(
+                __import__("json").loads((await request.aread()).decode())
+            )
+            remote = {
+                "id": "sidecar-remote-1",
+                "parents": ["managed-root"],
+                "webViewLink": "https://drive.google.com/file/sidecar-remote-1",
+            }
+            return httpx.Response(200, json=remote)
+
         provider = GoogleDriveAssetStorage(
-            "storage-token", root_folder_id="managed-root"
+            "storage-token",
+            root_folder_id="managed-root",
+            transport=httpx.MockTransport(handler),
         )
-        with self.assertRaisesRegex(NotImplementedError, "Step 19"):
-            await provider.store_metadata_sidecar(None)  # type: ignore[arg-type]
+        first = await provider.store_metadata_sidecar(
+            StoreMetadataSidecarInput(
+                tenant_id="tenant-a",
+                asset_id="asset-1",
+                analysis_id="analysis-1",
+                metadata={"asset": {"asset_id": "asset-1"}, "version": 1},
+                document_hash="a" * 64,
+            )
+        )
+        second = await provider.store_metadata_sidecar(
+            StoreMetadataSidecarInput(
+                tenant_id="tenant-a",
+                asset_id="asset-1",
+                analysis_id="analysis-1",
+                metadata={"asset": {"asset_id": "asset-1"}, "version": 2},
+                document_hash="b" * 64,
+            )
+        )
+        self.assertEqual(first.remote_file_id, second.remote_file_id)
+        self.assertEqual(methods.count("POST"), 1)
+        self.assertEqual(methods.count("PATCH"), 1)
+        self.assertEqual(uploaded_documents, [
+            {"asset": {"asset_id": "asset-1"}, "version": 1},
+            {"asset": {"asset_id": "asset-1"}, "version": 2},
+        ])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import PurePath
 from urllib.parse import urlsplit
 
@@ -98,7 +99,107 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
     async def store_metadata_sidecar(
         self, input: StoreMetadataSidecarInput
     ) -> StoredMetadataSidecar:
-        raise NotImplementedError("metadata sidecar export is introduced in Step 19")
+        headers = {"Authorization": f"Bearer {self._access_token}"}
+        content = json.dumps(
+            input.metadata,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8") + b"\n"
+        async with httpx.AsyncClient(
+            headers=headers,
+            timeout=httpx.Timeout(60, connect=10, read=60),
+            transport=self._transport,
+        ) as client:
+            existing = await self._find_existing_sidecar(client, input)
+            if existing is not None:
+                response = await client.patch(
+                    f"https://www.googleapis.com/upload/drive/v3/files/{existing['id']}",
+                    params={
+                        "uploadType": "media",
+                        "supportsAllDrives": "true",
+                        "fields": "id,parents,webViewLink",
+                    },
+                    headers={"Content-Type": "application/json; charset=utf-8"},
+                    content=content,
+                )
+                self._raise_for_status(response)
+                return self._stored_sidecar(input, {**existing, **response.json()})
+
+            metadata = {
+                "name": f"{input.asset_id}.{input.analysis_id}.metadata.json",
+                "parents": [self._root_folder_id],
+                "mimeType": "application/json",
+                "appProperties": {
+                    "cam_tenant_id": input.tenant_id,
+                    "cam_asset_id": input.asset_id,
+                    "cam_analysis_id": input.analysis_id,
+                    "cam_sidecar": "metadata-v1",
+                },
+            }
+            create_response = await client.post(
+                "https://www.googleapis.com/upload/drive/v3/files",
+                params={
+                    "uploadType": "resumable",
+                    "supportsAllDrives": "true",
+                    "fields": "id,parents,webViewLink",
+                },
+                headers={
+                    "X-Upload-Content-Type": "application/json; charset=utf-8",
+                    "X-Upload-Content-Length": str(len(content)),
+                },
+                json=metadata,
+            )
+            self._raise_for_status(create_response)
+            upload_url = create_response.headers.get("location")
+            self._validate_upload_url(upload_url)
+            upload_response = await client.put(
+                upload_url,
+                headers={
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Content-Length": str(len(content)),
+                },
+                content=content,
+            )
+            self._raise_for_status(upload_response)
+            data = upload_response.json()
+            if not data.get("id"):
+                raise StorageProviderError(
+                    "Google Drive sidecar upload returned no file ID",
+                    retryable=True,
+                )
+            return self._stored_sidecar(input, data)
+
+    async def _find_existing_sidecar(
+        self,
+        client: httpx.AsyncClient,
+        input: StoreMetadataSidecarInput,
+    ) -> dict | None:
+        query = (
+            f"'{_escape_query(self._root_folder_id)}' in parents and trashed = false and "
+            f"appProperties has {{ key='cam_tenant_id' and value='{_escape_query(input.tenant_id)}' }} and "
+            f"appProperties has {{ key='cam_asset_id' and value='{_escape_query(input.asset_id)}' }} and "
+            f"appProperties has {{ key='cam_analysis_id' and value='{_escape_query(input.analysis_id)}' }}"
+        )
+        response = await client.get(
+            "https://www.googleapis.com/drive/v3/files",
+            params={
+                "q": query,
+                "spaces": "drive",
+                "pageSize": "2",
+                "fields": "files(id,name,parents,webViewLink,appProperties)",
+                "supportsAllDrives": "true",
+                "includeItemsFromAllDrives": "true",
+            },
+        )
+        self._raise_for_status(response)
+        files = response.json().get("files") or []
+        if len(files) > 1:
+            raise StorageProviderError(
+                "Multiple metadata sidecars exist for one analysis",
+                retryable=False,
+            )
+        return files[0] if files else None
 
     async def _find_existing(
         self, client: httpx.AsyncClient, input: StoreAssetInput
@@ -136,6 +237,19 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
             remote_file_id=data["id"],
             remote_folder_id=(data.get("parents") or [self._root_folder_id])[0],
             web_url=data.get("webViewLink"),
+        )
+
+    def _stored_sidecar(
+        self,
+        input: StoreMetadataSidecarInput,
+        data: dict,
+    ) -> StoredMetadataSidecar:
+        return StoredMetadataSidecar(
+            storage_key=f"google-drive:{data['id']}",
+            remote_file_id=data["id"],
+            remote_folder_id=(data.get("parents") or [self._root_folder_id])[0],
+            web_url=data.get("webViewLink"),
+            document_hash=input.document_hash,
         )
 
     @staticmethod

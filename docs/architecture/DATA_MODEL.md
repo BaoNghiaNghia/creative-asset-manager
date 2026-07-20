@@ -174,3 +174,18 @@ Per-item request data, durable processing status, and job/source-asset links.
 Revision `0005_external_ingestions` creates all four tables. Its downgrade
 removes only Step 18 records; queued processing jobs can retain inert JSON
 references and should be drained or archived before downgrade.
+
+## Metadata sidecar exports
+
+### metadata_sidecar_exports
+
+One durable export state per analysis and storage provider.
+
+- Unique `(analysis_id, storage_provider)` prevents duplicate logical exports.
+- Document hash detects a changed PostgreSQL-derived sidecar document.
+- Status, attempts, next retry, errors, remote file/folder identity, storage key,
+  and web URL are independent from immutable completed analysis history.
+- Tenant-safe asset foreign keys prevent cross-tenant asset association.
+
+Revision `0006_metadata_sidecars` creates this table. Downgrade removes local
+export state only and never deletes remote Google Drive JSON files.

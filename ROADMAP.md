@@ -30,7 +30,7 @@
 - [ ] 16 Pilot evaluation
 - [ ] 17 AI batch processing
 - [x] 18 External ingestion API
-- [ ] 19 Metadata sidecar export
+- [x] 19 Metadata sidecar export
 
 ## Operations and product
 

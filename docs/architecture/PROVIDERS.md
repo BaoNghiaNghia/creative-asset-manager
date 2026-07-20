@@ -59,3 +59,11 @@ succeeded before the local transaction completed.
 
 The adapter records remote file ID, folder ID, web URL, size and provider name.
 Metadata sidecar behavior remains deliberately unavailable until Step 19.
+
+## Step 19 Google Drive metadata sidecars
+
+GoogleDriveAssetStorage serializes a PostgreSQL-derived, canonical JSON export.
+Tenant, asset, and analysis appProperties form the deterministic remote lookup.
+If the file exists, Drive media update replaces its bytes; otherwise the adapter
+creates one resumable JSON upload. Sidecars are explicitly non-authoritative and
+contain neither provider credentials nor raw authentication data.

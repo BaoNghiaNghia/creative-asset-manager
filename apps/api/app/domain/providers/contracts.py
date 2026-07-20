@@ -94,12 +94,18 @@ class StoredAsset:
 class StoreMetadataSidecarInput:
     tenant_id: str
     asset_id: str
+    analysis_id: str
     metadata: Mapping[str, Any]
+    document_hash: str
 
 
 @dataclass(frozen=True, slots=True)
 class StoredMetadataSidecar:
     storage_key: str
+    remote_file_id: str | None = None
+    remote_folder_id: str | None = None
+    web_url: str | None = None
+    document_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
