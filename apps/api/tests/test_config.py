@@ -72,6 +72,21 @@ class SettingsTest(unittest.TestCase):
         ):
             with self.assertRaises(ValidationError):
                 Settings()
+    def test_gemini_key_is_required_only_when_single_analysis_is_enabled(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DYNAMIC_AI_METADATA_ENABLED": "true",
+                "AI_SINGLE_ANALYSIS_ENABLED": "true",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(ValidationError):
+                Settings()
+            os.environ["GEMINI_API_KEY"] = "test-only"
+            settings = Settings()
+        self.assertEqual(settings.GEMINI_API_KEY, "test-only")
+
 
     def test_cached_settings_use_the_central_environment_source(self) -> None:
         with patch.dict(

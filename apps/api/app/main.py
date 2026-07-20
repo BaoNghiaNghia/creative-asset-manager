@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.database import init_database
 from app.modules.auth.microsoft_router import router as microsoft_auth_router
+from app.modules.ai_metadata.router import router as ai_metadata_router
 from app.modules.auth.router import router as auth_router
 from app.modules.explorer.router import router as explorer_router
 from app.modules.external_ingestion.router import router as external_ingestion_router
@@ -32,6 +33,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(ai_metadata_router)
 app.include_router(auth_router, prefix="/api")
 app.include_router(microsoft_auth_router, prefix="/api")
 app.include_router(explorer_router, prefix="/api")

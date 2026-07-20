@@ -9,6 +9,8 @@ import httpx
 from app.domain.providers.contracts import (
     AssetStorageProvider,
     StorageProviderError,
+    OpenStoredAssetInput,
+    StoredAssetReadStream,
     StoreAssetInput,
     StoredAsset,
     StoredMetadataSidecar,
@@ -39,6 +41,55 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
         self._access_token = storage_access_token
         self._root_folder_id = root_folder_id
         self._transport = transport
+
+    async def open_asset(self, input: OpenStoredAssetInput) -> StoredAssetReadStream:
+        client = httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {self._access_token}"},
+            timeout=httpx.Timeout(60, connect=10, read=60),
+            transport=self._transport,
+        )
+        try:
+            request = client.build_request(
+                "GET",
+                f"https://www.googleapis.com/drive/v3/files/{input.remote_file_id}",
+                params={"alt": "media", "supportsAllDrives": "true"},
+            )
+            response = await client.send(request, stream=True)
+            self._raise_for_status(response)
+        except StorageProviderError:
+            await client.aclose()
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            await client.aclose()
+            raise StorageProviderError(
+                "Google Drive managed asset read failed.", retryable=True
+            ) from exc
+
+        async def body():
+            async for chunk in response.aiter_bytes():
+                yield chunk
+
+        closed = False
+
+        async def close() -> None:
+            nonlocal closed
+            if closed:
+                return
+            closed = True
+            await response.aclose()
+            await client.aclose()
+
+        size_header = response.headers.get("content-length")
+        return StoredAssetReadStream(
+            body=body(),
+            close=close,
+            content_type=response.headers.get(
+                "content-type", input.content_type or "application/octet-stream"
+            ),
+            size_bytes=(
+                int(size_header) if size_header and size_header.isdigit() else input.size_bytes
+            ),
+        )
 
     async def store_asset(self, input: StoreAssetInput) -> StoredAsset:
         headers = {"Authorization": f"Bearer {self._access_token}"}

@@ -15,9 +15,12 @@ from app.core.config import Settings
 from app.core.database import SessionLocal, engine
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
+from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
 from app.modules.processing.registry import build_handler_registry
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
 from app.providers.ai.unconfigured import UnconfiguredAiMetadataProvider
+from app.providers.ai.gemini import GeminiAiMetadataProvider
+from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.source_factory import create_source_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
@@ -69,11 +72,27 @@ def build_worker_runtime(
 ) -> WorkerRuntime:
     worker_id = settings.WORKER_ID or default_worker_id()
     probe_database(session_factory)
+    storage_provider = UnconfiguredAssetStorageProvider()
+    if (
+        settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN
+        and settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID
+    ):
+        storage_provider = GoogleDriveAssetStorage(
+            settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN,
+            root_folder_id=settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID,
+        )
+    ai_provider = UnconfiguredAiMetadataProvider()
+    if settings.GEMINI_API_KEY:
+        ai_provider = GeminiAiMetadataProvider(
+            settings.GEMINI_API_KEY,
+            model=settings.GEMINI_MODEL,
+            timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+        )
     dependencies = WorkerDependencies(
         session_factory=session_factory,
         source_provider_factory=create_source_provider,
-        storage_provider=UnconfiguredAssetStorageProvider(),
-        ai_provider=UnconfiguredAiMetadataProvider(),
+        storage_provider=storage_provider,
+        ai_provider=ai_provider,
         closers=dependency_closers,
     )
     return WorkerRuntime(
@@ -86,7 +105,9 @@ def build_worker_runtime(
             drain_timeout_seconds=settings.WORKER_DRAIN_TIMEOUT_SECONDS,
         ),
         dependencies=dependencies,
-        registry=build_handler_registry(),
+        registry=build_handler_registry(
+            (("asset_analyze", AssetAnalyzeJobHandler(settings)),)
+        ),
         health=WorkerHealthState(worker_id),
         logger=logger,
     )

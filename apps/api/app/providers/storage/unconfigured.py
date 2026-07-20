@@ -1,4 +1,7 @@
 from app.domain.providers.contracts import (
+    OpenStoredAssetInput,
+    StorageProviderError,
+    StoredAssetReadStream,
     StoreAssetInput,
     StoredAsset,
     StoredMetadataSidecar,
@@ -7,6 +10,13 @@ from app.domain.providers.contracts import (
 
 
 class UnconfiguredAssetStorageProvider:
+    async def open_asset(
+        self, input: OpenStoredAssetInput
+    ) -> StoredAssetReadStream:
+        raise StorageProviderError(
+            "managed asset storage is not configured",
+            retryable=False,
+        )
     async def store_asset(self, input: StoreAssetInput) -> StoredAsset:
         raise RuntimeError("managed asset storage is not configured")
 

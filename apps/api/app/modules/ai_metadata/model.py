@@ -73,6 +73,7 @@ class AssetAiAnalysisModel(Base):
         ),
         Index("ix_asset_ai_analyses_history", "tenant_id", "asset_id", "created_at"),
         Index("ix_asset_ai_analyses_status", "status", "created_at"),
+        Index("ix_asset_ai_analyses_claim", "status", "lease_expires_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -87,11 +88,20 @@ class AssetAiAnalysisModel(Base):
     ai_provider: Mapped[str | None] = mapped_column(String(100))
     ai_model: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    processing_stage: Mapped[str | None] = mapped_column(String(40))
+    claimed_by: Mapped[str | None] = mapped_column(String(255))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_response_json: Mapped[dict | None] = mapped_column(JSON_DOCUMENT)
     metadata_json: Mapped[dict | None] = mapped_column(JSON_DOCUMENT)
     search_projection: Mapped[dict | None] = mapped_column(JSON_DOCUMENT)
     search_projection_version: Mapped[str | None] = mapped_column(String(100))
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    projection_checksum: Mapped[str | None] = mapped_column(String(64))
+    provider_request_id: Mapped[str | None] = mapped_column(String(255))
+    usage_json: Mapped[dict | None] = mapped_column(JSON_DOCUMENT)
+    provider_metadata_json: Mapped[dict | None] = mapped_column(JSON_DOCUMENT)
+    validation_errors_json: Mapped[list | None] = mapped_column(JSON_DOCUMENT)
+    failure_retryable: Mapped[bool | None] = mapped_column(Boolean)
     forced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_error_code: Mapped[str | None] = mapped_column(String(100))
     last_error_message: Mapped[str | None] = mapped_column(Text)

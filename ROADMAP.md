@@ -26,7 +26,7 @@
 
 ## AI and APIs
 
-- [ ] 15 Single-asset AI analysis
+- [x] 15 Single-asset AI analysis
 - [ ] 16 Pilot evaluation
 - [ ] 17 AI batch processing
 - [x] 18 External ingestion API
@@ -41,3 +41,4 @@
   - [ ] 21C Search syntax
 - [x] 22 Controlled rollout
 - [x] 23 Worker runtime, health checks, and graceful draining
+- [x] 24 Gemini single-asset metadata analysis

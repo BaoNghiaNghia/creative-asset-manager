@@ -109,17 +109,45 @@ class StoredMetadataSidecar:
 
 
 @dataclass(frozen=True, slots=True)
+class OpenStoredAssetInput:
+    tenant_id: str
+    asset_id: str
+    remote_file_id: str
+    content_type: str | None = None
+    size_bytes: int | None = None
+
+
+@dataclass(slots=True)
+class StoredAssetReadStream:
+    body: AsyncIterator[bytes]
+    close: Callable[[], Awaitable[None]]
+    content_type: str = "application/octet-stream"
+    size_bytes: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class AiMetadataAnalysisInput:
     tenant_id: str
     asset_id: str
-    content_type: str | None = None
-    source_url: str | None = None
-    profile: Mapping[str, Any] | None = None
+    prompt: str
+    image_bytes: bytes
+    image_mime_type: str
+    metadata_profile: str
+    metadata_profile_version: str
+    json_schema: Mapping[str, Any] | None = None
+    is_cancelled: Callable[[], bool] | None = None
 
 
 class StorageProviderError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool):
         super().__init__(message)
+        self.retryable = retryable
+
+
+class AiProviderError(RuntimeError):
+    def __init__(self, message: str, *, code: str, retryable: bool):
+        super().__init__(message)
+        self.code = code
         self.retryable = retryable
 
 
@@ -130,8 +158,12 @@ class AiMetadataAnalysisResult:
     model: str | None = None
     provider_request_id: str | None = None
 
+    usage: Mapping[str, Any] = field(default_factory=dict)
+    provider_metadata: Mapping[str, Any] = field(default_factory=dict)
+    raw_response: Mapping[str, Any] | None = None
 
 @runtime_checkable
+
 class AssetSourceProvider(Protocol):
     async def list_changes(self, input: ListSourceChangesInput) -> SourceChangePage: ...
 
@@ -145,6 +177,8 @@ class AssetSourceProvider(Protocol):
 @runtime_checkable
 class AssetStorageProvider(Protocol):
     async def store_asset(self, input: StoreAssetInput) -> StoredAsset: ...
+
+    async def open_asset(self, input: OpenStoredAssetInput) -> StoredAssetReadStream: ...
 
     async def store_metadata_sidecar(
         self, input: StoreMetadataSidecarInput

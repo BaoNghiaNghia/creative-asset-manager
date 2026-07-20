@@ -43,6 +43,20 @@ class Settings(BaseSettings):
     SEARCH_QUERY_PARSER_V2_ENABLED: bool = False
     EXTERNAL_INGESTION_API_ENABLED: bool = False
     DRIVE_METADATA_SIDECAR_ENABLED: bool = False
+    AI_STORE_RAW_RESPONSE_ENABLED: bool = False
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_TIMEOUT_SECONDS: float = 45.0
+    AI_ANALYSIS_MAX_SOURCE_BYTES: int = 25_000_000
+    AI_ANALYSIS_MAX_OUTPUT_BYTES: int = 8_000_000
+    AI_ANALYSIS_MAX_WIDTH: int = 4096
+    AI_ANALYSIS_MAX_HEIGHT: int = 4096
+    AI_ANALYSIS_MAX_PIXELS: int = 24_000_000
+    AI_ANALYSIS_JPEG_QUALITY: int = 88
+    AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS: int = 2
+    GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN: str | None = None
+    GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID: str | None = None
+
 
     WORKER_ID: str | None = None
     WORKER_LEASE_SECONDS: int = 60
@@ -52,6 +66,7 @@ class Settings(BaseSettings):
     WORKER_HEALTH_HOST: str = "127.0.0.1"
     WORKER_HEALTH_PORT: int = 8081
     WORKER_LOG_LEVEL: str = "INFO"
+    AI_ANALYSIS_LEASE_SECONDS: int = 300
 
     @field_validator(*FEATURE_FLAG_NAMES, mode="before")
     @classmethod
@@ -88,6 +103,23 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_DRAIN_TIMEOUT_SECONDS cannot be negative")
         if not 1 <= self.WORKER_HEALTH_PORT <= 65535:
             raise ValueError("WORKER_HEALTH_PORT must be between 1 and 65535")
+        if self.GEMINI_TIMEOUT_SECONDS <= 0:
+            raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive")
+        if self.AI_ANALYSIS_LEASE_SECONDS <= 0:
+            raise ValueError("AI_ANALYSIS_LEASE_SECONDS must be positive")
+        if min(
+            self.AI_ANALYSIS_MAX_SOURCE_BYTES,
+            self.AI_ANALYSIS_MAX_OUTPUT_BYTES,
+            self.AI_ANALYSIS_MAX_WIDTH,
+            self.AI_ANALYSIS_MAX_HEIGHT,
+            self.AI_ANALYSIS_MAX_PIXELS,
+            self.AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS,
+        ) <= 0:
+            raise ValueError("AI analysis limits must be positive")
+        if not 1 <= self.AI_ANALYSIS_JPEG_QUALITY <= 95:
+            raise ValueError("AI_ANALYSIS_JPEG_QUALITY must be between 1 and 95")
+        if self.DYNAMIC_AI_METADATA_ENABLED and self.AI_SINGLE_ANALYSIS_ENABLED and not self.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is required when single AI analysis is enabled")
         return self
 
 @lru_cache

@@ -412,3 +412,62 @@ metadata_json and stored analysis history remain authoritative and unchanged.
 - Next recommended step: wire one idempotent handler at a time behind its own
   existing feature flag, beginning with source synchronization or download,
   with live PostgreSQL lease tests before shared rollout.
+
+## Phase 14 review — Step 24
+
+- Added the provider-neutral pipeline: asset_analyze claim, managed image
+  preparation, Gemini structured JSON, safety/profile validation, search
+  projection, atomic analysis persistence and asset_index enqueue.
+- Added the Gemini REST adapter at apps/api/app/providers/ai/gemini.py using the
+  official generateContent API with inline image data and JSON response mode.
+  It captures response ID, model version, finish reason and usage metadata while
+  keeping credentials and image bytes out of logs.
+- Added bounded image preparation at
+  apps/api/app/modules/ai_metadata/analysis_image.py: streamed byte limit,
+  Pillow decode, pixel/dimension checks, EXIF orientation, metadata-free JPEG,
+  analysis-image SHA-256 and reliable temporary-file cleanup. Original
+  content_hash remains unchanged.
+- Migration 0008_ai_single_analysis adds stage, claimant/lease, projection
+  checksum, provider request ID, usage/provider metadata, structured validation
+  errors and retryability to asset_ai_analyses.
+- Added authenticated tenant-scoped POST /api/v1/admin/asset-analyses. It
+  returns 202, never calls Gemini synchronously, reuses normal analysis/job
+  identities and creates history for explicit forced analyses.
+- Registered the real asset_analyze handler in the Step 23 worker. Database
+  uniqueness and an atomic analysis claim prevent duplicate normal Gemini calls.
+- Central configuration now includes Gemini model/key/timeout, bounded image
+  limits, validation attempts, raw-response retention, analysis lease and
+  separate managed-storage credentials. Gemini credentials are required only
+  when DYNAMIC_AI_METADATA_ENABLED and AI_SINGLE_ANALYSIS_ENABLED are both
+  true; both flags remain false by default.
+- Raw responses default to not persisted. Captured cost/audit data includes
+  provider response ID, resolved model, usageMetadata token counters, finish
+  reason and provider model version.
+- Files changed: provider contracts and config; AI analysis
+  model/repository/service/handler/router/schema/image preparer; Gemini and
+  unconfigured AI adapters; Google Drive and unconfigured storage adapters;
+  worker bootstrap; API composition; migration 0008; provider, image, service,
+  API and config tests.
+- Step 24 targeted suite: 19 passed. Full API suite: 203 passed with
+  RuntimeWarning treated as an error. Python compile, Alembic head
+  upgrade/downgrade, and diff whitespace checks passed.
+
+### Step 24 risks and rollback
+
+- The admin route currently treats an authenticated Google or Microsoft cloud
+  account as its tenant owner because the project has no durable RBAC/admin role
+  model. Explicit roles are required before shared production administration.
+- Production analysis currently reads the separately configured Google managed
+  storage object. SharePoint-managed storage and video-frame preparation are
+  outside Step 24.
+- Local safety and JSON Schema validation remain authoritative. Validation
+  retries can consume provider tokens; pilot budgets and batch controls remain
+  deferred.
+- PostgreSQL claim/lease behavior and real managed-storage/Gemini timeouts
+  require staging validation.
+- Roll back by disabling AI_SINGLE_ANALYSIS_ENABLED and
+  DYNAMIC_AI_METADATA_ENABLED, draining workers, reverting Step 24, then
+  downgrading 0008_ai_single_analysis to 0007_search_operations. Existing
+  completed metadata/projections and remote managed assets are retained.
+- Next recommended step: run a cost-limited staging pilot before enabling batch
+  or automatic analysis.
