@@ -301,3 +301,30 @@ usage/cost, retry classification and timestamps.
 Revision `0012_ai_batch_processing` creates both tables. Downgrade removes only
 batch orchestration records; assets, analysis history, metadata, projections,
 usage and budget accounting remain authoritative.
+
+
+## Step 30 persistent OAuth and sessions
+
+### oauth_connections
+
+Tenant/provider/account-unique connection identity with AES-GCM encrypted access
+and refresh tokens, expiry/scopes/type, encryption key version, bounded provider
+metadata, connection status, refresh errors and a leased refresh claim.
+
+### auth_sessions
+
+Shared server-side sessions keyed by a SHA-256 digest of the opaque cookie ID.
+Each row is tenant/provider/connection scoped, fixed-expiry and revocable. User
+session JSON is bounded and never contains provider tokens.
+
+### oauth_transactions
+
+Hashed OAuth state with encrypted PKCE verifier, provider/browser binding,
+redirect intent, short expiry and atomic one-time consumption.
+
+### auth_audit_events
+
+Secret-free events for connection creation/reconnect/refresh, reconnect-required,
+key rotation and session revocation. Revision 0013 adds all four tables. Its
+downgrade removes persistent auth state only after login is disabled and users
+are informed that reconnection will be required.

@@ -52,3 +52,22 @@ disabled so they cannot bypass the validated network destination.
 - Tenant/source-scoped reads return 404 for inaccessible ingestion IDs.
 - Download URLs are persisted only for asynchronous workers and must never be
   written to application logs without the existing URL-redaction policy.
+
+
+## Persistent OAuth security (Step 30)
+
+OAuth connections and sessions are PostgreSQL-authoritative. Provider access and
+refresh tokens are encrypted at the application boundary with versioned
+AES-256-GCM keys loaded from protected configuration. Every value has a random
+nonce and record/field-bound associated data. Keys are never stored in the
+database. Missing keys, invalid authentication tags and unknown key versions
+fail closed.
+
+Browser cookies contain only high-entropy opaque session IDs; PostgreSQL stores
+their SHA-256 digest. Sessions have fixed expiration and server-side revocation.
+Production configuration refuses insecure session cookies. OAuth state is
+hashed, PKCE is encrypted, browser-bound where available, short-lived and
+atomically consumed once. Refresh uses a database lease so replicas do not
+rotate one refresh token concurrently. Logs, audits, metrics and APIs exclude
+plaintext tokens. See docs/operations/AUTH_PERSISTENCE.md for migration, key
+rotation and rollback.

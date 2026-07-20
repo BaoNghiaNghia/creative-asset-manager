@@ -1,176 +1,132 @@
 import os
 import secrets
 import time
+import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 from fastapi import HTTPException, Request
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from starlette.concurrency import run_in_threadpool
 
-# Google can return canonical scope aliases in the token response. OAuthlib
-# may otherwise reject a valid grant before we can validate it explicitly.
+from app.core.config import get_settings
+from app.modules.auth_persistence.repository import PersistentCloudSession
+from app.modules.auth_persistence.service import AUTH_METRICS, auth_repository
+
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
-
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
-SCOPES = [
-    "openid",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-    DRIVE_READONLY_SCOPE,
-]
+SCOPES = ["openid","https://www.googleapis.com/auth/userinfo.email","https://www.googleapis.com/auth/userinfo.profile",DRIVE_READONLY_SCOPE]
 SESSION_COOKIE = "cam_google_session"
-STATE_TTL_SECONDS = 600
+OAUTH_BINDING_COOKIE = "cam_oauth_binding"
 
+GoogleSession = PersistentCloudSession
 
-@dataclass
-class OAuthTransaction:
-    expires_at: float
-    code_verifier: str | None
-
-
-@dataclass
-class GoogleSession:
-    access_token: str
-    refresh_token: str | None
-    expires_at: float
-    user: dict[str, Any]
-
-
-_sessions: dict[str, GoogleSession] = {}
-_pending_states: dict[str, OAuthTransaction] = {}
-
-
-def _settings() -> tuple[str, str, str]:
-    client_id = os.getenv("GOOGLE_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    redirect_uri = os.getenv(
-        "GOOGLE_REDIRECT_URI",
-        "http://localhost:8000/api/auth/google/callback",
-    )
+def _settings():
+    client_id=os.getenv("GOOGLE_CLIENT_ID"); client_secret=os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri=os.getenv("GOOGLE_REDIRECT_URI","http://localhost:8000/api/auth/google/callback")
     if not client_id or not client_secret:
-        raise HTTPException(
-            status_code=503,
-            detail="Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
-        )
-    return client_id, client_secret, redirect_uri
+        raise HTTPException(503,"Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
+    return client_id,client_secret,redirect_uri
 
-
-def oauth_flow(state: str | None = None) -> Flow:
-    client_id, client_secret, redirect_uri = _settings()
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [redirect_uri],
-            }
-        },
-        scopes=SCOPES,
-        state=state,
-    )
-    flow.redirect_uri = redirect_uri
+def oauth_flow(state=None):
+    client_id,client_secret,redirect_uri=_settings()
+    flow=Flow.from_client_config({"web":{"client_id":client_id,"client_secret":client_secret,"auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":[redirect_uri]}},scopes=SCOPES,state=state)
+    flow.redirect_uri=redirect_uri
     return flow
 
+def remember_state(state,code_verifier,session_binding=None,redirect_intent="/"):
+    settings=get_settings()
+    with auth_repository() as repository:
+        repository.remember_state(provider="google",state=state,code_verifier=code_verifier,ttl_seconds=settings.AUTH_STATE_TTL_SECONDS,redirect_intent=redirect_intent,session_binding=session_binding)
 
-def remember_state(state: str, code_verifier: str | None) -> None:
-    now = time.time()
-    for key, transaction in list(_pending_states.items()):
-        if transaction.expires_at <= now:
-            _pending_states.pop(key, None)
-    _pending_states[state] = OAuthTransaction(
-        expires_at=now + STATE_TTL_SECONDS,
-        code_verifier=code_verifier,
-    )
+def consume_state(state,session_binding=None):
+    try:
+        with auth_repository() as repository:
+            verifier,_=repository.consume_state(provider="google",state=state,session_binding=session_binding)
+            return verifier
+    except LookupError as exc:
+        raise HTTPException(400,"Invalid or expired OAuth state.") from exc
 
-
-def consume_state(state: str) -> str | None:
-    transaction = _pending_states.pop(state, None)
-    if not transaction or transaction.expires_at <= time.time():
-        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state.")
-    return transaction.code_verifier
-
-
-def validate_granted_scopes(credentials: Credentials) -> None:
-    granted = set(credentials.granted_scopes or credentials.scopes or [])
+def validate_granted_scopes(credentials):
+    granted=set(credentials.granted_scopes or credentials.scopes or [])
     if DRIVE_READONLY_SCOPE not in granted:
         raise PermissionError("The required Google Drive read-only scope was not granted.")
 
-
-async def create_session(credentials: Credentials) -> tuple[str, GoogleSession]:
+async def create_session(credentials):
     validate_granted_scopes(credentials)
     async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.get(
-            "https://openidconnect.googleapis.com/v1/userinfo",
-            headers={"Authorization": f"Bearer {credentials.token}"},
+        response=await client.get("https://openidconnect.googleapis.com/v1/userinfo",headers={"Authorization":f"Bearer {credentials.token}"})
+        response.raise_for_status(); profile=response.json()
+    account_id=str(profile.get("sub") or "")
+    if not account_id: raise ValueError("Google profile has no account identity")
+    user={"id":account_id,"name":profile.get("name"),"email":profile.get("email"),"picture":profile.get("picture")}
+    expiry=credentials.expiry
+    if expiry is None: expiry=datetime.now(timezone.utc)+timedelta(seconds=3500)
+    elif expiry.tzinfo is None: expiry=expiry.replace(tzinfo=timezone.utc)
+    settings=get_settings()
+    with auth_repository() as repository:
+        connection=repository.upsert_connection(
+            tenant_id=account_id,provider="google",provider_account_id=account_id,
+            account_email=profile.get("email"),access_token=credentials.token,
+            refresh_token=credentials.refresh_token,expires_at=expiry,
+            scopes=list(credentials.granted_scopes or credentials.scopes or SCOPES),
+            token_type="Bearer",provider_metadata={"picture":profile.get("picture")},
         )
-        response.raise_for_status()
-        user = response.json()
+        session_id,_=repository.create_session(connection=connection,user=user,ttl_seconds=settings.AUTH_SESSION_TTL_SECONDS)
+    AUTH_METRICS.increment("connection_created","google")
+    return session_id,get_session_by_id(session_id)
 
-    session_id = secrets.token_urlsafe(32)
-    expires_at = credentials.expiry.timestamp() if credentials.expiry else time.time() + 3500
-    session = GoogleSession(
-        access_token=credentials.token,
-        refresh_token=credentials.refresh_token,
-        expires_at=expires_at,
-        user={
-            "id": user.get("sub"),
-            "name": user.get("name"),
-            "email": user.get("email"),
-            "picture": user.get("picture"),
-        },
-    )
-    _sessions[session_id] = session
-    return session_id, session
+def get_session_by_id(session_id):
+    if not get_settings().PERSISTENT_AUTH_ENABLED: return None
+    with auth_repository() as repository:
+        return repository.load_session(provider="google",session_id=session_id)
 
+def get_session(request):
+    session_id=request.cookies.get(SESSION_COOKIE)
+    return get_session_by_id(session_id) if session_id else None
 
-def get_session(request: Request) -> GoogleSession | None:
-    session_id = request.cookies.get(SESSION_COOKIE)
-    return _sessions.get(session_id) if session_id else None
-
-
-async def get_access_token(request: Request) -> str | None:
-    session = get_session(request)
-    if not session:
-        return os.getenv("GOOGLE_DRIVE_ACCESS_TOKEN") or None
-
-    if session.expires_at > time.time() + 60:
-        return session.access_token
-
-    if not session.refresh_token:
-        raise HTTPException(status_code=401, detail="Google session expired. Sign in again.")
-
-    client_id, client_secret, _ = _settings()
-    credentials = Credentials(
-        token=session.access_token,
-        refresh_token=session.refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=client_id,
-        client_secret=client_secret,
-        scopes=SCOPES,
-    )
+async def get_access_token(request):
+    session_id=request.cookies.get(SESSION_COOKIE)
+    cloud=get_session_by_id(session_id) if session_id else None
+    if not cloud:
+        settings=get_settings()
+        return os.getenv("GOOGLE_DRIVE_ACCESS_TOKEN") or None if not settings.PERSISTENT_AUTH_ENABLED and settings.APP_ENV.lower() in {"development","dev","local"} else None
+    if cloud.expires_at>time.time()+60: return cloud.access_token
+    if not cloud.refresh_token: raise HTTPException(401,"Google session expired. Sign in again.")
+    owner="google-refresh-"+secrets.token_urlsafe(16); settings=get_settings()
+    with auth_repository() as repository:
+        claimed=repository.claim_refresh(tenant_id=cloud.tenant_id,connection_id=cloud.connection_id,owner=owner,lease_seconds=settings.AUTH_REFRESH_LEASE_SECONDS)
+    if not claimed:
+        AUTH_METRICS.increment("refresh_lock_contention","google")
+        for _ in range(20):
+            await asyncio.sleep(.1)
+            latest=get_session_by_id(session_id)
+            if latest and latest.expires_at>time.time()+60: return latest.access_token
+        raise HTTPException(503,"Google token refresh is already in progress.")
+    client_id,client_secret,_=_settings()
+    credentials=Credentials(token=cloud.access_token,refresh_token=cloud.refresh_token,token_uri="https://oauth2.googleapis.com/token",client_id=client_id,client_secret=client_secret,scopes=SCOPES)
     try:
-        await run_in_threadpool(credentials.refresh, GoogleAuthRequest())
+        await run_in_threadpool(credentials.refresh,GoogleAuthRequest())
+        expiry=credentials.expiry or datetime.now(timezone.utc)
+        if expiry.tzinfo is None: expiry=expiry.replace(tzinfo=timezone.utc)
+        with auth_repository() as repository:
+            repository.finish_refresh(tenant_id=cloud.tenant_id,connection_id=cloud.connection_id,owner=owner,access_token=credentials.token,refresh_token=credentials.refresh_token,expires_at=expiry,scopes=list(credentials.granted_scopes or credentials.scopes or SCOPES),token_type="Bearer")
+        AUTH_METRICS.increment("connection_refreshed","google")
+        return credentials.token
     except Exception as exc:
-        raise HTTPException(status_code=401, detail="Google session could not be refreshed.") from exc
+        permanent=isinstance(exc,RefreshError) and "invalid_grant" in str(exc).lower()
+        with auth_repository() as repository:
+            repository.fail_refresh(tenant_id=cloud.tenant_id,connection_id=cloud.connection_id,owner=owner,code="invalid_grant" if permanent else "refresh_failed",retryable=not permanent)
+        if permanent: AUTH_METRICS.increment("reconnect_required","google")
+        raise HTTPException(401 if permanent else 503,"Google session requires reconnection." if permanent else "Google session could not be refreshed.") from exc
 
-    session.access_token = credentials.token
-    session.expires_at = (
-        credentials.expiry.replace(tzinfo=timezone.utc).timestamp()
-        if credentials.expiry and credentials.expiry.tzinfo is None
-        else credentials.expiry.timestamp() if credentials.expiry
-        else time.time() + 3500
-    )
-    return session.access_token
-
-
-def remove_session(request: Request) -> None:
-    session_id = request.cookies.get(SESSION_COOKIE)
-    if session_id:
-        _sessions.pop(session_id, None)
+def remove_session(request):
+    session_id=request.cookies.get(SESSION_COOKIE)
+    if session_id and get_settings().PERSISTENT_AUTH_ENABLED:
+        with auth_repository() as repository: repository.revoke_session(provider="google",session_id=session_id)
+        AUTH_METRICS.increment("session_revoked","google")

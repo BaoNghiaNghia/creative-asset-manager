@@ -48,3 +48,5 @@
 - [x] 28 Durable AI batch submission, polling, import, and selective retry
 
 - [x] 29 Asset details UI, Search v2 UI, and authorized async operations
+
+- [x] 30 Persistent encrypted OAuth tokens and distributed sessions

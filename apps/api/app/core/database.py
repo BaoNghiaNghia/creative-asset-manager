@@ -37,6 +37,7 @@ def init_database() -> None:
     from app.modules.ai_batch import model as ai_batch_model  # noqa: F401
     from app.modules.ai_governance import model as ai_governance_model  # noqa: F401
     from app.modules.ai_metadata import model as ai_metadata_model  # noqa: F401
+    from app.modules.auth_persistence import model as auth_persistence_model  # noqa: F401
     from app.modules.assets import model as asset_model  # noqa: F401
     from app.modules.processing import model as processing_model  # noqa: F401
     from app.modules.processing_policy import model as processing_policy_model  # noqa: F401

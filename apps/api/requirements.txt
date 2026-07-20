@@ -10,3 +10,4 @@ psycopg[binary]==3.2.9
 alembic==1.18.5
 Pillow==12.3.0
 jsonschema==4.26.0
+cryptography==49.0.0

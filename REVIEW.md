@@ -654,3 +654,35 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   migration downgrade is required.
 - Next recommended step: staging UX/accessibility validation with one enabled tenant
   and production-like metadata before implementing Step 30.
+
+
+## Phase 20 review - Step 30
+
+- Files changed: central auth persistence models/repository/encryption/service;
+  Google and Microsoft OAuth/session/refresh integration; secure cookie policy;
+  auth operator CLI; migration 0013; configuration, tests and security/runbook docs.
+- Migration added: 0013_persistent_oauth_sessions, with tested upgrade and
+  step-scoped downgrade to 0012.
+- Behavior: PostgreSQL-shared sessions and one-time OAuth state survive process
+  restart and work across replicas; AES-256-GCM encrypts tokens; DB leases
+  serialize refresh; invalid grants require reconnect; key rotation and expired
+  session/state cleanup are paginated operator operations.
+- Tests: encryption/nonces/tamper/wrong-key, key rotation/dry-run/resume, shared
+  session/restart/logout/expiry, state binding/expiry/replay, refresh rotation/
+  lock/permanent revocation, cookie validation, secret-free persistence, tenant
+  isolation and migration rollback. Full regression results are recorded in the
+  completion report: 260 backend unit/integration/migration tests passed; 9
+  frontend component tests passed; TypeScript and Vite production build passed.
+- Feature flags: PERSISTENT_AUTH_ENABLED is new and defaults false. When false,
+  persistent OAuth login fails closed; static developer provider tokens remain
+  an explicit local fallback. Production enablement requires versioned keys and
+  Secure cookies.
+- Known risks: existing process-memory sessions cannot be migrated after a
+  restart; users must reconnect. SQLite remains local/test-only for refresh
+  contention; production rollout must validate PostgreSQL locking under load.
+  Python strings cannot be reliably zeroized, so plaintext lifetime is minimized
+  but not cryptographically erased from process memory.
+- Rollback: disable login, restore the prior key set if needed, export secret-free
+  audits, revert Step 30 and downgrade to 0012. Every user must reconnect.
+- Next recommended step: enable for two staging replicas with one Google and one
+  Microsoft account, test forced refresh/key rotation, then proceed to Step 31.

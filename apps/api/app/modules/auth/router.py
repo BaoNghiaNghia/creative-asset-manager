@@ -6,8 +6,10 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
 from app.providers.google.auth import (
     SESSION_COOKIE,
+    OAUTH_BINDING_COOKIE,
     consume_state,
     create_session,
     get_session,
@@ -27,14 +29,17 @@ def client_redirect(**params: str) -> RedirectResponse:
 
 
 @router.get("/login")
-async def login():
+async def login(request: Request):
     flow = oauth_flow()
     authorization_url, state = flow.authorization_url(
         access_type="offline",
         prompt="consent",
     )
-    remember_state(state, getattr(flow, "code_verifier", None))
-    return RedirectResponse(authorization_url)
+    binding = secrets.token_urlsafe(32)
+    remember_state(state, getattr(flow, "code_verifier", None), binding)
+    response = RedirectResponse(authorization_url)
+    response.set_cookie(OAUTH_BINDING_COOKIE, binding, max_age=600, httponly=True, secure=cookie_options()["secure"], samesite="lax", path="/api/auth/google")
+    return response
 
 
 @router.get("/callback")
@@ -64,7 +69,7 @@ async def callback(
         return client_redirect(auth_error="incomplete", auth_request=request_id)
 
     try:
-        code_verifier = consume_state(state)
+        code_verifier = consume_state(state, request.cookies.get(OAUTH_BINDING_COOKIE))
     except HTTPException:
         logger.warning("Google OAuth state is invalid or expired request_id=%s", request_id)
         return client_redirect(auth_error="state", auth_request=request_id)
@@ -99,16 +104,10 @@ async def callback(
         )
         return client_redirect(auth_error="profile", auth_request=request_id)
 
+    remove_session(request)
     response = client_redirect(google="connected")
-    response.set_cookie(
-        SESSION_COOKIE,
-        session_id,
-        max_age=30 * 24 * 60 * 60,
-        httponly=True,
-        secure=os.getenv("GOOGLE_OAUTH_COOKIE_SECURE", "false").lower() == "true",
-        samesite="lax",
-        path="/",
-    )
+    response.set_cookie(SESSION_COOKIE, session_id, **cookie_options())
+    response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/google")
     return response
 
 
@@ -125,5 +124,5 @@ async def session(request: Request):
 async def logout(request: Request):
     remove_session(request)
     response = JSONResponse({"authenticated": False})
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(SESSION_COOKIE, **delete_cookie_options())
     return response

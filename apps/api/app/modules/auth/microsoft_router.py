@@ -6,8 +6,10 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
 from app.providers.microsoft.auth import (
     SESSION_COOKIE,
+    OAUTH_BINDING_COOKIE,
     authorization_url,
     consume_state,
     create_session,
@@ -28,11 +30,15 @@ def client_redirect(**params: str) -> RedirectResponse:
 
 @router.get("/login")
 async def login():
-    return RedirectResponse(authorization_url())
+    binding = secrets.token_urlsafe(32)
+    response = RedirectResponse(authorization_url(binding))
+    response.set_cookie(OAUTH_BINDING_COOKIE, binding, max_age=600, httponly=True, secure=cookie_options()["secure"], samesite="lax", path="/api/auth/microsoft")
+    return response
 
 
 @router.get("/callback")
 async def callback(
+    request: Request,
     state: str | None = Query(None),
     code: str | None = Query(None),
     error: str | None = Query(None),
@@ -51,7 +57,7 @@ async def callback(
         return client_redirect(auth_provider="microsoft", auth_error="incomplete", auth_request=request_id)
 
     try:
-        verifier = consume_state(state)
+        verifier = consume_state(state, request.cookies.get(OAUTH_BINDING_COOKIE))
         token = await exchange_code(code, verifier)
         session_id, _ = await create_session(token)
     except PermissionError:
@@ -65,16 +71,10 @@ async def callback(
         )
         return client_redirect(auth_provider="microsoft", auth_error="token_exchange", auth_request=request_id)
 
+    remove_session(request)
     response = client_redirect(microsoft="connected")
-    response.set_cookie(
-        SESSION_COOKIE,
-        session_id,
-        max_age=30 * 24 * 60 * 60,
-        httponly=True,
-        secure=os.getenv("MICROSOFT_OAUTH_COOKIE_SECURE", "false").lower() == "true",
-        samesite="lax",
-        path="/",
-    )
+    response.set_cookie(SESSION_COOKIE, session_id, **cookie_options())
+    response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/microsoft")
     return response
 
 
@@ -91,5 +91,5 @@ async def session(request: Request):
 async def logout(request: Request):
     remove_session(request)
     response = JSONResponse({"authenticated": False})
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(SESSION_COOKIE, **delete_cookie_options())
     return response

@@ -22,6 +22,7 @@ FEATURE_FLAG_NAMES = (
     "DRIVE_METADATA_SIDECAR_ENABLED",
     "AI_EMERGENCY_STOP_ENABLED",
     "AI_BATCH_FALLBACK_TO_SINGLE_ENABLED",
+    "PERSISTENT_AUTH_ENABLED",
 )
 
 
@@ -47,6 +48,7 @@ class Settings(BaseSettings):
     DRIVE_METADATA_SIDECAR_ENABLED: bool = False
     AI_EMERGENCY_STOP_ENABLED: bool = False
     AI_BATCH_FALLBACK_TO_SINGLE_ENABLED: bool = False
+    PERSISTENT_AUTH_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
@@ -82,6 +84,16 @@ class Settings(BaseSettings):
     AI_ANALYSIS_LEASE_SECONDS: int = 300
     PROCESSING_POLICY_CACHE_TTL_SECONDS: float = 5.0
     PROCESSING_POLICY_ADMIN_IDS: str = ""
+    OAUTH_TOKEN_ENCRYPTION_KEYS: str = ""
+    OAUTH_ACTIVE_KEY_VERSION: str = "v1"
+    AUTH_SESSION_TTL_SECONDS: int = 30 * 24 * 60 * 60
+    AUTH_STATE_TTL_SECONDS: int = 600
+    AUTH_REFRESH_LEASE_SECONDS: int = 30
+    AUTH_COOKIE_SECURE: bool = False
+    AUTH_COOKIE_SAMESITE: str = "lax"
+    AUTH_COOKIE_DOMAIN: str | None = None
+    AUTH_COOKIE_PATH: str = "/"
+    APP_ENV: str = "development"
 
     @field_validator(*FEATURE_FLAG_NAMES, mode="before")
     @classmethod
@@ -96,6 +108,14 @@ class Settings(BaseSettings):
                 return False
         raise ValueError("feature flags must be either 'true' or 'false'")
 
+    @field_validator("AUTH_COOKIE_SAMESITE")
+    @classmethod
+    def validate_cookie_samesite(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"lax", "strict", "none"}:
+            raise ValueError("AUTH_COOKIE_SAMESITE must be lax, strict or none")
+        return normalized
+
     @field_validator("WORKER_LOG_LEVEL")
     @classmethod
     def validate_worker_log_level(cls, value: str) -> str:
@@ -106,6 +126,30 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_worker_runtime(self) -> "Settings":
+        if self.PERSISTENT_AUTH_ENABLED:
+            import base64
+            versions = set()
+            for item in self.OAUTH_TOKEN_ENCRYPTION_KEYS.split(","):
+                if not item.strip() or ":" not in item:
+                    raise ValueError("OAUTH_TOKEN_ENCRYPTION_KEYS must contain versioned keys")
+                version, encoded = item.strip().split(":", 1)
+                try:
+                    decoded = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+                except Exception as exc:
+                    raise ValueError("OAUTH_TOKEN_ENCRYPTION_KEYS is invalid") from exc
+                if not version or version in versions or len(decoded) != 32:
+                    raise ValueError("OAuth keys require unique versions and 32-byte values")
+                versions.add(version)
+            if self.OAUTH_ACTIVE_KEY_VERSION not in versions:
+                raise ValueError("OAUTH_ACTIVE_KEY_VERSION is unavailable")
+            if self.APP_ENV.lower() in {"production", "prod"} and not self.AUTH_COOKIE_SECURE:
+                raise ValueError("AUTH_COOKIE_SECURE must be true in production")
+            if self.AUTH_COOKIE_SAMESITE == "none" and not self.AUTH_COOKIE_SECURE:
+                raise ValueError("SameSite=None requires secure cookies")
+        if min(self.AUTH_SESSION_TTL_SECONDS, self.AUTH_STATE_TTL_SECONDS, self.AUTH_REFRESH_LEASE_SECONDS) <= 0:
+            raise ValueError("Authentication TTL and lease settings must be positive")
+        if not self.AUTH_COOKIE_PATH.startswith("/"):
+            raise ValueError("AUTH_COOKIE_PATH must be absolute")
         if self.WORKER_LEASE_SECONDS <= 0:
             raise ValueError("WORKER_LEASE_SECONDS must be positive")
         if not 0 < self.WORKER_HEARTBEAT_SECONDS < self.WORKER_LEASE_SECONDS:
