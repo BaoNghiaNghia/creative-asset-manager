@@ -686,3 +686,49 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   audits, revert Step 30 and downgrade to 0012. Every user must reconnect.
 - Next recommended step: enable for two staging replicas with one Google and one
   Microsoft account, test forced refresh/key rotation, then proceed to Step 31.
+
+
+## Phase 21 review - Step 31
+
+- Files changed: GitHub Actions CI, deterministic frontend lockfile, PostgreSQL
+  and Elasticsearch integration tests, durable pipeline E2E fixtures, local
+  Docker Compose runner, Elasticsearch alias compatibility, AI/pipeline index
+  handoff, Make target, ignore rules, and CI operator documentation.
+- Migrations added: none. CI upgrades an empty PostgreSQL 16.4 database through
+  revision 0013, verifies a single head, downgrades to 0012, and upgrades to
+  head again.
+- Behavior introduced: pull requests now run frontend checks, API/worker/mock
+  provider tests, real PostgreSQL tests, real Elasticsearch v2 tests, and a
+  real-worker pipeline E2E job. All external source, storage, and Gemini
+  providers are fakes. The durable pipeline suppresses the legacy standalone
+  asset-index enqueue, preventing duplicate index jobs while preserving the
+  standalone analysis default.
+- Tests run: 271 backend tests passed (11 real-service modules skipped in the
+  unit-only invocation); 11/11 PostgreSQL, Elasticsearch, migration, worker,
+  and pipeline integration tests passed locally; 9 frontend component tests,
+  TypeScript validation, and the Vite production build passed. Workflow YAML,
+  Compose configuration, shell syntax, Python compilation, and git whitespace
+  checks passed.
+- Feature flags: none added or enabled. E2E settings and tenant policy are
+  isolated to ephemeral test tenants; production defaults remain unchanged.
+- Failure coverage: transient download retry, temporary Elasticsearch retry,
+  duplicate bytes, invalid AI metadata, expired worker lease/restart, and
+  tenant-disabled claiming. Persisted assets, links, storage, analyses,
+  pipeline/job states, projections, index documents, and search results are
+  asserted.
+- Caching and security: npm and pip download caches only. PostgreSQL and
+  Elasticsearch data, OAuth tokens, secrets, and provider responses are never
+  cached or uploaded. Failure artifacts are bounded to test/migration logs and
+  safe Elasticsearch diagnostics with seven-day retention.
+- Known risks: GitHub-hosted runner capacity and Docker image download time can
+  vary. The current locked frontend dependency graph reports three npm audit
+  findings (one moderate, one high, one critical); dependency remediation is
+  intentionally separate from Step 31. Long-duration and high-volume staging
+  workloads remain outside this bounded CI suite.
+- Rollback: revert the Step 31 commit to restore the previous two-job workflow.
+  No database downgrade or feature-flag change is required. The Elasticsearch
+  alias fix can be reverted independently only if the deployed Elasticsearch
+  version supports the former request parameter.
+- Next recommended step: observe several pull-request runs, tune timeouts only
+  from measured data, and address the locked frontend audit findings before
+  implementing Step 32 separately.

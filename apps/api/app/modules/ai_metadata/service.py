@@ -65,6 +65,7 @@ class AiAnalysisService:
         is_cancelled: Callable[[], bool] | None = None,
         job_id: str | None = None,
         pilot_run_id: str | None = None,
+        enqueue_index: bool = True,
     ) -> AiAnalysisOutcome:
         if not (
             self.settings.DYNAMIC_AI_METADATA_ENABLED
@@ -299,6 +300,7 @@ class AiAnalysisService:
                     projection_builder=self.projection_builder,
                 ).import_result(
                     tenant_id=tenant_id, analysis_id=analysis_id, result=result,
+                    enqueue_index=enqueue_index,
                 )
                 analysis = AiMetadataRepository(session, self.validator).get_analysis(analysis_id)
                 if imported.status == "invalid_metadata" and operation_key:

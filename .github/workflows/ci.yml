@@ -1,11 +1,21 @@
 name: CI
+
 on:
   pull_request:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
 jobs:
-  client:
+  frontend:
+    name: Frontend checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: apps/client
@@ -13,62 +23,250 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "22"
           cache: npm
-          cache-dependency-path: apps/client/package.json
-      - run: npm install
-      - run: npm run build
-  api:
+          cache-dependency-path: apps/client/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Static validation
+        run: npm run typecheck
+      - name: Unit and component tests
+        run: |
+          set -o pipefail
+          mkdir -p ../../artifacts/frontend
+          npm test 2>&1 | tee ../../artifacts/frontend/tests.log
+      - name: Production build
+        run: npm run build
+      - name: Upload frontend failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-failure
+          path: artifacts/frontend
+          if-no-files-found: ignore
+          retention-days: 7
+
+  api-unit:
+    name: API, worker and provider unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n scripts/dev-api.sh
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r apps/api/requirements.txt
-      - run: python -m compileall -q apps/api/app
-      - run: python -m unittest discover -s tests -v
-        working-directory: apps/api
-      - run: python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
-        working-directory: apps/api
-      - name: Verify Google OAuth PKCE transaction
-        working-directory: apps/api
-        env:
-          GOOGLE_CLIENT_ID: test-client.apps.googleusercontent.com
-          GOOGLE_CLIENT_SECRET: test-secret
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+      - name: Install API dependencies
+        run: python -m pip install -r apps/api/requirements.txt
+      - name: Shell and Python syntax checks
         run: |
-          python - <<'PY'
-          from app.providers.google.auth import consume_state, oauth_flow, remember_state
-
-          flow = oauth_flow()
-          _, state = flow.authorization_url(access_type="offline", prompt="consent")
-          assert flow.code_verifier
-          remember_state(state, flow.code_verifier)
-          assert consume_state(state) == flow.code_verifier
-          PY
-      - name: Verify Microsoft OAuth PKCE and SharePoint opaque IDs
+          bash -n scripts/dev-api.sh
+          bash -n scripts/test-integration.sh
+          python -m compileall -q apps/api/app apps/worker
+      - name: API, worker and mocked-provider tests
         working-directory: apps/api
-        env:
-          MICROSOFT_CLIENT_ID: test-client
-          MICROSOFT_CLIENT_SECRET: test-secret
-          MICROSOFT_TENANT_ID: organizations
         run: |
-          python - <<'PY'
-          import base64
-          import hashlib
-          from urllib.parse import parse_qs, urlparse
+          set -o pipefail
+          mkdir -p ../../artifacts/api-unit
+          timeout 10m python -m unittest discover -s tests -v 2>&1 | tee ../../artifacts/api-unit/tests.log
+      - name: Application import smoke test
+        working-directory: apps/api
+        run: python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
+      - name: Upload API failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-unit-failure
+          path: artifacts/api-unit
+          if-no-files-found: ignore
+          retention-days: 7
 
-          from app.providers.microsoft.auth import authorization_url, consume_state
-          from app.providers.microsoft.mapper import make_id, parse_id
-
-          query = parse_qs(urlparse(authorization_url()).query)
-          verifier = consume_state(query["state"][0])
-          challenge = base64.urlsafe_b64encode(
-              hashlib.sha256(verifier.encode()).digest()
-          ).rstrip(b"=").decode()
-          assert challenge == query["code_challenge"][0]
-
-          opaque_id = make_id("item", "drive:id", "item/id")
-          assert parse_id(opaque_id) == ("item", ["drive:id", "item/id"])
+  postgres-integration:
+    name: PostgreSQL migrations and repositories
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.4
+        env:
+          POSTGRES_DB: cam_integration
+          POSTGRES_USER: cam_test
+          POSTGRES_PASSWORD: cam_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cam_test -d cam_integration"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_integration
+      INTEGRATION_DATABASE_URL: postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+      - run: python -m pip install -r apps/api/requirements.txt
+      - name: Verify database readiness
+        run: |
+          timeout 30s python - <<'PY'
+          import os, time
+          from sqlalchemy import create_engine, text
+          engine = create_engine(os.environ["DATABASE_URL"])
+          for attempt in range(30):
+              try:
+                  with engine.connect() as connection:
+                      connection.execute(text("SELECT 1"))
+                  break
+              except Exception:
+                  if attempt == 29:
+                      raise
+                  time.sleep(1)
           PY
+      - name: Upgrade, verify one head, rollback and re-upgrade
+        working-directory: apps/api
+        run: |
+          set -o pipefail
+          mkdir -p ../../artifacts/postgres
+          test "$(python -m alembic heads | grep -c '(head)')" -eq 1
+          python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
+          python -m alembic downgrade 0012_ai_batch_processing 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
+      - name: Repository and migration integration tests
+        working-directory: apps/api
+        run: |
+          set -o pipefail
+          timeout 10m python -m unittest tests.integration.test_postgresql -v 2>&1 | tee ../../artifacts/postgres/tests.log
+      - name: Upload PostgreSQL failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-integration-failure
+          path: artifacts/postgres
+          if-no-files-found: ignore
+          retention-days: 7
+
+  elasticsearch-integration:
+    name: Elasticsearch v2 integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -fsS http://localhost:9200/_cluster/health"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+    env:
+      ELASTICSEARCH_URL: http://127.0.0.1:9200
+      INTEGRATION_ELASTICSEARCH_URL: http://127.0.0.1:9200
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+      - run: python -m pip install -r apps/api/requirements.txt
+      - name: Verify Elasticsearch readiness
+        run: timeout 60s bash -c 'until curl -fsS "$ELASTICSEARCH_URL/_cluster/health?wait_for_status=yellow" >/dev/null; do sleep 2; done'
+      - name: Mapping, indexing, aliases and query integration tests
+        working-directory: apps/api
+        run: |
+          set -o pipefail
+          mkdir -p ../../artifacts/elasticsearch
+          timeout 10m python -m unittest tests.integration.test_elasticsearch -v 2>&1 | tee ../../artifacts/elasticsearch/tests.log
+      - name: Capture safe Elasticsearch diagnostics
+        if: failure()
+        run: |
+          mkdir -p artifacts/elasticsearch
+          curl -fsS "$ELASTICSEARCH_URL/_cluster/health?pretty" > artifacts/elasticsearch/cluster-health.json || true
+          curl -fsS "$ELASTICSEARCH_URL/_cat/indices?v" > artifacts/elasticsearch/indices.txt || true
+          curl -fsS "$ELASTICSEARCH_URL/_cat/aliases?v" > artifacts/elasticsearch/aliases.txt || true
+      - name: Upload Elasticsearch failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elasticsearch-integration-failure
+          path: artifacts/elasticsearch
+          if-no-files-found: ignore
+          retention-days: 7
+
+  pipeline-e2e:
+    name: Durable pipeline end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.4
+        env:
+          POSTGRES_DB: cam_pipeline
+          POSTGRES_USER: cam_test
+          POSTGRES_PASSWORD: cam_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cam_test -d cam_pipeline"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -fsS http://localhost:9200/_cluster/health"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+    env:
+      DATABASE_URL: postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_pipeline
+      INTEGRATION_DATABASE_URL: postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_pipeline
+      ELASTICSEARCH_URL: http://127.0.0.1:9200
+      INTEGRATION_ELASTICSEARCH_URL: http://127.0.0.1:9200
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+      - run: python -m pip install -r apps/api/requirements.txt
+      - name: Migrate pipeline database
+        working-directory: apps/api
+        run: python -m alembic upgrade head
+      - name: Real worker runtime pipeline and bounded failure paths
+        working-directory: apps/api
+        run: |
+          set -o pipefail
+          mkdir -p ../../artifacts/pipeline-e2e
+          timeout 15m python -m unittest tests.integration.test_pipeline_e2e -v 2>&1 | tee ../../artifacts/pipeline-e2e/tests.log
+      - name: Capture safe pipeline diagnostics
+        if: failure()
+        run: |
+          mkdir -p artifacts/pipeline-e2e
+          curl -fsS "$ELASTICSEARCH_URL/_cluster/health?pretty" > artifacts/pipeline-e2e/cluster-health.json || true
+          curl -fsS "$ELASTICSEARCH_URL/_cat/indices?v" > artifacts/pipeline-e2e/indices.txt || true
+      - name: Upload pipeline failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-e2e-failure
+          path: artifacts/pipeline-e2e
+          if-no-files-found: ignore
+          retention-days: 7

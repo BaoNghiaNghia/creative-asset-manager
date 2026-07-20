@@ -59,6 +59,7 @@ class AssetAnalyzeJobHandler:
                 is_cancelled=lambda: context.is_cancelled,
                 job_id=context.job.id,
                 pilot_run_id=context.job.payload.get("pilot_run_id"),
+                enqueue_index=not (isinstance(pipeline_id, str) and bool(pipeline_id)),
             )
         )
         if outcome.status == "completed":

@@ -21,7 +21,6 @@ dist/
 .vite/
 **/.vite/
 *.tsbuildinfo
-apps/client/package-lock.json
 
 # Local application database
 apps/api/data/
@@ -34,3 +33,6 @@ apps/api/data/
 Thumbs.db
 .vscode/
 .idea/
+
+# Test output
+/artifacts/

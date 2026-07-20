@@ -27,7 +27,8 @@ class AiAnalysisResultImporter:
         self.projection_builder=projection_builder or SearchProjectionBuilder()
 
     def import_result(self,*,tenant_id:str,analysis_id:str,
-                      result:AiMetadataAnalysisResult)->ResultImportOutcome:
+                      result:AiMetadataAnalysisResult,
+                      enqueue_index:bool=True)->ResultImportOutcome:
         repository=AiMetadataRepository(self.session,self.validator)
         analysis=repository.get_analysis(analysis_id)
         if analysis.tenant_id!=tenant_id: raise LookupError(analysis_id)
@@ -64,13 +65,14 @@ class AiAnalysisResultImporter:
             provider_request_id=result.provider_request_id,
             usage=result.usage,provider_metadata=result.provider_metadata,
             ai_model=result.model)
-        ProcessingRepository(self.session).create_job(
-            tenant_id=tenant_id,job_type="asset_index",entity_type="asset",
-            entity_id=completed.asset_id,
-            idempotency_key=(
-                f"asset-index:{completed.id}:"
-                f"{projection_result.projection_version}:{checksum}"
-            ),provider_key="elasticsearch",provider_scope="search",
-            payload={"asset_id":completed.asset_id,"analysis_id":completed.id,
-                     "projection_version":projection_result.projection_version})
+        if enqueue_index:
+            ProcessingRepository(self.session).create_job(
+                tenant_id=tenant_id,job_type="asset_index",entity_type="asset",
+                entity_id=completed.asset_id,
+                idempotency_key=(
+                    f"asset-index:{completed.id}:"
+                    f"{projection_result.projection_version}:{checksum}"
+                ),provider_key="elasticsearch",provider_scope="search",
+                payload={"asset_id":completed.asset_id,"analysis_id":completed.id,
+                         "projection_version":projection_result.projection_version})
         return ResultImportOutcome("completed")

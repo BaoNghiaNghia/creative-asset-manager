@@ -180,16 +180,16 @@ class ElasticsearchV2Index:
         current = await self._alias_indices()
         actions: list[dict[str, Any]] = []
         for index in sorted(current["read"]):
-            actions.append({"remove": {"index": index, "alias": self.read_alias}})
+            actions.append({"remove": {"index": index, "alias": self.read_alias, "must_exist": True}})
         for index in sorted(current["write"]):
-            actions.append({"remove": {"index": index, "alias": self.write_alias}})
+            actions.append({"remove": {"index": index, "alias": self.write_alias, "must_exist": True}})
         actions.extend(
             [
                 {"add": {"index": target_index, "alias": self.read_alias}},
                 {"add": {"index": target_index, "alias": self.write_alias, "is_write_index": True}},
             ]
         )
-        await self._request("POST", "/_aliases?must_exist=true", json_body={"actions": actions})
+        await self._request("POST", "/_aliases", json_body={"actions": actions})
         return AliasSwitchResult(
             target_index,
             tuple(sorted(current["read"])),

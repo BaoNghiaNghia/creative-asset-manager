@@ -50,3 +50,5 @@
 - [x] 29 Asset details UI, Search v2 UI, and authorized async operations
 
 - [x] 30 Persistent encrypted OAuth tokens and distributed sessions
+
+- [x] 31 PostgreSQL and Elasticsearch integration CI plus end-to-end pipeline tests
