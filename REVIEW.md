@@ -768,3 +768,30 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   multi-page Drive and SharePoint reconciliation with injected timeout/resume,
   then enable cleanup for one tenant. Do not begin Step 33 until retention
   counts and worker recovery are observed.
+## Phase 23 review - Step 33
+
+- Files changed: deterministic active-analysis model/service/admin endpoints,
+  tenant shadow policy/comparator/reporting, Elasticsearch lifecycle verifier/
+  cleanup controls, worker/rebuild selection, migration, tests and runbooks.
+- Migration added: 0015_search_governance with tested step-scoped downgrade to
+  0014. AI analysis history and physical Elasticsearch data are preserved.
+- Behavior introduced: explicit tenant/profile/context analysis activation and
+  rollback; jobs carry and validate the intended analysis; active-only rebuilds
+  behind a flag; non-blocking sampled shadow calls with strict timeouts and
+  bounded observations; verify-before-activate indices and alias-safe cleanup.
+- Tests run/results: targeted config, migration, search operation and governance
+  suites passed (20 tests); Python compilation passed. Full regression result is
+  recorded below after final validation.
+- Feature flags: DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED,
+  SEARCH_SHADOW_COMPARISON_ENABLED and ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED
+  all default false. Tenant shadow policy cannot override global disable.
+- Known risks: shadow executors still require staged wiring for every legacy
+  provider-specific search surface; the shared Elasticsearch alias remains a
+  global resource and should only be promoted after full tenant coverage
+  verification.
+- Rollback: disable the three flags, stop admin lifecycle operations, switch
+  aliases to a verified previous index if needed, revert Step 33, then downgrade
+  to 0014. Export audits before downgrade if long-term retention is required.
+- Next recommended step: migrate staging with flags false, select active
+  analyses for one tenant, shadow v1/v2 at 5%, and promote only after report and
+  fixture thresholds pass.

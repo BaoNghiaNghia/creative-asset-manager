@@ -99,6 +99,8 @@ async def execute(args: argparse.Namespace) -> dict:
                 index_provider=provider,
                 projection_enabled=settings.SEARCH_PROJECTION_ENABLED,
                 index_enabled=settings.ELASTICSEARCH_V2_ENABLED,
+                deterministic_active_analysis_enabled=settings.DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED,
+                index_lifecycle_enabled=settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED,
             ).run(
                 tenant_id=args.tenant_id,
                 run_id=run.id,

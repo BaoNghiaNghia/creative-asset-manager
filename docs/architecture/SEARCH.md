@@ -117,3 +117,24 @@ URL parameters (`q` and `facet.<name>`). V2 results always carry
 UI must not collapse those identities. Parsed query debug is administrator-only.
 If v2 is disabled globally or for the tenant, the existing explorer search stays
 active.
+
+## Step 33 search governance
+
+Search indexing uses an explicit active-analysis pointer scoped by tenant,
+asset, metadata profile and search context. Activation locks the authoritative
+asset row, retains analysis history, and emits an append-only audit. With the
+deterministic-analysis flag enabled, workers reject jobs whose explicit
+analysis does not match that pointer; rebuild queries join the active pointer.
+
+Shadow comparison is tenant configured but globally bounded. The primary result
+returns immediately; a sampled background call has a strict timeout and cannot
+affect the response. Observations store a query hash, bounded features,
+versions, latencies, counts, top-k/rank agreement and an error class. Raw query
+retention is opt-in and sensitive-looking queries are never stored.
+
+Index lifecycle states are building, validating, active, previous, retired,
+deletion_pending, deleted and failed. Activation requires mapping, count,
+failure, projection-version, fixture and tenant-isolation verification. A
+lifecycle-enabled rebuild never switches aliases automatically. Cleanup
+preserves active aliases and configured previous versions, requires minimum age
+and confirmation, and rechecks cluster aliases immediately before deletion.

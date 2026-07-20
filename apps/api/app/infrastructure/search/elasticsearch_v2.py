@@ -199,6 +199,25 @@ class ElasticsearchV2Index:
     async def rollback_aliases(self, previous_index: str) -> AliasSwitchResult:
         return await self.switch_aliases(previous_index)
 
+    async def alias_indices(self) -> dict[str, set[str]]:
+        return await self._alias_indices()
+
+    async def index_count(self, index_name: str) -> int:
+        response = await self._request("GET", f"/{index_name}/_count")
+        return int(response.get("count", 0))
+
+    async def index_mapping(self, index_name: str) -> dict[str, Any]:
+        return await self._request("GET", f"/{index_name}/_mapping")
+
+    async def verification_search(
+        self, index_name: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        sanitized = {key: value for key, value in body.items() if not key.startswith("_")}
+        return await self._request("POST", f"/{index_name}/_search", json_body=sanitized)
+
+    async def delete_index(self, index_name: str) -> None:
+        await self._request("DELETE", f"/{index_name}")
+
     async def search(self, body: Mapping[str, Any]) -> Mapping[str, Any]:
         return await self._request("POST", f"/{self.read_alias}/_search", json_body=body)
 

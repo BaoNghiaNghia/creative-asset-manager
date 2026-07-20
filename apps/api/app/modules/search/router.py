@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from fastapi import APIRouter, HTTPException, Request
 from urllib.parse import quote
 from sqlalchemy import select
@@ -6,6 +7,11 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index, ElasticsearchV2RequestError
+from app.modules.explorer.router import _access_token, _account_id
+from app.modules.explorer.schema import SearchRequest
+from app.modules.explorer.service import ExplorerService
+from app.providers.source_factory import create_source_provider
+from app.modules.search.shadow import SearchShadowComparator
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.asset_details.router import admin_or_none, tenant_id
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
@@ -96,4 +102,29 @@ async def search(body: SearchV2Request, request: Request):
         total = int(total_value.get("value", 0) if isinstance(total_value, dict) else total_value)
         facet_output = {name: [{"value": bucket.get("key"), "count": bucket.get("doc_count", 0)} for bucket in response.get("aggregations", {}).get(name, {}).get("buckets", [])] for name in allowed_facets}
         parsed_doc = {"mode": parsed.mode.value, "clauses": [{"kind": clause.kind.value, "field": clause.field, "value": clause.value} for clause in parsed.clauses]} if debug else None
-        return {"search_version": "v2", "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took")}
+        primary_result = {"search_version": "v2", "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took")}
+        provider = body.source_provider or "google-drive"
+
+        async def legacy_shadow():
+            token = await _access_token(request, provider)
+            result = await ExplorerService(create_source_provider).search_subtree(
+                SearchRequest(
+                    provider=provider, query=body.query, root_id="root",
+                    limit=min(body.limit, 200),
+                ),
+                token, _account_id(request, provider),
+            )
+            document = result.model_dump(mode="json")
+            document["total"] = len(document["items"])
+            return document
+
+        comparator = SearchShadowComparator(
+            session_factory=SessionLocal,
+            global_enabled=lambda: get_settings().SEARCH_SHADOW_COMPARISON_ENABLED,
+            max_timeout_ms=settings.SEARCH_SHADOW_MAX_TIMEOUT_MS,
+        )
+        return await comparator.execute(
+            tenant_id=tenant, query=body.query,
+            primary=lambda: asyncio.sleep(0, result=primary_result),
+            shadow=legacy_shadow,
+        )

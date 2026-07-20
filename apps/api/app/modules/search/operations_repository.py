@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.redaction import redact_url_queries
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
+from app.modules.search.governance_model import ActiveAssetAnalysisModel
 from app.modules.search.operations_model import (
     SearchOperationItemModel,
     SearchOperationRunModel,
@@ -81,13 +82,22 @@ class SearchOperationRepository:
         self.session.refresh(run)
         return run
 
-    def analysis_page(self, run: SearchOperationRunModel) -> list[AssetAiAnalysisModel]:
+    def analysis_page(self, run: SearchOperationRunModel, *, require_active: bool = False) -> list[AssetAiAnalysisModel]:
         filters = run.filters_json or {}
         statement = select(AssetAiAnalysisModel).where(
             AssetAiAnalysisModel.tenant_id == run.tenant_id,
             AssetAiAnalysisModel.status == "completed",
             AssetAiAnalysisModel.metadata_json.is_not(None),
         )
+        if require_active:
+            statement = statement.join(
+                ActiveAssetAnalysisModel,
+                and_(
+                    ActiveAssetAnalysisModel.tenant_id == AssetAiAnalysisModel.tenant_id,
+                    ActiveAssetAnalysisModel.analysis_id == AssetAiAnalysisModel.id,
+                    ActiveAssetAnalysisModel.search_context == "search_v2",
+                ),
+            )
         if filters.get("metadata_profile"):
             statement = statement.where(
                 AssetAiAnalysisModel.metadata_profile == filters["metadata_profile"]

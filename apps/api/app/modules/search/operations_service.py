@@ -6,6 +6,7 @@ from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.ai_metadata.projection_service import SearchProjectionService
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider
+from app.modules.search.index_lifecycle import SearchIndexLifecycleService
 from app.modules.search.operations_model import SearchOperationRunModel
 from app.modules.search.operations_repository import SearchOperationRepository
 
@@ -19,12 +20,16 @@ class SearchMaintenanceService:
         index_provider: SearchIndexProvider | None = None,
         projection_enabled: bool = False,
         index_enabled: bool = False,
+        deterministic_active_analysis_enabled: bool = False,
+        index_lifecycle_enabled: bool = False,
     ):
         self.repository = repository
         self.builder = builder
         self.index_provider = index_provider
         self.projection_enabled = projection_enabled
         self.index_enabled = index_enabled
+        self.deterministic_active_analysis_enabled = deterministic_active_analysis_enabled
+        self.index_lifecycle_enabled = index_lifecycle_enabled
 
     async def run(
         self,
@@ -49,6 +54,15 @@ class SearchMaintenanceService:
                 if not index_version:
                     raise ValueError("index_version is required for a new reindex run")
                 run.target_index = await self.index_provider.create_index(index_version)
+                if self.index_lifecycle_enabled:
+                    SearchIndexLifecycleService(
+                        self.repository.session, self.index_provider
+                    ).register(
+                        physical_index_name=run.target_index,
+                        index_prefix=run.target_index.rsplit("-v2-", 1)[0],
+                        index_version=index_version,
+                        projection_version=run.target_projection_version,
+                    )
                 self.repository.session.commit()
 
         self.repository.mark_running(run)
@@ -60,7 +74,9 @@ class SearchMaintenanceService:
                     self.repository.mark_terminal(run, "cancelled")
                     self.repository.session.commit()
                     return run
-                page = self.repository.analysis_page(run)
+                page = self.repository.analysis_page(
+                    run, require_active=self.deterministic_active_analysis_enabled
+                )
                 if not page:
                     break
                 page_succeeded = 0
@@ -135,6 +151,17 @@ class SearchMaintenanceService:
                         "failed",
                         RuntimeError(f"{run.failed_count} item(s) failed"),
                     )
+                elif self.index_lifecycle_enabled:
+                    record = SearchIndexLifecycleService(
+                        self.repository.session, self.index_provider
+                    ).register(
+                        physical_index_name=run.target_index,
+                        index_prefix=run.target_index.rsplit("-v2-", 1)[0],
+                        index_version=index_version or "resumed",
+                        projection_version=run.target_projection_version,
+                    )
+                    record.document_count = run.succeeded_count
+                    self.repository.mark_terminal(run, "completed")
                 else:
                     switch = await self.index_provider.switch_aliases(run.target_index)
                     run.alias_switch_json = {

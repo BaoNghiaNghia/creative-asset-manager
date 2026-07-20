@@ -8,6 +8,12 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
+from app.core.config import get_settings
+from app.core.database import SessionLocal
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
+from app.modules.search.query_parser import SearchQueryParser
+from app.modules.search.shadow import SearchShadowComparator
 from app.modules.explorer.indexing import get_index_status, start_index_job
 from app.modules.explorer.schema import (
     AssetNode,
@@ -121,10 +127,39 @@ async def index_status(
 async def search(request: Request, body: SearchRequest):
     try:
         token = await _access_token(request, body.provider)
-        return await ExplorerService(create_source_provider).search_subtree(
+        tenant = _account_id(request, body.provider)
+        primary_result = await ExplorerService(create_source_provider).search_subtree(
             body,
             token,
-            _account_id(request, body.provider),
+            tenant,
+        )
+        settings = get_settings()
+
+        async def v2_shadow():
+            parsed = SearchQueryParser().parse(body.query)
+            query = ElasticsearchQueryBuilder().build(
+                parsed, tenant_id=tenant, config=SearchQueryConfig(),
+                size=min(body.limit, 200), offset=0,
+            )
+            async with ElasticsearchV2Index(ElasticsearchV2Config(
+                settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX
+            )) as index:
+                response = await index.search(query)
+            hits = response.get("hits", {}).get("hits", [])
+            return {"items": hits, "total": response.get("hits", {}).get("total", 0)}
+
+        comparator = SearchShadowComparator(
+            session_factory=SessionLocal,
+            global_enabled=lambda: bool(
+                get_settings().SEARCH_SHADOW_COMPARISON_ENABLED
+                and get_settings().ELASTICSEARCH_URL
+            ),
+            max_timeout_ms=settings.SEARCH_SHADOW_MAX_TIMEOUT_MS,
+        )
+        return await comparator.execute(
+            tenant_id=tenant, query=body.query,
+            primary=lambda: asyncio.sleep(0, result=primary_result.model_dump(mode="json")),
+            shadow=v2_shadow,
         )
     except HTTPException:
         raise

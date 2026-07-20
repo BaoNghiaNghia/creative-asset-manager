@@ -54,3 +54,5 @@
 - [x] 31 PostgreSQL and Elasticsearch integration CI plus end-to-end pipeline tests
 
 - [x] 32 Reconciliation generation markers, sensitive URL retention, and cleanup jobs
+
+- [x] 33 Deterministic active analysis, search shadow comparison, and safe index lifecycle

@@ -42,6 +42,7 @@ def init_database() -> None:
     from app.modules.processing import model as processing_model  # noqa: F401
     from app.modules.processing_policy import model as processing_policy_model  # noqa: F401
     from app.modules.search import operations_model as search_operation_model  # noqa: F401
+    from app.modules.search import governance_model as search_governance_model  # noqa: F401
     from app.modules.external_ingestion import model as external_ingestion_model  # noqa: F401
     from app.modules.metadata import model as metadata_model  # noqa: F401
     from app.modules.storage import model as storage_model  # noqa: F401

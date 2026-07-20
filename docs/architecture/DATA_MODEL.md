@@ -345,3 +345,16 @@ not persist plaintext URLs. `retention_cleanup_runs` stores tenant/policy
 scope, record types, dry-run state, cursor, count metrics, cancellation and
 checkpoint version. Cleanup preserves assets, content hashes, source identity,
 metadata, projections and audits.
+
+## Step 33 search governance records
+
+- active_asset_analyses: deterministic tenant/asset/profile/context pointer.
+- active_analysis_audits: append-only activation and rollback history.
+- tenant_search_shadow_policies: versions, sampling, timeout and retention.
+- search_shadow_observations: bounded tenant/query-hash comparison metrics.
+- search_index_records: physical-index lifecycle and verification evidence.
+- search_index_audits: append-only activation and deletion history.
+
+Migration 0015_search_governance adds only these operational records. It does
+not alter AI history or Elasticsearch data. Downgrade removes Step 33 state
+after shadow/lifecycle operations are stopped.

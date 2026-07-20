@@ -366,3 +366,17 @@ finish normally. Resume makes them claimable again.
 Rollback: disable global processing, pause all pilot tenants, allow graceful
 drain through the lease window, revert Step 26 code, then downgrade `0010` to
 `0009_durable_asset_pipeline`. Export audits first if retention is required.
+
+## Step 33 shadow and index rollback
+
+Deploy all Step 33 flags false. Enable deterministic analysis only after a
+valid completed analysis is selected per profile. Start shadowing with v1
+primary, v2 shadow, low deterministic sampling and a short timeout.
+
+For promotion, build/reindex, run verification, inspect persisted evidence,
+then explicitly activate. Keep at least one verified previous version. Rollback
+switches read/write aliases to that version before any cleanup.
+
+Emergency procedure: globally disable shadow comparison or index lifecycle.
+Never delete cluster indices manually. Run cleanup dry-run, explicitly confirm,
+and verify aliases; cleanup also rechecks aliases immediately before deletion.

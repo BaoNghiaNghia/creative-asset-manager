@@ -24,6 +24,9 @@ FEATURE_FLAG_NAMES = (
     "AI_BATCH_FALLBACK_TO_SINGLE_ENABLED",
     "PERSISTENT_AUTH_ENABLED",
     "RETENTION_CLEANUP_ENABLED",
+    "DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED",
+    "SEARCH_SHADOW_COMPARISON_ENABLED",
+    "ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED",
 )
 
 
@@ -51,6 +54,9 @@ class Settings(BaseSettings):
     AI_BATCH_FALLBACK_TO_SINGLE_ENABLED: bool = False
     PERSISTENT_AUTH_ENABLED: bool = False
     RETENTION_CLEANUP_ENABLED: bool = False
+    DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED: bool = False
+    SEARCH_SHADOW_COMPARISON_ENABLED: bool = False
+    ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
@@ -73,6 +79,12 @@ class Settings(BaseSettings):
     GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID: str | None = None
     ELASTICSEARCH_URL: str | None = None
     ELASTICSEARCH_INDEX_PREFIX: str = "creative-assets"
+    SEARCH_SHADOW_DEFAULT_TIMEOUT_MS: int = 250
+    SEARCH_SHADOW_MAX_TIMEOUT_MS: int = 2000
+    SEARCH_SHADOW_DEFAULT_SAMPLE_PERCENTAGE: int = 0
+    SEARCH_SHADOW_OBSERVATION_RETENTION_DAYS: int = 30
+    ELASTICSEARCH_INDEX_MIN_RETIREMENT_AGE_HOURS: int = 24
+    ELASTICSEARCH_INDEX_MIN_PREVIOUS_VERSIONS: int = 1
 
 
     WORKER_ID: str | None = None
@@ -196,6 +208,16 @@ class Settings(BaseSettings):
             raise ValueError("Retention settings must be positive")
         if self.RETENTION_CLEANUP_BATCH_SIZE > self.RETENTION_CLEANUP_MAX_ROWS:
             raise ValueError("RETENTION_CLEANUP_BATCH_SIZE cannot exceed RETENTION_CLEANUP_MAX_ROWS")
+        if not 0 <= self.SEARCH_SHADOW_DEFAULT_SAMPLE_PERCENTAGE <= 100:
+            raise ValueError("SEARCH_SHADOW_DEFAULT_SAMPLE_PERCENTAGE must be between 0 and 100")
+        if not 0 < self.SEARCH_SHADOW_DEFAULT_TIMEOUT_MS <= self.SEARCH_SHADOW_MAX_TIMEOUT_MS:
+            raise ValueError("Search shadow timeout must be positive and within its maximum")
+        if min(
+            self.SEARCH_SHADOW_OBSERVATION_RETENTION_DAYS,
+            self.ELASTICSEARCH_INDEX_MIN_RETIREMENT_AGE_HOURS,
+            self.ELASTICSEARCH_INDEX_MIN_PREVIOUS_VERSIONS,
+        ) <= 0:
+            raise ValueError("Search shadow retention and index lifecycle settings must be positive")
         if min(self.AUTH_SESSION_TTL_SECONDS, self.AUTH_STATE_TTL_SECONDS, self.AUTH_REFRESH_LEASE_SECONDS) <= 0:
             raise ValueError("Authentication TTL and lease settings must be positive")
         if not self.AUTH_COOKIE_PATH.startswith("/"):

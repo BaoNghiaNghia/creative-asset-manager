@@ -22,6 +22,7 @@ from app.modules.pipeline.service import AssetPipelineService
 from app.modules.pipeline.state import PipelineState
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider
+from app.modules.search.governance_model import ActiveAssetAnalysisModel
 from app.modules.storage.sidecar_document import MetadataSidecarDocumentBuilder
 from app.modules.storage.sidecar_repository import MetadataSidecarRepository
 from app.modules.storage.sidecar_service import MetadataSidecarExportService
@@ -221,7 +222,11 @@ class SearchProjectionBuildJobHandler(_PipelineHandler):
                 return JobHandlerResult.completed()
 
             try:
-                analysis = self._analysis(session, pipeline)
+                analysis = self._analysis(
+                    session, pipeline,
+                    explicit_analysis_id=context.job.payload.get("analysis_id"),
+                    require_active=settings.DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED,
+                )
                 if analysis.search_projection is None:
                     SearchProjectionService(AiMetadataRepository(session), SearchProjectionBuilder(), enabled=True).rebuild(analysis.id)
                     session.refresh(analysis)
@@ -245,16 +250,42 @@ class SearchProjectionBuildJobHandler(_PipelineHandler):
             return self._failed(context, exc)
 
     @staticmethod
-    def _analysis(session, pipeline: AssetPipelineModel) -> AssetAiAnalysisModel:
-        if pipeline.analysis_id:
-            analysis = session.get(AssetAiAnalysisModel, pipeline.analysis_id)
+    def _analysis(
+        session, pipeline: AssetPipelineModel, *,
+        explicit_analysis_id: str | None = None, require_active: bool = False,
+    ) -> AssetAiAnalysisModel:
+        intended_id = explicit_analysis_id or pipeline.analysis_id
+        if intended_id:
+            analysis = session.get(AssetAiAnalysisModel, intended_id)
+            if require_active and analysis is not None:
+                pointer = session.scalar(select(ActiveAssetAnalysisModel).where(
+                    ActiveAssetAnalysisModel.tenant_id == pipeline.tenant_id,
+                    ActiveAssetAnalysisModel.asset_id == pipeline.asset_id,
+                    ActiveAssetAnalysisModel.metadata_profile_id == analysis.metadata_profile_id,
+                    ActiveAssetAnalysisModel.search_context == "search_v2",
+                    ActiveAssetAnalysisModel.analysis_id == analysis.id,
+                ))
+                if pointer is None:
+                    raise ValueError("job analysis is not the active search analysis")
+        elif require_active:
+            pointers = list(session.scalars(select(ActiveAssetAnalysisModel).where(
+                ActiveAssetAnalysisModel.tenant_id == pipeline.tenant_id,
+                ActiveAssetAnalysisModel.asset_id == pipeline.asset_id,
+                ActiveAssetAnalysisModel.search_context == "search_v2",
+            ).limit(2)))
+            if len(pointers) != 1:
+                raise ValueError("an explicit active analysis is required")
+            analysis = session.get(AssetAiAnalysisModel, pointers[0].analysis_id)
         else:
             analysis = session.scalar(select(AssetAiAnalysisModel).where(
                 AssetAiAnalysisModel.tenant_id == pipeline.tenant_id,
                 AssetAiAnalysisModel.asset_id == pipeline.asset_id,
                 AssetAiAnalysisModel.status == "completed",
             ).order_by(AssetAiAnalysisModel.completed_at.desc()).limit(1))
-        if analysis is None or analysis.tenant_id != pipeline.tenant_id or analysis.status != "completed":
+        if (
+            analysis is None or analysis.tenant_id != pipeline.tenant_id
+            or analysis.asset_id != pipeline.asset_id or analysis.status != "completed"
+        ):
             raise ValueError("no completed analysis is available")
         return analysis
 
@@ -279,7 +310,11 @@ class AssetIndexJobHandler(_PipelineHandler):
                 return JobHandlerResult.completed()
 
             try:
-                analysis = SearchProjectionBuildJobHandler._analysis(session, pipeline)
+                analysis = SearchProjectionBuildJobHandler._analysis(
+                    session, pipeline,
+                    explicit_analysis_id=context.job.payload.get("analysis_id"),
+                    require_active=settings.DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED,
+                )
                 unchanged = (
                     pipeline.indexed_projection_version == analysis.search_projection_version
                     and pipeline.indexed_projection_checksum == analysis.projection_checksum
