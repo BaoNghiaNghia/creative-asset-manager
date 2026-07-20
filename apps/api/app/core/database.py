@@ -41,6 +41,7 @@ def init_database() -> None:
     from app.modules.external_ingestion import model as external_ingestion_model  # noqa: F401
     from app.modules.metadata import model as metadata_model  # noqa: F401
     from app.modules.storage import model as storage_model  # noqa: F401
+    from app.modules.pipeline import model as pipeline_model  # noqa: F401
     from app.modules.tag import model as tag_model  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

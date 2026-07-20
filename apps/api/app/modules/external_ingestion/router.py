@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import ValidationError
+from app.core.config import get_settings
 
 from app.modules.external_ingestion.auth import ExternalApiContext, authenticate_external_api
 from app.modules.external_ingestion.repository import IdempotencyConflictError
@@ -90,6 +91,7 @@ async def create_ingestion(
         ingestion = ExternalIngestionService(
             context.repository,
             ProcessingRepository(context.repository.session),
+            unified_pipeline_enabled=get_settings().UNIFIED_ASSET_INGESTION_ENABLED,
         ).create(
             credential=context.credential,
             idempotency_key=key,

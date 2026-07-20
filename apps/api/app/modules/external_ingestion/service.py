@@ -18,6 +18,8 @@ from app.modules.external_ingestion.schema import (
 )
 from app.modules.processing.repository import ProcessingRepository
 
+from app.modules.pipeline.repository import AssetPipelineRepository
+from app.modules.pipeline.service import AssetPipelineService
 
 def canonical_request(request: AssetIngestionRequest) -> tuple[dict[str, Any], bytes, str]:
     document = {
@@ -53,12 +55,14 @@ class ExternalIngestionService:
         processing: ProcessingRepository,
         *,
         max_payload_bytes: int = MAX_INGESTION_PAYLOAD_BYTES,
+        unified_pipeline_enabled: bool = False,
     ):
         if repository.session is not processing.session:
             raise ValueError("ingestion and processing repositories must share one transaction")
         self.repository = repository
         self.processing = processing
         self.max_payload_bytes = max_payload_bytes
+        self.unified_pipeline_enabled = unified_pipeline_enabled
 
     def create(
         self,
@@ -102,6 +106,16 @@ class ExternalIngestionService:
                 items=item_documents,
             )
             for item in items:
+                if self.unified_pipeline_enabled:
+                    AssetPipelineService(
+                        AssetPipelineRepository(self.repository.session), self.processing
+                    ).discover_and_enqueue(
+                        tenant_id=credential.tenant_id,
+                        origin_type="ingestion_item",
+                        origin_id=item.id,
+                        correlation_id=f"ingestion:{ingestion.id}:item:{item.id}",
+                    )
+                    continue
                 job = self.processing.create_job(
                     tenant_id=credential.tenant_id,
                     job_type="source_asset_download",

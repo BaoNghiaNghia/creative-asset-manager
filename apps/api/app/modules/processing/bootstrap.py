@@ -5,7 +5,7 @@ import logging
 import os
 import signal
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from sqlalchemy import text
@@ -16,6 +16,13 @@ from app.core.database import SessionLocal, engine
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
+from app.modules.pipeline.handlers import (
+    AssetIndexJobHandler,
+    AssetStoreJobHandler,
+    MetadataSidecarExportJobHandler,
+    SearchProjectionBuildJobHandler,
+    SourceAssetDownloadJobHandler,
+)
 from app.modules.processing.registry import build_handler_registry
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
 from app.providers.ai.unconfigured import UnconfiguredAiMetadataProvider
@@ -69,6 +76,7 @@ def build_worker_runtime(
     session_factory: Callable[[], Session] = SessionLocal,
     logger: logging.Logger | None = None,
     dependency_closers: tuple[Callable[[], Any], ...] = (),
+    resources: Mapping[str, Any] | None = None,
 ) -> WorkerRuntime:
     worker_id = settings.WORKER_ID or default_worker_id()
     probe_database(session_factory)
@@ -94,6 +102,7 @@ def build_worker_runtime(
         storage_provider=storage_provider,
         ai_provider=ai_provider,
         closers=dependency_closers,
+        resources=dict(resources or {}),
     )
     return WorkerRuntime(
         config=WorkerRuntimeConfig(
@@ -106,7 +115,14 @@ def build_worker_runtime(
         ),
         dependencies=dependencies,
         registry=build_handler_registry(
-            (("asset_analyze", AssetAnalyzeJobHandler(settings)),)
+            (
+                ("source_asset_download", SourceAssetDownloadJobHandler(settings)),
+                ("asset_store", AssetStoreJobHandler(settings)),
+                ("asset_analyze", AssetAnalyzeJobHandler(settings)),
+                ("search_projection_build", SearchProjectionBuildJobHandler(settings)),
+                ("asset_index", AssetIndexJobHandler(settings)),
+                ("metadata_sidecar_export", MetadataSidecarExportJobHandler(settings)),
+            )
         ),
         health=WorkerHealthState(worker_id),
         logger=logger,

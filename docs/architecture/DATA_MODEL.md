@@ -208,3 +208,18 @@ The composite tenant/run foreign key prevents cross-tenant item association.
 Revision `0007_search_operations` creates both tables. Downgrade removes only
 operational checkpoint/audit state and does not mutate projections or
 Elasticsearch.
+
+## Durable asset pipelines
+
+### asset_pipelines
+
+One tenant-scoped, observable state machine per source asset or external
+ingestion item. Unique tenant/origin identity prevents a competing flow, while
+unique tenant/correlation identity propagates one trace across all jobs.
+
+The record stores source/asset/analysis references, content identity, projection
+and indexed checksums/versions, current stage, stage-specific error details and
+operator status data. It never stores signed URLs, credentials or file bytes.
+
+Revision `0009_durable_asset_pipeline` creates this table. Its downgrade removes
+only pipeline state; authoritative asset, metadata and processing records remain.

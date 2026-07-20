@@ -471,3 +471,32 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   completed metadata/projections and remote managed assets are retained.
 - Next recommended step: run a cost-limited staging pilot before enabling batch
   or automatic analysis.
+
+## Phase 15 review — Step 25
+
+- Added a durable, tenant-scoped asset pipeline state machine with explicit
+  stage failures, recovery transitions and stable correlation IDs.
+- Added migration `0009_durable_asset_pipeline`, repository transition
+  validation, and atomic state-plus-next-job chaining.
+- Registered download, storage, analysis, projection, v2 index and independent
+  sidecar handlers behind the existing feature flags.
+- Integrated Step 24 completion with the same pipeline. Projection and indexing
+  never call AI; persisted projection identity avoids unchanged index writes.
+- Correlation IDs now appear in worker logs and chained payloads contain
+  database references rather than signed URLs or credentials.
+- All new and existing pipeline flags remain false by default.
+- Targeted pipeline suite: 7 passed. Full API suite: 210 passed. Python compilation passed.
+
+### Step 25 risks and rollback
+
+- Google/SharePoint OAuth currently lives in browser sessions. A durable,
+  encrypted worker credential resolver is required before source downloads can
+  be enabled in a shared deployment. Pipeline provider stages fail closed when
+  that production composition is absent.
+- Real PostgreSQL concurrency and provider/Elasticsearch fault injection still
+  require staging validation before rollout.
+- Roll back by disabling unified ingestion and processing, draining workers,
+  reverting Step 25 and downgrading `0009` to `0008`. Remote storage and all
+  authoritative asset/analysis/search data are retained.
+- Next recommended step: add encrypted refresh-token credential storage and a
+  Google/SharePoint worker resolver before any tenant rollout.

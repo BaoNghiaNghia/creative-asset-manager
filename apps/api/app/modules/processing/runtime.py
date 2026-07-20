@@ -408,6 +408,7 @@ class WorkerRuntime:
             "entity_id": job.entity_id,
             "attempt_count": job.attempt_count,
             "lease_owner": job.lease_owner,
+            "correlation_id": job.correlation_id,
         }
 
     def _job_log(self, level: int, event: str, job: ClaimedJob, **fields: object) -> None:

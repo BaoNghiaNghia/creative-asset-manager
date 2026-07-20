@@ -51,6 +51,11 @@ class ClaimedJob:
     attempt_count: int
     lease_owner: str
 
+    @property
+    def correlation_id(self) -> str | None:
+        value = self.payload.get("correlation_id")
+        return value if isinstance(value, str) and value else None
+
 
 @dataclass(slots=True)
 class WorkerDependencies:

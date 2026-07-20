@@ -42,3 +42,4 @@
 - [x] 22 Controlled rollout
 - [x] 23 Worker runtime, health checks, and graceful draining
 - [x] 24 Gemini single-asset metadata analysis
+- [x] 25 Durable end-to-end asset pipeline
