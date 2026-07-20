@@ -795,3 +795,23 @@ metadata_json and stored analysis history remain authoritative and unchanged.
 - Next recommended step: migrate staging with flags false, select active
   analyses for one tenant, shadow v1/v2 at 5%, and promote only after report and
   fixture thresholds pass.
+
+## CI repair - API, worker and provider unit tests
+
+- First failing test: `MetadataDocumentValidatorTest.test_malicious_deep_json_is_rejected_without_recursion_escape`
+  on Linux Python 3.12.13. The validator recursively deep-copied a decoded
+  1,500-level document before its iterative depth check and raised
+  `RecursionError`.
+- Correction: validate structural limits before copying; valid documents are
+  still deep-copied before being returned. A regression test verifies that an
+  over-depth document is rejected without invoking `copy.deepcopy`.
+- Failing test alone:
+  `python -m unittest tests.modules.ai_metadata.test_validator.MetadataDocumentValidatorTest.test_malicious_deep_json_is_rejected_without_recursion_escape -v`
+  - 1 test passed.
+- Containing module:
+  `python -m unittest tests.modules.ai_metadata.test_validator -v`
+  - 9 tests passed.
+- Exact CI command, run once after the correction in a clean Linux Python
+  3.12.13 container:
+  `python -m pip install -r requirements.txt && timeout 10m python -m unittest discover -s tests -v`
+  - 293 tests passed, 11 integration tests skipped, exit code 0.

@@ -60,10 +60,10 @@ class MetadataDocumentValidator:
                 None,
                 (MetadataValidationError("root_object", "metadata root must be a JSON object"),),
             )
-        safe_document = copy.deepcopy(parsed)
-        safety_error = self._validate_structure(safe_document)
+        safety_error = self._validate_structure(parsed)
         if safety_error is not None:
             return MetadataValidationResult(False, None, (safety_error,))
+        safe_document = copy.deepcopy(parsed)
         if json_schema is not None:
             errors = self._validate_schema(safe_document, json_schema)
             if errors:

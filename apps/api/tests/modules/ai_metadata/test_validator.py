@@ -1,5 +1,6 @@
 import copy
 import unittest
+from unittest.mock import patch
 
 from app.modules.ai_metadata.validator import MetadataDocumentValidator
 
@@ -89,6 +90,17 @@ class MetadataDocumentValidatorTest(unittest.TestCase):
         result = MetadataDocumentValidator(max_depth=10).validate(raw)
         self.assertFalse(result.valid)
         self.assertIn(result.errors[0].code, {"invalid_json", "max_depth"})
+
+    def test_rejects_excessive_depth_before_recursive_copy(self) -> None:
+        raw = '{"a":' * 30 + "0" + "}" * 30
+        with patch(
+            "app.modules.ai_metadata.validator.copy.deepcopy",
+            side_effect=AssertionError("unsafe document was copied"),
+        ):
+            result = MetadataDocumentValidator(max_depth=10).validate(raw)
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.errors[0].code, "max_depth")
 
 
 if __name__ == "__main__":
