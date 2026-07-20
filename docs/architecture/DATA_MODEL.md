@@ -189,3 +189,22 @@ One durable export state per analysis and storage provider.
 
 Revision `0006_metadata_sidecars` creates this table. Downgrade removes local
 export state only and never deletes remote Google Drive JSON files.
+
+## Search maintenance operations
+
+### search_operation_runs
+
+Tenant-scoped durable execution state for projection rebuild, reindex, or the
+combined operation. It stores immutable selection intent, target versions,
+physical index, dry-run/cancellation state, keyset cursor, progress metrics,
+and terminal errors.
+
+### search_operation_items
+
+One per-analysis outcome within a run. Unique `(run_id, analysis_id)` makes
+reruns idempotent and provides the durable failed-item set for `--only-failed`.
+The composite tenant/run foreign key prevents cross-tenant item association.
+
+Revision `0007_search_operations` creates both tables. Downgrade removes only
+operational checkpoint/audit state and does not mutate projections or
+Elasticsearch.

@@ -86,6 +86,13 @@ class ElasticsearchV2HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(json.loads(lines[1])["doc_as_upsert"])
         self.assertNotIn("metadata_json", json.loads(lines[1])["doc"])
 
+    async def test_bulk_can_target_new_physical_index_before_alias_switch(self) -> None:
+        target = "creative-assets-v2-000002"
+        count = await self.index.bulk_upsert_to_index([self.document()], target)
+        self.assertEqual(count, 1)
+        request = [item for item in self.requests if item.url.path == "/_bulk"][-1]
+        action = json.loads(request.content.decode().splitlines()[0])
+        self.assertEqual(action["update"]["_index"], target)
     async def test_alias_switch_is_atomic_and_returns_rollback_target(self) -> None:
         result = await self.index.switch_aliases("creative-assets-v2-000002")
         alias_requests = [item for item in self.requests if item.url.path == "/_aliases"]

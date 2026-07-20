@@ -117,13 +117,40 @@ class ElasticsearchV2Index:
         return index_name
 
     async def bulk_upsert(self, documents: Sequence[SearchIndexDocument]) -> int:
+        return await self.bulk_upsert_to_index(documents, self.write_alias)
+
+    async def bulk_upsert_to_index(
+        self,
+        documents: Sequence[SearchIndexDocument],
+        target_index: str,
+    ) -> int:
+        if target_index != self.write_alias and (
+            not _VERSION_RE.fullmatch(target_index)
+            or not target_index.startswith(f"{self.config.index_prefix}-v2-")
+        ):
+            raise ValueError("invalid bulk target index")
         count = 0
         for start in range(0, len(documents), self.config.bulk_batch_size):
             batch = documents[start : start + self.config.bulk_batch_size]
             lines: list[str] = []
             for document in batch:
-                lines.append(json.dumps({"update": {"_index": self.write_alias, "_id": document.asset_id}}, separators=(",", ":")))
-                lines.append(json.dumps({"doc": document.to_document(), "doc_as_upsert": True}, separators=(",", ":")))
+                lines.append(
+                    json.dumps(
+                        {
+                            "update": {
+                                "_index": target_index,
+                                "_id": document.asset_id,
+                            }
+                        },
+                        separators=(",", ":"),
+                    )
+                )
+                lines.append(
+                    json.dumps(
+                        {"doc": document.to_document(), "doc_as_upsert": True},
+                        separators=(",", ":"),
+                    )
+                )
             if not lines:
                 continue
             response = await self._request(
@@ -133,8 +160,14 @@ class ElasticsearchV2Index:
                 headers={"Content-Type": "application/x-ndjson"},
             )
             if response.get("errors"):
-                failures = [item for item in response.get("items", []) if next(iter(item.values())).get("error")]
-                raise ElasticsearchV2RequestError(f"bulk indexing failed for {len(failures)} item(s)")
+                failures = [
+                    item
+                    for item in response.get("items", [])
+                    if next(iter(item.values())).get("error")
+                ]
+                raise ElasticsearchV2RequestError(
+                    f"bulk indexing failed for {len(failures)} item(s)"
+                )
             count += len(batch)
         return count
 

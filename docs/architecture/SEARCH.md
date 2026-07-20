@@ -94,3 +94,15 @@ projection and query parsing both reuse MetadataNormalizer.
 
 ELASTICSEARCH_V2_ENABLED and SEARCH_QUERY_PARSER_V2_ENABLED remain false. The
 v1 search path is unchanged and no new route or worker is registered.
+## Phase 12 rebuild and reindex operations
+
+Projection rebuilds page completed PostgreSQL analyses and reuse the deterministic
+SearchProjectionBuilder. Selection is tenant-scoped and can be narrowed by
+profile, current projection version, explicit assets, missing projections, or a
+prior run's failed items. Checkpoints and cancellation state are committed after
+each bounded page.
+
+Reindex creates a new versioned physical index and bulk-upserts directly into
+that target. Read/write aliases switch atomically only after the run has no
+failed items and no cancellation. Dry-run never mutates projections,
+Elasticsearch indices, or aliases. No operation invokes AI.

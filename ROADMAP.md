@@ -34,6 +34,6 @@
 
 ## Operations and product
 
-- [ ] 20 Projection rebuild and reindex
+- [x] 20 Projection rebuild and reindex
 - [ ] 21 UI and admin operations
 - [ ] 22 Controlled rollout

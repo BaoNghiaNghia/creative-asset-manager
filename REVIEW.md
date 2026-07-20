@@ -2,7 +2,7 @@
 
 ## Current completed step
 
-Step 19 — Idempotent Google Drive metadata sidecar export.
+Step 20 — Resumable projection rebuild and Elasticsearch reindex operations.
 
 ## Review summary
 
@@ -260,3 +260,41 @@ metadata_json and stored analysis history remain authoritative and unchanged.
 - Disable `DRIVE_METADATA_SIDECAR_ENABLED`, stop sidecar consumers, export audit
   records if needed, then downgrade `0006_metadata_sidecars` to
   `0005_external_ingestions`. Remote JSON exports are intentionally retained.
+
+## Phase 12 review — Step 20
+
+- Added tenant-scoped `search_operation_runs` and `search_operation_items` for
+  durable filters, keyset cursor, bounded page size, current progress metrics,
+  cancellation requests, per-analysis failures, and only-failed resume.
+- Added `search:rebuild-projections`, `search:reindex-assets`,
+  `search:rebuild-and-reindex`, and cooperative `search:cancel` CLI operations.
+- Filters support metadata profile, current projection version, up to 1,000
+  explicit asset IDs, only missing projections, only failed items, and dry-run.
+- Projection rebuild uses stored metadata_json/profile configuration only and
+  contains no AI provider call.
+- Elasticsearch reindex creates a versioned physical index, writes bounded
+  batches directly to it, and atomically switches read/write aliases only after
+  every selected item succeeds. Failed/cancelled runs retain the physical index
+  without switching aliases.
+- Completed runs are idempotent no-ops; failed runs reuse their target index and
+  item identities when resumed.
+- `SEARCH_PROJECTION_ENABLED` and `ELASTICSEARCH_V2_ENABLED` remain false by
+  default. Dry-run performs no projection, index, or alias mutation.
+- Added Alembic revision `0007_search_operations` with step-scoped downgrade and
+  an operator runbook at `docs/operations/SEARCH_REBUILD.md`.
+- New Step 20 tests: 9; full API suite: 172 passed with `RuntimeWarning`
+  treated as an error. Python compile, database startup smoke, Alembic
+  single-head/migration rollback, and client production build passed.
+
+### Step 20 risks and rollback
+
+- Reindex selection can contain multiple completed analysis histories for one
+  asset when operators omit a metadata-profile filter; production runbooks
+  should select the intended profile/version explicitly.
+- PostgreSQL keyset pagination, cancellation latency, large-tenant throughput,
+  Elasticsearch permissions, shard sizing, and physical-index cleanup require
+  staging validation.
+- Stop operational commands, request cancellation, preserve run audit data if
+  needed, then downgrade `0007_search_operations` to
+  `0006_metadata_sidecars`. Downgrade does not revert stored projections, delete
+  physical Elasticsearch indices, or change aliases.

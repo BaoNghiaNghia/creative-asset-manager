@@ -9,6 +9,7 @@ from app.modules.processing import model as processing_models  # noqa: F401
 from app.modules.assets import model as asset_models  # noqa: F401
 from app.modules.storage import model as storage_models  # noqa: F401
 from app.modules.external_ingestion import model as external_ingestion_models  # noqa: F401
+from app.modules.search import operations_model as search_operation_models  # noqa: F401
 from app.modules.ai_metadata import model as ai_metadata_models  # noqa: F401
 from app.modules.metadata import model as metadata_models  # noqa: F401
 from app.modules.tag import model as tag_models  # noqa: F401
