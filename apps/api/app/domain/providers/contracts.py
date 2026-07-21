@@ -178,6 +178,7 @@ class AiBatchSubmission:
     provider_batch_id: str
     state: str
     provider_request_id: str | None = None
+    provider_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

@@ -151,7 +151,8 @@ class AiBatchService:
                          "image_mime_type":image.mime_type,
                          "image_base64":base64.b64encode(image.content).decode("ascii"),
                          "metadata_profile":batch.metadata_profile,
-                         "metadata_profile_version":batch.metadata_profile_version}
+                         "metadata_profile_version":batch.metadata_profile_version,
+                         "json_schema":profile.optional_json_schema}
                     encoded=(json.dumps(row,separators=(",",":"))+"\n").encode()
                     total+=len(encoded)
                     max_bytes=min(
@@ -178,6 +179,9 @@ class AiBatchService:
             batch=self.repository.get_batch(tenant_id,batch_id,for_update=True)
             batch.provider_batch_id=submission.provider_batch_id
             batch.provider_request_id=submission.provider_request_id
+            if submission.provider_metadata:
+                batch.error_json={
+                    "provider_metadata":dict(submission.provider_metadata)}
             batch.status="submitted";batch.submitted_at=utcnow()
             for item in self.repository.items(batch,{"prepared"}):
                 item.status="submitted";item.submitted_at=utcnow()
@@ -188,6 +192,10 @@ class AiBatchService:
             batch.status="ambiguous" if exc.code.endswith("ambiguous") else "failed"
             batch.last_error_code=exc.code;batch.last_error_message=str(exc)
             batch.error_json={"retryable":exc.retryable}
+            provider_metadata=getattr(exc,"provider_metadata",None)
+            if isinstance(provider_metadata,dict):
+                batch.error_json={**batch.error_json,
+                    "provider_metadata":dict(provider_metadata)}
             # Local preparation failures cannot consume provider budget. Permanent
             # provider rejections are also non-billable. Preserve reservations only
             # for retryable or ambiguous external outcomes because the provider may

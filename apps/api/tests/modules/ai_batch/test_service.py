@@ -52,7 +52,8 @@ class FakeBatchProvider:
         self.submit_calls+=1;self.paths.append(input.input_path)
         if self.ambiguous_once and self.submit_calls==1:
             raise AiProviderError("ambiguous",code="fake_submission_ambiguous",retryable=True)
-        return AiBatchSubmission("batches/fake","submitted","request-batch")
+        return AiBatchSubmission("batches/fake","submitted","request-batch",
+            {"input_file_id":"provider-input"})
     async def get_batch_status(self,_input):
         return self.statuses.pop(0) if len(self.statuses)>1 else self.statuses[0]
     async def stream_batch_results(self,input):
@@ -133,6 +134,8 @@ class AiBatchServiceTest(unittest.IsolatedAsyncioTestCase):
         await self.service().submit(tenant_id="tenant-a",batch_id=batch.id)
         self.assertEqual(self.provider.submit_calls,1)
         self.assertFalse(os.path.exists(self.provider.paths[0]))
+        self.assertEqual(batch.error_json["provider_metadata"]["input_file_id"],
+                         "provider-input")
 
     async def test_submit_poll_out_of_order_partial_import_and_usage_idempotency(self):
         batch=await self._batch()

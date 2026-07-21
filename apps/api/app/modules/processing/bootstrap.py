@@ -147,6 +147,14 @@ def build_worker_runtime(
             project=settings.OPENAI_PROJECT,
             capture_raw_response=settings.AI_STORE_RAW_RESPONSE_ENABLED,
             max_image_bytes=settings.AI_ANALYSIS_MAX_OUTPUT_BYTES,
+            batch_enabled=settings.OPENAI_BATCH_ENABLED,
+            batch_completion_window=settings.OPENAI_BATCH_COMPLETION_WINDOW,
+            batch_max_items=settings.OPENAI_BATCH_MAX_ITEMS,
+            batch_max_file_bytes=settings.OPENAI_BATCH_MAX_FILE_BYTES,
+            batch_poll_interval_seconds=settings.OPENAI_BATCH_POLL_INTERVAL_SECONDS,
+            batch_result_chunk_size=settings.OPENAI_BATCH_RESULT_PAGE_OR_CHUNK_SIZE,
+            batch_input_retention_hours=settings.OPENAI_BATCH_INPUT_RETENTION_HOURS,
+            batch_output_retention_hours=settings.OPENAI_BATCH_OUTPUT_RETENTION_HOURS,
         )
         ai_provider_registry.register(
             openai_provider.provider_name, openai_provider

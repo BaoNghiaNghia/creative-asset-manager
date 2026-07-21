@@ -21,6 +21,7 @@ FEATURE_FLAG_NAMES = (
     "AI_BATCH_ANALYSIS_ENABLED",
     "AI_AUTO_ANALYZE_ENABLED",
     "OPENAI_AI_ENABLED",
+    "OPENAI_BATCH_ENABLED",
     "SEARCH_PROJECTION_ENABLED",
     "ELASTICSEARCH_V2_ENABLED",
     "SEARCH_QUERY_PARSER_V2_ENABLED",
@@ -94,6 +95,14 @@ class Settings(BaseSettings):
     OPENAI_STORE_RESPONSES: bool = False
     OPENAI_ORGANIZATION: str | None = None
     OPENAI_PROJECT: str | None = None
+    OPENAI_BATCH_ENABLED: bool = False
+    OPENAI_BATCH_COMPLETION_WINDOW: str = "24h"
+    OPENAI_BATCH_MAX_ITEMS: int = 1000
+    OPENAI_BATCH_MAX_FILE_BYTES: int = 150_000_000
+    OPENAI_BATCH_POLL_INTERVAL_SECONDS: float = 60.0
+    OPENAI_BATCH_RESULT_PAGE_OR_CHUNK_SIZE: int = 65_536
+    OPENAI_BATCH_INPUT_RETENTION_HOURS: int = 24
+    OPENAI_BATCH_OUTPUT_RETENTION_HOURS: int = 24
     AI_ANALYSIS_MAX_SOURCE_BYTES: int = 25_000_000
     AI_ANALYSIS_MAX_OUTPUT_BYTES: int = 8_000_000
     AI_ANALYSIS_MAX_WIDTH: int = 4096
@@ -462,6 +471,23 @@ class Settings(BaseSettings):
             raise ValueError("OPENAI_MAX_RETRIES cannot be negative")
         if self.OPENAI_IMAGE_DETAIL not in {"auto", "low", "high", "original"}:
             raise ValueError("OPENAI_IMAGE_DETAIL is invalid")
+        if self.OPENAI_BATCH_COMPLETION_WINDOW != "24h":
+            raise ValueError("OPENAI_BATCH_COMPLETION_WINDOW must be 24h")
+        if min(
+            self.OPENAI_BATCH_MAX_ITEMS,
+            self.OPENAI_BATCH_MAX_FILE_BYTES,
+            self.OPENAI_BATCH_RESULT_PAGE_OR_CHUNK_SIZE,
+            self.OPENAI_BATCH_INPUT_RETENTION_HOURS,
+            self.OPENAI_BATCH_OUTPUT_RETENTION_HOURS,
+        ) <= 0:
+            raise ValueError("OpenAI batch limits and retention must be positive")
+        if self.OPENAI_BATCH_POLL_INTERVAL_SECONDS <= 0:
+            raise ValueError("OPENAI_BATCH_POLL_INTERVAL_SECONDS must be positive")
+        if (
+            self.OPENAI_BATCH_INPUT_RETENTION_HOURS > 720
+            or self.OPENAI_BATCH_OUTPUT_RETENTION_HOURS > 720
+        ):
+            raise ValueError("OpenAI batch retention cannot exceed 720 hours")
         if not 0 < self.PROCESSING_POLICY_CACHE_TTL_SECONDS <= 60:
             raise ValueError("PROCESSING_POLICY_CACHE_TTL_SECONDS must be between 0 and 60")
         if self.AI_ANALYSIS_LEASE_SECONDS <= 0:
@@ -527,10 +553,14 @@ class Settings(BaseSettings):
         if (
             self.DYNAMIC_AI_METADATA_ENABLED
             and self.AI_BATCH_ANALYSIS_ENABLED
-            and not self.GEMINI_API_KEY
+            and not (
+                self.GEMINI_API_KEY
+                or (self.OPENAI_AI_ENABLED and self.OPENAI_BATCH_ENABLED
+                    and self.OPENAI_API_KEY)
+            )
         ):
             raise ValueError(
-                "GEMINI_API_KEY is required for batch analysis until OpenAI batch support is enabled"
+                "A configured batch-capable AI provider is required for batch analysis"
             )
         return self
 

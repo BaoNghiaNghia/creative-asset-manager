@@ -125,6 +125,28 @@ class SettingsTest(unittest.TestCase):
             settings = Settings()
         self.assertEqual(settings.GEMINI_API_KEY, "test-only")
 
+    def test_openai_batch_can_satisfy_batch_provider_validation(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DYNAMIC_AI_METADATA_ENABLED": "true",
+                "AI_BATCH_ANALYSIS_ENABLED": "true",
+                "OPENAI_AI_ENABLED": "true",
+                "OPENAI_BATCH_ENABLED": "true",
+                "OPENAI_API_KEY": "test-only",
+                "OPENAI_DEFAULT_MODEL": "openai-test",
+                "OPENAI_ALLOWED_MODELS": "openai-test",
+            },
+            clear=True,
+        ):
+            settings = Settings()
+        self.assertTrue(settings.OPENAI_BATCH_ENABLED)
+
+    def test_openai_batch_limits_are_validated(self) -> None:
+        with patch.dict(os.environ, {
+            "OPENAI_BATCH_COMPLETION_WINDOW": "1h"}, clear=True):
+            with self.assertRaises(ValidationError):
+                Settings()
     def test_external_ingestion_requires_sensitive_url_encryption_key(self) -> None:
         with patch.dict(os.environ, {"EXTERNAL_INGESTION_API_ENABLED": "true"}, clear=True):
             with self.assertRaises(ValidationError):

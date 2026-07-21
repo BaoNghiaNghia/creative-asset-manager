@@ -1204,3 +1204,47 @@ Final controls:
   runtime rollback. No database rollback is required.
 - Next recommended step: AI-MULTI-03 OpenAI Batch API using the existing provider
   registry without changing single-analysis behavior.
+
+## AI-MULTI-03 review - OpenAI Batch API
+
+- Files changed: OpenAI adapter, provider batch submission contract, centralized
+  OpenAI batch configuration, worker bootstrap, neutral batch JSONL preparation,
+  environment templates, provider documentation, and focused provider/service/
+  configuration/bootstrap regressions.
+- Migrations added: none. Existing ai_batch_jobs, ai_batch_items, usage,
+  reservations, analysis history, result importer, projection, and indexing
+  records are reused.
+- Behavior introduced: OpenAI advertises Batch API capability and executes only
+  when OPENAI_BATCH_ENABLED=true. Provider-neutral rows are transformed
+  incrementally into bounded /v1/responses JSONL, uploaded with purpose=batch,
+  submitted for 24h completion, and reconciled by stable submission metadata
+  after ambiguous transport outcomes. Temporary files use mode 0600 and are
+  removed after upload. Polling maps every documented OpenAI batch state.
+  Output and error JSONL files stream by custom_id through the existing
+  validator/importer/governance/indexing pipeline; partial expired output is
+  imported and only unresolved items remain retryable. Cancellation is
+  idempotent. Provider usage is recorded without inventing provider cost.
+- Tests and actual results:
+  - cd apps/api && .venv/bin/python -m unittest
+    tests.providers.test_openai_batch -v: 8 passed in 0.023s.
+  - cd apps/api && .venv/bin/python -m unittest
+    tests.modules.ai_batch.test_service -v: 7 passed in 0.520s.
+  - cd apps/api && .venv/bin/python -m unittest
+    tests.providers.test_openai_batch tests.providers.test_openai_ai
+    tests.modules.ai_batch.test_service tests.modules.ai_batch.test_handlers
+    tests.modules.processing.test_runtime.WorkerBootstrapTest tests.test_config
+    tests.providers.test_gemini_ai -v: 60 passed in 0.708s.
+  - Python compile and git diff --check: passed.
+- Feature flags: OPENAI_BATCH_ENABLED=false by default in application,
+  development template, and production template. Existing global
+  AI_BATCH_ANALYSIS_ENABLED remains an additional upper bound. No AI feature was
+  enabled automatically.
+- Known risks: provider batch listing is bounded to the most recent 100 batches
+  during automatic ambiguity reconciliation; an older unresolved submission may
+  require the existing operator path. OpenAI output/error files are streamed,
+  but one JSONL line is held in memory under the configured file-byte upper
+  bound. Provider API limits can change and remain constrained by local limits.
+- Rollback: set OPENAI_BATCH_ENABLED=false for immediate runtime rollback, then
+  revert this change. Existing queued jobs remain preserved and no database
+  downgrade is required.
+- Next recommended step: AI-MULTI-04 provider capabilities and request API.

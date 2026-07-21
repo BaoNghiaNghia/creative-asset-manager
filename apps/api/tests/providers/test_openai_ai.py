@@ -281,12 +281,12 @@ class OpenAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(raised.exception.code, "analysis_cancelled")
 
-    async def test_batch_is_not_advertised_or_faked(self):
+    async def test_batch_capability_is_advertised_but_disabled_by_default(self):
         instance = provider()
-        self.assertFalse(instance.supports_batch)
+        self.assertTrue(instance.supports_batch)
         with self.assertRaises(AiProviderError) as raised:
             await instance.submit_batch(None)
-        self.assertEqual(raised.exception.code, "openai_batch_not_implemented")
+        self.assertEqual(raised.exception.code, "openai_batch_disabled")
         self.assertFalse(raised.exception.retryable)
 
     async def test_model_allowlist_and_key_redaction(self):
