@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 027
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_DIR="$(dirname -- "$SCRIPT_DIR")"
+ENV_HELPER="$DEPLOY_DIR/tools/production_env.py"
+
+CAM_APP_HOME="${CAM_APP_HOME:-/opt/creative-asset-manager}"
+CAM_RELEASES_DIR="${CAM_RELEASES_DIR:-$CAM_APP_HOME/releases}"
+CAM_CURRENT_LINK="${CAM_CURRENT_LINK:-$CAM_APP_HOME/current}"
+CAM_PREVIOUS_LINK="${CAM_PREVIOUS_LINK:-$CAM_APP_HOME/previous}"
+CAM_WEB_HOME="${CAM_WEB_HOME:-/var/www/creative-asset-manager}"
+CAM_WEB_RELEASES_DIR="${CAM_WEB_RELEASES_DIR:-$CAM_WEB_HOME/releases}"
+CAM_WEB_CURRENT_LINK="${CAM_WEB_CURRENT_LINK:-$CAM_WEB_HOME/current}"
+CAM_WEB_PREVIOUS_LINK="${CAM_WEB_PREVIOUS_LINK:-$CAM_WEB_HOME/previous}"
+CAM_ENV_FILE="${CAM_ENV_FILE:-/etc/creative-asset-manager/production.env}"
+CAM_SERVICE_USER="${CAM_SERVICE_USER:-creative-assets}"
+CAM_SERVICE_GROUP="${CAM_SERVICE_GROUP:-creative-assets}"
+CAM_API_SERVICE="${CAM_API_SERVICE:-creative-asset-manager-api.service}"
+CAM_WORKER_SERVICE="${CAM_WORKER_SERVICE:-creative-asset-manager-worker.service}"
+CAM_API_HEALTH_URL="${CAM_API_HEALTH_URL:-http://127.0.0.1:8000}"
+CAM_WORKER_HEALTH_URL="${CAM_WORKER_HEALTH_URL:-http://127.0.0.1:8081}"
+CAM_HEALTH_ATTEMPTS="${CAM_HEALTH_ATTEMPTS:-30}"
+CAM_HEALTH_INTERVAL_SECONDS="${CAM_HEALTH_INTERVAL_SECONDS:-2}"
+
+[[ "$CAM_HEALTH_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || {
+    printf 'ERROR: CAM_HEALTH_ATTEMPTS must be a positive integer.\n' >&2
+    exit 1
+}
+[[ "$CAM_HEALTH_INTERVAL_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    printf 'ERROR: CAM_HEALTH_INTERVAL_SECONDS must be numeric.\n' >&2
+    exit 1
+}
+
+TEMP_FILES=()
+cleanup() {
+    local file
+    for file in "${TEMP_FILES[@]}"; do
+        [[ -n "$file" ]] && rm -f -- "$file"
+    done
+    return 0
+}
+trap cleanup EXIT
+
+log() {
+    printf '%s\n' "$*"
+}
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "Required command is unavailable: $1"
+}
+
+require_root() {
+    [[ "${EUID}" -eq 0 ]] || die "This operation must run as root."
+}
+
+validate_release_id() {
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] \
+        || die "Release ID must contain only letters, numbers, dot, underscore or dash."
+}
+
+release_path() {
+    local release_id="$1"
+    validate_release_id "$release_id"
+    printf '%s/%s\n' "$CAM_RELEASES_DIR" "$release_id"
+}
+
+frontend_release_path() {
+    local release_id="$1"
+    validate_release_id "$release_id"
+    printf '%s/%s\n' "$CAM_WEB_RELEASES_DIR" "$release_id"
+}
+
+resolve_release_ref() {
+    local reference="${1:-}"
+    if [[ -z "$reference" ]]; then
+        [[ -L "$CAM_CURRENT_LINK" ]] || die "No current application release is installed."
+        readlink -f -- "$CAM_CURRENT_LINK"
+    elif [[ -d "$reference" ]]; then
+        realpath -- "$reference"
+    else
+        local path
+        path="$(release_path "$reference")"
+        [[ -d "$path" ]] || die "Application release does not exist."
+        realpath -- "$path"
+    fi
+}
+
+require_release_layout() {
+    local release="$1"
+    local managed_root
+    managed_root="$(realpath -- "$CAM_RELEASES_DIR")"
+    [[ "$release" == "$managed_root/"* ]] || die "Release is outside the managed release directory."
+    [[ -f "$release/.cam-release" ]] || die "Release is incomplete."
+    [[ -x "$release/apps/api/.venv/bin/python" ]] || die "Release Python environment is missing."
+    [[ -f "$release/apps/client/dist/index.html" ]] || die "Release frontend build is missing."
+}
+
+quiet_run() {
+    local label="$1"
+    shift
+    local output
+    output="$(mktemp)"
+    TEMP_FILES+=("$output")
+    if ! "$@" >"$output" 2>&1; then
+        rm -f -- "$output"
+        die "$label failed. Output was suppressed to protect secrets."
+    fi
+    rm -f -- "$output"
+    log "$label completed."
+}
+
+as_service_user() {
+    if [[ "$EUID" -eq 0 ]]; then
+        runuser -u "$CAM_SERVICE_USER" -- "$@"
+    else
+        "$@"
+    fi
+}
+
+check_config() {
+    require_root
+    local release
+    release="$(resolve_release_ref "${1:-}")"
+    local python="$release/apps/api/.venv/bin/python"
+    [[ -x "$python" ]] || die "Release Python environment is missing."
+    quiet_run "Production configuration check" \
+        "$python" "$ENV_HELPER" check \
+        --env-file "$CAM_ENV_FILE" \
+        --expected-owner-uid 0 \
+        --api-root "$release/apps/api"
+}
+
+install_python() {
+    local release
+    release="$(resolve_release_ref "${1:-}")"
+    [[ -f "$release/apps/api/requirements.txt" ]] || die "API requirements are missing."
+    require_command python3
+    quiet_run "Python virtual environment creation" \
+        as_service_user python3 -m venv "$release/apps/api/.venv"
+    quiet_run "Python dependency installation" \
+        as_service_user "$release/apps/api/.venv/bin/python" -m pip install \
+        --disable-pip-version-check --no-input \
+        --requirement "$release/apps/api/requirements.txt"
+}
+
+build_frontend() {
+    local release
+    release="$(resolve_release_ref "${1:-}")"
+    [[ -f "$release/apps/client/package-lock.json" ]] || die "Frontend lockfile is missing."
+    require_command npm
+    quiet_run "Frontend npm ci" \
+        as_service_user npm --prefix "$release/apps/client" ci --no-audit --no-fund
+    quiet_run "Frontend production build" \
+        as_service_user npm --prefix "$release/apps/client" run build
+    [[ -f "$release/apps/client/dist/index.html" ]] || die "Frontend build did not create index.html."
+}
+
+install_frontend_release() {
+    require_root
+    local release_id="$1"
+    local source_dist="${2:-$(release_path "$release_id")/apps/client/dist}"
+    validate_release_id "$release_id"
+    [[ -f "$source_dist/index.html" ]] || die "Frontend distribution is incomplete."
+    local destination
+    destination="$(frontend_release_path "$release_id")"
+    [[ ! -e "$destination" ]] || die "Frontend release already exists."
+    install -d -o root -g root -m 0755 "$CAM_WEB_RELEASES_DIR" "$destination"
+    require_command rsync
+    quiet_run "Frontend release installation" \
+        rsync -a --delete --chmod=D755,F644 "$source_dist/" "$destination/"
+    printf '%s\n' "$release_id" >"$destination/.cam-frontend-release"
+    chmod 0644 "$destination/.cam-frontend-release"
+}
+
+atomic_link() {
+    local target="$1"
+    local link="$2"
+    local temporary="${link}.new.$$"
+    ln -s -- "$target" "$temporary"
+    mv -Tf -- "$temporary" "$link"
+}
+
+switch_link_with_previous() {
+    local target="$1"
+    local current_link="$2"
+    local previous_link="$3"
+    local old_target=""
+    if [[ -L "$current_link" ]]; then
+        old_target="$(readlink -f -- "$current_link")"
+    fi
+    if [[ -n "$old_target" && "$old_target" != "$target" ]]; then
+        [[ "$(dirname -- "$old_target")" == "$(dirname -- "$target")" ]] \
+            || die "Current release link points outside its managed directory."
+        atomic_link "$old_target" "$previous_link"
+    fi
+    atomic_link "$target" "$current_link"
+}
+
+switch_frontend_release() {
+    require_root
+    local release_id="$1"
+    local target
+    target="$(frontend_release_path "$release_id")"
+    [[ -f "$target/.cam-frontend-release" ]] || die "Frontend release is incomplete."
+    install -d -o root -g root -m 0755 "$CAM_WEB_HOME" "$CAM_WEB_RELEASES_DIR"
+    switch_link_with_previous "$target" "$CAM_WEB_CURRENT_LINK" "$CAM_WEB_PREVIOUS_LINK"
+    log "Frontend release switched to $release_id."
+}
+
+verify_alembic_head() {
+    local release
+    release="$(resolve_release_ref "${1:-}")"
+    local output
+    if ! output="$(cd "$release/apps/api" && "$release/apps/api/.venv/bin/python" -m alembic heads 2>/dev/null)"; then
+        die "Alembic head verification failed. Output was suppressed."
+    fi
+    local count
+    count="$(printf '%s\n' "$output" | grep -c '(head)' || true)"
+    [[ "$count" -eq 1 ]] || die "Expected exactly one Alembic head."
+    log "Exactly one Alembic head is present."
+}
+
+run_api_operation() {
+    local release="$1"
+    shift
+    local python="$release/apps/api/.venv/bin/python"
+    (
+        cd "$release/apps/api"
+        "$python" "$ENV_HELPER" run-quiet \
+            --env-file "$CAM_ENV_FILE" \
+            --expected-owner-uid 0 \
+            -- "$@"
+    )
+}
+
+migrate_database() {
+    require_root
+    local release
+    release="$(resolve_release_ref "${1:-}")"
+    check_config "$release"
+    verify_alembic_head "$release"
+    quiet_run "Alembic upgrade to head" run_api_operation "$release" \
+        "$release/apps/api/.venv/bin/python" -m alembic upgrade head
+}
+
+seed_system_data() {
+    require_root
+    local release
+    release="$(resolve_release_ref "${1:-}")"
+    check_config "$release"
+    quiet_run "System data seed" run_api_operation "$release" \
+        "$release/apps/api/.venv/bin/python" -m app.operations.tag_cli seed-system-tags
+}
+
+install_release() {
+    require_root
+    [[ "$#" -eq 2 ]] || die "Usage: install-release SOURCE_DIR RELEASE_ID"
+    local source
+    source="$(realpath -- "$1")"
+    local release_id="$2"
+    validate_release_id "$release_id"
+    [[ -f "$source/apps/api/requirements.txt" ]] || die "Source directory is not a release checkout."
+    local destination
+    destination="$(release_path "$release_id")"
+    case "$destination/" in
+        "$source/"*) die "Source directory cannot contain the release destination." ;;
+    esac
+    [[ ! -e "$destination" ]] || die "Application release already exists."
+    require_command rsync
+    getent passwd "$CAM_SERVICE_USER" >/dev/null || die "Service user does not exist."
+    install -d -o root -g root -m 0755 "$CAM_APP_HOME" "$CAM_RELEASES_DIR"
+    install -d -o "$CAM_SERVICE_USER" -g "$CAM_SERVICE_GROUP" -m 0750 "$destination"
+    quiet_run "Application release copy" rsync -a --delete \
+        --exclude=.git --exclude=.env --exclude=.env.local \
+        --exclude=.venv --exclude=node_modules --exclude=dist \
+        --exclude=__pycache__ --exclude=.pytest_cache --exclude='*.pyc' \
+        "$source/" "$destination/"
+    chown -R "$CAM_SERVICE_USER:$CAM_SERVICE_GROUP" "$destination"
+    install_python "$destination"
+    build_frontend "$destination"
+    printf '%s\n' "$release_id" >"$destination/.cam-release"
+    chown "$CAM_SERVICE_USER:$CAM_SERVICE_GROUP" "$destination/.cam-release"
+    chmod 0640 "$destination/.cam-release"
+    install_frontend_release "$release_id" "$destination/apps/client/dist"
+    chown -R root:root "$destination"
+    chmod 0755 "$destination"
+    log "Application release $release_id is installed but not active."
+}
+
+switch_release() {
+    require_root
+    local release_id="$1"
+    local release
+    release="$(release_path "$release_id")"
+    require_release_layout "$release"
+    [[ -f "$(frontend_release_path "$release_id")/.cam-frontend-release" ]] \
+        || die "Matching frontend release is missing."
+    check_config "$release"
+    verify_alembic_head "$release"
+    install -d -o root -g root -m 0755 "$CAM_APP_HOME" "$CAM_RELEASES_DIR"
+    switch_frontend_release "$release_id"
+    switch_link_with_previous "$release" "$CAM_CURRENT_LINK" "$CAM_PREVIOUS_LINK"
+    log "Application release switched to $release_id. Restart services to activate backend code."
+}
+
+restart_api() {
+    require_root
+    quiet_run "API restart" systemctl restart "$CAM_API_SERVICE"
+}
+
+restart_worker() {
+    require_root
+    log "Requesting graceful worker restart via SIGTERM/systemd."
+    quiet_run "Worker graceful restart" systemctl restart "$CAM_WORKER_SERVICE"
+}
+
+wait_for_url() {
+    local url="$1"
+    local attempt
+    for ((attempt = 1; attempt <= CAM_HEALTH_ATTEMPTS; attempt++)); do
+        if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep "$CAM_HEALTH_INTERVAL_SECONDS"
+    done
+    return 1
+}
+
+verify_api_health() {
+    require_command curl
+    wait_for_url "$CAM_API_HEALTH_URL/live" || die "API liveness check failed."
+    wait_for_url "$CAM_API_HEALTH_URL/ready" || die "API readiness check failed."
+    log "API liveness and readiness checks passed."
+}
+
+processing_enabled() {
+    python3 "$ENV_HELPER" flag-enabled \
+        --env-file "$CAM_ENV_FILE" \
+        --expected-owner-uid 0 \
+        --name PROCESSING_JOBS_ENABLED >/dev/null 2>&1
+}
+
+verify_worker_health() {
+    require_root
+    require_command curl
+    require_command python3
+    wait_for_url "$CAM_WORKER_HEALTH_URL/live" || die "Worker liveness check failed."
+    wait_for_url "$CAM_WORKER_HEALTH_URL/health" || die "Worker health endpoint failed."
+    if processing_enabled; then
+        wait_for_url "$CAM_WORKER_HEALTH_URL/ready" || die "Enabled worker is not ready."
+        log "Worker liveness, health and readiness checks passed."
+    else
+        log "Worker liveness and health checks passed; processing is disabled by policy."
+    fi
+}
+
+rollback_release() {
+    require_root
+    [[ -L "$CAM_PREVIOUS_LINK" ]] || die "No previous application release is recorded."
+    local target
+    target="$(readlink -f -- "$CAM_PREVIOUS_LINK")"
+    require_release_layout "$target"
+    local release_id
+    release_id="$(basename -- "$target")"
+    validate_release_id "$release_id"
+    [[ -f "$(frontend_release_path "$release_id")/.cam-frontend-release" ]] \
+        || die "Matching rollback frontend release is missing."
+    check_config "$target"
+    verify_alembic_head "$target"
+    switch_frontend_release "$release_id"
+    switch_link_with_previous "$target" "$CAM_CURRENT_LINK" "$CAM_PREVIOUS_LINK"
+    restart_api
+    restart_worker
+    verify_api_health
+    verify_worker_health
+    log "Application rollback completed. PostgreSQL was not downgraded."
+}
+
+service_state() {
+    if systemctl is-active --quiet "$1" 2>/dev/null; then
+        printf 'active'
+    else
+        printf 'inactive'
+    fi
+}
+
+http_status() {
+    local url="$1"
+    local status
+    if status="$(curl --silent --output /dev/null --max-time 3 --write-out '%{http_code}' "$url" 2>/dev/null)"; then
+        printf '%s' "$status"
+    else
+        printf 'unreachable'
+    fi
+}
+
+safe_release_name() {
+    local link="$1"
+    local name
+    if [[ ! -L "$link" ]]; then
+        printf 'none'
+        return
+    fi
+    name="$(basename -- "$(readlink -f -- "$link")")"
+    if [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+        printf '%s' "$name"
+    else
+        printf 'invalid'
+    fi
+}
+
+print_diagnostics() {
+    require_command curl
+    log "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    log "current_release=$(safe_release_name "$CAM_CURRENT_LINK")"
+    log "previous_release=$(safe_release_name "$CAM_PREVIOUS_LINK")"
+    log "frontend_release=$(safe_release_name "$CAM_WEB_CURRENT_LINK")"
+    log "api_service=$(service_state "$CAM_API_SERVICE")"
+    log "worker_service=$(service_state "$CAM_WORKER_SERVICE")"
+    log "api_live_http=$(http_status "$CAM_API_HEALTH_URL/live")"
+    log "api_ready_http=$(http_status "$CAM_API_HEALTH_URL/ready")"
+    log "worker_live_http=$(http_status "$CAM_WORKER_HEALTH_URL/live")"
+    log "worker_ready_http=$(http_status "$CAM_WORKER_HEALTH_URL/ready")"
+    log "elasticsearch_http=$(http_status http://127.0.0.1:9200/_cluster/health)"
+    if pg_isready -q -h 127.0.0.1 -p 5432 2>/dev/null; then
+        log "postgresql=available"
+    else
+        log "postgresql=unavailable"
+    fi
+    if docker compose --file "$CAM_CURRENT_LINK/infrastructure/docker/docker-compose.prod.yml" \
+        ps --services --status running 2>/dev/null | grep -qx elasticsearch; then
+        log "elasticsearch_container=running"
+    else
+        log "elasticsearch_container=not_running"
+    fi
+}
+
+usage() {
+    cat <<'USAGE'
+Usage: cam-deploy COMMAND [arguments]
+
+Commands:
+  check-config [RELEASE]                  Validate production settings safely
+  install-python [RELEASE]                Create venv and install pinned requirements
+  build-frontend [RELEASE]                Run npm ci and the production build
+  verify-alembic-head [RELEASE]           Require exactly one Alembic head
+  migrate [RELEASE]                       Run alembic upgrade head
+  seed [RELEASE]                          Seed idempotent system data
+  install-release SOURCE_DIR RELEASE_ID   Copy, install and build an inactive release
+  install-frontend-release ID [DIST]      Install immutable static frontend files
+  switch-frontend-release RELEASE_ID      Atomically switch Nginx static files
+  switch-release RELEASE_ID               Switch application and frontend symlinks
+  restart-api                             Restart the native API service
+  restart-worker                          Gracefully restart the native worker
+  verify-api                              Verify API /live and /ready
+  verify-worker                           Verify worker health and conditional readiness
+  rollback-release                        Switch to previous release; never downgrade DB
+  diagnostics                             Print bounded, secret-free operational status
+USAGE
+}
+
+main() {
+    local command="${1:-}"
+    [[ -n "$command" ]] || { usage; exit 1; }
+    shift || true
+    case "$command" in
+        check-config) check_config "$@" ;;
+        install-python) install_python "$@" ;;
+        build-frontend) build_frontend "$@" ;;
+        verify-alembic-head) verify_alembic_head "$@" ;;
+        migrate) migrate_database "$@" ;;
+        seed) seed_system_data "$@" ;;
+        install-release) install_release "$@" ;;
+        install-frontend-release) install_frontend_release "$@" ;;
+        switch-frontend-release) switch_frontend_release "$@" ;;
+        switch-release) switch_release "$@" ;;
+        restart-api) restart_api "$@" ;;
+        restart-worker) restart_worker "$@" ;;
+        verify-api) verify_api_health "$@" ;;
+        verify-worker) verify_worker_health "$@" ;;
+        rollback-release) rollback_release "$@" ;;
+        diagnostics) print_diagnostics "$@" ;;
+        help|-h|--help) usage ;;
+        *) die "Unknown command. Run with help for supported operations." ;;
+    esac
+}
+
+main "$@"

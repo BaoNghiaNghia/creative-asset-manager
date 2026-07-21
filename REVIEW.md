@@ -1077,3 +1077,40 @@ Final controls:
   - Production environment loaded through `Settings`: passed.
   - `systemd-analyze verify` with temporary dependency/path stubs: passed.
   - `nginx -t` using Nginx 1.27.5 and a temporary certificate: passed.
+
+## Production deployment tooling review
+
+- Files changed: secret-safe production environment helper, fail-fast deployment
+  CLI, focused tooling tests, atomic-release Nginx/systemd paths and the VPS
+  deployment runbook.
+- Migrations added: none.
+- Behavior introduced: explicit commands for configuration validation, Python
+  installation, `npm ci` frontend builds, one-head verification, forward-only
+  migration, idempotent seeding, immutable application/frontend installation,
+  atomic switching, API/worker restarts, health verification, rollback and
+  bounded diagnostics. No command runs a PostgreSQL downgrade.
+- Release safety: application and frontend `current`/`previous` links are managed
+  separately under root-owned directories; completed application releases become
+  root-owned before activation. Worker restart uses systemd SIGTERM handling.
+- Secret safety: the environment helper never evaluates shell syntax, validates
+  owner/mode and placeholders, strips environment inheritance, suppresses child
+  process output and reports only bounded setting/error identifiers. Diagnostics
+  emit release IDs, service states, HTTP codes and dependency availability only.
+- Tests and validation:
+  - `apps/api/.venv/bin/python -m unittest deploy.tests.test_production_env -v`:
+    5 passed in 0.226s.
+  - `deploy/bin/cam-deploy verify-alembic-head /home/baonghia/creative-asset-manager`:
+    passed; exactly one head.
+  - `deploy/bin/cam-deploy diagnostics`: passed with bounded status-only output.
+  - Bash syntax and Python compile checks: passed.
+  - Production Compose validation: passed.
+  - `systemd-analyze verify` with temporary dependency/path stubs: passed.
+  - `nginx -t` with Nginx 1.27.5 and a temporary certificate: passed.
+- Feature flags: none changed or enabled.
+- Known risks: application migrations must remain backward compatible with the
+  retained release because rollback intentionally leaves PostgreSQL at its
+  current revision. Release switching is atomic per symlink, but application and
+  frontend links are two ordered filesystem operations.
+- Rollback: `cam-deploy rollback-release` switches to the recorded application
+  and frontend release, restarts services and verifies health. It never invokes
+  `alembic downgrade`.

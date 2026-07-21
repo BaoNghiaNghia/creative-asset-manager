@@ -1,6 +1,6 @@
 [Unit]
 Description=Creative Asset Manager Worker
-Documentation=file:/opt/creative-asset-manager/docs/operations/VPS_DEPLOYMENT.md
+Documentation=file:/opt/creative-asset-manager/current/docs/operations/VPS_DEPLOYMENT.md
 Wants=network-online.target
 After=network-online.target postgresql.service docker.service
 StartLimitIntervalSec=60
@@ -10,12 +10,12 @@ StartLimitBurst=5
 Type=simple
 User=creative-assets
 Group=creative-assets
-WorkingDirectory=/opt/creative-asset-manager
+WorkingDirectory=/opt/creative-asset-manager/current
 EnvironmentFile=/etc/creative-asset-manager/production.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
-ExecStart=/opt/creative-asset-manager/apps/api/.venv/bin/python /opt/creative-asset-manager/apps/worker/main.py
+ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python /opt/creative-asset-manager/current/apps/worker/main.py
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=60s
