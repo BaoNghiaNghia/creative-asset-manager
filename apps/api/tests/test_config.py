@@ -143,6 +143,65 @@ class SettingsTest(unittest.TestCase):
             get_settings.cache_clear()
             self.assertIs(get_settings().SEARCH_PROJECTION_ENABLED, True)
 
+    def test_http_settings_parse_development_defaults(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings()
+        self.assertEqual(settings.PUBLIC_APP_URL, "http://localhost:5173")
+        self.assertEqual(settings.cors_allowed_origins, ("http://localhost:5173",))
+        self.assertEqual(
+            settings.trusted_hosts, ("localhost", "127.0.0.1", "testserver")
+        )
+        self.assertTrue(settings.API_DOCS_ENABLED)
+
+    def test_valid_production_http_configuration(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings(
+                APP_ENV="production",
+                PUBLIC_APP_URL="https://assets.example.com",
+                CORS_ALLOWED_ORIGINS="https://assets.example.com",
+                TRUSTED_HOSTS="api.example.com,*.api.example.com",
+                API_DOCS_ENABLED=False,
+            )
+        self.assertEqual(
+            settings.cors_allowed_origins, ("https://assets.example.com",)
+        )
+        self.assertFalse(settings.API_DOCS_ENABLED)
+
+    def test_invalid_production_http_configuration_fails_closed(self) -> None:
+        valid = {
+            "APP_ENV": "production",
+            "PUBLIC_APP_URL": "https://assets.example.com",
+            "CORS_ALLOWED_ORIGINS": "https://assets.example.com",
+            "TRUSTED_HOSTS": "api.example.com",
+            "API_DOCS_ENABLED": False,
+        }
+        invalid_overrides = (
+            {"PUBLIC_APP_URL": "http://assets.example.com"},
+            {"PUBLIC_APP_URL": "https://localhost"},
+            {"API_DOCS_ENABLED": True},
+            {"TRUSTED_HOSTS": "*"},
+            {"TRUSTED_HOSTS": "localhost"},
+            {"CORS_ALLOWED_ORIGINS": "*"},
+            {"CORS_ALLOWED_ORIGINS": "https://*.example.com"},
+            {"CORS_ALLOWED_ORIGINS": "http://assets.example.com"},
+            {"CORS_ALLOWED_ORIGINS": "https://other.example.com"},
+        )
+        for override in invalid_overrides:
+            with self.subTest(override=override):
+                with patch.dict(os.environ, {}, clear=True):
+                    with self.assertRaises(ValidationError):
+                        Settings(**{**valid, **override})
+
+    def test_cors_origins_and_trusted_hosts_reject_url_components(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValidationError):
+                Settings(CORS_ALLOWED_ORIGINS="https://app.example.com/path")
+            with self.assertRaises(ValidationError):
+                Settings(TRUSTED_HOSTS="https://api.example.com")
+            with self.assertRaises(ValidationError):
+                Settings(TRUSTED_HOSTS="api.example.com:443")
+            with self.assertRaises(ValidationError):
+                Settings(API_DOCS_ENABLED="sometimes")
 
 if __name__ == "__main__":
     unittest.main()

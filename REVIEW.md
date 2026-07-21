@@ -954,3 +954,33 @@ Final controls:
 - Staging rollout and rollback commands are documented in
   `docs/operations/CONTROLLED_ROLLOUT.md`. Step 33 is validation-green locally;
   merge/deployment remains gated on the corresponding GitHub Actions run.
+
+
+## Production HTTP and environment configuration review
+
+- Files changed: `.env.example`, API settings/environment bootstrap, FastAPI
+  middleware/app factory, Google and Microsoft OAuth return redirects, and
+  focused configuration/HTTP tests. Frontend runtime code required no changes.
+- Migrations added: none.
+- Behavior introduced: configurable public app URL, exact CORS origins, trusted
+  hosts, production-disabled API docs, fixed development-only dotenv loading,
+  and OAuth redirects based on validated settings. Vite continues to proxy
+  relative `/api` requests to localhost only in development.
+- Tests run/results:
+  - `.venv/bin/python -m unittest tests.test_config tests.test_environment tests.test_http_config tests.test_app_smoke -v`: 22 passed.
+  - `.venv/bin/python -m unittest tests.modules.auth_persistence.test_config.AuthConfigurationTest.test_keys_required_and_production_cookie_is_secure -v`: 1 passed.
+  - `.venv/bin/python -m unittest tests.modules.auth_persistence.test_config -v`: 2 passed.
+  - `.venv/bin/python -m unittest discover -s tests -q`: 320 passed, 11 expected integration skips, 93.576s.
+  - `npm run typecheck`: passed.
+  - `npm test`: 9 passed in 2 files.
+  - `npm run build`: passed (46 modules transformed).
+- Feature flags: none added or enabled. `API_DOCS_ENABLED` is an HTTP setting,
+  defaults true for development, and is required to be false in production.
+- Known risks: reverse-proxy forwarded-host behavior must match the explicit
+  `TRUSTED_HOSTS` deployment value; deployment configuration is intentionally
+  outside this change.
+- Rollback: revert this change and restore `CLIENT_URL` plus the previous
+  localhost-only middleware configuration. No database rollback is required.
+- Next recommended step: provide production environment values through the
+  deployment secret/configuration system and exercise host/CORS behavior behind
+  the actual reverse proxy before rollout.

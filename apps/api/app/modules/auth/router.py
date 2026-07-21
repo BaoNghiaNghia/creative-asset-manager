@@ -1,10 +1,11 @@
 import logging
-import os
 import secrets
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+
+from app.core.config import get_settings
 
 from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
 from app.providers.google.auth import (
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/auth/google", tags=["auth"])
 
 
 def client_redirect(**params: str) -> RedirectResponse:
-    client_url = os.getenv("CLIENT_URL", "http://localhost:5173")
+    client_url = get_settings().PUBLIC_APP_URL.rstrip("/")
     separator = "&" if "?" in client_url else "?"
     return RedirectResponse(client_url + separator + urlencode(params))
 

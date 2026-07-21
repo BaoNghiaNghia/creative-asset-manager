@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,6 +35,11 @@ class Settings(BaseSettings):
     """Validated application settings for architecture rollout flags."""
 
     model_config = SettingsConfigDict(extra="ignore")
+
+    PUBLIC_APP_URL: str = "http://localhost:5173"
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:5173"
+    TRUSTED_HOSTS: str = "localhost,127.0.0.1,testserver"
+    API_DOCS_ENABLED: bool = True
 
     UNIFIED_ASSET_INGESTION_ENABLED: bool = False
     CONTENT_DEDUP_ENABLED: bool = False
@@ -124,7 +130,7 @@ class Settings(BaseSettings):
     AUTH_COOKIE_PATH: str = "/"
     APP_ENV: str = "development"
 
-    @field_validator(*FEATURE_FLAG_NAMES, mode="before")
+    @field_validator(*FEATURE_FLAG_NAMES, "API_DOCS_ENABLED", mode="before")
     @classmethod
     def validate_boolean_flags(cls, value: Any) -> bool:
         if isinstance(value, bool):
@@ -136,6 +142,20 @@ class Settings(BaseSettings):
             if normalized == "false":
                 return False
         raise ValueError("feature flags must be either 'true' or 'false'")
+
+    @property
+    def cors_allowed_origins(self) -> tuple[str, ...]:
+        return tuple(
+            value.strip().rstrip("/")
+            for value in self.CORS_ALLOWED_ORIGINS.split(",")
+            if value.strip()
+        )
+
+    @property
+    def trusted_hosts(self) -> tuple[str, ...]:
+        return tuple(
+            value.strip() for value in self.TRUSTED_HOSTS.split(",") if value.strip()
+        )
 
     @field_validator("AUTH_COOKIE_SAMESITE")
     @classmethod
@@ -155,6 +175,80 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_worker_runtime(self) -> "Settings":
+        public_url = urlsplit(self.PUBLIC_APP_URL)
+        if (
+            public_url.scheme not in {"http", "https"}
+            or not public_url.hostname
+            or public_url.username
+            or public_url.password
+            or public_url.query
+            or public_url.fragment
+        ):
+            raise ValueError(
+                "PUBLIC_APP_URL must be an absolute HTTP(S) URL without credentials"
+            )
+        origins = self.cors_allowed_origins
+        for origin in origins:
+            parsed = urlsplit(origin)
+            if (
+                "*" in origin
+                or parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError(
+                    "CORS_ALLOWED_ORIGINS must contain comma-separated HTTP(S) origins"
+                )
+        hosts = self.trusted_hosts
+        if not hosts:
+            raise ValueError("TRUSTED_HOSTS must contain at least one hostname")
+        if any(
+            "://" in host
+            or "/" in host
+            or ":" in host
+            or any(char.isspace() for char in host)
+            for host in hosts
+        ):
+            raise ValueError("TRUSTED_HOSTS must contain hostnames, not URLs")
+        if self.APP_ENV.strip().lower() in {"production", "prod"}:
+            if (
+                public_url.scheme != "https"
+                or public_url.hostname in {"localhost", "127.0.0.1", "::1"}
+            ):
+                raise ValueError(
+                    "PUBLIC_APP_URL must use a non-local HTTPS URL in production"
+                )
+            if self.API_DOCS_ENABLED:
+                raise ValueError("API_DOCS_ENABLED must be false in production")
+            if not hosts or any(
+                host == "*" or "localhost" in host or host.startswith("127.")
+                for host in hosts
+            ):
+                raise ValueError(
+                    "TRUSTED_HOSTS must be explicit non-local hosts in production"
+                )
+            if origins:
+                public_origin = (
+                    f"{public_url.scheme}://{public_url.netloc}".rstrip("/")
+                )
+                if public_origin not in origins:
+                    raise ValueError(
+                        "CORS_ALLOWED_ORIGINS must include PUBLIC_APP_URL origin "
+                        "in production"
+                    )
+                if any(
+                    urlsplit(origin).scheme != "https"
+                    or urlsplit(origin).hostname
+                    in {"localhost", "127.0.0.1", "::1"}
+                    for origin in origins
+                ):
+                    raise ValueError(
+                        "Production CORS origins must use non-local HTTPS URLs"
+                    )
         if self.PERSISTENT_AUTH_ENABLED:
             import base64
             versions = set()
