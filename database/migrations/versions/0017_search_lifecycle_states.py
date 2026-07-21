@@ -1,6 +1,6 @@
 """Add recoverable Elasticsearch lifecycle states.
 
-Revision ID: 0017_search_index_lifecycle_states
+Revision ID: 0017_search_lifecycle_states
 Revises: 0016_active_analysis_integrity
 
 Rollback requires no rows to remain in verified or activating state. Move them
@@ -8,7 +8,7 @@ to building or failed before downgrading.
 """
 from alembic import op
 
-revision = "0017_search_index_lifecycle_states"
+revision = "0017_search_lifecycle_states"
 down_revision = "0016_active_analysis_integrity"
 branch_labels = None
 depends_on = None

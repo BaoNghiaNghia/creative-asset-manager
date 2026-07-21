@@ -880,7 +880,7 @@ metadata_json and stored analysis history remain authoritative and unchanged.
 - Files changed: lifecycle service and admin operations, stable Elasticsearch
   settings reader, lifecycle-state model/migration, focused lifecycle and real
   Elasticsearch tests, search/data-model docs, and the operator runbook.
-- Migration added: `0017_search_index_lifecycle_states`; migrations 0015 and
+- Migration added: `0017_search_lifecycle_states`; migrations 0015 and
   0016 were not recreated or edited. Upgrade adds durable `verified` and
   `activating` states. Downgrade restores the 0016 state constraint after those
   records have been reconciled.
@@ -909,3 +909,48 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   staging index using ranked golden fixtures and all pilot tenants, exercise an
   interrupted activation/reconcile drill, then keep the previous index through
   the documented retention window.
+
+## Step 33 full regression validation
+
+The first PostgreSQL attempt exposed two validation defects rather than product
+features: Alembic revision `0017_search_index_lifecycle_states` exceeded the
+standard 32-character version column, and the PostgreSQL integration test
+hard-coded the prior 0014 head. The revision is now
+`0017_search_lifecycle_states` and all revisions have a <=32-character
+regression assertion. The PostgreSQL test resolves the single expected head
+from Alembic. A repeated run on a previously used database demonstrated that
+claim/lease integration tests require the clean service lifecycle used by CI;
+the final recorded run used a fresh PostgreSQL container.
+
+| Group | Exact test command | Result | Count | Duration | Skips |
+|---|---|---:|---:|---:|---|
+| Active-analysis repository | `.venv/bin/python -m unittest tests.modules.search.test_active_analysis_repository -v` | passed | 1 | 0.34s | none |
+| Active-analysis service/routes | `.venv/bin/python -m unittest tests.modules.search.test_active_analysis_service tests.modules.search.test_active_analysis_admin -v` | passed | 5 | 0.89s | none |
+| Shadow execution | `.venv/bin/python -m unittest tests.modules.search.test_shadow_search_r2.ShadowSearchRemediationTest.test_primary_never_depends_on_shadow_or_policy_success tests.modules.search.test_shadow_search_r2.ShadowSearchRemediationTest.test_timeout_sampling_direction_and_shutdown_are_bounded -v` | passed | 2 | 0.29s | none |
+| Shadow observations/reporting | `.venv/bin/python -m unittest tests.modules.search.test_shadow_search_r2.ShadowSearchRemediationTest.test_standard_overlap_counts_latencies_reports_and_tenant_isolation tests.modules.search.test_governance.SearchGovernanceTest.test_shadow_timeout_never_delays_primary_and_persists_bounded_data tests.modules.search.test_governance.SearchGovernanceTest.test_global_shadow_disable_is_an_upper_bound -v` | passed | 3 | 0.51s | none |
+| Index lifecycle unit | `.venv/bin/python -m unittest tests.modules.search.test_index_lifecycle_r3 tests.modules.search.test_governance.SearchGovernanceTest.test_verify_before_activate_and_alias_safe_cleanup -v` | passed | 6 | 0.44s | none |
+| Migration 0015 | `.venv/bin/python -m unittest tests.migrations.test_search_governance_migration -v` | passed | 1 | 2.13s | none |
+| Migration fix regression | `.venv/bin/python -m unittest tests.migrations.test_search_governance_migration tests.migrations.test_search_index_lifecycle_state_migration -v` | passed | 2 | 3.75s | none |
+| PostgreSQL 16.4 integration | `DATABASE_URL=postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_integration INTEGRATION_DATABASE_URL=postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_integration .venv/bin/python -m unittest tests.integration.test_postgresql -v` | passed | 4 | 0.40s | none |
+| Elasticsearch 8.15.3 integration | `INTEGRATION_ELASTICSEARCH_URL=http://127.0.0.1:9200 ELASTICSEARCH_URL=http://127.0.0.1:9200 .venv/bin/python -m unittest tests.integration.test_elasticsearch -v` | passed | 1 | 2.37s | none |
+| Exact Python 3.12 CI unit discovery | `python -m pip install -r apps/api/requirements.txt && cd apps/api && timeout 10m python -m unittest discover -s tests -v` | passed | 309 | 89.518s tests; 139.05s including clean image/dependencies | 11 expected: 1 Elasticsearch, 4 PostgreSQL, 6 pipeline because the unit job has no real-service URLs |
+| Durable pipeline E2E | `DATABASE_URL=postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_pipeline INTEGRATION_DATABASE_URL=postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_pipeline ELASTICSEARCH_URL=http://127.0.0.1:9200 INTEGRATION_ELASTICSEARCH_URL=http://127.0.0.1:9200 .venv/bin/python -m unittest tests.integration.test_pipeline_e2e -v` | passed | 6 | 5.23s | none |
+
+Final controls:
+
+- `python -m alembic heads` reports exactly
+  `0017_search_lifecycle_states (head)`.
+- `DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED`,
+  `SEARCH_SHADOW_COMPARISON_ENABLED`,
+  `ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED`, `SEARCH_PROJECTION_ENABLED`,
+  `ELASTICSEARCH_V2_ENABLED`, and `SEARCH_QUERY_PARSER_V2_ENABLED` all resolve
+  to false from default settings.
+- Search v2 was enabled only inside isolated E2E `Settings`; it was not enabled
+  globally or in repository defaults.
+- No real Google Drive, SharePoint or Gemini credential was required. The E2E
+  suite uses fake download/source resolution, fake managed storage and
+  `FakeGemini` with a non-network fake key. PostgreSQL and Elasticsearch were
+  disposable local services.
+- Staging rollout and rollback commands are documented in
+  `docs/operations/CONTROLLED_ROLLOUT.md`. Step 33 is validation-green locally;
+  merge/deployment remains gated on the corresponding GitHub Actions run.

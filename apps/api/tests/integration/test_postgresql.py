@@ -6,6 +6,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -45,7 +47,9 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
             version = connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
             ).scalar_one()
-        self.assertEqual(version, "0014_reconciliation_retention")
+        heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+        self.assertEqual(len(heads), 1)
+        self.assertEqual(version, heads[0])
 
     def test_tenant_constraints_and_source_identity(self) -> None:
         marker = uuid4().hex

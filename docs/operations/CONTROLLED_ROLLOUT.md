@@ -380,3 +380,91 @@ switches read/write aliases to that version before any cleanup.
 Emergency procedure: globally disable shadow comparison or index lifecycle.
 Never delete cluster indices manually. Run cleanup dry-run, explicitly confirm,
 and verify aliases; cleanup also rechecks aliases immediately before deletion.
+
+## Step 33 validated staging rollout commands
+
+Keep repository defaults and production values false. Apply the migration first
+with all Step 33 workers and search reads disabled:
+
+```bash
+cd apps/api
+DATABASE_URL="$STAGING_DATABASE_URL" python -m alembic upgrade head
+test "$(python -m alembic heads | grep -c '(head)')" -eq 1
+```
+
+For a staging deployment only, enable the smallest control surface while legacy
+search remains primary:
+
+```dotenv
+DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED=true
+SEARCH_SHADOW_COMPARISON_ENABLED=true
+ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED=true
+ELASTICSEARCH_V2_ENABLED=false
+SEARCH_QUERY_PARSER_V2_ENABLED=false
+```
+
+Use an authenticated platform-admin browser session exported to a cookie jar.
+Configure a low deterministic shadow percentage for one pilot tenant:
+
+```bash
+curl --fail-with-body --cookie "$ADMIN_COOKIE_JAR" \
+  --request PUT "$STAGING_API/api/v1/admin/search/tenants/$TENANT_ID/shadow-policy" \
+  --header 'Content-Type: application/json' \
+  --data '{"enabled":true,"primary_version":"v1","shadow_version":"v2","sample_percentage":5,"timeout_ms":250,"persist_raw_query":false,"top_k":10}'
+```
+
+Verify the completed physical index before activation. Golden fixtures must
+contain expected asset IDs/ranking and `tenant_ids` must enumerate every tenant
+expected in the index:
+
+```bash
+curl --fail-with-body --cookie "$ADMIN_COOKIE_JAR" \
+  --request POST "$STAGING_API/api/v1/admin/search/indices/$INDEX_RECORD_ID/verify" \
+  --header 'Content-Type: application/json' \
+  --data @verification-spec.json
+
+curl --fail-with-body --cookie "$ADMIN_COOKIE_JAR" \
+  --request POST "$STAGING_API/api/v1/admin/search/indices/$INDEX_RECORD_ID/activate"
+```
+
+After evidence and shadow reports pass, Search v2 may be enabled only for the
+pilot deployment/tenant under the controlled-rollout policy. Do not change the
+repository default.
+
+### Step 33 staging rollback commands
+
+Disable v2 reads and shadow comparison first. Keep lifecycle operations enabled
+only long enough to perform the authenticated alias rollback:
+
+```dotenv
+ELASTICSEARCH_V2_ENABLED=false
+SEARCH_QUERY_PARSER_V2_ENABLED=false
+SEARCH_SHADOW_COMPARISON_ENABLED=false
+ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED=true
+```
+
+```bash
+curl --fail-with-body --cookie "$ADMIN_COOKIE_JAR" \
+  --request POST "$STAGING_API/api/v1/admin/search/indices/$PREVIOUS_INDEX_RECORD_ID/rollback"
+
+curl --fail-with-body --cookie "$ADMIN_COOKIE_JAR" \
+  --request POST "$STAGING_API/api/v1/admin/search/indices/reconcile?index_prefix=$INDEX_PREFIX"
+
+curl --fail-with-body --cookie "$ADMIN_COOKIE_JAR" \
+  --request POST "$STAGING_API/api/v1/admin/search/indices/cleanup" \
+  --header 'Content-Type: application/json' \
+  --data '{"min_age_hours":168,"preserve_previous":1,"limit":20,"dry_run":true,"confirmed":false}'
+```
+
+Confirm read/write aliases and PostgreSQL lifecycle state agree, then disable
+`ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED`. Before a code/database rollback, move
+all `verified` or `activating` records to an allowed 0016 state through normal
+verification/reconciliation, stop lifecycle operations, and run:
+
+```bash
+cd apps/api
+DATABASE_URL="$STAGING_DATABASE_URL" python -m alembic downgrade 0016_active_analysis_integrity
+```
+
+The downgrade changes the lifecycle check constraint only; it does not switch
+aliases or delete Elasticsearch indices.

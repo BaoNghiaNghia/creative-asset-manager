@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect
 
 class SearchIndexLifecycleStateMigrationTest(unittest.TestCase):
@@ -11,6 +12,8 @@ class SearchIndexLifecycleStateMigrationTest(unittest.TestCase):
             path = Path(directory) / "migration.db"
             config = Config("alembic.ini")
             config.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
+            revisions = list(ScriptDirectory.from_config(config).walk_revisions())
+            self.assertTrue(all(len(item.revision) <= 32 for item in revisions))
             command.upgrade(config, "head")
             engine = create_engine(f"sqlite:///{path}")
             checks = {row["name"]: row["sqltext"] for row in inspect(engine).get_check_constraints("search_index_records")}

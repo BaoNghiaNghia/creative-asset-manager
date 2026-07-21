@@ -371,7 +371,7 @@ analysis per tenant, asset, profile, and search context.
 
 ### Step 33R3 Elasticsearch lifecycle integrity
 
-Migration `0017_search_index_lifecycle_states` keeps migration 0015 and the
+Migration `0017_search_lifecycle_states` keeps migration 0015 and the
 Step 33R1 constraint migration intact. It extends the lifecycle-state check with
 `verified` and `activating`, allowing validation and alias activation to have
 durable post-validation and interrupted-operation checkpoints. Downgrade
