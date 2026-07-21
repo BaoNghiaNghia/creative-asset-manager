@@ -93,3 +93,31 @@ resolve `ai_batch_jobs.provider`. Persisted identity remains authoritative after
 enqueueing, independent of environment defaults and registry order. Missing
 adapters produce non-retryable `ai_provider_unavailable`. Graceful worker
 shutdown closes every registered adapter exactly once.
+
+## AI-MULTI-02 OpenAI single-image analysis
+
+`OpenAiMetadataProvider` uses the official OpenAI Python SDK and the Responses
+API. It sends only the metadata-profile prompt and the bounded prepared image as
+an inline Base64 data URL. Source URLs, storage credentials, OAuth tokens and
+source metadata never cross the adapter boundary. Responses are not stored by
+OpenAI unless `OPENAI_STORE_RESPONSES=true` is explicitly configured.
+
+Profiles satisfying the Responses Structured Outputs subset use
+`text.format.type=json_schema`, a stable schema name, strict mode and
+`additionalProperties=false`. Profiles outside that subset use JSON object mode.
+Both paths continue through the internal metadata safety/profile validator,
+projection builder and PostgreSQL result importer.
+
+OpenAI is registered only when `OPENAI_AI_ENABLED=true`, an API key is present,
+and the configured default model belongs to the explicit model allowlist. The
+adapter advertises single support only; OpenAI Batch API operations fail closed
+with `openai_batch_not_implemented` until AI-MULTI-03. Timeout, transport, rate,
+authentication, server, refusal, incomplete-output and invalid-output failures
+map to stable internal codes without exposing provider bodies. A completed
+provider response is not imported after the analysis worker lease is lost.
+
+References:
+
+- https://developers.openai.com/api/docs/guides/images-vision
+- https://developers.openai.com/api/docs/guides/structured-outputs
+- https://developers.openai.com/api/reference/resources/responses/methods/create

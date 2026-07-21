@@ -291,6 +291,13 @@ class AiAnalysisService:
             AI_METRICS.latency(provider_name, "completed", provider_latency_ms)
             with self.session_factory() as session:
                 repository = AiMetadataRepository(session, self.validator)
+                if not repository.owns_active_lease(
+                    analysis_id, worker_id=worker_id
+                ):
+                    session.rollback()
+                    return AiAnalysisOutcome(
+                        "cancelled", "analysis_lease_lost", "Analysis lease was lost."
+                    )
                 repository.set_stage(analysis_id, "validating")
                 session.commit()
 
@@ -355,6 +362,9 @@ class AiAnalysisService:
                 "gemini_empty_response",
                 "gemini_invalid_document",
                 "gemini_invalid_response",
+                "openai_invalid_json",
+                "openai_empty_response",
+                "openai_invalid_document",
             }
             retryable = exc.retryable and not (
                 invalid_output

@@ -395,5 +395,47 @@ class WorkerBootstrapTest(unittest.TestCase):
         directory.cleanup()
 
 
+
+    def test_runtime_does_not_register_disabled_openai(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        engine = create_engine(
+            f"sqlite:///{Path(directory.name) / 'openai-disabled.db'}"
+        )
+        sessions = sessionmaker(bind=engine)
+        runtime = build_worker_runtime(
+            Settings(
+                PROCESSING_JOBS_ENABLED=False,
+                OPENAI_API_KEY="test-only",
+            ),
+            session_factory=sessions,
+        )
+        self.assertFalse(runtime.dependencies.ai_provider_registry.has("openai"))
+        runtime.close()
+        engine.dispose()
+        directory.cleanup()
+
+    def test_runtime_registers_enabled_openai(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        engine = create_engine(
+            f"sqlite:///{Path(directory.name) / 'openai-enabled.db'}"
+        )
+        sessions = sessionmaker(bind=engine)
+        runtime = build_worker_runtime(
+            Settings(
+                PROCESSING_JOBS_ENABLED=False,
+                OPENAI_AI_ENABLED=True,
+                OPENAI_API_KEY="test-only",
+                OPENAI_DEFAULT_MODEL="openai-test",
+                OPENAI_ALLOWED_MODELS="openai-test",
+            ),
+            session_factory=sessions,
+        )
+        provider = runtime.dependencies.ai_provider_registry.require("openai")
+        self.assertEqual(provider.default_model, "openai-test")
+        self.assertTrue(provider.supports_single)
+        self.assertFalse(provider.supports_batch)
+        runtime.close()
+        engine.dispose()
+        directory.cleanup()
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,7 @@ FEATURE_FLAG_NAMES = (
     "AI_SINGLE_ANALYSIS_ENABLED",
     "AI_BATCH_ANALYSIS_ENABLED",
     "AI_AUTO_ANALYZE_ENABLED",
+    "OPENAI_AI_ENABLED",
     "SEARCH_PROJECTION_ENABLED",
     "ELASTICSEARCH_V2_ENABLED",
     "SEARCH_QUERY_PARSER_V2_ENABLED",
@@ -82,6 +83,17 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_TIMEOUT_SECONDS: float = 45.0
+    OPENAI_AI_ENABLED: bool = False
+    OPENAI_API_KEY: str | None = None
+    OPENAI_BASE_URL: str | None = None
+    OPENAI_DEFAULT_MODEL: str = ""
+    OPENAI_ALLOWED_MODELS: str = ""
+    OPENAI_TIMEOUT_SECONDS: float = 60.0
+    OPENAI_MAX_RETRIES: int = 2
+    OPENAI_IMAGE_DETAIL: str = "auto"
+    OPENAI_STORE_RESPONSES: bool = False
+    OPENAI_ORGANIZATION: str | None = None
+    OPENAI_PROJECT: str | None = None
     AI_ANALYSIS_MAX_SOURCE_BYTES: int = 25_000_000
     AI_ANALYSIS_MAX_OUTPUT_BYTES: int = 8_000_000
     AI_ANALYSIS_MAX_WIDTH: int = 4096
@@ -149,6 +161,7 @@ class Settings(BaseSettings):
         *FEATURE_FLAG_NAMES,
         "API_DOCS_ENABLED",
         "PROXY_HEADERS_ENABLED",
+        "OPENAI_STORE_RESPONSES",
         mode="before",
     )
     @classmethod
@@ -184,6 +197,14 @@ class Settings(BaseSettings):
         )
 
     @property
+    def openai_allowed_models(self) -> tuple[str, ...]:
+        return tuple(
+            value.strip()
+            for value in self.OPENAI_ALLOWED_MODELS.split(",")
+            if value.strip()
+        )
+
+    @property
     def elasticsearch_readiness_required(self) -> bool:
         return any(
             (
@@ -204,6 +225,25 @@ class Settings(BaseSettings):
             return None
         normalized = str(value).strip()
         return normalized or None
+
+    @field_validator(
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_ORGANIZATION",
+        "OPENAI_PROJECT",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_openai_setting(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @field_validator("OPENAI_DEFAULT_MODEL", "OPENAI_IMAGE_DETAIL")
+    @classmethod
+    def normalize_openai_setting(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("APP_VERSION", "BUILD_COMMIT")
     @classmethod
@@ -416,6 +456,12 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_HEALTH_PORT must be between 1 and 65535")
         if self.GEMINI_TIMEOUT_SECONDS <= 0:
             raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive")
+        if self.OPENAI_TIMEOUT_SECONDS <= 0:
+            raise ValueError("OPENAI_TIMEOUT_SECONDS must be positive")
+        if self.OPENAI_MAX_RETRIES < 0:
+            raise ValueError("OPENAI_MAX_RETRIES cannot be negative")
+        if self.OPENAI_IMAGE_DETAIL not in {"auto", "low", "high", "original"}:
+            raise ValueError("OPENAI_IMAGE_DETAIL is invalid")
         if not 0 < self.PROCESSING_POLICY_CACHE_TTL_SECONDS <= 60:
             raise ValueError("PROCESSING_POLICY_CACHE_TTL_SECONDS must be between 0 and 60")
         if self.AI_ANALYSIS_LEASE_SECONDS <= 0:
@@ -441,12 +487,51 @@ class Settings(BaseSettings):
             raise ValueError("AI_PILOT_CONFIRMATION_THRESHOLD_MICROS cannot be negative")
         if not 1 <= self.AI_ANALYSIS_JPEG_QUALITY <= 95:
             raise ValueError("AI_ANALYSIS_JPEG_QUALITY must be between 1 and 95")
+        if self.OPENAI_BASE_URL:
+            openai_url = urlsplit(self.OPENAI_BASE_URL)
+            if (
+                openai_url.scheme not in {"http", "https"}
+                or not openai_url.hostname
+                or openai_url.username
+                or openai_url.password
+                or openai_url.query
+                or openai_url.fragment
+            ):
+                raise ValueError("OPENAI_BASE_URL must be an absolute HTTP(S) URL")
+            if self.is_production and openai_url.scheme != "https":
+                raise ValueError("OPENAI_BASE_URL must use HTTPS in production")
+        if self.OPENAI_AI_ENABLED:
+            if not self.OPENAI_API_KEY:
+                raise ValueError(
+                    "OPENAI_API_KEY is required when OpenAI AI is enabled"
+                )
+            if not self.OPENAI_DEFAULT_MODEL:
+                raise ValueError(
+                    "OPENAI_DEFAULT_MODEL is required when OpenAI AI is enabled"
+                )
+            if self.OPENAI_DEFAULT_MODEL not in self.openai_allowed_models:
+                raise ValueError(
+                    "OPENAI_DEFAULT_MODEL must be in OPENAI_ALLOWED_MODELS"
+                )
         if (
             self.DYNAMIC_AI_METADATA_ENABLED
-            and (self.AI_SINGLE_ANALYSIS_ENABLED or self.AI_BATCH_ANALYSIS_ENABLED)
+            and self.AI_SINGLE_ANALYSIS_ENABLED
+            and not (
+                self.GEMINI_API_KEY
+                or (self.OPENAI_AI_ENABLED and self.OPENAI_API_KEY)
+            )
+        ):
+            raise ValueError(
+                "At least one configured AI provider is required for single analysis"
+            )
+        if (
+            self.DYNAMIC_AI_METADATA_ENABLED
+            and self.AI_BATCH_ANALYSIS_ENABLED
             and not self.GEMINI_API_KEY
         ):
-            raise ValueError("GEMINI_API_KEY is required when AI analysis is enabled")
+            raise ValueError(
+                "GEMINI_API_KEY is required for batch analysis until OpenAI batch support is enabled"
+            )
         return self
 
 @lru_cache

@@ -38,12 +38,15 @@ class FakeStorage:
 
 
 class FakeAi:
-    def __init__(self, metadata):
+    def __init__(self, metadata, on_call=None):
         self.metadata = metadata
+        self.on_call = on_call
         self.calls = 0
 
     async def analyze_single(self, _input):
         self.calls += 1
+        if self.on_call is not None:
+            self.on_call()
         return AiMetadataAnalysisResult(
             metadata=self.metadata,
             provider="fake",
@@ -269,3 +272,38 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(analysis.status,"budget_blocked")
             usage=session.scalar(select(AiUsageRecordModel))
             self.assertEqual(usage.outcome,"budget_blocked")
+
+    async def test_lost_analysis_lease_never_completes_result(self):
+        from datetime import datetime, timedelta, timezone
+        from app.modules.ai_metadata.model import AssetAiAnalysisModel
+
+        def expire_lease():
+            with self.factory() as session:
+                analysis = session.get(AssetAiAnalysisModel, self.analysis_id)
+                analysis.claimed_by = "worker-b"
+                analysis.lease_expires_at = (
+                    datetime.now(timezone.utc) - timedelta(seconds=1)
+                )
+                session.commit()
+
+        outcome = await AiAnalysisService(
+            session_factory=self.factory,
+            storage_provider=self.storage,
+            ai_provider=FakeAi({"subject": "cat"}, on_call=expire_lease),
+            settings=self.settings,
+        ).analyze(
+            tenant_id="tenant-a",
+            analysis_id=self.analysis_id,
+            worker_id="worker-a",
+        )
+
+        self.assertEqual(outcome.status, "cancelled")
+        self.assertEqual(outcome.error_code, "analysis_lease_lost")
+        with self.factory() as session:
+            analysis = session.get(AssetAiAnalysisModel, self.analysis_id)
+            self.assertNotEqual(analysis.status, "completed")
+            self.assertIsNone(analysis.metadata_json)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ProcessingJobModel)),
+                0,
+            )

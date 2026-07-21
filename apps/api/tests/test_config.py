@@ -18,6 +18,7 @@ FEATURE_FLAGS = (
     "AI_SINGLE_ANALYSIS_ENABLED",
     "AI_BATCH_ANALYSIS_ENABLED",
     "AI_AUTO_ANALYZE_ENABLED",
+    "OPENAI_AI_ENABLED",
     "SEARCH_PROJECTION_ENABLED",
     "ELASTICSEARCH_V2_ENABLED",
     "SEARCH_QUERY_PARSER_V2_ENABLED",
@@ -207,5 +208,70 @@ class SettingsTest(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 Settings(API_DOCS_ENABLED="sometimes")
 
+
+    def test_openai_is_disabled_and_non_retaining_by_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings()
+        self.assertFalse(settings.OPENAI_AI_ENABLED)
+        self.assertFalse(settings.OPENAI_STORE_RESPONSES)
+        self.assertIsNone(settings.OPENAI_API_KEY)
+
+    def test_openai_enabled_requires_key_model_and_allowlist(self) -> None:
+        incomplete_values = (
+            {"OPENAI_AI_ENABLED": "true"},
+            {
+                "OPENAI_AI_ENABLED": "true",
+                "OPENAI_API_KEY": "test-only",
+            },
+            {
+                "OPENAI_AI_ENABLED": "true",
+                "OPENAI_API_KEY": "test-only",
+                "OPENAI_DEFAULT_MODEL": "openai-test",
+                "OPENAI_ALLOWED_MODELS": "another-model",
+            },
+        )
+        for values in incomplete_values:
+            with self.subTest(values=tuple(values)):
+                with patch.dict(os.environ, values, clear=True):
+                    with self.assertRaises(ValidationError):
+                        Settings()
+
+    def test_openai_valid_configuration_supports_single_analysis(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_AI_ENABLED": "true",
+                "OPENAI_API_KEY": "test-only",
+                "OPENAI_DEFAULT_MODEL": "openai-test",
+                "OPENAI_ALLOWED_MODELS": "openai-test, openai-other",
+                "DYNAMIC_AI_METADATA_ENABLED": "true",
+                "AI_SINGLE_ANALYSIS_ENABLED": "true",
+            },
+            clear=True,
+        ):
+            settings = Settings()
+        self.assertEqual(settings.openai_allowed_models, (
+            "openai-test", "openai-other"
+        ))
+        self.assertIsNone(settings.GEMINI_API_KEY)
+
+    def test_openai_runtime_limits_are_validated(self) -> None:
+        base = {
+            "OPENAI_AI_ENABLED": "true",
+            "OPENAI_API_KEY": "test-only",
+            "OPENAI_DEFAULT_MODEL": "openai-test",
+            "OPENAI_ALLOWED_MODELS": "openai-test",
+        }
+        for override in (
+            {"OPENAI_TIMEOUT_SECONDS": "0"},
+            {"OPENAI_MAX_RETRIES": "-1"},
+            {"OPENAI_IMAGE_DETAIL": "unbounded"},
+        ):
+            with self.subTest(override=override):
+                with patch.dict(
+                    os.environ, {**base, **override}, clear=True
+                ):
+                    with self.assertRaises(ValidationError):
+                        Settings()
 if __name__ == "__main__":
     unittest.main()

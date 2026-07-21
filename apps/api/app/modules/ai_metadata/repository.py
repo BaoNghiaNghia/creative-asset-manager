@@ -128,6 +128,17 @@ class AiMetadataRepository:
         )
         return self.session.scalars(statement).first()
 
+    def owns_active_lease(self, analysis_id: str, *, worker_id: str) -> bool:
+        return self.session.scalar(
+            select(AssetAiAnalysisModel.id).where(
+                AssetAiAnalysisModel.id == analysis_id,
+                AssetAiAnalysisModel.status == "running",
+                AssetAiAnalysisModel.claimed_by == worker_id,
+                AssetAiAnalysisModel.lease_expires_at.is_not(None),
+                AssetAiAnalysisModel.lease_expires_at > utcnow(),
+            )
+        ) is not None
+
     def set_stage(self, analysis_id: str, stage: str) -> None:
         analysis = self._analysis(analysis_id)
         if analysis.status != "completed":

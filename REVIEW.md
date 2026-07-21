@@ -1160,3 +1160,47 @@ Final controls:
 - Known risks: provider registration is process-local and static for one worker lifetime. OpenAI and request/API provider selection remain outside this step. Legacy null batch providers retain the existing Gemini compatibility normalization.
 - Rollback: revert this change to restore the singleton worker AI dependency; no database or data rollback is required.
 - Next recommended step: AI-MULTI-02 OpenAI single-analysis adapter against this registry.
+
+
+## AI-MULTI-02 review - OpenAI single-image Responses API
+
+- Files changed: OpenAI provider adapter, centralized OpenAI configuration,
+  worker registry bootstrap, lease ownership guard, focused provider/config/
+  bootstrap/service tests, dependency and environment templates, and provider
+  architecture documentation.
+- Migrations added: none.
+- Behavior introduced: when explicitly enabled and configured, workers register
+  an `openai` provider that uses the official asynchronous Responses API for
+  bounded prepared images. Requests contain only the profile prompt and a Base64
+  image data URL, use strict JSON Schema Structured Outputs when the profile is
+  compatible, otherwise request one JSON object, and keep provider-side response
+  storage disabled by default. Existing internal metadata safety/schema
+  validation, projection building, PostgreSQL persistence, governance accounting,
+  and persisted-provider routing remain authoritative. OpenAI batch operations
+  fail non-retryably with `openai_batch_not_implemented`.
+- Tests and actual results:
+  - `.venv/bin/python -m unittest tests.providers.test_openai_ai -v`:
+    11 passed in 0.039s.
+  - `.venv/bin/python -m unittest tests.test_config -v`:
+    18 passed in 0.074s.
+  - `.venv/bin/python -m unittest tests.modules.processing.test_runtime.WorkerBootstrapTest -v`:
+    6 passed in 0.060s.
+  - `.venv/bin/python -m unittest tests.modules.ai_metadata.test_service tests.modules.ai_metadata.test_handler -v`:
+    9 passed in 0.292s.
+  - `.venv/bin/python -m unittest tests.providers.test_gemini_ai tests.providers.test_ai_registry tests.domain.providers.test_contracts -v`:
+    12 passed in 0.012s.
+  - Python compile and `git diff --check`: passed.
+- Feature flags: `OPENAI_AI_ENABLED=false` by default.
+  `OPENAI_STORE_RESPONSES=false` by default. Gemini configuration and behavior
+  are unchanged.
+- Known risks: OpenAI Batch API is deliberately unavailable until AI-MULTI-03.
+  Provider-model choice remains configuration-driven because enqueue/request API
+  selection is outside this step. Only profile schemas compatible with Responses
+  strict Structured Outputs use schema mode; other profiles use JSON-object mode
+  and still pass through the internal validator. Cost remains locally estimated
+  unless a provider supplies an explicit reported cost.
+- Rollback: revert this change and remove the OpenAI dependency/settings from
+  deployment configuration. Leave `OPENAI_AI_ENABLED=false` for immediate
+  runtime rollback. No database rollback is required.
+- Next recommended step: AI-MULTI-03 OpenAI Batch API using the existing provider
+  registry without changing single-analysis behavior.
