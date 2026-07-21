@@ -32,6 +32,29 @@ class ActiveAnalysisService:
     def __init__(self, session: Session):
         self.session = session
 
+    @staticmethod
+    def _is_valid(analysis: AssetAiAnalysisModel | None) -> bool:
+        return bool(
+            analysis is not None
+            and analysis.status == "completed"
+            and analysis.completed_at is not None
+            and isinstance(analysis.metadata_json, dict)
+            and isinstance(analysis.search_projection, dict)
+            and analysis.search_projection_version
+            and not analysis.validation_errors_json
+        )
+
+    def _lock_asset(self, tenant_id: str, asset_id: str) -> AssetModel:
+        asset = self.session.scalar(
+            select(AssetModel).where(
+                AssetModel.tenant_id == tenant_id,
+                AssetModel.id == asset_id,
+            ).with_for_update()
+        )
+        if asset is None:
+            raise LookupError(asset_id)
+        return asset
+
     def get(self, tenant_id: str, asset_id: str, metadata_profile_id: str, search_context: str = "search_v2") -> ActiveAssetAnalysisModel | None:
         return self.session.scalar(
             select(ActiveAssetAnalysisModel).where(
@@ -52,10 +75,7 @@ class ActiveAnalysisService:
             or analysis.tenant_id != tenant_id
             or analysis.asset_id != asset_id
             or analysis.metadata_profile_id != metadata_profile_id
-            or analysis.status != "completed"
-            or not isinstance(analysis.metadata_json, dict)
-            or not isinstance(analysis.search_projection, dict)
-            or not analysis.search_projection_version
+            or not self._is_valid(analysis)
         ):
             raise AnalysisActivationError("active analysis reference is invalid")
         return analysis
@@ -71,14 +91,9 @@ class ActiveAnalysisService:
         search_context: str = "search_v2",
         action: str = "activate",
     ) -> ActivationResult:
-        asset = self.session.scalar(
-            select(AssetModel).where(
-                AssetModel.tenant_id == tenant_id,
-                AssetModel.id == asset_id,
-            ).with_for_update()
-        )
-        if asset is None:
-            raise LookupError(asset_id)
+        if action not in {"activate", "rollback"}:
+            raise AnalysisActivationError("unsupported activation action")
+        self._lock_asset(tenant_id, asset_id)
         analysis = self.session.scalar(
             select(AssetAiAnalysisModel).where(
                 AssetAiAnalysisModel.id == analysis_id,
@@ -87,11 +102,7 @@ class ActiveAnalysisService:
             )
         )
         if (
-            analysis is None
-            or analysis.status != "completed"
-            or not isinstance(analysis.metadata_json, dict)
-            or not isinstance(analysis.search_projection, dict)
-            or not analysis.search_projection_version
+            not self._is_valid(analysis)
         ):
             raise AnalysisActivationError("only a completed, valid, projected analysis can be activated")
         pointer = self.session.scalar(
@@ -133,44 +144,55 @@ class ActiveAnalysisService:
         self.session.flush()
         return ActivationResult(pointer, previous)
 
-    def rollback(self, *, tenant_id: str, asset_id: str, actor_id: str, reason: str | None = None, search_context: str = "search_v2") -> ActivationResult:
+    def rollback(
+        self, *, tenant_id: str, asset_id: str, metadata_profile_id: str,
+        actor_id: str, reason: str | None = None,
+        search_context: str = "search_v2",
+    ) -> ActivationResult:
+        self._lock_asset(tenant_id, asset_id)
         pointer = self.session.scalar(
             select(ActiveAssetAnalysisModel).where(
                 ActiveAssetAnalysisModel.tenant_id == tenant_id,
                 ActiveAssetAnalysisModel.asset_id == asset_id,
+                ActiveAssetAnalysisModel.metadata_profile_id == metadata_profile_id,
                 ActiveAssetAnalysisModel.search_context == search_context,
-            )
+            ).with_for_update()
         )
         if pointer is None:
             raise AnalysisActivationError("no active analysis is selected")
-        previous = self.session.scalar(
-            select(ActiveAnalysisAuditModel.analysis_id).where(
+        transition = self.session.scalar(
+            select(ActiveAnalysisAuditModel).where(
                 ActiveAnalysisAuditModel.tenant_id == tenant_id,
                 ActiveAnalysisAuditModel.asset_id == asset_id,
-                ActiveAnalysisAuditModel.metadata_profile_id == pointer.metadata_profile_id,
+                ActiveAnalysisAuditModel.metadata_profile_id == metadata_profile_id,
                 ActiveAnalysisAuditModel.search_context == search_context,
-                ActiveAnalysisAuditModel.analysis_id != pointer.analysis_id,
-            ).order_by(ActiveAnalysisAuditModel.created_at.desc()).limit(1)
+                ActiveAnalysisAuditModel.analysis_id == pointer.analysis_id,
+                ActiveAnalysisAuditModel.previous_analysis_id.is_not(None),
+            ).order_by(
+                ActiveAnalysisAuditModel.created_at.desc(),
+                ActiveAnalysisAuditModel.id.desc(),
+            ).limit(1)
         )
-        if previous is None:
+        if transition is None or transition.previous_analysis_id is None:
             raise AnalysisActivationError("no previous analysis is available")
         return self.activate(
-            tenant_id=tenant_id, asset_id=asset_id, analysis_id=previous,
+            tenant_id=tenant_id, asset_id=asset_id,
+            analysis_id=transition.previous_analysis_id,
             actor_id=actor_id, reason=reason, search_context=search_context, action="rollback",
         )
 
-    def enqueue_rebuild_and_reindex(self, *, tenant_id: str, active: ActiveAssetAnalysisModel) -> tuple[str, str]:
+    def enqueue_rebuild_and_reindex(self, *, tenant_id: str, active: ActiveAssetAnalysisModel) -> tuple[str]:
         analysis = self.resolve(tenant_id, active.asset_id, active.metadata_profile_id, active.search_context)
         jobs = ProcessingRepository(self.session)
         projection = jobs.create_job(
             tenant_id=tenant_id, job_type="search_projection_build", entity_type="asset",
             entity_id=active.asset_id, idempotency_key=f"active:projection:{analysis.id}:{analysis.search_projection_version}",
-            payload={"asset_id": active.asset_id, "analysis_id": analysis.id, "active_analysis_id": active.id},
+            payload={
+                "asset_id": active.asset_id,
+                "analysis_id": analysis.id,
+                "active_analysis_id": active.id,
+                "metadata_profile_id": active.metadata_profile_id,
+                "search_context": active.search_context,
+            },
         )
-        index = jobs.create_job(
-            tenant_id=tenant_id, job_type="asset_index", entity_type="asset",
-            entity_id=active.asset_id, idempotency_key=f"active:index:{analysis.id}:{analysis.search_projection_version}",
-            payload={"asset_id": active.asset_id, "analysis_id": analysis.id, "active_analysis_id": active.id},
-            provider_key="elasticsearch", provider_scope="search",
-        )
-        return projection.id, index.id
+        return (projection.id,)

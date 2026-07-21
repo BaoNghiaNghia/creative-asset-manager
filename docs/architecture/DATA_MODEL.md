@@ -358,3 +358,13 @@ metadata, projections and audits.
 Migration 0015_search_governance adds only these operational records. It does
 not alter AI history or Elasticsearch data. Downgrade removes Step 33 state
 after shadow/lifecycle operations are stopped.
+
+
+### Step 33R1 active-analysis integrity
+
+Migration `0016_active_analysis_integrity` keeps migration 0015 intact and adds
+the composite analysis reference required to prove that an active pointer and
+its analysis share the same tenant, asset, and metadata profile. Its downgrade
+restores the 0015 analysis-ID foreign key without deleting pointers or audit
+history. The existing unique pointer key continues to enforce one active
+analysis per tenant, asset, profile, and search context.

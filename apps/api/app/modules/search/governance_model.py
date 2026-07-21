@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKeyConstraint, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -16,6 +16,18 @@ def utcnow() -> datetime:
 class ActiveAssetAnalysisModel(Base):
     __tablename__ = "active_asset_analyses"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "asset_id"], ["assets.tenant_id", "assets.id"],
+            ondelete="CASCADE", name="fk_active_analysis_tenant_asset",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "asset_id", "metadata_profile_id", "analysis_id"],
+            [
+                "asset_ai_analyses.tenant_id", "asset_ai_analyses.asset_id",
+                "asset_ai_analyses.metadata_profile_id", "asset_ai_analyses.id",
+            ],
+            ondelete="RESTRICT", name="fk_active_analysis_exact_analysis",
+        ),
         UniqueConstraint("tenant_id", "asset_id", "metadata_profile_id", "search_context", name="uq_active_asset_analysis_context"),
         Index("ix_active_asset_analyses_analysis", "tenant_id", "analysis_id"),
     )

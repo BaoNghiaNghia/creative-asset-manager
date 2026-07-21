@@ -94,6 +94,8 @@ class SearchOperationRepository:
                 ActiveAssetAnalysisModel,
                 and_(
                     ActiveAssetAnalysisModel.tenant_id == AssetAiAnalysisModel.tenant_id,
+                    ActiveAssetAnalysisModel.asset_id == AssetAiAnalysisModel.asset_id,
+                    ActiveAssetAnalysisModel.metadata_profile_id == AssetAiAnalysisModel.metadata_profile_id,
                     ActiveAssetAnalysisModel.analysis_id == AssetAiAnalysisModel.id,
                     ActiveAssetAnalysisModel.search_context == "search_v2",
                 ),

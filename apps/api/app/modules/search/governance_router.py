@@ -29,6 +29,7 @@ class ActivationRequest(BaseModel):
 
 
 class RollbackRequest(BaseModel):
+    metadata_profile_id: str = Field(..., min_length=1, max_length=36)
     reason: str | None = Field(None, max_length=1000)
     search_context: str = Field("search_v2", min_length=1, max_length=64)
     rebuild_and_reindex: bool = True
@@ -110,8 +111,8 @@ def rollback_analysis(tenant: str, asset_id: str, body: RollbackRequest, admin: 
         try:
             service = ActiveAnalysisService(session)
             result = service.rollback(
-                tenant_id=tenant, asset_id=asset_id, actor_id=admin.actor_id,
-                reason=body.reason, search_context=body.search_context,
+                tenant_id=tenant, asset_id=asset_id, metadata_profile_id=body.metadata_profile_id,
+                actor_id=admin.actor_id, reason=body.reason, search_context=body.search_context,
             )
             jobs = service.enqueue_rebuild_and_reindex(tenant_id=tenant, active=result.active) if body.rebuild_and_reindex else None
             session.commit()

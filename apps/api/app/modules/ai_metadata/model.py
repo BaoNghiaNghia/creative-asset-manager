@@ -54,6 +54,10 @@ class AssetAiAnalysisModel(Base):
             ondelete="RESTRICT",
             name="fk_asset_ai_analyses_tenant_profile",
         ),
+        UniqueConstraint(
+            "tenant_id", "asset_id", "metadata_profile_id", "id",
+            name="uq_asset_ai_analyses_active_reference",
+        ),
         CheckConstraint(
             "status IN ('pending', 'running', 'completed', 'failed', 'budget_blocked')",
             name="ck_asset_ai_analyses_status",

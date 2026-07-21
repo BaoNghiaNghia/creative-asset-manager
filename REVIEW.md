@@ -815,3 +815,36 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   3.12.13 container:
   `python -m pip install -r requirements.txt && timeout 10m python -m unittest discover -s tests -v`
   - 293 tests passed, 11 integration tests skipped, exit code 0.
+
+
+## Step 33R1 review - active-analysis remediation
+
+- Files changed: active-analysis integrity constraints, activation/rollback
+  service and admin request, active-only operation selection, projection/index
+  worker ordering, focused tests, and architecture records.
+- Migration added: `0016_active_analysis_integrity`; migration 0015 was not
+  recreated or edited. Upgrade replaces the analysis-ID-only reference with a
+  tenant/asset/profile/analysis composite foreign key. Downgrade restores the
+  0015 reference and preserves pointers and audit rows.
+- Behavior introduced: activation accepts only completed, projected analyses
+  without validation errors; asset-row locking serializes activation; rollback
+  follows the exact latest transition for the active pointer; audit history is
+  append-only; rebuild/reindex selection uses the explicit pointer; an index
+  job is created only after the projection transaction succeeds.
+- Tests run/results:
+  - `.venv/bin/python -m unittest tests.modules.search.test_active_analysis_repository -v`: 1 passed.
+  - `.venv/bin/python -m unittest tests.modules.search.test_active_analysis_service -v`: 3 passed.
+  - `.venv/bin/python -m unittest tests.modules.search.test_active_analysis_admin -v`: 2 passed.
+  - `.venv/bin/python -m unittest tests.migrations.test_active_analysis_integrity_migration tests.migrations.test_search_governance_migration -v`: 2 passed.
+  - The initial pytest invocation did not run because pytest is not installed
+    in the local virtualenv; the repository's unittest runner was used.
+- Feature flags: no new flags; `DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED`
+  remains the default-disabled runtime gate.
+- Known risks: PostgreSQL row-lock concurrency is enforced by design and the
+  database unique constraint is the final guard; the focused local tests use
+  SQLite and do not replace PostgreSQL integration coverage.
+- Rollback: disable deterministic active analysis, drain projection/index jobs,
+  deploy the prior code, and downgrade Alembic to
+  `0015_search_governance`. Pointer and audit records remain.
+- Next recommended step: run the existing PostgreSQL active-analysis
+  concurrency scenario in CI before enabling the flag for a pilot tenant.

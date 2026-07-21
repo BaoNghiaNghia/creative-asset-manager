@@ -97,7 +97,8 @@ class SearchGovernanceTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(first.active.id, second.active.id)
         rolled = service.rollback(
-            tenant_id="tenant-a", asset_id=self.asset.id, actor_id="admin",
+            tenant_id="tenant-a", asset_id=self.asset.id,
+            metadata_profile_id=self.profile.id, actor_id="admin",
         )
         self.assertEqual(rolled.active.analysis_id, self.analyses[0].id)
         self.assertEqual(len(list(self.session.scalars(select(ActiveAnalysisAuditModel)))), 3)
