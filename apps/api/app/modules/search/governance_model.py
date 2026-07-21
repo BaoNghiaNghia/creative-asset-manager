@@ -111,7 +111,7 @@ class SearchIndexRecordModel(Base):
     __tablename__ = "search_index_records"
     __table_args__ = (
         UniqueConstraint("physical_index_name", name="uq_search_index_record_name"),
-        CheckConstraint("lifecycle_state IN ('building','validating','active','previous','retired','deletion_pending','deleted','failed')", name="ck_search_index_lifecycle_state"),
+        CheckConstraint("lifecycle_state IN ('building','validating','verified','activating','active','previous','retired','deletion_pending','deleted','failed')", name="ck_search_index_lifecycle_state"),
         Index("ix_search_index_lifecycle", "index_prefix", "lifecycle_state", "created_at"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))

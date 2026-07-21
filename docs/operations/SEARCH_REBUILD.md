@@ -105,3 +105,31 @@ Stop operational commands, cancel active runs, and export audit records if
 needed. Downgrade `0007_search_operations` to `0006_metadata_sidecars`.
 Downgrade removes checkpoints only; it does not revert PostgreSQL projections,
 delete Elasticsearch indices, or change aliases.
+
+## Step 33R3 lifecycle promotion and cleanup
+
+Keep `ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED=false` until an authorized rollout.
+For each physical index: register/build it, run lifecycle verification with an
+expected projection version, count/tolerance, failure threshold, ranked golden
+fixtures and every tenant expected in the index, then inspect the stored
+verification evidence. Only a `verified` record may be activated.
+
+Activation atomically moves both aliases and durably checkpoints `activating`.
+If a process stops after the Elasticsearch switch, call the authenticated
+`POST /api/v1/admin/search/indices/reconcile?index_prefix=...` operation. It
+requires one identical read and write target, promotes that database record,
+demotes the old active record to previous, and retires older previous records.
+Use `POST /api/v1/admin/search/indices/{previous_record_id}/rollback` to restore
+the protected previous index, then verify both aliases and database state.
+
+Always run cleanup with `dry_run=true` first. Destructive cleanup requires a
+positive retention age and `confirmed=true`, is limited to 100 records per
+call, and checkpoints each candidate as `deletion_pending`. Cancellation stops
+between candidates; rerunning resumes checkpoints. Cleanup never selects active
+or previous database records and re-reads read/write aliases immediately before
+each delete. If database and cluster aliases disagree, reconcile before cleanup.
+
+Rollback migration note: stop lifecycle operations, reconcile all `activating`
+records and either activate or re-verify all `verified` records before
+downgrading Alembic from 0017 to 0016. The downgrade changes only the PostgreSQL
+state constraint; it does not switch aliases or delete indices.

@@ -17,6 +17,7 @@ from app.modules.search.governance_model import (
 )
 from app.modules.search.index_lifecycle import SearchIndexLifecycleService, VerificationSpec
 from app.modules.search.index_types import AliasSwitchResult
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Index
 from app.modules.search.shadow import SearchShadowComparator
 
 
@@ -24,13 +25,18 @@ class FakeIndexAdmin:
     def __init__(self):
         self.aliases = {"read": {"cam-v2-old"}, "write": {"cam-v2-old"}}
         self.deleted = []
-        self.mapping = {"cam-v2-new": {"mappings": {"dynamic": "strict"}}}
+        definition = ElasticsearchV2Index.index_definition()
+        self.mapping = {"cam-v2-new": {"mappings": definition["mappings"]}}
+        self.settings = {"cam-v2-new": {"settings": {"index": definition["settings"]}}}
         self.count = 3
         self.alias_checks = 0
 
     async def alias_indices(self):
         self.alias_checks += 1
         return {key: set(value) for key, value in self.aliases.items()}
+
+    async def index_settings(self, _name):
+        return self.settings
 
     async def index_count(self, _name):
         return self.count

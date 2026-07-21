@@ -132,12 +132,25 @@ affect the response. Observations store a query hash, bounded features,
 versions, latencies, counts, top-k/rank agreement and an error class. Raw query
 retention is opt-in and sensitive-looking queries are never stored.
 
-Index lifecycle states are building, validating, active, previous, retired,
-deletion_pending, deleted and failed. Activation requires mapping, count,
-failure, projection-version, fixture and tenant-isolation verification. A
-lifecycle-enabled rebuild never switches aliases automatically. Cleanup
-preserves active aliases and configured previous versions, requires minimum age
-and confirmation, and rechecks cluster aliases immediately before deletion.
+Index lifecycle states are `building`, `validating`, `verified`, `activating`,
+`active`, `previous`, `retired`, `deletion_pending`, `deleted`, and `failed`.
+Only explicit allowed transitions are accepted. Successful validation stops in
+`verified`; activation first commits `activating`, performs one atomic read/write
+alias update, then reconciles PostgreSQL with cluster aliases. An interrupted
+activation is recovered by the same reconciliation operation. Rollback targets
+the exact `previous` database record and uses the same checkpointed flow.
+
+Verification checks strict dynamic mapping, all stable field and nested
+`path_values` types, the configured analyzer and punctuation character filter,
+projection version in both PostgreSQL and indexed documents, bounded document
+count tolerance, indexing failure threshold, ranked golden asset fixtures, and
+non-empty tenant-filtered results with no cross-tenant hit. A lifecycle-enabled
+rebuild never switches aliases automatically.
+
+Cleanup considers only `retired` or resumable `deletion_pending` records. It is
+bounded, cancellation-aware, dry-run by default, requires explicit destructive
+confirmation and a positive minimum retention age, protects read/write/active/
+previous indices, and rechecks cluster aliases immediately before deletion.
 
 
 ## Shadow-search comparison semantics

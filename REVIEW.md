@@ -874,3 +874,38 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   new shutdown setting. No database rollback is required.
 - Next recommended step: enable one direction at 5% for a pilot tenant and
   validate report counts and p95 latency before expanding sampling.
+
+## Step 33R3 review - Elasticsearch lifecycle remediation
+
+- Files changed: lifecycle service and admin operations, stable Elasticsearch
+  settings reader, lifecycle-state model/migration, focused lifecycle and real
+  Elasticsearch tests, search/data-model docs, and the operator runbook.
+- Migration added: `0017_search_index_lifecycle_states`; migrations 0015 and
+  0016 were not recreated or edited. Upgrade adds durable `verified` and
+  `activating` states. Downgrade restores the 0016 state constraint after those
+  records have been reconciled.
+- Behavior introduced: explicit allowed transitions and verified state;
+  complete mapping/analyzer/projection/count/failure/golden/tenant validation;
+  checkpointed atomic alias activation and exact previous rollback; database to
+  cluster reconciliation; bounded, cancellable, resumable, age-gated cleanup
+  with dry-run, explicit confirmation and a final alias recheck.
+- Tests run/results:
+  - `cd apps/api && .venv/bin/python -m unittest tests.modules.search.test_index_lifecycle_r3 tests.modules.search.test_governance.SearchGovernanceTest.test_verify_before_activate_and_alias_safe_cleanup tests.migrations.test_search_index_lifecycle_state_migration -v`: 7 passed.
+  - `cd apps/api && INTEGRATION_ELASTICSEARCH_URL=http://127.0.0.1:9200 .venv/bin/python -m unittest tests.integration.test_elasticsearch -v` against pinned Elasticsearch 8.15.3: 1 passed.
+  - The integration module first reported one expected skip with no configured
+    endpoint; it was then run against the real temporary service above.
+- Feature flags: no new flag and no global enablement. Existing
+  `ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED` and `ELASTICSEARCH_V2_ENABLED` remain
+  default-disabled gates.
+- Known risks: aliases are global to an index prefix, so operators must include
+  all expected tenants in verification. Cancellation is cooperative between
+  bounded cleanup candidates; an in-flight Elasticsearch delete is not
+  interruptible. Migration downgrade requires state reconciliation first.
+- Rollback: disable lifecycle operations, reconcile read/write aliases to one
+  verified index, ensure no record remains `verified` or `activating`, deploy
+  the prior code, and downgrade Alembic to `0016_active_analysis_integrity`.
+  The migration does not delete physical indices or change aliases.
+- Next recommended step: deploy migration 0017 with flags false, verify one
+  staging index using ranked golden fixtures and all pilot tenants, exercise an
+  interrupted activation/reconcile drill, then keep the previous index through
+  the documented retention window.

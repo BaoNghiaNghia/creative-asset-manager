@@ -52,6 +52,10 @@ class VerifyIndexRequest(BaseModel):
     expected_projection_version: str
     minimum_document_count: int = Field(1, ge=0)
     maximum_indexing_failures: int = Field(0, ge=0)
+    expected_document_count: int | None = Field(None, ge=0)
+    document_count_tolerance: int = Field(0, ge=0)
+    required_queries: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    tenant_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
 class CleanupIndexRequest(BaseModel):
@@ -182,7 +186,9 @@ async def verify_index(record_id: str, body: VerifyIndexRequest, admin: Processi
                 row = await SearchIndexLifecycleService(session, provider).verify(
                     record_id, VerificationSpec(
                         body.expected_projection_version, body.minimum_document_count,
-                        body.maximum_indexing_failures,
+                        body.maximum_indexing_failures, body.expected_document_count,
+                        body.document_count_tolerance, tuple(body.required_queries),
+                        tuple(body.tenant_ids),
                     ), actor_id=admin.actor_id,
                 )
                 session.commit()
@@ -205,6 +211,34 @@ async def activate_index(record_id: str, admin: ProcessingAdmin = Depends(requir
                 return {"index": row.physical_index_name, "state": row.lifecycle_state}
             except (LookupError, IndexVerificationError) as exc:
                 session.rollback()
+                raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/indices/{record_id}/rollback")
+async def rollback_index(record_id: str, admin: ProcessingAdmin = Depends(require_processing_admin)):
+    settings = get_settings()
+    if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
+        raise HTTPException(409, "Index lifecycle operations are disabled")
+    async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
+        with SessionLocal() as session:
+            try:
+                row = await SearchIndexLifecycleService(session, provider).rollback(record_id, actor_id=admin.actor_id)
+                return {"index": row.physical_index_name, "state": row.lifecycle_state}
+            except (LookupError, IndexVerificationError) as exc:
+                raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/indices/reconcile")
+async def reconcile_indices(index_prefix: str, admin: ProcessingAdmin = Depends(require_processing_admin)):
+    settings = get_settings()
+    if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
+        raise HTTPException(409, "Index lifecycle operations are disabled")
+    async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
+        with SessionLocal() as session:
+            try:
+                row = await SearchIndexLifecycleService(session, provider).reconcile_aliases(index_prefix, actor_id=admin.actor_id)
+                return {"index": row.physical_index_name, "state": row.lifecycle_state}
+            except (LookupError, IndexVerificationError) as exc:
                 raise HTTPException(409, str(exc)) from exc
 
 

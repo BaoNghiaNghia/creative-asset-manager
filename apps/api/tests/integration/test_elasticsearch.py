@@ -4,11 +4,16 @@ import os
 import unittest
 from uuid import uuid4
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from app.core.database import Base
 from app.infrastructure.search.elasticsearch_v2 import (
     ElasticsearchV2Config,
     ElasticsearchV2Index,
 )
 from app.modules.search.index_types import SearchIndexDocument
+from app.modules.search.index_lifecycle import SearchIndexLifecycleService, VerificationSpec
 from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
 from app.modules.search.query_parser import SearchQueryParser
 
@@ -92,6 +97,16 @@ class ElasticsearchRealIntegrationTest(unittest.IsolatedAsyncioTestCase):
             mapping.json()[self.first]["mappings"]["dynamic"],
             "strict",
         )
+        settings = await self.index.index_settings(self.first)
+        analysis = settings[self.first]["settings"]["index"]["analysis"]
+        analyzer = analysis["analyzer"]["cam_text_v2"]
+        self.assertEqual(analyzer["tokenizer"], "standard")
+        self.assertIn("lowercase", analyzer["filter"])
+        self.assertIn("asciifolding", analyzer["filter"])
+        self.assertEqual(
+            analysis["char_filter"]["cam_punctuation"]["type"],
+            "pattern_replace",
+        )
         documents = [
             self.document(
                 "cat-1",
@@ -114,6 +129,42 @@ class ElasticsearchRealIntegrationTest(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(await self.index.bulk_upsert(documents), 3)
         await self.refresh()
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        try:
+            with Session(engine) as session:
+                service = SearchIndexLifecycleService(session, self.index)
+                record = service.register(
+                    physical_index_name=self.first,
+                    index_prefix=self.prefix,
+                    index_version="000001",
+                    projection_version="search-projection-v1",
+                )
+                verified = await service.verify(
+                    record.id,
+                    VerificationSpec(
+                        "search-projection-v1",
+                        minimum_document_count=3,
+                        expected_document_count=3,
+                        document_count_tolerance=0,
+                        required_queries=({
+                            "_name": "stable asset ranking",
+                            "_expected_asset_ids": ["cat-1", "cat-2"],
+                            "_expected_ranking": True,
+                            "size": 2,
+                            "query": {"term": {"tenant_id": "tenant-a"}},
+                            "sort": [{"asset_id": "asc"}],
+                        },),
+                        tenant_ids=("tenant-a",),
+                    ),
+                    actor_id="integration-admin",
+                )
+                self.assertEqual(verified.lifecycle_state, "verified")
+                active = await service.activate(record.id, actor_id="integration-admin")
+                self.assertEqual(active.lifecycle_state, "active")
+        finally:
+            engine.dispose()
 
         invalid = await self.index.client.post(
             f"/{self.index.write_alias}/_doc/strict-mapping",

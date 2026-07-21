@@ -209,6 +209,9 @@ class ElasticsearchV2Index:
     async def index_mapping(self, index_name: str) -> dict[str, Any]:
         return await self._request("GET", f"/{index_name}/_mapping")
 
+    async def index_settings(self, index_name: str) -> dict[str, Any]:
+        return await self._request("GET", f"/{index_name}/_settings")
+
     async def verification_search(
         self, index_name: str, body: dict[str, Any]
     ) -> dict[str, Any]:
