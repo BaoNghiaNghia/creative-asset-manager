@@ -57,3 +57,4 @@
 
 - [x] 33 Deterministic active analysis, search shadow comparison, and safe index lifecycle
   - [x] 33R1 Active-analysis integrity and deterministic rebuild ordering
+  - [x] 33R2 Shadow-search safety, metrics, and reporting remediation

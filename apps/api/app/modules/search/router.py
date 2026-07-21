@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio
+import time
 from fastapi import APIRouter, HTTPException, Request
 from urllib.parse import quote
 from sqlalchemy import select
@@ -11,7 +11,7 @@ from app.modules.explorer.router import _access_token, _account_id
 from app.modules.explorer.schema import SearchRequest
 from app.modules.explorer.service import ExplorerService
 from app.providers.source_factory import create_source_provider
-from app.modules.search.shadow import SearchShadowComparator
+from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.asset_details.router import admin_or_none, tenant_id
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
@@ -75,6 +75,7 @@ async def search(body: SearchV2Request, request: Request):
             filters.append({"terms": {"asset_id": asset_ids or ["__none__"]}})
         query["aggs"] = {name: {"terms": {"field": f"facets.{name}", "size": 50}} for name in allowed_facets}
         debug = body.debug and admin_or_none(request) is not None
+        primary_started = time.perf_counter()
         try:
             async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as index:
                 response = await index.search(query)
@@ -118,13 +119,12 @@ async def search(body: SearchV2Request, request: Request):
             document["total"] = len(document["items"])
             return document
 
-        comparator = SearchShadowComparator(
-            session_factory=SessionLocal,
-            global_enabled=lambda: get_settings().SEARCH_SHADOW_COMPARISON_ENABLED,
-            max_timeout_ms=settings.SEARCH_SHADOW_MAX_TIMEOUT_MS,
-        )
-        return await comparator.execute(
-            tenant_id=tenant, query=body.query,
-            primary=lambda: asyncio.sleep(0, result=primary_result),
-            shadow=legacy_shadow,
-        )
+        # Aggregate v2 results are not comparable to one provider-specific legacy tree.
+        if body.source_provider:
+            await SHADOW_SEARCH.observe(
+                tenant_id=tenant, query=body.query, primary_result=primary_result,
+                primary_ms=int((time.perf_counter() - primary_started) * 1000),
+                shadow=legacy_shadow, primary_version="v2", shadow_version="v1",
+                surface="search_v2",
+            )
+        return primary_result

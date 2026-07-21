@@ -20,14 +20,21 @@ from app.modules.processing_policy.router import router as processing_policy_rou
 from app.modules.asset_details.router import router as asset_details_router
 from app.modules.search.router import router as search_router
 from app.modules.search.governance_router import router as search_governance_router
+from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.tag.router import router as tag_router
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    get_settings()
+    settings = get_settings()
     init_database()
-    yield
+    SHADOW_SEARCH.start()
+    try:
+        yield
+    finally:
+        await SHADOW_SEARCH.shutdown(
+            settings.SEARCH_SHADOW_SHUTDOWN_TIMEOUT_MS / 1000
+        )
 
 
 app = FastAPI(title="Creative Asset Manager API", version="0.4.0", lifespan=lifespan)

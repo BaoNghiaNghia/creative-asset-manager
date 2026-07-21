@@ -154,10 +154,21 @@ def update_shadow_policy(tenant: str, body: ShadowPolicyRequest, admin: Processi
 
 
 @router.get("/tenants/{tenant}/shadow-report")
-def shadow_report(tenant: str, started_at: datetime | None = None, ended_at: datetime | None = None, query_type: str | None = None, admin: ProcessingAdmin = Depends(require_processing_admin)):
+def shadow_report(
+    tenant: str, started_at: datetime | None = None,
+    ended_at: datetime | None = None, query_type: str | None = None,
+    metadata_profile: str | None = None, primary_version: str | None = None,
+    shadow_version: str | None = None, error_category: str | None = None,
+    admin: ProcessingAdmin = Depends(require_processing_admin),
+):
     _authorize(admin, tenant)
     with SessionLocal() as session:
-        return SearchShadowRepository(session).report(tenant, started_at=started_at, ended_at=ended_at, query_type=query_type)
+        return SearchShadowRepository(session).report(
+            tenant, started_at=started_at, ended_at=ended_at,
+            query_type=query_type, metadata_profile=metadata_profile,
+            primary_version=primary_version, shadow_version=shadow_version,
+            error_category=error_category,
+        )
 
 
 @router.post("/indices/{record_id}/verify")

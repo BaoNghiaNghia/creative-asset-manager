@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     SEARCH_SHADOW_MAX_TIMEOUT_MS: int = 2000
     SEARCH_SHADOW_DEFAULT_SAMPLE_PERCENTAGE: int = 0
     SEARCH_SHADOW_OBSERVATION_RETENTION_DAYS: int = 30
+    SEARCH_SHADOW_SHUTDOWN_TIMEOUT_MS: int = 2000
     ELASTICSEARCH_INDEX_MIN_RETIREMENT_AGE_HOURS: int = 24
     ELASTICSEARCH_INDEX_MIN_PREVIOUS_VERSIONS: int = 1
 
@@ -212,6 +213,8 @@ class Settings(BaseSettings):
             raise ValueError("SEARCH_SHADOW_DEFAULT_SAMPLE_PERCENTAGE must be between 0 and 100")
         if not 0 < self.SEARCH_SHADOW_DEFAULT_TIMEOUT_MS <= self.SEARCH_SHADOW_MAX_TIMEOUT_MS:
             raise ValueError("Search shadow timeout must be positive and within its maximum")
+        if self.SEARCH_SHADOW_SHUTDOWN_TIMEOUT_MS <= 0:
+            raise ValueError("Search shadow shutdown timeout must be positive")
         if min(
             self.SEARCH_SHADOW_OBSERVATION_RETENTION_DAYS,
             self.ELASTICSEARCH_INDEX_MIN_RETIREMENT_AGE_HOURS,

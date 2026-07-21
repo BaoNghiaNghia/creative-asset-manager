@@ -848,3 +848,29 @@ metadata_json and stored analysis history remain authoritative and unchanged.
   `0015_search_governance`. Pointer and audit records remain.
 - Next recommended step: run the existing PostgreSQL active-analysis
   concurrency scenario in CI before enabling the flag for a pilot tenant.
+
+
+## Step 33R2 review - shadow-search remediation
+
+- Files changed: shared shadow coordinator, comparator/repository/reporting,
+  explorer regular and streaming search wiring, v2 search wiring, application
+  shutdown, configuration, focused fake-provider tests, and search docs.
+- Migrations added: none.
+- Behavior introduced: explicit v1-to-v2 and v2-to-v1 surface directions;
+  primary-independent shadow scheduling; deterministic sampling; strict bounded
+  provider timeout; app-lifetime drain/cancel; stable error categories; standard
+  documented overlap-at-K, top-1, zero-result, count-difference and latency
+  observations; filtered percentile reports; bounded metrics without tenant or
+  query labels.
+- Tests run/results:
+  `.venv/bin/python -m unittest tests.modules.search.test_shadow_search_r2 tests.modules.search.test_governance.SearchGovernanceTest.test_shadow_timeout_never_delays_primary_and_persists_bounded_data tests.modules.search.test_governance.SearchGovernanceTest.test_global_shadow_disable_is_an_upper_bound -v`
+  passed 5 tests. Fake providers only; Elasticsearch was not started.
+- Feature flags: no new flag. `SEARCH_SHADOW_COMPARISON_ENABLED` remains false
+  by default and tenant policy cannot override it.
+- Known risks: observation persistence is synchronous inside a detached task;
+  a slow database cannot delay the primary response but may extend graceful
+  shutdown until the configured bound.
+- Rollback: disable shadow comparison, deploy the prior code, and remove the
+  new shutdown setting. No database rollback is required.
+- Next recommended step: enable one direction at 5% for a pilot tenant and
+  validate report counts and p95 latency before expanding sampling.

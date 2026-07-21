@@ -138,3 +138,41 @@ failure, projection-version, fixture and tenant-isolation verification. A
 lifecycle-enabled rebuild never switches aliases automatically. Cleanup
 preserves active aliases and configured previous versions, requires minimum age
 and confirmation, and rechecks cluster aliases immediately before deletion.
+
+
+## Shadow-search comparison semantics
+
+Shadow comparison is deliberately wired by surface and direction:
+
+- `POST /api/explorer/search`: legacy provider search (v1) primary, Elasticsearch
+  search (v2) shadow.
+- `POST /api/explorer/search/stream`: the same v1-to-v2 direction; observation
+  is scheduled before the terminal primary event is emitted.
+- `POST /api/v1/search`: v2 primary and provider-specific v1 shadow only when
+  `source_provider` is explicit. Aggregate multi-provider v2 results are not
+  compared with one arbitrary legacy provider.
+
+The tenant policy direction must match the surface direction. Sampling is
+deterministic using a SHA-256 bucket over tenant, surface and query, with the
+configured percentage bounded to 0–100.
+
+Top-K overlap is defined as:
+
+`|unique(primary[:K]) intersect unique(shadow[:K])| / K`
+
+Top-1 agreement is reported only when both sides return a first result.
+Zero-result disagreement uses result counts, independently of top-1. Reports
+include signed and absolute count differences, primary/shadow latency average,
+p50 and p95, error categories, query/profile/version/date filters and tenant
+isolation.
+
+Raw query persistence is disabled by default and sensitive-looking queries are
+never persisted. Metric dimensions are limited to the fixed surface, v1/v2
+direction and bounded outcome category; tenant IDs, queries, asset IDs and
+request IDs are not metric labels.
+
+The primary response is completed independently of policy lookup, shadow
+provider execution and observation persistence. Provider execution uses a
+strict timeout. Application shutdown stops accepting observations, drains up
+to `SEARCH_SHADOW_SHUTDOWN_TIMEOUT_MS`, then cancels and safely detaches tasks
+that do not cooperate with cancellation.

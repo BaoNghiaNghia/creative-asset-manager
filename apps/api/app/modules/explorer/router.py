@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import json
+import time
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -9,11 +10,10 @@ from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
 from app.core.config import get_settings
-from app.core.database import SessionLocal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
 from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
 from app.modules.search.query_parser import SearchQueryParser
-from app.modules.search.shadow import SearchShadowComparator
+from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.explorer.indexing import get_index_status, start_index_job
 from app.modules.explorer.schema import (
     AssetNode,
@@ -123,43 +123,40 @@ async def index_status(
     return get_index_status(_account_id(request, provider), provider)
 
 
+async def _v2_shadow(body: SearchRequest, tenant: str, settings):
+    parsed = SearchQueryParser().parse(body.query)
+    query = ElasticsearchQueryBuilder().build(
+        parsed, tenant_id=tenant, config=SearchQueryConfig(),
+        size=min(body.limit, 200), offset=0,
+    )
+    async with ElasticsearchV2Index(ElasticsearchV2Config(
+        settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX,
+    )) as index:
+        response = await index.search(query)
+    return {
+        "items": response.get("hits", {}).get("hits", []),
+        "total": response.get("hits", {}).get("total", 0),
+    }
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search(request: Request, body: SearchRequest):
     try:
         token = await _access_token(request, body.provider)
         tenant = _account_id(request, body.provider)
-        primary_result = await ExplorerService(create_source_provider).search_subtree(
-            body,
-            token,
-            tenant,
-        )
         settings = get_settings()
 
-        async def v2_shadow():
-            parsed = SearchQueryParser().parse(body.query)
-            query = ElasticsearchQueryBuilder().build(
-                parsed, tenant_id=tenant, config=SearchQueryConfig(),
-                size=min(body.limit, 200), offset=0,
+        async def primary():
+            result = await ExplorerService(create_source_provider).search_subtree(
+                body, token, tenant,
             )
-            async with ElasticsearchV2Index(ElasticsearchV2Config(
-                settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX
-            )) as index:
-                response = await index.search(query)
-            hits = response.get("hits", {}).get("hits", [])
-            return {"items": hits, "total": response.get("hits", {}).get("total", 0)}
+            return result.model_dump(mode="json")
 
-        comparator = SearchShadowComparator(
-            session_factory=SessionLocal,
-            global_enabled=lambda: bool(
-                get_settings().SEARCH_SHADOW_COMPARISON_ENABLED
-                and get_settings().ELASTICSEARCH_URL
-            ),
-            max_timeout_ms=settings.SEARCH_SHADOW_MAX_TIMEOUT_MS,
-        )
-        return await comparator.execute(
-            tenant_id=tenant, query=body.query,
-            primary=lambda: asyncio.sleep(0, result=primary_result.model_dump(mode="json")),
-            shadow=v2_shadow,
+        return await SHADOW_SEARCH.execute(
+            tenant_id=tenant, query=body.query, primary=primary,
+            shadow=lambda: _v2_shadow(body, tenant, settings),
+            primary_version="v1", shadow_version="v2",
+            surface="explorer_search",
         )
     except HTTPException:
         raise
@@ -180,17 +177,28 @@ async def search_stream(request: Request, body: SearchRequest):
 
         async def execute():
             try:
+                started = time.perf_counter()
                 result = await ExplorerService(create_source_provider).search_subtree(
                     body,
                     token,
                     account_id,
                     progress=progress,
                 )
+                primary_document = jsonable_encoder(result)
+                settings = get_settings()
+                await SHADOW_SEARCH.observe(
+                    tenant_id=account_id, query=body.query,
+                    primary_result=primary_document,
+                    primary_ms=int((time.perf_counter() - started) * 1000),
+                    shadow=lambda: _v2_shadow(body, account_id, settings),
+                    primary_version="v1", shadow_version="v2",
+                    surface="explorer_search_stream",
+                )
                 await queue.put({
                     "type": "result",
                     "status": "Search complete",
                     "progress": 100,
-                    "data": jsonable_encoder(result),
+                    "data": primary_document,
                 })
             except Exception as exc:
                 error = _provider_error(exc, f"Unable to search {body.provider} metadata")
