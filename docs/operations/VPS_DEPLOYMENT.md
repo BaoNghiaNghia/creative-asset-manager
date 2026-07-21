@@ -224,3 +224,41 @@ Keep pipeline/search flags disabled for the first boot and use the controlled
 rollout runbook for tenant enablement. `docker compose down` stops Elasticsearch
 without deleting its named volume; never add `--volumes` unless deletion is
 explicitly approved.
+
+
+### Validated baseline (2026-07-21)
+
+The production artifacts were exercised locally with disposable PostgreSQL
+16.4, Elasticsearch, Nginx and fake OAuth credentials. No production provider
+was contacted.
+
+| Check | Result | Validation |
+| --- | --- | --- |
+| Frontend production build | Passed | `npm ci --no-audit --no-fund && npm run build`; Vite transformed 46 modules. |
+| Nginx syntax | Passed | `nginx -t` with `nginx:1.27.5-alpine`, the production site and a temporary certificate. |
+| Production API configuration | Passed | `production_env.py check` accepted a mode-0600 production environment with PostgreSQL and loopback proxy settings. |
+| Production SQLite rejection | Passed | The same validator rejected a production `sqlite` URL before application startup. |
+| Empty PostgreSQL migration | Passed | Alembic upgraded an empty PostgreSQL 16.4 database to `0018_legacy_metadata_schema`; exactly one head was present. |
+| API probes | Passed | Native Uvicorn returned `200` from `/live` and `ready` from `/ready`; PostgreSQL was available. Elasticsearch correctly reported `disabled` because all relevant Search v2 flags were false. |
+| Worker lifecycle | Passed | The native worker exposed liveness/health and exited within the bounded shutdown window after `SIGTERM`. Its readiness remained false because processing jobs were intentionally disabled. |
+| Elasticsearch Compose | Passed | The pinned production service became Docker-healthy and cluster yellow/green on `127.0.0.1:9200`; no wildcard binding was present. |
+| OAuth and secure cookie | Passed | A request through Nginx redirected to Google with `https://assets.example.com/api/auth/google/callback`; the state cookie was `HttpOnly`, `Secure` and `SameSite=Lax`. Fake client credentials were used and authorization was not completed. |
+| Nginx request behavior | Passed | A deep SPA route returned `index.html`, `/api` and `/live` reached the API, and hashed static assets returned public immutable caching headers with an expiry. |
+| Feature-flag defaults | Passed | Focused settings tests confirmed every unified pipeline feature flag defaults to false; the production template keeps ingestion, AI processing and Search v2 rollout flags false. |
+
+The focused production validation suite is reproducible with:
+
+```bash
+PYTHONPATH=apps/api apps/api/.venv/bin/python -m unittest \
+  deploy.tests.test_vps_deployment \
+  tests.test_config \
+  tests.test_http_config \
+  tests.test_production_health \
+  tests.modules.auth_persistence.test_config \
+  tests.modules.processing.test_runtime -v
+```
+
+It passed 46 tests. PostgreSQL-specific repository/startup coverage additionally
+passed six tests in `tests.integration.test_postgresql`. Keep Elasticsearch
+readiness disabled until the associated search feature is deliberately enabled;
+the independent Compose health check still proves that the service is available.

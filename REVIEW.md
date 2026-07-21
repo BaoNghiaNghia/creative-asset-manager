@@ -1114,3 +1114,34 @@ Final controls:
 - Rollback: `cam-deploy rollback-release` switches to the recorded application
   and frontend release, restarts services and verifies health. It never invokes
   `alembic downgrade`.
+
+## VPS production deployment validation review
+
+- Files changed: focused deployment contract tests plus the VPS validation
+  matrix/runbook. Application, database and deployment runtime code was not
+  changed.
+- Migrations added: none.
+- Behavior introduced: none. This step validates the existing production
+  artifacts and records the reproducible checks.
+- Tests and actual results:
+  - `PYTHONPATH=apps/api apps/api/.venv/bin/python -m unittest deploy.tests.test_vps_deployment tests.test_config tests.test_http_config tests.test_production_health tests.modules.auth_persistence.test_config tests.modules.processing.test_runtime -v`: 46 passed in 11.234s.
+  - `npm ci --no-audit --no-fund && npm run build`: passed; Vite 5.4.14 transformed 46 modules and produced the static release.
+  - Empty PostgreSQL 16.4 database `alembic upgrade head`: passed at `0018_legacy_metadata_schema`; exactly one head confirmed.
+  - `tests.integration.test_postgresql -v`: 6 passed in 0.152s.
+  - Native API: `/live` passed; `/ready` reported PostgreSQL available and Elasticsearch disabled because search flags were false.
+  - Native worker: startup/health passed and `SIGTERM` produced a bounded graceful exit.
+  - Production Elasticsearch Compose: Docker health passed, cluster reached yellow/green, and port 9200 was bound only to `127.0.0.1`.
+  - `nginx -t`: passed with Nginx 1.27.5. Runtime checks passed for SPA fallback, `/api` and `/live` proxying, and immutable hashed-asset caching.
+  - OAuth through Nginx: passed with a production callback URL and `HttpOnly`, `Secure`, `SameSite=Lax` state cookie; only fake credentials were used.
+- Feature flags: no flag was changed or enabled. Unified ingestion, AI
+  processing and Search v2 remain false by default and in the production
+  template. `AI_EMERGENCY_STOP_ENABLED=true` remains the defensive global stop.
+- Known risks: Nginx 1.27.5 emits a deprecation warning for the compatible
+  `listen ... http2` syntax, although configuration validation succeeds. The
+  PostgreSQL integration suite emits an existing unclosed-connection resource
+  warning that did not fail the tests.
+- Rollback: revert the documentation and focused deployment test commit. No
+  service, data or schema rollback is required.
+- Next recommended step: run the same matrix on the target VPS with its real
+  hostname/certificate and production secrets supplied out of band, then use
+  tenant-scoped rollout controls rather than enabling pipeline flags globally.
