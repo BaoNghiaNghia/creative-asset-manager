@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.domain.processing.handlers import WorkerDependencies
+from app.domain.providers.registry import AiProviderRegistry
 from app.domain.providers.contracts import AiMetadataAnalysisResult, AssetDownloadStream, StoredAsset, StoredAssetReadStream
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
@@ -141,7 +142,8 @@ class DurablePipelineEndToEndTest(unittest.TestCase):
         resolver=FakePipelineResolver(self.sessions,contents,download_failures); storage=FakeManagedStorage()
         ai=FakeGemini({"wrong":True} if invalid_metadata else {"subject":"cat","label":"mama est 2015","year":2015})
         self.search=LoopSafeSearchProvider(ELASTICSEARCH_URL,self.prefix,search_failures); asyncio.run(self.search.initialize())
-        dependencies=WorkerDependencies(session_factory=self.sessions,storage_provider=storage,ai_provider=ai,resources={"pipeline_download_stage":ProviderDownloadStage(self.sessions,resolver),"pipeline_storage_stage":ProviderStorageStage(self.sessions,resolver,storage),"search_index_provider":self.search})
+        ai_registry=AiProviderRegistry();ai_registry.register(ai.provider_name,ai)
+        dependencies=WorkerDependencies(session_factory=self.sessions,storage_provider=storage,ai_provider_registry=ai_registry,resources={"pipeline_download_stage":ProviderDownloadStage(self.sessions,resolver),"pipeline_storage_stage":ProviderStorageStage(self.sessions,resolver,storage),"search_index_provider":self.search})
         handlers=build_handler_registry((("source_asset_download",SourceAssetDownloadJobHandler(self.settings)),("asset_store",AssetStoreJobHandler(self.settings)),("asset_analyze",AssetAnalyzeJobHandler(self.settings)),("search_projection_build",SearchProjectionBuildJobHandler(self.settings)),("asset_index",AssetIndexJobHandler(self.settings))))
         runtime=WorkerRuntime(config=WorkerRuntimeConfig(worker_id=f"e2e-worker-{self.marker}",enabled=True,lease_seconds=10,heartbeat_seconds=.2,idle_poll_seconds=.01,enforce_tenant_policy=True,allowed_job_types=("source_asset_download","asset_store","asset_analyze","search_projection_build","asset_index")),dependencies=dependencies,registry=handlers)
         return runtime,resolver,storage,ai

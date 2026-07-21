@@ -25,6 +25,7 @@ class GeminiAiMetadataProvider:
     """Gemini REST adapter. Domain code never depends on a Google AI SDK."""
 
     provider_name = "gemini"
+    supports_single = True
     supports_batch = True
     batch_max_items = 100
     batch_max_request_bytes = 20_000_000
@@ -43,6 +44,7 @@ class GeminiAiMetadataProvider:
             raise ValueError("Gemini model is required")
         self._api_key = api_key
         self.model = model
+        self.default_model = model
         self._timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 10))
         self._transport = transport
 

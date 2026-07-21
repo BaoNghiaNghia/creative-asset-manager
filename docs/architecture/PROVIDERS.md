@@ -77,3 +77,19 @@ all Batch API REST shapes, bounded inline request conversion, stable display-nam
 recovery and provider state normalization. Unconfigured or unsupported adapters
 fail closed. Batch consumers use stable custom item IDs and never depend on
 provider result order.
+
+## AI-MULTI-01 provider registry
+
+`AiProviderRegistry` is the worker composition boundary for AI adapters. Provider
+names are stable lowercase identifiers; duplicate registrations and adapter/name
+mismatches are rejected. Capabilities expose single-analysis support, batch
+support and the adapter's default model without leaking SDK types.
+
+Gemini is registered only when `GEMINI_API_KEY` is configured. An empty registry
+fails closed, and no provider fallback is allowed.
+
+Single-analysis jobs resolve `asset_ai_analyses.ai_provider`; batch handlers
+resolve `ai_batch_jobs.provider`. Persisted identity remains authoritative after
+enqueueing, independent of environment defaults and registry order. Missing
+adapters produce non-retryable `ai_provider_unavailable`. Graceful worker
+shutdown closes every registered adapter exactly once.

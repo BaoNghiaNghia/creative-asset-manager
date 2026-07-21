@@ -15,6 +15,7 @@ from app.core.config import Settings
 from app.core.redaction import redact_url_queries, sanitize_log_value
 from app.core.database import SessionLocal, engine
 from app.domain.processing.handlers import WorkerDependencies
+from app.domain.providers.registry import AiProviderRegistry
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
 from app.modules.ai_batch.handlers import (
@@ -33,7 +34,6 @@ from app.modules.processing.registry import build_handler_registry
 from app.modules.retention.handler import RetentionCleanupJobHandler
 from app.modules.retention.scheduler import RetentionCleanupScheduler
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
-from app.providers.ai.unconfigured import UnconfiguredAiMetadataProvider
 from app.providers.ai.gemini import GeminiAiMetadataProvider
 from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.source_factory import create_source_provider
@@ -124,18 +124,19 @@ def build_worker_runtime(
             settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN,
             root_folder_id=settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID,
         )
-    ai_provider = UnconfiguredAiMetadataProvider()
+    ai_provider_registry = AiProviderRegistry()
     if settings.GEMINI_API_KEY:
-        ai_provider = GeminiAiMetadataProvider(
+        gemini = GeminiAiMetadataProvider(
             settings.GEMINI_API_KEY,
             model=settings.GEMINI_MODEL,
             timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
         )
+        ai_provider_registry.register(gemini.provider_name, gemini)
     dependencies = WorkerDependencies(
         session_factory=session_factory,
         source_provider_factory=create_source_provider,
         storage_provider=storage_provider,
-        ai_provider=ai_provider,
+        ai_provider_registry=ai_provider_registry,
         closers=dependency_closers,
         resources=dict(resources or {}),
     )

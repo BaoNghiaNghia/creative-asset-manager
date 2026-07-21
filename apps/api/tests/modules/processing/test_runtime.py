@@ -372,7 +372,24 @@ class WorkerBootstrapTest(unittest.TestCase):
         )
         self.assertIsNotNone(runtime.dependencies.source_provider_factory)
         self.assertIsNotNone(runtime.dependencies.storage_provider)
-        self.assertIsNotNone(runtime.dependencies.ai_provider)
+        self.assertIsNotNone(runtime.dependencies.ai_provider_registry)
+        self.assertEqual(runtime.dependencies.ai_provider_registry.list_capabilities(), ())
+        runtime.close()
+        engine.dispose()
+        directory.cleanup()
+
+
+    def test_runtime_registers_configured_gemini(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        engine = create_engine(
+            f"sqlite:///{Path(directory.name) / 'gemini-bootstrap.db'}"
+        )
+        sessions = sessionmaker(bind=engine)
+        runtime = build_worker_runtime(
+            Settings(PROCESSING_JOBS_ENABLED=False, GEMINI_API_KEY="test-only"),
+            session_factory=sessions,
+        )
+        self.assertTrue(runtime.dependencies.ai_provider_registry.has("gemini"))
         runtime.close()
         engine.dispose()
         directory.cleanup()

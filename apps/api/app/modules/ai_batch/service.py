@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.domain.providers.contracts import (
     AiBatchResultsInput, AiBatchStatusInput, AiBatchSubmissionInput,
-    AiMetadataProvider, AiProviderError, AssetStorageProvider, OpenStoredAssetInput,
+    AiProviderError, AssetStorageProvider, OpenStoredAssetInput,
 )
+from app.domain.providers.registry import AiProviderRegistry
 from app.modules.ai_batch.model import AiBatchJobModel, AiBatchItemModel, BATCH_TERMINAL_STATUSES
 from app.modules.ai_batch.repository import AiBatchRepository
 from app.modules.ai_governance.metrics import AI_METRICS
@@ -30,9 +31,9 @@ from app.modules.storage.repository import ManagedStorageRepository
 def utcnow(): return datetime.now(timezone.utc)
 
 class AiBatchService:
-    def __init__(self,session:Session,settings:Settings,provider:AiMetadataProvider,
+    def __init__(self,session:Session,settings:Settings,provider_registry:AiProviderRegistry,
                  storage_provider:AssetStorageProvider):
-        self.session=session;self.settings=settings;self.provider=provider
+        self.session=session;self.settings=settings;self.provider_registry=provider_registry
         self.storage_provider=storage_provider
         self.repository=AiBatchRepository(session)
         self.governance=AiGovernanceRepository(session)
@@ -41,28 +42,35 @@ class AiBatchService:
         groups=self.repository.group_candidates(
             tenant_id=tenant_id,analysis_ids=analysis_ids,
             minimum_age_seconds=self.settings.AI_BATCH_MINIMUM_AGE_SECONDS,
-            max_items=min(self.settings.AI_BATCH_MAX_ITEMS, int(getattr(self.provider, "batch_max_items", self.settings.AI_BATCH_MAX_ITEMS))))
+            max_items=self.settings.AI_BATCH_MAX_ITEMS)
         batches=[]
         for group in groups:
-            digest=hashlib.sha256(
-                "|".join(sorted(value.id for value in group)).encode()).hexdigest()
-            batch=self.repository.create_batch(group,submission_key=f"batch:{digest}")
-            ProcessingRepository(self.session).create_job(
-                tenant_id=tenant_id,job_type="ai_batch_submit",
-                entity_type="ai_batch_job",entity_id=batch.id,
-                idempotency_key=f"ai-batch-submit:{batch.id}",
-                payload={"batch_id":batch.id},provider_key=batch.provider,
-                provider_scope="ai")
-            batches.append(batch)
+            provider=self._provider(group[0].ai_provider or "gemini")
+            limit=min(
+                self.settings.AI_BATCH_MAX_ITEMS,
+                int(getattr(provider,"batch_max_items",self.settings.AI_BATCH_MAX_ITEMS)))
+            for offset in range(0,len(group),max(1,limit)):
+                chunk=group[offset:offset+max(1,limit)]
+                digest=hashlib.sha256(
+                    "|".join(sorted(value.id for value in chunk)).encode()).hexdigest()
+                batch=self.repository.create_batch(chunk,submission_key=f"batch:{digest}")
+                ProcessingRepository(self.session).create_job(
+                    tenant_id=tenant_id,job_type="ai_batch_submit",
+                    entity_type="ai_batch_job",entity_id=batch.id,
+                    idempotency_key=f"ai-batch-submit:{batch.id}",
+                    payload={"batch_id":batch.id},provider_key=batch.provider,
+                    provider_scope="ai")
+                batches.append(batch)
         return batches
 
     async def submit(self,*,tenant_id:str,batch_id:str)->AiBatchJobModel:
         batch=self.repository.get_batch(tenant_id,batch_id,for_update=True)
+        provider=self._provider(batch.provider)
         if batch.provider_batch_id:
             return batch
         if batch.cancellation_requested:
             return await self.cancel(tenant_id=tenant_id,batch_id=batch_id)
-        if not self.provider.supports_batch:
+        if not provider.supports_batch:
             raise AiProviderError("AI provider does not support batch analysis.",
                                   code="batch_not_supported",retryable=False)
         profile=AiMetadataRepository(self.session).get_profile(batch.metadata_profile_id)
@@ -148,7 +156,7 @@ class AiBatchService:
                     total+=len(encoded)
                     max_bytes=min(
                         self.settings.AI_BATCH_MAX_REQUEST_BYTES,
-                        int(getattr(self.provider,"batch_max_request_bytes",
+                        int(getattr(provider,"batch_max_request_bytes",
                                     self.settings.AI_BATCH_MAX_REQUEST_BYTES)))
                     if total>max_bytes:
                         raise AiProviderError("AI batch request byte limit exceeded.",
@@ -163,7 +171,7 @@ class AiBatchService:
             batch.estimated_cost_micros=sum(value.estimated_cost_micros for value in prepared_items)
             batch.currency=currency;self.session.commit()
             provider_invoked=True
-            submission=await self.provider.submit_batch(AiBatchSubmissionInput(
+            submission=await provider.submit_batch(AiBatchSubmissionInput(
                 tenant_id=tenant_id,submission_key=batch.submission_key,
                 display_name=f"cam-{batch.id}",model=batch.model,input_path=path,
                 item_count=len(prepared_items),total_bytes=total))
@@ -207,12 +215,13 @@ class AiBatchService:
 
     async def poll(self,*,tenant_id:str,batch_id:str)->AiBatchJobModel:
         batch=self.repository.get_batch(tenant_id,batch_id,for_update=True)
+        provider=self._provider(batch.provider)
         if batch.status in BATCH_TERMINAL_STATUSES:return batch
         if batch.cancellation_requested:return await self.cancel(tenant_id=tenant_id,batch_id=batch_id)
         if not batch.provider_batch_id:
             raise AiProviderError("Batch provider identity is not known.",
                                   code="batch_submission_ambiguous",retryable=True)
-        status=await self.provider.get_batch_status(AiBatchStatusInput(
+        status=await provider.get_batch_status(AiBatchStatusInput(
             tenant_id=tenant_id,provider_batch_id=batch.provider_batch_id))
         batch.poll_attempt+=1;batch.usage_json=dict(status.usage)
         state=status.state.lower()
@@ -265,13 +274,14 @@ class AiBatchService:
 
     async def import_results(self,*,tenant_id:str,batch_id:str)->AiBatchJobModel:
         batch=self.repository.get_batch(tenant_id,batch_id,for_update=True)
+        provider=self._provider(batch.provider)
         if batch.status in BATCH_TERMINAL_STATUSES:return batch
         if not batch.provider_batch_id:raise LookupError("provider batch ID missing")
         batch.status="importing";batch.import_attempt+=1;self.session.commit()
         sequence=int(batch.result_cursor or "-1")
         clean_end=False
         try:
-            async for entry in self.provider.stream_batch_results(AiBatchResultsInput(
+            async for entry in provider.stream_batch_results(AiBatchResultsInput(
                 tenant_id=tenant_id,provider_batch_id=batch.provider_batch_id,
                 cursor=batch.result_cursor)):
                 sequence+=1
@@ -401,9 +411,10 @@ class AiBatchService:
 
     async def cancel(self,*,tenant_id:str,batch_id:str)->AiBatchJobModel:
         batch=self.repository.get_batch(tenant_id,batch_id,for_update=True)
+        provider=self._provider(batch.provider)
         batch.cancellation_requested=True
         if batch.provider_batch_id and batch.status not in BATCH_TERMINAL_STATUSES:
-            await self.provider.cancel_batch(AiBatchStatusInput(
+            await provider.cancel_batch(AiBatchStatusInput(
                 tenant_id=tenant_id,provider_batch_id=batch.provider_batch_id))
         for item in self.repository.items(batch):
             if item.status!="completed":
@@ -420,6 +431,7 @@ class AiBatchService:
 
     def retry_items(self,*,tenant_id:str,batch_id:str)->list[AiBatchJobModel]:
         batch=self.repository.get_batch(tenant_id,batch_id)
+        self._provider(batch.provider)
         retryable=[item for item in self.repository.items(
             batch,{"failed","missing","budget_blocked"})
             if item.attempt_count<self.settings.AI_BATCH_MAX_ITEM_ATTEMPTS
@@ -464,3 +476,6 @@ class AiBatchService:
             payload={"batch_id":batch.id},provider_key=batch.provider,
             provider_scope="ai",next_attempt_at=batch.next_poll_at or (
                 utcnow()+timedelta(seconds=self.settings.AI_BATCH_POLL_INTERVAL_SECONDS)))
+
+    def _provider(self,provider_name:str|None):
+        return self.provider_registry.require(provider_name or "")

@@ -1145,3 +1145,18 @@ Final controls:
 - Next recommended step: run the same matrix on the target VPS with its real
   hostname/certificate and production secrets supplied out of band, then use
   tenant-scoped rollout controls rather than enabling pipeline flags globally.
+
+## AI-MULTI-01 review - provider registry
+
+- Files changed: AI provider contracts/exports, provider registry, adapter identities, worker composition, single/batch handlers and services, focused tests, provider docs, roadmap and review.
+- Migrations added: none.
+- Behavior introduced: workers can register multiple provider-neutral AI adapters; single analysis resolves persisted `analysis.ai_provider`, batch operations resolve persisted `batch.provider`, missing adapters fail non-retryably with `ai_provider_unavailable`, and no cross-provider fallback occurs. Gemini remains the only production adapter and is registered only when configured.
+- Tests and actual results:
+  - `.venv/bin/python -m unittest tests.providers.test_ai_registry tests.domain.providers.test_contracts tests.providers.test_gemini_ai -v`: 12 passed in 0.018s.
+  - `.venv/bin/python -m unittest tests.modules.ai_metadata.test_handler -v`: 2 passed in 0.054s.
+  - `.venv/bin/python -m unittest tests.modules.ai_batch.test_handlers -v`: 2 passed in 0.054s.
+  - `.venv/bin/python -m unittest tests.modules.processing.test_runtime.WorkerBootstrapTest -v`: 4 passed in 0.009s.
+- Feature flags: none added, changed or enabled.
+- Known risks: provider registration is process-local and static for one worker lifetime. OpenAI and request/API provider selection remain outside this step. Legacy null batch providers retain the existing Gemini compatibility normalization.
+- Rollback: revert this change to restore the singleton worker AI dependency; no database or data rollback is required.
+- Next recommended step: AI-MULTI-02 OpenAI single-analysis adapter against this registry.

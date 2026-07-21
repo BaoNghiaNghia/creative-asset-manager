@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.core.database import Base
+from app.domain.providers.registry import AiProviderRegistry
 from app.domain.providers.contracts import (
     AiBatchResult,AiBatchStatus,AiBatchSubmission,AiMetadataAnalysisResult,
     AiProviderError,StoredAssetReadStream,
@@ -72,6 +73,7 @@ class AiBatchServiceTest(unittest.IsolatedAsyncioTestCase):
         self.session=Session(self.engine,expire_on_commit=False)
         image=io.BytesIO();Image.new("RGB",(8,8),"blue").save(image,format="PNG")
         self.storage=FakeStorage(image.getvalue());self.provider=FakeBatchProvider()
+        self.registry=AiProviderRegistry();self.registry.register("fake",self.provider)
         self.settings=Settings(
             AI_BATCH_MINIMUM_AGE_SECONDS=0,AI_BATCH_MAX_ITEMS=10,
             AI_BATCH_MAX_REQUEST_BYTES=2_000_000,
@@ -104,7 +106,7 @@ class AiBatchServiceTest(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):self.session.close();self.engine.dispose()
 
     def service(self):return AiBatchService(
-        self.session,self.settings,self.provider,self.storage)
+        self.session,self.settings,self.registry,self.storage)
 
     async def _batch(self):
         batches=self.service().create_batches(

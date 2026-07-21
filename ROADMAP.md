@@ -31,6 +31,7 @@
 - [ ] 17 AI batch processing
 - [x] 18 External ingestion API
 - [x] 19 Metadata sidecar export
+- [x] AI-MULTI-01 Multi-provider AI registry and persisted provider resolution
 
 ## Operations and product
 

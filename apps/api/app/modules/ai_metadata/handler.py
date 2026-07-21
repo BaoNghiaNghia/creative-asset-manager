@@ -7,6 +7,7 @@ from app.domain.processing.handlers import (
     JobHandlerContext,
     JobHandlerResult,
 )
+from app.domain.providers.registry import AiProviderUnavailableError
 from app.modules.ai_metadata.service import AiAnalysisService
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.pipeline.repository import AssetPipelineRepository
@@ -27,6 +28,31 @@ class AssetAnalyzeJobHandler:
                 "asset_analyze job requires an analysis_id.",
             )
         settings = self.settings or get_settings()
+        registry = context.dependencies.ai_provider_registry
+        if registry is None:
+            return JobHandlerResult.non_retryable(
+                "ai_provider_unavailable",
+                "The analysis AI provider is not configured.",
+            )
+        with context.dependencies.session_factory() as session:
+            try:
+                analysis = AiMetadataRepository(session).get_analysis(analysis_id)
+            except LookupError:
+                return JobHandlerResult.non_retryable(
+                    "analysis_not_found", "Analysis was not found."
+                )
+            if analysis.tenant_id != context.job.tenant_id:
+                return JobHandlerResult.non_retryable(
+                    "analysis_not_found", "Analysis was not found."
+                )
+            provider_name = analysis.ai_provider
+        try:
+            provider = registry.require(provider_name or "")
+        except (AiProviderUnavailableError, ValueError):
+            return JobHandlerResult.non_retryable(
+                "ai_provider_unavailable",
+                "The persisted analysis AI provider is not configured.",
+            )
         pipeline_id = context.job.payload.get("pipeline_id")
         if isinstance(pipeline_id, str) and pipeline_id:
             with context.dependencies.session_factory() as session:
@@ -40,15 +66,10 @@ class AssetAnalyzeJobHandler:
                 "storage_provider_unconfigured",
                 "Asset storage provider is not configured.",
             )
-        if context.dependencies.ai_provider is None:
-            return JobHandlerResult.non_retryable(
-                "ai_provider_unconfigured",
-                "AI metadata provider is not configured.",
-            )
         service = AiAnalysisService(
             session_factory=context.dependencies.session_factory,
             storage_provider=context.dependencies.storage_provider,
-            ai_provider=context.dependencies.ai_provider,
+            ai_provider=provider,
             settings=settings,
         )
         outcome = asyncio.run(

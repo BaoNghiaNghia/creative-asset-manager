@@ -238,7 +238,16 @@ class AssetStorageProvider(Protocol):
 @runtime_checkable
 class AiMetadataProvider(Protocol):
     @property
+    def provider_name(self) -> str: ...
+
+    @property
+    def supports_single(self) -> bool: ...
+
+    @property
     def supports_batch(self) -> bool: ...
+
+    @property
+    def default_model(self) -> str | None: ...
 
     async def analyze_single(
         self, input: AiMetadataAnalysisInput

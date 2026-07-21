@@ -11,16 +11,16 @@ class _BaseBatchHandler:
     def __init__(self,settings:Settings|None=None): self.settings=settings
 
     def service(self,context:JobHandlerContext):
-        if context.dependencies.ai_provider is None:
+        if context.dependencies.ai_provider_registry is None:
             return None,None,JobHandlerResult.non_retryable(
-                "ai_provider_unconfigured","AI metadata provider is not configured.")
+                "ai_provider_unavailable","AI metadata provider is not configured.")
         if context.dependencies.storage_provider is None:
             return None,None,JobHandlerResult.non_retryable(
                 "storage_provider_unconfigured","Asset storage provider is not configured.")
         session=context.dependencies.session_factory()
         return session,AiBatchService(
             session,self.settings or get_settings(),
-            context.dependencies.ai_provider,context.dependencies.storage_provider),None
+            context.dependencies.ai_provider_registry,context.dependencies.storage_provider),None
 
     @staticmethod
     def failure(exc:Exception):

@@ -7,7 +7,10 @@ from app.domain.providers.contracts import (
 )
 
 class UnconfiguredAiMetadataProvider:
+    provider_name="unconfigured"
+    supports_single=False
     supports_batch=False
+    default_model=None
 
     async def analyze_single(self,input:AiMetadataAnalysisInput)->AiMetadataAnalysisResult:
         raise self._error()

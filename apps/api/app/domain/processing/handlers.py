@@ -9,6 +9,8 @@ from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
 
+from app.domain.providers.registry import AiProviderRegistry
+
 
 class JobOutcome(str, Enum):
     COMPLETED = "completed"
@@ -62,7 +64,7 @@ class WorkerDependencies:
     session_factory: Callable[[], Session]
     source_provider_factory: Callable[..., Any] | None = None
     storage_provider: Any | None = None
-    ai_provider: Any | None = None
+    ai_provider_registry: AiProviderRegistry | None = None
     resources: Mapping[str, Any] = field(default_factory=dict)
     closers: tuple[Callable[[], Any], ...] = ()
     _closed: bool = field(default=False, init=False)
@@ -72,6 +74,11 @@ class WorkerDependencies:
             return
         self._closed = True
         first_error: Exception | None = None
+        if self.ai_provider_registry is not None:
+            try:
+                self.ai_provider_registry.close()
+            except Exception as exc:
+                first_error = exc
         for closer in reversed(self.closers):
             try:
                 closer()
