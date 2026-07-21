@@ -42,5 +42,12 @@ if [[ ! -f .env ]]; then
   echo "Create it with: cp ../../.env.example .env"
 fi
 
+echo "Preparing local database schema..."
+if ! "$VENV_PYTHON" -m alembic upgrade head; then
+  echo "Error: local database migration failed." >&2
+  echo "Check the Alembic error above before starting the API." >&2
+  exit 1
+fi
+
 echo "Starting Creative Asset Manager API at http://127.0.0.1:8000"
 exec "$VENV_PYTHON" -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 "$@"

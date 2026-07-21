@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,6 +118,24 @@ class DatabaseStartupTest(unittest.TestCase):
                 self.assertTrue(revision)
                 self.assertEqual(tag_count, 0)
             finally:
+                database_engine.dispose()
+
+    def test_embedded_migration_preserves_application_logging(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "logging.db"
+            database_url = f"sqlite:///{database_path.as_posix()}"
+            settings = Settings(DATABASE_URL=database_url)
+            database_engine = create_database_engine(settings)
+            logger = logging.getLogger("cam.database-startup-test")
+            handler = logging.NullHandler()
+            logger.addHandler(handler)
+            logger.disabled = False
+            try:
+                init_database(settings, database_engine=database_engine)
+                self.assertIn(handler, logger.handlers)
+                self.assertFalse(logger.disabled)
+            finally:
+                logger.removeHandler(handler)
                 database_engine.dispose()
 
     def test_in_memory_development_uses_the_validated_connection(self) -> None:

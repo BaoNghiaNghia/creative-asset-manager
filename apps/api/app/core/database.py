@@ -73,6 +73,9 @@ def get_db() -> Generator[Session, None, None]:
 def _alembic_config(database_url: str) -> Config:
     config = Config(str(_api_root / "alembic.ini"))
     config.attributes["database_url"] = database_url
+    # Embedded migrations must not replace Uvicorn's handlers. Otherwise a
+    # healthy local API appears to stop at the final Alembic log line.
+    config.attributes["configure_logger"] = False
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     return config
 

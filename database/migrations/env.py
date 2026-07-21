@@ -17,7 +17,10 @@ from app.modules.source_sync import model as source_sync_models  # noqa: F401
 from app.modules.retention import model as retention_models  # noqa: F401
 
 config = context.config
-if config.config_file_name is not None:
+if (
+    config.config_file_name is not None
+    and config.attributes.get("configure_logger", True)
+):
     fileConfig(config.config_file_name)
 
 database_url = config.attributes.get("database_url") or os.getenv("DATABASE_URL")
