@@ -1052,3 +1052,28 @@ Final controls:
 - Next recommended step: set `APP_VERSION` and `BUILD_COMMIT` in the release
   environment, configure the exact proxy subnet, and validate probes through
   the production ingress before rollout.
+
+## VPS deployment artifacts review
+
+- Files changed: native Nginx site, Elasticsearch-only production Compose file,
+  native API/worker systemd units, production environment template and VPS
+  validation/runbook documentation.
+- Migrations added: none.
+- Behavior introduced: none in application runtime. The artifacts bind API,
+  worker health, native PostgreSQL and Dockerized Elasticsearch to loopback;
+  Nginx alone serves the frontend and public HTTPS traffic.
+- Feature flags: the environment template keeps the processing and search
+  pipeline disabled. The global AI emergency stop is enabled defensively.
+- Credentials: no real credentials are included; all credential fields are
+  blank or explicit replacement placeholders.
+- Rollback: restore prior systemd/Nginx/environment files and reload their
+  managers. Stop Elasticsearch with Compose without deleting its named volume.
+  No database rollback is required.
+- Validation commands and host-level checks are documented in
+  `docs/operations/VPS_DEPLOYMENT.md`.
+- Validation results:
+  - `docker compose --file infrastructure/docker/docker-compose.prod.yml config --quiet`: passed.
+  - Compose service inventory: passed; only `elasticsearch` is present.
+  - Production environment loaded through `Settings`: passed.
+  - `systemd-analyze verify` with temporary dependency/path stubs: passed.
+  - `nginx -t` using Nginx 1.27.5 and a temporary certificate: passed.
