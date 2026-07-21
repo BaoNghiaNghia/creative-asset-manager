@@ -161,6 +161,7 @@ class SettingsTest(unittest.TestCase):
                 CORS_ALLOWED_ORIGINS="https://assets.example.com",
                 TRUSTED_HOSTS="api.example.com,*.api.example.com",
                 API_DOCS_ENABLED=False,
+                DATABASE_URL="postgresql+psycopg://cam:test@db/cam",
             )
         self.assertEqual(
             settings.cors_allowed_origins, ("https://assets.example.com",)
@@ -174,8 +175,11 @@ class SettingsTest(unittest.TestCase):
             "CORS_ALLOWED_ORIGINS": "https://assets.example.com",
             "TRUSTED_HOSTS": "api.example.com",
             "API_DOCS_ENABLED": False,
+            "DATABASE_URL": "postgresql+psycopg://cam:test@db/cam",
         }
         invalid_overrides = (
+            {"DATABASE_URL": None},
+            {"DATABASE_URL": "sqlite:///production.db"},
             {"PUBLIC_APP_URL": "http://assets.example.com"},
             {"PUBLIC_APP_URL": "https://localhost"},
             {"API_DOCS_ENABLED": True},

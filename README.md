@@ -25,6 +25,13 @@ You can also launch the API directly with:
 
     bash scripts/dev-api.sh
 
+Development startup upgrades the local SQLite schema through Alembic. Seed or refresh the built-in `public` and `draft` tags explicitly after migrations:
+
+    cd apps/api
+    .venv/bin/python -m app.operations.tag_cli seed-system-tags
+
+Production startup never changes schema. Run `python -m alembic upgrade head` as a release step, run the same tag command when required, and then start the API. A production process refuses a missing `DATABASE_URL`, SQLite, an unavailable database, or a schema that is not at the single Alembic head.
+
 Copy .env.example into your runtime environment. Keep Google and Directus tokens server-side. With GOOGLE_DRIVE_ACCESS_TOKEN empty, the API returns demo data.
 
 ## Directus collections

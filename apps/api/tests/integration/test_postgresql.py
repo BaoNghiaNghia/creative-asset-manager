@@ -8,9 +8,15 @@ from uuid import uuid4
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, func, inspect, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.config import Settings
+from app.core.database import (
+    init_database,
+    validate_alembic_head,
+    validate_database_connection,
+)
 from app.modules.assets.model import AssetModel
 from app.modules.assets.repository import (
     AssetContentConflictError,
@@ -19,6 +25,8 @@ from app.modules.assets.repository import (
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
+from app.modules.tag.model import TagModel
+from app.operations.tag_cli import seed_system_tags
 
 
 DATABASE_URL = os.getenv("INTEGRATION_DATABASE_URL") or os.getenv("DATABASE_URL", "")
@@ -50,6 +58,32 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
         heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
         self.assertEqual(len(heads), 1)
         self.assertEqual(version, heads[0])
+
+    def test_production_startup_connection_head_and_idempotent_seed(self) -> None:
+        settings = Settings(
+            APP_ENV="production",
+            PUBLIC_APP_URL="https://assets.example.com",
+            CORS_ALLOWED_ORIGINS="https://assets.example.com",
+            TRUSTED_HOSTS="api.example.com",
+            API_DOCS_ENABLED=False,
+            DATABASE_URL=DATABASE_URL,
+        )
+        validate_database_connection(self.engine)
+        self.assertEqual(
+            validate_alembic_head(self.engine, database_url=DATABASE_URL),
+            ScriptDirectory.from_config(Config("alembic.ini")).get_heads()[0],
+        )
+        init_database(settings, database_engine=self.engine)
+
+        seed_system_tags(self.sessions)
+        seed_system_tags(self.sessions)
+        with self.sessions() as session:
+            count = session.scalar(
+                select(func.count()).select_from(TagModel).where(
+                    TagModel.id.in_(("public", "draft"))
+                )
+            )
+        self.assertEqual(count, 2)
 
     def test_tenant_constraints_and_source_identity(self) -> None:
         marker = uuid4().hex

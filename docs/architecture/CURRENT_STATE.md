@@ -30,9 +30,9 @@ The package-manager convention is inconsistent: the root declares pnpm workspace
 
 ## 2. Database, ORM, and migration conventions
 
-`apps/api/app/core/database.py` creates a synchronous SQLAlchemy engine and `SessionLocal`. If `DATABASE_URL` is unset it uses `apps/api/data/creative_asset_manager.db`. At application lifespan startup, `Base.metadata.create_all()` creates known tables and `TagRepository.seed_system_tags()` seeds `public` and `draft`.
+`apps/api/app/core/database.py` creates a synchronous SQLAlchemy engine and `SessionLocal`. Development defaults to `apps/api/data/creative_asset_manager.db` and upgrades it to the single Alembic head at startup. Production requires a non-SQLite `DATABASE_URL`, validates connectivity and the current Alembic head, and never changes schema during API startup. Built-in `public` and `draft` tags are seeded only through the explicit idempotent `python -m app.operations.tag_cli seed-system-tags` command. SQLAlchemy pool size, overflow, timeout, recycle, and PostgreSQL connect timeout are centrally configurable; the engine is disposed during application shutdown.
 
-There is no Alembic configuration, migration runner, version table, downgrade convention, or non-empty file under `database/migrations`. This means schema evolution is implicit and cannot safely alter existing production data. `pydantic-settings` is installed but no settings class uses it; configuration is read directly with `os.getenv` across modules.
+`apps/api/alembic.ini` points to the versioned migration chain under `database/migrations`; revisions 0001 through 0018 own the application schema and include downgrade behavior or explicit data-preservation notes. Production releases run Alembic separately before API startup. `app.core.config.Settings` centralizes database URL and pool validation, while the migration environment accepts either the deployment URL or an explicitly supplied validated connection.
 
 Current app-owned tables:
 
@@ -268,7 +268,7 @@ These are runtime modes, not rollout-safe flags with ownership, defaults, or rem
 4. **No tenant key:** existing account-derived records cannot be deterministically assigned to application tenants without a migration mapping.
 5. **No external source ID:** `provider + account_id` is not enough to distinguish multiple connections of the same provider/account or reconnections.
 6. **No content bytes/hash:** deduplication requires downloading content, which affects provider quotas, egress, large-file streaming, security, and backfill duration.
-7. **SQLite implicit DDL:** `create_all` cannot safely evolve constraints. PostgreSQL/Alembic must precede authoritative schema expansion.
+7. **Migration discipline:** schema ownership is now Alembic-only. Migration `0018_legacy_metadata_schema` safely adopts the legacy metadata/tag tables without deleting their data on downgrade; production startup fails until the deployed schema reaches the single head.
 8. **Ephemeral OAuth and jobs:** restarts invalidate sessions and processing state; horizontal scaling would create inconsistent account and job views.
 9. **Search cutover:** current UI depends on index-on-login progress and Directus fallback. Elasticsearch v2 needs dual-write/read flags and a reproducible backfill before cutover.
 10. **SharePoint identity:** current opaque node IDs include hierarchy node kinds; source records must retain raw site/drive/item IDs separately so identity is stable and queryable.

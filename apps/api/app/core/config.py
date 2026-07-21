@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     CORS_ALLOWED_ORIGINS: str = "http://localhost:5173"
     TRUSTED_HOSTS: str = "localhost,127.0.0.1,testserver"
     API_DOCS_ENABLED: bool = True
+    DATABASE_URL: str | None = None
+    DATABASE_POOL_SIZE: int = 5
+    DATABASE_MAX_OVERFLOW: int = 10
+    DATABASE_POOL_TIMEOUT_SECONDS: float = 30.0
+    DATABASE_POOL_RECYCLE_SECONDS: int = 1800
+    DATABASE_CONNECT_TIMEOUT_SECONDS: int = 10
 
     UNIFIED_ASSET_INGESTION_ENABLED: bool = False
     CONTENT_DEDUP_ENABLED: bool = False
@@ -157,6 +163,18 @@ class Settings(BaseSettings):
             value.strip() for value in self.TRUSTED_HOSTS.split(",") if value.strip()
         )
 
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.strip().lower() in {"production", "prod"}
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
     @field_validator("AUTH_COOKIE_SAMESITE")
     @classmethod
     def validate_cookie_samesite(cls, value: str) -> str:
@@ -214,7 +232,7 @@ class Settings(BaseSettings):
             for host in hosts
         ):
             raise ValueError("TRUSTED_HOSTS must contain hostnames, not URLs")
-        if self.APP_ENV.strip().lower() in {"production", "prod"}:
+        if self.is_production:
             if (
                 public_url.scheme != "https"
                 or public_url.hostname in {"localhost", "127.0.0.1", "::1"}
@@ -249,6 +267,19 @@ class Settings(BaseSettings):
                     raise ValueError(
                         "Production CORS origins must use non-local HTTPS URLs"
                     )
+            if not self.DATABASE_URL:
+                raise ValueError("DATABASE_URL is required in production")
+            if self.DATABASE_URL.lower().startswith("sqlite"):
+                raise ValueError("SQLite is not supported in production")
+        if min(
+            self.DATABASE_POOL_SIZE,
+            self.DATABASE_POOL_TIMEOUT_SECONDS,
+            self.DATABASE_POOL_RECYCLE_SECONDS,
+            self.DATABASE_CONNECT_TIMEOUT_SECONDS,
+        ) <= 0:
+            raise ValueError("Database pool and timeout settings must be positive")
+        if self.DATABASE_MAX_OVERFLOW < 0:
+            raise ValueError("DATABASE_MAX_OVERFLOW cannot be negative")
         if self.PERSISTENT_AUTH_ENABLED:
             import base64
             versions = set()

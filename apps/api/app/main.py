@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import Settings, get_settings
-from app.core.database import init_database
+from app.core.database import dispose_database, init_database
 from app.modules.ai_governance.router import router as ai_governance_router
 from app.modules.ai_metadata.router import router as ai_metadata_router
 from app.modules.asset_details.router import router as asset_details_router
@@ -28,14 +28,20 @@ from app.modules.tag.router import router as tag_router
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = get_settings()
-    init_database()
-    SHADOW_SEARCH.start()
+    shadow_started = False
     try:
+        init_database(settings)
+        SHADOW_SEARCH.start()
+        shadow_started = True
         yield
     finally:
-        await SHADOW_SEARCH.shutdown(
-            settings.SEARCH_SHADOW_SHUTDOWN_TIMEOUT_MS / 1000
-        )
+        try:
+            if shadow_started:
+                await SHADOW_SEARCH.shutdown(
+                    settings.SEARCH_SHADOW_SHUTDOWN_TIMEOUT_MS / 1000
+                )
+        finally:
+            dispose_database()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

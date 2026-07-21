@@ -19,6 +19,7 @@ class HttpConfigurationTest(unittest.TestCase):
             "CORS_ALLOWED_ORIGINS": "https://assets.example.com",
             "TRUSTED_HOSTS": "api.example.com",
             "API_DOCS_ENABLED": False,
+            "DATABASE_URL": "postgresql+psycopg://cam:test@db/cam",
         }
         return Settings(**{**values, **overrides})
 

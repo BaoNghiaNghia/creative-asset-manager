@@ -12,6 +12,7 @@ PRODUCTION_HTTP_SETTINGS = {
     "CORS_ALLOWED_ORIGINS": "https://assets.example.com",
     "TRUSTED_HOSTS": "api.example.com",
     "API_DOCS_ENABLED": False,
+    "DATABASE_URL": "postgresql+psycopg://cam:test@db/cam",
 }
 
 class AuthConfigurationTest(unittest.TestCase):

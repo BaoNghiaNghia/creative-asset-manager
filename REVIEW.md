@@ -984,3 +984,42 @@ Final controls:
 - Next recommended step: provide production environment values through the
   deployment secret/configuration system and exercise host/CORS behavior behind
   the actual reverse proxy before rollout.
+
+
+## Production-safe database startup review
+
+- Files changed: database settings/runtime lifecycle, FastAPI shutdown, Alembic
+  environment, explicit tag operation, legacy metadata schema adoption migration,
+  focused unit/migration/PostgreSQL tests, environment example, README and
+  current-state documentation.
+- Migration added: `0018_legacy_metadata_schema`. It adopts the pre-existing
+  `tags`, `asset_metadata` and `asset_tag_assignments` tables into the
+  Alembic chain, creates them on clean databases, and preserves existing tables
+  and data on downgrade.
+- Behavior introduced: production requires a non-SQLite `DATABASE_URL`, checks
+  `SELECT 1`, requires exactly one current Alembic head, never mutates schema
+  at API startup, and disposes the engine on shutdown. Development keeps the
+  default SQLite database and upgrades it through Alembic. SQLAlchemy pool size,
+  overflow, timeout, recycle and PostgreSQL connect timeout are configurable.
+  Built-in tags are seeded only by
+  `python -m app.operations.tag_cli seed-system-tags`.
+- Tests run/results:
+  - `.venv/bin/python -m unittest tests.test_database_startup tests.migrations.test_legacy_metadata_schema_migration -v`: 10 passed.
+  - Production HTTP/configuration regression group: 22 passed.
+  - PostgreSQL 16.4 empty-schema migration plus
+    `tests.integration.test_postgresql -v`: 5 passed.
+  - `.venv/bin/python -m unittest discover -s tests -q`: 330 passed,
+    12 expected integration skips, 97.455s.
+  - `.venv/bin/python -m unittest tests.test_app_smoke -v`: 2 passed after
+    the final guaranteed-disposal refinement.
+- Feature flags: none added or enabled.
+- Known risks: production deployment must run Alembic before starting new API
+  instances. Development auto-upgrade is intended for a single local process;
+  shared environments must use an explicit migration release step. The 0018
+  downgrade intentionally retains legacy metadata tables to avoid data loss.
+- Rollback: stop new API instances, deploy the previous code, and downgrade the
+  revision marker to `0017_search_lifecycle_states` if required; 0018 retains
+  tag/metadata tables and their data. No automatic production DDL is performed.
+- Next recommended step: run `python -m alembic upgrade head`, then
+  `python -m app.operations.tag_cli seed-system-tags`, before starting the
+  production API with validated pool settings.
