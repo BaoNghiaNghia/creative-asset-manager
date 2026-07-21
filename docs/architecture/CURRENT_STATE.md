@@ -183,7 +183,7 @@ Current validation commands:
 
 Several modules use standard-library `logging.getLogger(__name__)`; OAuth callbacks add a short request ID to relevant messages, and indexing logs failures/skipped folders. No central log configuration exists because `apps/api/app/core/logger.py` is empty. Uvicorn supplies default access/application logging.
 
-There is no structured logging schema, correlation middleware, tenant/job/source context, metrics, health dependency checks, tracing, OpenTelemetry, Prometheus, Sentry, or alerting. `/health` always returns `{status: ok}` without checking the database or providers.
+Structured logging and metrics remain limited, but HTTP operations now expose separate `/live`, `/ready`, and `/version` endpoints. Readiness checks PostgreSQL and conditionally Elasticsearch without returning connection details or exceptions. Build identifiers and proxy-header trust are validated centrally; forwarded headers are honored only from configured IP/CIDR networks. `/health` remains as the legacy liveness-compatible endpoint.
 
 ## 11. Configuration and feature flags
 

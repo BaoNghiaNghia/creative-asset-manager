@@ -54,6 +54,14 @@ disabled so they cannot bypass the validated network destination.
   written to application logs without the existing URL-redaction policy.
 
 
+## Reverse-proxy and health boundary
+
+Forwarded client and scheme headers are ignored unless `PROXY_HEADERS_ENABLED` is
+set. Trusted proxies must be explicit IP addresses or CIDRs; wildcard and
+all-address networks are rejected. Host validation remains independent through
+`TRUSTED_HOSTS`. Health responses expose bounded state names only and never
+include dependency URLs, exception messages, credentials or configuration dumps.
+
 ## Persistent OAuth security (Step 30)
 
 OAuth connections and sessions are PostgreSQL-authoritative. Provider access and

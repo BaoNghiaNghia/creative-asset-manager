@@ -1023,3 +1023,32 @@ Final controls:
 - Next recommended step: run `python -m alembic upgrade head`, then
   `python -m app.operations.tag_cli seed-system-tags`, before starting the
   production API with validated pool settings.
+
+## Production health and reverse-proxy support review
+
+- Files changed: API health service and routes, HTTP/build settings, focused
+  health and proxy tests, PostgreSQL readiness integration coverage,
+  `.env.example`, README, current-state and security documentation.
+- Migrations added: none.
+- Behavior introduced: `/live` reports process liveness, `/ready` checks
+  PostgreSQL and conditionally checks Elasticsearch when Search v2, search
+  shadow comparison or index lifecycle is enabled, and `/version` exposes only
+  validated build version/commit identifiers. Forwarded headers are disabled by
+  default and can trust only explicitly configured IP addresses or CIDR ranges;
+  wildcard and all-address networks are rejected.
+- Tests run/results:
+  - `.venv/bin/python -m unittest tests.test_production_health tests.test_http_config tests.test_app_smoke tests.test_config -v`: 28 passed.
+  - `.venv/bin/python -m unittest discover -s tests -q`: 341 passed, 13 expected integration skips, 168.129s.
+  - PostgreSQL 16.4 empty-schema Alembic upgrade plus
+    `DATABASE_URL=postgresql+psycopg://cam_test:cam_test@127.0.0.1:55435/cam_integration INTEGRATION_DATABASE_URL=postgresql+psycopg://cam_test:cam_test@127.0.0.1:55435/cam_integration .venv/bin/python -m unittest tests.integration.test_postgresql -v`: 6 passed in 0.134s.
+- Feature flags: none added or enabled. Elasticsearch readiness is required only
+  when an existing relevant search feature flag is enabled.
+- Known risks: the upstream ASGI server/load balancer must forward headers from
+  an address included in `PROXY_TRUSTED_IPS`; `TRUSTED_HOSTS` remains an
+  independent host-header boundary. Readiness performs live dependency calls,
+  so orchestrator probe cadence should respect the configured timeout.
+- Rollback: revert this change and remove the three probe routes/settings. No
+  database rollback is required.
+- Next recommended step: set `APP_VERSION` and `BUILD_COMMIT` in the release
+  environment, configure the exact proxy subnet, and validate probes through
+  the production ingress before rollout.

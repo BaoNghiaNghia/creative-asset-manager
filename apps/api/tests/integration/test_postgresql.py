@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, func, inspect, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
+from app.core.health import postgresql_is_ready
 from app.core.database import (
     init_database,
     validate_alembic_head,
@@ -58,6 +59,9 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
         heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
         self.assertEqual(len(heads), 1)
         self.assertEqual(version, heads[0])
+
+    def test_production_health_check_uses_real_postgresql(self) -> None:
+        self.assertTrue(postgresql_is_ready())
 
     def test_production_startup_connection_head_and_idempotent_seed(self) -> None:
         settings = Settings(

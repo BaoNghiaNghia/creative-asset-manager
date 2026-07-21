@@ -5,11 +5,14 @@ from app.core.environment import load_development_environment
 load_development_environment()
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.core.config import Settings, get_settings
 from app.core.database import dispose_database, init_database
+from app.core.health import readiness_report
 from app.modules.ai_governance.router import router as ai_governance_router
 from app.modules.ai_metadata.router import router as ai_metadata_router
 from app.modules.asset_details.router import router as asset_details_router
@@ -48,7 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     api = FastAPI(
         title="Creative Asset Manager API",
-        version="0.4.0",
+        version=settings.APP_VERSION,
         lifespan=lifespan,
         docs_url="/docs" if settings.API_DOCS_ENABLED else None,
         redoc_url="/redoc" if settings.API_DOCS_ENABLED else None,
@@ -67,6 +70,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         )
 
+    if settings.PROXY_HEADERS_ENABLED:
+        api.add_middleware(
+            ProxyHeadersMiddleware,
+            trusted_hosts=list(settings.proxy_trusted_ips),
+        )
+
     api.include_router(ai_governance_router)
     api.include_router(ai_metadata_router)
     api.include_router(auth_router, prefix="/api")
@@ -80,9 +89,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(search_router)
     api.include_router(search_governance_router)
 
+    @api.get("/live")
+    def live():
+        return {"status": "ok"}
+
     @api.get("/health")
     def health():
         return {"status": "ok"}
+
+    @api.get("/ready")
+    def ready():
+        result = readiness_report(settings)
+        return JSONResponse(
+            status_code=result.status_code,
+            content=result.payload,
+        )
+
+    @api.get("/version")
+    def version():
+        return {
+            "version": settings.APP_VERSION,
+            "commit": settings.BUILD_COMMIT,
+        }
 
     return api
 

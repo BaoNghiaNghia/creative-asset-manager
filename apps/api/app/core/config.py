@@ -1,9 +1,13 @@
+import ipaddress
+import re
 from functools import lru_cache
 from typing import Any
 from urllib.parse import urlsplit
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_BUILD_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
 
 FEATURE_FLAG_NAMES = (
     "UNIFIED_ASSET_INGESTION_ENABLED",
@@ -40,6 +44,11 @@ class Settings(BaseSettings):
     CORS_ALLOWED_ORIGINS: str = "http://localhost:5173"
     TRUSTED_HOSTS: str = "localhost,127.0.0.1,testserver"
     API_DOCS_ENABLED: bool = True
+    APP_VERSION: str = "0.4.0"
+    BUILD_COMMIT: str = "unknown"
+    PROXY_HEADERS_ENABLED: bool = False
+    PROXY_TRUSTED_IPS: str = "127.0.0.1,::1"
+    HEALTHCHECK_TIMEOUT_SECONDS: float = 2.0
     DATABASE_URL: str | None = None
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
@@ -136,7 +145,12 @@ class Settings(BaseSettings):
     AUTH_COOKIE_PATH: str = "/"
     APP_ENV: str = "development"
 
-    @field_validator(*FEATURE_FLAG_NAMES, "API_DOCS_ENABLED", mode="before")
+    @field_validator(
+        *FEATURE_FLAG_NAMES,
+        "API_DOCS_ENABLED",
+        "PROXY_HEADERS_ENABLED",
+        mode="before",
+    )
     @classmethod
     def validate_boolean_flags(cls, value: Any) -> bool:
         if isinstance(value, bool):
@@ -164,6 +178,22 @@ class Settings(BaseSettings):
         )
 
     @property
+    def proxy_trusted_ips(self) -> tuple[str, ...]:
+        return tuple(
+            value.strip() for value in self.PROXY_TRUSTED_IPS.split(",") if value.strip()
+        )
+
+    @property
+    def elasticsearch_readiness_required(self) -> bool:
+        return any(
+            (
+                self.ELASTICSEARCH_V2_ENABLED,
+                self.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED,
+                self.SEARCH_SHADOW_COMPARISON_ENABLED,
+            )
+        )
+
+    @property
     def is_production(self) -> bool:
         return self.APP_ENV.strip().lower() in {"production", "prod"}
 
@@ -174,6 +204,14 @@ class Settings(BaseSettings):
             return None
         normalized = str(value).strip()
         return normalized or None
+
+    @field_validator("APP_VERSION", "BUILD_COMMIT")
+    @classmethod
+    def validate_build_identifier(cls, value: str) -> str:
+        normalized = value.strip()
+        if not _BUILD_IDENTIFIER_RE.fullmatch(normalized):
+            raise ValueError("Build identifiers contain invalid characters")
+        return normalized
 
     @field_validator("AUTH_COOKIE_SAMESITE")
     @classmethod
@@ -221,6 +259,20 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "CORS_ALLOWED_ORIGINS must contain comma-separated HTTP(S) origins"
                 )
+        proxy_ips = self.proxy_trusted_ips
+        if self.PROXY_HEADERS_ENABLED and not proxy_ips:
+            raise ValueError("PROXY_TRUSTED_IPS is required when proxy headers are enabled")
+        for value in proxy_ips:
+            if value == "*":
+                raise ValueError("Wildcard proxy trust is not allowed")
+            try:
+                network = ipaddress.ip_network(value, strict=False)
+            except ValueError as exc:
+                raise ValueError("PROXY_TRUSTED_IPS must contain IPs or CIDRs") from exc
+            if network.prefixlen == 0:
+                raise ValueError("Trusting every proxy address is not allowed")
+        if not 0 < self.HEALTHCHECK_TIMEOUT_SECONDS <= 30:
+            raise ValueError("HEALTHCHECK_TIMEOUT_SECONDS must be between 0 and 30")
         hosts = self.trusted_hosts
         if not hosts:
             raise ValueError("TRUSTED_HOSTS must contain at least one hostname")

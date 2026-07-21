@@ -34,6 +34,14 @@ Production startup never changes schema. Run `python -m alembic upgrade head` as
 
 Copy .env.example into your runtime environment. Keep Google and Directus tokens server-side. With GOOGLE_DRIVE_ACCESS_TOKEN empty, the API returns demo data.
 
+## Production HTTP probes
+
+- `GET /live` reports process liveness without contacting dependencies.
+- `GET /ready` requires PostgreSQL and, when Search v2, Elasticsearch lifecycle, or shadow comparison is enabled, a green/yellow Elasticsearch cluster.
+- `GET /version` returns only validated `APP_VERSION` and `BUILD_COMMIT` identifiers.
+
+Proxy headers are disabled by default. Enable `PROXY_HEADERS_ENABLED` only behind a known reverse proxy and set `PROXY_TRUSTED_IPS` to its exact IP addresses or CIDRs; wildcard and all-address networks are rejected.
+
 ## Directus collections
 
 Create `asset_tags` with `id`, `name` and `color` fields. Create `asset_tag_assignments` with `provider`, `item_id` and `tag_id` fields, and add a unique constraint on `provider + item_id + tag_id`.
