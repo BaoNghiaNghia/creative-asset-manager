@@ -104,6 +104,9 @@ class SettingsTest(unittest.TestCase):
             ("AI_BATCH_MINIMUM_AGE_SECONDS", "-1"),
             ("AI_BATCH_POLL_INTERVAL_SECONDS", "0"),
             ("AI_BATCH_MAX_ITEM_ATTEMPTS", "0"),
+            ("AI_ANALYSIS_BULK_MAX_ITEMS", "0"),
+            ("AI_ANALYSIS_BULK_MAX_ITEMS", "1001"),
+            ("AI_ANALYSIS_BULK_MAX_PAYLOAD_BYTES", "0"),
         ):
             with self.subTest(setting=name):
                 with patch.dict(os.environ, {name: value}, clear=True):

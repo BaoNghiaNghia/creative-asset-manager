@@ -399,6 +399,39 @@ class ProcessingRepository:
     def get_job(self, job_id: str) -> ProcessingJobModel | None:
         return self.session.get(ProcessingJobModel, job_id)
 
+    def cancel_unstarted_job(
+        self,
+        *,
+        tenant_id: str,
+        job_id: str,
+        actor_id: str,
+        reason: str,
+        now: datetime | None = None,
+    ) -> ProcessingJobModel | None:
+        cancelled_at = now or utcnow()
+        job = self.session.scalar(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.id == job_id,
+            )
+        )
+        if job is None:
+            return None
+        if job.status not in {JobStatus.PENDING.value, JobStatus.RETRY.value}:
+            return job
+        job.status = JobStatus.FAILED.value
+        job.completed_at = cancelled_at
+        job.last_error_code = "operation_cancelled"
+        job.last_error_message = redact_url_queries(
+            f"Cancelled by {actor_id}: {reason}"
+        )
+        job.claimed_by = None
+        job.claimed_at = None
+        job.lease_expires_at = None
+        job.updated_at = cancelled_at
+        self.session.flush()
+        return job
+
     def _job_by_key(self, tenant_id: str, key: str) -> ProcessingJobModel | None:
         return self.session.scalar(
             select(ProcessingJobModel).where(

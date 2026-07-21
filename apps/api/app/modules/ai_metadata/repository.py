@@ -276,6 +276,24 @@ class AiMetadataRepository:
             statement.order_by(MetadataProfileModel.created_at.desc()).limit(1)
         )
 
+    def find_normal_analysis(
+        self, *, tenant_id: str, asset: AssetModel,
+        metadata_profile_id: str, prompt_version: str,
+        pipeline_version: str, ai_provider: str, ai_model: str,
+    ) -> AssetAiAnalysisModel | None:
+        if asset.tenant_id != tenant_id:
+            return None
+        return self._normal_analysis(
+            tenant_id,
+            asset.id,
+            asset.content_hash,
+            metadata_profile_id,
+            prompt_version,
+            pipeline_version,
+            ai_provider,
+            ai_model,
+        )
+
     def save_search_projection(
         self, analysis_id: str, *, projection: Mapping[str, Any],
         projection_version: str,

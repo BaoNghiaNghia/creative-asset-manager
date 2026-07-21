@@ -68,3 +68,26 @@ completed, and failed counts. `GET /api/v1/asset-ingestions/{id}/items` returns
 ordered item status with `limit` and `offset` pagination. Inaccessible IDs return
 HTTP 404; an idempotency-key body conflict returns HTTP 409; rate limiting
 returns HTTP 429 with `Retry-After`.
+
+## AI analysis orchestration API
+
+`POST /api/v1/admin/asset-analyses/bulk` accepts unique tenant-owned asset
+IDs, an allowlisted provider/model and an explicit single or batch mode. It
+requires `Idempotency-Key`; the same canonical body reuses the durable request,
+while a changed body returns HTTP 409. Payload bytes and item count are bounded
+by centralized settings.
+
+Bulk requests use partial acceptance. Invalid, cross-tenant, unavailable, or
+budget-preflight-failed items are recorded without rolling back valid items.
+Single mode creates one `asset_analyze` job per accepted analysis. Batch mode
+creates one `ai_batch_prepare` job containing explicit compatible analysis IDs
+and never creates `asset_analyze`. Explicit batches bypass the scheduler's
+minimum-age coalescing delay. A one-item batch remains a batch and returns a
+delayed-completion warning.
+
+`GET /api/v1/admin/asset-analyses/requests/{id}` returns request, analysis,
+batch, queue, running, completion and failure state plus per-item results.
+Provider batch IDs are omitted unless a privileged administrator explicitly
+requests them. `POST .../{id}/cancel` records actor and reason, stops queued
+prepare/single work and uses the existing provider cancellation path for a
+submitted batch. Cancellation never invokes analysis synchronously.

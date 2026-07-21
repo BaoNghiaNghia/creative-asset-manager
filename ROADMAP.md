@@ -35,6 +35,7 @@
 - [x] AI-MULTI-02 OpenAI single-image Responses API
 - [x] AI-MULTI-03 OpenAI Batch API
 - [x] AI-MULTI-04 Provider, processing-mode, and model request API
+- [x] AI-MULTI-05 Correct single/batch enqueue orchestration and bulk API
 
 ## Operations and product
 

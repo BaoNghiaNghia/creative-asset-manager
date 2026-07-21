@@ -73,6 +73,22 @@ class AiProviderRegistryTest(unittest.TestCase):
         self.assertEqual(gemini.closed, 1)
         self.assertEqual(openai.closed, 1)
 
+class AiProviderRegistryAsyncTest(unittest.IsolatedAsyncioTestCase):
+    async def test_async_cleanup_works_inside_running_event_loop(self):
+        class AsyncProvider(FakeProvider):
+            async def aclose(self):
+                self.closed += 1
+
+        registry = AiProviderRegistry()
+        provider = AsyncProvider("openai", "openai-test")
+        registry.register("openai", provider)
+
+        await registry.aclose()
+        await registry.aclose()
+
+        self.assertEqual(provider.closed, 1)
+
+
 
 if __name__ == "__main__":
     unittest.main()

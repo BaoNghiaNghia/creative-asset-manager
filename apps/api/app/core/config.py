@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     AI_PILOT_CONFIRMATION_THRESHOLD_MICROS: int = 1_000_000
     AI_BATCH_MAX_ITEMS: int = 100
     AI_BATCH_MAX_REQUEST_BYTES: int = 20_000_000
+    AI_ANALYSIS_BULK_MAX_ITEMS: int = 100
+    AI_ANALYSIS_BULK_MAX_PAYLOAD_BYTES: int = 262_144
     AI_BATCH_MINIMUM_AGE_SECONDS: int = 300
     AI_BATCH_POLL_INTERVAL_SECONDS: float = 30.0
     AI_BATCH_MAX_ITEM_ATTEMPTS: int = 3
@@ -511,9 +513,13 @@ class Settings(BaseSettings):
             self.AI_ESTIMATED_OUTPUT_UNITS,
             self.AI_BATCH_MAX_ITEMS,
             self.AI_BATCH_MAX_REQUEST_BYTES,
+            self.AI_ANALYSIS_BULK_MAX_ITEMS,
+            self.AI_ANALYSIS_BULK_MAX_PAYLOAD_BYTES,
             self.AI_BATCH_MAX_ITEM_ATTEMPTS,
         ) <= 0:
             raise ValueError("AI analysis limits must be positive")
+        if self.AI_ANALYSIS_BULK_MAX_ITEMS > 1_000:
+            raise ValueError("AI_ANALYSIS_BULK_MAX_ITEMS cannot exceed 1000")
         if self.AI_BATCH_MINIMUM_AGE_SECONDS < 0:
             raise ValueError("AI_BATCH_MINIMUM_AGE_SECONDS cannot be negative")
         if self.AI_BATCH_POLL_INTERVAL_SECONDS <= 0:

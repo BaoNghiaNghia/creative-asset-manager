@@ -73,6 +73,27 @@ class AiProviderRegistry:
             for name, provider in sorted(self._providers.items())
         )
 
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        first_error: Exception | None = None
+        for provider in reversed(tuple(self._providers.values())):
+            closer = getattr(provider, "aclose", None) or getattr(
+                provider, "close", None
+            )
+            if closer is None:
+                continue
+            try:
+                result = closer()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
+
     def close(self) -> None:
         if self._closed:
             return

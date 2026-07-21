@@ -1285,3 +1285,47 @@ Final controls:
 - Rollback: disable the existing AI flags for immediate runtime rollback, revert
   the application change, then downgrade to 0018 only after resolving any
   provider/model variants that collide under the legacy uniqueness key.
+
+## AI-MULTI-05 review - single and batch enqueue orchestration
+
+- Files changed: durable analysis-request models and migration, bulk analysis
+  router/schemas/orchestration, processing cancellation support, explicit batch
+  candidate handling, provider registry async cleanup, configuration templates,
+  focused API/migration/config tests, API/data-model documentation, roadmap and
+  review.
+- Migration added: `0020_ai_analysis_requests`. It adds tenant-scoped durable
+  request and item ledgers for canonical-body idempotency, partial acceptance,
+  status aggregation and cancellation audit fields. Downgrade removes only
+  these ledgers; analyses, provider batches and processing jobs remain intact.
+- Behavior introduced: single mode enqueues only `asset_analyze`; batch mode
+  enqueues one immediate `ai_batch_prepare` job with explicit analysis IDs and
+  never enqueues `asset_analyze`. Provider/model/profile/version remain
+  persisted per analysis, and existing batch compatibility grouping prevents
+  provider/model mixing. The authenticated bulk API applies bounded payload and
+  item limits, tenant isolation, model/provider policy, advisory budget
+  preflight, canonical Idempotency-Key semantics, partial item acceptance,
+  aggregate status and actor/reason cancellation.
+- Tests and actual results:
+  - `cd apps/api && .venv/bin/python -m unittest
+    tests.modules.ai_metadata.test_bulk_api tests.modules.ai_metadata.test_api
+    tests.modules.ai_metadata.test_service tests.modules.ai_metadata.test_handler
+    tests.modules.ai_batch.test_service tests.modules.ai_batch.test_handlers
+    tests.providers.test_ai_registry tests.providers.test_gemini_ai
+    tests.providers.test_openai_batch tests.test_config
+    tests.migrations.test_ai_provider_selection_migration
+    tests.migrations.test_ai_analysis_requests_migration -v`: 77 passed in
+    7.816s (9.93s wall time).
+  - Python compile passed; `alembic heads` reports exactly one head,
+    `0020_ai_analysis_requests`.
+- Feature flags: none enabled or changed. All existing AI, OpenAI batch and
+  processing flags remain false by default.
+- Known risks: bulk budget preflight is intentionally advisory; the worker-side
+  atomic reservation/circuit breaker remains authoritative. Submitted provider
+  batch cancellation depends on the configured adapter; the durable request is
+  still marked cancelled and provider cancellation remains retryable by an
+  operator.
+- Rollback: disable existing AI/processing flags, stop affected workers, revert
+  the application change, and downgrade to `0019_ai_provider_selection` if the
+  request ledger is no longer needed. No provider analysis or batch data is
+  deleted.
+- Next recommended step: AI-MULTI-06 frontend provider/mode/model selection UI.

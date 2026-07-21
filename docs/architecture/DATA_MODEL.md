@@ -386,3 +386,16 @@ durable post-validation and interrupted-operation checkpoints. Downgrade
 restores the 0016 state set; operators must first reconcile or move records out
 of `verified` and `activating`. Elasticsearch documents and aliases are not
 modified by the database migration.
+
+## AI analysis orchestration requests
+
+Revision `0020_ai_analysis_requests` adds `ai_analysis_requests` and
+`ai_analysis_request_items`. The request row is tenant/idempotency-key unique
+and stores a canonical request hash, selected provider/model/mode, profile,
+warning, creator and cancellation audit fields. Item rows preserve ordered
+partial-acceptance outcomes and stable analysis/job references.
+
+These tables are an orchestration and status ledger, not metadata or provider
+output authority. Analyses remain authoritative in `asset_ai_analyses`, provider
+batches in `ai_batch_jobs`, and execution state in `processing_jobs`.
+Downgrade removes only the request ledger and leaves those records intact.

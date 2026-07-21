@@ -42,7 +42,10 @@ class AiBatchRepository:
 
     def group_candidates(self,*,tenant_id:str,analysis_ids:Sequence[str]|None=None,
                          minimum_age_seconds:int=0,max_items:int=100)->list[list[AssetAiAnalysisModel]]:
-        threshold=utcnow()-timedelta(seconds=max(0,minimum_age_seconds))
+        # An explicit user request is immediately eligible. The age threshold is
+        # only a scheduler coalescing policy for implicit background batches.
+        effective_age = 0 if analysis_ids is not None else minimum_age_seconds
+        threshold=utcnow()-timedelta(seconds=max(0,effective_age))
         statement=select(AssetAiAnalysisModel).where(
             AssetAiAnalysisModel.tenant_id==tenant_id,
             AssetAiAnalysisModel.status=="pending",
