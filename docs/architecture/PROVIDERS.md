@@ -148,3 +148,28 @@ References:
 - https://developers.openai.com/api/docs/guides/batch
 - https://developers.openai.com/api/reference/resources/batches/methods/create
 - https://developers.openai.com/api/reference/resources/files/methods/create
+
+## AI-MULTI-04 request selection and capabilities
+
+The authenticated analysis API accepts `ai_provider`, `processing_mode`, and an
+optional `ai_model`. Provider and mode are persisted before work is enqueued;
+workers continue resolving the persisted provider through `AiProviderRegistry`.
+Model selection is server-controlled: an omitted model resolves to that
+provider's configured default, and explicit models must belong to
+`GEMINI_ALLOWED_MODELS` or `OPENAI_ALLOWED_MODELS`.
+
+For compatibility with existing clients, omitted `ai_provider` currently means
+`gemini` and omitted `processing_mode` currently means `single`. These defaults
+are a temporary compatibility contract and should be removed only in a future,
+versioned API change after old clients have migrated.
+
+Availability is the intersection of global emergency flags, configured adapter
+and credentials, adapter capability, tenant processing policy, tenant/provider
+policy, and the OpenAI batch flag where applicable. A tenant cannot override a
+globally disabled feature. Unavailable selections fail with the stable
+`ai_provider_unavailable` code; the API never falls back to another provider.
+
+`GET /api/v1/admin/ai/capabilities` returns only the authenticated tenant's
+publicly selectable providers, allowlisted models, defaults, and supported
+modes. It never returns keys, provider headers, organization configuration, raw
+environment values, or internal exception messages.

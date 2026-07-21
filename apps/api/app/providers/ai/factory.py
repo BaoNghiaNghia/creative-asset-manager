@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from app.core.config import Settings
+from app.domain.providers.registry import AiProviderRegistry
+from app.providers.ai.gemini import GeminiAiMetadataProvider
+from app.providers.ai.openai import OpenAiMetadataProvider
+
+
+def build_ai_provider_registry(settings: Settings) -> AiProviderRegistry:
+    """Build configured adapters without exposing provider SDKs to services."""
+
+    registry = AiProviderRegistry()
+    if settings.GEMINI_API_KEY:
+        gemini = GeminiAiMetadataProvider(
+            settings.GEMINI_API_KEY,
+            model=settings.GEMINI_MODEL,
+            timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+        )
+        registry.register(gemini.provider_name, gemini)
+    if settings.OPENAI_AI_ENABLED and settings.OPENAI_API_KEY:
+        openai = OpenAiMetadataProvider(
+            settings.OPENAI_API_KEY,
+            model=settings.OPENAI_DEFAULT_MODEL,
+            allowed_models=settings.openai_allowed_models,
+            base_url=settings.OPENAI_BASE_URL,
+            timeout_seconds=settings.OPENAI_TIMEOUT_SECONDS,
+            max_retries=settings.OPENAI_MAX_RETRIES,
+            image_detail=settings.OPENAI_IMAGE_DETAIL,
+            store_responses=settings.OPENAI_STORE_RESPONSES,
+            organization=settings.OPENAI_ORGANIZATION,
+            project=settings.OPENAI_PROJECT,
+            capture_raw_response=settings.AI_STORE_RAW_RESPONSE_ENABLED,
+            max_image_bytes=settings.AI_ANALYSIS_MAX_OUTPUT_BYTES,
+            batch_enabled=settings.OPENAI_BATCH_ENABLED,
+            batch_completion_window=settings.OPENAI_BATCH_COMPLETION_WINDOW,
+            batch_max_items=settings.OPENAI_BATCH_MAX_ITEMS,
+            batch_max_file_bytes=settings.OPENAI_BATCH_MAX_FILE_BYTES,
+            batch_poll_interval_seconds=settings.OPENAI_BATCH_POLL_INTERVAL_SECONDS,
+            batch_result_chunk_size=settings.OPENAI_BATCH_RESULT_PAGE_OR_CHUNK_SIZE,
+            batch_input_retention_hours=settings.OPENAI_BATCH_INPUT_RETENTION_HOURS,
+            batch_output_retention_hours=settings.OPENAI_BATCH_OUTPUT_RETENTION_HOURS,
+        )
+        registry.register(openai.provider_name, openai)
+    return registry

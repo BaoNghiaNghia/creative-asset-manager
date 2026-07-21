@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_TIMEOUT_SECONDS: float = 45.0
+    GEMINI_ALLOWED_MODELS: str = "gemini-2.5-flash"
     OPENAI_AI_ENABLED: bool = False
     OPENAI_API_KEY: str | None = None
     OPENAI_BASE_URL: str | None = None
@@ -203,6 +204,14 @@ class Settings(BaseSettings):
     def proxy_trusted_ips(self) -> tuple[str, ...]:
         return tuple(
             value.strip() for value in self.PROXY_TRUSTED_IPS.split(",") if value.strip()
+        )
+
+    @property
+    def gemini_allowed_models(self) -> tuple[str, ...]:
+        return tuple(
+            value.strip()
+            for value in self.GEMINI_ALLOWED_MODELS.split(",")
+            if value.strip()
         )
 
     @property
@@ -513,6 +522,10 @@ class Settings(BaseSettings):
             raise ValueError("AI_PILOT_CONFIRMATION_THRESHOLD_MICROS cannot be negative")
         if not 1 <= self.AI_ANALYSIS_JPEG_QUALITY <= 95:
             raise ValueError("AI_ANALYSIS_JPEG_QUALITY must be between 1 and 95")
+        if self.GEMINI_MODEL not in self.gemini_allowed_models:
+            raise ValueError(
+                "GEMINI_MODEL must be in GEMINI_ALLOWED_MODELS"
+            )
         if self.OPENAI_BASE_URL:
             openai_url = urlsplit(self.OPENAI_BASE_URL)
             if (

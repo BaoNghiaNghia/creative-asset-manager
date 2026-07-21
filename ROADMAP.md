@@ -32,6 +32,9 @@
 - [x] 18 External ingestion API
 - [x] 19 Metadata sidecar export
 - [x] AI-MULTI-01 Multi-provider AI registry and persisted provider resolution
+- [x] AI-MULTI-02 OpenAI single-image Responses API
+- [x] AI-MULTI-03 OpenAI Batch API
+- [x] AI-MULTI-04 Provider, processing-mode, and model request API
 
 ## Operations and product
 

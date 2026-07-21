@@ -129,11 +129,19 @@ Append-oriented analysis history for a canonical content version.
 - metadata_json is the validated dynamic JSONB document.
 - raw_response_json is separate and optional by configuration.
 - search_projection is separately versioned JSONB.
-- A partial unique index prevents duplicate non-forced runs for the same inputs.
+- A partial unique index prevents duplicate non-forced runs for the same inputs,
+  including provider and model. Processing mode is represented by the versioned
+  pipeline identity (`single-asset-v1` or `batch-asset-v1`), so single and batch
+  orchestration cannot accidentally share a normal analysis row.
 - Forced analysis creates additional rows and preserves completed history.
 
 Revision 0004_dynamic_ai_metadata creates both tables. Its downgrade removes
 only Step 09 tables; legacy asset_metadata and tags are unaffected.
+
+Revision 0019_ai_provider_selection extends the normal-run uniqueness key with
+`ai_provider` and `ai_model`. Its downgrade restores the legacy key and may
+require operators to remove or force-mark provider/model variants that would
+collide under the older identity.
 
 ## External ingestion API
 

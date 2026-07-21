@@ -1248,3 +1248,40 @@ Final controls:
   revert this change. Existing queued jobs remain preserved and no database
   downgrade is required.
 - Next recommended step: AI-MULTI-04 provider capabilities and request API.
+
+## AI-MULTI-04 review - request selection and capabilities
+
+- Files changed: centralized AI provider registry factory, request/response
+  schemas, tenant-aware provider selection service, analysis and capabilities
+  routes, normal-analysis identity, configuration/environment templates,
+  focused tests, and architecture documentation.
+- Migration added: `0019_ai_provider_selection`. It adds provider and model to
+  the partial unique identity for non-forced analyses. Downgrade restores the
+  legacy index and may require provider/model variants to be removed or
+  force-marked first.
+- Behavior introduced: authenticated clients may select Gemini or OpenAI,
+  single or batch processing, and an allowlisted model. Omitted provider and
+  mode retain the documented temporary Gemini/single compatibility defaults.
+  Selection is gated by global flags, configured registry adapters, credentials,
+  capabilities, tenant policy, provider policy, and OpenAI batch enablement.
+  The capabilities endpoint exposes only public, tenant-eligible choices.
+- Tests and actual results:
+  - `cd apps/api && .venv/bin/python -m unittest tests.test_config
+    tests.modules.ai_metadata.test_api
+    tests.modules.processing.test_runtime.WorkerBootstrapTest
+    tests.modules.ai_metadata.test_service tests.modules.ai_metadata.test_handler
+    tests.modules.ai_batch.test_service tests.modules.ai_batch.test_handlers
+    tests.providers.test_ai_registry tests.providers.test_gemini_ai
+    tests.providers.test_openai_ai tests.providers.test_openai_batch
+    tests.migrations.test_ai_provider_selection_migration -v`:
+    85 passed in 3.794s (4.93s wall time).
+  - Python compile, `git diff --check`, and `alembic heads`: passed; exactly
+    one head, `0019_ai_provider_selection`.
+- Feature flags: none enabled. Existing AI and provider flags remain false by
+  default, including `OPENAI_AI_ENABLED` and `OPENAI_BATCH_ENABLED`.
+- Known risks: migration downgrade can conflict after multiple provider/model
+  variants exist for one legacy identity. Compatibility defaults must be
+  removed only through a future versioned API transition.
+- Rollback: disable the existing AI flags for immediate runtime rollback, revert
+  the application change, then downgrade to 0018 only after resolving any
+  provider/model variants that collide under the legacy uniqueness key.

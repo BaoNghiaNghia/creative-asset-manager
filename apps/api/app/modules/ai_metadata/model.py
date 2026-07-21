@@ -71,6 +71,8 @@ class AssetAiAnalysisModel(Base):
             "metadata_profile_id",
             "prompt_version",
             "pipeline_version",
+            "ai_provider",
+            "ai_model",
             unique=True,
             postgresql_where=text("forced = false"),
             sqlite_where=text("forced = 0"),

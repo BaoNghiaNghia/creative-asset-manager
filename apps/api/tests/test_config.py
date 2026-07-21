@@ -295,5 +295,18 @@ class SettingsTest(unittest.TestCase):
                 ):
                     with self.assertRaises(ValidationError):
                         Settings()
+
+    def test_gemini_model_must_be_server_allowlisted(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_MODEL": "browser-model",
+                "GEMINI_ALLOWED_MODELS": "gemini-test",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(ValidationError):
+                Settings()
+
 if __name__ == "__main__":
     unittest.main()

@@ -62,7 +62,7 @@ class AiMetadataRepository:
         if not force:
             existing = self._normal_analysis(
                 tenant_id, asset_id, asset.content_hash, metadata_profile_id,
-                prompt_version, pipeline_version,
+                prompt_version, pipeline_version, ai_provider, ai_model,
             )
             if existing is not None:
                 return existing
@@ -84,7 +84,7 @@ class AiMetadataRepository:
                 raise
             existing = self._normal_analysis(
                 tenant_id, asset_id, asset.content_hash, metadata_profile_id,
-                prompt_version, pipeline_version,
+                prompt_version, pipeline_version, ai_provider, ai_model,
             )
             if existing is None:
                 raise
@@ -298,6 +298,7 @@ class AiMetadataRepository:
     def _normal_analysis(
         self, tenant_id: str, asset_id: str, content_hash: str,
         profile_id: str, prompt_version: str, pipeline_version: str,
+        ai_provider: str | None, ai_model: str | None,
     ) -> AssetAiAnalysisModel | None:
         return self.session.scalar(select(AssetAiAnalysisModel).where(
             AssetAiAnalysisModel.tenant_id == tenant_id,
@@ -306,5 +307,7 @@ class AiMetadataRepository:
             AssetAiAnalysisModel.metadata_profile_id == profile_id,
             AssetAiAnalysisModel.prompt_version == prompt_version,
             AssetAiAnalysisModel.pipeline_version == pipeline_version,
+            AssetAiAnalysisModel.ai_provider == ai_provider,
+            AssetAiAnalysisModel.ai_model == ai_model,
             AssetAiAnalysisModel.forced.is_(False),
         ))
