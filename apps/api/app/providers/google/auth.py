@@ -16,8 +16,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.modules.auth_persistence.repository import PersistentCloudSession
-from app.modules.auth_persistence.identity import IdentityResolutionService
-from app.modules.auth_persistence.tenant_membership import TenantMembershipService
+from app.modules.auth_persistence.login import ApplicationLoginService
 from app.modules.auth_persistence.service import AUTH_METRICS, auth_repository
 
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
@@ -72,9 +71,7 @@ async def create_session(credentials):
     elif expiry.tzinfo is None: expiry=expiry.replace(tzinfo=timezone.utc)
     settings=get_settings()
     with auth_repository() as repository:
-        application_user, _identity = IdentityResolutionService(
-            repository.session
-        ).resolve_login(
+        login = ApplicationLoginService(repository.session, settings).resolve(
             provider="google",
             provider_subject=account_id,
             provider_email=profile.get("email"),
@@ -86,12 +83,6 @@ async def create_session(credentials):
                 "locale": profile.get("locale"),
             },
         )
-        personal_tenant = TenantMembershipService(
-            repository.session
-        ).ensure_development_personal_tenant(
-            settings=settings, user=application_user,
-            legacy_tenant_id=account_id, display_name=profile.get("name"),
-        )
         connection=repository.upsert_connection(
             tenant_id=account_id,provider="google",provider_account_id=account_id,
             account_email=profile.get("email"),access_token=credentials.token,
@@ -102,16 +93,20 @@ async def create_session(credentials):
         session_id,_=repository.create_session(
             connection=connection, user=user,
             ttl_seconds=settings.AUTH_SESSION_TTL_SECONDS,
-            user_id=application_user.id,
-            active_tenant_id=personal_tenant.id if personal_tenant else None,
+            user_id=login.user.id,
+            active_tenant_id=login.active_tenant_id,
         )
     AUTH_METRICS.increment("connection_created","google")
     return session_id,get_session_by_id(session_id)
 
 def get_session_by_id(session_id):
-    if not get_settings().PERSISTENT_AUTH_ENABLED: return None
+    settings = get_settings()
+    if not settings.PERSISTENT_AUTH_ENABLED: return None
     with auth_repository() as repository:
-        return repository.load_session(provider="google",session_id=session_id)
+        return repository.load_session(
+            provider="google", session_id=session_id,
+            allow_legacy_actor_session=settings.legacy_actor_session_compatibility_enabled,
+        )
 
 def get_session(request):
     session_id=request.cookies.get(SESSION_COOKIE)

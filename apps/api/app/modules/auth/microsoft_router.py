@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.config import get_settings
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
+from app.modules.auth_persistence.login import LoginAdmissionError
 
 from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
 from app.providers.microsoft.auth import (
@@ -65,6 +66,9 @@ async def callback(
     except ApplicationUserInactiveError:
         logger.warning("Microsoft application user is inactive request_id=%s", request_id)
         return client_redirect(auth_provider="microsoft", auth_error="account_inactive", auth_request=request_id)
+    except LoginAdmissionError as exc:
+        logger.warning("Microsoft application login denied request_id=%s code=%s", request_id, exc.code)
+        return client_redirect(auth_provider="microsoft", auth_error=exc.code, auth_request=request_id)
     except PermissionError:
         logger.warning("Microsoft SharePoint scopes missing request_id=%s", request_id)
         return client_redirect(auth_provider="microsoft", auth_error="scope", auth_request=request_id)

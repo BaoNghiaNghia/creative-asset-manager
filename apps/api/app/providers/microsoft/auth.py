@@ -12,8 +12,7 @@ from fastapi import HTTPException, Request
 
 from app.core.config import get_settings
 from app.modules.auth_persistence.repository import PersistentCloudSession
-from app.modules.auth_persistence.identity import IdentityResolutionService
-from app.modules.auth_persistence.tenant_membership import TenantMembershipService
+from app.modules.auth_persistence.login import ApplicationLoginService
 from app.modules.auth_persistence.service import AUTH_METRICS, auth_repository
 
 SESSION_COOKIE="cam_microsoft_session"
@@ -66,9 +65,7 @@ async def create_session(token):
     user={"id":account_id,"name":profile.get("displayName"),"email":profile.get("mail") or profile.get("userPrincipalName"),"picture":None}
     settings=get_settings()
     with auth_repository() as repository:
-        application_user, _identity = IdentityResolutionService(
-            repository.session
-        ).resolve_login(
+        login = ApplicationLoginService(repository.session, settings).resolve(
             provider="microsoft",
             provider_subject=account_id,
             provider_email=user["email"],
@@ -77,25 +74,21 @@ async def create_session(token):
                 "user_principal_name": profile.get("userPrincipalName"),
             },
         )
-        personal_tenant = TenantMembershipService(
-            repository.session
-        ).ensure_development_personal_tenant(
-            settings=settings, user=application_user,
-            legacy_tenant_id=account_id, display_name=profile.get("displayName"),
-        )
         connection=repository.upsert_connection(tenant_id=account_id,provider="microsoft",provider_account_id=account_id,account_email=user["email"],access_token=token["access_token"],refresh_token=token.get("refresh_token"),expires_at=datetime.now(timezone.utc)+timedelta(seconds=int(token.get("expires_in") or 3500)),scopes=list(granted),token_type=token.get("token_type") or "Bearer",provider_metadata={})
         session_id,_=repository.create_session(
             connection=connection, user=user,
             ttl_seconds=settings.AUTH_SESSION_TTL_SECONDS,
-            user_id=application_user.id,
-            active_tenant_id=personal_tenant.id if personal_tenant else None,
+            user_id=login.user.id,
+            active_tenant_id=login.active_tenant_id,
         )
     AUTH_METRICS.increment("connection_created","microsoft")
     return session_id,get_session_by_id(session_id)
 
 def get_session_by_id(session_id):
-    if not get_settings().PERSISTENT_AUTH_ENABLED: return None
-    with auth_repository() as repository: return repository.load_session(provider="microsoft",session_id=session_id)
+    settings = get_settings()
+    if not settings.PERSISTENT_AUTH_ENABLED: return None
+    with auth_repository() as repository:
+        return repository.load_session(provider="microsoft", session_id=session_id, allow_legacy_actor_session=settings.legacy_actor_session_compatibility_enabled)
 
 def get_session(request):
     session_id=request.cookies.get(SESSION_COOKIE)

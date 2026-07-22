@@ -43,4 +43,17 @@ class AuthConfigurationTest(unittest.TestCase):
                 **PRODUCTION_HTTP_SETTINGS,
             )
 
+    def test_auth_signup_defaults_fail_closed_and_domains_are_normalized(self):
+        defaults = Settings()
+        self.assertFalse(defaults.AUTH_SELF_SIGNUP_ENABLED)
+        self.assertEqual(defaults.auth_allowed_email_domains, ())
+        configured = Settings(AUTH_ALLOWED_EMAIL_DOMAINS="Example.COM, studio.test,example.com")
+        self.assertEqual(configured.auth_allowed_email_domains,("example.com", "studio.test", "example.com"))
+
+    def test_legacy_actor_session_deadline_must_be_timezone_aware(self):
+        with self.assertRaisesRegex(ValueError, "AUTH_LEGACY_ACTOR"):
+            Settings(AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL="2026-08-01")
+        active = Settings(AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL="2999-01-01T00:00:00+00:00")
+        self.assertTrue(active.legacy_actor_session_compatibility_enabled)
+
 if __name__=="__main__": unittest.main()

@@ -156,7 +156,7 @@ class AuthPersistenceRepository:
         self.session.add(row); self.session.flush()
         return session_id, row
 
-    def load_session(self, *, provider: str, session_id: str, touch: bool = True) -> PersistentCloudSession | None:
+    def load_session(self, *, provider: str, session_id: str, touch: bool = True, allow_legacy_actor_session: bool = True) -> PersistentCloudSession | None:
         now = utcnow()
         row = self.session.scalar(select(AuthSessionModel).where(
             AuthSessionModel.session_id_hash == digest(session_id),
@@ -177,6 +177,14 @@ class AuthPersistenceRepository:
                 )
                 self.session.flush()
                 return None
+        elif not allow_legacy_actor_session:
+            row.revoked_at = now
+            self.audit(
+                "session_revoked", tenant_id=row.tenant_id, provider=provider,
+                connection_id=row.connection_id, session_id_hash=row.session_id_hash,
+                detail={"code": "legacy_actor_session_expired"},
+            )
+            self.session.flush(); return None
         connection = self.session.scalar(select(OAuthConnectionModel).where(
             OAuthConnectionModel.id == row.connection_id,
             OAuthConnectionModel.tenant_id == row.tenant_id,
@@ -215,6 +223,61 @@ class AuthPersistenceRepository:
         self.audit("session_revoked", tenant_id=row.tenant_id, provider=provider, connection_id=row.connection_id, session_id_hash=row.session_id_hash)
         self.session.flush()
         return True
+
+    def rotate_session_active_tenant(
+        self, *, provider: str, session_id: str, user_id: str,
+        tenant_id: str, ttl_seconds: int,
+    ) -> tuple[str, AuthSessionModel]:
+        now = utcnow()
+        current = self.session.scalar(
+            select(AuthSessionModel).where(
+                AuthSessionModel.session_id_hash == digest(session_id),
+                AuthSessionModel.provider == provider,
+                AuthSessionModel.user_id == user_id,
+                AuthSessionModel.revoked_at.is_(None),
+                AuthSessionModel.expires_at > now,
+            ).with_for_update()
+        )
+        if current is None:
+            raise LookupError("application session is not active")
+        user = self.session.get(UserModel, user_id)
+        membership = self.session.scalar(select(TenantMembershipModel).where(
+            TenantMembershipModel.tenant_id == tenant_id,
+            TenantMembershipModel.user_id == user_id,
+            TenantMembershipModel.status == "active",
+        ))
+        tenant = self.session.get(TenantModel, tenant_id)
+        if user is None or user.status != "active":
+            raise ApplicationUserInactiveError("application user is not active")
+        if membership is None or tenant is None or tenant.status != "active":
+            raise PermissionError("active tenant membership is required")
+        connection = self.session.scalar(select(OAuthConnectionModel).where(
+            OAuthConnectionModel.id == current.connection_id,
+            OAuthConnectionModel.tenant_id == current.tenant_id,
+            OAuthConnectionModel.provider == provider,
+        ))
+        if connection is None:
+            raise LookupError("OAuth connection is unavailable")
+        replacement_id, replacement = self.create_session(
+            connection=connection,
+            user=dict(current.user_json),
+            ttl_seconds=ttl_seconds,
+            user_id=user_id,
+            active_tenant_id=tenant_id,
+        )
+        previous_tenant_id = current.active_tenant_id
+        current.revoked_at = now
+        self.audit(
+            "active_tenant_selected", tenant_id=tenant_id, actor_id=user_id,
+            provider=provider, connection_id=connection.id,
+            session_id_hash=replacement.session_id_hash,
+            detail={
+                "previous_tenant_id": previous_tenant_id,
+                "membership_id": membership.id,
+            },
+        )
+        self.session.flush()
+        return replacement_id, replacement
 
     def claim_refresh(self, *, tenant_id: str, connection_id: str, owner: str, lease_seconds: int) -> bool:
         now = utcnow()

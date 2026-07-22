@@ -125,6 +125,26 @@ stable `authentication_required`, `user_disabled`,
 `tenant_membership_required`, `permission_required` and `tenant_mismatch`
 codes without exposing role storage details.
 
+## OAuth application login boundary (AUTH-05)
+
+Google and Microsoft subjects, not email addresses, are the authoritative
+external identities. An OAuth callback resolves `provider + provider_subject`,
+updates only bounded profile fields and never links identities merely because
+their email addresses match. Provider access/refresh credentials remain in the
+encrypted OAuth connection record and never enter the application session.
+
+First-login admission is fail-closed. `AUTH_SELF_SIGNUP_ENABLED` defaults to
+false; an optional normalized domain allowlist is admission policy only and
+never grants tenant or platform roles. Approved signup requires an explicit
+active default tenant, except for the separately guarded local-development
+personal-tenant flow. No login path assigns an administrator role.
+
+New application sessions contain the durable user and active tenant IDs, use a
+fresh opaque session ID and validate active user, tenant and membership state.
+Tenant switching validates membership, rotates the session, revokes the old
+session and records a secret-free audit event. Legacy actor-only sessions are
+accepted only before an explicitly configured ISO-8601 compatibility deadline.
+
 `PROCESSING_POLICY_ADMIN_IDS` is deprecated. Its bridge to platform privilege
 is inactive unless `AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=true`; the
 flag defaults to false in every environment example. Existing admin routes are

@@ -131,3 +131,45 @@ The operation is idempotent and reconciles viewer, operator, tenant_admin and
 billing_admin. It creates no membership assignment, accepts no credential and
 cannot create platform administration. Assign roles only through the durable
 RBAC service after independently verifying the target membership and tenant.
+
+## AUTH-05 application-login rollout
+
+Application login and cloud-provider access are separate records even when one
+OAuth consent supplies both. Configure admission before enabling callbacks:
+
+```dotenv
+AUTH_SELF_SIGNUP_ENABLED=false
+AUTH_DEFAULT_TENANT_ID=
+AUTH_ALLOWED_EMAIL_DOMAINS=
+AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL=
+```
+
+Production starts with self-signup disabled. Pre-provision the user identity
+and membership using the approved bootstrap process, or briefly enable
+self-signup only after setting an active default tenant and, when required, an
+admission-domain allowlist. The allowlist never grants roles. AUTH-05 creates no
+tenant-admin or platform-admin assignment.
+
+For a rolling deployment, set `AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL` to a
+short, timezone-aware ISO-8601 deadline understood by all replicas. Before that
+deadline actor-only sessions remain readable; afterward they are revoked on
+use. Empty means no compatibility window. Remove the setting after the rollout.
+
+Authenticated users switch tenants with `POST /api/v1/auth/active-tenant` and
+an owned active tenant ID. Success rotates the browser session, revokes the old
+session and returns the refreshed safe identity/permission summary. Invalid or
+inactive membership fails with 403 and leaves the current session usable.
+
+Validation checklist:
+
+1. Verify Google and Microsoft first and repeat logins resolve by provider
+   subject and produce different users for unlinked same-email identities.
+2. Confirm `auth_sessions.user_id` and `active_tenant_id` are populated.
+3. Confirm provider tokens exist only encrypted in `oauth_connections`.
+4. Switch tenants and verify the old cookie no longer resolves.
+5. Revoke/logout and verify the server-side session is unusable.
+
+Rollback deploys the AUTH-04 application code and leaves all AUTH-01 through
+AUTH-04 tables intact; no AUTH-05 migration is required. Existing AUTH-05
+sessions remain valid persistent sessions. Disable self-signup immediately and
+expire/revoke affected sessions if admission configuration was incorrect.

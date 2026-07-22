@@ -77,6 +77,7 @@
 - [x] 21D Toggleable file details and activity inspector
 
 ## Authentication and authorization
+- [x] AUTH-05 OAuth application login, session rotation and tenant switching
 
 - [x] AUTH-01 Application users and external identity persistence
 - [x] AUTH-02 Durable tenant membership and active tenant resolution

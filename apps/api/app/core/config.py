@@ -1,5 +1,6 @@
 import ipaddress
 import re
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 from urllib.parse import urlsplit
@@ -86,6 +87,7 @@ class Settings(BaseSettings):
     SEARCH_SHADOW_COMPARISON_ENABLED: bool = False
     ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED: bool = False
     AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED: bool = False
+    AUTH_SELF_SIGNUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
@@ -173,6 +175,9 @@ class Settings(BaseSettings):
     AUTH_COOKIE_SAMESITE: str = "lax"
     AUTH_COOKIE_DOMAIN: str | None = None
     AUTH_COOKIE_PATH: str = "/"
+    AUTH_DEFAULT_TENANT_ID: str = ""
+    AUTH_ALLOWED_EMAIL_DOMAINS: str = ""
+    AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL: str = ""
     APP_ENV: str = "development"
 
     @field_validator(
@@ -182,6 +187,7 @@ class Settings(BaseSettings):
         "OPENAI_STORE_RESPONSES",
         "DEVELOPMENT_PERSONAL_TENANT_ENABLED",
         "AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED",
+        "AUTH_SELF_SIGNUP_ENABLED",
         mode="before",
     )
     @classmethod
@@ -245,6 +251,22 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.APP_ENV.strip().lower() in {"production", "prod"}
+
+    @property
+    def auth_allowed_email_domains(self) -> tuple[str, ...]:
+        return tuple(
+            value.strip().casefold()
+            for value in self.AUTH_ALLOWED_EMAIL_DOMAINS.split(",")
+            if value.strip()
+        )
+
+    @property
+    def legacy_actor_session_compatibility_enabled(self) -> bool:
+        value = self.AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL.strip()
+        if not value:
+            return False
+        deadline = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) < deadline
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
@@ -393,6 +415,24 @@ class Settings(BaseSettings):
                 raise ValueError("SQLite is not supported in production")
             if self.DEVELOPMENT_PERSONAL_TENANT_ENABLED:
                 raise ValueError("DEVELOPMENT_PERSONAL_TENANT_ENABLED is forbidden in production")
+            if self.AUTH_SELF_SIGNUP_ENABLED and not self.AUTH_DEFAULT_TENANT_ID.strip():
+                raise ValueError("AUTH_DEFAULT_TENANT_ID is required for production self-signup")
+        domains = self.auth_allowed_email_domains
+        if any(
+            "@" in domain
+            or "." not in domain
+            or any(character.isspace() for character in domain)
+            for domain in domains
+        ):
+            raise ValueError("AUTH_ALLOWED_EMAIL_DOMAINS contains an invalid domain")
+        legacy_deadline = self.AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL.strip()
+        if legacy_deadline:
+            try:
+                parsed_deadline = datetime.fromisoformat(legacy_deadline.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL must be ISO-8601") from exc
+            if parsed_deadline.tzinfo is None:
+                raise ValueError("AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL must include a timezone")
         if min(
             self.DATABASE_POOL_SIZE,
             self.DATABASE_POOL_TIMEOUT_SECONDS,

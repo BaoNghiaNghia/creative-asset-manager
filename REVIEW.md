@@ -1689,3 +1689,43 @@ Final controls:
   rollback explicitly requires it.
 - Next recommended step: integrate OAuth/session creation with the central
   application principal, then migrate protected routes permission-by-permission.
+
+## AUTH-05 review - OAuth application login and tenant sessions
+
+- Files changed: fail-closed admission configuration, shared OAuth application
+  login service, Google/Microsoft callback integration, persistent-session
+  rotation and legacy cutoff, authenticated active-tenant endpoint,
+  configuration examples, focused tests, security/runbook and roadmap docs.
+- Migrations added: none. AUTH-05 reuses `users`, `user_identities`, `tenants`,
+  `tenant_memberships`, `oauth_connections`, `auth_sessions` and
+  `auth_audit_events` from AUTH-01 through AUTH-04. Alembic has exactly one
+  head: `0028_central_authorization`.
+- Behavior introduced: OAuth identities resolve only by provider plus subject;
+  first login follows explicit self-signup/domain/default-tenant policy;
+  application sessions persist durable user and active tenant IDs while cloud
+  credentials remain separately encrypted; tenant switching validates active
+  membership, rotates the session, revokes the old cookie and audits the
+  change. Legacy actor-only sessions are rejected outside an explicit bounded
+  compatibility deadline. No role is assigned by login.
+- Tests and actual results:
+  - `apps/api/.venv/bin/python -m pytest -q apps/api/tests/modules/auth_persistence apps/api/tests/modules/authorization -x`:
+    64 passed in 2.80s.
+  - `apps/api/.venv/bin/python -m compileall -q apps/api/app`: passed.
+  - `cd apps/api && .venv/bin/python -m alembic heads`: one head,
+    `0028_central_authorization`.
+  - `git diff --check`: passed; only repository line-ending conversion notices
+    were emitted by Git on this Windows/WSL checkout.
+- Feature/configuration controls: `AUTH_SELF_SIGNUP_ENABLED=false` by default;
+  optional `AUTH_DEFAULT_TENANT_ID`, `AUTH_ALLOWED_EMAIL_DOMAINS` and
+  `AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL`. Production self-signup requires an
+  explicit default tenant. Admission domains never imply administration.
+- Known risks: the rolling-deployment compatibility deadline must be applied
+  consistently across replicas. Existing actor-only sessions are revoked when
+  no active compatibility window is configured. Tenant/role administration UI
+  remains outside AUTH-05.
+- Rollback: disable self-signup, deploy AUTH-04 code and revoke any sessions
+  admitted under an incorrect policy. No database downgrade is required;
+  durable identities, memberships, sessions and audit history remain intact.
+- Next recommended step: implement AUTH-06 tenant membership/role APIs using
+  the central permission dependencies; do not restore email-only linking or
+  automatic administrator grants.
