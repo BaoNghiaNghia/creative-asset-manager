@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  aiOperationsExportUrl, fetchAiOperationsDashboard, filtersFromSearch, searchFromFilters,
+  aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch,
+  retryAiOperationsJob, searchFromFilters,
   type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
@@ -9,6 +10,10 @@ import {
   dailyProviderCostChart, dailyStatusChart, failureChart,
   formatCost, formatDuration, modeLabel, providerLabel, providerVolumeChart,
 } from "./presentation";
+import {
+  AUTO_REFRESH_SECONDS, DashboardRequestCoordinator, autoRefreshFromSearch,
+  shouldAutoRefresh, type AutoRefreshSeconds,
+} from "./requestCoordinator";
 
 export type AiOpsTab = "overview" | "processing" | "cost" | "providers" | "configuration";
 const tabs: Array<{ id: AiOpsTab; label: string }> = [
@@ -29,43 +34,73 @@ export function AiOperationsPage() {
   const [filters, setFilters] = useState(() => filtersFromSearch(window.location.search));
   const initialTab = new URLSearchParams(window.location.search).get("tab") as AiOpsTab | null;
   const [tab, setTab] = useState<AiOpsTab>(tabs.some(item => item.id === initialTab) ? initialTab! : "overview");
+  const [refreshSeconds, setRefreshSeconds] = useState<AutoRefreshSeconds>(() => autoRefreshFromSearch(window.location.search));
   const [data, setData] = useState<AiOpsDashboardData>(() => emptyDashboard(filters.page));
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [unauthorized, setUnauthorized] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [reload, setReload] = useState(0);
+  const requests = useRef(new DashboardRequestCoordinator());
 
   useEffect(() => {
-    const controller = new AbortController();
+    let subscribed = true;
     setLoading(true);
-    fetchAiOperationsDashboard(filters, (url, init) => fetch(url, { ...init, signal: controller.signal }))
-      .then(result => {
-        setData(result.data); setErrors(result.errors); setUnauthorized(result.unauthorized);
-      })
-      .catch(error => setErrors([String(error?.message || "Dashboard request failed")]))
-      .finally(() => setLoading(false));
-    return () => controller.abort();
+    requests.current.run(signal => fetchAiOperationsDashboard(
+      filters, (url, init) => fetch(url, { ...init, signal }),
+    )).then(result => {
+      if (!subscribed || !result.current) return;
+      if ("value" in result) {
+        setData(result.value.data);
+        setErrors(result.value.errors);
+        setUnauthorized(result.value.unauthorized);
+        setLastUpdated(new Date());
+      } else {
+        setErrors(["Dashboard request failed. Try again."]);
+      }
+      setLoading(false);
+    });
+    return () => {
+      subscribed = false;
+      requests.current.abort();
+    };
   }, [filters, reload]);
+
+  useEffect(() => {
+    if (!refreshSeconds) return;
+    const timer = window.setInterval(() => {
+      if (shouldAutoRefresh(refreshSeconds, document.visibilityState)) {
+        setReload(value => value + 1);
+      }
+    }, refreshSeconds * 1000);
+    return () => window.clearInterval(timer);
+  }, [refreshSeconds]);
 
   function changeFilters(next: AiOpsFilters) {
     setFilters(next);
-    updateUrl(next, tab);
+    updateUrl(next, tab, refreshSeconds);
   }
   function changeTab(next: AiOpsTab) {
     setTab(next);
-    updateUrl(filters, next);
+    updateUrl(filters, next, refreshSeconds);
+  }
+  function changeRefresh(next: AutoRefreshSeconds) {
+    setRefreshSeconds(next);
+    updateUrl(filters, tab, next);
   }
   return <AiOperationsShell>
     <AiOperationsContent
       data={data} loading={loading} errors={errors} unauthorized={unauthorized}
       filters={filters} tab={tab} onTab={changeTab} onFilters={changeFilters}
+      refreshSeconds={refreshSeconds} onRefreshSeconds={changeRefresh}
+      lastUpdated={lastUpdated}
       onRetry={() => setReload(value => value + 1)}
     />
   </AiOperationsShell>;
 }
 
-function updateUrl(filters: AiOpsFilters, tab: AiOpsTab) {
-  const query = searchFromFilters(filters, tab);
+function updateUrl(filters: AiOpsFilters, tab: AiOpsTab, refreshSeconds: AutoRefreshSeconds) {
+  const query = searchFromFilters(filters, tab, refreshSeconds);
   window.history.replaceState({}, "", `/ai-operations${query ? `?${query}` : ""}`);
 }
 
@@ -92,11 +127,15 @@ type ContentProps = {
   onTab: (tab: AiOpsTab) => void;
   onFilters: (filters: AiOpsFilters) => void;
   onRetry: () => void;
+  refreshSeconds?: AutoRefreshSeconds;
+  onRefreshSeconds?: (seconds: AutoRefreshSeconds) => void;
+  lastUpdated?: Date | null;
 };
 
 export function AiOperationsContent({
   data, filters, tab, loading = false, errors = [], unauthorized = false,
-  onTab, onFilters, onRetry,
+  onTab, onFilters, onRetry, refreshSeconds = 0, onRefreshSeconds = () => undefined,
+  lastUpdated = null,
 }: ContentProps) {
   const models = useMemo(() => [...new Set([
     ...data.providers.map(item => item.model || ""), ...data.usage.items.map(item => item.model || ""),
@@ -106,23 +145,41 @@ export function AiOperationsContent({
   return <>
     <header className="ops-header">
       <div><small>OPERATIONS</small><h1>AI Operations</h1><p>Processing health, usage and cost for the current tenant.</p></div>
-      <a href="/">Back to assets</a>
+      <div className="ops-header-actions">
+        <label>Auto-refresh<select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
+          {AUTO_REFRESH_SECONDS.map(seconds => <option key={seconds} value={seconds}>{seconds ? `${seconds}s` : "Off"}</option>)}
+        </select></label>
+        <span className="ops-refresh-status" aria-live="polite">{loading ? "Refreshing dashboard…" : lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Auto-refresh off"}</span>
+        <a href="/">Back to assets</a>
+      </div>
     </header>
-    <nav className="ops-tabs" aria-label="AI Operations sections">
-      {tabs.map(item => <button key={item.id} type="button" className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => onTab(item.id)}>{item.label}</button>)}
+    <nav className="ops-tabs" aria-label="AI Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
+      {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}>{item.label}</button>)}
     </nav>
     <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
     <nav className="ops-export-actions" aria-label="AI Operations CSV exports">{(["daily", "usage", "failures", "jobs"] as const).map(kind => <a key={kind} href={aiOperationsExportUrl(kind, filters)}>Export {kind} CSV</a>)}</nav>
-    {errors.length > 0 && <div className="ops-partial-error" role="alert">
+    {errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
-    {loading ? <DashboardSkeleton /> : tab === "overview" ? <Overview data={data} />
-      : tab === "processing" ? <Processing data={data} filters={filters} onFilters={onFilters} />
-      : tab === "cost" ? <CostUsage data={data} filters={filters} />
-      : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
-      : <ConfigurationTab />}
+    <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
+      {loading ? <DashboardSkeleton /> : tab === "overview" ? <Overview data={data} />
+        : tab === "processing" ? <Processing data={data} filters={filters} onFilters={onFilters} onActionAccepted={onRetry} />
+        : tab === "cost" ? <CostUsage data={data} filters={filters} />
+        : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
+        : <ConfigurationTab />}
+    </section>
   </>;
+}
+
+export function handleTabKeyDown(event: React.KeyboardEvent<HTMLElement>, active: AiOpsTab, onTab: (tab: AiOpsTab) => void) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const current = tabs.findIndex(item => item.id === active);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : event.key === "ArrowRight" ? (current + 1) % tabs.length : (current - 1 + tabs.length) % tabs.length;
+  onTab(tabs[next].id);
+  event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
 }
 
 export function AiOperationsFilters({ filters, models, profiles, onChange }: {
@@ -145,8 +202,8 @@ function Overview({ data }: { data: AiOpsDashboardData }) {
   const processedToday = (data.today?.completed || 0) + (data.today?.failed || 0);
   const cards = [
     ["Processed today", processedToday], ["Completed", summary?.completed || 0],
-    ["Failed", summary?.failed || 0], ["Running", summary?.running || 0],
-    ["Queued", summary?.queued || 0], ["Success rate", `${((summary?.success_rate || 0) * 100).toFixed(1)}%`],
+    ["Failed", summary?.failed || 0], ["Budget blocked", summary?.budget_blocked || 0],
+    ["Running", summary?.running || 0], ["Queued", summary?.queued || 0], ["Success rate", `${((summary?.success_rate || 0) * 100).toFixed(1)}%`],
     ["Estimated cost today", formatCost(data.today?.cost.estimated_cost_micros, data.today?.cost.currency)],
     ["Estimated cost this month", formatCost(data.month?.cost.estimated_cost_micros, data.month?.cost.currency)],
   ];
@@ -162,7 +219,11 @@ function Overview({ data }: { data: AiOpsDashboardData }) {
   </div>;
 }
 
-function Processing({ data, filters, onFilters }: { data: AiOpsDashboardData; filters: AiOpsFilters; onFilters: (value: AiOpsFilters) => void }) {
+export function pageFilters(filters: AiOpsFilters, page: number): AiOpsFilters {
+  return { ...filters, page: Math.max(1, page) };
+}
+
+function Processing({ data, filters, onFilters, onActionAccepted }: { data: AiOpsDashboardData; filters: AiOpsFilters; onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void }) {
   const usageByJob = new Map(data.usage.items.filter(item => item.job_id).map(item => [item.job_id!, item]));
   if (!data.jobs.items.length) return <DashboardState kind="empty" label="No processing jobs in this period" />;
   const pages = Math.max(1, Math.ceil(data.jobs.total / data.jobs.page_size));
@@ -180,12 +241,62 @@ function Processing({ data, filters, onFilters }: { data: AiOpsDashboardData; fi
           <td>{usage?.metadata_profile || "—"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
           <td>{formatDuration(job.claimed_at || job.created_at, job.completed_at || (job.status === "processing" ? job.updated_at : null))}</td>
           <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><code>{job.error?.code || "—"}</code></td>
-          <td>{assetId ? <a href={`/?details=1&asset=${encodeURIComponent(assetId)}`}>View</a> : <span title="Asset identity is not available yet">Unavailable</span>}</td>
+          <td><div className="ops-job-actions">
+            {assetId ? <a aria-label={`View asset ${assetId}`} href={`/?details=1&asset=${encodeURIComponent(assetId)}`}>View</a> : <span title="Asset identity is not available yet">Unavailable</span>}
+            <ProcessingJobAction job={job} onAccepted={onActionAccepted} />
+          </div></td>
         </tr>;
       })}</tbody>
     </table></div>
-    <div className="ops-pagination" aria-label="Processing pagination"><button type="button" disabled={filters.page <= 1} onClick={() => onFilters({ ...filters, page: filters.page - 1 })}>Previous</button><span>Page {filters.page} of {pages}</span><button type="button" disabled={filters.page >= pages} onClick={() => onFilters({ ...filters, page: filters.page + 1 })}>Next</button></div>
+    <div className="ops-pagination" aria-label="Processing pagination"><button type="button" disabled={filters.page <= 1} onClick={() => onFilters(pageFilters(filters, filters.page - 1))}>Previous</button><span>Page {filters.page} of {pages}</span><button type="button" disabled={filters.page >= pages} onClick={() => onFilters(pageFilters(filters, filters.page + 1))}>Next</button></div>
   </div>;
+}
+
+export type ProcessingJobActionKind = "retry" | "cancel";
+
+export function eligibleProcessingAction(job: AiOpsJob): ProcessingJobActionKind | null {
+  if (job.status === "failed" && !["operation_cancelled", "analysis_cancelled", "batch_cancelled"].includes(job.error?.code || "")) return "retry";
+  if (["pending", "retry", "processing"].includes(job.status)) return "cancel";
+  return null;
+}
+
+export function ProcessingJobAction({ job, onAccepted }: { job: AiOpsJob; onAccepted: () => void }) {
+  const action = eligibleProcessingAction(job);
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  if (!action) return null;
+  const running = job.status === "processing";
+  const label = action === "retry" ? "Retry failed job" : running ? "Request cancellation" : "Cancel queued job";
+
+  async function submit() {
+    if (!reason.trim()) return;
+    setBusy(true); setMessage("");
+    try {
+      const result = action === "retry"
+        ? await retryAiOperationsJob(job.id, reason.trim())
+        : await cancelAiOperationsJob(job.id, reason.trim());
+      setMessage(result.outcome.replaceAll("_", " "));
+      setConfirming(false);
+      onAccepted();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Job action failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <>
+    <button type="button" aria-label={`${label}: ${job.id}`} onClick={() => { setConfirming(true); setReason(""); setMessage(""); }}>{label}</button>
+    {confirming && <div className="ops-confirm ops-job-confirm" role="dialog" aria-modal="true" aria-label={`Confirm ${label.toLowerCase()}`}>
+      <strong>{label}</strong>
+      <p>This action is audited. Enter a reason before continuing.</p>
+      <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label>
+      <div><button type="button" onClick={() => setConfirming(false)}>Back</button><button type="button" className="danger" disabled={busy || !reason.trim()} onClick={submit}>Confirm {label.toLowerCase()}</button></div>
+    </div>}
+    {message && <span className="ops-action-message" aria-live="polite">{message}</span>}
+  </>;
 }
 
 function CostUsage({ data, filters }: { data: AiOpsDashboardData; filters: AiOpsFilters }) {
@@ -204,7 +315,7 @@ function CostUsage({ data, filters }: { data: AiOpsDashboardData; filters: AiOps
 }
 
 export function StatusText({ status }: { status: string }) {
-  return <span className={`ops-status ${status}`}><i aria-hidden="true" />{status.replaceAll("_", " ")}</span>;
+  return <span className={`ops-status ${status}`} aria-label={`Status: ${status.replaceAll("_", " ")}`}><i aria-hidden="true" />{status.replaceAll("_", " ")}</span>;
 }
 
 export function DashboardSkeleton() {

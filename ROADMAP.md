@@ -69,7 +69,7 @@
 - [x] AI-MULTI-07 Multi-provider production governance
 - [x] AI-OPS-01 Tenant-scoped AI Operations dashboard APIs
 - [x] AI-OPS-02 Safe tenant AI Operations control APIs
-- [x] AI-OPS-03 AI Operations overview, processing and cost dashboard UI
+- [x] AI-OPS-03 AI Operations dashboard UI, interactions and bounded refresh
 - [x] AI-OPS-04 Provider and tenant configuration UI
 - [x] AI-OPS-05 Performance, bounded exports and final validation
 - [x] AI-OPS-CI-FIX Migration and durable pipeline CI regressions

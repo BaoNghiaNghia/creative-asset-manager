@@ -57,7 +57,7 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
     const failed = rows.reduce((sum, row) => sum + row.failed, 0);
     return [provider.id, {
       count, success: completed + failed ? completed / (completed + failed) : 0,
-      p95: Math.max(0, ...rows.map(row => row.p95_latency_ms || 0)),
+      highestGroupedP95: Math.max(0, ...rows.map(row => row.p95_latency_ms || 0)),
       cost: rows.reduce((sum, row) => sum + row.estimated_cost_micros, 0),
       currency: rows[0]?.currency || "USD",
     }];
@@ -105,7 +105,7 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
           <div><dt>Allowed models</dt><dd>{provider.allowed_models.join(", ") || "None"}</dd></div>
           <div><dt>Requests today</dt><dd>{metric.count}</dd></div>
           <div><dt>Success rate</dt><dd>{(metric.success * 100).toFixed(1)}%</dd></div>
-          <div><dt>p95 latency</dt><dd>{Math.round(metric.p95)} ms</dd></div>
+          <div><dt title="Maximum p95 among the provider/model/mode groups returned by the API">Highest grouped p95 latency</dt><dd>{Math.round(metric.highestGroupedP95)} ms</dd></div>
           <div><dt>Estimated cost today</dt><dd>{formatCost(metric.cost, metric.currency)}</dd></div>
           <div className="wide"><dt>Last error</dt><dd><code>{provider.last_error || "None"}</code></dd></div>
         </dl>

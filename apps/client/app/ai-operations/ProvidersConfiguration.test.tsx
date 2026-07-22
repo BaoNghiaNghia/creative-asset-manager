@@ -23,7 +23,7 @@ const noop = () => undefined;
 describe("AI Operations provider and configuration tabs", () => {
   it("renders provider cards, connection state, modes, health, cost and last error without secrets", () => {
     const markup = renderToStaticMarkup(<ProviderCards configuration={configuration} metrics={metrics} onChanged={noop} onReload={noop} />);
-    for (const value of ["Google Gemini", "OpenAI", "Connection configured", "Connection not configured", "Requests today", "90.0%", "225 ms", "rate_limited", "Pause provider", "Resume provider"]) expect(markup).toContain(value);
+    for (const value of ["Google Gemini", "OpenAI", "Connection configured", "Connection not configured", "Requests today", "90.0%", "Highest grouped p95 latency", "225 ms", "rate_limited", "Pause provider", "Resume provider"]) expect(markup).toContain(value);
     expect(markup.toLowerCase()).not.toContain("api_key"); expect(markup).not.toContain("sk-");
   });
 

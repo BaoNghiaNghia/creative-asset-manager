@@ -1547,3 +1547,21 @@ Final controls:
 - Migrations added: none. Migration 0024 behavior is unchanged from the already-corrected HEAD; this step adds explicit regression coverage only.
 - Feature flags: none added or enabled. AI, ingestion and Search v2 defaults remain unchanged.
 - Rollback: revert the two test refactors and documentation entry. No database or runtime rollback is required.
+
+## AI-OPS-03-COMPLETE review - dashboard interactions and operational controls
+
+- Files changed: existing AI Operations page, request coordinator, AI Operations API client, Providers display, responsive dashboard styles, focused page/provider/refresh tests, roadmap and this review.
+- Migrations added: none.
+- Behavior introduced: the existing `/ai-operations` page now offers bounded auto-refresh choices Off/15s/30s/60s (default Off), persists that choice with the existing filter/tab URL state, pauses refresh while the document is hidden, aborts superseded/unmounted requests and rejects stale responses. Processing rows expose only backend-eligible retry/cancel actions, require an audited reason and confirmation, distinguish queued cancellation from running cancellation requests, and refresh after acceptance. Budget-blocked remains a distinct KPI; cost labels keep estimated, provider-reported and reconciled values separate. Provider cards now label the maximum grouped percentile as `Highest grouped p95 latency` instead of incorrectly presenting it as a provider-wide p95.
+- Accessibility: the tabs use tablist/tab/tabpanel semantics with arrow, Home and End keyboard navigation; refresh/error feedback uses live regions; chart SVGs retain text/table alternatives; statuses include text and accessible labels; job action buttons identify the target job.
+- Tests and actual results:
+  - `cd apps/client && npm test -- app/ai-operations/AiOperationsPage.test.tsx app/ai-operations/requestCoordinator.test.ts`: 2 files / 20 tests passed in 605ms.
+  - `cd apps/client && npm test -- app/ai-operations/ProvidersConfiguration.test.tsx`: 1 file / 6 tests passed in 407ms.
+  - `cd apps/client && npm test`: 9 files / 54 tests passed in 671ms.
+  - `cd apps/client && npm run typecheck`: first run found four test-only mock typing errors; after the targeted cast matching the existing test convention, the unchanged command passed.
+  - `cd apps/client && npm run build`: passed; Vite 5.4.14 transformed 61 modules.
+- Feature flags: none added, enabled or changed. Auto-refresh is off by default. The dashboard does not enable AI, ingestion or Search v2.
+- Security: no provider keys, OAuth tokens, signed URLs, raw job payloads or stack traces were added to the UI or action request bodies. Job errors remain stable codes and all mutations go through authenticated existing admin endpoints.
+- Known risks: provider-level p95 cannot be mathematically reconstructed from provider/model/mode percentiles. The UI deliberately presents the available value as the highest grouped p95 until a true provider-wide backend aggregate is added. Action eligibility is mirrored for affordance only; the backend remains authoritative and returns conflicts for races.
+- Rollback: revert the frontend, tests and documentation changes. No migration, worker, queue or data rollback is required.
+- Next recommended step: staged operator smoke testing of retry/cancel races and hidden-tab refresh behavior with production-like latency; do not add rollups unless measured aggregation thresholds justify AI-OPS-05 work.

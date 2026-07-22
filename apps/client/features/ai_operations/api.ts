@@ -104,7 +104,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
   };
 }
 
-export function searchFromFilters(filters: AiOpsFilters, tab: string): string {
+export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSeconds = 0): string {
   const params = new URLSearchParams();
   if (filters.range !== 7) params.set("range", String(filters.range));
   if (filters.provider) params.set("provider", filters.provider);
@@ -113,6 +113,7 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string): string {
   if (filters.metadataProfile) params.set("profile", filters.metadataProfile);
   if (filters.page > 1) params.set("page", String(filters.page));
   if (tab !== "overview") params.set("tab", tab);
+  if (refreshSeconds) params.set("refresh", String(refreshSeconds));
   return params.toString();
 }
 
@@ -155,6 +156,22 @@ export const updateAiBudget = (body: object, fetcher: Fetcher = fetch) =>
 
 export const setGlobalAiEmergencyStop = (stopped: boolean, reason: string, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-governance/runtime-controls/global", "PUT", { stopped, reason }, fetcher);
+export type AiJobMutationResult = {
+  tenant_id: string;
+  outcome: "retry_requested" | "already_requested" | "queued_cancelled" | "running_cancel_requested" | "provider_batch_cancel_requested";
+  job: Record<string, unknown>;
+};
+
+export const retryAiOperationsJob = (jobId: string, reason: string, fetcher: Fetcher = fetch) =>
+  mutate<AiJobMutationResult>(
+    `/api/v1/admin/ai-operations/jobs/${encodeURIComponent(jobId)}/retry`, "POST", { reason }, fetcher,
+  );
+
+export const cancelAiOperationsJob = (jobId: string, reason: string, fetcher: Fetcher = fetch) =>
+  mutate<AiJobMutationResult>(
+    `/api/v1/admin/ai-operations/jobs/${encodeURIComponent(jobId)}/cancel`, "POST", { reason }, fetcher,
+  );
+
 export type AiOperationsExportType = "daily" | "usage" | "failures" | "jobs";
 
 export function aiOperationsExportUrl(

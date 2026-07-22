@@ -4,8 +4,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  cancelAiOperationsJob,
   fetchAiOperationsDashboard,
   filtersFromSearch,
+  retryAiOperationsJob,
   searchFromFilters,
   type AiOpsDashboardData,
   type AiOpsFilters,
@@ -16,7 +18,10 @@ import {
   AiOperationsContent,
   AiOperationsFilters,
   AiOperationsShell,
+  eligibleProcessingAction,
   emptyDashboard,
+  handleTabKeyDown,
+  pageFilters,
 } from "./AiOperationsPage";
 
 const noop = () => undefined;
@@ -233,5 +238,92 @@ describe("AI Operations dashboard", () => {
     );
     expect(result.unauthorized).toBe(true);
     expect(result.errors).toEqual(["Forbidden"]);
+  });
+});
+
+
+describe("AI Operations interactions", () => {
+  it("renders keyboard tabs, auto-refresh choices and preserves refresh in URL state", () => {
+    const markup = render("processing", { refreshSeconds: 30, lastUpdated: new Date("2026-07-22T10:00:00Z") });
+    expect(markup).toContain('role="tablist"');
+    expect(markup).toContain('role="tab"');
+    expect(markup).toContain('role="tabpanel"');
+    expect(markup).toContain('aria-selected="true"');
+    for (const value of ["Off", "15s", "30s", "60s"]) expect(markup).toContain(value);
+    const query = searchFromFilters(filters, "processing", 30);
+    expect(new URLSearchParams(query).get("refresh")).toBe("30");
+    expect(filtersFromSearch(query)).toEqual(filters);
+  });
+
+  it("updates date/provider/model/mode/profile filters and resets pagination", () => {
+    const changes: AiOpsFilters[] = [];
+    const tree = AiOperationsFilters({ filters, models: ["gpt-test"], profiles: ["catalog"], onChange: value => changes.push(value) }) as any;
+    const fields = tree.props.children as any[];
+    fields[0].props.children[1].props.onChange({ target: { value: "90" } });
+    fields[1].props.children[1].props.onChange({ target: { value: "gemini" } });
+    fields[2].props.children[1].props.onChange({ target: { value: "gemini-test" } });
+    fields[3].props.children[1].props.onChange({ target: { value: "single" } });
+    fields[4].props.children[1].props.onChange({ target: { value: "creative" } });
+    expect(changes.map(item => item.page)).toEqual([1, 1, 1, 1, 1]);
+    expect(changes[0].range).toBe(90);
+    expect(changes[1].provider).toBe("gemini");
+    expect(changes[2].model).toBe("gemini-test");
+    expect(changes[3].processingMode).toBe("single");
+    expect(changes[4].metadataProfile).toBe("creative");
+  });
+
+  it("supports arrow-key tab navigation and bounded pagination", () => {
+    const selected: string[] = [];
+    const focus = vi.fn();
+    const event = {
+      key: "ArrowRight",
+      preventDefault: vi.fn(),
+      currentTarget: { querySelectorAll: () => [{ focus }, { focus }, { focus }, { focus }, { focus }] },
+    } as any;
+    handleTabKeyDown(event, "overview", value => selected.push(value));
+    expect(selected).toEqual(["processing"]);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(focus).toHaveBeenCalledOnce();
+    expect(pageFilters(filters, 3).page).toBe(3);
+    expect(pageFilters(filters, 0).page).toBe(1);
+  });
+
+  it("keeps budget-blocked separate and uses server terminal success rate", () => {
+    const markup = render();
+    expect(markup).toContain("Budget blocked");
+    expect(markup).toContain(">1</strong>");
+    expect(markup).toContain("80.0%");
+  });
+
+  it("maps only backend-eligible processing actions", () => {
+    const job = data.jobs.items[0];
+    expect(eligibleProcessingAction({ ...job, status: "failed" })).toBe("retry");
+    expect(eligibleProcessingAction({ ...job, status: "pending" })).toBe("cancel");
+    expect(eligibleProcessingAction({ ...job, status: "retry" })).toBe("cancel");
+    expect(eligibleProcessingAction({ ...job, status: "processing" })).toBe("cancel");
+    expect(eligibleProcessingAction({ ...job, status: "completed" })).toBeNull();
+    expect(eligibleProcessingAction({ ...job, status: "failed", error: { code: "operation_cancelled", retryable: false } })).toBeNull();
+  });
+
+  it("sends audited retry and cancellation reasons to the supported endpoints", async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => new Response(JSON.stringify({
+      tenant_id: "tenant-a", outcome: "retry_requested", job: {},
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    await retryAiOperationsJob("job/a", "transient provider failure", fetcher);
+    await cancelAiOperationsJob("job/a", "operator requested cancellation", fetcher);
+    expect(String((fetcher as any).mock.calls[0][0])).toContain("/jobs/job%2Fa/retry");
+    expect(String((fetcher as any).mock.calls[0][1]?.body)).toContain("transient provider failure");
+    expect(String((fetcher as any).mock.calls[1][0])).toContain("/jobs/job%2Fa/cancel");
+    expect(String((fetcher as any).mock.calls[1][1]?.body)).toContain("operator requested cancellation");
+  });
+
+  it("wires visibility-aware intervals and cleanup abort without exposing sensitive fields", () => {
+    const source = readFileSync(new URL("./AiOperationsPage.tsx", import.meta.url), "utf8");
+    expect(source).toContain("document.visibilityState");
+    expect(source).toContain("requests.current.abort()");
+    expect(source).toContain("window.clearInterval(timer)");
+    expect(source).not.toContain("raw_job_payload");
+    expect(source).not.toContain("signed_url");
+    expect(source).not.toContain("provider_api_key");
   });
 });
