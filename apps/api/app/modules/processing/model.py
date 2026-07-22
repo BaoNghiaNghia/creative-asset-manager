@@ -36,6 +36,8 @@ class ProcessingJobModel(Base):
         Index("ix_processing_jobs_lease", "status", "lease_expires_at"),
         Index("ix_processing_jobs_entity", "tenant_id", "entity_type", "entity_id"),
         Index("ix_processing_jobs_policy_claim", "tenant_id", "job_type", "provider_key", "provider_scope", "status", "next_attempt_at"),
+        Index("ix_processing_jobs_tenant_created", "tenant_id", "created_at"),
+        Index("ix_processing_jobs_tenant_status_created", "tenant_id", "status", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

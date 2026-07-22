@@ -1401,3 +1401,42 @@ Final controls:
 - Feature flags: none added or changed. The inspector is a user-controlled UI toggle and does not alter provider, AI or Search v2 rollout.
 - Known risks: automated in-app browser visual QA was unavailable because the desktop browser runtime could not initialize in the current sandbox. Responsive behavior is covered by CSS breakpoints and the production build, but should be smoke-tested once in the running signed-in explorer.
 - Rollback: revert the frontend-only change. No database, API, worker or queued-job rollback is required.
+
+## AI-OPS-01 review - tenant-scoped operations APIs
+
+- Files changed: AI Operations filters, SQL aggregation repository, authenticated
+  admin router, API registration, focused tests, reporting indexes and this
+  completion record.
+- Migration added: 0022_ai_operations_indexes. It adds tenant/date reporting
+  indexes for analyses, AI batches and processing jobs. Downgrade removes only
+  those indexes and does not alter authoritative data.
+- Behavior introduced: six tenant-isolated read-only endpoints expose summary,
+  UTC daily metrics, provider/model/mode breakdowns, stable failure codes,
+  paginated AI jobs and paginated usage. Interactive ranges default to seven
+  days and are capped at 90 days. Estimated, provider-reported and reconciled
+  costs remain separately labelled. Job payloads, raw errors, signed URLs,
+  provider request IDs and credentials are not returned.
+- Success-rate denominator: completed plus terminal failed analyses; queued,
+  running, cancelled and budget-blocked analyses do not affect the rate.
+- Tests and actual results:
+  - cd apps/api && .venv/bin/python -m unittest tests.modules.ai_operations.test_api
+    tests.migrations.test_ai_operations_indexes_migration
+    tests.integration.test_ai_operations_postgresql
+    tests.modules.processing_policy.test_auth
+    tests.modules.ai_governance.test_budget_pilot
+    tests.modules.ai_metadata.test_repository
+    tests.modules.ai_batch.test_service
+    tests.modules.processing.test_repository -v: 38 tests passed in 22.416s;
+    one PostgreSQL-only percentile test skipped because
+    INTEGRATION_DATABASE_URL was not configured.
+  - cd apps/api && .venv/bin/alembic heads: exactly one head,
+    0022_ai_operations_indexes.
+- Feature flags: none added or enabled. These are authenticated reporting APIs
+  over existing PostgreSQL state and do not enable AI processing.
+- Known risks: current analysis rows infer single/batch mode from the persisted
+  pipeline version; durable usage and batch records retain explicit mode. The
+  PostgreSQL percentile path is covered by an environment-gated integration
+  test and should run in CI with the standard PostgreSQL service.
+- Rollback: remove the API router/application code and downgrade Alembic to
+  0021_ai_multi_governance. No AI analysis, usage, job or batch records are
+  deleted.

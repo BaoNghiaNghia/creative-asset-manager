@@ -27,6 +27,8 @@ class AiBatchJobModel(Base):
         CheckConstraint("status IN ('preparing','submitting','submitted','running','importing','completed','partial_failed','failed','expired','cancelled','ambiguous')",name="ck_ai_batch_jobs_status"),
         CheckConstraint("item_count >= 0 AND completed_count >= 0 AND failed_count >= 0 AND missing_count >= 0",name="ck_ai_batch_jobs_counts"),
         Index("ix_ai_batch_jobs_tenant_status","tenant_id","status","next_poll_at"),
+        Index("ix_ai_batch_jobs_tenant_created","tenant_id","created_at"),
+        Index("ix_ai_batch_jobs_tenant_provider_status_created","tenant_id","provider","status","created_at"),
     )
     id: Mapped[str]=mapped_column(String(36),primary_key=True,default=new_id)
     tenant_id: Mapped[str]=mapped_column(String(255),nullable=False)

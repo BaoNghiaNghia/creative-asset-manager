@@ -78,6 +78,8 @@ class AssetAiAnalysisModel(Base):
             sqlite_where=text("forced = 0"),
         ),
         Index("ix_asset_ai_analyses_history", "tenant_id", "asset_id", "created_at"),
+        Index("ix_asset_ai_analyses_tenant_created", "tenant_id", "created_at"),
+        Index("ix_asset_ai_analyses_tenant_status_created", "tenant_id", "status", "created_at"),
         Index("ix_asset_ai_analyses_status", "status", "created_at"),
         Index("ix_asset_ai_analyses_claim", "status", "lease_expires_at"),
     )
