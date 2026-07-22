@@ -146,15 +146,24 @@ class AiGovernanceAuthorizationTest(unittest.TestCase):
     def test_unauthenticated_and_cross_tenant_updates_fail(self):
         from fastapi.testclient import TestClient
         from app.main import app
-        from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
+        from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
         client=TestClient(app)
         response=client.patch("/api/v1/admin/ai-governance/tenant-a/budget",json={"enabled":True})
         self.assertEqual(response.status_code,401)
-        app.dependency_overrides[require_processing_admin]=lambda: ProcessingAdmin(
-            actor_id="tenant-a",own_tenant_id="tenant-a",platform_admin=False)
+        app.dependency_overrides[require_authenticated_principal]=lambda: CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"billing_admin"}),
+            effective_permissions=frozenset({"ai_budget.read", "ai_budget.update"}),
+            platform_admin=False, session_id=None, authorization_source="tenant_rbac")
         try:
             response=client.patch("/api/v1/admin/ai-governance/tenant-b/budget",json={"enabled":True})
             self.assertEqual(response.status_code,403)
+            self.assertEqual(client.get("/api/v1/admin/ai-governance/metrics").status_code,403)
+            app.dependency_overrides[require_authenticated_principal]=lambda: CurrentPrincipal(
+                user_id="platform-user", active_tenant_id="tenant-a", membership_id="membership-platform",
+                external_identity=None, effective_roles=frozenset(), effective_permissions=frozenset(),
+                platform_admin=True, session_id=None, authorization_source="durable_platform_admin")
+            self.assertEqual(client.get("/api/v1/admin/ai-governance/metrics").status_code,200)
         finally:
             app.dependency_overrides.clear()
 

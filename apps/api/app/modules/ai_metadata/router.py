@@ -1,8 +1,12 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.modules.authorization.principal import (
+    CurrentPrincipal, require_permission, require_principal_permission,
+)
 from app.modules.ai_metadata.repository import AiMetadataRepository
+from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.ai_metadata.schema import (
     AiCapabilitiesResponse,
     EnqueueAssetAnalysisRequest,
@@ -15,38 +19,10 @@ from app.modules.ai_metadata.selection import (
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.providers.ai.factory import build_ai_provider_registry
-from app.providers.google.auth import get_session as get_google_session
-from app.providers.microsoft.auth import get_session as get_microsoft_session
 
 router = APIRouter(prefix="/api/v1/admin/asset-analyses", tags=["asset-analyses"])
 capabilities_router = APIRouter(prefix="/api/v1/admin/ai", tags=["ai"])
-
-
-def _session_tenant(session) -> str:
-    if session is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    value = session.user.get("id") or session.user.get("email")
-    if not value:
-        raise HTTPException(
-            status_code=403,
-            detail="Authenticated account has no tenant identity",
-        )
-    return str(value)
-
-
-def _tenant_id(request: Request, provider: str) -> str:
-    session = (
-        get_microsoft_session(request)
-        if provider == "sharepoint"
-        else get_google_session(request)
-    )
-    return _session_tenant(session)
-
-
-def _authenticated_tenant_id(request: Request) -> str:
-    return _session_tenant(
-        get_google_session(request) or get_microsoft_session(request)
-    )
+AI_ANALYSIS_RUN = require_permission("ai_analysis.run")
 
 
 def _selection_error(exc: AiSelectionError) -> HTTPException:
@@ -63,10 +39,12 @@ def _selection_error(exc: AiSelectionError) -> HTTPException:
 )
 def enqueue_asset_analysis(
     body: EnqueueAssetAnalysisRequest,
-    request: Request,
+    principal: CurrentPrincipal = Depends(AI_ANALYSIS_RUN),
 ) -> EnqueueAssetAnalysisResponse:
     settings = get_settings()
-    tenant_id = _tenant_id(request, body.source_provider)
+    if body.force:
+        require_principal_permission(principal, "ai_analysis.force")
+    tenant_id = principal.active_tenant_id
     registry = build_ai_provider_registry(settings)
     try:
         with SessionLocal() as session:
@@ -138,6 +116,11 @@ def enqueue_asset_analysis(
                 provider_key=selection.provider,
                 provider_scope="ai",
             )
+            if body.force:
+                AiGovernanceRepository(session).event(
+                    tenant_id, "forced_analysis", actor_id=principal.user_id,
+                    details={"analysis_id": analysis.id, "provider": selection.provider, "model": selection.model, "mode": selection.processing_mode},
+                )
             session.commit()
             return EnqueueAssetAnalysisResponse(
                 analysis_id=analysis.id,
@@ -155,8 +138,8 @@ def enqueue_asset_analysis(
     "/capabilities",
     response_model=AiCapabilitiesResponse,
 )
-def ai_capabilities(request: Request) -> AiCapabilitiesResponse:
-    tenant_id = _authenticated_tenant_id(request)
+def ai_capabilities(principal: CurrentPrincipal = Depends(AI_ANALYSIS_RUN)) -> AiCapabilitiesResponse:
+    tenant_id = principal.active_tenant_id
     settings = get_settings()
     registry = build_ai_provider_registry(settings)
     try:
@@ -167,7 +150,6 @@ def ai_capabilities(request: Request) -> AiCapabilitiesResponse:
                 ProcessingPolicyRepository(session),
             )
             result = service.capabilities(tenant_id)
-            session.commit()
             return AiCapabilitiesResponse.model_validate(result)
     finally:
         registry.close()

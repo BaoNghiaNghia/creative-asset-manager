@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from collections import Counter
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.modules.authorization.principal import (
+    CurrentPrincipal, require_permission, require_principal_permission,
+)
 from app.modules.ai_batch.model import AiBatchItemModel, AiBatchJobModel
 from app.modules.ai_batch.service import AiBatchService
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
@@ -29,11 +32,8 @@ from app.modules.ai_metadata.selection import (
     AiSelectionError,
 )
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.processing_policy.auth import require_processing_admin
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.providers.ai.factory import build_ai_provider_registry
-from app.providers.google.auth import get_session as get_google_session
-from app.providers.microsoft.auth import get_session as get_microsoft_session
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 from app.modules.external_ingestion.schema import validate_idempotency_key
 
@@ -43,17 +43,9 @@ router = APIRouter(
 )
 
 
-def _identity(request: Request) -> tuple[str, str]:
-    session = get_google_session(request) or get_microsoft_session(request)
-    if session is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    actor = str(session.user.get("id") or session.user.get("email") or "")
-    if not actor:
-        raise HTTPException(
-            status_code=403,
-            detail="Authenticated account has no tenant identity",
-        )
-    return actor, actor
+AI_ANALYSIS_RUN = require_permission("ai_analysis.run")
+AI_JOBS_CANCEL = require_permission("ai_jobs.cancel")
+
 
 
 async def _validated_body(
@@ -257,9 +249,10 @@ def _status_response(
 )
 async def bulk_asset_analyses(
     request: Request,
+    principal: CurrentPrincipal = Depends(AI_ANALYSIS_RUN),
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
 ) -> BulkAssetAnalysisAcceptedResponse:
-    tenant_id, actor_id = _identity(request)
+    tenant_id, actor_id = principal.active_tenant_id, principal.user_id
     settings = get_settings()
     try:
         key = validate_idempotency_key(idempotency_key)
@@ -268,6 +261,8 @@ async def bulk_asset_analyses(
     body = await _validated_body(
         request, maximum_bytes=settings.AI_ANALYSIS_BULK_MAX_PAYLOAD_BYTES
     )
+    if body.force:
+        require_principal_permission(principal, "ai_analysis.force")
     if len(body.asset_ids) > settings.AI_ANALYSIS_BULK_MAX_ITEMS:
         raise HTTPException(status_code=413, detail="Too many assets in bulk request")
 
@@ -335,13 +330,12 @@ async def bulk_asset_analyses(
 )
 def analysis_request_status(
     request_id: str,
-    request: Request,
+    principal: CurrentPrincipal = Depends(AI_ANALYSIS_RUN),
     include_provider_batch_id: bool = Query(False),
 ) -> AnalysisRequestStatusResponse:
-    tenant_id, _actor_id = _identity(request)
+    tenant_id = principal.active_tenant_id
     if include_provider_batch_id:
-        admin = require_processing_admin(request)
-        admin.authorize_tenant(tenant_id)
+        require_principal_permission(principal, "ai_operations.read")
     with SessionLocal() as session:
         try:
             return _status_response(
@@ -361,9 +355,9 @@ def analysis_request_status(
 async def cancel_analysis_request(
     request_id: str,
     body: CancelAnalysisRequest,
-    request: Request,
+    principal: CurrentPrincipal = Depends(AI_JOBS_CANCEL),
 ) -> AnalysisRequestStatusResponse:
-    tenant_id, actor_id = _identity(request)
+    tenant_id, actor_id = principal.active_tenant_id, principal.user_id
     settings = get_settings()
     registry = build_ai_provider_registry(settings)
     try:

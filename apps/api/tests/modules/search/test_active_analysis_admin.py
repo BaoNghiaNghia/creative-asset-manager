@@ -3,7 +3,7 @@ import unittest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
+from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 
 
 class ActiveAnalysisAdminAuthorizationTest(unittest.TestCase):
@@ -18,8 +18,11 @@ class ActiveAnalysisAdminAuthorizationTest(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_cross_tenant_rollback_fails(self):
-        app.dependency_overrides[require_processing_admin] = lambda: ProcessingAdmin(
-            actor_id="tenant-a", own_tenant_id="tenant-a", platform_admin=False,
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"tenant_admin"}),
+            effective_permissions=frozenset({"search.index.activate"}),
+            platform_admin=False, session_id=None, authorization_source="tenant_rbac",
         )
         response = TestClient(app).post(
             "/api/v1/admin/search/tenants/tenant-b/assets/asset-a/active-analysis/rollback",

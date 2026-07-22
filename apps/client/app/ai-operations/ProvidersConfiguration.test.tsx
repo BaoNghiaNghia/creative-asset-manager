@@ -38,6 +38,17 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(renderToStaticMarkup(<ConfigurationForm configuration={elevated} onChanged={noop} onReload={noop} />)).toContain("Emergency stop all AI");
   });
 
+  it("separates provider configuration from emergency pause permission", () => {
+    const configureOnly = { ...configuration, permissions: { can_manage_tenant: false, can_manage_global: false, platform_admin: false, can_configure_provider: true, can_emergency_stop: false } };
+    const configureMarkup = renderToStaticMarkup(<ProviderCards configuration={configureOnly} metrics={metrics} onChanged={noop} onReload={noop} />);
+    expect(configureMarkup).toMatch(/<fieldset class=/);
+    expect(configureMarkup).toMatch(/type=.button. disabled=/);
+    const emergencyOnly = { ...configuration, permissions: { can_manage_tenant: false, can_manage_global: false, platform_admin: false, can_configure_provider: false, can_emergency_stop: true } };
+    const emergencyMarkup = renderToStaticMarkup(<ProviderCards configuration={emergencyOnly} metrics={metrics} onChanged={noop} onReload={noop} />);
+    expect(emergencyMarkup).toMatch(/<fieldset disabled=.*class=/);
+    expect(emergencyMarkup).not.toMatch(/type=.button. disabled=/);
+  });
+
   it("applies optimistic provider changes immutably and preserves rollback snapshot", () => {
     const before = configuration;
     const optimistic = replaceProviderConfiguration(before, "openai", { processing_enabled: true });

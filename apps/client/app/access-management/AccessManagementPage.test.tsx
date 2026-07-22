@@ -52,6 +52,9 @@ describe("Access Management route and presentation", () => {
     expect(routeForPath("/settings/access/members")).toBe("access-management");
     const shell = renderToStaticMarkup(<AccessManagementShell><p>content</p></AccessManagementShell>);
     expect(shell).toContain('href="/settings/access"'); expect(shell).not.toContain('target="_blank"');
+    expect(shell).not.toContain("AI Operations");
+    const aiShell = renderToStaticMarkup(<AccessManagementShell identity={{ ...identity, permissions: [...identity.permissions, "ai_operations.read"] }}><p>content</p></AccessManagementShell>);
+    expect(aiShell).toContain("AI Operations");
   });
 
   it("renders the members list, filters, role assignment and dangerous actions", () => {

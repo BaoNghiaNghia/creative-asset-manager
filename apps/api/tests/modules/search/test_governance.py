@@ -2,12 +2,17 @@ import asyncio
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
+from app.core.config import Settings
+from app.modules.authorization.principal import CurrentPrincipal
+from app.modules.processing_policy.model import ProcessingPolicyAuditModel
+from app.modules.search.governance_router import ShadowPolicyRequest, get_shadow_policy, update_shadow_policy
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.search.active_analysis import ActiveAnalysisService, AnalysisActivationError
@@ -172,6 +177,27 @@ class SearchGovernanceTest(unittest.IsolatedAsyncioTestCase):
         )
         await comparator.drain()
         self.assertFalse(called)
+
+    async def test_shadow_policy_route_uses_rbac_actor_and_appends_audit(self):
+        principal = CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"tenant_admin"}),
+            effective_permissions=frozenset({"search.read", "search.rebuild"}),
+            platform_admin=False, session_id=None, authorization_source="tenant_rbac",
+        )
+        settings = Settings(SEARCH_SHADOW_COMPARISON_ENABLED=True)
+        with patch("app.modules.search.governance_router.SessionLocal", self.sessions), patch("app.modules.search.governance_router.get_settings", return_value=settings):
+            self.assertFalse(get_shadow_policy("tenant-a", principal)["configured"])
+            result = update_shadow_policy(
+                "tenant-a", ShadowPolicyRequest(enabled=True, sample_percentage=25), principal,
+            )
+        self.assertEqual(result["tenant_id"], "tenant-a")
+        with self.sessions() as session:
+            audit = session.scalar(select(ProcessingPolicyAuditModel))
+            self.assertEqual(audit.actor_id, "user-a")
+            self.assertEqual(audit.tenant_id, "tenant-a")
+            self.assertEqual(audit.action, "search_shadow_policy_updated")
+
 
     async def test_verify_before_activate_and_alias_safe_cleanup(self):
         provider = FakeIndexAdmin()

@@ -3,13 +3,18 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_metadata.repository import AiMetadataRepository
+from app.modules.ai_governance.repository import AiGovernanceRepository
+from app.modules.authorization.principal import (
+    CurrentPrincipal, require_authenticated_principal, require_permission,
+    require_principal_permission,
+)
 from app.modules.asset_details.schema import AcceptedAssetAction, AssetActionRequest, AssetDetailsResponse
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.pipeline.model import AssetPipelineModel
@@ -17,29 +22,14 @@ from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.pipeline.state import FAILURE_STATES
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
-from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
 from app.modules.storage.model import AssetStorageObjectModel
-from app.providers.google.auth import get_session as get_google_session
-from app.providers.microsoft.auth import get_session as get_microsoft_session
 
 router = APIRouter(prefix="/api/v1", tags=["asset-details"])
 MAX_JSON_NODES = 1500
 MAX_JSON_DEPTH = 10
+ASSETS_READ = require_permission("assets.read")
 
-def tenant_id(request: Request) -> str:
-    cloud = get_google_session(request) or get_microsoft_session(request)
-    if cloud is None:
-        raise HTTPException(401, "Authentication required")
-    value = cloud.user.get("id") or cloud.user.get("email")
-    if not value:
-        raise HTTPException(403, "Authenticated account has no tenant identity")
-    return str(value)
 
-def admin_or_none(request: Request) -> ProcessingAdmin | None:
-    try:
-        return require_processing_admin(request)
-    except HTTPException:
-        return None
 
 def iso(value):
     return value.isoformat() if value else None
@@ -92,9 +82,10 @@ def related_ids(session, tenant, asset_id):
     return analyses, pipelines, sources
 
 @router.get("/assets/{asset_id}", response_model=AssetDetailsResponse)
-def details(request: Request, asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit: int = Query(20, ge=1, le=100), job_offset: int = Query(0, ge=0), job_limit: int = Query(50, ge=1, le=200)):
-    tenant = tenant_id(request)
-    admin = admin_or_none(request)
+def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit: int = Query(20, ge=1, le=100), job_offset: int = Query(0, ge=0), job_limit: int = Query(50, ge=1, le=200), principal: CurrentPrincipal = Depends(ASSETS_READ)):
+    tenant = principal.active_tenant_id
+    include_cost = principal.platform_admin or bool({"ai_operations.read", "ai_budget.read"}.intersection(principal.effective_permissions))
+    can_administer = principal.platform_admin or bool({"ai_analysis.run", "ai_jobs.retry", "ai_jobs.cancel", "search.rebuild"}.intersection(principal.effective_permissions))
     with SessionLocal() as session:
         asset = session.scalar(select(AssetModel).where(AssetModel.id == asset_id, AssetModel.tenant_id == tenant))
         if asset is None:
@@ -113,11 +104,21 @@ def details(request: Request, asset_id: str, analysis_offset: int = Query(0, ge=
         pipeline_rows = list(session.scalars(select(AssetPipelineModel).where(AssetPipelineModel.tenant_id == tenant, AssetPipelineModel.asset_id == asset_id).order_by(AssetPipelineModel.updated_at.desc())))
         pipelines = [{"id": row.id, "state": row.state, "origin_type": row.origin_type, "origin_id": row.origin_id, "analysis_id": row.analysis_id, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "failure_retryable": row.failure_retryable, "created_at": iso(row.created_at), "updated_at": iso(row.updated_at), "completed_at": iso(row.completed_at)} for row in pipeline_rows]
         lifecycle = pipeline_rows[0].state if pipeline_rows else ("metadata_ready" if analyses and analyses[0].status == "completed" else "discovered")
-        return {"asset": {"id": asset.id, "content_hash": asset.content_hash, "analysis_image_hash": asset.analysis_image_hash, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "created_at": iso(asset.created_at), "updated_at": iso(asset.updated_at)}, "sources": sources, "storage": storage, "active_analysis": analysis_doc(analyses[0], admin is not None) if analyses else None, "analysis_history": [analysis_doc(item, admin is not None) for item in analyses], "analysis_total": analysis_total, "jobs": jobs, "job_total": job_total, "pipelines": pipelines, "lifecycle_status": lifecycle, "can_administer": admin is not None, "limits": {"max_json_nodes": MAX_JSON_NODES, "max_json_depth": MAX_JSON_DEPTH}}
+        return {"asset": {"id": asset.id, "content_hash": asset.content_hash, "analysis_image_hash": asset.analysis_image_hash, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "created_at": iso(asset.created_at), "updated_at": iso(asset.updated_at)}, "sources": sources, "storage": storage, "active_analysis": analysis_doc(analyses[0], include_cost) if analyses else None, "analysis_history": [analysis_doc(item, include_cost) for item in analyses], "analysis_total": analysis_total, "jobs": jobs, "job_total": job_total, "pipelines": pipelines, "lifecycle_status": lifecycle, "can_administer": can_administer, "limits": {"max_json_nodes": MAX_JSON_NODES, "max_json_depth": MAX_JSON_DEPTH}}
 
 @router.post("/admin/assets/{asset_id}/actions", response_model=AcceptedAssetAction, status_code=202)
-def action(asset_id: str, body: AssetActionRequest, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    tenant = admin.own_tenant_id
+def action(asset_id: str, body: AssetActionRequest, principal: CurrentPrincipal = Depends(require_authenticated_principal)):
+    tenant = principal.active_tenant_id
+    permission = {
+        "cancel_job": "ai_jobs.cancel",
+        "reanalyze": "ai_analysis.run",
+        "rebuild_projection": "search.rebuild",
+        "reindex": "search.rebuild",
+        "retry_failed_stage": "ai_jobs.retry",
+    }[body.action]
+    require_principal_permission(principal, permission)
+    if body.force:
+        require_principal_permission(principal, "ai_analysis.force")
     if body.force and not body.confirmed:
         raise HTTPException(422, "Forced re-analysis requires explicit confirmation")
     with SessionLocal() as session:
@@ -135,6 +136,7 @@ def action(asset_id: str, body: AssetActionRequest, admin: ProcessingAdmin = Dep
             if job.status not in {"pending", "retry"}:
                 raise HTTPException(409, "Only queued jobs can be cancelled")
             job.status = "failed"; job.last_error_code = "operator_cancelled"; job.last_error_message = "Cancelled by an authorized operator"; job.completed_at = datetime.now(timezone.utc)
+            AiGovernanceRepository(session).event(tenant, "asset_admin_action", actor_id=principal.user_id, reason=body.reason, details={"asset_id": asset_id, "action": body.action, "job_id": job.id})
             session.commit()
             return {"action": body.action, "status": "cancelled", "job_id": job.id, "analysis_id": current.id if current else None}
         if body.action == "reanalyze":
@@ -144,7 +146,7 @@ def action(asset_id: str, body: AssetActionRequest, admin: ProcessingAdmin = Dep
             if not (settings.DYNAMIC_AI_METADATA_ENABLED and settings.AI_SINGLE_ANALYSIS_ENABLED):
                 raise HTTPException(409, "Single-asset analysis is disabled")
             analysis = AiMetadataRepository(session).create_analysis(tenant_id=tenant, asset_id=asset_id, metadata_profile_id=current.metadata_profile_id, prompt_version=current.prompt_version, pipeline_version=current.pipeline_version, ai_provider=current.ai_provider or "gemini", ai_model=current.ai_model or settings.GEMINI_MODEL, force=body.force)
-            job = repository.create_job(tenant_id=tenant, job_type="asset_analyze", entity_type="asset_ai_analysis", entity_id=analysis.id, idempotency_key=f"asset-analyze:{analysis.id}", payload={"analysis_id": analysis.id, "asset_id": asset_id}, provider_key="gemini", provider_scope="ai")
+            job = repository.create_job(tenant_id=tenant, job_type="asset_analyze", entity_type="asset_ai_analysis", entity_id=analysis.id, idempotency_key=f"asset-analyze:{analysis.id}", payload={"analysis_id": analysis.id, "asset_id": asset_id}, provider_key=analysis.ai_provider, provider_scope="ai")
             analysis_id = analysis.id
         elif body.action in {"rebuild_projection", "reindex"}:
             if current is None:
@@ -162,9 +164,10 @@ def action(asset_id: str, body: AssetActionRequest, admin: ProcessingAdmin = Dep
             pending_state = {"source_asset_download": "download_pending", "asset_store": "storage_pending", "asset_analyze": "analysis_pending", "search_projection_build": "projection_pending", "asset_index": "search_pending", "metadata_sidecar_export": "sidecar_pending"}[job_type]
             retry_key = f"operator-retry:{pipeline.id}:{retry_from}:{pipeline.updated_at.isoformat()}"
             AssetPipelineRepository(session).transition(pipeline, pending_state)
-            providers = {"asset_store": ("google_drive", "storage"), "asset_analyze": ("gemini", "ai"), "asset_index": ("elasticsearch", "search"), "metadata_sidecar_export": ("google_drive", "storage")}
+            providers = {"asset_store": ("google_drive", "storage"), "asset_analyze": ((current.ai_provider if current else None), "ai"), "asset_index": ("elasticsearch", "search"), "metadata_sidecar_export": ("google_drive", "storage")}
             provider = providers.get(job_type)
             job = repository.create_job(tenant_id=tenant, job_type=job_type, entity_type="asset_pipeline", entity_id=pipeline.id, idempotency_key=retry_key, payload={"pipeline_id": pipeline.id, "correlation_id": pipeline.correlation_id}, provider_key=provider[0] if provider else None, provider_scope=provider[1] if provider else None)
             analysis_id = pipeline.analysis_id
+        AiGovernanceRepository(session).event(tenant, "asset_admin_action", actor_id=principal.user_id, reason=body.reason, details={"asset_id": asset_id, "action": body.action, "job_id": job.id})
         session.commit()
         return {"action": body.action, "status": "accepted", "job_id": job.id, "analysis_id": analysis_id}

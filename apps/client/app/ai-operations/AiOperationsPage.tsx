@@ -5,6 +5,7 @@ import {
   type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
+import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
 import {
   dailyProviderCostChart, dailyStatusChart, failureChart,
@@ -39,9 +40,34 @@ export function AiOperationsPage() {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [unauthorized, setUnauthorized] = useState(false);
+  const [identity, setIdentity] = useState<AccessIdentity | null>(null);
+  const [authorizationReason, setAuthorizationReason] = useState("Sign in is required.");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [reload, setReload] = useState(0);
   const requests = useRef(new DashboardRequestCoordinator());
+
+  useEffect(() => {
+    let alive = true;
+    fetchAccessIdentity().then(value => {
+      if (!alive) return;
+      setIdentity(value);
+      if (!value.permissions.includes("ai_operations.read")) {
+        setUnauthorized(true);
+        setAuthorizationReason("Missing permission: ai_operations.read");
+      }
+    }).catch(error => {
+      if (!alive) return;
+      const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 0;
+      if (status === 401) {
+        setUnauthorized(true);
+        setAuthorizationReason("Sign in is required.");
+      } else if (status === 403) {
+        setUnauthorized(true);
+        setAuthorizationReason("Missing permission: ai_operations.read");
+      }
+    });
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     let subscribed = true;
@@ -94,6 +120,8 @@ export function AiOperationsPage() {
       filters={filters} tab={tab} onTab={changeTab} onFilters={changeFilters}
       refreshSeconds={refreshSeconds} onRefreshSeconds={changeRefresh}
       lastUpdated={lastUpdated}
+      permissions={identity?.permissions || []}
+      authorizationReason={authorizationReason}
       onRetry={() => setReload(value => value + 1)}
     />
   </AiOperationsShell>;
@@ -131,18 +159,20 @@ type ContentProps = {
   refreshSeconds?: AutoRefreshSeconds;
   onRefreshSeconds?: (seconds: AutoRefreshSeconds) => void;
   lastUpdated?: Date | null;
+  permissions?: string[];
+  authorizationReason?: string;
 };
 
 export function AiOperationsContent({
   data, filters, tab, loading = false, errors = [], unauthorized = false,
   onTab, onFilters, onRetry, refreshSeconds = 0, onRefreshSeconds = () => undefined,
-  lastUpdated = null,
+  lastUpdated = null, permissions = [], authorizationReason = "Sign in is required.",
 }: ContentProps) {
   const models = useMemo(() => [...new Set([
     ...data.providers.map(item => item.model || ""), ...data.usage.items.map(item => item.model || ""),
   ].filter(Boolean))].sort(), [data]);
   const profiles = useMemo(() => [...new Set(data.usage.items.map(item => item.metadata_profile || "").filter(Boolean))].sort(), [data]);
-  if (unauthorized) return <DashboardState kind="unauthorized" onRetry={onRetry} />;
+  if (unauthorized) return <DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} />;
   return <>
     <header className="ops-header">
       <div><small>OPERATIONS</small><h1>AI Operations</h1><p>Processing health, usage and cost for the current tenant.</p></div>
@@ -165,7 +195,7 @@ export function AiOperationsContent({
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
       {loading ? <DashboardSkeleton /> : tab === "overview" ? <Overview data={data} />
-        : tab === "processing" ? <Processing data={data} filters={filters} onFilters={onFilters} onActionAccepted={onRetry} />
+        : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
         : <ConfigurationTab />}
@@ -224,7 +254,7 @@ export function pageFilters(filters: AiOpsFilters, page: number): AiOpsFilters {
   return { ...filters, page: Math.max(1, page) };
 }
 
-function Processing({ data, filters, onFilters, onActionAccepted }: { data: AiOpsDashboardData; filters: AiOpsFilters; onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void }) {
+function Processing({ data, filters, permissions, onFilters, onActionAccepted }: { data: AiOpsDashboardData; filters: AiOpsFilters; permissions: string[]; onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void }) {
   const usageByJob = new Map(data.usage.items.filter(item => item.job_id).map(item => [item.job_id!, item]));
   if (!data.jobs.items.length) return <DashboardState kind="empty" label="No processing jobs in this period" />;
   const pages = Math.max(1, Math.ceil(data.jobs.total / data.jobs.page_size));
@@ -244,7 +274,7 @@ function Processing({ data, filters, onFilters, onActionAccepted }: { data: AiOp
           <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><code>{job.error?.code || "—"}</code></td>
           <td><div className="ops-job-actions">
             {assetId ? <a aria-label={`View asset ${assetId}`} href={`/?details=1&asset=${encodeURIComponent(assetId)}`}>View</a> : <span title="Asset identity is not available yet">Unavailable</span>}
-            <ProcessingJobAction job={job} onAccepted={onActionAccepted} />
+            <ProcessingJobAction job={job} permissions={permissions} onAccepted={onActionAccepted} />
           </div></td>
         </tr>;
       })}</tbody>
@@ -261,12 +291,14 @@ export function eligibleProcessingAction(job: AiOpsJob): ProcessingJobActionKind
   return null;
 }
 
-export function ProcessingJobAction({ job, onAccepted }: { job: AiOpsJob; onAccepted: () => void }) {
+export function ProcessingJobAction({ job, permissions = [], onAccepted }: { job: AiOpsJob; permissions?: string[]; onAccepted: () => void }) {
   const action = eligibleProcessingAction(job);
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const requiredPermission = action === "retry" ? "ai_jobs.retry" : "ai_jobs.cancel";
+  if (action && !permissions.includes(requiredPermission)) return null;
   if (!action) return null;
   const running = job.status === "processing";
   const label = action === "retry" ? "Retry failed job" : running ? "Request cancellation" : "Cancel queued job";
@@ -324,5 +356,5 @@ export function DashboardSkeleton() {
 }
 
 export function DashboardState({ kind, label, onRetry }: { kind: "empty" | "unauthorized"; label?: string; onRetry?: () => void }) {
-  return <div className={`ops-state ${kind}`} role={kind === "unauthorized" ? "alert" : "status"}><strong>{kind === "unauthorized" ? "AI Operations access required" : label || "No AI activity in this period"}</strong><p>{kind === "unauthorized" ? "Sign in with an authorized tenant operator or administrator account." : "Try a wider date range or clear one of the filters."}</p>{onRetry && <button type="button" onClick={onRetry}>Retry</button>}</div>;
+  return <div className={`ops-state ${kind}`} role={kind === "unauthorized" ? "alert" : "status"}><strong>{kind === "unauthorized" ? "AI Operations access required" : label || "No AI activity in this period"}</strong><p>{kind === "unauthorized" ? (label || "Sign in with an authorized account that has ai_operations.read.") : "Try a wider date range or clear one of the filters."}</p>{onRetry && <button type="button" onClick={onRetry}>Retry</button>}</div>;
 }

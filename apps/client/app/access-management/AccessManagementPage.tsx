@@ -60,7 +60,7 @@ export function AccessManagementPage() {
       setReload(value => value + 1);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Tenant switch failed."); }
   }
-  return <AccessManagementShell><AccessManagementContent
+  return <AccessManagementShell identity={identity}><AccessManagementContent
     state={state} identity={identity} members={members} roles={roles} permissions={permissions}
     filters={filters} tab={tab} message={message} onTab={changeTab} onFilters={setFilters}
     onTenant={changeTenant} onRetry={() => setReload(value => value + 1)}
@@ -68,10 +68,10 @@ export function AccessManagementPage() {
   /></AccessManagementShell>;
 }
 
-export function AccessManagementShell({ children }: { children: React.ReactNode }) {
+export function AccessManagementShell({ children, identity = null }: { children: React.ReactNode; identity?: AccessIdentity | null }) {
   return <main className="access-shell"><aside className="access-sidebar">
     <div className="brand"><b>C</b><span><strong>Creative assets</strong><small>Workspace settings</small></span></div>
-    <p>WORKSPACE</p><a href="/">▧ Asset Explorer</a><a href="/ai-operations">◉ AI Operations</a>
+    <p>WORKSPACE</p><a href="/">Asset Explorer</a>{identity?.permissions.includes("ai_operations.read") && <a href="/ai-operations">AI Operations</a>}
     <a href="/settings/access" className="active" aria-current="page">⚿ Access Management</a>
     <small>Permissions are enforced by the server for every tenant operation.</small>
   </aside><section className="access-main">{children}</section></main>;

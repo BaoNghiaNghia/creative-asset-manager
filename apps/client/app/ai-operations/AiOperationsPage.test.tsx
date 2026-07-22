@@ -13,6 +13,7 @@ import {
   type AiOpsFilters,
 } from "../../features/ai_operations";
 
+import { mayViewAiOperations } from "../components/Sidebar";
 import { routeForPath } from "../AppRoute";
 import {
   AiOperationsContent,
@@ -22,6 +23,7 @@ import {
   emptyDashboard,
   handleTabKeyDown,
   pageFilters,
+  ProcessingJobAction,
 } from "./AiOperationsPage";
 
 const noop = () => undefined;
@@ -303,6 +305,14 @@ describe("AI Operations interactions", () => {
     expect(eligibleProcessingAction({ ...job, status: "processing" })).toBe("cancel");
     expect(eligibleProcessingAction({ ...job, status: "completed" })).toBeNull();
     expect(eligibleProcessingAction({ ...job, status: "failed", error: { code: "operation_cancelled", retryable: false } })).toBeNull();
+  });
+
+  it("hides mutation actions without their specific permissions and exposes AI Operations by read permission", () => {
+    const failed = { ...data.jobs.items[0], status: "failed" };
+    expect(renderToStaticMarkup(<ProcessingJobAction job={failed} permissions={[]} onAccepted={noop} />)).toBe("");
+    expect(renderToStaticMarkup(<ProcessingJobAction job={failed} permissions={["ai_jobs.retry"]} onAccepted={noop} />)).toContain("Retry failed job");
+    expect(mayViewAiOperations(["ai_operations.read"])).toBe(true);
+    expect(mayViewAiOperations(["assets.read"])).toBe(false);
   });
 
   it("sends audited retry and cancellation reasons to the supported endpoints", async () => {

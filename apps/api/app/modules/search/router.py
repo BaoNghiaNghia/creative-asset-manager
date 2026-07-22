@@ -1,6 +1,6 @@
 from __future__ import annotations
 import time
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from urllib.parse import quote
 from sqlalchemy import select
 
@@ -13,7 +13,7 @@ from app.modules.explorer.service import ExplorerService
 from app.providers.source_factory import create_source_provider
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.ai_metadata.model import MetadataProfileModel
-from app.modules.asset_details.router import admin_or_none, tenant_id
+from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService
@@ -22,6 +22,7 @@ from app.modules.search.query_parser import SearchQueryParser
 from app.modules.search.schema import SearchCapabilities, SearchV2Request, SearchV2Response
 
 router = APIRouter(prefix="/api/v1/search", tags=["search-v2"])
+SEARCH_READ = require_permission("search.read")
 EXAMPLES = ["cat", "cat mama", "cat, est, 2015", "\"est 2015\"", "cat OR dog", "subject:cat", "text:\"mama\""]
 
 def search_config(session, tenant):
@@ -43,17 +44,17 @@ def enabled(session, tenant):
     return bool(effective.effective.get("search_v2_enabled") and settings.SEARCH_QUERY_PARSER_V2_ENABLED and settings.ELASTICSEARCH_URL)
 
 @router.get("/capabilities", response_model=SearchCapabilities)
-def capabilities(request: Request):
-    tenant = tenant_id(request)
+def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
+    tenant = principal.active_tenant_id
     with SessionLocal() as session:
         config, facets = search_config(session, tenant)
         available = enabled(session, tenant)
         session.commit()
-    return {"selected_version": "v2" if available else "v1", "v2_available": available, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": admin_or_none(request) is not None, "facet_names": facets, "examples": EXAMPLES}
+    return {"selected_version": "v2" if available else "v1", "v2_available": available, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES}
 
 @router.post("", response_model=SearchV2Response)
-async def search(body: SearchV2Request, request: Request):
-    tenant = tenant_id(request)
+async def search(body: SearchV2Request, request: Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
+    tenant = principal.active_tenant_id
     settings = get_settings()
     with SessionLocal() as session:
         if not enabled(session, tenant):
@@ -74,7 +75,7 @@ async def search(body: SearchV2Request, request: Request):
             asset_ids = list(session.scalars(source_asset_ids))
             filters.append({"terms": {"asset_id": asset_ids or ["__none__"]}})
         query["aggs"] = {name: {"terms": {"field": f"facets.{name}", "size": 50}} for name in allowed_facets}
-        debug = body.debug and admin_or_none(request) is not None
+        debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
         primary_started = time.perf_counter()
         try:
             async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as index:

@@ -95,7 +95,8 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
     {audit && <AuditNotice audit={audit} />}
     <div className="ops-provider-grid">{configuration.providers.map(provider => {
       const metric = metricByProvider.get(provider.id)!;
-      const disabled = pending === provider.id || !configuration.permissions.can_manage_tenant;
+      const configureDisabled = pending === provider.id || !(configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant);
+      const pauseDisabled = pending === provider.id || !(configuration.permissions.can_emergency_stop ?? configuration.permissions.can_manage_tenant);
       return <article className="ops-provider-card" key={provider.id}>
         <header><div><h3>{provider.label}</h3><span className={`ops-connection ${provider.connection_configured ? "ok" : "off"}`}>{provider.connection_configured ? "Connection configured" : "Connection not configured"}</span></div><Status enabled={provider.enabled && provider.processing_enabled && !provider.paused} /></header>
         <dl>
@@ -109,12 +110,12 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
           <div><dt>Estimated cost today</dt><dd>{formatCost(metric.cost, metric.currency)}</dd></div>
           <div className="wide"><dt>Last error</dt><dd><code>{provider.last_error || "None"}</code></dd></div>
         </dl>
-        <fieldset disabled={disabled} className="ops-provider-switches"><legend>Tenant settings</legend>
+        <fieldset disabled={configureDisabled} className="ops-provider-switches"><legend>Tenant settings</legend>
           <label><input type="checkbox" checked={provider.processing_enabled} onChange={event => optimistic(provider.id, { processing_enabled: event.target.checked })} /> Provider enabled</label>
           <label><input type="checkbox" checked={provider.single_enabled} onChange={event => optimistic(provider.id, { single_enabled: event.target.checked })} /> Single enabled</label>
           <label><input type="checkbox" checked={provider.batch_enabled} onChange={event => optimistic(provider.id, { batch_enabled: event.target.checked })} /> Batch enabled</label>
         </fieldset>
-        <button className={provider.paused ? "primary" : "danger"} type="button" disabled={disabled} onClick={() => { setConfirmProvider(provider.id); setReason(""); }}>{provider.paused ? "Resume provider" : "Pause provider"}</button>
+        <button className={provider.paused ? "primary" : "danger"} type="button" disabled={pauseDisabled} onClick={() => { setConfirmProvider(provider.id); setReason(""); }}>{provider.paused ? "Resume provider" : "Pause provider"}</button>
         {confirmProvider === provider.id && <div className="ops-confirm" role="dialog" aria-label={`${provider.paused ? "Resume" : "Pause"} ${provider.label}`}>
           <strong>Confirm {provider.paused ? "resume" : "pause"}</strong><p>Queued work is preserved. A reason is required for the audit log.</p>
           <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label>
@@ -132,7 +133,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
     const fallback = configuration.providers.find(item => item.connection_configured) || configuration.providers[0];
     return { ...configuration.tenant, default_provider: configuration.tenant.default_provider || fallback?.id || null, default_model: configuration.tenant.default_model || fallback?.default_model || null };
   });
-  const [budget, setBudget] = useState(() => configuration.budget);
+  const [budget, setBudget] = useState(() => configuration.budget || { enabled: false, daily_limit_micros: null, monthly_limit_micros: null, warning_threshold_percent: 80, hard_stop_threshold_percent: 100, currency: "USD" });
   const [reason, setReason] = useState("");
   const [singleConcurrency, setSingleConcurrency] = useState(() => configuration.providers.find(item => item.id === configuration.tenant.default_provider)?.single_concurrency || 1);
   const [batchConcurrency, setBatchConcurrency] = useState(() => configuration.providers.find(item => item.id === configuration.tenant.default_provider)?.batch_concurrency || 1);
@@ -142,7 +143,9 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
   const [confirmAction, setConfirmAction] = useState<"budget" | "tenant-stop" | "global-stop" | null>(null);
   const selectedProvider = configuration.providers.find(item => item.id === form.default_provider) || configuration.providers[0];
   const allowedModels = selectedProvider?.allowed_models || [];
-  const canEdit = configuration.permissions.can_manage_tenant;
+  const canEdit = configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant;
+  const canUpdateBudget = configuration.permissions.can_update_budget ?? configuration.permissions.can_manage_tenant;
+  const canEmergencyStop = configuration.permissions.can_emergency_stop ?? configuration.permissions.can_manage_tenant;
 
   async function saveConfiguration() {
     if (!reason.trim()) { setError("A reason is required for the audit log."); return; }
@@ -208,18 +211,18 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
         <label>Change reason<input disabled={!canEdit} required value={reason} onChange={event => setReason(event.target.value)} /></label>
         <button className="primary" disabled={!canEdit || saving} type="submit">Save tenant defaults</button>
       </form>
-      <form onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
+      {configuration.permissions.can_read_budget !== false ? <form onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
         <h3>Budget policy</h3>
-        <label className="check"><input disabled={!canEdit} type="checkbox" checked={budget.enabled} onChange={event => setBudget({ ...budget, enabled: event.target.checked })} /> Budget enabled</label>
-        <label>Daily budget (micros)<input disabled={!canEdit} type="number" min="0" value={budget.daily_limit_micros ?? ""} onChange={event => setBudget({ ...budget, daily_limit_micros: event.target.value ? Number(event.target.value) : null })} /></label>
-        <label>Monthly budget (micros)<input disabled={!canEdit} type="number" min="0" value={budget.monthly_limit_micros ?? ""} onChange={event => setBudget({ ...budget, monthly_limit_micros: event.target.value ? Number(event.target.value) : null })} /></label>
-        <label>Warning threshold (%)<input disabled={!canEdit} type="number" min="0" max="100" value={budget.warning_threshold_percent} onChange={event => setBudget({ ...budget, warning_threshold_percent: Number(event.target.value) })} /></label>
-        <label>Hard-stop threshold (%)<input disabled={!canEdit} type="number" min="1" max="100" value={budget.hard_stop_threshold_percent} onChange={event => setBudget({ ...budget, hard_stop_threshold_percent: Number(event.target.value) })} /></label>
-        <button className="primary" disabled={!canEdit || saving} type="submit">Review budget update</button>
-      </form>
+        <label className="check"><input disabled={!canUpdateBudget} type="checkbox" checked={budget.enabled} onChange={event => setBudget({ ...budget, enabled: event.target.checked })} /> Budget enabled</label>
+        <label>Daily budget (micros)<input disabled={!canUpdateBudget} type="number" min="0" value={budget.daily_limit_micros ?? ""} onChange={event => setBudget({ ...budget, daily_limit_micros: event.target.value ? Number(event.target.value) : null })} /></label>
+        <label>Monthly budget (micros)<input disabled={!canUpdateBudget} type="number" min="0" value={budget.monthly_limit_micros ?? ""} onChange={event => setBudget({ ...budget, monthly_limit_micros: event.target.value ? Number(event.target.value) : null })} /></label>
+        <label>Warning threshold (%)<input disabled={!canUpdateBudget} type="number" min="0" max="100" value={budget.warning_threshold_percent} onChange={event => setBudget({ ...budget, warning_threshold_percent: Number(event.target.value) })} /></label>
+        <label>Hard-stop threshold (%)<input disabled={!canUpdateBudget} type="number" min="1" max="100" value={budget.hard_stop_threshold_percent} onChange={event => setBudget({ ...budget, hard_stop_threshold_percent: Number(event.target.value) })} /></label>
+        <button className="primary" disabled={!canUpdateBudget || saving} type="submit">Review budget update</button>
+      </form> : <section><h3>Budget policy</h3><small>Permission ai_budget.read is required to view budget settings.</small></section>}
       <section className="ops-global-settings"><h3>Global controls</h3><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Global settings are deployment upper bounds. Tenant policies cannot override a disabled global setting.</p>
         {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Platform administrator permission is required to change global controls.</small>}
-        <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEdit} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
+        <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
       </section>
     </div>
     {confirmAction && <div className="ops-confirm ops-confirm-wide" role="dialog" aria-label="Confirm configuration change"><h3>Confirm {confirmAction === "budget" ? "budget override" : "emergency action"}</h3><p>This action is audited. Enter a reason before continuing.</p><label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label><div><button type="button" onClick={() => setConfirmAction(null)}>Cancel</button><button className="danger" type="button" disabled={!reason.trim() || saving} onClick={confirmAction === "budget" ? saveBudget : confirmAction === "global-stop" ? toggleGlobal : toggleTenant}>Confirm</button></div></div>}

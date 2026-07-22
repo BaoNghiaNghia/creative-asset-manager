@@ -141,7 +141,17 @@ export type AiOpsProviderConfiguration = {
 export type AiOpsConfiguration = {
   tenant_id: string;
   scope: { tenant: string; global_upper_bounds_read_only: boolean };
-  permissions: { can_manage_tenant: boolean; can_manage_global: boolean; platform_admin: boolean };
+  permissions: {
+    can_manage_tenant: boolean;
+    can_configure_provider?: boolean;
+    can_read_budget?: boolean;
+    can_update_budget?: boolean;
+    can_emergency_stop?: boolean;
+    can_retry_jobs?: boolean;
+    can_cancel_jobs?: boolean;
+    can_manage_global: boolean;
+    platform_admin: boolean;
+  };
   tenant: {
     ai_enabled: boolean;
     default_provider: AiOpsProvider | null;
@@ -164,5 +174,5 @@ export type AiOpsConfiguration = {
     warning_threshold_percent: number;
     hard_stop_threshold_percent: number;
     currency: string;
-  };
+  } | null;
 };

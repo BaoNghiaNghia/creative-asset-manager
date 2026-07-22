@@ -1812,3 +1812,24 @@ Final controls:
   previous frontend bundle. No database or API rollback is required.
 - Next recommended step: AUTH-08 can migrate AI Operations/admin surfaces to
   the same durable permissions without reusing UI visibility as authorization.
+
+## AUTH-08 review - durable RBAC for AI Operations
+
+- Files changed: central permission helpers; AI Operations, AI metadata/batch, processing policy, AI governance, search governance/search and asset-details routes; permission-aware AI Operations/navigation UI; focused tests; security/operations documentation; roadmap and this review.
+- Migrations added: none. AUTH-08 reuses users, memberships, roles, permissions, platform-admin assignments and existing append-only audit tables. Alembic has one head: 0028_central_authorization.
+- Behavior introduced: AI Operations reads require ai_operations.read; run/force, retry/cancel, provider configuration, budget read/update and emergency stop use their dedicated permissions. Explicit tenant targets are validated against CurrentPrincipal.active_tenant_id, audit actors use the durable user_id, and platform-global runtime, index lifecycle, cost-rate and metrics controls require durable platform administration. Provider pause/resume is intentionally separate from ordinary provider configuration.
+- Frontend behavior: AI Operations navigation is shown with ai_operations.read rather than tenant-admin role; signed-in permission failures show a safe 403 state; read-only users keep dashboards while mutation controls are hidden by their exact permissions. Backend authorization remains authoritative.
+- Audit behavior: forced single analysis and shadow-policy mutation now append bounded actor/tenant audit records; existing policy, provider, budget, retry/cancel and search activation services retain their append-only audit paths.
+- Tests and actual results:
+  - cd apps/api && .venv/bin/python -m pytest -q tests/modules/ai_metadata/test_api.py::AssetAnalysisAdminApiTest::test_capabilities_response_is_public_and_tenant_scoped: 1 passed in 1.16s.
+  - cd apps/api && .venv/bin/python -m pytest -q tests/modules/search/test_governance.py::SearchGovernanceTest::test_shadow_policy_route_uses_rbac_actor_and_appends_audit: 1 passed in 0.54s.
+  - cd apps/api && .venv/bin/python -m pytest -q tests/modules/authorization tests/modules/ai_operations tests/modules/ai_metadata tests/modules/ai_governance tests/modules/processing_policy tests/modules/search tests/modules/asset_details --maxfail=1: 202 passed in 34.39s.
+  - cd apps/client && npm test: 68 passed across 10 files in 1.09s.
+  - cd apps/client && npm run typecheck: passed.
+  - cd apps/client && npm run build: passed; Vite transformed 66 modules and produced the bundle in 0.79s.
+  - frontend production bundle credential-name scan: passed.
+  - apps/api/.venv/bin/python -m alembic heads: one head, 0028_central_authorization.
+- Feature flags: no flag enabled. AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED remains false in settings and both environment examples. PROCESSING_POLICY_ADMIN_IDS is no longer used by normal migrated route authorization.
+- Known risks: frontend permission visibility depends on the safe identity endpoint and may briefly hide navigation while loading; direct API enforcement is unaffected. Routes outside the explicitly migrated AUTH-08 scope may still use compatibility authorization until their own migration.
+- Rollback: deploy the previous application/UI revision. No database downgrade is required. Keep the compatibility flag disabled unless an explicitly approved emergency migration requires the deprecated adapter.
+- Next recommended step: AUTH-09 bootstrap/backfill and final validation; do not infer administration from provider identity or Drive ownership.

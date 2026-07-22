@@ -10,7 +10,10 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
-from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
+from app.modules.authorization.principal import (
+    CurrentPrincipal, require_permission, require_platform_admin, require_tenant_scope,
+)
+from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.search.active_analysis import ActiveAnalysisService, AnalysisActivationError
 from app.modules.search.governance_model import (
     ActiveAnalysisAuditModel, SearchIndexRecordModel, TenantSearchShadowPolicyModel,
@@ -19,6 +22,9 @@ from app.modules.search.index_lifecycle import IndexVerificationError, SearchInd
 from app.modules.search.shadow import SearchShadowRepository
 
 router = APIRouter(prefix="/api/v1/admin/search", tags=["search-governance"])
+SEARCH_READ = require_permission("search.read")
+SEARCH_REBUILD = require_permission("search.rebuild")
+SEARCH_ACTIVATE = require_permission("search.index.activate")
 
 
 class ActivationRequest(BaseModel):
@@ -66,13 +72,13 @@ class CleanupIndexRequest(BaseModel):
     confirmed: bool = False
 
 
-def _authorize(admin: ProcessingAdmin, tenant_id: str) -> None:
-    admin.authorize_tenant(tenant_id)
+def _authorize(principal: CurrentPrincipal, tenant_id: str) -> None:
+    require_tenant_scope(principal, tenant_id)
 
 
 @router.get("/tenants/{tenant}/assets/{asset_id}/active-analysis")
-def active_analysis(tenant: str, asset_id: str, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    _authorize(admin, tenant)
+def active_analysis(tenant: str, asset_id: str, principal: CurrentPrincipal = Depends(SEARCH_READ)):
+    _authorize(principal, tenant)
     with SessionLocal() as session:
         rows = list(session.scalars(select(ActiveAnalysisAuditModel).where(
             ActiveAnalysisAuditModel.tenant_id == tenant,
@@ -86,8 +92,8 @@ def active_analysis(tenant: str, asset_id: str, admin: ProcessingAdmin = Depends
 
 
 @router.post("/tenants/{tenant}/assets/{asset_id}/active-analysis")
-def activate_analysis(tenant: str, asset_id: str, body: ActivationRequest, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    _authorize(admin, tenant)
+def activate_analysis(tenant: str, asset_id: str, body: ActivationRequest, principal: CurrentPrincipal = Depends(SEARCH_ACTIVATE)):
+    _authorize(principal, tenant)
     settings = get_settings()
     if not settings.DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED:
         raise HTTPException(409, "Deterministic active analysis is disabled")
@@ -96,7 +102,7 @@ def activate_analysis(tenant: str, asset_id: str, body: ActivationRequest, admin
             service = ActiveAnalysisService(session)
             result = service.activate(
                 tenant_id=tenant, asset_id=asset_id, analysis_id=body.analysis_id,
-                actor_id=admin.actor_id, reason=body.reason, search_context=body.search_context,
+                actor_id=principal.user_id, reason=body.reason, search_context=body.search_context,
             )
             jobs = service.enqueue_rebuild_and_reindex(tenant_id=tenant, active=result.active) if body.rebuild_and_reindex else None
             session.commit()
@@ -107,8 +113,8 @@ def activate_analysis(tenant: str, asset_id: str, body: ActivationRequest, admin
 
 
 @router.post("/tenants/{tenant}/assets/{asset_id}/active-analysis/rollback")
-def rollback_analysis(tenant: str, asset_id: str, body: RollbackRequest, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    _authorize(admin, tenant)
+def rollback_analysis(tenant: str, asset_id: str, body: RollbackRequest, principal: CurrentPrincipal = Depends(SEARCH_ACTIVATE)):
+    _authorize(principal, tenant)
     if not get_settings().DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED:
         raise HTTPException(409, "Deterministic active analysis is disabled")
     with SessionLocal() as session:
@@ -116,7 +122,7 @@ def rollback_analysis(tenant: str, asset_id: str, body: RollbackRequest, admin: 
             service = ActiveAnalysisService(session)
             result = service.rollback(
                 tenant_id=tenant, asset_id=asset_id, metadata_profile_id=body.metadata_profile_id,
-                actor_id=admin.actor_id, reason=body.reason, search_context=body.search_context,
+                actor_id=principal.user_id, reason=body.reason, search_context=body.search_context,
             )
             jobs = service.enqueue_rebuild_and_reindex(tenant_id=tenant, active=result.active) if body.rebuild_and_reindex else None
             session.commit()
@@ -127,8 +133,8 @@ def rollback_analysis(tenant: str, asset_id: str, body: RollbackRequest, admin: 
 
 
 @router.get("/tenants/{tenant}/shadow-policy")
-def get_shadow_policy(tenant: str, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    _authorize(admin, tenant)
+def get_shadow_policy(tenant: str, principal: CurrentPrincipal = Depends(SEARCH_READ)):
+    _authorize(principal, tenant)
     settings = get_settings()
     with SessionLocal() as session:
         effective = SearchShadowRepository(session).effective_policy(
@@ -142,17 +148,24 @@ def get_shadow_policy(tenant: str, admin: ProcessingAdmin = Depends(require_proc
 
 
 @router.put("/tenants/{tenant}/shadow-policy")
-def update_shadow_policy(tenant: str, body: ShadowPolicyRequest, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    _authorize(admin, tenant)
+def update_shadow_policy(tenant: str, body: ShadowPolicyRequest, principal: CurrentPrincipal = Depends(SEARCH_REBUILD)):
+    _authorize(principal, tenant)
     if body.primary_version not in {"v1", "v2"} or body.shadow_version not in {"v1", "v2"} or body.primary_version == body.shadow_version:
         raise HTTPException(422, "Primary and shadow must be distinct v1/v2 versions")
     with SessionLocal() as session:
         row = session.get(TenantSearchShadowPolicyModel, tenant) or TenantSearchShadowPolicyModel(tenant_id=tenant)
+        old_policy = {key: getattr(row, key) for key in body.model_dump()}
         for key, value in body.model_dump().items():
             setattr(row, key, value)
-        row.updated_by = admin.actor_id
+        row.updated_by = principal.user_id
         row.updated_at = datetime.now(timezone.utc)
         session.add(row)
+        ProcessingPolicyRepository(session).audit(
+            actor_id=principal.user_id, tenant_id=tenant,
+            action="search_shadow_policy_updated", old_policy=old_policy,
+            new_policy=body.model_dump(), provider_key="elasticsearch",
+            provider_scope="search",
+        )
         session.commit()
         return {"tenant_id": tenant, **body.model_dump()}
 
@@ -163,9 +176,9 @@ def shadow_report(
     ended_at: datetime | None = None, query_type: str | None = None,
     metadata_profile: str | None = None, primary_version: str | None = None,
     shadow_version: str | None = None, error_category: str | None = None,
-    admin: ProcessingAdmin = Depends(require_processing_admin),
+    principal: CurrentPrincipal = Depends(SEARCH_READ),
 ):
-    _authorize(admin, tenant)
+    _authorize(principal, tenant)
     with SessionLocal() as session:
         return SearchShadowRepository(session).report(
             tenant, started_at=started_at, ended_at=ended_at,
@@ -176,7 +189,7 @@ def shadow_report(
 
 
 @router.post("/indices/{record_id}/verify")
-async def verify_index(record_id: str, body: VerifyIndexRequest, admin: ProcessingAdmin = Depends(require_processing_admin)):
+async def verify_index(record_id: str, body: VerifyIndexRequest, principal: CurrentPrincipal = Depends(require_platform_admin)):
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
@@ -189,7 +202,7 @@ async def verify_index(record_id: str, body: VerifyIndexRequest, admin: Processi
                         body.maximum_indexing_failures, body.expected_document_count,
                         body.document_count_tolerance, tuple(body.required_queries),
                         tuple(body.tenant_ids),
-                    ), actor_id=admin.actor_id,
+                    ), actor_id=principal.user_id,
                 )
                 session.commit()
                 return {"index": row.physical_index_name, "verification": row.verification_json}
@@ -199,14 +212,14 @@ async def verify_index(record_id: str, body: VerifyIndexRequest, admin: Processi
 
 
 @router.post("/indices/{record_id}/activate")
-async def activate_index(record_id: str, admin: ProcessingAdmin = Depends(require_processing_admin)):
+async def activate_index(record_id: str, principal: CurrentPrincipal = Depends(require_platform_admin)):
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
     async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             try:
-                row = await SearchIndexLifecycleService(session, provider).activate(record_id, actor_id=admin.actor_id)
+                row = await SearchIndexLifecycleService(session, provider).activate(record_id, actor_id=principal.user_id)
                 session.commit()
                 return {"index": row.physical_index_name, "state": row.lifecycle_state}
             except (LookupError, IndexVerificationError) as exc:
@@ -215,42 +228,42 @@ async def activate_index(record_id: str, admin: ProcessingAdmin = Depends(requir
 
 
 @router.post("/indices/{record_id}/rollback")
-async def rollback_index(record_id: str, admin: ProcessingAdmin = Depends(require_processing_admin)):
+async def rollback_index(record_id: str, principal: CurrentPrincipal = Depends(require_platform_admin)):
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
     async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             try:
-                row = await SearchIndexLifecycleService(session, provider).rollback(record_id, actor_id=admin.actor_id)
+                row = await SearchIndexLifecycleService(session, provider).rollback(record_id, actor_id=principal.user_id)
                 return {"index": row.physical_index_name, "state": row.lifecycle_state}
             except (LookupError, IndexVerificationError) as exc:
                 raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/indices/reconcile")
-async def reconcile_indices(index_prefix: str, admin: ProcessingAdmin = Depends(require_processing_admin)):
+async def reconcile_indices(index_prefix: str, principal: CurrentPrincipal = Depends(require_platform_admin)):
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
     async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             try:
-                row = await SearchIndexLifecycleService(session, provider).reconcile_aliases(index_prefix, actor_id=admin.actor_id)
+                row = await SearchIndexLifecycleService(session, provider).reconcile_aliases(index_prefix, actor_id=principal.user_id)
                 return {"index": row.physical_index_name, "state": row.lifecycle_state}
             except (LookupError, IndexVerificationError) as exc:
                 raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/indices/cleanup")
-async def cleanup_indices(body: CleanupIndexRequest, admin: ProcessingAdmin = Depends(require_processing_admin)):
+async def cleanup_indices(body: CleanupIndexRequest, principal: CurrentPrincipal = Depends(require_platform_admin)):
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
     async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             deleted = await SearchIndexLifecycleService(session, provider).cleanup(
-                index_prefix=settings.ELASTICSEARCH_INDEX_PREFIX, actor_id=admin.actor_id,
+                index_prefix=settings.ELASTICSEARCH_INDEX_PREFIX, actor_id=principal.user_id,
                 min_age=timedelta(hours=body.min_age_hours),
                 preserve_previous=body.preserve_previous, limit=body.limit,
                 dry_run=body.dry_run, confirmed=body.confirmed,

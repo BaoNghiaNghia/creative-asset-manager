@@ -18,7 +18,7 @@ from app.modules.assets.model import (
     AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel,
 )
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
+from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 
 
@@ -149,8 +149,11 @@ class AiOperationsApiTest(unittest.TestCase):
             session.add_all(jobs)
             session.commit()
         self.client = TestClient(app)
-        app.dependency_overrides[require_processing_admin] = lambda: ProcessingAdmin(
-            actor_id="tenant-a", own_tenant_id="tenant-a", platform_admin=False,
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"tenant_admin"}),
+            effective_permissions=frozenset({"ai_operations.read", "ai_provider.configure", "ai_budget.read", "ai_budget.update", "ai_emergency_stop", "ai_jobs.retry", "ai_jobs.cancel"}),
+            platform_admin=False, session_id=None, authorization_source="tenant_rbac",
         )
 
     def tearDown(self):

@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.main import app
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.storage.model import AssetStorageObjectModel
 
 class AssetDetailsApiTest(unittest.TestCase):
@@ -28,22 +29,34 @@ class AssetDetailsApiTest(unittest.TestCase):
             session.commit(); self.asset_id = asset.id
         self.client = TestClient(app)
 
+    def _principal(self, tenant_id="tenant-a", permissions=("assets.read",)):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="user-a", active_tenant_id=tenant_id, membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset(),
+            effective_permissions=frozenset(permissions), platform_admin=False,
+            session_id=None, authorization_source="tenant_rbac",
+        )
+
     def tearDown(self):
+        app.dependency_overrides.clear()
         self.client.close(); self.engine.dispose()
 
     def test_details_are_tenant_scoped_and_urls_are_redacted(self):
-        with patch("app.modules.asset_details.router.SessionLocal", self.factory), patch("app.modules.asset_details.router.get_google_session", return_value=SimpleNamespace(user={"id": "tenant-a"})):
+        self._principal()
+        with patch("app.modules.asset_details.router.SessionLocal", self.factory):
             response = self.client.get(f"/api/v1/assets/{self.asset_id}")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["sources"][0]["external_source_id"] is not None, True)
         self.assertEqual(payload["storage"][0]["web_url"], "https://drive.example/file")
         self.assertNotIn("secret", response.text)
-        with patch("app.modules.asset_details.router.SessionLocal", self.factory), patch("app.modules.asset_details.router.get_google_session", return_value=SimpleNamespace(user={"id": "tenant-b"})):
+        self._principal("tenant-b")
+        with patch("app.modules.asset_details.router.SessionLocal", self.factory):
             denied = self.client.get(f"/api/v1/assets/{self.asset_id}")
         self.assertEqual(denied.status_code, 404)
 
     def test_unauthenticated_action_is_rejected(self):
+        app.dependency_overrides.clear()
         response = self.client.post(f"/api/v1/admin/assets/{self.asset_id}/actions", json={"action": "reindex"})
         self.assertEqual(response.status_code, 401)
 

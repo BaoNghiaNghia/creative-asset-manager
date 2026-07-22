@@ -6,6 +6,7 @@ class AssetActionRequest(BaseModel):
     force: bool = False
     confirmed: bool = False
     job_id: str | None = None
+    reason: str | None = Field(None, max_length=1000)
 
 class AcceptedAssetAction(BaseModel):
     action: str

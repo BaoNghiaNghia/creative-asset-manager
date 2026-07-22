@@ -148,7 +148,7 @@ accepted only before an explicitly configured ISO-8601 compatibility deadline.
 `PROCESSING_POLICY_ADMIN_IDS` is deprecated. Its bridge to platform privilege
 is inactive unless `AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=true`; the
 flag defaults to false in every environment example. Existing admin routes are
-not bulk-migrated in AUTH-04. They retain their compatibility dependency until
+not bulk-migrated in AUTH-04. AUTH-08 removes that compatibility dependency from AI Operations, AI analysis, processing-policy, AI governance, search governance and asset-detail action routes. The bridge remains available only for explicitly flagged migration/bootstrap use and is not normal route authorization. Legacy routes outside this scope retain compatibility until
 the route-by-route RBAC migration step.
 
 ## Tenant access administration (AUTH-06)
@@ -170,3 +170,9 @@ override may perform recovery. Custom-role grants are limited to permissions
 the actor already holds. System roles stay protected, removals preserve
 membership history, and all successful mutations create bounded, secret-free
 audit events with actor and reason.
+
+## AI Operations authorization (AUTH-08)
+
+AI Operations reads require ai_operations.read; analysis, force, retry, cancel, provider configuration, budget read/update and emergency controls each require their dedicated permission. Provider and tenant pause/resume operations require ai_emergency_stop, separately from ordinary provider configuration. Search reads, rebuilds and active-analysis activation retain their specific search permissions. Physical Elasticsearch lifecycle, global runtime stops, cost-rate changes and global process metrics require a durable platform administrator.
+
+All tenant routes derive the default scope from CurrentPrincipal.active_tenant_id and validate any explicit tenant argument. Audit actor identity is the durable application user_id; it is never reused as tenant identity. Repositories keep explicit tenant predicates. Frontend visibility follows the safe identity permission summary, while API authorization remains authoritative.

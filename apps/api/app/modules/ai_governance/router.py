@@ -8,9 +8,14 @@ from app.modules.ai_governance.model import AiCostRateModel
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.ai_governance.schema import BudgetOverrideRequest, BudgetPolicyPatch, CostRateCreate, RuntimeStopRequest
 from app.modules.ai_metadata.repository import AiMetadataRepository
-from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
+from app.modules.authorization.principal import (
+    CurrentPrincipal, require_permission, require_platform_admin, require_tenant_scope,
+)
 
 router = APIRouter(prefix="/api/v1/admin/ai-governance", tags=["ai-governance"])
+AI_OPERATIONS_READ = require_permission("ai_operations.read")
+AI_BUDGET_READ = require_permission("ai_budget.read")
+AI_BUDGET_UPDATE = require_permission("ai_budget.update")
 
 def _policy_document(repo, tenant_id):
     policy = repo.get_policy(tenant_id)
@@ -33,14 +38,14 @@ def _policy_document(repo, tenant_id):
     }
 
 @router.get("/{tenant_id}/budget")
-def get_budget(tenant_id: str, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    admin.authorize_tenant(tenant_id)
+def get_budget(tenant_id: str, principal: CurrentPrincipal = Depends(AI_BUDGET_READ)):
+    require_tenant_scope(principal, tenant_id)
     with SessionLocal() as session:
         return _policy_document(AiGovernanceRepository(session), tenant_id)
 
 @router.patch("/{tenant_id}/budget")
-def update_budget(tenant_id: str, body: BudgetPolicyPatch, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    admin.authorize_tenant(tenant_id)
+def update_budget(tenant_id: str, body: BudgetPolicyPatch, principal: CurrentPrincipal = Depends(AI_BUDGET_UPDATE)):
+    require_tenant_scope(principal, tenant_id)
     values = body.model_dump(exclude_unset=True, exclude={"reason"})
     values = {
         key: value for key, value in values.items()
@@ -53,14 +58,14 @@ def update_budget(tenant_id: str, body: BudgetPolicyPatch, admin: ProcessingAdmi
         old = _policy_document(repo, tenant_id)["policy"]
         repo.upsert_policy(tenant_id, values)
         new = _policy_document(repo, tenant_id)["policy"]
-        repo.event(tenant_id, "budget_policy_updated", actor_id=admin.actor_id,
+        repo.event(tenant_id, "budget_policy_updated", actor_id=principal.user_id,
                    reason=body.reason, details={"old_policy": old, "new_policy": new})
         session.commit()
         return _policy_document(repo, tenant_id)
 
 @router.post("/cost-rates")
-def create_cost_rate(body: CostRateCreate, admin: ProcessingAdmin = Depends(require_processing_admin)):
-    if not admin.platform_admin:
+def create_cost_rate(body: CostRateCreate, principal: CurrentPrincipal = Depends(require_platform_admin)):
+    if not principal.platform_admin:
         raise HTTPException(status_code=403, detail="Platform administrator role required")
     try:
         effective_at = datetime.fromisoformat(body.effective_at.replace("Z", "+00:00"))
@@ -69,24 +74,24 @@ def create_cost_rate(body: CostRateCreate, admin: ProcessingAdmin = Depends(requ
     with SessionLocal() as session:
         value = AiCostRateModel(effective_at=effective_at, **body.model_dump(exclude={"effective_at"}))
         session.add(value)
-        AiGovernanceRepository(session).event("platform", "cost_rate_changed", actor_id=admin.actor_id, details={"provider": body.provider, "model": body.model, "processing_mode": body.processing_mode, "effective_at": body.effective_at})
+        AiGovernanceRepository(session).event("platform", "cost_rate_changed", actor_id=principal.user_id, details={"provider": body.provider, "model": body.model, "processing_mode": body.processing_mode, "effective_at": body.effective_at})
         session.commit()
         return {"id": value.id, "provider": value.provider, "model": value.model,
                 "effective_at": value.effective_at, "currency": value.currency, "processing_mode": value.processing_mode}
 
 @router.get("/metrics")
-def metrics(admin: ProcessingAdmin = Depends(require_processing_admin)):
+def metrics(principal: CurrentPrincipal = Depends(require_platform_admin)):
     return AI_METRICS.snapshot()
 
 @router.put("/runtime-controls/{control_key}")
 def set_runtime_control(control_key: str, body: RuntimeStopRequest,
-                        admin: ProcessingAdmin = Depends(require_processing_admin)):
-    if not admin.platform_admin:
+                        principal: CurrentPrincipal = Depends(require_platform_admin)):
+    if not principal.platform_admin:
         raise HTTPException(status_code=403, detail="Platform administrator role required")
     with SessionLocal() as session:
         repo = AiGovernanceRepository(session)
         try:
-            value = repo.set_runtime_stop(control_key, body.stopped, admin.actor_id, body.reason)
+            value = repo.set_runtime_stop(control_key, body.stopped, principal.user_id, body.reason)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         session.commit()
@@ -95,15 +100,15 @@ def set_runtime_control(control_key: str, body: RuntimeStopRequest,
 
 @router.post("/{tenant_id}/budget-overrides")
 def grant_budget_override(tenant_id: str, body: BudgetOverrideRequest,
-                          admin: ProcessingAdmin = Depends(require_processing_admin)):
-    admin.authorize_tenant(tenant_id)
-    if not admin.platform_admin:
+                          principal: CurrentPrincipal = Depends(require_platform_admin)):
+    require_tenant_scope(principal, tenant_id)
+    if not principal.platform_admin:
         raise HTTPException(status_code=403, detail="Platform administrator role required")
     with SessionLocal() as session:
         analysis = AiMetadataRepository(session).get_analysis(body.analysis_id)
         if analysis.tenant_id != tenant_id:
             raise HTTPException(status_code=404, detail="Analysis not found")
         value = AiGovernanceRepository(session).grant_budget_override(
-            tenant_id, body.analysis_id, admin.actor_id, body.reason)
+            tenant_id, body.analysis_id, principal.user_id, body.reason)
         session.commit()
         return {"id": value.id, "analysis_id": value.analysis_id, "active": value.active}

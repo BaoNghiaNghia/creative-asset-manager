@@ -85,3 +85,4 @@
 - [x] AUTH-05 OAuth application login, session rotation and tenant switching
 - [x] AUTH-06 Tenant membership and role administration APIs
 - [x] AUTH-07 Access Management frontend
+- [x] AUTH-08 Durable RBAC for AI Operations and related admin routes

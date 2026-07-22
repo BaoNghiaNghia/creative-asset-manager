@@ -10,8 +10,10 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings
 from app.core.database import Base
 from app.main import app
+from app.modules.ai_governance.model import AiBudgetEventModel
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.model import AssetModel
+from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import (
     TenantProcessingPolicyModel,
@@ -53,6 +55,7 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
             session.commit()
             self.asset_id = asset.id
         self.client = TestClient(app)
+        self._set_principal("tenant-a")
         self.settings = Settings(
             UNIFIED_ASSET_INGESTION_ENABLED=True,
             PROCESSING_JOBS_ENABLED=True,
@@ -70,7 +73,17 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
         )
 
     def tearDown(self):
+        app.dependency_overrides.clear()
         self.engine.dispose()
+
+    def _set_principal(self, tenant_id: str):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="user-a", active_tenant_id=tenant_id, membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"ai_analysis.run", "ai_analysis.force", "ai_operations.read"}),
+            platform_admin=False, session_id=None, authorization_source="tenant_rbac",
+        )
+
 
     def test_authenticated_enqueue_is_async_and_idempotent(self):
         body = {
@@ -81,7 +94,7 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
         with (
             patch("app.modules.ai_metadata.router.SessionLocal", self.factory),
             patch(
-                "app.modules.ai_metadata.router.get_google_session",
+                "app.modules.authorization.principal.get_google_session",
                 return_value=SimpleNamespace(user={"id": "tenant-a"}),
             ),
             patch(
@@ -109,7 +122,7 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
         with (
             patch("app.modules.ai_metadata.router.SessionLocal", self.factory),
             patch(
-                "app.modules.ai_metadata.router.get_google_session",
+                "app.modules.authorization.principal.get_google_session",
                 return_value=SimpleNamespace(user={"id": "tenant-a"}),
             ),
             patch(
@@ -126,23 +139,28 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(ProcessingJobModel)), 2
             )
+            events = list(session.scalars(select(AiBudgetEventModel).where(AiBudgetEventModel.action == "forced_analysis")))
+            self.assertEqual(len(events), 2)
+            self.assertTrue(all(event.actor_id == "user-a" and event.tenant_id == "tenant-a" for event in events))
 
     def test_unauthenticated_and_disabled_requests_are_rejected(self):
+        app.dependency_overrides.clear()
         body = {"asset_id": self.asset_id, "metadata_profile": "general"}
         with (
             patch("app.modules.ai_metadata.router.get_settings", return_value=self.settings),
-            patch("app.modules.ai_metadata.router.get_google_session", return_value=None),
+            patch("app.modules.authorization.principal.get_google_session", return_value=None),
         ):
             self.assertEqual(
                 self.client.post("/api/v1/admin/asset-analyses", json=body).status_code,
                 401,
             )
+        self._set_principal("tenant-a")
         with (
             patch(
                 "app.modules.ai_metadata.router.get_settings",
                 return_value=Settings(),
             ),
-            patch("app.modules.ai_metadata.router.get_google_session",
+            patch("app.modules.authorization.principal.get_google_session",
                   return_value=SimpleNamespace(user={"id": "tenant-a"})),
         ):
             self.assertEqual(
@@ -150,14 +168,15 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
                 503,
             )
     def _request(self, body, *, settings=None, tenant_id="tenant-a"):
+        self._set_principal(tenant_id)
         with (
             patch("app.modules.ai_metadata.router.SessionLocal", self.factory),
             patch(
-                "app.modules.ai_metadata.router.get_google_session",
+                "app.modules.authorization.principal.get_google_session",
                 return_value=SimpleNamespace(user={"id": tenant_id}),
             ),
             patch(
-                "app.modules.ai_metadata.router.get_microsoft_session",
+                "app.modules.authorization.principal.get_microsoft_session",
                 return_value=None,
             ),
             patch(
@@ -170,14 +189,15 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
             )
 
     def _capabilities(self, *, settings=None, tenant_id="tenant-a"):
+        self._set_principal(tenant_id)
         with (
             patch("app.modules.ai_metadata.router.SessionLocal", self.factory),
             patch(
-                "app.modules.ai_metadata.router.get_google_session",
+                "app.modules.authorization.principal.get_google_session",
                 return_value=SimpleNamespace(user={"id": tenant_id}),
             ),
             patch(
-                "app.modules.ai_metadata.router.get_microsoft_session",
+                "app.modules.authorization.principal.get_microsoft_session",
                 return_value=None,
             ),
             patch(
@@ -306,7 +326,7 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
         self.assertEqual(enabled.status_code, 202)
 
         other_tenant = self._request(
-            self._body(ai_provider="openai"),
+            self._body(ai_provider="gemini"),
             tenant_id="tenant-b",
         )
         self.assertEqual(other_tenant.status_code, 404)
@@ -348,13 +368,14 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
         self.assertEqual(openai["supported_modes"], [])
 
     def test_capabilities_requires_authentication(self):
+        app.dependency_overrides.clear()
         with (
             patch(
-                "app.modules.ai_metadata.router.get_google_session",
+                "app.modules.authorization.principal.get_google_session",
                 return_value=None,
             ),
             patch(
-                "app.modules.ai_metadata.router.get_microsoft_session",
+                "app.modules.authorization.principal.get_microsoft_session",
                 return_value=None,
             ),
         ):

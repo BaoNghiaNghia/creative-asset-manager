@@ -9,10 +9,11 @@ from app.core.database import SessionLocal
 from app.modules.ai_operations.export import EXPORT_COLUMNS, audit_export, csv_stream, export_rows
 from app.modules.ai_operations.queries import AiOperationsRepository
 from app.modules.ai_operations.schema import AiOperationsFilters
-from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
+from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
 
 
 router = APIRouter(prefix="/api/v1/admin/ai-operations", tags=["ai-operations"])
+AI_OPERATIONS_READ = require_permission("ai_operations.read")
 _VALID_MODES = {"single", "batch"}
 _VALID_STATUSES = {
     "pending", "queued", "retrying", "running", "completed", "failed",
@@ -21,7 +22,7 @@ _VALID_STATUSES = {
 
 
 def _filters(
-    admin: ProcessingAdmin,
+    principal: CurrentPrincipal,
     tenant_id: str | None,
     from_at: datetime | None,
     to_at: datetime | None,
@@ -32,8 +33,8 @@ def _filters(
     status: str | None,
     source_provider: str | None,
 ) -> AiOperationsFilters:
-    target_tenant = tenant_id or admin.own_tenant_id
-    admin.authorize_tenant(target_tenant)
+    target_tenant = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target_tenant)
     end = to_at or datetime.now(timezone.utc)
     start = from_at or (end - timedelta(days=7))
     if start.tzinfo is None:
@@ -77,7 +78,7 @@ def _filters(
 
 
 def common_filters(
-    admin: ProcessingAdmin = Depends(require_processing_admin),
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
     tenant_id: str | None = Query(default=None),
     from_at: datetime | None = Query(default=None, alias="from"),
     to_at: datetime | None = Query(default=None, alias="to"),
@@ -89,7 +90,7 @@ def common_filters(
     source_provider: str | None = Query(default=None, max_length=32),
 ) -> AiOperationsFilters:
     return _filters(
-        admin, tenant_id, from_at, to_at, provider, model,
+        principal, tenant_id, from_at, to_at, provider, model,
         processing_mode, metadata_profile, status, source_provider,
     )
 
@@ -156,7 +157,7 @@ def export_csv(
     export_type: str,
     filters: AiOperationsFilters = Depends(common_filters),
     row_limit: int = Query(default=5_000, ge=1, le=10_000),
-    admin: ProcessingAdmin = Depends(require_processing_admin),
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
 ):
     if export_type not in EXPORT_COLUMNS:
         raise HTTPException(
@@ -168,7 +169,7 @@ def export_csv(
     with SessionLocal() as session:
         audit_export(
             session,
-            actor_id=admin.actor_id,
+            actor_id=principal.user_id,
             filters=filters,
             export_type=export_type,
             row_limit=row_limit,

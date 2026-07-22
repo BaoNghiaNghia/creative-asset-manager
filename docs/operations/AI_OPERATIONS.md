@@ -70,3 +70,21 @@ npm run build
 ```
 
 The PostgreSQL test requires `INTEGRATION_DATABASE_URL`. Rollback is application-only: remove the export route/UI links and restore the prior aggregation implementation. No schema downgrade, data deletion, worker drain, or feature-flag change is required. Dashboard mutation authorization continues to use the existing tenant/platform admin controls; AI-OPS-05 does not enable controls for unauthorized users.
+
+## Durable RBAC permission matrix
+
+AUTH-08 replaces the legacy processing-admin dependency on AI Operations and related administration surfaces.
+
+| Operation | Permission |
+| --- | --- |
+| Read dashboard/configuration | ai_operations.read |
+| Run / force analysis | ai_analysis.run / ai_analysis.force |
+| Retry / cancel jobs | ai_jobs.retry / ai_jobs.cancel |
+| Configure providers and defaults | ai_provider.configure |
+| Read / update budget | ai_budget.read / ai_budget.update |
+| Pause/resume tenant or provider AI | ai_emergency_stop |
+| Search read / rebuild / activation | search.read / search.rebuild / search.index.activate |
+
+Physical index lifecycle, global runtime controls, cost-rate mutation and global process metrics require durable platform administration. Tenant roles cannot grant platform administration. Every tenant mutation uses the active tenant from the application principal (or validates an explicit target), and successful privileged mutations append a bounded audit record containing the durable user actor and tenant.
+
+The dashboard stays read-only for principals with ai_operations.read but no mutation permissions. A 401 means sign-in is required; a 403 reports the safe missing permission. PROCESSING_POLICY_ADMIN_IDS is only a deprecated, default-disabled compatibility bridge controlled by AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED.

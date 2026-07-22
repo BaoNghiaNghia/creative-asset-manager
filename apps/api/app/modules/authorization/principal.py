@@ -233,6 +233,32 @@ def require_all_permissions(*permission_keys: str):
 
     return dependency
 
+def require_principal_permission(
+    principal: CurrentPrincipal, permission_key: str
+) -> None:
+    """Authorize a permission selected by domain input, not route wiring."""
+    if principal.platform_admin or permission_key in principal.effective_permissions:
+        return
+    raise authorization_error(
+        403,
+        "permission_required",
+        "Required permission is missing",
+        required_permission=permission_key,
+    )
+
+
+def require_platform_admin(
+    principal: CurrentPrincipal = Depends(require_authenticated_principal),
+) -> CurrentPrincipal:
+    if principal.platform_admin:
+        return principal
+    raise authorization_error(
+        403,
+        "permission_required",
+        "Platform administrator permission is required",
+        required_permission="platform_admin",
+    )
+
 
 def require_tenant_scope(principal: CurrentPrincipal, tenant_id: str) -> None:
     if not principal.platform_admin and tenant_id != principal.active_tenant_id:

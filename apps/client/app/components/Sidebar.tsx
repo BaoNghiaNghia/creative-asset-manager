@@ -1,4 +1,5 @@
-import { Fragment, type PointerEventHandler } from "react";
+import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
+import { fetchAccessIdentity } from "../../features/access_management";
 import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
 import { DriveTreeNode } from "./DriveTree";
 import { DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
@@ -23,6 +24,10 @@ type Props = {
   onResizeStart: PointerEventHandler<HTMLDivElement>;
 };
 
+export function mayViewAiOperations(permissions: readonly string[]): boolean {
+  return permissions.includes("ai_operations.read");
+}
+
 const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "google-drive", label: "Google Drive", login: "/api/auth/google/login" },
   { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/login" },
@@ -36,6 +41,15 @@ export function Sidebar({
   const currentRoot = provider === "sharepoint" ? "sharepoint-root" : "root";
   const rootAncestors = path.length > 0 && path[0].id === currentRoot ? [path[0]] : [];
   const activePathIds = new Set(path.map(folder => folder.id));
+  const [canViewAiOperations, setCanViewAiOperations] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetchAccessIdentity().then(identity => {
+      if (alive) setCanViewAiOperations(mayViewAiOperations(identity.permissions));
+    }).catch(() => { if (alive) setCanViewAiOperations(false); });
+    return () => { alive = false; };
+  }, []);
 
   return <aside className="sidebar">
     <button className="sidebar-collapse" onClick={onCollapse} aria-label="Collapse sidebar" title="Collapse sidebar">
@@ -47,7 +61,7 @@ export function Sidebar({
     </div>
     <div className="workspace-navigation" aria-label="Workspace navigation">
       <a href="/" aria-current="page">▧ Asset Explorer</a>
-      <a href="/ai-operations">◉ AI Operations</a>
+      {canViewAiOperations && <a href="/ai-operations">◉ AI Operations</a>}
       <a href="/settings/access">⚿ Access Management</a>
     </div>
     <p>SOURCES</p>

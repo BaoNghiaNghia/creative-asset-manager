@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.model import AssetModel
+from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 
@@ -68,6 +69,7 @@ class BulkAssetAnalysisApiTest(unittest.TestCase):
             self.asset_ids = [asset.id for asset in assets]
             self.foreign_asset_id = foreign.id
         self.client = TestClient(app)
+        self._set_principal()
         self.settings = Settings(
             UNIFIED_ASSET_INGESTION_ENABLED=True,
             PROCESSING_JOBS_ENABLED=True,
@@ -87,23 +89,33 @@ class BulkAssetAnalysisApiTest(unittest.TestCase):
         )
 
     def tearDown(self):
+        app.dependency_overrides.clear()
         self.engine.dispose()
+
+    def _set_principal(self, platform_admin=False):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"ai_analysis.run", "ai_analysis.force", "ai_operations.read", "ai_jobs.cancel"}),
+            platform_admin=platform_admin, session_id=None, authorization_source="tenant_rbac",
+        )
 
     def _call(
         self, method, path, *, body=None, key=None, settings=None, admin=False
     ):
         headers = {"Idempotency-Key": key} if key else {}
+        self._set_principal(admin)
         identity = SimpleNamespace(
             user={"id": "tenant-a", "is_admin": admin}
         )
         with (
             patch("app.modules.ai_metadata.bulk_router.SessionLocal", self.factory),
             patch(
-                "app.modules.ai_metadata.bulk_router.get_google_session",
+                "app.modules.authorization.principal.get_google_session",
                 return_value=identity,
             ),
             patch(
-                "app.modules.ai_metadata.bulk_router.get_microsoft_session",
+                "app.modules.authorization.principal.get_microsoft_session",
                 return_value=None,
             ),
             patch(
@@ -367,13 +379,14 @@ class BulkAssetAnalysisApiTest(unittest.TestCase):
             "provider_unavailable",
         )
 
+        app.dependency_overrides.clear()
         with (
             patch(
-                "app.modules.ai_metadata.bulk_router.get_google_session",
+                "app.modules.authorization.principal.get_google_session",
                 return_value=None,
             ),
             patch(
-                "app.modules.ai_metadata.bulk_router.get_microsoft_session",
+                "app.modules.authorization.principal.get_microsoft_session",
                 return_value=None,
             ),
         ):

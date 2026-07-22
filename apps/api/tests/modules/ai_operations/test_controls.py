@@ -14,7 +14,7 @@ from app.main import app
 from app.modules.ai_governance.model import AiCostRateModel, TenantAiBudgetPolicyModel
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
+from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing_policy.model import (
     ProcessingPolicyAuditModel, TenantProcessingPolicyModel, TenantProviderPolicyModel,
 )
@@ -73,8 +73,11 @@ class AiOperationsControlsTest(unittest.TestCase):
             session.add_all([self.failed, self.queued, self.running])
             session.commit()
             self.ids = (self.failed.id, self.queued.id, self.running.id)
-        app.dependency_overrides[require_processing_admin] = lambda: ProcessingAdmin(
-            actor_id="tenant-a", own_tenant_id="tenant-a", platform_admin=False,
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"tenant_admin"}),
+            effective_permissions=frozenset({"ai_operations.read", "ai_provider.configure", "ai_budget.read", "ai_budget.update", "ai_emergency_stop", "ai_jobs.retry", "ai_jobs.cancel"}),
+            platform_admin=False, session_id=None, authorization_source="tenant_rbac",
         )
         self.client = TestClient(app)
 
@@ -105,6 +108,39 @@ class AiOperationsControlsTest(unittest.TestCase):
                 media_unit_cost=0.001, currency="USD",
             ))
             session.commit()
+
+    def set_principal(self, *permissions, platform_admin=False):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="platform-user" if platform_admin else "user-a",
+            active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset(),
+            effective_permissions=frozenset(permissions), platform_admin=platform_admin,
+            session_id=None, authorization_source="platform_admin" if platform_admin else "tenant_rbac",
+        )
+
+    def test_durable_rbac_role_boundaries_and_audit_actor(self):
+        self.set_principal()
+        self.assertEqual(self.request("GET", "/api/v1/admin/ai-operations/configuration", {}).status_code, 403)
+        self.set_principal("ai_operations.read", "ai_analysis.run", "ai_jobs.retry", "ai_jobs.cancel")
+        self.assertEqual(self.request("GET", "/api/v1/admin/ai-operations/configuration", {}).status_code, 200)
+        self.assertEqual(self.request("PATCH", "/api/v1/admin/ai-operations/providers/gemini", {"single_enabled": True, "reason": "denied"}).status_code, 403)
+        self.set_principal("ai_operations.read", "ai_budget.read", "ai_budget.update")
+        budget = self.request("PATCH", "/api/v1/admin/ai-operations/budget", {"daily_limit_micros": 1000, "currency": "USD", "reason": "billing"})
+        self.assertEqual(budget.status_code, 200)
+        self.assertEqual(self.request("PATCH", "/api/v1/admin/ai-operations/providers/gemini", {"single_enabled": True, "reason": "denied"}).status_code, 403)
+        self.set_principal("ai_provider.configure")
+        configured = self.request("PATCH", "/api/v1/admin/ai-operations/configuration", {"daily_item_limit": 25, "reason": "rbac actor"})
+        self.assertEqual(configured.status_code, 200)
+        self.assertEqual(self.request("POST", "/api/v1/admin/ai-operations/providers/gemini/pause", {"reason": "denied"}).status_code, 403)
+        self.set_principal("ai_emergency_stop")
+        self.assertEqual(self.request("POST", "/api/v1/admin/ai-operations/providers/gemini/pause", {"reason": "incident"}).status_code, 200)
+        self.assertEqual(self.request("POST", "/api/v1/admin/ai-operations/providers/gemini/resume", {"reason": "resolved"}).status_code, 200)
+        self.set_principal("ai_provider.configure")
+        with self.factory() as session:
+            audit = session.scalar(select(ProcessingPolicyAuditModel).where(ProcessingPolicyAuditModel.action == "tenant_policy_updated").order_by(ProcessingPolicyAuditModel.created_at.desc()))
+            self.assertEqual(audit.actor_id, "user-a")
+            self.assertEqual(audit.tenant_id, "tenant-a")
+
 
     def test_pause_resume_and_provider_controls_are_audited(self):
         paused = self.request("POST", "/api/v1/admin/ai-operations/controls/pause", {"reason": "maintenance"})
@@ -203,8 +239,10 @@ class AiOperationsControlsTest(unittest.TestCase):
             "default_metadata_profile": "missing", "reason": "invalid",
         })
         self.assertEqual(missing_profile.status_code, 422)
-        app.dependency_overrides[require_processing_admin] = lambda: ProcessingAdmin(
-            actor_id="platform", own_tenant_id="platform", platform_admin=True,
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="platform-user", active_tenant_id="tenant-a", membership_id="membership-platform",
+            external_identity=None, effective_roles=frozenset(), effective_permissions=frozenset(),
+            platform_admin=True, session_id=None, authorization_source="platform_admin",
         )
         response = self.request("GET", "/api/v1/admin/ai-operations/configuration", {}, tenant_id="tenant-a")
         self.assertTrue(response.json()["permissions"]["can_manage_global"])
