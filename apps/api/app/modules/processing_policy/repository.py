@@ -20,6 +20,7 @@ TENANT_EDITABLE_FIELDS = {
     "sidecar_enabled", "rollout_mode", "rollout_percentage",
     "total_active_jobs_limit", "ai_active_jobs_limit",
     "source_active_jobs_limit", "storage_active_jobs_limit",
+    "default_ai_provider", "default_ai_model",
 }
 
 

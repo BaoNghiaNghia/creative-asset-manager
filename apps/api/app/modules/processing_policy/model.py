@@ -51,6 +51,8 @@ class TenantProcessingPolicyModel(Base):
     ai_active_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     source_active_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     storage_active_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    default_ai_provider: Mapped[str | None] = mapped_column(String(64))
+    default_ai_model: Mapped[str | None] = mapped_column(String(255))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
 

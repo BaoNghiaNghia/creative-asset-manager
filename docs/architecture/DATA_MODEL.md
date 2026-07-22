@@ -399,3 +399,7 @@ These tables are an orchestration and status ledger, not metadata or provider
 output authority. Analyses remain authoritative in `asset_ai_analyses`, provider
 batches in `ai_batch_jobs`, and execution state in `processing_jobs`.
 Downgrade removes only the request ledger and leaves those records intact.
+
+## AI-OPS-02 control persistence
+
+Revision 0023_ai_operations_controls extends existing policy and job tables without creating a parallel policy store. Tenant policies persist an optional default AI provider/model. Processing jobs retain operator cancellation actor, reason and timestamp; normal and tenant-aware claim paths exclude cancellation-requested jobs before lease acquisition, while running workers observe requests during lease heartbeat.

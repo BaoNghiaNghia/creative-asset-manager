@@ -279,10 +279,16 @@ class ProcessingRepository:
     ) -> ProcessingJobModel:
         released_at = now or utcnow()
         job = self._owned_processing_job(job_id, worker_id)
-        job.status = JobStatus.RETRY.value
-        job.next_attempt_at = released_at
-        job.last_error_code = error_code[:100]
-        job.last_error_message = redact_url_queries(error_message)
+        if job.cancellation_requested:
+            job.status = JobStatus.FAILED.value
+            job.completed_at = released_at
+            job.last_error_code = "operation_cancelled"
+            job.last_error_message = "Cancelled by an authorized operator."
+        else:
+            job.status = JobStatus.RETRY.value
+            job.next_attempt_at = released_at
+            job.last_error_code = error_code[:100]
+            job.last_error_message = redact_url_queries(error_message)
         TenantAwareJobClaimer(self.session).release(job)
         job.claimed_by = None
         job.claimed_at = None
@@ -451,6 +457,7 @@ class ProcessingRepository:
     @staticmethod
     def _job_eligibility(now: datetime):
         return and_(
+            ProcessingJobModel.cancellation_requested.is_(False),
             ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
             or_(
                 and_(

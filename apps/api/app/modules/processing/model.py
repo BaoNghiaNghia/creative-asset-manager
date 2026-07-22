@@ -66,6 +66,10 @@ class ProcessingJobModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
+    cancellation_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_requested_by: Mapped[str | None] = mapped_column(String(255))
+    cancellation_reason: Mapped[str | None] = mapped_column(Text)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

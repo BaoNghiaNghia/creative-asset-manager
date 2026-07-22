@@ -15,6 +15,7 @@ from app.core.database import dispose_database, init_database
 from app.core.health import readiness_report
 from app.modules.ai_governance.router import router as ai_governance_router
 from app.modules.ai_operations.router import router as ai_operations_router
+from app.modules.ai_operations.control_router import router as ai_operations_control_router
 from app.modules.ai_metadata.router import capabilities_router, router as ai_metadata_router
 from app.modules.ai_metadata.bulk_router import router as ai_metadata_bulk_router
 from app.modules.asset_details.router import router as asset_details_router
@@ -80,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     api.include_router(ai_governance_router)
     api.include_router(ai_operations_router)
+    api.include_router(ai_operations_control_router)
     api.include_router(ai_metadata_router)
     api.include_router(ai_metadata_bulk_router)
     api.include_router(capabilities_router)

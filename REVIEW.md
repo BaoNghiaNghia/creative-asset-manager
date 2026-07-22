@@ -1440,3 +1440,18 @@ Final controls:
 - Rollback: remove the API router/application code and downgrade Alembic to
   0021_ai_multi_governance. No AI analysis, usage, job or batch records are
   deleted.
+## AI-OPS-02 review - safe AI Operations controls
+
+- Files changed: authenticated AI Operations control router/schemas/service, existing tenant/provider policy and processing job models/repositories/runtime, focused API/claim tests, migration, data-model notes and roadmap.
+- Migration added: 0023_ai_operations_controls. It adds default AI provider/model to the existing tenant policy and durable cancellation-request metadata to existing processing jobs; downgrade removes only these fields and the cancellation eligibility index.
+- Behavior introduced: tenant AI pause/resume, provider pause/resume, validated defaults and model allowlists, single/batch and durable concurrency controls, tenant daily/monthly budgets, idempotent failed-job retry, queued cancellation, running cancellation requests and provider-batch cancellation requests. Every effective mutation uses the existing append-only policy audit with tenant, actor, reason, before/after values and timestamp. No API accepts or returns provider API keys.
+- Tests and actual results:
+  - focused AI Operations, processing policy, governance and runtime group: 46 passed in 34.24s.
+  - all migration unit tests: 21 passed in 55.75s.
+  - processing repository, AI batch regression and control eligibility: 20 passed in 15.21s.
+  - exact new control, claim, running-cancel and migration regression: 8 passed in 0.562s.
+  - Python compile passed; Alembic reports exactly one head, 0023_ai_operations_controls.
+- Feature flags: none added, enabled or changed. Global flags and runtime emergency stops remain upper bounds; tenant resume cannot override them.
+- Known risks: provider-batch cancellation is durable and handled through the existing batch cancellation checkpoint; completion latency is bounded by the worker heartbeat/poll interval. PostgreSQL migration execution remains covered by the standard CI integration job rather than this local SQLite-focused run.
+- Rollback: apply the global AI emergency stop, drain workers, deploy the prior application, then downgrade to 0022_ai_operations_indexes. Queued jobs and policy/audit history remain; outstanding cancellation-request metadata and stored dashboard defaults are removed.
+- Next recommended step: add the AI Operations frontend controls against these authenticated endpoints.

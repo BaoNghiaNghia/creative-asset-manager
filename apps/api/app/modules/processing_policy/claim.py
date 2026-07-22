@@ -216,6 +216,7 @@ class TenantAwareJobClaimer:
     @staticmethod
     def _base_eligibility(now: datetime):
         return and_(
+            ProcessingJobModel.cancellation_requested.is_(False),
             ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
             or_(
                 and_(ProcessingJobModel.status.in_((JobStatus.PENDING.value, JobStatus.RETRY.value)), ProcessingJobModel.next_attempt_at <= now),

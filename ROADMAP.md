@@ -68,5 +68,6 @@
 - [x] AI-MULTI-06 Frontend provider, model and processing-mode selection
 - [x] AI-MULTI-07 Multi-provider production governance
 - [x] AI-OPS-01 Tenant-scoped AI Operations dashboard APIs
+- [x] AI-OPS-02 Safe tenant AI Operations control APIs
 
 - [x] 21D Toggleable file details and activity inspector

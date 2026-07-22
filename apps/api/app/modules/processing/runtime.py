@@ -285,11 +285,13 @@ class WorkerRuntime:
         while not active.stop_heartbeat.wait(self.config.heartbeat_seconds):
             try:
                 with self.dependencies.session_factory() as session:
-                    ProcessingJobService(ProcessingRepository(session)).renew_lease(
+                    renewed = ProcessingJobService(ProcessingRepository(session)).renew_lease(
                         job_id=job.id,
                         worker_id=self.config.worker_id,
                         lease_seconds=self.config.lease_seconds,
                     )
+                if renewed.cancellation_requested:
+                    active.cancel.set()
                 self._job_log(logging.DEBUG, "job_lease_renewed", job)
             except JobOwnershipError:
                 lease_lost.set()
