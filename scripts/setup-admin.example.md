@@ -17,7 +17,8 @@ sudo -u baonghia ./scripts/setup-admin.sh
 The local defaults are:
 
 - project: the repository containing the script
-- environment: `.env.local`, falling back to `.env`
+- environment: root `.env.local`, then root `.env`, then
+  `apps/api/.env` for the existing local API layout
 - virtualenv: `apps/api/.venv`, falling back to `.venv`
 
 ## Production

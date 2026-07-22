@@ -90,17 +90,18 @@ esac
         environment: str | None = "local",
         input_text: str | None = None,
         env_updates: dict[str, str] | None = None,
+        use_env_override: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         command = [
             "bash",
             str(SCRIPT),
             "--project-root",
             str(self.root),
-            "--env-file",
-            str(self.env_file),
             "--venv",
             str(self.venv),
         ]
+        if use_env_override:
+            command.extend(["--env-file", str(self.env_file)])
         if environment is not None:
             command.extend(["--environment", environment])
         command.extend(extra)
@@ -151,6 +152,21 @@ esac
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Environment file does not exist", result.stderr)
         self.assertFalse(self.log.exists())
+
+    def test_local_defaults_fall_back_to_api_environment_file(self):
+        api_env = self.root / "apps" / "api" / ".env"
+        api_env.write_text(
+            self.env_file.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        result = self.run_script(
+            *self.required_args,
+            "--yes",
+            use_env_override=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Environment: local", result.stdout)
+        self.assertIn("tenant_admin", result.stdout)
 
     def test_database_not_at_alembic_head_fails_closed(self):
         result = self.run_script(

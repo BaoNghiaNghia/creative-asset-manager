@@ -2011,3 +2011,18 @@ Validation was run in the requested order:
 - Rollback: run `scripts/rollback-vps.sh --commit PREVIOUS_COMMIT`. It restores
   matching backend/frontend code after health checks, preserves data, and warns
   that schema compatibility must be reviewed because Alembic is not downgraded.
+
+## ADMIN-SETUP local environment fallback fix
+
+- Root cause: local configuration already lives at `apps/api/.env`, while the
+  setup wrapper only searched for root `.env.local` and root `.env`.
+- Behavior introduced: local automatic resolution now checks root
+  `.env.local`, root `.env`, then `apps/api/.env`; explicit `--env-file`
+  and all production behavior remain unchanged.
+- Security: no environment value is printed or copied, and a missing file still
+  fails before database access with the searched locations listed.
+- Tests: `cd apps/api && .venv/bin/python -m unittest
+  tests.operations.test_setup_admin_script -v`: 9 passed in 1.461s.
+  `bash -n scripts/setup-admin.sh`: passed.
+- Migration/rollback: no migration or authorization change. Revert this commit
+  to restore the previous root-only local lookup.

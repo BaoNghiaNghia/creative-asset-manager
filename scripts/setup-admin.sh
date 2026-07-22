@@ -92,10 +92,18 @@ fi
 if [[ -z "$ENV_FILE" ]]; then
   if [[ "$ENVIRONMENT" == "production" ]]; then
     ENV_FILE="/etc/creative-asset-manager/production.env"
-  elif [[ -f "$PROJECT_ROOT/.env.local" ]]; then
-    ENV_FILE="$PROJECT_ROOT/.env.local"
   else
-    ENV_FILE="$PROJECT_ROOT/.env"
+    for candidate in \
+      "$PROJECT_ROOT/.env.local" \
+      "$PROJECT_ROOT/.env" \
+      "$PROJECT_ROOT/apps/api/.env"
+    do
+      if [[ -f "$candidate" ]]; then
+        ENV_FILE="$candidate"
+        break
+      fi
+    done
+    ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
   fi
 fi
 if [[ -z "$VENV_DIR" ]]; then
@@ -114,6 +122,9 @@ if [[ ! -d "$PROJECT_ROOT/apps/api" ]]; then
 fi
 if [[ ! -f "$ENV_FILE" ]]; then
   printf 'Environment file does not exist: %s\n' "$ENV_FILE" >&2
+  if [[ "$ENVIRONMENT" == "local" ]]; then
+    printf '%s\n' "Checked .env.local, .env, and apps/api/.env under the project root." >&2
+  fi
   exit 1
 fi
 if [[ ! -d "$VENV_DIR" || ! -x "$VENV_DIR/bin/python" ]]; then
