@@ -150,3 +150,23 @@ is inactive unless `AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=true`; the
 flag defaults to false in every environment example. Existing admin routes are
 not bulk-migrated in AUTH-04. They retain their compatibility dependency until
 the route-by-route RBAC migration step.
+
+## Tenant access administration (AUTH-06)
+
+Membership and role APIs require both a validated `CurrentPrincipal` and the
+specific tenant permission. Tenant path scope is checked independently and all
+repository/service queries retain an explicit tenant predicate. UI visibility
+is not an authorization control.
+
+Invitation without an email provider is a persisted `invited` membership for
+an existing, unambiguous application user; the system does not fabricate email
+delivery or link same-email external identities. Platform administration is
+not a permission or tenant role and cannot be granted through these APIs.
+
+Mutations serialize on the tenant row before checking the final-administrator
+invariant. Removing/suspending the last active `tenant_admin` or removing its
+role is rejected. Only a durable platform administrator with an explicit
+override may perform recovery. Custom-role grants are limited to permissions
+the actor already holds. System roles stay protected, removals preserve
+membership history, and all successful mutations create bounded, secret-free
+audit events with actor and reason.

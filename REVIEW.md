@@ -1729,3 +1729,45 @@ Final controls:
 - Next recommended step: implement AUTH-06 tenant membership/role APIs using
   the central permission dependencies; do not restore email-only linking or
   automatic administrator grants.
+
+## AUTH-06 review - tenant membership and role administration APIs
+
+- Files changed: tenant access administration domain service and FastAPI
+  router, route registration, optional bounded audit reasons in the existing
+  RBAC service, focused service/API tests, API/security documentation, roadmap
+  and this review.
+- Migrations added: none. AUTH-06 reuses `users`, `tenant_memberships`,
+  `permissions`, `roles`, `role_permissions`, `membership_roles` and
+  `auth_audit_events`. Alembic remains at one head,
+  `0028_central_authorization`.
+- Behavior introduced: tenant-scoped paginated member/role listing; safe
+  invitation of an existing unambiguous application user without pretending
+  email was delivered; activate/suspend/restore/remove transitions; role
+  assignment/removal; permission listing; custom-role create/update/delete;
+  stable domain error codes and bounded secret-free responses.
+- Authorization and safety: reads require `tenant_members.read`, membership
+  mutations require `tenant_members.manage`, and role mutations require
+  `tenant_roles.manage`. Tenant scope remains explicit in every query. Tenant
+  locking serializes final-admin checks; only a durable platform admin using an
+  explicit override may remove the final active tenant administrator. Actors
+  cannot grant permissions they do not hold, protected system roles cannot be
+  changed/deleted, and platform administration cannot be tenant-granted.
+- Tests and actual results:
+  - `apps/api/.venv/bin/python -m pytest -q apps/api/tests/modules/authorization/test_admin_service.py apps/api/tests/modules/authorization/test_admin_router.py -x`:
+    11 passed in 0.97s.
+  - `apps/api/.venv/bin/python -m pytest -q apps/api/tests/modules/authorization apps/api/tests/modules/auth_persistence -x`:
+    75 passed in 2.46s.
+  - `apps/api/.venv/bin/python -m compileall -q apps/api/app`: passed.
+  - `git diff --check`: passed; Git emitted line-ending conversion notices
+    only for this Windows/WSL checkout.
+  - `cd apps/api && .venv/bin/python -m alembic heads`: one head,
+    `0028_central_authorization`.
+- Feature flags: none added or enabled. Durable RBAC remains authoritative.
+- Known risks: invitation delivery is intentionally absent; invite-by-email
+  only resolves an existing unique application user and otherwise requires an
+  operator to use a user ID. PostgreSQL enforces the production tenant lock;
+  SQLite tests cannot model every concurrent transaction interleaving.
+- Rollback: remove the AUTH-06 router registration and deploy the previous
+  code. No schema downgrade is needed; membership/role/audit history remains.
+- Next recommended step: implement AUTH-07 Access Management frontend against
+  these APIs without treating hidden UI actions as authorization.

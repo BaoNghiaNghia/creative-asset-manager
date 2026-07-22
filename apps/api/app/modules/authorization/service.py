@@ -76,7 +76,7 @@ class TenantAuthorizationService:
             )
         return effective
 
-    def assign_role(self, *, tenant_id: str, membership_id: str, role_id: str, actor_id: str | None = None) -> MembershipRoleModel:
+    def assign_role(self, *, tenant_id: str, membership_id: str, role_id: str, actor_id: str | None = None, reason: str | None = None) -> MembershipRoleModel:
         membership, role = self._compatible_active_records(tenant_id, membership_id, role_id)
         existing = self.session.scalar(select(MembershipRoleModel).where(
             MembershipRoleModel.tenant_membership_id == membership.id,
@@ -100,10 +100,10 @@ class TenantAuthorizationService:
             ))
             if assignment is None:
                 raise
-        self._audit("tenant_role_assigned", tenant_id, actor_id, membership.id, role.id)
+        self._audit("tenant_role_assigned", tenant_id, actor_id, membership.id, role.id, reason)
         return assignment
 
-    def remove_role(self, *, tenant_id: str, membership_id: str, role_id: str, actor_id: str | None = None) -> bool:
+    def remove_role(self, *, tenant_id: str, membership_id: str, role_id: str, actor_id: str | None = None, reason: str | None = None) -> bool:
         self._compatible_records(tenant_id, membership_id, role_id)
         assignment = self.session.scalar(select(MembershipRoleModel).where(
             MembershipRoleModel.tenant_id == tenant_id,
@@ -113,11 +113,11 @@ class TenantAuthorizationService:
         if assignment is None:
             return False
         self.session.delete(assignment)
-        self._audit("tenant_role_removed", tenant_id, actor_id, membership_id, role_id)
+        self._audit("tenant_role_removed", tenant_id, actor_id, membership_id, role_id, reason)
         self.session.flush()
         return True
 
-    def create_custom_role(self, *, tenant_id: str, role_key: str, name: str, permission_keys: set[str], description: str | None = None, actor_id: str | None = None) -> RoleModel:
+    def create_custom_role(self, *, tenant_id: str, role_key: str, name: str, permission_keys: set[str], description: str | None = None, actor_id: str | None = None, reason: str | None = None) -> RoleModel:
         normalized_key = role_key.strip().lower()
         if normalized_key in _RESERVED_ROLE_KEYS or not _KEY_PATTERN.fullmatch(normalized_key):
             raise ValueError("custom role key is invalid or reserved")
@@ -143,18 +143,18 @@ class TenantAuthorizationService:
         self.session.flush()
         for permission in permissions:
             self.session.add(RolePermissionModel(role_id=role.id, permission_id=permission.id))
-        self._audit("tenant_custom_role_created", tenant_id, actor_id, None, role.id)
+        self._audit("tenant_custom_role_created", tenant_id, actor_id, None, role.id, reason)
         self.session.flush()
         return role
 
-    def delete_role(self, *, tenant_id: str, role_id: str, actor_id: str | None = None) -> bool:
+    def delete_role(self, *, tenant_id: str, role_id: str, actor_id: str | None = None, reason: str | None = None) -> bool:
         role = self.session.get(RoleModel, role_id)
         if role is None or role.tenant_id != tenant_id:
             raise AuthorizationError("tenant_mismatch", "role does not belong to tenant")
         if role.protected or role.is_system:
             raise AuthorizationError("protected_role", "system role is protected")
         self.session.delete(role)
-        self._audit("tenant_custom_role_deleted", tenant_id, actor_id, None, role.id)
+        self._audit("tenant_custom_role_deleted", tenant_id, actor_id, None, role.id, reason)
         self.session.flush()
         return True
 
@@ -174,10 +174,10 @@ class TenantAuthorizationService:
             raise AuthorizationError("tenant_mismatch", "membership and role must belong to tenant")
         return membership, role
 
-    def _audit(self, action: str, tenant_id: str, actor_id: str | None, membership_id: str | None, role_id: str) -> None:
+    def _audit(self, action: str, tenant_id: str, actor_id: str | None, membership_id: str | None, role_id: str, reason: str | None = None) -> None:
         self.session.add(AuthAuditEventModel(
             tenant_id=tenant_id,
             actor_id=actor_id,
             action=action,
-            detail_json={"membership_id": membership_id, "role_id": role_id},
+            detail_json={"membership_id": membership_id, "role_id": role_id, "reason": (reason or "")[:1000]},
         ))

@@ -85,6 +85,40 @@ and never creates `asset_analyze`. Explicit batches bypass the scheduler's
 minimum-age coalescing delay. A one-item batch remains a batch and returns a
 delayed-completion warning.
 
+## Tenant access management API (AUTH-06)
+
+Tenant-scoped routes live under `/api/v1/tenants/{tenant_id}`:
+
+- `GET/POST /members` lists or adds an existing application user. `status`
+  may be `invited` when email delivery is unavailable; no message is fabricated.
+- `PATCH /members/{membership_id}` activates, suspends, restores or removes a
+  membership while retaining its history.
+- `POST /members/{membership_id}/roles` and
+  `DELETE /members/{membership_id}/roles/{role_id}` manage assignments.
+- `GET/POST /roles`, `PATCH/DELETE /roles/{role_id}` list and manage custom
+  roles. Protected system roles cannot be updated or deleted.
+- `GET /permissions` returns the bounded active permission catalog.
+
+Member and role lists use `page`/`page_size` pagination plus bounded status,
+query and role filters. Responses contain safe user profile fields, membership
+state, roles and timestamps only. They never expose sessions, OAuth tokens,
+provider credentials or identity metadata.
+
+Adding by email resolves only an existing unambiguous application user. If two
+unlinked identities intentionally have the same email, the API returns
+`ambiguous_user` and requires `user_id`; it never links those accounts. Repeated
+membership creation returns `membership_exists` or `invitation_conflict`.
+
+Listing requires `tenant_members.read`, membership mutation requires
+`tenant_members.manage`, and role mutation requires `tenant_roles.manage`.
+Repository queries remain tenant-filtered after authorization. A non-platform
+principal cannot address another tenant. Role permission grants must be a
+subset of the actor's effective permissions, so tenant APIs cannot create or
+grant platform administration. Tenant mutations take a tenant row lock; the
+last active `tenant_admin` cannot be removed unless a durable platform admin
+sets the explicit override. Every successful mutation records actor, reason,
+tenant and bounded old/new state in the existing auth audit log.
+
 `GET /api/v1/admin/asset-analyses/requests/{id}` returns request, analysis,
 batch, queue, running, completion and failure state plus per-item results.
 Provider batch IDs are omitted unless a privileged administrator explicitly
