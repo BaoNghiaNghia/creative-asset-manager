@@ -1655,3 +1655,37 @@ Final controls:
 - Next recommended step: execute PostgreSQL integration CI, then implement
   AUTH-04 central principal and FastAPI permission dependencies without yet
   migrating every protected route.
+
+## AUTH-04 review - central application authorization
+
+- Files changed: central `CurrentPrincipal`/FastAPI permission dependencies,
+  safe identity router, durable platform-administrator model/service,
+  processing-admin compatibility guard, configuration examples, focused tests,
+  migration and security/roadmap documentation.
+- Migration added: `0028_central_authorization`, chained from
+  `0027_tenant_rbac`. It creates `platform_admin_assignments` with one durable
+  assignment per user and explicit active/revoked state. Downgrade removes only
+  platform assignments and preserves users, identities, tenants, memberships,
+  tenant roles, sessions and OAuth connections.
+- Behavior introduced: new protected routes can require an authenticated
+  application principal plus one, any or all tenant permissions; platform
+  privilege is separate from tenant roles; tenant-scope mismatches have a stable
+  error; `/api/v1/auth/identity` exposes only safe identity, tenant, role and
+  permission data. Existing admin routes were deliberately not migrated.
+- Tests and actual results:
+  - `.venv/bin/python -m pytest -q tests/modules/authorization/test_principal.py -x`: 12 passed in 1.16s.
+  - `.venv/bin/python -m pytest -q tests/modules/authorization tests/modules/auth_persistence/test_tenant_membership.py tests/modules/processing_policy -x`: 44 passed in 17.09s.
+  - `.venv/bin/python -m pytest -q tests/migrations/test_central_authorization_migration.py -x`: 1 passed in 2.60s; upgrade and step-scoped downgrade passed.
+- Feature flag: `AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=false` gates
+  the deprecated `PROCESSING_POLICY_ADMIN_IDS` bridge. No application feature,
+  pipeline, AI or Search v2 flag was enabled.
+- Known risks: existing AI Operations, processing-policy and search admin routes
+  still use the compatibility dependency until the dedicated route migration.
+  Durable platform-admin bootstrap tooling is intentionally deferred.
+- Rollback: stop code paths using `CurrentPrincipal`, deploy the previous
+  release, then downgrade Alembic to `0027_tenant_rbac`. The identity endpoint
+  and central dependencies disappear; tenant RBAC and persistent sessions stay
+  intact. Keep the deprecated allowlist flag false unless a bounded migration
+  rollback explicitly requires it.
+- Next recommended step: integrate OAuth/session creation with the central
+  application principal, then migrate protected routes permission-by-permission.

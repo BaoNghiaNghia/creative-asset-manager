@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED: bool = False
     SEARCH_SHADOW_COMPARISON_ENABLED: bool = False
     ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED: bool = False
+    AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
@@ -180,6 +181,7 @@ class Settings(BaseSettings):
         "PROXY_HEADERS_ENABLED",
         "OPENAI_STORE_RESPONSES",
         "DEVELOPMENT_PERSONAL_TENANT_ENABLED",
+        "AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED",
         mode="before",
     )
     @classmethod

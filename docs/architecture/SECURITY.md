@@ -106,8 +106,27 @@ are tenant-scoped. Composite database foreign keys prevent a role from one
 tenant being assigned to a membership in another tenant.
 
 System roles are protected templates instantiated per tenant. Tenant
-administrators receive tenant permissions only; platform administration remains
-a separate future durable assignment and cannot be granted through tenant role
-data or the seed command. Existing routes are intentionally not migrated in
-AUTH-03 and continue through their compatibility authorization until AUTH-04
-introduces central permission dependencies.
+administrators receive tenant permissions only; platform administration cannot
+be granted through tenant role data or the tenant RBAC seed command.
+
+## Central authorization boundary (AUTH-04)
+
+`CurrentPrincipal` is the single application identity context for new protected
+routes. It validates the opaque persistent session, active application user,
+active tenant membership and effective tenant permissions before returning a
+principal. Tenant authorization never replaces repository tenant predicates;
+services and repositories must continue accepting an explicit tenant ID.
+
+Platform administration is a durable assignment in
+`platform_admin_assignments`, separate from tenant roles. The principal carries
+only a SHA-256 session identifier internally; neither it nor OAuth/provider
+credentials are returned by `/api/v1/auth/identity`. Authorization failures use
+stable `authentication_required`, `user_disabled`,
+`tenant_membership_required`, `permission_required` and `tenant_mismatch`
+codes without exposing role storage details.
+
+`PROCESSING_POLICY_ADMIN_IDS` is deprecated. Its bridge to platform privilege
+is inactive unless `AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=true`; the
+flag defaults to false in every environment example. Existing admin routes are
+not bulk-migrated in AUTH-04. They retain their compatibility dependency until
+the route-by-route RBAC migration step.

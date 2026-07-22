@@ -44,8 +44,19 @@ def require_processing_admin(request: Request) -> ProcessingAdmin:
     roles = session.user.get("roles") or []
     role = str(session.user.get("role") or "").lower()
     tenant_admin = bool(session.user.get("is_admin")) or role in {"admin", "tenant_admin", "platform_admin"} or "admin" in roles
-    configured = {value.strip() for value in get_settings().PROCESSING_POLICY_ADMIN_IDS.split(",") if value.strip()}
-    platform_admin = actor in configured or legacy_actor in configured or role == "platform_admin"
+    settings = get_settings()
+    # Deprecated AUTH-04 compatibility path. Durable platform assignments are
+    # consumed by CurrentPrincipal; existing routes migrate in a later step.
+    configured = (
+        {
+            value.strip()
+            for value in settings.PROCESSING_POLICY_ADMIN_IDS.split(",")
+            if value.strip()
+        }
+        if settings.AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED
+        else set()
+    )
+    platform_admin = actor in configured or legacy_actor in configured
     if not tenant_admin and not platform_admin:
         raise HTTPException(status_code=403, detail="Processing policy administrator role required")
     return ProcessingAdmin(actor, own_tenant_id, platform_admin)

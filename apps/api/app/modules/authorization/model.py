@@ -89,3 +89,36 @@ class MembershipRoleModel(Base):
     tenant_membership_id: Mapped[str] = mapped_column(String(36), nullable=False)
     role_id: Mapped[str] = mapped_column(String(36), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class PlatformAdminAssignmentModel(Base):
+    """Durable platform privilege, intentionally separate from tenant roles."""
+
+    __tablename__ = "platform_admin_assignments"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_platform_admin_assignments_user"),
+        CheckConstraint(
+            "status IN ('active','revoked')",
+            name="ck_platform_admin_assignments_status",
+        ),
+        Index("ix_platform_admin_assignments_status", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    granted_by_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
