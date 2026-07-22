@@ -16,6 +16,8 @@ export type Asset = {
   name: string;
   kind: "folder" | "image" | "video" | "pdf" | "document" | "other";
   mime_type: string;
+  parent_id?: string;
+  size?: number;
   modified_at?: string;
   thumbnail_url?: string;
   web_url?: string;
@@ -25,6 +27,7 @@ export type Asset = {
   external_source_id?: string;
   folder_path?: string;
   score?: number;
+  has_children?: boolean;
 };
 
 export type SearchResponse = {

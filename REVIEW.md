@@ -1391,3 +1391,13 @@ Final controls:
   no longer reference the new columns.
 
 - Clean-environment backend regression: `cd apps/api && .venv/bin/python -m unittest discover -s tests -q`: 406 tests passed in 219.308s with 13 environment-dependent skips. The local `.env` was excluded for this run and restored afterward; no provider credentials were required.
+
+## Step 21D review - file details and activity inspector
+
+- Files changed: explorer details state, AssetGrid focus behavior, friendly AssetDetailsPanel, asset API types, responsive inspector styles and focused component tests.
+- Migrations added: none.
+- Behavior introduced: an accessible toolbar toggle opens or closes a Google Drive-style right inspector. It follows the focused file/folder while open, previews images and videos, shows type, size, location, provider, timestamps, tags, rating, processing status and provider link, and exposes an activity timeline. Existing metadata/history/jobs and operator actions remain available for registered internal assets.
+- Tests and actual results: `cd apps/client && npm test` passed 5 files and 25 tests; `npm run typecheck` passed; `npm run build` passed with Vite 5.4.14 and 51 transformed modules.
+- Feature flags: none added or changed. The inspector is a user-controlled UI toggle and does not alter provider, AI or Search v2 rollout.
+- Known risks: automated in-app browser visual QA was unavailable because the desktop browser runtime could not initialize in the current sandbox. Responsive behavior is covered by CSS breakpoints and the production build, but should be smoke-tested once in the running signed-in explorer.
+- Rollback: revert the frontend-only change. No database, API, worker or queued-job rollback is required.

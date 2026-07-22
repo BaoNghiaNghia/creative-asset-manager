@@ -18,15 +18,32 @@ export default function App() {
   const explorer = useDriveExplorer();
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
-  const [detailsAssetId, setDetailsAssetId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("asset"));
+  const initialDetailsAssetId = new URLSearchParams(window.location.search).get("asset");
+  const [detailsAssetId, setDetailsAssetId] = useState<string | null>(initialDetailsAssetId);
+  const [detailsItem, setDetailsItem] = useState<Asset | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(() => Boolean(initialDetailsAssetId || new URLSearchParams(window.location.search).get("details")));
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   function openDetails(item: Asset) {
-    if (!item.internal_asset_id) return;
-    setDetailsAssetId(item.internal_asset_id);
-    const params = new URLSearchParams(window.location.search); params.set("asset", item.internal_asset_id); window.history.replaceState({}, "", window.location.pathname + "?" + params);
+    setDetailsOpen(true);
+    setDetailsItem(item);
+    setDetailsAssetId(item.internal_asset_id || null);
+    const params = new URLSearchParams(window.location.search);
+    params.set("details", "1");
+    if (item.internal_asset_id) params.set("asset", item.internal_asset_id); else params.delete("asset");
+    window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
   function closeDetails() {
-    setDetailsAssetId(null); const params = new URLSearchParams(window.location.search); params.delete("asset"); window.history.replaceState({}, "", window.location.pathname + (params.toString() ? "?" + params : ""));
+    setDetailsOpen(false); setDetailsItem(null); setDetailsAssetId(null);
+    const params = new URLSearchParams(window.location.search); params.delete("asset"); params.delete("details");
+    window.history.replaceState({}, "", window.location.pathname + (params.toString() ? "?" + params : ""));
+  }
+  function toggleDetails() {
+    if (detailsOpen) { closeDetails(); return; }
+    const selectedItem = explorer.visibleItems.find(item => explorer.selected.has(item.id)) || detailsItem;
+    if (selectedItem) { openDetails(selectedItem); return; }
+    setDetailsOpen(true);
+    const params = new URLSearchParams(window.location.search); params.set("details", "1");
+    window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
   const activeId = explorer.path.at(-1)?.id;
   const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : "root";
@@ -39,7 +56,7 @@ export default function App() {
   const completeAnalysisSelection = analysisAssetIds.length === explorer.selected.size;
 
   return <main
-    className={"shell " + (sidebar.collapsed ? "sidebar-collapsed" : "")}
+    className={["shell", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
     style={{ "--sidebar-width": sidebar.width + "px" } as CSSProperties}
   >
     <Sidebar
@@ -207,7 +224,17 @@ export default function App() {
                   onClick={() => explorer.setVisibilityFilter(filter)}
                 >{filter}</button>)}
               </div>
-              <b aria-label="Layout options">▦　☷</b>
+              <div className="view-tools" role="group" aria-label="View options">
+                <b aria-label="Layout options">▦　☷</b>
+                <button
+                  type="button"
+                  className={"details-toggle " + (detailsOpen ? "active" : "")}
+                  aria-label={detailsOpen ? "Hide file information" : "Show file information"}
+                  aria-pressed={detailsOpen}
+                  title={detailsOpen ? "Hide details" : "Show details"}
+                  onClick={toggleDetails}
+                >i</button>
+              </div>
             </div>
           </div>
 
@@ -232,6 +259,7 @@ export default function App() {
             onPreview={setPreviewItem}
             onRate={explorer.rateAsset}
             onDetails={openDetails}
+            onFocus={item => detailsOpen && openDetails(item)}
           />}
 
           {!explorer.loading && !explorer.searching && !explorer.visibilityFilterReady && !explorer.visibleItems.length &&
@@ -276,7 +304,13 @@ export default function App() {
     </section>
 
     {previewItem && <MediaViewer item={previewItem} onClose={() => setPreviewItem(null)} />}
-    {detailsAssetId && explorer.auth.authenticated && <AssetDetailsPanel assetId={detailsAssetId} onClose={closeDetails} />}
+    {detailsOpen && explorer.auth.authenticated && <AssetDetailsPanel
+      item={detailsItem}
+      assetId={detailsAssetId}
+      metadata={detailsItem ? explorer.metadataByItem[detailsItem.id] : undefined}
+      onPreview={setPreviewItem}
+      onClose={closeDetails}
+    />}
     <AnalyzeMetadataDialog
       open={analyzeOpen}
       assetIds={analysisAssetIds}
