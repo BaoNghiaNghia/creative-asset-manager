@@ -41,6 +41,7 @@ export type AiOpsDaily = {
   estimated_cost_micros: number;
   provider_reported_cost_micros: number;
   reconciled_cost_micros: number;
+  provider_estimated_cost_micros: Record<string, number>;
   average_latency_ms: number;
   p95_latency_ms: number;
 };

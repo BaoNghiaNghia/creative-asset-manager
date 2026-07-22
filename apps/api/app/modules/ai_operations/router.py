@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.core.database import SessionLocal
+from app.modules.ai_operations.export import EXPORT_COLUMNS, audit_export, csv_stream, export_rows
 from app.modules.ai_operations.queries import AiOperationsRepository
 from app.modules.ai_operations.schema import AiOperationsFilters
 from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
@@ -147,4 +149,49 @@ def usage(
     return _read(
         filters,
         lambda repository, value: repository.usage(value, page=page, page_size=page_size),
+    )
+
+@router.get("/exports/{export_type}.csv")
+def export_csv(
+    export_type: str,
+    filters: AiOperationsFilters = Depends(common_filters),
+    row_limit: int = Query(default=5_000, ge=1, le=10_000),
+    admin: ProcessingAdmin = Depends(require_processing_admin),
+):
+    if export_type not in EXPORT_COLUMNS:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "export_not_found", "message": "Unsupported export type"},
+        )
+    # Audit is durable before the stream begins. Only bounded filter metadata is
+    # recorded; rows and sensitive provider fields are never copied to audit.
+    with SessionLocal() as session:
+        audit_export(
+            session,
+            actor_id=admin.actor_id,
+            filters=filters,
+            export_type=export_type,
+            row_limit=row_limit,
+        )
+        session.commit()
+
+    def generate():
+        with SessionLocal() as session:
+            repository = AiOperationsRepository(session)
+            rows = export_rows(
+                repository,
+                export_type=export_type,
+                filters=filters,
+                row_limit=row_limit,
+            )
+            yield from csv_stream(EXPORT_COLUMNS[export_type], rows)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="ai-operations-{export_type}.csv"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
     )

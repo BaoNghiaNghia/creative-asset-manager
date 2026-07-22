@@ -68,11 +68,12 @@ class AiOperationsRepository:
             )
         return AssetAiAnalysisModel.status == status
 
-    def _analysis_conditions(self, f: AiOperationsFilters):
+    def _analysis_conditions(self, f: AiOperationsFilters, *, timestamp_column=None):
+        timestamp = timestamp_column if timestamp_column is not None else AssetAiAnalysisModel.created_at
         conditions = [
             AssetAiAnalysisModel.tenant_id == f.tenant_id,
-            AssetAiAnalysisModel.created_at >= f.from_at,
-            AssetAiAnalysisModel.created_at < f.to_at,
+            timestamp >= f.from_at,
+            timestamp < f.to_at,
         ]
         if f.provider:
             conditions.append(AssetAiAnalysisModel.ai_provider == f.provider)
@@ -243,17 +244,28 @@ class AiOperationsRepository:
         analysis_day = self._day(AssetAiAnalysisModel.created_at).label("day")
         analyses = self.session.execute(select(
             analysis_day, func.count(AssetAiAnalysisModel.id),
+        ).where(*self._analysis_conditions(f)).group_by(analysis_day).order_by(analysis_day)).all()
+        terminal_day = self._day(AssetAiAnalysisModel.completed_at).label("day")
+        terminals = self.session.execute(select(
+            terminal_day,
             func.coalesce(func.sum(case((AssetAiAnalysisModel.status == "completed", 1), else_=0)), 0),
             func.coalesce(func.sum(case((AssetAiAnalysisModel.status == "failed", 1), else_=0)), 0),
-        ).where(*self._analysis_conditions(f)).group_by(analysis_day).order_by(analysis_day)).all()
+        ).where(
+            *self._analysis_conditions(f, timestamp_column=AssetAiAnalysisModel.completed_at),
+            AssetAiAnalysisModel.status.in_(("completed", "failed")),
+        ).group_by(terminal_day).order_by(terminal_day)).all()
         usage_day = self._day(AiUsageRecordModel.occurred_at).label("day")
         usage = self.session.execute(self._usage_select(
             usage_day,
+            AiUsageRecordModel.provider,
             func.coalesce(func.sum(AiUsageRecordModel.locally_estimated_cost_micros), 0),
             func.coalesce(func.sum(AiUsageRecordModel.provider_reported_cost_micros), 0),
-            func.coalesce(func.avg(AiUsageRecordModel.latency_ms), 0),
+            func.coalesce(func.sum(AiUsageRecordModel.latency_ms), 0),
+            func.count(AiUsageRecordModel.id),
             filters=f,
-        ).group_by(usage_day).order_by(usage_day)).all()
+        ).group_by(usage_day, AiUsageRecordModel.provider).order_by(
+            usage_day, AiUsageRecordModel.provider,
+        )).all()
         reservation_day = self._day(AiBudgetReservationModel.updated_at).label("day")
         reservations = self.session.execute(self._reservation_select(
             reservation_day,
@@ -264,15 +276,27 @@ class AiOperationsRepository:
             "requested": 0, "completed": 0, "failed": 0,
             "estimated_cost_micros": 0, "provider_reported_cost_micros": 0,
             "reconciled_cost_micros": 0, "average_latency_ms": 0.0,
+            "provider_estimated_cost_micros": {},
+            "_latency_total": 0, "_latency_count": 0,
         })
-        for day, requested, completed, failed in analyses:
-            values[self._day_key(day)].update(requested=int(requested), completed=int(completed), failed=int(failed))
-        for day, estimated, reported, latency in usage:
-            values[self._day_key(day)].update(
-                estimated_cost_micros=int(estimated),
-                provider_reported_cost_micros=int(reported),
-                average_latency_ms=float(latency),
-            )
+        for day, requested in analyses:
+            values[self._day_key(day)]["requested"] = int(requested)
+        for day, completed, failed in terminals:
+            values[self._day_key(day)].update(completed=int(completed), failed=int(failed))
+        for day, provider, estimated, reported, latency_total, latency_count in usage:
+            value = values[self._day_key(day)]
+            value["estimated_cost_micros"] += int(estimated)
+            value["provider_reported_cost_micros"] += int(reported)
+            value["provider_estimated_cost_micros"][provider] = int(estimated)
+            value["_latency_total"] += int(latency_total)
+            value["_latency_count"] += int(latency_count)
         for day, reconciled in reservations:
             values[self._day_key(day)]["reconciled_cost_micros"] = int(reconciled)
-        return [{"date": day, **values[day]} for day in sorted(values)]
+        result = []
+        for day in sorted(values):
+            value = values[day]
+            count = value.pop("_latency_count")
+            latency_total = value.pop("_latency_total")
+            value["average_latency_ms"] = latency_total / count if count else 0.0
+            result.append({"date": day, **value})
+        return result

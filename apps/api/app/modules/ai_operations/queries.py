@@ -206,3 +206,46 @@ class AiOperationsRepository(BaseRepository):
                 "occurred_at": item.occurred_at,
             } for item in rows],
         }
+
+    def iter_jobs(self, f: AiOperationsFilters, *, row_limit: int):
+        statement = (
+            select(ProcessingJobModel)
+            .where(*self._job_conditions(f))
+            .order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc())
+            .limit(row_limit)
+            .execution_options(yield_per=500)
+        )
+        for job in self.session.scalars(statement):
+            yield {
+                "id": job.id, "job_type": job.job_type,
+                "entity_type": job.entity_type, "entity_id": job.entity_id,
+                "provider": job.provider_key, "status": job.status,
+                "attempt_count": job.attempt_count, "max_attempts": job.max_attempts,
+                "next_attempt_at": job.next_attempt_at,
+                "created_at": job.created_at, "completed_at": job.completed_at,
+                "error_code": job.last_error_code,
+                "retryable": job.status == "retry",
+            }
+
+    def iter_usage(self, f: AiOperationsFilters, *, row_limit: int):
+        statement = (
+            self._usage_select(AiUsageRecordModel, filters=f)
+            .order_by(AiUsageRecordModel.occurred_at.desc(), AiUsageRecordModel.id.desc())
+            .limit(row_limit)
+            .execution_options(yield_per=500)
+        )
+        for item in self.session.scalars(statement):
+            yield {
+                "id": item.id, "asset_id": item.asset_id,
+                "analysis_id": item.analysis_id, "job_id": item.job_id,
+                "provider": item.provider, "model": item.model,
+                "processing_mode": item.processing_mode,
+                "metadata_profile": item.metadata_profile,
+                "input_units": item.input_units, "output_units": item.output_units,
+                "media_units": item.media_units,
+                "estimated_cost_micros": item.locally_estimated_cost_micros,
+                "provider_reported_cost_micros": item.provider_reported_cost_micros,
+                "currency": item.currency, "latency_ms": item.latency_ms,
+                "outcome": item.outcome, "retry_count": item.retry_count,
+                "occurred_at": item.occurred_at,
+            }

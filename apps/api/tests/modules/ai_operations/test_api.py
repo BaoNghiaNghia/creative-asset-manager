@@ -1,3 +1,5 @@
+import csv
+import io
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -9,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.main import app
+from app.modules.ai_batch.model import AiBatchJobModel
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
 from app.modules.assets.model import (
@@ -16,6 +19,7 @@ from app.modules.assets.model import (
 )
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
+from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 
 
 class AiOperationsApiTest(unittest.TestCase):
@@ -68,6 +72,7 @@ class AiOperationsApiTest(unittest.TestCase):
                     last_error_code="provider_timeout" if status == "failed" else None,
                     last_error_message="https://secret.example/file?token=hidden" if status == "failed" else None,
                     created_at=self.now - timedelta(days=1, minutes=index),
+                    completed_at=(self.now - timedelta(days=1)) if status in {"completed", "failed"} else None,
                 )
                 session.add(analysis)
                 analyses.append(analysis)
@@ -92,6 +97,16 @@ class AiOperationsApiTest(unittest.TestCase):
                     retry_count=1 if outcome == "provider_failed" else 0,
                     occurred_at=self.now - timedelta(days=1),
                 ))
+            session.add(AiBatchJobModel(
+                tenant_id="tenant-a", submission_key="batch-cost-not-duplicated",
+                provider="openai", model="o-model", metadata_profile_id=profile.id,
+                metadata_profile="general", metadata_profile_version="1",
+                prompt_version="p-batch", pipeline_version="batch-asset-v1",
+                status="completed", item_count=1, completed_count=1,
+                estimated_cost_micros=999, actual_cost_micros=999,
+                currency="USD", created_at=self.now - timedelta(days=1),
+                completed_at=self.now - timedelta(days=1),
+            ))
             session.add(AiBudgetReservationModel(
                 tenant_id="tenant-a", operation_key="reserve-1",
                 analysis_id=analyses[0].id, provider="gemini", model="g-model",
@@ -183,6 +198,7 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(len(daily), 1)
         self.assertEqual(daily[0]["requested"], 6)
         self.assertEqual(daily[0]["reconciled_cost_micros"], 15)
+        self.assertEqual(daily[0]["provider_estimated_cost_micros"], {"gemini": 10, "openai": 50})
         providers = self.get("/api/v1/admin/ai-operations/providers").json()["items"]
         self.assertEqual({(item["provider"], item["processing_mode"]) for item in providers}, {
             ("gemini", "single"), ("openai", "batch"),
@@ -195,6 +211,7 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(gemini["requested"], 4)
         failures = self.get("/api/v1/admin/ai-operations/failures").json()["items"]
         self.assertTrue(any(item["error_code"] == "provider_timeout" for item in failures))
+        self.assertFalse(any(item["error_code"] == "rate_limited" for item in failures))
 
     def test_jobs_usage_pagination_retry_status_and_sensitive_exclusion(self):
         jobs = self.get(
@@ -215,6 +232,85 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(usage["total"], 2)
         self.assertNotIn("provider_request_id", str(usage))
 
+    def test_daily_uses_completed_at_and_costs_are_not_double_counted(self):
+        with self.factory() as session:
+            analysis = session.get(AssetAiAnalysisModel, self.analysis_ids[0])
+            analysis.created_at = self.now - timedelta(days=2)
+            analysis.completed_at = self.now - timedelta(days=1)
+            session.commit()
+        daily = self.get("/api/v1/admin/ai-operations/daily").json()["items"]
+        by_date = {item["date"]: item for item in daily}
+        created_day = (self.now - timedelta(days=2)).date().isoformat()
+        completed_day = (self.now - timedelta(days=1)).date().isoformat()
+        self.assertGreaterEqual(by_date[created_day]["requested"], 1)
+        self.assertEqual(by_date[created_day]["completed"], 0)
+        self.assertGreaterEqual(by_date[completed_day]["completed"], 1)
+        summary = self.get("/api/v1/admin/ai-operations/summary").json()
+        self.assertEqual(summary["cost"]["estimated_cost_micros"], 60)
+        self.assertEqual(summary["cost"]["reconciled_cost_micros"], 15)
+        self.assertNotEqual(summary["cost"]["reconciled_cost_micros"], 1014)
+        self.assertEqual(summary["budget_blocked"], 1)
+
+    def test_csv_exports_are_bounded_audited_tenant_safe_and_secret_free(self):
+        expected_headers = {
+            "daily": "date", "usage": "id", "failures": "source", "jobs": "id",
+        }
+        for export_type, first_header in expected_headers.items():
+            response = self.get(
+                f"/api/v1/admin/ai-operations/exports/{export_type}.csv",
+                row_limit=1,
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.headers["content-type"].startswith("text/csv"))
+            self.assertEqual(response.headers["cache-control"], "private, no-store")
+            rows = list(csv.reader(io.StringIO(response.text)))
+            self.assertEqual(rows[0][0], first_header)
+            self.assertLessEqual(len(rows), 2)
+            serialized = response.text.lower()
+            self.assertNotIn("signed_url", serialized)
+            self.assertNotIn("credential=", serialized)
+            self.assertNotIn("token=", serialized)
+            self.assertNotIn("provider_request_id", serialized)
+        with self.factory() as session:
+            audits = session.query(ProcessingPolicyAuditModel).filter_by(
+                tenant_id="tenant-a", action="ai_operations_export_requested"
+            ).all()
+            self.assertEqual(len(audits), 4)
+            self.assertEqual({item.new_policy_json["export_type"] for item in audits}, set(expected_headers))
+            self.assertNotIn("secret", str([item.new_policy_json for item in audits]).lower())
+        self.assertEqual(self.get(
+            "/api/v1/admin/ai-operations/exports/usage.csv", row_limit=10001,
+        ).status_code, 422)
+        self.assertEqual(self.get(
+            "/api/v1/admin/ai-operations/exports/unknown.csv",
+        ).status_code, 404)
+        self.assertEqual(self.get(
+            "/api/v1/admin/ai-operations/exports/usage.csv", tenant_id="tenant-b",
+        ).status_code, 403)
+
+    def test_provider_model_mode_filters_agree_across_endpoints(self):
+        filters = {
+            "provider": "openai", "model": "o-model",
+            "processing_mode": "batch", "metadata_profile": "general",
+            "source_provider": "google_drive",
+        }
+        summary = self.get("/api/v1/admin/ai-operations/summary", **filters).json()
+        daily = self.get("/api/v1/admin/ai-operations/daily", **filters).json()["items"]
+        providers = self.get("/api/v1/admin/ai-operations/providers", **filters).json()["items"]
+        failures = self.get("/api/v1/admin/ai-operations/failures", **filters).json()["items"]
+        jobs = self.get("/api/v1/admin/ai-operations/jobs", **filters).json()
+        usage = self.get("/api/v1/admin/ai-operations/usage", **filters).json()
+        self.assertEqual(summary["requested"], 2)
+        self.assertEqual(sum(item["requested"] for item in daily), 2)
+        self.assertEqual({item["provider"] for item in providers}, {"openai"})
+        self.assertEqual({item["processing_mode"] for item in providers}, {"batch"})
+        self.assertEqual(usage["total"], 2)
+        self.assertEqual(jobs["total"], 1)
+        self.assertTrue(failures)
+        exported = self.get(
+            "/api/v1/admin/ai-operations/exports/usage.csv", **filters,
+        )
+        self.assertEqual(len(list(csv.reader(io.StringIO(exported.text)))), 3)
     def test_date_limits_authorization_and_tenant_isolation(self):
         too_long = self.get(
             "/api/v1/admin/ai-operations/summary",

@@ -155,3 +155,14 @@ export const updateAiBudget = (body: object, fetcher: Fetcher = fetch) =>
 
 export const setGlobalAiEmergencyStop = (stopped: boolean, reason: string, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-governance/runtime-controls/global", "PUT", { stopped, reason }, fetcher);
+export type AiOperationsExportType = "daily" | "usage" | "failures" | "jobs";
+
+export function aiOperationsExportUrl(
+  exportType: AiOperationsExportType,
+  filters: AiOpsFilters,
+  now = new Date(),
+): string {
+  const params = filteredParams(filters, isoRange(filters.range, now));
+  params.set("row_limit", "5000");
+  return `/api/v1/admin/ai-operations/exports/${exportType}.csv?${params}`;
+}

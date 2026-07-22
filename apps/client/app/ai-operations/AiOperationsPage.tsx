@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  fetchAiOperationsDashboard, filtersFromSearch, searchFromFilters,
+  aiOperationsExportUrl, fetchAiOperationsDashboard, filtersFromSearch, searchFromFilters,
   type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
 import {
-  dailyProviderCostChart, dailyStatusChart, downloadCsv, failureChart,
+  dailyProviderCostChart, dailyStatusChart, failureChart,
   formatCost, formatDuration, modeLabel, providerLabel, providerVolumeChart,
-  usageCsv,
 } from "./presentation";
 
 export type AiOpsTab = "overview" | "processing" | "cost" | "providers" | "configuration";
@@ -113,13 +112,14 @@ export function AiOperationsContent({
       {tabs.map(item => <button key={item.id} type="button" className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => onTab(item.id)}>{item.label}</button>)}
     </nav>
     <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
+    <nav className="ops-export-actions" aria-label="AI Operations CSV exports">{(["daily", "usage", "failures", "jobs"] as const).map(kind => <a key={kind} href={aiOperationsExportUrl(kind, filters)}>Export {kind} CSV</a>)}</nav>
     {errors.length > 0 && <div className="ops-partial-error" role="alert">
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     {loading ? <DashboardSkeleton /> : tab === "overview" ? <Overview data={data} />
       : tab === "processing" ? <Processing data={data} filters={filters} onFilters={onFilters} />
-      : tab === "cost" ? <CostUsage data={data} />
+      : tab === "cost" ? <CostUsage data={data} filters={filters} />
       : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
       : <ConfigurationTab />}
   </>;
@@ -154,7 +154,7 @@ function Overview({ data }: { data: AiOpsDashboardData }) {
     <section className="ops-kpis" aria-label="AI processing summary">{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
     <section className="ops-charts">
       <AccessibleChart title="Daily processing" description="Completed and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
-      <AccessibleChart title="Daily estimated cost by provider" description="Estimated provider cost from the current bounded usage result." data={dailyProviderCostChart(data.usage.items)} valueLabel={value => formatCost(value)} />
+      <AccessibleChart title="Daily estimated cost by provider" description="Estimated provider cost aggregated by the server for the selected period." data={dailyProviderCostChart(data.daily)} valueLabel={value => formatCost(value)} />
       <AccessibleChart title="Provider and mode volume" description="Analysis volume grouped by provider and processing mode." data={providerVolumeChart(data.providers)} />
       <AccessibleChart title="Failure categories" description="Stable internal failure codes; raw exception messages are excluded." data={failureChart(data.failures)} />
       <AccessibleChart title="Latency" description="Average and p95 provider latency for the selected period." data={[{ label: "Latency", values: { Average: summary?.latency.average_ms || 0, "p95": summary?.latency.p95_ms || 0 } }]} valueLabel={value => `${Math.round(value)} ms`} />
@@ -187,11 +187,11 @@ function Processing({ data, filters, onFilters }: { data: AiOpsDashboardData; fi
   </div>;
 }
 
-function CostUsage({ data }: { data: AiOpsDashboardData }) {
+function CostUsage({ data, filters }: { data: AiOpsDashboardData; filters: AiOpsFilters }) {
   if (!data.usage.items.length) return <DashboardState kind="empty" label="No usage records in this period" />;
   return <div className="ops-content">
-    <div className="ops-section-heading"><div><h2>Cost & Usage</h2><p>Estimated and reconciled values remain explicitly separate.</p></div><button type="button" onClick={() => downloadCsv(usageCsv(data.usage.items), "ai-operations-usage.csv")}>Export CSV</button></div>
-    <div className="ops-table-scroll"><table className="ops-data-table"><caption>AI cost and usage records</caption><thead><tr>{["Date", "Provider", "Model", "Mode", "Input units", "Output units", "Estimated cost", "Reconciled cost"].map(value => <th key={value}>{value}</th>)}</tr></thead><tbody>{data.usage.items.map(item => <tr key={item.id}>
+    <div className="ops-section-heading"><div><h2>Cost & Usage</h2><p>Estimated and reconciled values remain explicitly separate.</p></div><a href={aiOperationsExportUrl("usage", filters)}>Export usage CSV</a></div>
+    <div className="ops-table-scroll"><table className="ops-data-table"><caption>AI cost and usage records</caption><thead><tr>{["Date", "Provider", "Model", "Mode", "Input units", "Output units", "Estimated cost", "Provider-reported cost"].map(value => <th key={value}>{value}</th>)}</tr></thead><tbody>{data.usage.items.map(item => <tr key={item.id}>
       <td><time dateTime={item.occurred_at}>{new Date(item.occurred_at).toLocaleString()}</time></td><td>{providerLabel(item.provider)}</td><td>{item.model || "—"}</td><td>{modeLabel(item.processing_mode)}</td><td>{item.input_units.toLocaleString()}</td><td>{item.output_units.toLocaleString()}</td><td>{formatCost(item.estimated_cost_micros, item.currency)}</td><td>{formatCost(item.provider_reported_cost_micros, item.currency)}</td>
     </tr>)}</tbody></table></div>
   </div>;

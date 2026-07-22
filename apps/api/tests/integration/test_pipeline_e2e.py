@@ -16,6 +16,7 @@ from app.domain.providers.registry import AiProviderRegistry
 from app.domain.providers.contracts import AiMetadataAnalysisResult, AssetDownloadStream, StoredAsset, StoredAssetReadStream
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
+from app.modules.ai_governance.model import AiCostRateModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel
@@ -118,12 +119,13 @@ class DurablePipelineEndToEndTest(unittest.TestCase):
     def tearDownClass(cls): cls.engine.dispose()
     def setUp(self):
         self.marker=uuid4().hex[:12]; self.tenant_id=f"e2e-{self.marker}"; self.token=f"e2e-token-{uuid4().hex}"; self.prefix=f"cam-e2e-{self.marker}"
-        self.settings=Settings(PROCESSING_JOBS_ENABLED=True,UNIFIED_ASSET_INGESTION_ENABLED=True,CONTENT_DEDUP_ENABLED=True,MANAGED_ASSET_STORAGE_ENABLED=True,DYNAMIC_AI_METADATA_ENABLED=True,AI_SINGLE_ANALYSIS_ENABLED=True,AI_AUTO_ANALYZE_ENABLED=True,SEARCH_PROJECTION_ENABLED=True,ELASTICSEARCH_V2_ENABLED=True,SEARCH_QUERY_PARSER_V2_ENABLED=True,EXTERNAL_INGESTION_API_ENABLED=True,SENSITIVE_URL_ENCRYPTION_KEYS="v1:eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg=",GEMINI_API_KEY="fake-no-network-key",GEMINI_MODEL="fake-gemini-v1",WORKER_LEASE_SECONDS=10,WORKER_HEARTBEAT_SECONDS=.2,WORKER_IDLE_POLL_SECONDS=.01)
+        self.settings=Settings(PROCESSING_JOBS_ENABLED=True,UNIFIED_ASSET_INGESTION_ENABLED=True,CONTENT_DEDUP_ENABLED=True,MANAGED_ASSET_STORAGE_ENABLED=True,DYNAMIC_AI_METADATA_ENABLED=True,AI_SINGLE_ANALYSIS_ENABLED=True,AI_AUTO_ANALYZE_ENABLED=True,SEARCH_PROJECTION_ENABLED=True,ELASTICSEARCH_V2_ENABLED=True,SEARCH_QUERY_PARSER_V2_ENABLED=True,EXTERNAL_INGESTION_API_ENABLED=True,SENSITIVE_URL_ENCRYPTION_KEYS="v1:eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg=",GEMINI_API_KEY="fake-no-network-key",GEMINI_MODEL="fake-gemini-v1",GEMINI_ALLOWED_MODELS="fake-gemini-v1",WORKER_LEASE_SECONDS=10,WORKER_HEARTBEAT_SECONDS=.2,WORKER_IDLE_POLL_SECONDS=.01)
         with self.sessions() as session:
             source=AssetRegistryRepository(session).upsert_external_source(tenant_id=self.tenant_id,source_key=f"external-{self.marker}",source_type="external_api")
             ExternalIngestionRepository(session).create_credential(tenant_id=self.tenant_id,external_source_id=source.id,name="Step 31 fake source",raw_key=self.token,rate_limit_per_minute=100)
             AiMetadataRepository(session).create_profile(tenant_id=self.tenant_id,profile_name="integration",profile_version="1",prompt_template="Describe {{ asset }}",optional_json_schema={"type":"object","properties":{"subject":{"type":"string"},"label":{"type":"string"},"year":{"type":"integer"}},"required":["subject"]},search_config={"include_all_scalar_values":True,"facet_paths":{"subject":["subject"]}})
             session.add(TenantProcessingPolicyModel(tenant_id=self.tenant_id,pipeline_enabled=True,source_sync_enabled=True,download_enabled=True,managed_storage_enabled=True,ai_analysis_enabled=True,search_v2_enabled=True,sidecar_enabled=False,total_active_jobs_limit=4,ai_active_jobs_limit=1,source_active_jobs_limit=2,storage_active_jobs_limit=2))
+            session.add(AiCostRateModel(provider="gemini",model="fake-gemini-v1",processing_mode="single",effective_at=datetime.now(timezone.utc)-timedelta(seconds=1),input_unit_cost=0,output_unit_cost=0,media_unit_cost=0))
             session.commit(); self.source_id=source.id
     def tearDown(self):
         if getattr(self,"search",None) is not None: asyncio.run(self.search.cleanup())

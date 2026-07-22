@@ -71,5 +71,6 @@
 - [x] AI-OPS-02 Safe tenant AI Operations control APIs
 - [ ] AI-OPS-03 AI Operations overview, processing and cost dashboard UI
 - [x] AI-OPS-04 Provider and tenant configuration UI
+- [x] AI-OPS-05 Performance, bounded exports and final validation
 
 - [x] 21D Toggleable file details and activity inspector

@@ -40,5 +40,6 @@ $PYTHON_BIN -m alembic upgrade head 2>&1 | tee -a "$ARTIFACT_DIR/migration-upgra
 
 timeout 15m "$PYTHON_BIN" -m unittest \
   tests.integration.test_postgresql \
+  tests.integration.test_ai_operations_postgresql \
   tests.integration.test_elasticsearch \
   tests.integration.test_pipeline_e2e -v 2>&1 | tee "$ARTIFACT_DIR/test.log"
