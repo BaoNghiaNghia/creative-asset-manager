@@ -173,13 +173,14 @@ function Processing({ data, filters, onFilters }: { data: AiOpsDashboardData; fi
       <tbody>{data.jobs.items.map(job => {
         const usage = usageByJob.get(job.id);
         const mode = usage?.processing_mode || (job.job_type.startsWith("ai_batch_") ? "batch" : "single");
+        const assetId = usage?.asset_id || (job.entity_type === "asset" ? job.entity_id : null);
         return <tr key={job.id}>
-          <td><StatusText status={job.status} /></td><td><code>{job.entity_id}</code></td>
+          <td><StatusText status={job.status} /></td><td><code>{assetId || "—"}</code></td>
           <td>{providerLabel(job.provider)}</td><td>{usage?.model || "—"}</td><td>{modeLabel(mode)}</td>
           <td>{usage?.metadata_profile || "—"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
           <td>{formatDuration(job.claimed_at || job.created_at, job.completed_at || (job.status === "processing" ? job.updated_at : null))}</td>
           <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><code>{job.error?.code || "—"}</code></td>
-          <td><a href={`/?details=1&asset=${encodeURIComponent(job.entity_id)}`}>View</a></td>
+          <td>{assetId ? <a href={`/?details=1&asset=${encodeURIComponent(assetId)}`}>View</a> : <span title="Asset identity is not available yet">Unavailable</span>}</td>
         </tr>;
       })}</tbody>
     </table></div>
@@ -190,7 +191,12 @@ function Processing({ data, filters, onFilters }: { data: AiOpsDashboardData; fi
 function CostUsage({ data, filters }: { data: AiOpsDashboardData; filters: AiOpsFilters }) {
   if (!data.usage.items.length) return <DashboardState kind="empty" label="No usage records in this period" />;
   return <div className="ops-content">
-    <div className="ops-section-heading"><div><h2>Cost & Usage</h2><p>Estimated and reconciled values remain explicitly separate.</p></div><a href={aiOperationsExportUrl("usage", filters)}>Export usage CSV</a></div>
+    <div className="ops-section-heading"><div><h2>Cost & Usage</h2><p>Estimated, provider-reported and reconciled values remain explicitly separate.</p></div><a href={aiOperationsExportUrl("usage", filters)}>Export usage CSV</a></div>
+    {data.summary && <section className="ops-cost-summary" aria-label="Cost totals for selected period">
+      <article><span>Estimated total</span><strong>{formatCost(data.summary.cost.estimated_cost_micros, data.summary.cost.currency)}</strong></article>
+      <article><span>Provider-reported total</span><strong>{formatCost(data.summary.cost.provider_reported_cost_micros, data.summary.cost.currency)}</strong></article>
+      <article><span>Reconciled total</span><strong>{formatCost(data.summary.cost.reconciled_cost_micros, data.summary.cost.currency)}</strong></article>
+    </section>}
     <div className="ops-table-scroll"><table className="ops-data-table"><caption>AI cost and usage records</caption><thead><tr>{["Date", "Provider", "Model", "Mode", "Input units", "Output units", "Estimated cost", "Provider-reported cost"].map(value => <th key={value}>{value}</th>)}</tr></thead><tbody>{data.usage.items.map(item => <tr key={item.id}>
       <td><time dateTime={item.occurred_at}>{new Date(item.occurred_at).toLocaleString()}</time></td><td>{providerLabel(item.provider)}</td><td>{item.model || "—"}</td><td>{modeLabel(item.processing_mode)}</td><td>{item.input_units.toLocaleString()}</td><td>{item.output_units.toLocaleString()}</td><td>{formatCost(item.estimated_cost_micros, item.currency)}</td><td>{formatCost(item.provider_reported_cost_micros, item.currency)}</td>
     </tr>)}</tbody></table></div>

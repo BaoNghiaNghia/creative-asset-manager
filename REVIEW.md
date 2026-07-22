@@ -1509,3 +1509,18 @@ Final controls:
 - Known risks: the current measured sizing target is 100,000 attempts/usage rows per tenant per rolling 90 days. Re-benchmark on target VPS hardware and realistic tenant selectivity before rollout; add rollups only after repeated PostgreSQL measurements breach 750 ms. CSV exports are intentionally bounded and are not a bulk warehouse export. A pre-existing psycopg resource warning appeared after the passing durable pipeline suite and should be investigated separately; it did not leave the Docker test stack running.
 - Rollback: deploy the previous API/frontend and remove the export links/routes. No PostgreSQL downgrade is needed. If reverting the 0024 portability correction, production PostgreSQL behavior remains equivalent, but local SQLite startup regression returns. Audit records already written remain append-only.
 - Next recommended step: deploy reads/exports to one tenant, observe PostgreSQL query latency and export volume, then revisit rollups only if the 750 ms threshold is repeatedly exceeded.
+
+## AI-OPS-03 review - AI Operations navigation and dashboard UI
+
+- Files changed: AI Operations dashboard rendering, processing asset links, cost presentation, responsive styles, focused dashboard/presentation tests, roadmap and this review.
+- Migrations added: none.
+- Behavior introduced: the existing normal `/ai-operations` application route and sidebar navigation were verified; Overview, Processing and Cost & Usage expose tenant-scoped KPIs, accessible chart/table equivalents, URL-backed filters, pagination, bounded server CSV exports, loading/partial-error/empty/unauthorized states and responsive layouts. Providers and Configuration continue to use the completed AI-OPS-04 implementation. Processing rows now resolve the real asset ID from usage instead of linking an analysis ID. Estimated, provider-reported and reconciled period totals are labelled separately.
+- Tests and actual results:
+  - `cd apps/client && npm test -- app/ai-operations/AiOperationsPage.test.tsx app/ai-operations/presentation.test.ts`: 2 files / 11 tests passed in 1.08s.
+  - `cd apps/client && npm test`: 8 files / 42 tests passed in 1.05s.
+  - `cd apps/client && npm run typecheck`: passed.
+  - `cd apps/client && npm run build`: passed; Vite 5.4.14 transformed 60 modules.
+- Feature flags: none added, enabled or changed. The page consumes authenticated read APIs and does not enable AI, ingestion or Search v2.
+- Known risks: the processing table can only link an asset when the bounded usage response contains the job-to-asset association or when the job entity is explicitly an asset; otherwise it deliberately shows `Unavailable` rather than navigating to the wrong record. Provider/model filter options remain bounded to known dashboard data and existing server capabilities/configuration views.
+- Rollback: revert the frontend and documentation changes. No migration, API, worker or queued-job rollback is required.
+- Next recommended step: smoke-test the responsive dashboard with a production-like tenant data set and operator session during staged rollout.
