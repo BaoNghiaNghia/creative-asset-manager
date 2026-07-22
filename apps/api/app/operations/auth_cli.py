@@ -2,12 +2,28 @@ from __future__ import annotations
 import argparse
 import json
 
-from app.core.database import SessionLocal
-from app.modules.auth_persistence.model import AuthAuditEventModel, TenantModel, UserModel
+from sqlalchemy import select
+
+from app.core.config import get_settings
+from app.core.database import (
+    DATABASE_URL,
+    SessionLocal,
+    engine,
+    validate_alembic_head,
+    validate_database_connection,
+)
+from app.modules.auth_persistence.model import (
+    AuthAuditEventModel,
+    TenantModel,
+    UserIdentityModel,
+    UserModel,
+)
 from app.modules.auth_persistence.service import cipher_from_settings
 from app.modules.auth_persistence.repository import AuthPersistenceRepository
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService, normalize_slug
+from app.modules.authorization.platform_admin import PlatformAdminService
 from app.modules.authorization.seed import seed_tenant_rbac
+from app.modules.authorization.service import TenantAuthorizationService
 from app.operations.auth_migration import (
     backfill_legacy_auth_page,
     bootstrap_identity_access,
@@ -32,6 +48,131 @@ def cleanup_expired_auth():
     with SessionLocal() as session:
         result=AuthPersistenceRepository(session,cipher_from_settings()).cleanup_expired()
         session.commit(); return result
+
+def _masked_email(value: str | None) -> str | None:
+    if not value or "@" not in value:
+        return None
+    local, domain = value.rsplit("@", 1)
+    return (local[:1] + "***@" + domain) if local else ("***@" + domain)
+
+
+def _short_subject(value: str) -> str:
+    return value if len(value) <= 12 else value[:6] + "..." + value[-4:]
+
+
+def list_identity_candidates(
+    *, provider: str | None = None, subject: str | None = None
+) -> dict:
+    """Return bounded, operator-safe identity summaries."""
+    with SessionLocal() as session:
+        statement = (
+            select(UserIdentityModel, UserModel)
+            .join(UserModel, UserModel.id == UserIdentityModel.user_id)
+            .order_by(UserIdentityModel.provider, UserIdentityModel.id)
+            .limit(500)
+        )
+        if provider:
+            statement = statement.where(UserIdentityModel.provider == provider)
+        if subject:
+            statement = statement.where(UserIdentityModel.provider_subject == subject)
+        rows = session.execute(statement).all()
+        return {
+            "identities": [
+                {
+                    "identity_id": identity.id,
+                    "user_id": user.id,
+                    "provider": identity.provider,
+                    "masked_email": _masked_email(
+                        identity.provider_email or user.primary_email
+                    ),
+                    "subject_short": _short_subject(identity.provider_subject),
+                    "user_status": user.status,
+                }
+                for identity, user in rows
+            ]
+        }
+
+
+def resolve_identity_reference(*, identity_id: str) -> dict:
+    """Resolve a selected opaque identity ID for an invoking setup process."""
+    with SessionLocal() as session:
+        identity = session.get(UserIdentityModel, identity_id)
+        if identity is None:
+            raise LookupError("application identity not found")
+        user = session.get(UserModel, identity.user_id)
+        if user is None or user.status != "active":
+            raise LookupError("active application user not found")
+        return {
+            "provider": identity.provider,
+            "subject": identity.provider_subject,
+            "user_id": user.id,
+            "user_status": user.status,
+        }
+
+
+def check_admin_setup(*, environment: str) -> dict:
+    """Fail-closed readiness check without returning configuration values."""
+    settings = get_settings()
+    validate_database_connection(engine)
+    head = validate_alembic_head(engine, database_url=DATABASE_URL)
+    if not settings.PERSISTENT_AUTH_ENABLED:
+        raise RuntimeError("persistent RBAC authentication is not enabled")
+    if environment == "production" and (
+        settings.AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED
+        or settings.PROCESSING_POLICY_ADMIN_IDS.strip()
+        or settings.DEVELOPMENT_PERSONAL_TENANT_ENABLED
+    ):
+        raise RuntimeError("production local-admin compatibility is enabled")
+    return {
+        "database_reachable": True,
+        "alembic_head": head,
+        "rbac_enabled": True,
+        "legacy_authorization_enabled": False,
+    }
+
+
+def _active_cli_identity(session, provider: str, subject: str):
+    identity = session.scalar(
+        select(UserIdentityModel).where(
+            UserIdentityModel.provider == provider,
+            UserIdentityModel.provider_subject == subject,
+        )
+    )
+    if identity is None:
+        raise LookupError("application identity not found")
+    user = session.get(UserModel, identity.user_id)
+    if user is None or user.status != "active":
+        raise LookupError("active application user not found")
+    return user, identity
+
+
+def verify_bootstrap_access(
+    *, provider: str, subject: str, tenant_id: str, expect_platform_admin: bool | None
+) -> dict:
+    with SessionLocal() as session:
+        user, _identity = _active_cli_identity(session, provider, subject)
+        tenant = session.get(TenantModel, tenant_id)
+        if tenant is None or tenant.status != "active":
+            raise LookupError("active tenant not found")
+        effective = TenantAuthorizationService(session).get_effective_permissions(
+            tenant_id=tenant.id, user_id=user.id
+        )
+        required = {"ai_operations.read", "tenant_members.manage"}
+        if "tenant_admin" not in effective.roles or not required.issubset(
+            effective.permissions
+        ):
+            raise RuntimeError("tenant administrator authorization verification failed")
+        platform_admin = PlatformAdminService(session).is_platform_admin(user.id)
+        if expect_platform_admin is not None and platform_admin != expect_platform_admin:
+            raise RuntimeError("platform administrator state does not match request")
+        return {
+            "user_id": user.id,
+            "tenant_id": tenant.id,
+            "tenant_slug": tenant.slug,
+            "roles": sorted(effective.roles),
+            "permissions_verified": sorted(required),
+            "platform_admin": platform_admin,
+        }
 
 def bootstrap_tenant(*, user_id: str, name: str, slug: str, tenant_id: str | None, reason: str, dry_run: bool, confirmed: bool):
     if not dry_run and not confirmed:
@@ -235,6 +376,17 @@ def main(argv=None):
     backfill.add_argument("--max-pages",type=int); backfill.add_argument("--actor-user-id")
     backfill.add_argument("--reason",required=True); backfill.add_argument("--dry-run",action="store_true")
     backfill.add_argument("--confirm",action="store_true")
+    identities=commands.add_parser("list-identities")
+    identities.add_argument("--provider",choices=["google","microsoft"])
+    identities.add_argument("--subject")
+    reference=commands.add_parser("resolve-identity-reference")
+    reference.add_argument("--identity-id",required=True)
+    preflight=commands.add_parser("check-admin-setup")
+    preflight.add_argument("--environment",choices=["local","production"],required=True)
+    verify=commands.add_parser("verify-bootstrap-access")
+    verify.add_argument("--provider",choices=["google","microsoft"],required=True)
+    verify.add_argument("--subject",required=True); verify.add_argument("--tenant-id",required=True)
+    verify.add_argument("--expect-platform-admin",action="store_const",const=True,default=None)
     args=parser.parse_args(argv)
     if args.command=="rotate-keys":
         result=rotate_keys(page_size=args.page_size,after_id=args.after_id,max_pages=args.max_pages,dry_run=args.dry_run)
@@ -261,6 +413,17 @@ def main(argv=None):
             page_size=args.page_size,after_id=args.after_id,max_pages=args.max_pages,
             actor_id=args.actor_user_id,reason=args.reason,
             dry_run=args.dry_run,confirmed=args.confirm,
+        )
+    elif args.command=="list-identities":
+        result=list_identity_candidates(provider=args.provider,subject=args.subject)
+    elif args.command=="resolve-identity-reference":
+        result=resolve_identity_reference(identity_id=args.identity_id)
+    elif args.command=="check-admin-setup":
+        result=check_admin_setup(environment=args.environment)
+    elif args.command=="verify-bootstrap-access":
+        result=verify_bootstrap_access(
+            provider=args.provider,subject=args.subject,tenant_id=args.tenant_id,
+            expect_platform_admin=args.expect_platform_admin,
         )
     else:
         with SessionLocal() as session:

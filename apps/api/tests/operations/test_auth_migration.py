@@ -280,6 +280,49 @@ class AuthMigrationOperationsTest(unittest.TestCase):
                 2,
             )
 
+    def test_setup_identity_listing_is_safe_and_access_verification_is_exact(self):
+        self.create_identity(subject="long-provider-subject-secret")
+        with patch("app.operations.auth_cli.SessionLocal", self.factory):
+            listed = auth_cli.list_identity_candidates(
+                provider="google", subject="long-provider-subject-secret"
+            )
+            self.assertEqual(len(listed["identities"]), 1)
+            summary = listed["identities"][0]
+            self.assertEqual(summary["masked_email"], "o***@example.com")
+            self.assertNotIn("long-provider-subject-secret", str(listed))
+            reference = auth_cli.resolve_identity_reference(
+                identity_id=summary["identity_id"]
+            )
+            self.assertEqual(reference["subject"], "long-provider-subject-secret")
+            bootstrapped = auth_cli.bootstrap_access(
+                provider="google",
+                subject=reference["subject"],
+                tenant_id=None,
+                tenant_name="Studio",
+                tenant_slug="studio",
+                reason="setup script regression",
+                dry_run=False,
+                confirmed=True,
+            )
+            verified = auth_cli.verify_bootstrap_access(
+                provider="google",
+                subject=reference["subject"],
+                tenant_id=bootstrapped["tenant_id"],
+                expect_platform_admin=False,
+            )
+            self.assertIn("tenant_admin", verified["roles"])
+            self.assertEqual(
+                set(verified["permissions_verified"]),
+                {"ai_operations.read", "tenant_members.manage"},
+            )
+            with self.assertRaisesRegex(RuntimeError, "platform administrator"):
+                auth_cli.verify_bootstrap_access(
+                    provider="google",
+                    subject=reference["subject"],
+                    tenant_id=bootstrapped["tenant_id"],
+                    expect_platform_admin=True,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

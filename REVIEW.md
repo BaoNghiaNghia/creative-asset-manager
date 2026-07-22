@@ -1921,3 +1921,50 @@ Validation was run in the requested order:
 - Known risk: local Python differs from CI Python; remote Actions status must be
   confirmed after pushing this commit. AUTH-09 must not be considered remotely
   green until that workflow completes.
+
+## ADMIN-SETUP-SCRIPT review - safe first-administrator bootstrap
+
+- Files changed: `scripts/setup-admin.sh`, its operator example, focused shell
+  and AUTH-09 CLI tests, safe identity-listing/preflight/final-verification CLI
+  helpers, roadmap and this review.
+- Migrations added: none. Authentication models, RBAC rules and application
+  authorization behavior are unchanged; Alembic remains at
+  `0028_central_authorization`.
+- Behavior introduced:
+  - user `baonghia` defaults to local setup and user `desify` defaults to
+    production; unknown users must select the environment explicitly;
+  - local and VPS project/environment/virtualenv paths follow the documented
+    defaults and support explicit overrides;
+  - fail-closed preflight validates database reachability, exact Alembic head,
+    persistent RBAC authentication and disabled production compatibility
+    bypasses;
+  - identity selection lists only provider, masked email, shortened subject and
+    user status, while the authoritative provider subject remains internal;
+  - tenant administration always runs a mandatory dry-run and explicit
+    confirmation; durable platform administration is a separate optional grant
+    with a second confirmation;
+  - final verification requires active tenant membership, `tenant_admin`,
+    `ai_operations.read` and `tenant_members.manage`, and reports the actual
+    durable platform-admin state.
+- Security: the script uses `set -Eeuo pipefail`, quotes shell variables,
+  installs cleanup/error traps, never accepts or prints tokens/API keys, never
+  infers privilege from email/domain, and never changes
+  `PROCESSING_POLICY_ADMIN_IDS` or enables compatibility authorization.
+- Tests and actual results:
+  - first shell test run exposed one fake-runner pattern that confused
+    `bootstrap-access` with `verify-bootstrap-access`; the pattern was
+    narrowed without changing runtime code;
+  - `cd apps/api && .venv/bin/python -m unittest tests.operations.test_auth_cli tests.operations.test_auth_migration tests.operations.test_setup_admin_script -v`:
+    12 passed in 1.604s;
+  - `bash -n scripts/setup-admin.sh`: passed;
+  - Python `py_compile` for the changed CLI and tests: passed.
+- Feature flags: none added or enabled. Production continues to reject the
+  legacy processing-admin allowlist.
+- Known risks: the operator-controlled environment file is sourced by the
+  script, matching existing deployment conventions; its ownership and write
+  permissions remain an operational security boundary. Identity listing is
+  bounded to 500 records.
+- Rollback: revert this isolated commit. No database downgrade or authorization
+  data mutation is required; any administrator assignment already applied is
+  durable and must be explicitly revoked through existing audited services if
+  it was not intended.
