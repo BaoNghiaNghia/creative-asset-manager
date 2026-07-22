@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from "react";
 import { AssetGrid } from "./components/AssetGrid";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
+import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchV2Controls } from "./components/SearchV2Controls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
@@ -18,6 +19,7 @@ export default function App() {
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
   const [detailsAssetId, setDetailsAssetId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("asset"));
+  const [analyzeOpen, setAnalyzeOpen] = useState(false);
   function openDetails(item: Asset) {
     if (!item.internal_asset_id) return;
     setDetailsAssetId(item.internal_asset_id);
@@ -30,6 +32,11 @@ export default function App() {
   const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : "root";
   const rootFolders = explorer.childrenByParent[sourceRootId] ?? [];
   const sourceName = explorer.provider === "sharepoint" ? "SharePoint" : "Google Drive";
+  const selectedItems = explorer.visibleItems.filter(item => explorer.selected.has(item.id));
+  const analysisAssetIds = selectedItems.flatMap(item => (
+    item.kind !== "folder" && item.internal_asset_id ? [item.internal_asset_id] : []
+  ));
+  const completeAnalysisSelection = analysisAssetIds.length === explorer.selected.size;
 
   return <main
     className={"shell " + (sidebar.collapsed ? "sidebar-collapsed" : "")}
@@ -240,6 +247,12 @@ export default function App() {
           />}
           {explorer.selected.size > 0 && <div className="bulk">
             <b>{explorer.selected.size} selected</b>
+            <button
+              type="button"
+              disabled={!completeAnalysisSelection}
+              title={completeAnalysisSelection ? "Analyze selected assets" : "Only indexed files can be analyzed; folders are not supported"}
+              onClick={() => setAnalyzeOpen(true)}
+            >Analyze metadata</button>
             <span className="bulk-divider" />
             <div className="bulk-group">
               <small>Visibility</small>
@@ -264,5 +277,12 @@ export default function App() {
 
     {previewItem && <MediaViewer item={previewItem} onClose={() => setPreviewItem(null)} />}
     {detailsAssetId && explorer.auth.authenticated && <AssetDetailsPanel assetId={detailsAssetId} onClose={closeDetails} />}
+    <AnalyzeMetadataDialog
+      open={analyzeOpen}
+      assetIds={analysisAssetIds}
+      sourceProvider={explorer.provider}
+      authorized={completeAnalysisSelection && analysisAssetIds.length > 0}
+      onClose={() => setAnalyzeOpen(false)}
+    />
   </main>;
 }

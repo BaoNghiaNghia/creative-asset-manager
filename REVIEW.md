@@ -1329,3 +1329,45 @@ Final controls:
   request ledger is no longer needed. No provider analysis or batch data is
   deleted.
 - Next recommended step: AI-MULTI-06 frontend provider/mode/model selection UI.
+
+## AI-MULTI-06 review - frontend provider and processing selection
+
+- Files changed: typed metadata API client/contracts, provider-aware Analyze
+  Metadata dialog, explorer bulk action, asset-detail analysis action/history,
+  scoped responsive styles, focused Vitest coverage, and this review.
+- Migrations added: none.
+- Behavior introduced:
+  - the UI loads tenant-filtered capabilities from
+    `GET /api/v1/admin/ai/capabilities` and never hard-codes provider/model
+    availability;
+  - one asset defaults to Single and multiple assets default to Batch, while a
+    valid explicit provider/model/mode selection is retained;
+  - single selection uses the single analysis endpoint and multiple selection
+    uses the idempotent bulk endpoint, always sending provider, model, mode,
+    profile and force explicitly;
+  - only indexed non-folder selections with internal asset IDs can be
+    submitted, and disabled/empty/failure states explain why;
+  - asynchronous progress exposes provider, model, mode, accepted, queued,
+    running, completed, failed and budget-blocked counts; authorized detail
+    operators may also retrieve provider batch state;
+  - force analysis requires confirmation stating that history is preserved and
+    names the selected provider/model;
+  - analysis history presents provider/model, inferred persisted mode,
+    profile/version, status, attempts, retry errors and authorized usage/cost.
+- Tests and actual results:
+  - `cd apps/client && npm test`: 4 files and 22 tests passed in 542ms.
+  - `cd apps/client && npm run typecheck`: passed.
+  - `cd apps/client && npm run build`: passed; Vite 5.4.14 transformed 51
+    modules and produced the production bundle in 590ms.
+  - frontend source scan found no `OPENAI_API_KEY` or `GEMINI_API_KEY`
+    references.
+- Feature flags: none added, changed or enabled. Provider visibility remains
+  entirely controlled by server capabilities and existing tenant/global
+  policies.
+- Known risks: no dedicated public cost-estimate endpoint currently exists, so
+  the frontend does not calculate provider pricing. It displays authoritative
+  budget-preflight failures returned by the bulk API and persisted estimated or
+  provider-reported costs in authorized analysis history.
+- Rollback: revert this frontend-only change. No schema, worker, provider or
+  queued-job rollback is required.
+- Next recommended step: AI-MULTI-07 governance and production controls.

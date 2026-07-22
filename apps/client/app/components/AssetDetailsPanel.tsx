@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AssetDetails } from "../types";
+import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
+import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { SafeJsonTree } from "./SafeJsonTree";
 
 type Props = { assetId: string; onClose: () => void };
@@ -12,6 +14,8 @@ export function AssetDetailsPanel({ assetId, onClose }: Props) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [forceAnalysis, setForceAnalysis] = useState(false);
 
   async function load(signal?: AbortSignal) {
     setError("");
@@ -44,7 +48,8 @@ export function AssetDetailsPanel({ assetId, onClose }: Props) {
     } finally { setBusy(""); }
   }
 
-  return <aside className="asset-details" aria-label="Asset details">
+  const sourceProvider = data?.sources.some(source => String(source.source_type || "").includes("sharepoint")) ? "sharepoint" : "google-drive";
+  return <><aside className="asset-details" aria-label="Asset details">
     <header><div><small>Asset details</small><h2>{data?.sources[0]?.filename as string || assetId}</h2></div><button onClick={onClose} aria-label="Close asset details">×</button></header>
     <nav>{sections.map(name => <button key={name} className={section === name ? "active" : ""} onClick={() => setSection(name)}>{name}</button>)}</nav>
     {error && <div className="panel-error" role="alert">{error}</div>}
@@ -65,18 +70,29 @@ export function AssetDetailsPanel({ assetId, onClose }: Props) {
         <p><b>Projection version:</b> {data.active_analysis?.search_projection_version || "Not built"}</p>
         <SafeJsonTree value={data.active_analysis?.search_projection} maxDepth={data.limits.max_json_depth} maxNodes={data.limits.max_json_nodes} />
       </>}
-      {section === "history" && <><p>{data.analysis_total} analysis attempt(s)</p>{data.analysis_history.map(item => <Detail key={String(item.id)} title={String(item.metadata_profile || "Analysis") + " · " + String(item.status)} value={item} />)}</>}
+      {section === "history" && <><p>{data.analysis_total} analysis attempt(s)</p><div className="analysis-history">{data.analysis_history.map(item => <AnalysisHistoryCard key={String(item.id)} analysis={item} showCost={data.can_administer} />)}</div></>}
       {section === "jobs" && <><p>{data.job_total} related job(s)</p>{data.pipelines.map(item => <Detail key={String(item.id)} title={"Pipeline · " + String(item.state)} value={item} />)}{data.jobs.map(job => <div className="job-row" key={String(job.id)}><div><b>{String(job.job_type)}</b><small>{String(job.status)} · {String(job.attempt_count)}/{String(job.max_attempts)}</small></div>{job.cancelable && data.can_administer && <button disabled={busy === "cancel_job"} onClick={() => action("cancel_job", { job_id: job.id })}>Cancel</button>}</div>)}</>}
       {data.can_administer && <div className="asset-operations">
         <b>Operator actions</b>
-        <button disabled={Boolean(busy)} onClick={() => action("reanalyze")}>Reanalyze</button>
-        <button disabled={Boolean(busy)} onClick={() => action("reanalyze", { force: true })}>Force reanalysis</button>
+        <button disabled={Boolean(busy)} onClick={() => { setForceAnalysis(false); setAnalysisOpen(true); }}>Analyze metadata</button>
+        <button disabled={Boolean(busy)} onClick={() => { setForceAnalysis(true); setAnalysisOpen(true); }}>Force reanalysis</button>
         <button disabled={Boolean(busy)} onClick={() => action("rebuild_projection")}>Rebuild projection</button>
         <button disabled={Boolean(busy)} onClick={() => action("reindex")}>Reindex</button>
         <button disabled={Boolean(busy)} onClick={() => action("retry_failed_stage")}>Retry failed stage</button>
       </div>}
     </div>}
-  </aside>;
+  </aside>{data && <AnalyzeMetadataDialog
+    open={analysisOpen}
+    assetIds={[assetId]}
+    sourceProvider={sourceProvider}
+    authorized={data.can_administer}
+    defaultProfile={String(data.active_analysis?.metadata_profile || "")}
+    defaultProfileVersion={data.active_analysis?.metadata_profile_version ? String(data.active_analysis.metadata_profile_version) : null}
+    forceInitially={forceAnalysis}
+    includeProviderBatchId={data.can_administer}
+    onClose={() => setAnalysisOpen(false)}
+    onSubmitted={() => void load().catch(reason => setError(reason.message))}
+  />}</>;
 }
 
 function Detail({ title, value }: { title: string; value: unknown }) {
