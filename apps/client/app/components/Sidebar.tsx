@@ -48,6 +48,7 @@ export function Sidebar({
     <div className="workspace-navigation" aria-label="Workspace navigation">
       <a href="/" aria-current="page">▧ Asset Explorer</a>
       <a href="/ai-operations">◉ AI Operations</a>
+      <a href="/settings/access">⚿ Access Management</a>
     </div>
     <p>SOURCES</p>
     {Object.values(authByProvider).some(session => session.checking)

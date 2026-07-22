@@ -1771,3 +1771,44 @@ Final controls:
   code. No schema downgrade is needed; membership/role/audit history remains.
 - Next recommended step: implement AUTH-07 Access Management frontend against
   these APIs without treating hidden UI actions as authorization.
+
+## AUTH-07 review - Access Management frontend
+
+- Files changed: manual application route/navigation, tenant access API client
+  and safe response types, responsive Access Management page, focused frontend
+  tests, styles, roadmap and this review.
+- Migrations added: none. AUTH-07 consumes the AUTH-05 identity/tenant-switch
+  endpoints and AUTH-06 membership/role administration APIs.
+- Behavior introduced: `/settings/access` with keyboard-accessible Members,
+  Roles and My access tabs; tenant-scoped member filtering/pagination;
+  invitation recording, membership transitions and role assignment/removal;
+  protected/custom role presentation and custom-role editing; effective-role
+  and permission summaries; active-tenant switching through session rotation.
+- Authorization and safety: mutation controls are hidden without their exact
+  durable permissions, while the backend remains authoritative. Dangerous
+  suspend/remove/role-removal actions require confirmation and a bounded
+  reason. Stable unauthenticated, permission-denied, no-tenant,
+  stale-membership, final-admin and network states are surfaced. Platform
+  administration is excluded from tenant role choices and no credentials,
+  OAuth tokens, API keys or session IDs are represented by the client types.
+- Tests and actual results:
+  - `cd apps/client && npm test -- app/access-management/AccessManagementPage.test.tsx`:
+    12 passed in 0.66s.
+  - `cd apps/client && npm test`: 66 passed across 10 files in 0.76s.
+  - `cd apps/client && npm run typecheck`: passed in 2.4s.
+  - `cd apps/client && npm run build`: passed; Vite transformed 66 modules and
+    produced the production bundle in 0.57s.
+  - production bundle secret-identifier scan: passed; no API-key, OAuth-token,
+    client-secret or session-ID identifier was found.
+  - `git diff --check`: passed.
+- Feature flags: none added or enabled. Access is determined by the persistent
+  application session, active tenant membership and durable RBAC permissions.
+- Known risks: invitation email delivery remains intentionally absent; the UI
+  states that invitations are only recorded. The current frontend test
+  convention uses SSR/static interaction and mocked fetch contracts rather
+  than a browser DOM runner, so backend authorization remains the security
+  boundary.
+- Rollback: remove the `/settings/access` route/navigation and deploy the
+  previous frontend bundle. No database or API rollback is required.
+- Next recommended step: AUTH-08 can migrate AI Operations/admin surfaces to
+  the same durable permissions without reusing UI visibility as authorization.

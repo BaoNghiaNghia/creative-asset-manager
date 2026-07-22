@@ -111,6 +111,7 @@ export function AiOperationsShell({ children }: { children: React.ReactNode }) {
       <p>WORKSPACE</p>
       <a href="/">▧ Asset Explorer</a>
       <a href="/ai-operations" className="active" aria-current="page">◉ AI Operations</a>
+      <a href="/settings/access">⚿ Access Management</a>
       <small className="ops-sidebar-note">Tenant-scoped metrics. Provider secrets are never shown.</small>
     </aside>
     <section className="ops-main">{children}</section>

@@ -84,3 +84,4 @@
 - [x] AUTH-04 Central application principal and permission dependencies
 - [x] AUTH-05 OAuth application login, session rotation and tenant switching
 - [x] AUTH-06 Tenant membership and role administration APIs
+- [x] AUTH-07 Access Management frontend
