@@ -1524,3 +1524,26 @@ Final controls:
 - Known risks: the processing table can only link an asset when the bounded usage response contains the job-to-asset association or when the job entity is explicitly an asset; otherwise it deliberately shows `Unavailable` rather than navigating to the wrong record. Provider/model filter options remain bounded to known dashboard data and existing server capabilities/configuration views.
 - Rollback: revert the frontend and documentation changes. No migration, API, worker or queued-job rollback is required.
 - Next recommended step: smoke-test the responsive dashboard with a production-like tenant data set and operator session during staged rollout.
+
+## AI-OPS-CI-FIX review - migration and durable pipeline regressions
+
+- Initial reproduction, before modifications:
+  - Clean Python 3.12.13 snapshot at `422a351`, exact CI discovery command `timeout 10m python -m unittest discover -s tests -v`: first failure was `migrations.test_active_analysis_integrity_migration.ActiveAnalysisIntegrityMigrationTest.test_upgrade_and_step_scoped_downgrade`; migration `0024_ai_operations_configuration.upgrade()` raised `NotImplementedError: No support for ALTER of constraints in SQLite dialect` from `op.create_check_constraint`. Snapshot result: 423 tests, 1 failure, 21 errors, 14 skips in 114.703s.
+  - Clean `422a351` pipeline with PostgreSQL 16.4, Elasticsearch 8.15.3 and Python 3.12.13, exact module command `timeout 15m python -m unittest tests.integration.test_pipeline_e2e -v`: first failure was `test_disabled_tenant_is_not_claimed_then_can_resume`; `Settings(...)` raised `ValidationError: GEMINI_MODEL must be in GEMINI_ALLOWED_MODELS`. Result: 6 tests, 6 errors in 0.010s.
+- Root cause: two independent regressions. Migration 0024 used direct constraint alteration unsupported by the SQLite development/unit-test path; its nullable/server defaults were valid and PostgreSQL migration succeeded. The durable pipeline fake Gemini fixture was stale after model allowlist and fail-closed cost-rate validation. New processing-policy ORM fields, configuration API policy creation and constructor signatures were not the cause.
+- Existing targeted runtime fixes retained: migration 0024 uses Alembic batch operations for portable constraints; the fake pipeline allowlists `fake-gemini-v1` and persists an explicit zero-cost fake rate. No production default or feature flag changed.
+- Regression coverage added:
+  - migration 0024 now performs an actual SQLite 0023-to-0024-to-0023 round trip, proving existing policy preservation, server defaults, constraints and rollback.
+  - durable pipeline fake provider settings/rate are built by tested helpers, proving allowlist and explicit cost configuration without real credentials.
+- Validation in required order:
+  - migration regression alone: 1 passed in 2.530s.
+  - pipeline fixture regression alone: 1 passed in 0.017s.
+  - migration containing module: 2 passed in 2.285s.
+  - pipeline containing module without services: 1 passed, 6 service-dependent skips in 0.018s.
+  - exact clean Python 3.12 CI discovery command: 428 passed, 14 service-dependent skips in 122.431s.
+  - pipeline E2E with PostgreSQL 16.4 and Elasticsearch 8.15.3: 7 passed in 3.941s.
+  - PostgreSQL empty upgrade, downgrade to `0012_ai_batch_processing`, re-upgrade and repository modules: one Alembic head (`0024_ai_operations_configuration`), 7 passed in 0.359s. A pre-existing psycopg resource warning was emitted after the passing suite.
+  - frontend tests: skipped because no frontend file changed.
+- Migrations added: none. Migration 0024 behavior is unchanged from the already-corrected HEAD; this step adds explicit regression coverage only.
+- Feature flags: none added or enabled. AI, ingestion and Search v2 defaults remain unchanged.
+- Rollback: revert the two test refactors and documentation entry. No database or runtime rollback is required.
