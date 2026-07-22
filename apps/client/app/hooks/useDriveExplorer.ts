@@ -47,7 +47,16 @@ const oauthMessages: Record<string, string> = {
   token_exchange: "Google could not complete the secure token exchange.",
   scope: "The required read-only permission was not granted.",
   profile: "The cloud account connected, but its profile could not be loaded.",
+  self_signup_disabled: "New application users are not enabled. Ask an administrator to provision your account.",
+  email_domain_not_allowed: "This email domain is not allowed to access the application.",
+  tenant_membership_required: "Your account does not have an active workspace membership.",
+  default_tenant_unavailable: "The configured default workspace is unavailable.",
+  account_inactive: "Your application account is suspended or disabled.",
 };
+
+export function oauthMessageFor(errorCode: string): string {
+  return oauthMessages[errorCode] || "Cloud sign-in could not be completed.";
+}
 
 export function useDriveExplorer() {
   const [provider, setProvider] = useState<Provider>("google-drive");
@@ -290,7 +299,7 @@ export function useDriveExplorer() {
     const errorCode = params.get("auth_error");
     const requestId = params.get("auth_request") || undefined;
     const preferred: Provider = params.has("microsoft") || params.get("auth_provider") === "microsoft" ? "sharepoint" : "google-drive";
-    if (errorCode) setOauthError({ message: oauthMessages[errorCode] || "Cloud sign-in could not be completed.", requestId });
+    if (errorCode) setOauthError({ message: oauthMessageFor(errorCode), requestId });
     if (errorCode || params.has("google") || params.has("microsoft")) {
       ["auth_error", "auth_request", "auth_message", "auth_provider", "google", "microsoft"].forEach(key => params.delete(key));
       const cleanQuery = params.toString();

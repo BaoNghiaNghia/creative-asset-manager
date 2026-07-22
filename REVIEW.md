@@ -2026,3 +2026,17 @@ Validation was run in the requested order:
   `bash -n scripts/setup-admin.sh`: passed.
 - Migration/rollback: no migration or authorization change. Revert this commit
   to restore the previous root-only local lookup.
+
+## Local Google OAuth first-login fix
+
+- Root cause: OAuth token exchange succeeded, but local application admission
+  remained fail-closed because both local signup flags were false.
+- Local-only action: the ignored apps/api/.env now enables the two development
+  settings. Production defaults remain false and production still rejects this bootstrap.
+- Behavior: callback admission failures now display specific safe messages;
+  .env.example documents the explicit local first-login sequence.
+- Tests: 12 backend auth tests and 2 focused frontend tests passed; frontend
+  typecheck and production build passed.
+- Migrations: none. No committed feature-flag default was enabled.
+- Operational step: restart make api, then sign in again.
+- Rollback: set both local flags false and revert this UI/message change.
