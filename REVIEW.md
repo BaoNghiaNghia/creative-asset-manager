@@ -1968,3 +1968,46 @@ Validation was run in the requested order:
   data mutation is required; any administrator assignment already applied is
   durable and must be explicitly revoked through existing audited services if
   it was not intended.
+## DEPLOY-COMMITTED-FRONTEND review
+
+- Files changed: committed Vite build configuration and artifact, safe build
+  marker and local release builder, non-root API/worker Dockerfiles, production
+  Compose, native Nginx configuration, deploy/rollback/validation scripts,
+  production env template, focused deployment tests and operator documentation.
+- Migrations added: none. Production schema changes remain explicit one-shot
+  Alembic commands and API startup does not auto-migrate.
+- Behavior introduced:
+  - local user `baonghia` can deterministically test, typecheck, build, scan,
+    commit and optionally push `apps/client/dist`;
+  - production user `desify` deploys the committed bundle without Node.js;
+  - native PostgreSQL is reached from containers through
+    `host.docker.internal`, while Compose contains only API, worker and
+    Elasticsearch plus an opt-in migration service;
+  - backend readiness is required before the frontend symlink is switched;
+    frontend releases are atomic and bounded, and rollback never downgrades the
+    database or removes PostgreSQL/Elasticsearch data.
+- Tests and actual results:
+  - `npm ci --no-audit --no-fund && npm test && npm run typecheck && npm run build`:
+    68 frontend tests passed; typecheck passed; Vite transformed 66 modules and
+    wrote the production bundle and safe marker;
+  - `python -m unittest deploy.tests.test_committed_frontend_deployment deploy.tests.test_vps_deployment -v`:
+    19 focused deployment/environment tests passed in 0.365s;
+  - Docker Compose v2.33.1 production config validation: passed;
+  - API and worker Docker image builds using pinned Python 3.12.8 slim:
+    passed. The local Docker installation emitted only a legacy-builder/buildx
+    availability warning;
+  - Bash syntax for all new scripts and `git diff --check`: passed;
+  - ShellCheck and native Nginx were unavailable locally; equivalent shell
+    syntax and focused static Nginx proxy/SPA/cache tests passed.
+- Feature flags: no application feature flag was added or enabled. All existing
+  ingestion, AI and Search v2 defaults remain unchanged.
+- Security: no frontend source map or secret-like value is committed; API and
+  Elasticsearch publish only to loopback; worker is unexposed; production env
+  contains placeholders only and legacy/local authorization bypasses remain
+  disabled.
+- Known risks: native PostgreSQL connectivity, real TLS certificates and
+  `nginx -t` require the VPS environment and were intentionally not accessed.
+  The fixed Docker bridge subnet must not conflict with an existing VPS network.
+- Rollback: run `scripts/rollback-vps.sh --commit PREVIOUS_COMMIT`. It restores
+  matching backend/frontend code after health checks, preserves data, and warns
+  that schema compatibility must be reviewed because Alembic is not downgraded.

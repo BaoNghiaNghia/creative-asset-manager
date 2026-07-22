@@ -88,3 +88,7 @@
 - [x] AUTH-08 Durable RBAC for AI Operations and related admin routes
 - [x] AUTH-09 Authentication/RBAC migration tooling and final validation
 - [x] ADMIN-SETUP-SCRIPT Safe interactive first-administrator bootstrap
+
+## Deployment
+
+- [x] DEPLOY-COMMITTED-FRONTEND Committed Vite bundle, Docker backend and native Nginx/PostgreSQL deployment

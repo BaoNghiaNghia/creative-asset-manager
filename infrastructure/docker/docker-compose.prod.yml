@@ -1,5 +1,30 @@
 name: creative-asset-manager
 
+x-backend-common: &backend-common
+  image: "${CAM_BACKEND_IMAGE:-creative-asset-manager-backend}:${BUILD_COMMIT:-local}"
+  env_file:
+    - "${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}"
+  environment:
+    BUILD_COMMIT: "${BUILD_COMMIT:-unknown}"
+    ELASTICSEARCH_URL: "http://elasticsearch:9200"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  networks:
+    - backend
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+  deploy:
+    resources:
+      limits:
+        memory: 1g
+
 services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
@@ -14,6 +39,8 @@ services:
       - "127.0.0.1:9200:9200"
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - backend
     ulimits:
       memlock:
         soft: -1
@@ -21,6 +48,10 @@ services:
       nofile:
         soft: 65535
         hard: 65535
+    deploy:
+      resources:
+        limits:
+          memory: 2g
     healthcheck:
       test:
         - CMD-SHELL
@@ -38,6 +69,54 @@ services:
       options:
         max-size: 10m
         max-file: "5"
+
+  api:
+    <<: *backend-common
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/live', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *backend-common
+    command: ["python", "/app/apps/worker/main.py"]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/live', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  migration:
+    <<: *backend-common
+    profiles: ["migration"]
+    restart: "no"
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    depends_on: {}
+
+networks:
+  backend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
 
 volumes:
   elasticsearch-data:

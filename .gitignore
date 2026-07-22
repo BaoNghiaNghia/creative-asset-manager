@@ -18,6 +18,10 @@ node_modules/
 **/node_modules/
 dist/
 **/dist/
+!apps/client/dist/
+!apps/client/dist/**
+apps/client/dist/**/*.map
+apps/client/dist/*.map
 .vite/
 **/.vite/
 *.tsbuildinfo

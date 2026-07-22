@@ -54,15 +54,21 @@ class VpsDeploymentArtifactTest(unittest.TestCase):
         self.assertIn("try_files $uri $uri/ /index.html;", config)
         self.assertIn("location /assets/", config)
         self.assertIn("expires 1y;", config)
-        self.assertIn('Cache-Control "public, immutable"', config)
-        self.assertIn('Cache-Control "no-cache"', config)
+        self.assertIn('Cache-Control "public, max-age=31536000, immutable"', config)
+        self.assertIn("location = /build-meta.json", config)
+        self.assertIn('Cache-Control "no-store, no-cache, must-revalidate"', config)
 
-    def test_compose_contains_only_loopback_elasticsearch(self) -> None:
+    def test_compose_contains_docker_backend_without_postgres(self) -> None:
         config = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
-        self.assertEqual(set(config["services"]), {"elasticsearch"})
-        elasticsearch = config["services"]["elasticsearch"]
-        self.assertEqual(elasticsearch["ports"], ["127.0.0.1:9200:9200"])
-        self.assertNotIn("postgres", config["services"])
+        self.assertEqual(
+            set(config['services']),
+            {'api', 'worker', 'migration', 'elasticsearch'},
+        )
+        elasticsearch = config['services']['elasticsearch']
+        self.assertEqual(elasticsearch['ports'], ['127.0.0.1:9200:9200'])
+        self.assertEqual(config['services']['api']['ports'], ['127.0.0.1:8000:8000'])
+        self.assertNotIn('ports', config['services']['worker'])
+        self.assertNotIn('postgres', config['services'])
 
     def test_native_services_use_current_release_and_loopback(self) -> None:
         api = API_SERVICE.read_text(encoding="utf-8")
