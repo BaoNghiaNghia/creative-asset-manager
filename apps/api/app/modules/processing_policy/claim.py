@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.processing.types import JobStatus
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
 
 
@@ -104,7 +105,7 @@ class TenantAwareJobClaimer:
                     TenantProviderPolicyModel.provider_key == job.provider_key,
                     TenantProviderPolicyModel.provider_scope == job.provider_scope,
                 )
-                .values(active_jobs=TenantProviderPolicyModel.active_jobs - 1)
+                .values(**self._provider_release_values(job))
                 .execution_options(synchronize_session=False)
             )
         job.concurrency_accounted = False
@@ -160,8 +161,9 @@ class TenantAwareJobClaimer:
                         TenantProviderPolicyModel.processing_enabled.is_(True),
                         TenantProviderPolicyModel.processing_paused.is_(False),
                         TenantProviderPolicyModel.active_jobs < TenantProviderPolicyModel.active_jobs_limit,
+                        *self._provider_reserve_conditions(job),
                     )
-                    .values(active_jobs=TenantProviderPolicyModel.active_jobs + 1)
+                    .values(**self._provider_reserve_values(job))
                     .returning(TenantProviderPolicyModel.id)
                     .execution_options(synchronize_session=False)
                 )
@@ -192,6 +194,11 @@ class TenantAwareJobClaimer:
             or_(
                 TenantProviderPolicyModel.processing_enabled.is_(False),
                 TenantProviderPolicyModel.processing_paused.is_(True),
+                TenantProviderPolicyModel.emergency_stop.is_(True),
+                and_(ProcessingJobModel.job_type == "asset_analyze", TenantProviderPolicyModel.single_enabled.is_(False)),
+                and_(ProcessingJobModel.job_type.like("ai_batch_%"), TenantProviderPolicyModel.batch_enabled.is_(False)),
+                and_(ProcessingJobModel.concurrency_accounted.is_(False), ProcessingJobModel.job_type == "asset_analyze", TenantProviderPolicyModel.single_active_jobs >= TenantProviderPolicyModel.single_active_jobs_limit),
+                and_(ProcessingJobModel.concurrency_accounted.is_(False), ProcessingJobModel.job_type == "ai_batch_submit", TenantProviderPolicyModel.batch_active_jobs >= TenantProviderPolicyModel.batch_active_jobs_limit),
                 and_(
                     ProcessingJobModel.concurrency_accounted.is_(False),
                     TenantProviderPolicyModel.active_jobs >= TenantProviderPolicyModel.active_jobs_limit,
@@ -201,6 +208,7 @@ class TenantAwareJobClaimer:
         return and_(
             self._base_eligibility(now),
             ProcessingJobModel.job_type.in_(allowed_job_types),
+            self._runtime_control_available(),
             exists(select(TenantProcessingPolicyModel.tenant_id).where(*policy_conditions)),
             or_(ProcessingJobModel.provider_key.is_(None), ~provider_blocked),
         )
@@ -244,3 +252,48 @@ class TenantAwareJobClaimer:
         if job_type in STORAGE_JOB_TYPES:
             return "storage"
         return None
+
+    @staticmethod
+    def _provider_reserve_conditions(job):
+        if job.provider_scope != "ai":
+            return []
+        if job.job_type == "asset_analyze":
+            return [
+                TenantProviderPolicyModel.single_enabled.is_(True),
+                TenantProviderPolicyModel.emergency_stop.is_(False),
+                TenantProviderPolicyModel.single_active_jobs < TenantProviderPolicyModel.single_active_jobs_limit,
+            ]
+        if job.job_type == "ai_batch_submit":
+            return [TenantProviderPolicyModel.batch_enabled.is_(True), TenantProviderPolicyModel.emergency_stop.is_(False), TenantProviderPolicyModel.batch_active_jobs < TenantProviderPolicyModel.batch_active_jobs_limit]
+        if job.job_type.startswith("ai_batch_"):
+            return [TenantProviderPolicyModel.batch_enabled.is_(True), TenantProviderPolicyModel.emergency_stop.is_(False)]
+        return [TenantProviderPolicyModel.emergency_stop.is_(False)]
+
+    @staticmethod
+    def _provider_reserve_values(job):
+        values = {"active_jobs": TenantProviderPolicyModel.active_jobs + 1}
+        if job.provider_scope == "ai" and job.job_type == "asset_analyze":
+            values["single_active_jobs"] = TenantProviderPolicyModel.single_active_jobs + 1
+        elif job.provider_scope == "ai" and job.job_type == "ai_batch_submit":
+            values["batch_active_jobs"] = TenantProviderPolicyModel.batch_active_jobs + 1
+        return values
+
+    @staticmethod
+    def _provider_release_values(job):
+        values = {"active_jobs": TenantProviderPolicyModel.active_jobs - 1}
+        if job.provider_scope == "ai" and job.job_type == "asset_analyze":
+            values["single_active_jobs"] = TenantProviderPolicyModel.single_active_jobs - 1
+        elif job.provider_scope == "ai" and job.job_type == "ai_batch_submit":
+            values["batch_active_jobs"] = TenantProviderPolicyModel.batch_active_jobs - 1
+        return values
+
+    @staticmethod
+    def _runtime_control_available():
+        stopped = exists(select(AiRuntimeControlModel.control_key).where(
+            AiRuntimeControlModel.stopped.is_(True),
+            or_(
+                AiRuntimeControlModel.control_key == "global",
+                AiRuntimeControlModel.control_key == ProcessingJobModel.provider_key,
+            ),
+        ))
+        return or_(~ProcessingJobModel.job_type.in_(AI_JOB_TYPES), ~stopped)

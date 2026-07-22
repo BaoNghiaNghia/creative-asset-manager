@@ -189,6 +189,8 @@ class AiAnalysisOrchestrationService:
                 True,
             )
 
+        if body.force:
+            AiGovernanceRepository(self.session).event(tenant_id, "forced_analysis", actor_id=actor_id, details={"request_id": request.id, "provider": body.ai_provider, "model": model, "mode": body.processing_mode})
         created_items: list[AiAnalysisRequestItemModel] = []
         batch_analyses: list[AssetAiAnalysisModel] = []
         batch_items: list[AiAnalysisRequestItemModel] = []
@@ -232,17 +234,18 @@ class AiAnalysisOrchestrationService:
                 ai_model=selection.model,
             )
             if existing_analysis is None or body.force:
-                allowed, estimate, reason = self._budget_preflight(
+                allowed, estimate, budget_code, reason = self._budget_preflight(
                     tenant_id=tenant_id,
                     profile=profile,
                     provider=selection.provider,
                     model=selection.model,
+                    processing_mode=body.processing_mode,
                     planned_cost=planned_cost,
                 )
                 if not allowed:
                     created_items.append(self._item(
                         request, asset_id, "budget_preflight_failed",
-                        "budget_preflight_failed", reason,
+                        budget_code or "budget_preflight_failed", reason,
                     ))
                     continue
                 planned_cost += estimate
@@ -360,6 +363,7 @@ class AiAnalysisOrchestrationService:
         request.cancellation_reason = reason
         request.cancelled_by = actor_id
         request.cancelled_at = datetime.now(timezone.utc)
+        AiGovernanceRepository(self.session).event(tenant_id, "batch_cancellation" if batch_ids else "analysis_cancellation", actor_id=actor_id, reason=reason, details={"request_id": request.id, "batch_count": len(batch_ids)})
         self.session.flush()
         return request, batch_ids
 
@@ -397,22 +401,23 @@ class AiAnalysisOrchestrationService:
         profile: MetadataProfileModel,
         provider: str,
         model: str,
+        processing_mode: str,
         planned_cost: int,
-    ) -> tuple[bool, int, str | None]:
+    ) -> tuple[bool, int, str | None, str | None]:
         if self.settings.AI_EMERGENCY_STOP_ENABLED:
-            return False, 0, "Global emergency AI stop is enabled."
+            return False, 0, "ai_emergency_stop", "Global emergency AI stop is enabled."
         policy = self.session.get(TenantAiBudgetPolicyModel, tenant_id)
-        rate = self.governance.resolve_cost_rate(provider, model)
+        rate = self.governance.resolve_cost_rate(provider, model, processing_mode=processing_mode)
+        if rate is None:
+            return False, 0, "missing_cost_rate", "No cost rate is configured for this provider, model and processing mode."
         input_units = max(1, (len(profile.prompt_template) + 3) // 4)
         estimate = self.governance.estimate_cost(
             rate, input_units, self.settings.AI_ESTIMATED_OUTPUT_UNITS, 1
         )
         if policy is None or not policy.enabled:
-            return True, estimate, None
-        if rate is None:
-            return False, 0, "No cost rate is configured for this provider model."
+            return True, estimate, None, None
         if rate.currency != policy.currency:
-            return False, 0, "AI cost currency does not match the tenant budget."
+            return False, 0, "budget_currency_mismatch", "AI cost currency does not match the tenant budget."
         now = datetime.now(timezone.utc)
         periods = []
         if policy.daily_limit_micros is not None:
@@ -427,7 +432,7 @@ class AiAnalysisOrchestrationService:
                 * policy.hard_stop_threshold_percent // 100
             )
             if planned_cost + estimate > hard:
-                return False, estimate, "The per-run AI budget would be exceeded."
+                return False, estimate, "per_run_budget_exceeded", "The per-run AI budget would be exceeded."
         for period_type, period_key, limit in periods:
             account = self.session.scalar(
                 select(AiBudgetAccountModel).where(
@@ -443,7 +448,5 @@ class AiAnalysisOrchestrationService:
             )
             hard = limit * policy.hard_stop_threshold_percent // 100
             if committed + planned_cost + estimate > hard:
-                return False, estimate, (
-                    f"The {period_type} AI budget would be exceeded."
-                )
-        return True, estimate, None
+                return False, estimate, f"{period_type}_budget_exceeded", f"The {period_type} AI budget would be exceeded."
+        return True, estimate, None, None

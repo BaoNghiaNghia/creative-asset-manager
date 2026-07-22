@@ -107,7 +107,7 @@ class ProcessingPolicyRepository:
 
     def update_provider(self, tenant_id: str, provider_key: str, provider_scope: str,
                         changes: Mapping[str, Any]) -> TenantProviderPolicyModel:
-        unknown = set(changes) - {"processing_enabled", "active_jobs_limit"}
+        unknown = set(changes) - {"processing_enabled", "active_jobs_limit", "single_enabled", "batch_enabled", "emergency_stop", "single_active_jobs_limit", "batch_active_jobs_limit", "daily_budget_limit_micros", "monthly_budget_limit_micros", "budget_currency", "allowed_models_json"}
         if unknown:
             raise ValueError(f"unsupported provider policy fields: {sorted(unknown)}")
         policy = self.get_or_create_provider(tenant_id, provider_key, provider_scope)

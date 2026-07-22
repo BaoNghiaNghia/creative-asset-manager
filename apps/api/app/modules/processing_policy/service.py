@@ -131,7 +131,7 @@ class ProcessingPolicyService:
         before = policy_document(current)
         current = self.repository.update_provider(tenant_id, provider_key, provider_scope, changes)
         self.repository.audit(
-            actor_id=actor_id, tenant_id=tenant_id, action="provider_policy_updated",
+            actor_id=actor_id, tenant_id=tenant_id, action=("model_allowlist_changed" if "allowed_models_json" in changes else "provider_emergency_stop_changed" if "emergency_stop" in changes else "provider_enablement_changed" if any(k in changes for k in ("processing_enabled","single_enabled","batch_enabled")) else "provider_policy_updated"),
             old_policy=before, new_policy=policy_document(current), reason=reason,
             provider_key=provider_key, provider_scope=provider_scope,
         )

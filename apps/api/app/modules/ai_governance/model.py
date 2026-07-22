@@ -12,13 +12,14 @@ def new_id(): return str(uuid4())
 class AiCostRateModel(Base):
     __tablename__ = "ai_cost_rates"
     __table_args__ = (
-        UniqueConstraint("provider", "model", "effective_at", name="uq_ai_cost_rate_version"),
+        UniqueConstraint("provider", "model", "processing_mode", "effective_at", name="uq_ai_cost_rate_version"),
         CheckConstraint("input_unit_cost >= 0 AND output_unit_cost >= 0 AND media_unit_cost >= 0", name="ck_ai_cost_rates_nonnegative"),
         Index("ix_ai_cost_rates_resolve", "provider", "model", "effective_at"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     provider: Mapped[str] = mapped_column(String(100), nullable=False)
     model: Mapped[str] = mapped_column(String(255), nullable=False)
+    processing_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="any")
     effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     input_unit_cost: Mapped[float] = mapped_column(Numeric(24, 12), nullable=False, default=0)
     output_unit_cost: Mapped[float] = mapped_column(Numeric(24, 12), nullable=False, default=0)
@@ -81,6 +82,11 @@ class AiBudgetReservationModel(Base):
     analysis_id: Mapped[str | None] = mapped_column(String(36))
     job_id: Mapped[str | None] = mapped_column(String(36))
     pilot_run_id: Mapped[str | None] = mapped_column(String(36))
+    provider: Mapped[str | None] = mapped_column(String(100))
+    model: Mapped[str | None] = mapped_column(String(255))
+    processing_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="single")
+    operation_item_id: Mapped[str | None] = mapped_column(String(255))
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     estimated_cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     actual_cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
@@ -106,6 +112,7 @@ class AiUsageRecordModel(Base):
     analysis_id: Mapped[str | None] = mapped_column(String(36))
     job_id: Mapped[str | None] = mapped_column(String(36))
     provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    processing_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="single")
     model: Mapped[str | None] = mapped_column(String(255))
     metadata_profile: Mapped[str | None] = mapped_column(String(255))
     metadata_profile_version: Mapped[str | None] = mapped_column(String(100))
@@ -114,7 +121,7 @@ class AiUsageRecordModel(Base):
     output_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     media_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     provider_reported_cost_micros: Mapped[int | None] = mapped_column(BigInteger)
-    locally_estimated_cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    locally_estimated_cost_micros: Mapped[int | None] = mapped_column(BigInteger)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     outcome: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -131,6 +138,25 @@ class AiBudgetEventModel(Base):
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text)
     details_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+class AiRuntimeControlModel(Base):
+    __tablename__ = "ai_runtime_controls"
+    control_key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    stopped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+class AiBudgetOverrideModel(Base):
+    __tablename__ = "ai_budget_overrides"
+    __table_args__ = (UniqueConstraint("tenant_id", "analysis_id", name="uq_ai_budget_override_analysis"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 class AiPilotRunModel(Base):

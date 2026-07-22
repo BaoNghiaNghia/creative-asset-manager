@@ -77,6 +77,8 @@ class AiMetadataRepositoryTest(unittest.TestCase):
             metadata_profile_version=first.metadata_profile_version,
             prompt_version=first.prompt_version,
             pipeline_version=first.pipeline_version,
+            ai_provider=first.ai_provider,
+            ai_model=first.ai_model,
             forced=False,
         )
         self.session.add(duplicate)

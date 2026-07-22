@@ -64,3 +64,6 @@
   - [x] 33R1 Active-analysis integrity and deterministic rebuild ordering
   - [x] 33R2 Shadow-search safety, metrics, and reporting remediation
   - [x] 33R3 Elasticsearch lifecycle verification, recovery, and safe cleanup remediation
+
+- [x] AI-MULTI-06 Frontend provider, model and processing-mode selection
+- [x] AI-MULTI-07 Multi-provider production governance

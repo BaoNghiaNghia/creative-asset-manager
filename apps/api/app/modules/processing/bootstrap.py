@@ -61,6 +61,7 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
     return tuple(
         job_type for job_type, flags in _JOB_GLOBAL_FLAGS.items()
         if all(bool(getattr(settings, flag)) for flag in flags)
+        and not (settings.AI_EMERGENCY_STOP_ENABLED and job_type.startswith(("asset_analyze", "ai_batch_")))
     )
 
 

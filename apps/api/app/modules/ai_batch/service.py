@@ -20,7 +20,7 @@ from app.domain.providers.registry import AiProviderRegistry
 from app.modules.ai_batch.model import AiBatchJobModel, AiBatchItemModel, BATCH_TERMINAL_STATUSES
 from app.modules.ai_batch.repository import AiBatchRepository
 from app.modules.ai_governance.metrics import AI_METRICS
-from app.modules.ai_governance.repository import AiGovernanceRepository
+from app.modules.ai_governance.repository import AiGovernanceRepository, MissingCostRateError, ProviderGovernanceBlocked
 from app.modules.ai_governance.service import AiBudgetService, usage_units
 from app.modules.ai_metadata.analysis_image import AnalysisImageLimits, AnalysisImagePreparer
 from app.modules.ai_metadata.repository import AiMetadataRepository
@@ -84,8 +84,19 @@ class AiBatchService:
             max_height=self.settings.AI_ANALYSIS_MAX_HEIGHT,
             max_pixels=self.settings.AI_ANALYSIS_MAX_PIXELS,
             jpeg_quality=self.settings.AI_ANALYSIS_JPEG_QUALITY))
-        rate=self.governance.resolve_cost_rate(batch.provider,batch.model)
-        currency=rate.currency if rate else "USD"
+        try:
+            self.governance.assert_provider_allowed(tenant_id, batch.provider, "batch")
+            rate=self.governance.require_cost_rate(batch.provider,batch.model,"batch")
+        except (MissingCostRateError, ProviderGovernanceBlocked) as exc:
+            code=getattr(exc,"code","missing_cost_rate")
+            for item in self.repository.items(batch,{"pending","prepared","budget_blocked"}):
+                item.status="budget_blocked";item.last_error_code=code;item.last_error_message=str(exc)
+                AiMetadataRepository(self.session).mark_budget_blocked(item.analysis_id,code=code,reason=str(exc))
+            batch.status="preparing";batch.last_error_code=code;batch.last_error_message=str(exc)
+            self.governance.event(tenant_id,code,reason=str(exc),details={"provider":batch.provider,"processing_mode":"batch","model":batch.model,"mode":"batch"})
+            AI_METRICS.increment("budget_blocks",provider=batch.provider,mode="batch",outcome=code)
+            self.session.flush();raise AiProviderError(str(exc),code=code,retryable=True)
+        currency=rate.currency
         path=None
         provider_invoked=False
         try:
@@ -102,14 +113,14 @@ class AiBatchService:
                     if item.status=="prepared" and item.budget_reservation_id:
                         operation=item.budget_operation_key
                     else:
-                        operation=f"batch:{batch.id}:{item.custom_item_id}:attempt:{item.attempt_count+1}"
+                        operation=f"batch:{batch.id}:provider:{batch.provider}:model:{batch.model}:mode:batch:item:{item.custom_item_id}:attempt:{item.attempt_count+1}"
                         estimate=self.governance.estimate_cost(
                             rate,max(1,(len(prompt)+3)//4),
                             self.settings.AI_ESTIMATED_OUTPUT_UNITS,1)
                         decision=AiBudgetService(self.governance,self.settings).reserve(
                             tenant_id=tenant_id,operation_key=operation,
                             estimated_cost_micros=estimate,analysis_id=item.analysis_id,
-                            pilot_run_id=None,currency=currency)
+                            pilot_run_id=None,currency=currency,provider=batch.provider,model=batch.model,processing_mode="batch",operation_item_id=item.custom_item_id,attempt_number=item.attempt_count+1)
                         item.budget_operation_key=operation
                         item.budget_reservation_id=decision.reservation_id
                         item.estimated_cost_micros=estimate
@@ -135,7 +146,7 @@ class AiBatchService:
                         self.governance.record_usage(
                             tenant_id=tenant_id,operation_key=operation,
                             values={"asset_id":item.asset_id,"analysis_id":item.analysis_id,
-                                "provider":batch.provider,"model":batch.model,
+                                "provider":batch.provider,"processing_mode":"batch","model":batch.model,
                                 "metadata_profile":batch.metadata_profile,
                                 "metadata_profile_version":batch.metadata_profile_version,
                                 "prompt_version":batch.prompt_version,"input_units":0,
@@ -171,6 +182,7 @@ class AiBatchService:
             batch.input_checksum=digest.hexdigest();batch.input_bytes=total
             batch.estimated_cost_micros=sum(value.estimated_cost_micros for value in prepared_items)
             batch.currency=currency;self.session.commit()
+            self.governance.assert_provider_allowed(tenant_id, batch.provider, "batch")
             provider_invoked=True
             submission=await provider.submit_batch(AiBatchSubmissionInput(
                 tenant_id=tenant_id,submission_key=batch.submission_key,
@@ -368,7 +380,7 @@ class AiBatchService:
             raw=result.usage.get("costMicros")
             provider_cost=max(0,int(raw)) if isinstance(raw,(int,float)) else None
             model=result.model or model;request_id=result.provider_request_id
-        rate=self.governance.resolve_cost_rate(batch.provider,model)
+        rate=self.governance.require_cost_rate(batch.provider,model,"batch")
         local=self.governance.estimate_cost(rate,input_units,output_units,media_units)
         actual=provider_cost if provider_cost is not None else (
             item.estimated_cost_micros if provider_failed else local)
@@ -381,7 +393,7 @@ class AiBatchService:
         self.governance.record_usage(
             tenant_id=batch.tenant_id,operation_key=item.budget_operation_key,
             values={"asset_id":item.asset_id,"analysis_id":item.analysis_id,
-                "provider":batch.provider,"model":model,
+                "provider":batch.provider,"processing_mode":"batch","model":model,
                 "metadata_profile":batch.metadata_profile,
                 "metadata_profile_version":batch.metadata_profile_version,
                 "prompt_version":batch.prompt_version,"input_units":input_units,
@@ -394,7 +406,7 @@ class AiBatchService:
                     "completed" if item.status=="completed" else "invalid_metadata"),
                 "retry_count":max(0,item.attempt_count-1),
                 "provider_request_id":request_id})
-        AI_METRICS.increment("ai_requests",provider=batch.provider,outcome="batch_item")
+        AI_METRICS.increment("batch_count",provider=batch.provider,mode="batch",outcome="completed" if item.status=="completed" else "failed")
 
     def _reconcile_batch_total(self,batch:AiBatchJobModel)->None:
         raw=(batch.usage_json or {}).get("costMicros")

@@ -18,8 +18,19 @@ class CostRateCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider: str = Field(min_length=1, max_length=100)
     model: str = Field(min_length=1, max_length=255)
+    processing_mode: Literal["any", "single", "batch"] = "any"
     effective_at: str
     input_unit_cost: float = Field(ge=0)
     output_unit_cost: float = Field(ge=0)
     media_unit_cost: float = Field(ge=0)
     currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
+
+class RuntimeStopRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stopped: bool
+    reason: str = Field(min_length=1, max_length=2000)
+
+class BudgetOverrideRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    analysis_id: str = Field(min_length=1, max_length=36)
+    reason: str = Field(min_length=1, max_length=2000)

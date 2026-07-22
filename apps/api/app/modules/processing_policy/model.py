@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -60,6 +60,9 @@ class TenantProviderPolicyModel(Base):
         UniqueConstraint("tenant_id", "provider_key", "provider_scope", name="uq_tenant_provider_policy_identity"),
         CheckConstraint("active_jobs_limit > 0", name="ck_tenant_provider_policy_limit"),
         CheckConstraint("active_jobs >= 0", name="ck_tenant_provider_policy_active"),
+        CheckConstraint("single_active_jobs_limit > 0 AND batch_active_jobs_limit > 0", name="ck_provider_policy_mode_limits"),
+        CheckConstraint("single_active_jobs >= 0 AND batch_active_jobs >= 0", name="ck_provider_policy_mode_active"),
+        CheckConstraint("(daily_budget_limit_micros IS NULL OR daily_budget_limit_micros >= 0) AND (monthly_budget_limit_micros IS NULL OR monthly_budget_limit_micros >= 0)", name="ck_provider_policy_budgets"),
         Index("ix_tenant_provider_policy_eligible", "tenant_id", "provider_key", "provider_scope", "processing_paused"),
     )
 
@@ -74,6 +77,17 @@ class TenantProviderPolicyModel(Base):
     paused_by: Mapped[str | None] = mapped_column(String(255))
     active_jobs_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     active_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    single_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    batch_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    emergency_stop: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    single_active_jobs_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    batch_active_jobs_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    single_active_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    batch_active_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    daily_budget_limit_micros: Mapped[int | None] = mapped_column(BigInteger)
+    monthly_budget_limit_micros: Mapped[int | None] = mapped_column(BigInteger)
+    budget_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    allowed_models_json: Mapped[list | None] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
 

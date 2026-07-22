@@ -11,6 +11,8 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.main import app
 from app.modules.ai_batch.repository import AiBatchRepository
+from app.modules.ai_governance.model import AiCostRateModel
+from datetime import datetime, timedelta, timezone
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.model import AssetModel
@@ -56,6 +58,12 @@ class BulkAssetAnalysisApiTest(unittest.TestCase):
                 pipeline_enabled=True,
                 ai_analysis_enabled=True,
             ))
+            session.add_all([
+                AiCostRateModel(provider="gemini", model="gemini-test", processing_mode="any", effective_at=datetime.now(timezone.utc)-timedelta(days=1), input_unit_cost=0, output_unit_cost=0, media_unit_cost=0),
+                AiCostRateModel(provider="openai", model="openai-test", processing_mode="any", effective_at=datetime.now(timezone.utc)-timedelta(days=1), input_unit_cost=0, output_unit_cost=0, media_unit_cost=0),
+                AiCostRateModel(provider="gemini", model="gemini-alt", processing_mode="any", effective_at=datetime.now(timezone.utc)-timedelta(days=1), input_unit_cost=0, output_unit_cost=0, media_unit_cost=0),
+                AiCostRateModel(provider="openai", model="openai-alt", processing_mode="any", effective_at=datetime.now(timezone.utc)-timedelta(days=1), input_unit_cost=0, output_unit_cost=0, media_unit_cost=0),
+            ])
             session.commit()
             self.asset_ids = [asset.id for asset in assets]
             self.foreign_asset_id = foreign.id
@@ -356,7 +364,7 @@ class BulkAssetAnalysisApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(
             response.json()["items"][0]["acceptance_status"],
-            "budget_preflight_failed",
+            "provider_unavailable",
         )
 
         with (

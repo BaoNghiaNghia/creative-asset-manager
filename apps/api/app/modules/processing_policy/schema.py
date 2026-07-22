@@ -32,4 +32,13 @@ class ResumeRequest(BaseModel):
 class ProviderPolicyPatch(BaseModel):
     processing_enabled: bool | None = None
     active_jobs_limit: int | None = Field(default=None, ge=1, le=1000)
+    single_enabled: bool | None = None
+    batch_enabled: bool | None = None
+    emergency_stop: bool | None = None
+    single_active_jobs_limit: int | None = Field(default=None, ge=1, le=1000)
+    batch_active_jobs_limit: int | None = Field(default=None, ge=1, le=1000)
+    daily_budget_limit_micros: int | None = Field(default=None, ge=0)
+    monthly_budget_limit_micros: int | None = Field(default=None, ge=0)
+    budget_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    allowed_models_json: list[str] | None = None
     reason: str | None = Field(default=None, max_length=2000)

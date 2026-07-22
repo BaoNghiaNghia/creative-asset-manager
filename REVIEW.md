@@ -1371,3 +1371,23 @@ Final controls:
 - Rollback: revert this frontend-only change. No schema, worker, provider or
   queued-job rollback is required.
 - Next recommended step: AI-MULTI-07 governance and production controls.
+
+
+## AI-MULTI-07 review - multi-provider production governance
+
+- Migration added: 0021_ai_multi_governance, with step-scoped downgrade.
+- Behavior introduced: independent Gemini/OpenAI and single/batch tenant
+  controls; database-backed pre-claim concurrency and runtime emergency stops;
+  effective-dated mode-specific rates; provider budgets; fail-closed
+  missing_cost_rate; audited privileged overrides; bounded metrics; forced
+  analysis and cancellation audit events.
+- Tests: focused governance, tenant claim, single analysis, analysis API, bulk
+  orchestration, batch service/handler and migration groups: 57 tests passed
+  in 25.080s. Compile check and git diff hygiene passed; Alembic reports
+  exactly one head at 0021_ai_multi_governance.
+- Global feature flags remain upper bounds and no AI feature was enabled.
+- Rollback: set the global/runtime AI stop, drain workers, deploy the previous
+  application, then downgrade to 0020_ai_analysis_requests only after workers
+  no longer reference the new columns.
+
+- Clean-environment backend regression: `cd apps/api && .venv/bin/python -m unittest discover -s tests -q`: 406 tests passed in 219.308s with 13 environment-dependent skips. The local `.env` was excluded for this run and restored afterward; no provider credentials were required.

@@ -262,3 +262,46 @@ It passed 46 tests. PostgreSQL-specific repository/startup coverage additionally
 passed six tests in `tests.integration.test_postgresql`. Keep Elasticsearch
 readiness disabled until the associated search feature is deliberately enabled;
 the independent Compose health check still proves that the service is available.
+
+
+## Multi-provider AI production governance
+
+Provider selection is governed by three fail-closed layers:
+
+1. Global feature flags and AI_EMERGENCY_STOP_ENABLED are upper bounds.
+2. Tenant/provider policy controls provider enablement, single/batch mode,
+   allowlisted models, distributed concurrency, pause state and provider budgets.
+3. A cost rate effective for provider, model and processing mode is required
+   before provider invocation.
+
+Runtime emergency controls do not require a worker restart:
+
+- PUT /api/v1/admin/ai-governance/runtime-controls/global
+- PUT /api/v1/admin/ai-governance/runtime-controls/gemini
+- PUT /api/v1/admin/ai-governance/runtime-controls/openai
+
+Use a platform-admin credential and body
+{"stopped":true,"reason":"incident reference"}. Resume with stopped=false.
+The worker checks durable controls before claim and immediately before provider
+invocation. Static environment stops remain an additional emergency upper bound.
+
+Configure tenant AI policies through
+PATCH /api/v1/admin/processing-policies/{tenant_id}/providers/ai/{provider}.
+Supported governance fields include processing_enabled, single_enabled,
+batch_enabled, emergency_stop, single/batch concurrency limits,
+daily/monthly budget limits, currency and allowed_models_json.
+
+Cost rates are created through POST /api/v1/admin/ai-governance/cost-rates
+with provider, model, processing_mode (single, batch, or any), effective date,
+unit prices and currency. Missing rates produce missing_cost_rate and no
+provider call. A platform administrator may grant a specific analysis exception
+at POST /api/v1/admin/ai-governance/{tenant_id}/budget-overrides; the reason and
+actor are audited, and unknown cost remains NULL rather than being reported as
+zero.
+
+Emergency rollback:
+
+1. Stop the affected runtime control.
+2. Allow currently running calls to drain; queued jobs remain durable.
+3. Correct policy/rates, inspect bounded metrics and audit events.
+4. Resume the runtime control. Never delete queued jobs to resume processing.

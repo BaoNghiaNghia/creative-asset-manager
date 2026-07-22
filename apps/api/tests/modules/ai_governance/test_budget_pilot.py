@@ -113,6 +113,7 @@ class PilotServiceTest(unittest.TestCase):
             asset=AssetModel(tenant_id="tenant-a",content_hash=f"{index:064x}",mime_type="image/png")
             self.session.add(asset);self.assets.append(asset)
         self.session.add(AssetModel(tenant_id="tenant-b",content_hash="f"*64,mime_type="image/png"))
+        self.session.add(AiCostRateModel(provider="gemini", model=self.settings.GEMINI_MODEL, processing_mode="single", effective_at=datetime.now(timezone.utc) - timedelta(days=1), input_unit_cost=0, output_unit_cost=0, media_unit_cost=0))
         self.session.flush()
         self.profile=AiMetadataRepository(self.session).create_profile(
             tenant_id="tenant-a",profile_name="general",profile_version="1",

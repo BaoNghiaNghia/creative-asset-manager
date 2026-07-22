@@ -5,6 +5,7 @@ from typing import Literal
 
 from app.core.config import Settings
 from app.domain.providers.registry import AiProviderRegistry
+from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService
 
@@ -58,6 +59,9 @@ class AiProviderSelectionService:
             processing_mode=processing_mode,
         )
         allowed = self._allowed_models(provider)
+        provider_policy = self.policy_repository.get_provider(tenant_id, provider, "ai")
+        if provider_policy is not None and provider_policy.allowed_models_json is not None:
+            allowed = tuple(model for model in allowed if model in provider_policy.allowed_models_json)
         selected_model = (model or self._default_model(provider)).strip()
         if not selected_model or selected_model not in allowed:
             raise AiSelectionError(
@@ -82,6 +86,9 @@ class AiProviderSelectionService:
                 if self._mode_available(tenant_id, provider, mode)
             ]
             allowed = self._allowed_models(provider)
+            provider_policy = self.policy_repository.get_provider(tenant_id, provider, "ai")
+            if provider_policy is not None and provider_policy.allowed_models_json is not None:
+                allowed = tuple(model for model in allowed if model in provider_policy.allowed_models_json)
             providers.append({
                 "id": provider,
                 "label": _PROVIDER_LABELS[provider],
@@ -130,6 +137,8 @@ class AiProviderSelectionService:
     ) -> bool:
         if provider not in _PROVIDER_LABELS:
             return False
+        if self.settings.AI_EMERGENCY_STOP_ENABLED or bool(getattr(self.settings, f"{provider.upper()}_EMERGENCY_STOP_ENABLED", False)):
+            return False
         if not self.settings.DYNAMIC_AI_METADATA_ENABLED:
             return False
         if not self.settings.PROCESSING_JOBS_ENABLED:
@@ -162,12 +171,17 @@ class AiProviderSelectionService:
         ).effective(tenant_id)
         if not effective.effective.get("ai_analysis_enabled", False):
             return False
+        if AiGovernanceRepository(self.policy_repository.session).runtime_stopped(provider)[0]:
+            return False
         provider_policy = self.policy_repository.get_provider(
             tenant_id, provider, "ai"
         )
         return provider_policy is None or (
             provider_policy.processing_enabled
             and not provider_policy.processing_paused
+            and not provider_policy.emergency_stop
+            and (processing_mode != "single" or provider_policy.single_enabled)
+            and (processing_mode != "batch" or provider_policy.batch_enabled)
         )
 
     def _allowed_models(self, provider: str) -> tuple[str, ...]:

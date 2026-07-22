@@ -17,6 +17,8 @@ from app.modules.ai_metadata.service import AiAnalysisService
 from app.modules.assets.model import AssetModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.storage.model import AssetStorageObjectModel
+from app.modules.ai_governance.model import AiCostRateModel
+from datetime import datetime, timedelta, timezone
 
 
 class FakeStorage:
@@ -38,6 +40,8 @@ class FakeStorage:
 
 
 class FakeAi:
+    provider_name = "gemini"
+    model = "gemini-2.5-flash"
     def __init__(self, metadata, on_call=None):
         self.metadata = metadata
         self.on_call = on_call
@@ -50,7 +54,7 @@ class FakeAi:
         return AiMetadataAnalysisResult(
             metadata=self.metadata,
             provider="fake",
-            model="fake-1",
+            model=self.model,
             provider_request_id="request-1",
             usage={"total": 1},
             provider_metadata={"finish_reason": "STOP"},
@@ -98,6 +102,7 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
                 prompt_version="profile-1",
                 pipeline_version="single-asset-v1",
             )
+            session.add(AiCostRateModel(provider="gemini", model="gemini-2.5-flash", processing_mode="single", effective_at=datetime.now(timezone.utc) - timedelta(days=1), input_unit_cost=0, output_unit_cost=0, media_unit_cost=0))
             session.add(AssetStorageObjectModel(
                 tenant_id="tenant-a",
                 asset_id=asset.id,
@@ -250,7 +255,7 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
         from app.modules.ai_metadata.model import AssetAiAnalysisModel
         with self.factory() as session:
             session.add(AiCostRateModel(
-                provider="gemini", model=self.settings.GEMINI_MODEL,
+                provider="gemini", model=self.settings.GEMINI_MODEL, processing_mode="single",
                 effective_at=datetime.now(timezone.utc),
                 input_unit_cost=0, output_unit_cost=0, media_unit_cost=.001,
                 currency="USD",
@@ -307,3 +312,44 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
                 session.scalar(select(func.count()).select_from(ProcessingJobModel)),
                 0,
             )
+
+
+    async def test_missing_cost_rate_fails_closed_before_provider(self):
+        from sqlalchemy import delete
+        with self.factory() as session:
+            session.execute(delete(AiCostRateModel))
+            session.commit()
+        ai = FakeAi({"subject": "cat"})
+        outcome = await AiAnalysisService(
+            session_factory=self.factory, storage_provider=self.storage,
+            ai_provider=ai, settings=self.settings,
+        ).analyze(
+            tenant_id="tenant-a", analysis_id=self.analysis_id,
+            worker_id="worker-a",
+        )
+        self.assertEqual(outcome.status, "budget_blocked")
+        self.assertEqual(outcome.error_code, "missing_cost_rate")
+        self.assertEqual(ai.calls, 0)
+
+    async def test_privileged_missing_rate_override_is_audited_and_does_not_report_zero(self):
+        from sqlalchemy import delete
+        from app.modules.ai_governance.model import AiUsageRecordModel
+        from app.modules.ai_governance.repository import AiGovernanceRepository
+        with self.factory() as session:
+            session.execute(delete(AiCostRateModel))
+            AiGovernanceRepository(session).grant_budget_override(
+                "tenant-a", self.analysis_id, "platform-admin", "approved exception")
+            session.commit()
+        ai = FakeAi({"subject": "cat"})
+        outcome = await AiAnalysisService(
+            session_factory=self.factory, storage_provider=self.storage,
+            ai_provider=ai, settings=self.settings,
+        ).analyze(
+            tenant_id="tenant-a", analysis_id=self.analysis_id,
+            worker_id="worker-a",
+        )
+        self.assertEqual(outcome.status, "completed")
+        self.assertEqual(ai.calls, 1)
+        with self.factory() as session:
+            usage = session.scalar(select(AiUsageRecordModel))
+            self.assertIsNone(usage.locally_estimated_cost_micros)

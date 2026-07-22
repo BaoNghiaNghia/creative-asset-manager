@@ -6,7 +6,8 @@ from app.core.database import SessionLocal
 from app.modules.ai_governance.metrics import AI_METRICS
 from app.modules.ai_governance.model import AiCostRateModel
 from app.modules.ai_governance.repository import AiGovernanceRepository
-from app.modules.ai_governance.schema import BudgetPolicyPatch, CostRateCreate
+from app.modules.ai_governance.schema import BudgetOverrideRequest, BudgetPolicyPatch, CostRateCreate, RuntimeStopRequest
+from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
 
 router = APIRouter(prefix="/api/v1/admin/ai-governance", tags=["ai-governance"])
@@ -68,10 +69,41 @@ def create_cost_rate(body: CostRateCreate, admin: ProcessingAdmin = Depends(requ
     with SessionLocal() as session:
         value = AiCostRateModel(effective_at=effective_at, **body.model_dump(exclude={"effective_at"}))
         session.add(value)
+        AiGovernanceRepository(session).event("platform", "cost_rate_changed", actor_id=admin.actor_id, details={"provider": body.provider, "model": body.model, "processing_mode": body.processing_mode, "effective_at": body.effective_at})
         session.commit()
         return {"id": value.id, "provider": value.provider, "model": value.model,
-                "effective_at": value.effective_at, "currency": value.currency}
+                "effective_at": value.effective_at, "currency": value.currency, "processing_mode": value.processing_mode}
 
 @router.get("/metrics")
 def metrics(admin: ProcessingAdmin = Depends(require_processing_admin)):
     return AI_METRICS.snapshot()
+
+@router.put("/runtime-controls/{control_key}")
+def set_runtime_control(control_key: str, body: RuntimeStopRequest,
+                        admin: ProcessingAdmin = Depends(require_processing_admin)):
+    if not admin.platform_admin:
+        raise HTTPException(status_code=403, detail="Platform administrator role required")
+    with SessionLocal() as session:
+        repo = AiGovernanceRepository(session)
+        try:
+            value = repo.set_runtime_stop(control_key, body.stopped, admin.actor_id, body.reason)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        session.commit()
+        return {"control_key": value.control_key, "stopped": value.stopped,
+                "reason": value.reason, "updated_at": value.updated_at}
+
+@router.post("/{tenant_id}/budget-overrides")
+def grant_budget_override(tenant_id: str, body: BudgetOverrideRequest,
+                          admin: ProcessingAdmin = Depends(require_processing_admin)):
+    admin.authorize_tenant(tenant_id)
+    if not admin.platform_admin:
+        raise HTTPException(status_code=403, detail="Platform administrator role required")
+    with SessionLocal() as session:
+        analysis = AiMetadataRepository(session).get_analysis(body.analysis_id)
+        if analysis.tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+        value = AiGovernanceRepository(session).grant_budget_override(
+            tenant_id, body.analysis_id, admin.actor_id, body.reason)
+        session.commit()
+        return {"id": value.id, "analysis_id": value.analysis_id, "active": value.active}
