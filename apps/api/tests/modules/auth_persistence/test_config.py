@@ -43,6 +43,27 @@ class AuthConfigurationTest(unittest.TestCase):
                 **PRODUCTION_HTTP_SETTINGS,
             )
 
+    def test_legacy_processing_admin_allowlist_is_forbidden_in_production(self):
+        with self.assertRaisesRegex(ValueError, "legacy processing admin allowlist"):
+            Settings(
+                APP_ENV="production",
+                AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=True,
+                **PRODUCTION_HTTP_SETTINGS,
+            )
+        with self.assertRaisesRegex(ValueError, "legacy processing admin allowlist"):
+            Settings(
+                APP_ENV="production",
+                PROCESSING_POLICY_ADMIN_IDS="legacy-admin",
+                **PRODUCTION_HTTP_SETTINGS,
+            )
+        settings = Settings(
+            APP_ENV="production",
+            AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=False,
+            PROCESSING_POLICY_ADMIN_IDS="",
+            **PRODUCTION_HTTP_SETTINGS,
+        )
+        self.assertFalse(settings.AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED)
+
     def test_auth_signup_defaults_fail_closed_and_domains_are_normalized(self):
         defaults = Settings()
         self.assertFalse(defaults.AUTH_SELF_SIGNUP_ENABLED)

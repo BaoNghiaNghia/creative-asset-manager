@@ -415,6 +415,11 @@ class Settings(BaseSettings):
                 raise ValueError("SQLite is not supported in production")
             if self.DEVELOPMENT_PERSONAL_TENANT_ENABLED:
                 raise ValueError("DEVELOPMENT_PERSONAL_TENANT_ENABLED is forbidden in production")
+            if (
+                self.AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED
+                or self.PROCESSING_POLICY_ADMIN_IDS.strip()
+            ):
+                raise ValueError("legacy processing admin allowlist is forbidden in production")
             if self.AUTH_SELF_SIGNUP_ENABLED and not self.AUTH_DEFAULT_TENANT_ID.strip():
                 raise ValueError("AUTH_DEFAULT_TENANT_ID is required for production self-signup")
         domains = self.auth_allowed_email_domains

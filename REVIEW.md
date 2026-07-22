@@ -1833,3 +1833,91 @@ Final controls:
 - Known risks: frontend permission visibility depends on the safe identity endpoint and may briefly hide navigation while loading; direct API enforcement is unaffected. Routes outside the explicitly migrated AUTH-08 scope may still use compatibility authorization until their own migration.
 - Rollback: deploy the previous application/UI revision. No database downgrade is required. Keep the compatibility flag disabled unless an explicitly approved emergency migration requires the deprecated adapter.
 - Next recommended step: AUTH-09 bootstrap/backfill and final validation; do not infer administration from provider identity or Drive ownership.
+
+## AUTH-09 review - migration tooling and final validation
+
+- Files changed: identity-based migration operations, auth CLI commands,
+  production compatibility validation, focused regression tests, local and VPS
+  operator documentation, roadmap and this review.
+- Migrations added: none. AUTH-09 reuses the AUTH-01 through AUTH-08 schema.
+  Alembic has one head: `0028_central_authorization`.
+- Behavior introduced:
+  - `bootstrap-access` resolves an existing Google/Microsoft identity by
+    provider subject, creates/selects one tenant, restores/creates active
+    membership, seeds protected RBAC definitions and idempotently assigns
+    `tenant_admin`.
+  - `grant-platform-admin` is a separate explicit confirmed action.
+  - `backfill-legacy-auth` scans OAuth connections in bounded resumable pages,
+    creates subject-keyed users/identities without email linking, creates no
+    admin privilege, fills nullable session user/tenant references and reports
+    bounded non-secret unresolved records.
+  - production configuration rejects both the legacy allowlist flag and
+    non-empty `PROCESSING_POLICY_ADMIN_IDS`.
+- Security: commands never accept or print OAuth credentials. Same-email
+  Google and Microsoft identities remain distinct. Drive ownership, domains,
+  scopes and provider account types never imply administration. Privilege
+  mutations and backfill pages append bounded audit events.
+
+Validation was run in the requested order:
+
+1. `cd apps/api && .venv/bin/python -m unittest tests.modules.auth_persistence.test_identity -v`:
+   7 passed in 0.063s.
+2. `cd apps/api && .venv/bin/python -m unittest tests.modules.auth_persistence.test_tenant_membership tests.modules.auth_persistence.test_tenant_bootstrap -v`:
+   8 passed in 0.075s.
+3. `cd apps/api && .venv/bin/python -m unittest tests.modules.authorization.test_service tests.modules.authorization.test_seed_cli tests.operations.test_auth_migration -v`:
+   13 passed in 0.479s.
+4. `cd apps/api && .venv/bin/python -m unittest tests.modules.authorization.test_principal -v`:
+   12 passed in 0.288s.
+5. `cd apps/api && .venv/bin/python -m pytest -q tests/modules/auth_persistence/test_login.py tests/modules/auth_persistence/test_api.py -k google`:
+   3 passed, 9 deselected in 0.45s.
+6. The same OAuth modules with `-k microsoft`: 3 passed, 9 deselected in
+   0.42s.
+7. `cd apps/api && .venv/bin/python -m unittest tests.modules.authorization.test_admin_service tests.modules.authorization.test_admin_router -v`:
+   11 passed in 0.469s.
+8. `cd apps/api && .venv/bin/python -m pytest -q tests/modules/ai_operations tests/modules/processing_policy/test_auth.py --maxfail=1`:
+   21 passed in 2.26s.
+9. `cd apps/client && npm test -- app/access-management/AccessManagementPage.test.tsx`:
+   12 passed in 0.612s.
+10. AI Operations page/provider frontend authorization tests: 23 passed in
+    0.639s.
+11. AUTH migration upgrade/downgrade modules: 4 passed in 9.954s.
+12. PostgreSQL 16.4 integration with an empty database upgraded to head:
+    9 passed in 0.207s. A psycopg ResourceWarning about one test connection
+    being garbage-collected open was emitted after success.
+13. The first local API discovery run loaded developer `.env` values and
+    failed with 1 failure/5 errors because encryption keys and insecure-cookie
+    values contaminated isolated configuration fixtures. No code was changed
+    to mask it. The clean-CI equivalent temporarily excluded that local file:
+    `timeout 10m .venv/bin/python -m unittest discover -s tests -v`:
+    final post-fix run passed 506 tests with 16 integration skips in 151.400s.
+    A focused regression first exposed SQLite savepoint behavior that could
+    escape a dry-run rollback; after the targeted dialect-safe transaction fix,
+    the failing backfill test passed alone (1 in 0.041s) and its module passed
+    (2 in 0.099s).
+14. Durable pipeline against PostgreSQL 16.4 and Elasticsearch 8.15.3:
+    7 passed in 2.606s; all providers were fakes.
+15. `cd apps/client && npm run typecheck && npm run build`: passed; Vite
+    transformed 66 modules and built in 0.622s.
+16. `cd apps/client && npm test`: 68 passed across 10 files in 0.675s.
+17. Elasticsearch 8.15.3 integration mapping/alias/query/cleanup fixture:
+    1 passed in 0.362s.
+18. Shell syntax, Python compileall, one-head assertion, fail-closed default
+    settings, frontend credential-name scan and `git diff --check`: passed.
+
+- CI parity: the local API environment provides Python 3.10.12; GitHub Actions
+  remains pinned to Python 3.12 and Node 22. The exact CI discovery command,
+  PostgreSQL, Elasticsearch, pipeline and frontend job components all passed
+  locally without production provider credentials.
+- Feature/configuration controls: self-signup and the deprecated compatibility
+  adapter remain false by default. Production rejects the adapter and any
+  legacy admin ID list. No ingestion, AI or Search v2 flag was enabled.
+- Deprecation: production disablement is immediate; compatibility migration
+  deadline is 2026-08-31. Remove the legacy ID setting after an empty unresolved
+  report and two releases without compatibility authorization events.
+- Rollback: deploy the previous application release without downgrading
+  PostgreSQL; disable self-signup/compatibility, revoke incorrect durable
+  assignments, preserve identity/membership/audit history, then rerun the
+  idempotent command against the corrected identity and tenant.
+- Known risk: local Python differs from CI Python; remote Actions status must be
+  confirmed after pushing this commit. AUTH-09 must not be considered remotely
+  green until that workflow completes.

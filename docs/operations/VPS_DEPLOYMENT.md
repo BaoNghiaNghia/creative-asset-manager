@@ -305,3 +305,45 @@ Emergency rollback:
 2. Allow currently running calls to drain; queued jobs remain durable.
 3. Correct policy/rates, inspect bounded metrics and audit events.
 4. Resume the runtime control. Never delete queued jobs to resume processing.
+
+## AUTH-09 production access migration
+
+Before deployment, production configuration must contain:
+
+```dotenv
+AUTH_SELF_SIGNUP_ENABLED=false
+AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=false
+PROCESSING_POLICY_ADMIN_IDS=
+AUTH_COOKIE_SECURE=true
+```
+
+The API rejects a production startup that enables the deprecated processing
+administrator allowlist. Apply Alembic migrations first, complete an approved
+OAuth login or pre-provisioned identity, and use the commands documented in
+`docs/operations/AUTH_PERSISTENCE.md`:
+
+1. Run `bootstrap-access --dry-run` for the exact provider subject and tenant.
+2. Run the same command with `--confirm` and an audit/ticket reason.
+3. Grant platform administration only through the separate explicit command
+   when platform-wide access is required.
+4. Run `backfill-legacy-auth --dry-run --max-pages 1`, resolve every reported
+   tenant/user conflict, then run confirmed pages resumably.
+5. Verify persistent sessions have application user and active tenant IDs,
+   tenant roles are durable, disabled users cannot reuse sessions, and audit
+   events contain no tokens.
+6. Verify an ordinary viewer receives 403 for AI Operations while the
+   tenant_admin can access the tenant-scoped dashboard.
+
+Never infer an administrator from email domain, Google Drive ownership,
+Microsoft tenant claims or OAuth scopes. Never paste access/refresh tokens into
+the bootstrap commands.
+
+Rollback deploys the previous application release without downgrading
+PostgreSQL. Disable self-signup and compatibility bypasses, revoke incorrect
+durable assignments, and preserve identity/membership/audit history. The
+temporary allowlist must remain disabled in production throughout rollback.
+
+The compatibility migration deadline is 2026-08-31. Remove
+`PROCESSING_POLICY_ADMIN_IDS` only after the bounded backfill has no unresolved
+records and two production releases have emitted no compatibility authorization
+events.

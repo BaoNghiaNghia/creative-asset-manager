@@ -173,3 +173,114 @@ Rollback deploys the AUTH-04 application code and leaves all AUTH-01 through
 AUTH-04 tables intact; no AUTH-05 migration is required. Existing AUTH-05
 sessions remain valid persistent sessions. Disable self-signup immediately and
 expire/revoke affected sessions if admission configuration was incorrect.
+
+## AUTH-09 identity bootstrap and compatibility backfill
+
+AUTH-09 resolves operators by the stable external identity
+`provider + provider_subject`. It never accepts an OAuth token and never uses an
+email address, Drive ownership, OAuth scope or provider account type to infer
+administration.
+
+Preview and then bootstrap a tenant membership and the protected
+`tenant_admin` role:
+
+```bash
+cd apps/api
+.venv/bin/python -m app.operations.auth_cli bootstrap-access \
+  --provider google \
+  --subject <google-provider-subject> \
+  --tenant-id <stable-tenant-id> \
+  --tenant-name "Studio name" \
+  --tenant-slug studio-name \
+  --reason "AUTH-09 initial tenant administrator preview" \
+  --dry-run
+
+.venv/bin/python -m app.operations.auth_cli bootstrap-access \
+  --provider google \
+  --subject <google-provider-subject> \
+  --tenant-id <stable-tenant-id> \
+  --tenant-name "Studio name" \
+  --tenant-slug studio-name \
+  --reason "Approved AUTH-09 initial tenant administrator" \
+  --confirm
+```
+
+The command is idempotent. An existing tenant may be selected with only
+`--tenant-id`; creating one requires name and slug. Suspended memberships are
+explicitly restored and audited. Platform administration is never implied by
+this operation.
+
+Grant platform administration only as a separate, explicitly confirmed action:
+
+```bash
+.venv/bin/python -m app.operations.auth_cli grant-platform-admin \
+  --provider google \
+  --subject <google-provider-subject> \
+  --granted-by-user-id <existing-platform-operator-user-id> \
+  --reason "Approved platform bootstrap ticket" \
+  --dry-run
+
+.venv/bin/python -m app.operations.auth_cli grant-platform-admin \
+  --provider google \
+  --subject <google-provider-subject> \
+  --granted-by-user-id <existing-platform-operator-user-id> \
+  --reason "Approved platform bootstrap ticket" \
+  --confirm
+```
+
+Backfill legacy OAuth connections and actor-only sessions in bounded pages:
+
+```bash
+.venv/bin/python -m app.operations.auth_cli backfill-legacy-auth \
+  --page-size 100 --max-pages 1 \
+  --reason "AUTH-09 compatibility preview" --dry-run
+
+.venv/bin/python -m app.operations.auth_cli backfill-legacy-auth \
+  --page-size 100 --after-id <opaque-cursor-if-resuming> \
+  --actor-user-id <operator-user-id> \
+  --reason "Approved AUTH-09 compatibility backfill" --confirm
+```
+
+The backfill creates identities only from provider subjects, creates active
+memberships only for an existing active tenant, and fills nullable
+`auth_sessions.user_id` and `active_tenant_id`. Same-email Google and
+Microsoft connections remain separate users. Inactive users/memberships,
+missing tenants and conflicting sessions are reported as bounded records
+containing only connection ID, provider and stable error code. The command
+does not seed roles or platform privileges.
+
+### Local validation
+
+1. Complete an approved Google or Microsoft login.
+2. Run `bootstrap-access --dry-run`, inspect only opaque IDs/counts, then run
+   with `--confirm`.
+3. Open `/settings/access` and confirm the tenant_admin role.
+4. Open AI Operations and verify the durable permissions.
+5. Assign an ordinary viewer and verify AI Operations returns permission
+   denied while asset/search read access remains available.
+
+### Production rollout and deprecation
+
+- Keep `AUTH_SELF_SIGNUP_ENABLED=false` unless admission is explicitly
+  approved.
+- Keep `AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=false` and
+  `PROCESSING_POLICY_ADMIN_IDS=` in production. Configuration now rejects
+  either legacy bypass in production.
+- Local emergency migration use requires the compatibility flag explicitly;
+  it is not a durable authorization source.
+- Migration deadline: **2026-08-31**. By that date every active session must
+  have `user_id` and `active_tenant_id`, and every operator must have a
+  durable membership/role or platform-admin assignment.
+- Remove `PROCESSING_POLICY_ADMIN_IDS` after two production releases show no
+  compatibility authorization audit/event and the unresolved backfill report
+  is empty.
+
+### Rollback
+
+Application rollback does not downgrade PostgreSQL. Disable self-signup and
+legacy compatibility, revoke incorrect platform assignments through the
+durable authorization service, and remove incorrect tenant role assignments
+through Access Management. Preserve users, identities, memberships and audit
+events for investigation. Re-run the idempotent commands after correcting the
+target identity/tenant; never repair access by editing OAuth tokens or matching
+email addresses.
