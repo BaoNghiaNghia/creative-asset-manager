@@ -10,6 +10,8 @@ from app.core.config import Settings
 from app.domain.providers.registry import AiProviderRegistry
 from app.modules.ai_batch.model import AiBatchJobModel, BATCH_TERMINAL_STATUSES
 from app.modules.ai_governance.repository import AiGovernanceRepository, MissingCostRateError
+from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
+from app.modules.ai_metadata.selection import AiProviderSelectionService
 from app.modules.ai_operations.schema import AI_JOB_TYPES
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -166,6 +168,108 @@ class AiOperationsControlService:
         )
         return new or {}
 
+    def configuration(self, tenant_id: str, *, platform_admin: bool) -> dict[str, Any]:
+        tenant = self.policies.get_or_create_tenant(tenant_id)
+        capabilities = AiProviderSelectionService(
+            self.settings, self.registry, self.policies
+        ).capabilities(tenant_id)["providers"]
+        providers = []
+        for capability in capabilities:
+            provider = capability["id"]
+            policy = self.policies.get_provider(tenant_id, provider, "ai")
+            last_error = self.session.scalar(
+                select(AssetAiAnalysisModel.last_error_code).where(
+                    AssetAiAnalysisModel.tenant_id == tenant_id,
+                    AssetAiAnalysisModel.ai_provider == provider,
+                    AssetAiAnalysisModel.last_error_code.is_not(None),
+                ).order_by(AssetAiAnalysisModel.updated_at.desc()).limit(1)
+            )
+            providers.append({
+                **capability,
+                "connection_configured": self.registry.has(provider),
+                "processing_enabled": policy.processing_enabled if policy else True,
+                "paused": policy.processing_paused if policy else False,
+                "single_enabled": policy.single_enabled if policy else "single" in capability["supported_modes"],
+                "batch_enabled": policy.batch_enabled if policy else "batch" in capability["supported_modes"],
+                "active_jobs_limit": policy.active_jobs_limit if policy else 1,
+                "single_concurrency": policy.single_active_jobs_limit if policy else 1,
+                "batch_concurrency": policy.batch_active_jobs_limit if policy else 1,
+                "allowed_models": [item["id"] for item in capability["models"]],
+                "last_error": last_error,
+            })
+        budget = self._budget_document(self.governance.get_policy(tenant_id)) or {
+            "enabled": False, "daily_limit_micros": None,
+            "monthly_limit_micros": None, "warning_threshold_percent": 80,
+            "hard_stop_threshold_percent": 100, "currency": "USD",
+        }
+        profiles = list(self.session.scalars(select(MetadataProfileModel.profile_name).where(
+            MetadataProfileModel.tenant_id == tenant_id,
+            MetadataProfileModel.active.is_(True),
+        ).distinct().order_by(MetadataProfileModel.profile_name)))
+        runtime_stopped, _ = self.governance.runtime_stopped("global")
+        return {
+            "tenant_id": tenant_id,
+            "scope": {"tenant": tenant_id, "global_upper_bounds_read_only": True},
+            "permissions": {
+                "can_manage_tenant": True,
+                "can_manage_global": platform_admin,
+                "platform_admin": platform_admin,
+            },
+            "tenant": {
+                "ai_enabled": tenant.ai_analysis_enabled,
+                "default_provider": tenant.default_ai_provider,
+                "default_model": tenant.default_ai_model,
+                "default_mode": tenant.default_ai_mode,
+                "default_metadata_profile": tenant.default_metadata_profile,
+                "auto_analyze_new_assets": tenant.auto_analyze_new_assets,
+                "daily_item_limit": tenant.daily_ai_item_limit,
+                "total_ai_concurrency": tenant.ai_active_jobs_limit,
+                "retry_count": tenant.ai_retry_count,
+                "timeout_seconds": tenant.ai_timeout_seconds,
+            },
+            "global": {
+                "ai_auto_analyze_enabled": self.settings.AI_AUTO_ANALYZE_ENABLED,
+                "single_enabled": self.settings.AI_SINGLE_ANALYSIS_ENABLED,
+                "batch_enabled": self.settings.AI_BATCH_ANALYSIS_ENABLED,
+                "emergency_stop": self.settings.AI_EMERGENCY_STOP_ENABLED or runtime_stopped,
+            },
+            "providers": providers,
+            "metadata_profiles": profiles,
+            "budget": budget,
+        }
+
+    def update_configuration(
+        self, tenant_id: str, changes: Mapping[str, Any], *, actor_id: str, reason: str,
+    ) -> dict:
+        mapped = {
+            "default_mode": "default_ai_mode",
+            "default_metadata_profile": "default_metadata_profile",
+            "auto_analyze_new_assets": "auto_analyze_new_assets",
+            "daily_item_limit": "daily_ai_item_limit",
+            "retry_count": "ai_retry_count",
+            "timeout_seconds": "ai_timeout_seconds",
+        }
+        profile = changes.get("default_metadata_profile")
+        if profile and self.session.scalar(select(MetadataProfileModel.id).where(
+            MetadataProfileModel.tenant_id == tenant_id,
+            MetadataProfileModel.profile_name == profile,
+            MetadataProfileModel.active.is_(True),
+        ).limit(1)) is None:
+            raise AiOperationsControlError("metadata_profile_unavailable", "The metadata profile is not active for this tenant.")
+        mode = changes.get("default_mode")
+        tenant = self.policies.get_or_create_tenant(tenant_id)
+        if mode and tenant.default_ai_provider:
+            capabilities = AiProviderSelectionService(
+                self.settings, self.registry, self.policies
+            ).capabilities(tenant_id)["providers"]
+            selected = next((item for item in capabilities if item["id"] == tenant.default_ai_provider), None)
+            if selected is None or mode not in selected["supported_modes"]:
+                raise AiOperationsControlError("ai_mode_unavailable", "The selected provider does not support this mode.")
+        policy = self.policy_service.update(
+            tenant_id, {mapped[key]: value for key, value in changes.items()},
+            actor_id=actor_id, reason=reason,
+        )
+        return policy_document(policy)
     def retry_job(
         self, tenant_id: str, job_id: str, *, actor_id: str, reason: str,
     ) -> tuple[dict, str]:
@@ -321,5 +425,7 @@ class AiOperationsControlService:
             "daily_limit_micros": value.daily_limit_micros,
             "monthly_limit_micros": value.monthly_limit_micros,
             "currency": value.currency,
+            "warning_threshold_percent": value.warning_threshold_percent,
+            "hard_stop_threshold_percent": value.hard_stop_threshold_percent,
             "updated_at": value.updated_at.isoformat(),
         }

@@ -1455,3 +1455,38 @@ Final controls:
 - Known risks: provider-batch cancellation is durable and handled through the existing batch cancellation checkpoint; completion latency is bounded by the worker heartbeat/poll interval. PostgreSQL migration execution remains covered by the standard CI integration job rather than this local SQLite-focused run.
 - Rollback: apply the global AI emergency stop, drain workers, deploy the prior application, then downgrade to 0022_ai_operations_indexes. Queued jobs and policy/audit history remain; outstanding cancellation-request metadata and stored dashboard defaults are removed.
 - Next recommended step: add the AI Operations frontend controls against these authenticated endpoints.
+
+## AI-OPS-04 review - Providers and Configuration tabs
+
+- Files changed: AI Operations configuration read/write API and schemas,
+  existing tenant/provider policy model and repository, provider p95 reporting,
+  frontend API/types, provider cards, configuration forms, responsive styles,
+  focused backend/frontend tests, data-model and roadmap documentation.
+- Migration added: `0024_ai_operations_configuration`. It extends the existing
+  tenant processing policy with default mode/profile, auto-analyze preference,
+  daily item limit, retry count and timeout. It creates no duplicate policy
+  table. Downgrade removes only these six fields and two checks.
+- Behavior introduced: authenticated tenant admins can view public provider
+  capabilities/connection state, today's requests/success/p95/cost, stable last
+  error, pause/resume providers, manage tenant defaults, server-allowlisted
+  models, single/batch controls, concurrency and budgets. Destructive actions
+  require confirmation and an audit reason. Platform-global values are visibly
+  read-only to tenant admins; only platform admins see the runtime emergency
+  control. API keys, provider headers and credential values are never returned.
+- Tests and actual results:
+  - `cd apps/api && .venv/bin/python -m unittest -v tests.modules.ai_operations.test_controls tests.modules.ai_operations.test_api tests.migrations.test_ai_operations_configuration_migration`: 12 tests passed in 0.787s.
+  - `cd apps/client && npm test -- app/ai-operations/ProvidersConfiguration.test.tsx`: 6 tests passed in 0.740s.
+  - `cd apps/client && npm test`: 31 tests across 6 files passed in 0.671s.
+  - `cd apps/client && npm run typecheck`: passed.
+  - `cd apps/client && npm run build`: passed; Vite 5.4.14 transformed 60 modules.
+- Feature flags: none added or enabled. Global AI/provider flags and runtime
+  emergency controls remain upper bounds; OpenAI remains disabled by default.
+- Known risks: provider p95 uses PostgreSQL percentile aggregation in
+  production and a maximum-latency fallback for SQLite-only unit tests. The
+  migration should still run through the standard PostgreSQL CI migration job.
+- Rollback: activate the global or tenant AI pause, drain workers, deploy the
+  previous frontend/API, then downgrade Alembic to
+  `0023_ai_operations_controls`. Analyses, jobs, usage, budgets, provider policy
+  and append-only audit history are preserved.
+- Next recommended step: finish and independently validate AI-OPS-03 dashboard
+  interaction tests before AI-OPS-05 performance/export validation.

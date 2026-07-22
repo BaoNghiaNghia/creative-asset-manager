@@ -26,6 +26,8 @@ class TenantProcessingPolicyModel(Base):
         CheckConstraint("storage_active_jobs >= 0", name="ck_tenant_policy_storage_active"),
         CheckConstraint("rollout_percentage >= 0 AND rollout_percentage <= 100", name="ck_tenant_policy_rollout_percentage"),
         CheckConstraint("rollout_mode IN ('explicit', 'percentage')", name="ck_tenant_policy_rollout_mode"),
+        CheckConstraint("default_ai_mode IN ('single', 'batch')", name="ck_tenant_policy_default_ai_mode"),
+        CheckConstraint("daily_ai_item_limit > 0 AND ai_retry_count >= 0 AND ai_timeout_seconds > 0", name="ck_tenant_policy_ai_ops_limits"),
         Index("ix_tenant_processing_policies_eligible", "processing_paused", "pipeline_enabled", "tenant_id"),
     )
 
@@ -53,6 +55,12 @@ class TenantProcessingPolicyModel(Base):
     storage_active_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     default_ai_provider: Mapped[str | None] = mapped_column(String(64))
     default_ai_model: Mapped[str | None] = mapped_column(String(255))
+    default_ai_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="single")
+    default_metadata_profile: Mapped[str | None] = mapped_column(String(255))
+    auto_analyze_new_assets: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    daily_ai_item_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    ai_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    ai_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
 

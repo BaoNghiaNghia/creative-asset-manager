@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.ai_operations.control_schema import (
-    AiBudgetUpdate, AiDefaultsUpdate, AiJobMutation, AiPauseRequest,
+    AiBudgetUpdate, AiConfigurationUpdate, AiDefaultsUpdate, AiJobMutation, AiPauseRequest,
     AiProviderControlUpdate,
 )
 from app.modules.ai_operations.controls import (
@@ -60,6 +62,49 @@ async def _mutate(tenant_id: str, operation):
         await registry.aclose()
 
 
+def _audit(admin: ProcessingAdmin, action: str, reason: str) -> dict:
+    return {
+        "actor": admin.actor_id,
+        "action": action,
+        "reason": reason,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/configuration")
+async def read_ai_configuration(
+    tenant_id: str | None = Query(default=None),
+    admin: ProcessingAdmin = Depends(require_processing_admin),
+):
+    target = _tenant(admin, tenant_id)
+    return await _mutate(
+        target,
+        lambda service: service.configuration(
+            target, platform_admin=admin.platform_admin
+        ),
+    )
+
+
+@router.patch("/configuration")
+async def update_ai_configuration(
+    body: AiConfigurationUpdate,
+    tenant_id: str | None = Query(default=None),
+    admin: ProcessingAdmin = Depends(require_processing_admin),
+):
+    target = _tenant(admin, tenant_id)
+    changes = body.model_dump(exclude_unset=True, exclude={"reason"})
+    policy = await _mutate(
+        target,
+        lambda service: service.update_configuration(
+            target, changes, actor_id=admin.actor_id, reason=body.reason,
+        ),
+    )
+    return {
+        "tenant_id": target,
+        "policy": policy,
+        "audit": _audit(admin, "ai_configuration_updated", body.reason),
+    }
+
 @router.post("/controls/pause")
 async def pause_all_ai(
     body: AiPauseRequest,
@@ -73,7 +118,7 @@ async def pause_all_ai(
             target, actor_id=admin.actor_id, reason=body.reason
         ),
     )
-    return {"tenant_id": target, "state": "paused", "policy": policy}
+    return {"tenant_id": target, "state": "paused", "policy": policy, "audit": _audit(admin, "ai_paused", body.reason)}
 
 
 @router.post("/controls/resume")
@@ -89,7 +134,7 @@ async def resume_all_ai(
             target, actor_id=admin.actor_id, reason=body.reason
         ),
     )
-    return {"tenant_id": target, "state": "resumed", "policy": policy}
+    return {"tenant_id": target, "state": "resumed", "policy": policy, "audit": _audit(admin, "ai_resumed", body.reason)}
 
 
 @router.patch("/controls/defaults")
@@ -106,7 +151,7 @@ async def update_ai_defaults(
             actor_id=admin.actor_id, reason=body.reason,
         ),
     )
-    return {"tenant_id": target, "policy": policy}
+    return {"tenant_id": target, "policy": policy, "audit": _audit(admin, "ai_defaults_updated", body.reason)}
 
 
 @router.post("/providers/{provider}/pause")
@@ -124,7 +169,7 @@ async def pause_ai_provider(
             actor_id=admin.actor_id, reason=body.reason,
         ),
     )
-    return {"tenant_id": target, "provider": provider, "state": "paused", "policy": policy}
+    return {"tenant_id": target, "provider": provider, "state": "paused", "policy": policy, "audit": _audit(admin, "ai_provider_paused", body.reason)}
 
 
 @router.post("/providers/{provider}/resume")
@@ -142,7 +187,7 @@ async def resume_ai_provider(
             actor_id=admin.actor_id, reason=body.reason,
         ),
     )
-    return {"tenant_id": target, "provider": provider, "state": "resumed", "policy": policy}
+    return {"tenant_id": target, "provider": provider, "state": "resumed", "policy": policy, "audit": _audit(admin, "ai_provider_resumed", body.reason)}
 
 
 @router.patch("/providers/{provider}")
@@ -153,7 +198,7 @@ async def update_ai_provider_controls(
     admin: ProcessingAdmin = Depends(require_processing_admin),
 ):
     target = _tenant(admin, tenant_id)
-    changes = body.model_dump(exclude_none=True, exclude={"reason"})
+    changes = body.model_dump(exclude_unset=True, exclude={"reason"})
     policy = await _mutate(
         target,
         lambda service: service.update_provider_controls(
@@ -161,7 +206,7 @@ async def update_ai_provider_controls(
             actor_id=admin.actor_id, reason=body.reason,
         ),
     )
-    return {"tenant_id": target, "provider": provider, "policy": policy}
+    return {"tenant_id": target, "provider": provider, "policy": policy, "audit": _audit(admin, "ai_provider_updated", body.reason)}
 
 
 @router.patch("/budget")
@@ -178,7 +223,7 @@ async def update_ai_budget(
             target, changes, actor_id=admin.actor_id, reason=body.reason,
         ),
     )
-    return {"tenant_id": target, "budget": budget}
+    return {"tenant_id": target, "budget": budget, "audit": _audit(admin, "ai_budget_updated", body.reason)}
 
 
 @router.post("/jobs/{job_id}/retry")

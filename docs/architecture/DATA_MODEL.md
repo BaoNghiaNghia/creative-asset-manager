@@ -403,3 +403,25 @@ Downgrade removes only the request ledger and leaves those records intact.
 ## AI-OPS-02 control persistence
 
 Revision 0023_ai_operations_controls extends existing policy and job tables without creating a parallel policy store. Tenant policies persist an optional default AI provider/model. Processing jobs retain operator cancellation actor, reason and timestamp; normal and tenant-aware claim paths exclude cancellation-requested jobs before lease acquisition, while running workers observe requests during lease heartbeat.
+
+## AI-OPS-04 tenant configuration
+
+Migration `0024_ai_operations_configuration` extends the existing
+`tenant_processing_policies` row; it does not introduce another policy table.
+It persists `default_ai_mode`, `default_metadata_profile`,
+`auto_analyze_new_assets`, `daily_ai_item_limit`, `ai_retry_count`, and
+`ai_timeout_seconds`. Mode and numeric limits have database checks. Provider
+mode/concurrency continues to live in `tenant_provider_policies`, while daily
+and monthly limits and warning/hard-stop thresholds remain authoritative in
+`tenant_ai_budget_policies`.
+
+Global environment flags and durable runtime emergency controls remain upper
+bounds. Tenant configuration cannot enable a globally disabled stage. Provider
+credentials are represented to the UI only by a boolean
+`connection_configured` value and are never persisted in tenant policy or audit
+JSON.
+
+Rollback: pause tenant AI, drain active work, deploy the previous application,
+and downgrade to `0023_ai_operations_controls`. The downgrade removes only the
+six tenant UI-default columns; provider policy, budget, usage, analysis and audit
+history are preserved.

@@ -21,6 +21,8 @@ TENANT_EDITABLE_FIELDS = {
     "total_active_jobs_limit", "ai_active_jobs_limit",
     "source_active_jobs_limit", "storage_active_jobs_limit",
     "default_ai_provider", "default_ai_model",
+    "default_ai_mode", "default_metadata_profile", "auto_analyze_new_assets",
+    "daily_ai_item_limit", "ai_retry_count", "ai_timeout_seconds",
 }
 
 

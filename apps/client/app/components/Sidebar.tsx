@@ -45,6 +45,10 @@ export function Sidebar({
       <b>C</b>
       <span><strong>Creative assets</strong><small>{auth.user?.email || "Google Drive · SharePoint"}</small></span>
     </div>
+    <div className="workspace-navigation" aria-label="Workspace navigation">
+      <a href="/" aria-current="page">▧ Asset Explorer</a>
+      <a href="/ai-operations">◉ AI Operations</a>
+    </div>
     <p>SOURCES</p>
     {Object.values(authByProvider).some(session => session.checking)
       ? <div className="source-skeleton"><i /><i /><i /></div>

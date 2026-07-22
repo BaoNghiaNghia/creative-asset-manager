@@ -15,12 +15,18 @@ from app.modules.processing.model import ProcessingJobModel
 
 class AiOperationsRepository(BaseRepository):
     def providers(self, f: AiOperationsFilters) -> list[dict[str, Any]]:
+        p95_latency = (
+            func.percentile_cont(0.95).within_group(AiUsageRecordModel.latency_ms)
+            if self.session.get_bind().dialect.name == "postgresql"
+            else func.max(AiUsageRecordModel.latency_ms)
+        )
         statement = self._usage_select(
             AiUsageRecordModel.provider, AiUsageRecordModel.model,
             AiUsageRecordModel.processing_mode, func.count(AiUsageRecordModel.id),
             func.coalesce(func.sum(case((AiUsageRecordModel.outcome == "completed", 1), else_=0)), 0),
             func.coalesce(func.sum(case((AiUsageRecordModel.outcome.in_(("provider_failed", "invalid_metadata")), 1), else_=0)), 0),
             func.coalesce(func.avg(AiUsageRecordModel.latency_ms), 0),
+            func.coalesce(p95_latency, 0),
             func.coalesce(func.sum(AiUsageRecordModel.input_units), 0),
             func.coalesce(func.sum(AiUsageRecordModel.output_units), 0),
             func.coalesce(func.sum(AiUsageRecordModel.locally_estimated_cost_micros), 0),

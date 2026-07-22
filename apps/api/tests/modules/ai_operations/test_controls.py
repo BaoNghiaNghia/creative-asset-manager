@@ -12,6 +12,7 @@ from app.core.database import Base
 from app.domain.providers.registry import AiProviderRegistry
 from app.main import app
 from app.modules.ai_governance.model import AiCostRateModel, TenantAiBudgetPolicyModel
+from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.auth import ProcessingAdmin, require_processing_admin
 from app.modules.processing_policy.model import (
@@ -160,6 +161,53 @@ class AiOperationsControlsTest(unittest.TestCase):
             self.assertEqual(session.get(TenantProcessingPolicyModel, "tenant-a").ai_active_jobs_limit, 4)
             self.assertEqual(session.get(TenantAiBudgetPolicyModel, "tenant-a").monthly_limit_micros, 10000)
 
+    def test_configuration_is_public_tenant_scoped_and_audited(self):
+        with self.factory() as session:
+            session.add(MetadataProfileModel(
+                tenant_id="tenant-a", profile_name="creative", profile_version="1",
+                prompt_template="Describe the asset", active=True,
+            ))
+            session.commit()
+        response = self.request("GET", "/api/v1/admin/ai-operations/configuration", {})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["permissions"]["can_manage_global"])
+        self.assertTrue(payload["permissions"]["can_manage_tenant"])
+        self.assertEqual({item["id"] for item in payload["providers"]}, {"gemini", "openai"})
+        self.assertTrue(all("connection_configured" in item for item in payload["providers"]))
+        self.assertIn("creative", payload["metadata_profiles"])
+        serialized = str(payload).lower()
+        self.assertNotIn("test-key", serialized)
+        self.assertNotIn("api_key", serialized)
+
+        updated = self.request("PATCH", "/api/v1/admin/ai-operations/configuration", {
+            "default_mode": "single", "default_metadata_profile": "creative",
+            "auto_analyze_new_assets": True, "daily_item_limit": 250,
+            "retry_count": 4, "timeout_seconds": 90, "reason": "operations policy",
+        })
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["policy"]["daily_ai_item_limit"], 250)
+        self.assertEqual(updated.json()["audit"]["action"], "ai_configuration_updated")
+        with self.factory() as session:
+            policy = session.get(TenantProcessingPolicyModel, "tenant-a")
+            self.assertEqual(policy.default_metadata_profile, "creative")
+            self.assertEqual(policy.ai_timeout_seconds, 90)
+            self.assertGreaterEqual(session.scalar(select(func.count()).select_from(ProcessingPolicyAuditModel)), 1)
+
+    def test_configuration_validation_and_platform_permissions(self):
+        invalid = self.request("PATCH", "/api/v1/admin/ai-operations/configuration", {
+            "daily_item_limit": 0, "reason": "invalid",
+        })
+        self.assertEqual(invalid.status_code, 422)
+        missing_profile = self.request("PATCH", "/api/v1/admin/ai-operations/configuration", {
+            "default_metadata_profile": "missing", "reason": "invalid",
+        })
+        self.assertEqual(missing_profile.status_code, 422)
+        app.dependency_overrides[require_processing_admin] = lambda: ProcessingAdmin(
+            actor_id="platform", own_tenant_id="platform", platform_admin=True,
+        )
+        response = self.request("GET", "/api/v1/admin/ai-operations/configuration", {}, tenant_id="tenant-a")
+        self.assertTrue(response.json()["permissions"]["can_manage_global"])
     def test_retry_is_idempotent_and_cancel_distinguishes_states(self):
         failed_id, queued_id, running_id = self.ids
         first = self.request("POST", f"/api/v1/admin/ai-operations/jobs/{failed_id}/retry", {"reason": "transient"})
