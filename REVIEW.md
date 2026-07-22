@@ -1611,3 +1611,47 @@ Final controls:
   memberships are removed; legacy provider-scoped sessions/connections remain.
 - Next recommended step: run the PostgreSQL integration job, then implement
   AUTH-03 tenant-scoped roles and permissions without changing ordinary routes.
+
+## AUTH-03 review - tenant-scoped roles and permissions
+
+- Files changed: durable permission/role/assignment models, tenant authorization
+  service, canonical role seed definitions, explicit seed CLI, Alembic metadata,
+  PostgreSQL concurrency coverage, focused unit/migration tests, security/data
+  model/operations documentation, roadmap and this review.
+- Migration added: `0027_tenant_rbac`, chained from
+  `0026_tenant_memberships`. It creates `permissions`, per-tenant `roles`,
+  `role_permissions` and `membership_roles`, plus the composite membership key
+  required for tenant-compatible assignment foreign keys. Downgrade removes
+  only AUTH-03 catalog/assignment data and preserves users, tenants,
+  memberships, sessions and OAuth connections.
+- Behavior introduced: stable machine-readable permissions; protected viewer,
+  operator, tenant_admin and billing_admin roles instantiated per tenant;
+  unioned effective permissions across roles; active user/tenant/membership
+  enforcement; tenant-safe idempotent assign/remove operations; custom roles;
+  protected-role deletion guard; secret-free assignment/role audit events.
+  Platform administration is not a role or permission in this tenant RBAC.
+- Seed operation: `python -m app.operations.auth_cli seed-rbac --tenant <id>
+  --reason <reason> --dry-run|--confirm` is explicit, idempotent and reconciles
+  canonical system permissions without assigning any membership.
+- Tests and actual results:
+  - focused AUTH-03 plus AUTH-01/02 compatibility modules: 39 tests passed in
+    0.822s.
+  - AUTH-02/03 migration upgrade and step-scoped downgrade: 2 tests passed in
+    4.64s.
+  - Python compilation and `git diff --check`: passed.
+  - Alembic heads: exactly one, `0027_tenant_rbac`.
+  - PostgreSQL concurrent membership and role assignment tests: both present
+    but skipped locally because `INTEGRATION_DATABASE_URL` was not configured;
+    PostgreSQL CI must execute them.
+- Feature flags: none added or enabled. Existing routes were intentionally not
+  migrated and continue using compatibility authorization until AUTH-04.
+- Known risks: real PostgreSQL composite-FK/concurrent assignment execution is
+  pending service-backed CI. Role management APIs and final-admin protections
+  are intentionally deferred; direct database writes must not bypass the
+  service and composite constraints.
+- Rollback: stop RBAC-dependent code, deploy the previous release and downgrade
+  Alembic to `0026_tenant_memberships`. Role assignments/catalog data are
+  removed; application identities and membership history remain.
+- Next recommended step: execute PostgreSQL integration CI, then implement
+  AUTH-04 central principal and FastAPI permission dependencies without yet
+  migrating every protected route.

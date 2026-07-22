@@ -80,3 +80,4 @@
 
 - [x] AUTH-01 Application users and external identity persistence
 - [x] AUTH-02 Durable tenant membership and active tenant resolution
+- [x] AUTH-03 Tenant-scoped roles and permissions

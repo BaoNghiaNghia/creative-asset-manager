@@ -423,7 +423,7 @@ JSON.
 
 Rollback: pause tenant AI, drain active work, deploy the previous application,
 and downgrade to `0023_ai_operations_controls`. The downgrade removes only the
-six tenant UI-default columns; provider policy, budget, usage, analysis and audit
+six tenant UI-default columns; provider policy, budget, usage, analysis and audit history are preserved.
 
 ## AUTH-01 and AUTH-02 application identity and tenancy
 
@@ -453,4 +453,25 @@ Production first-tenant setup uses the explicit confirmation-gated
 Downgrading `0026` removes membership records and the nullable active-tenant
 pointer while preserving users, identities, OAuth connections and legacy
 provider-scoped session fields.
-history are preserved.
+
+## AUTH-03 tenant-scoped roles and permissions
+
+Revision `0027_tenant_rbac` adds the global stable permission catalog and
+per-tenant role instances. `roles` includes protected system roles and tenant
+custom roles; no tenant role represents platform administration.
+
+`role_permissions` maps roles to stable permission keys. `membership_roles`
+stores `tenant_id` and uses composite foreign keys to both
+`tenant_memberships(tenant_id, id)` and `roles(tenant_id, id)`, making
+cross-tenant assignment invalid at the database boundary. Unique constraints
+make role permissions and membership assignments idempotent under retry.
+
+The explicit `auth_cli seed-rbac` operation instantiates viewer, operator,
+tenant_admin and billing_admin for one tenant and reconciles their canonical
+permission sets. It supports dry-run, requires confirmation for writes and
+records a secret-free audit event. Migrations do not silently grant roles to
+existing memberships.
+
+Downgrading `0027` removes RBAC assignments/catalog rows and the supporting
+composite membership unique key. Users, tenants, membership history, OAuth
+connections and application sessions remain authoritative and unchanged.

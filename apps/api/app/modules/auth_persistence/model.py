@@ -60,6 +60,7 @@ class TenantMembershipModel(Base):
     __tablename__ = "tenant_memberships"
     __table_args__ = (
         UniqueConstraint("tenant_id", "user_id", name="uq_tenant_memberships_tenant_user"),
+        UniqueConstraint("tenant_id", "id", name="uq_tenant_memberships_tenant_id_id"),
         CheckConstraint("status IN ('invited','active','suspended','removed')", name="ck_tenant_memberships_status"),
         Index("ix_tenant_memberships_user_status", "user_id", "status"),
         Index("ix_tenant_memberships_tenant_status", "tenant_id", "status"),

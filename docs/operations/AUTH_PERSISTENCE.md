@@ -109,3 +109,25 @@ The command is idempotent, requires an active application user, records a
 secret-free audit event and returns only tenant/membership identifiers. It does
 not accept OAuth tokens and does not assign tenant or platform administrator
 roles. Role assignment belongs to the later durable RBAC migration.
+
+## Seed tenant roles and permissions
+
+AUTH-03 does not grant roles during migration. After creating a tenant, preview
+and explicitly seed its protected system roles:
+
+```bash
+python -m app.operations.auth_cli seed-rbac \
+  --tenant <tenant-id> \
+  --reason "Preview tenant RBAC" \
+  --dry-run
+
+python -m app.operations.auth_cli seed-rbac \
+  --tenant <tenant-id> \
+  --reason "Approved tenant RBAC initialization" \
+  --confirm
+```
+
+The operation is idempotent and reconciles viewer, operator, tenant_admin and
+billing_admin. It creates no membership assignment, accepts no credential and
+cannot create platform administration. Assign roles only through the durable
+RBAC service after independently verifying the target membership and tenant.

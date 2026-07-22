@@ -25,6 +25,9 @@ from app.modules.assets.repository import (
 )
 from app.modules.auth_persistence.model import TenantMembershipModel, UserModel
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
+from app.modules.authorization.model import MembershipRoleModel, RoleModel
+from app.modules.authorization.seed import seed_tenant_rbac
+from app.modules.authorization.service import TenantAuthorizationService
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
@@ -284,6 +287,62 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
                 TenantMembershipModel.tenant_id == tenant_id,
                 TenantMembershipModel.user_id == user_id,
 
+            ))
+            self.assertEqual(count, 1)
+
+    def test_concurrent_tenant_role_assignment_is_idempotent(self) -> None:
+        marker = uuid4().hex
+        tenant_id = f"pg-role-{marker}"
+        with self.sessions() as session:
+            user = UserModel(primary_email=f"role-{marker}@example.com", status="active")
+            session.add(user)
+            session.flush()
+            membership_service = TenantMembershipService(session)
+            membership_service.create_tenant(tenant_id=tenant_id, name="Role tenant", slug=tenant_id)
+            membership = membership_service.add_member(tenant_id=tenant_id, user_id=user.id)
+            seed_tenant_rbac(session, tenant_id)
+            role = session.scalar(select(RoleModel).where(
+                RoleModel.tenant_id == tenant_id,
+                RoleModel.role_key == "viewer",
+            ))
+            membership_id = membership.id
+            role_id = role.id
+            session.commit()
+
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+        assignment_ids: list[str] = []
+        lock = threading.Lock()
+
+        def assign_role() -> None:
+            try:
+                barrier.wait(timeout=5)
+                with self.sessions() as session:
+                    assignment = TenantAuthorizationService(session).assign_role(
+                        tenant_id=tenant_id,
+                        membership_id=membership_id,
+                        role_id=role_id,
+                        actor_id="integration-test",
+                    )
+                    session.commit()
+                    with lock:
+                        assignment_ids.append(assignment.id)
+            except BaseException as exc:
+                with lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=assign_role) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertFalse(errors)
+        self.assertEqual(len(set(assignment_ids)), 1)
+        with self.sessions() as session:
+            count = session.scalar(select(func.count()).select_from(MembershipRoleModel).where(
+                MembershipRoleModel.tenant_id == tenant_id,
+                MembershipRoleModel.tenant_membership_id == membership_id,
+                MembershipRoleModel.role_id == role_id,
             ))
             self.assertEqual(count, 1)
 

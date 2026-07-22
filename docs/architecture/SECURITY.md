@@ -95,3 +95,19 @@ retention settings. Dead-letter cleanup retains status and error classification
 while removing payloads and detailed messages. Cleanup logs expose counts and
 record types only. Authoritative asset identity and append-only audit data are
 not cleanup targets.
+
+## Tenant RBAC boundary (AUTH-03)
+
+Tenant authorization is derived only from active application users, active
+tenants, active memberships and durable role assignments. It is never inferred
+from email domains, Drive ownership, OAuth scopes or provider account type.
+Stable permission keys are global catalog data; role instances and assignments
+are tenant-scoped. Composite database foreign keys prevent a role from one
+tenant being assigned to a membership in another tenant.
+
+System roles are protected templates instantiated per tenant. Tenant
+administrators receive tenant permissions only; platform administration remains
+a separate future durable assignment and cannot be granted through tenant role
+data or the seed command. Existing routes are intentionally not migrated in
+AUTH-03 and continue through their compatibility authorization until AUTH-04
+introduces central permission dependencies.
