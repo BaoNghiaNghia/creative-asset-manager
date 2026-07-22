@@ -12,6 +12,7 @@ from app.modules.external_ingestion import model as external_ingestion_models  #
 from app.modules.search import operations_model as search_operation_models  # noqa: F401
 from app.modules.ai_metadata import model as ai_metadata_models  # noqa: F401
 from app.modules.metadata import model as metadata_models  # noqa: F401
+from app.modules.auth_persistence import model as auth_persistence_models  # noqa: F401
 from app.modules.tag import model as tag_models  # noqa: F401
 from app.modules.source_sync import model as source_sync_models  # noqa: F401
 from app.modules.retention import model as retention_models  # noqa: F401

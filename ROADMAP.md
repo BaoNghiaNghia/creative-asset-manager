@@ -75,3 +75,8 @@
 - [x] AI-OPS-CI-FIX Migration and durable pipeline CI regressions
 
 - [x] 21D Toggleable file details and activity inspector
+
+## Authentication and authorization
+
+- [x] AUTH-01 Application users and external identity persistence
+- [x] AUTH-02 Durable tenant membership and active tenant resolution

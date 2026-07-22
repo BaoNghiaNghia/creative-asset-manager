@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.config import get_settings
+from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 
 from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
 from app.providers.microsoft.auth import (
@@ -61,6 +62,9 @@ async def callback(
         verifier = consume_state(state, request.cookies.get(OAUTH_BINDING_COOKIE))
         token = await exchange_code(code, verifier)
         session_id, _ = await create_session(token)
+    except ApplicationUserInactiveError:
+        logger.warning("Microsoft application user is inactive request_id=%s", request_id)
+        return client_redirect(auth_provider="microsoft", auth_error="account_inactive", auth_request=request_id)
     except PermissionError:
         logger.warning("Microsoft SharePoint scopes missing request_id=%s", request_id)
         return client_redirect(auth_provider="microsoft", auth_error="scope", auth_request=request_id)

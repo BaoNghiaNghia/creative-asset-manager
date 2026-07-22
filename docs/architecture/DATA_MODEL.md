@@ -424,4 +424,33 @@ JSON.
 Rollback: pause tenant AI, drain active work, deploy the previous application,
 and downgrade to `0023_ai_operations_controls`. The downgrade removes only the
 six tenant UI-default columns; provider policy, budget, usage, analysis and audit
+
+## AUTH-01 and AUTH-02 application identity and tenancy
+
+Revision `0025_application_users` adds canonical `users` and provider-subject
+`user_identities`. Email is normalized profile data, never the authoritative
+external identity and never an implicit cross-provider link. Provider tokens
+remain only in encrypted `oauth_connections`; `auth_sessions.user_id` is a
+nullable rolling-deployment bridge for legacy sessions.
+
+Revision `0026_tenant_memberships` adds the single durable `tenants` identity
+and `tenant_memberships`. Membership rows are retained through invited, active,
+suspended and removed states, with a unique `(tenant_id, user_id)` constraint
+and indexes for user/status and tenant/status access. Effective access requires
+an active user, active tenant and active membership.
+
+`auth_sessions.active_tenant_id` is an optional foreign key to `tenants` and is
+separate from the legacy provider-account `tenant_id`. New tenant-bound sessions
+validate the membership before persistence. A user with one active membership
+can be resolved deterministically; multiple memberships require an explicit
+selection. Legacy sessions without `user_id` continue through a documented
+compatibility resolver only.
+
+Development personal-tenant creation is disabled by default and may run only
+when `DEVELOPMENT_PERSONAL_TENANT_ENABLED=true` in a non-production environment.
+Production first-tenant setup uses the explicit confirmation-gated
+`auth_cli bootstrap-tenant` command and does not grant any administrator role.
+Downgrading `0026` removes membership records and the nullable active-tenant
+pointer while preserving users, identities, OAuth connections and legacy
+provider-scoped session fields.
 history are preserved.

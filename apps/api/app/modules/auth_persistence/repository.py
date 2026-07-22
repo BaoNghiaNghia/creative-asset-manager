@@ -11,7 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.auth_persistence.encryption import TokenCipher, TokenEncryptionError
-from app.modules.auth_persistence.model import AuthAuditEventModel, AuthSessionModel, OAuthConnectionModel, OAuthTransactionModel
+from app.modules.auth_persistence.identity import ApplicationUserInactiveError
+from app.modules.auth_persistence.model import AuthAuditEventModel, AuthSessionModel, OAuthConnectionModel, OAuthTransactionModel, TenantMembershipModel, TenantModel, UserModel
 
 def utcnow():
     return datetime.now(timezone.utc)
@@ -29,6 +30,8 @@ class PersistentCloudSession:
     session_id_hash: str
     connection_id: str
     tenant_id: str
+    user_id: str | None
+    active_tenant_id: str | None
     provider: str
     access_token: str
     refresh_token: str | None
@@ -121,15 +124,34 @@ class AuthPersistenceRepository:
         self.audit("connection_created" if created else "connection_reconnected", tenant_id=tenant_id, provider=provider, connection_id=row.id, actor_id=provider_account_id)
         return row
 
-    def create_session(self, *, connection: OAuthConnectionModel, user: dict[str, Any], ttl_seconds: int) -> tuple[str, AuthSessionModel]:
+    def create_session(self, *, connection: OAuthConnectionModel, user: dict[str, Any], ttl_seconds: int, user_id: str | None = None, active_tenant_id: str | None = None) -> tuple[str, AuthSessionModel]:
         encoded_size = len(json.dumps(user, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
         if encoded_size > 16_384:
             raise ValueError("session user data exceeds limit")
+        if user_id is not None:
+            application_user = self.session.get(UserModel, user_id)
+            if application_user is None:
+                raise LookupError("application user not found")
+            if application_user.status != "active":
+                raise ApplicationUserInactiveError("application user is not active")
+        if active_tenant_id is not None:
+            if user_id is None:
+                raise PermissionError("active tenant requires an application user")
+            membership = self.session.scalar(select(TenantMembershipModel).where(
+                TenantMembershipModel.tenant_id == active_tenant_id,
+                TenantMembershipModel.user_id == user_id,
+                TenantMembershipModel.status == "active",
+            ))
+            tenant = self.session.get(TenantModel, active_tenant_id)
+            if membership is None or tenant is None or tenant.status != "active":
+                raise PermissionError("active tenant membership is required")
+
         session_id = secrets.token_urlsafe(48)
         row = AuthSessionModel(
-            session_id_hash=digest(session_id), tenant_id=connection.tenant_id,
-            provider=connection.provider, connection_id=connection.id,
-            user_json=dict(user), expires_at=utcnow() + timedelta(seconds=ttl_seconds),
+            session_id_hash=digest(session_id), user_id=user_id, active_tenant_id=active_tenant_id,
+            tenant_id=connection.tenant_id, provider=connection.provider,
+            connection_id=connection.id, user_json=dict(user),
+            expires_at=utcnow() + timedelta(seconds=ttl_seconds),
         )
         self.session.add(row); self.session.flush()
         return session_id, row
@@ -144,6 +166,17 @@ class AuthPersistenceRepository:
         ))
         if row is None:
             return None
+        if row.user_id is not None:
+            application_user = self.session.get(UserModel, row.user_id)
+            if application_user is None or application_user.status != "active":
+                row.revoked_at = now
+                self.audit(
+                    "session_revoked", tenant_id=row.tenant_id, provider=provider,
+                    connection_id=row.connection_id, session_id_hash=row.session_id_hash,
+                    actor_id=row.user_id, detail={"code": "application_user_inactive"},
+                )
+                self.session.flush()
+                return None
         connection = self.session.scalar(select(OAuthConnectionModel).where(
             OAuthConnectionModel.id == row.connection_id,
             OAuthConnectionModel.tenant_id == row.tenant_id,
@@ -165,7 +198,13 @@ class AuthPersistenceRepository:
         if touch:
             row.last_seen_at = now
             self.session.flush()
-        return PersistentCloudSession(row.session_id_hash, connection.id, row.tenant_id, provider, access, refresh, aware(connection.access_token_expires_at).timestamp() if connection.access_token_expires_at else 0, dict(row.user_json))
+        return PersistentCloudSession(
+            row.session_id_hash, connection.id, row.tenant_id, row.user_id,
+            row.active_tenant_id, provider, access, refresh,
+            aware(connection.access_token_expires_at).timestamp()
+            if connection.access_token_expires_at else 0,
+            dict(row.user_json),
+        )
 
     def revoke_session(self, *, provider: str, session_id: str) -> bool:
         now = utcnow()

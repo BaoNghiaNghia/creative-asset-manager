@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     AI_BATCH_FALLBACK_TO_SINGLE_ENABLED: bool = False
     PERSISTENT_AUTH_ENABLED: bool = False
     RETENTION_CLEANUP_ENABLED: bool = False
+    DEVELOPMENT_PERSONAL_TENANT_ENABLED: bool = False
     DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED: bool = False
     SEARCH_SHADOW_COMPARISON_ENABLED: bool = False
     ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED: bool = False
@@ -178,6 +179,7 @@ class Settings(BaseSettings):
         "API_DOCS_ENABLED",
         "PROXY_HEADERS_ENABLED",
         "OPENAI_STORE_RESPONSES",
+        "DEVELOPMENT_PERSONAL_TENANT_ENABLED",
         mode="before",
     )
     @classmethod
@@ -387,6 +389,8 @@ class Settings(BaseSettings):
                 raise ValueError("DATABASE_URL is required in production")
             if self.DATABASE_URL.lower().startswith("sqlite"):
                 raise ValueError("SQLite is not supported in production")
+            if self.DEVELOPMENT_PERSONAL_TENANT_ENABLED:
+                raise ValueError("DEVELOPMENT_PERSONAL_TENANT_ENABLED is forbidden in production")
         if min(
             self.DATABASE_POOL_SIZE,
             self.DATABASE_POOL_TIMEOUT_SECONDS,

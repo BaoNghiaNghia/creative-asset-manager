@@ -76,3 +76,36 @@ a rotation caused decryption failures. Application rollback to Step 29 requires
 all users to reconnect because old processes cannot consume the PostgreSQL
 session records. Downgrading to 0012 deletes persistent connections, sessions,
 OAuth state and auth audit records; export non-secret audit evidence first.
+
+## First application tenant bootstrap
+
+Automatic personal tenant creation is off by default. For local development it
+may be enabled explicitly with `DEVELOPMENT_PERSONAL_TENANT_ENABLED=true`; the
+configuration is rejected in production. Repeated login reuses the same tenant
+and membership and never creates a tenant per login.
+
+Production bootstrap is an explicit operator action after the application user
+has completed an approved OAuth login:
+
+```bash
+python -m app.operations.auth_cli bootstrap-tenant \
+  --user-id <application-user-id> \
+  --tenant-id <stable-tenant-id> \
+  --name "Tenant name" \
+  --slug tenant-slug \
+  --reason "Initial tenant bootstrap change record" \
+  --dry-run
+
+python -m app.operations.auth_cli bootstrap-tenant \
+  --user-id <application-user-id> \
+  --tenant-id <stable-tenant-id> \
+  --name "Tenant name" \
+  --slug tenant-slug \
+  --reason "Approved initial tenant bootstrap" \
+  --confirm
+```
+
+The command is idempotent, requires an active application user, records a
+secret-free audit event and returns only tenant/membership identifiers. It does
+not accept OAuth tokens and does not assign tenant or platform administrator
+roles. Role assignment belongs to the later durable RBAC migration.

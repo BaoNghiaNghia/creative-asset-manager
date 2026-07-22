@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from app.core.config import get_settings
 
 from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
+from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.providers.google.auth import (
     SESSION_COOKIE,
     OAUTH_BINDING_COOKIE,
@@ -94,6 +95,9 @@ async def callback(
 
     try:
         session_id, _ = await create_session(flow.credentials)
+    except ApplicationUserInactiveError:
+        logger.warning("Google application user is inactive request_id=%s", request_id)
+        return client_redirect(auth_error="account_inactive", auth_request=request_id)
     except PermissionError:
         logger.warning("Google Drive scope was not granted request_id=%s", request_id)
         return client_redirect(auth_error="scope", auth_request=request_id)

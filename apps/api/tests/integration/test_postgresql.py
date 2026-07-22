@@ -23,6 +23,8 @@ from app.modules.assets.repository import (
     AssetContentConflictError,
     AssetRegistryRepository,
 )
+from app.modules.auth_persistence.model import TenantMembershipModel, UserModel
+from app.modules.auth_persistence.tenant_membership import TenantMembershipService
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
@@ -235,6 +237,55 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
             persisted = session.get(ProcessingJobModel, first.id)
             self.assertEqual(persisted.attempt_count, 2)
 
+    def test_concurrent_tenant_membership_creation_is_idempotent(self) -> None:
+        marker = uuid4().hex
+        tenant_id = f"pg-membership-{marker}"
+        with self.sessions() as session:
+            user = UserModel(primary_email=f"{marker}@example.com", status="active")
+            session.add(user)
+            session.flush()
+            user_id = user.id
+            TenantMembershipService(session).create_tenant(
+                tenant_id=tenant_id,
+                name="Concurrent tenant",
+                slug=tenant_id,
+            )
+            session.commit()
+
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+        membership_ids: list[str] = []
+        lock = threading.Lock()
+
+        def add_membership() -> None:
+            try:
+                barrier.wait(timeout=5)
+                with self.sessions() as session:
+                    membership = TenantMembershipService(session).add_member(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                    )
+                    session.commit()
+                    with lock:
+                        membership_ids.append(membership.id)
+            except BaseException as exc:
+                with lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=add_membership) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertFalse(errors)
+        self.assertEqual(len(set(membership_ids)), 1)
+        with self.sessions() as session:
+            count = session.scalar(select(func.count()).select_from(TenantMembershipModel).where(
+                TenantMembershipModel.tenant_id == tenant_id,
+                TenantMembershipModel.user_id == user_id,
+
+            ))
+            self.assertEqual(count, 1)
 
 if __name__ == "__main__":
     unittest.main()

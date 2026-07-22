@@ -33,4 +33,14 @@ class AuthConfigurationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             Settings(PERSISTENT_AUTH_ENABLED=True,OAUTH_TOKEN_ENCRYPTION_KEYS=f"v1:{KEY}",OAUTH_ACTIVE_KEY_VERSION="v1",AUTH_COOKIE_SAMESITE="none",AUTH_COOKIE_SECURE=False)
 
+    def test_development_personal_tenant_is_forbidden_in_production(self):
+        with self.assertRaisesRegex(
+            ValueError, "DEVELOPMENT_PERSONAL_TENANT_ENABLED"
+        ):
+            Settings(
+                APP_ENV="production",
+                DEVELOPMENT_PERSONAL_TENANT_ENABLED=True,
+                **PRODUCTION_HTTP_SETTINGS,
+            )
+
 if __name__=="__main__": unittest.main()

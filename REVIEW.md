@@ -1565,3 +1565,49 @@ Final controls:
 - Known risks: provider-level p95 cannot be mathematically reconstructed from provider/model/mode percentiles. The UI deliberately presents the available value as the highest grouped p95 until a true provider-wide backend aggregate is added. Action eligibility is mirrored for affordance only; the backend remains authoritative and returns conflicts for races.
 - Rollback: revert the frontend, tests and documentation changes. No migration, worker, queue or data rollback is required.
 - Next recommended step: staged operator smoke testing of retry/cancel races and hidden-tab refresh behavior with production-like latency; do not add rollups unless measured aggregation thresholds justify AI-OPS-05 work.
+
+## AUTH-02 review - durable tenant membership
+
+- Files changed: canonical tenant/membership ORM models and service, persistent
+  session active-tenant pointer and validation, Google/Microsoft development
+  bootstrap integration, processing-policy compatibility resolver, explicit
+  tenant bootstrap CLI, configuration examples, focused tests and architecture/
+  operations documentation. AUTH-01 user/identity changes remain the required
+  additive prerequisite in the same worktree.
+- Migration added: `0026_tenant_memberships`, chained from
+  `0025_application_users`. It creates `tenants`, `tenant_memberships`, required
+  foreign keys/uniqueness/indexes and nullable `auth_sessions.active_tenant_id`.
+  Downgrade removes only AUTH-02 data/pointer and preserves users, identities,
+  encrypted OAuth connections and legacy provider session fields.
+- Behavior introduced: effective tenant access requires an active user, active
+  tenant and active membership; membership removal is status-preserving;
+  explicit tenant selection validates ownership and records a secret-free audit
+  event; single-membership sessions may resolve deterministically; actor ID is
+  no longer used as tenant ID by the processing-policy compatibility helper.
+  Legacy sessions without `user_id` retain a documented compatibility path.
+- Bootstrap: automatic personal development tenancy remains default-disabled
+  and is rejected in production. `python -m app.operations.auth_cli
+  bootstrap-tenant` is confirmation-gated, supports dry-run, is idempotent and
+  assigns no administrator role.
+- Tests and actual results:
+  - focused API/auth/membership/bootstrap/processing modules using the API
+    virtual environment: 28 tests passed in 0.449s.
+  - migration `0026` SQLite upgrade and step-scoped downgrade: 1 test passed in
+    3.20s.
+  - Python compilation and `git diff --check`: passed.
+  - Alembic heads: exactly one, `0026_tenant_memberships`.
+  - PostgreSQL concurrent-membership integration test: present but skipped
+    locally because `INTEGRATION_DATABASE_URL` was not configured; CI with
+    PostgreSQL must execute it.
+- Feature flags: `DEVELOPMENT_PERSONAL_TENANT_ENABLED=false` is the only AUTH-02
+  rollout setting; no existing runtime feature was enabled. Production rejects
+  this development-only setting when true.
+- Known risks: durable roles and permissions are intentionally absent until
+  AUTH-03. Routes not yet migrated continue using compatibility authorization,
+  while the processing-policy helper now resolves membership tenancy. Real
+  PostgreSQL concurrent creation remains pending service-backed CI execution.
+- Rollback: stop tenant-aware application traffic, deploy the prior code, then
+  downgrade Alembic to `0025_application_users`. Active-tenant selections and
+  memberships are removed; legacy provider-scoped sessions/connections remain.
+- Next recommended step: run the PostgreSQL integration job, then implement
+  AUTH-03 tenant-scoped roles and permissions without changing ordinary routes.
