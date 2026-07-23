@@ -9,16 +9,21 @@ FRONTEND_ROOT="/var/www/creative-asset-manager"
 ENV_FILE="/etc/creative-asset-manager/production.env"
 BRANCH=""
 COMMIT=""
+ALLOW_USER=""
 KEEP_RELEASES=5
 HEALTH_ATTEMPTS=40
 SWITCHED=false
 PREVIOUS_FRONTEND=""
+TEMP_LINK=""
 
 usage() {
-  printf '%s\n' "Usage: $0 (--branch NAME | --commit SHA) [--project-root PATH] [--frontend-root PATH] [--env-file PATH]"
+  printf '%s\n' "Usage: $0 (--branch NAME | --commit SHA) [--project-root PATH] [--frontend-root PATH] [--env-file PATH] [--allow-user USER]"
 }
 
 cleanup() {
+  if [[ -n "$TEMP_LINK" && -L "$TEMP_LINK" ]]; then
+    sudo rm -f -- "$TEMP_LINK"
+  fi
   if [[ "$SWITCHED" == true && -n "$PREVIOUS_FRONTEND" && -d "$PREVIOUS_FRONTEND" ]]; then
     printf '%s\n' "Deployment failed after frontend switch; restoring previous frontend." >&2
     local restore_link="$FRONTEND_ROOT/current.restore.$$"
@@ -28,6 +33,7 @@ cleanup() {
   fi
 }
 trap cleanup ERR
+trap '[[ -n "$TEMP_LINK" && -L "$TEMP_LINK" ]] && sudo rm -f -- "$TEMP_LINK" || true' EXIT
 
 while (($#)); do
   case "$1" in
@@ -36,6 +42,7 @@ while (($#)); do
     --project-root) REPO_ROOT="${2:?missing project root}"; shift 2 ;;
     --frontend-root) FRONTEND_ROOT="${2:?missing frontend root}"; shift 2 ;;
     --env-file) ENV_FILE="${2:?missing env file}"; shift 2 ;;
+    --allow-user) ALLOW_USER="${2:?missing user}"; shift 2 ;;
     --keep-releases) KEEP_RELEASES="${2:?missing count}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) deploy_die "Unknown option: $1" ;;
@@ -43,18 +50,23 @@ while (($#)); do
 done
 
 require_non_root
-[[ "$(id -un)" == "desify" ]] || printf '%s\n' "WARNING: intended production user is desify." >&2
+require_deployment_user "desify" "$ALLOW_USER"
 [[ -n "$BRANCH" || -n "$COMMIT" ]] || deploy_die "Specify --branch or --commit."
 [[ -z "$BRANCH" || -z "$COMMIT" ]] || deploy_die "Choose only one Git reference."
 [[ "$KEEP_RELEASES" =~ ^[1-9][0-9]*$ ]] || deploy_die "--keep-releases must be positive."
-for command in git docker curl rsync sudo; do require_command "$command"; done
-[[ -f "$ENV_FILE" ]] || deploy_die "Production env file is missing."
+for command in git docker curl rsync sudo stat grep; do
+  require_command "$command"
+done
+validate_production_env_file "$ENV_FILE"
 [[ -d "$REPO_ROOT/.git" ]] || deploy_die "Repository not found: $REPO_ROOT"
 
 cd "$REPO_ROOT"
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || deploy_die "Repository must be clean."
 git fetch --prune origin
 if [[ -n "$BRANCH" ]]; then
+  if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
+    deploy_die "Invalid branch name."
+  fi
   if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
     git switch "$BRANCH"
   else
@@ -79,34 +91,23 @@ export CAM_PRODUCTION_ENV_FILE="$ENV_FILE"
 export BUILD_COMMIT="$RELEASE_COMMIT"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${COMPOSE[@]}" config --quiet
+
+printf 'Building immutable backend image tagged %s.\n' "$RELEASE_COMMIT"
 "${COMPOSE[@]}" build api
 
 printf '%s\n' "Validating production application configuration..."
-"${COMPOSE[@]}" run --rm --no-deps api python -c \
-  "from app.core.config import get_settings; s=get_settings(); assert s.APP_ENV == 'production'"
+"${COMPOSE[@]}" run --rm --no-deps api python -c "from app.core.config import get_settings; s=get_settings(); assert s.APP_ENV == 'production'"
 
-printf '%s\n' "Checking native PostgreSQL from an ephemeral API container..."
-"${COMPOSE[@]}" run --rm --no-deps api python -c \
-  "from app.core.database import validate_database_connection; validate_database_connection()"
+printf '%s\n' "Checking native PostgreSQL from an ephemeral backend container..."
+"${COMPOSE[@]}" run --rm --no-deps api python -c "from app.core.database import validate_database_connection; validate_database_connection()"
 
-printf '%s\n' "Running Alembic migration as a one-shot container..."
+printf '%s\n' "Running the forward-only Alembic migration service..."
 "${COMPOSE[@]}" --profile migration run --rm migrate
 
 "${COMPOSE[@]}" up -d elasticsearch
 "${COMPOSE[@]}" up -d --no-build api worker
-
-api_healthy=false
-for ((attempt=1; attempt<=HEALTH_ATTEMPTS; attempt++)); do
-  if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/ready >/dev/null; then
-    api_healthy=true
-    break
-  fi
-  sleep 2
-done
-[[ "$api_healthy" == true ]] || deploy_die "API readiness failed; frontend was not switched."
-
-"${COMPOSE[@]}" exec -T worker python -c \
-  "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/live', timeout=5).read()"
+wait_for_api_release "http://127.0.0.1:8000" "$RELEASE_COMMIT" "$HEALTH_ATTEMPTS"
+"${COMPOSE[@]}" exec -T worker python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/live', timeout=5).read()"
 
 RELEASES_DIR="$FRONTEND_ROOT/releases"
 RELEASE_DIR="$RELEASES_DIR/$RELEASE_COMMIT"
@@ -114,8 +115,12 @@ sudo install -d -m 0755 "$FRONTEND_ROOT" "$RELEASES_DIR"
 if [[ ! -d "$RELEASE_DIR" ]]; then
   sudo install -d -m 0755 "$RELEASE_DIR"
   sudo rsync -a --delete --chmod=D755,F644 "$DIST/" "$RELEASE_DIR/"
+elif ! sudo diff -qr "$DIST" "$RELEASE_DIR" >/dev/null; then
+  deploy_die "Existing frontend release differs from committed dist."
 fi
 verify_frontend_dist "$RELEASE_DIR"
+scan_frontend_dist "$RELEASE_DIR"
+
 if [[ -L "$FRONTEND_ROOT/current" ]]; then
   PREVIOUS_FRONTEND="$(readlink -f "$FRONTEND_ROOT/current")"
 fi
@@ -123,18 +128,26 @@ sudo nginx -t
 TEMP_LINK="$FRONTEND_ROOT/current.new.$$"
 sudo ln -s "$RELEASE_DIR" "$TEMP_LINK"
 sudo mv -Tf "$TEMP_LINK" "$FRONTEND_ROOT/current"
+TEMP_LINK=""
 SWITCHED=true
 sudo nginx -t
 sudo systemctl reload nginx
 
 PUBLIC_URL="$(read_env_value "$ENV_FILE" PUBLIC_APP_URL)"
-[[ "$PUBLIC_URL" == https://* ]] || deploy_die "PUBLIC_APP_URL must use HTTPS."
-for path in / /ai-operations /live /ready /version; do
+for path in / /ai-operations /settings/access /live /ready; do
   curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL$path" >/dev/null
 done
+if ! version_matches_commit "$PUBLIC_URL/version" "$RELEASE_COMMIT"; then
+  deploy_die "Public /version does not match the deployed commit."
+fi
 
 CURRENT_RELEASE="$(readlink -f "$FRONTEND_ROOT/current")"
-mapfile -t OLD_RELEASES < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -rn | tail -n "+$((KEEP_RELEASES + 1))" | cut -d' ' -f2-)
+mapfile -t OLD_RELEASES < <(
+  find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' |
+    sort -rn |
+    tail -n "+$((KEEP_RELEASES + 1))" |
+    cut -d' ' -f2-
+)
 for old_release in "${OLD_RELEASES[@]}"; do
   resolved="$(readlink -f "$old_release")"
   [[ "$resolved" == "$RELEASES_DIR/"* ]] || deploy_die "Refusing to prune outside release root."

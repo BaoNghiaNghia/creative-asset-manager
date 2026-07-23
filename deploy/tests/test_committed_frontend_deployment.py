@@ -199,7 +199,7 @@ class CommittedFrontendDeploymentTest(unittest.TestCase):
         self.assertNotIn("git reset --hard", script)
         self.assertLess(script.index('validate_database_connection'), script.index('--profile migration run --rm migrate'))
         self.assertLess(script.index('--profile migration run --rm migrate'), script.index('up -d --no-build api worker'))
-        self.assertLess(script.index("API readiness failed"), script.index('current.new.$$'))
+        self.assertLess(script.index("wait_for_api_release"), script.index('current.new.$$'))
         self.assertIn("sudo mv -Tf", script)
 
     def test_compose_and_images_match_target_architecture(self) -> None:

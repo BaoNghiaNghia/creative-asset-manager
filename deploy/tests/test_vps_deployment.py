@@ -50,13 +50,13 @@ class VpsDeploymentArtifactTest(unittest.TestCase):
         self.assertIn("root /var/www/creative-asset-manager/current;", config)
         self.assertIn("location /api/", config)
         self.assertIn("proxy_pass http://creative_asset_manager_api;", config)
-        self.assertIn("proxy_set_header X-Forwarded-Proto $scheme;", config)
+        self.assertIn("proxy_set_header X-Forwarded-Proto https;", config)
         self.assertIn("try_files $uri $uri/ /index.html;", config)
         self.assertIn("location /assets/", config)
-        self.assertIn("expires 1y;", config)
-        self.assertIn('Cache-Control "public, max-age=31536000, immutable"', config)
+        self.assertIn("add_header Cache-Control $cam_cache_control always;", config)
+        self.assertIn('public, max-age=31536000, immutable', config)
         self.assertIn("location = /build-info.json", config)
-        self.assertIn('Cache-Control "no-store, no-cache, must-revalidate"', config)
+        self.assertIn('no-store, no-cache, must-revalidate', config)
 
     def test_compose_contains_docker_backend_without_postgres(self) -> None:
         config = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))

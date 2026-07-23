@@ -2118,3 +2118,52 @@ Validation was run in the requested order:
   distribution/build marker. No database rollback is involved.
 - Next recommended step: let the frontend CI job rebuild and verify the committed
   artifacts before deployment.
+
+
+## PROD-VPS-03 hybrid VPS deployment
+
+- Files changed: hardened native Nginx site, shared production validation
+  helpers, Docker-backed deploy/rollback/validation scripts, focused deployment
+  tests and the VPS production runbook.
+- Migrations added: none. The deployment runs only the existing forward
+  `alembic upgrade head` migration service.
+- Behavior introduced:
+  - Nginx serves the committed `apps/client/dist` release through the atomic
+    `/var/www/creative-asset-manager/current` symlink, supports SPA deep links,
+    proxies API/health endpoints only to loopback and applies URI-specific cache
+    policy without dropping inherited security headers;
+  - deployment refuses root and unauthorized users, accepts only an explicit
+    user override, updates Git by fast-forward or an explicit commit, validates
+    the production environment without printing values, builds the commit-tagged
+    backend image, validates native PostgreSQL, migrates, starts services and
+    requires live/ready/version-matched API and worker liveness before switching
+    the frontend;
+  - public smoke tests cover the home route, AI Operations, Access Management
+    and health/version endpoints; five frontend releases are retained;
+  - rollback starts the backend image matching the retained frontend commit,
+    verifies health/version before an atomic switch, restores the prior symlink
+    on smoke-test failure and never downgrades PostgreSQL.
+- Tests and actual results:
+  - `python -m unittest deploy.tests.test_prod_vps_03 deploy.tests.test_committed_frontend_deployment deploy.tests.test_vps_deployment -v`:
+    25 focused tests passed;
+  - Bash syntax for all deployment scripts: passed;
+  - `validate-production.sh --config-only` with an explicit local user override and a mode-0600 non-secret environment: passed;
+  - Docker Compose production configuration: passed with the production env
+    path explicitly overridden to the non-secret template;
+  - Nginx 1.27.5 syntax validation with a temporary certificate and committed
+    frontend mount: passed;
+  - `git diff --check`: passed.
+- Feature flags: none added or enabled. Existing ingestion, AI and Search v2
+  defaults remain unchanged.
+- Security: client-supplied forwarded address/protocol values are replaced by
+  Nginx-derived values; dotfiles and environment/key artifacts are denied;
+  security headers, bounded proxy timeouts and no-cache entry documents are
+  configured. Scripts never echo the production environment.
+- Known risks: real TLS paths, sudo policy, native PostgreSQL `pg_hba.conf`,
+  firewall rules and public DNS can only be verified on the VPS. Older backend
+  releases must remain compatible with the current forward-only schema.
+- Rollback: run `sudo -u desify ./scripts/rollback-vps.sh --commit COMMIT`.
+  This changes application/frontend versions while preserving PostgreSQL and
+  Elasticsearch data; it never invokes Alembic downgrade.
+- Next recommended step: run `validate-production.sh --preflight` on the VPS
+  during a reviewed maintenance window before the first deployment.

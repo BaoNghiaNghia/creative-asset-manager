@@ -16,12 +16,27 @@ require_non_root() {
   [[ "$uid" != "0" ]] || deploy_die "This script must not run as root."
 }
 
+require_deployment_user() {
+  local expected="$1"
+  local override="${2:-}"
+  local current
+  current="$(id -un)"
+  if [[ "$current" == "$expected" ]]; then
+    return
+  fi
+  if [[ -z "$override" || "$override" != "$current" ]]; then
+    deploy_die "Run as $expected or pass --allow-user $current explicitly."
+  fi
+  printf 'Deployment user override accepted for %s.\n' "$current"
+}
+
 verify_frontend_dist() {
   local dist="$1"
   [[ -f "$dist/index.html" ]] || deploy_die "Frontend dist is missing index.html: $dist"
   [[ -f "$dist/build-info.json" ]] || deploy_die "Frontend build marker is missing: $dist/build-info.json"
-  find "$dist/assets" -type f -print -quit 2>/dev/null | grep -q . \
-    || deploy_die "Frontend dist has no generated assets."
+  if ! find "$dist/assets" -type f -print -quit 2>/dev/null | grep -q .; then
+    deploy_die "Frontend dist has no generated assets."
+  fi
 }
 
 scan_frontend_dist() {
@@ -59,6 +74,66 @@ read_env_value() {
   ' "$env_file"
 }
 
+validate_production_env_file() {
+  local env_file="$1"
+  [[ -f "$env_file" ]] || deploy_die "Production env file is missing."
+  local mode
+  mode="$(stat -c '%a' "$env_file")"
+  if [[ "$mode" != "600" && "$mode" != "640" ]]; then
+    deploy_die "Production env must have mode 0600 or 0640."
+  fi
+  if LC_ALL=C grep -qE 'CHANGE_ME|REPLACE_[A-Z0-9_]+|<[^>]+>' "$env_file"; then
+    deploy_die "Production env still contains a placeholder."
+  fi
+
+  local app_env public_url database_url cookie_secure persistent_auth
+  local dev_tenant legacy_admin api_docs
+  app_env="$(read_env_value "$env_file" APP_ENV)"
+  public_url="$(read_env_value "$env_file" PUBLIC_APP_URL)"
+  database_url="$(read_env_value "$env_file" DATABASE_URL)"
+  cookie_secure="$(read_env_value "$env_file" AUTH_COOKIE_SECURE)"
+  persistent_auth="$(read_env_value "$env_file" PERSISTENT_AUTH_ENABLED)"
+  dev_tenant="$(read_env_value "$env_file" DEVELOPMENT_PERSONAL_TENANT_ENABLED)"
+  legacy_admin="$(read_env_value "$env_file" AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED)"
+  api_docs="$(read_env_value "$env_file" API_DOCS_ENABLED)"
+
+  [[ "$app_env" == "production" ]] || deploy_die "APP_ENV must be production."
+  [[ "$public_url" == https://* ]] || deploy_die "PUBLIC_APP_URL must use HTTPS."
+  if [[ "$database_url" != postgresql+psycopg://*host.docker.internal:5432/* ]]; then
+    deploy_die "DATABASE_URL must use native PostgreSQL through host.docker.internal."
+  fi
+  [[ "$database_url" != *sqlite* ]] || deploy_die "SQLite is forbidden in production."
+  [[ "$cookie_secure" == "true" ]] || deploy_die "Secure cookies must be enabled."
+  [[ "$persistent_auth" == "true" ]] || deploy_die "Persistent RBAC authentication must be enabled."
+  [[ "$dev_tenant" == "false" ]] || deploy_die "Development tenant bootstrap must be disabled."
+  [[ "$legacy_admin" == "false" ]] || deploy_die "Legacy admin allowlist compatibility must be disabled."
+  [[ "$api_docs" == "false" ]] || deploy_die "API documentation must be disabled in production."
+}
+
 safe_release_id() {
   [[ "$1" =~ ^[0-9a-f]{7,40}$ ]] || deploy_die "Release must be a Git commit SHA."
+}
+
+version_matches_commit() {
+  local url="$1"
+  local commit="$2"
+  local response
+  response="$(curl --fail --silent --show-error --max-time 5 "$url")" || return 1
+  printf '%s' "$response" | grep -Eq '"commit"[[:space:]]*:[[:space:]]*"'"$commit"'"'
+}
+
+wait_for_api_release() {
+  local base_url="$1"
+  local commit="$2"
+  local attempts="${3:-40}"
+  local attempt
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    if curl --fail --silent --max-time 5 "$base_url/live" >/dev/null &&
+      curl --fail --silent --max-time 5 "$base_url/ready" >/dev/null &&
+      version_matches_commit "$base_url/version" "$commit"; then
+      return
+    fi
+    sleep 2
+  done
+  deploy_die "API readiness failed; API did not become live, ready and version-matched."
 }
