@@ -92,23 +92,42 @@ class CommittedFrontendDeploymentTest(unittest.TestCase):
         self.assertIn('FRONTEND_ROOT="/var/www/creative-asset-manager"', script)
         self.assertIn("git merge --ff-only", script)
         self.assertNotIn("git reset --hard", script)
-        self.assertLess(script.index('validate_database_connection'), script.index('--profile migration run --rm migration'))
-        self.assertLess(script.index('--profile migration run --rm migration'), script.index('up -d --no-build api worker'))
+        self.assertLess(script.index('validate_database_connection'), script.index('--profile migration run --rm migrate'))
+        self.assertLess(script.index('--profile migration run --rm migrate'), script.index('up -d --no-build api worker'))
         self.assertLess(script.index("API readiness failed"), script.index('current.new.$$'))
         self.assertIn("sudo mv -Tf", script)
 
     def test_compose_and_images_match_target_architecture(self) -> None:
         config = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
-        self.assertEqual(set(config["services"]), {"api", "worker", "migration", "elasticsearch"})
+        self.assertEqual(set(config["services"]), {"api", "worker", "migrate", "elasticsearch"})
         self.assertNotIn("postgres", config["services"])
         self.assertIn("host.docker.internal:host-gateway", config["x-backend-common"]["extra_hosts"])
         self.assertEqual(config["services"]["api"]["ports"], ["127.0.0.1:8000:8000"])
         self.assertNotIn("ports", config["services"]["worker"])
-        for name in ("api.Dockerfile", "worker.Dockerfile"):
-            dockerfile = (COMPOSE.parent / name).read_text(encoding="utf-8").lower()
-            self.assertNotIn("node", dockerfile)
-            self.assertIn("user 10001:10001", dockerfile)
-            self.assertNotIn("apps/client", dockerfile)
+        backend = (COMPOSE.parent / "backend.Dockerfile").read_text(encoding="utf-8").lower()
+        self.assertIn("from python:3.12.8-slim-bookworm", backend)
+        self.assertNotIn("copy .", backend)
+        self.assertIn("database/migrations", backend)
+        common = config["x-backend-common"]
+        self.assertEqual(common["user"], "10001:10001")
+        self.assertTrue(common["read_only"])
+        self.assertEqual(common["stop_signal"], "SIGTERM")
+        self.assertIn("ALL", common["cap_drop"])
+        self.assertEqual(
+            common["environment"]["ELASTICSEARCH_URL"],
+            "http://elasticsearch:9200",
+        )
+        self.assertNotIn("node", backend)
+        self.assertIn("user 10001:10001", backend)
+        self.assertNotIn("apps/client", backend)
+        self.assertEqual(config["services"]["api"]["image"], config["services"]["worker"]["image"])
+        self.assertEqual(config["services"]["api"]["image"], config["services"]["migrate"]["image"])
+        self.assertNotIn("build", config["services"]["worker"])
+        self.assertNotIn("build", config["services"]["migrate"])
+        self.assertEqual(
+            config["services"]["migrate"]["command"],
+            ["python", "-m", "alembic", "upgrade", "head"],
+        )
 
     def test_nginx_proxy_spa_and_cache_policy(self) -> None:
         config = NGINX.read_text(encoding="utf-8")

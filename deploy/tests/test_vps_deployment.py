@@ -62,7 +62,7 @@ class VpsDeploymentArtifactTest(unittest.TestCase):
         config = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
         self.assertEqual(
             set(config['services']),
-            {'api', 'worker', 'migration', 'elasticsearch'},
+            {'api', 'worker', 'migrate', 'elasticsearch'},
         )
         elasticsearch = config['services']['elasticsearch']
         self.assertEqual(elasticsearch['ports'], ['127.0.0.1:9200:9200'])

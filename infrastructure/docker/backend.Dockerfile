@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM python:3.12.8-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -12,16 +14,16 @@ WORKDIR /app
 COPY --chown=cam:cam apps/api/requirements.txt /app/apps/api/requirements.txt
 RUN python -m pip install --requirement /app/apps/api/requirements.txt
 
-COPY --chown=cam:cam apps/api /app/apps/api
+# Copy only backend runtime and migration inputs; local databases, tests,
+# frontend files, environment files and deployment secrets stay outside.
+COPY --chown=cam:cam apps/api/alembic.ini /app/apps/api/alembic.ini
+COPY --chown=cam:cam apps/api/app /app/apps/api/app
 COPY --chown=cam:cam apps/worker /app/apps/worker
-COPY --chown=cam:cam database /app/database
-COPY --chown=cam:cam deploy/tools /app/deploy/tools
+COPY --chown=cam:cam database/migrations /app/database/migrations
 
 WORKDIR /app/apps/api
 USER 10001:10001
+STOPSIGNAL SIGTERM
 EXPOSE 8000
-
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/live', timeout=3).read()"]
 
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

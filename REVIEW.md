@@ -2040,3 +2040,43 @@ Validation was run in the requested order:
 - Migrations: none. No committed feature-flag default was enabled.
 - Operational step: restart make api, then sign in again.
 - Rollback: set both local flags false and revert this UI/message change.
+
+## PROD-DOCKER-01 review
+
+- Files changed: one consolidated backend Dockerfile, production Compose,
+  production resource-limit template, deployment migration invocation and
+  focused deployment tests. The duplicate API/worker Dockerfiles were removed.
+- Migrations added: none. The one-shot `migrate` service runs the existing
+  Alembic head and exits; API startup does not run migrations.
+- Behavior introduced:
+  - API, worker and migrate use the same commit-tagged immutable image;
+  - Python is pinned to 3.12.8 slim Bookworm and runtime processes use UID/GID
+    10001 with a read-only filesystem, dropped capabilities and SIGTERM/init
+    forwarding;
+  - native PostgreSQL remains reachable only through
+    `host.docker.internal`, while backend Elasticsearch uses
+    `http://elasticsearch:9200`;
+  - API and Elasticsearch publish only to loopback; PostgreSQL, Nginx and the
+    committed frontend remain native/outside Compose;
+  - CPU and memory bounds are explicit environment-backed values so operators
+    can tune measured VPS limits without editing Compose.
+- Tests and actual results:
+  - focused deployment tests: 14 passed in 0.056s;
+  - Docker Compose configuration rendered successfully with exactly
+    `api`, `worker`, `migrate` and `elasticsearch`;
+  - the backend image built successfully from the pinned base;
+  - container UID/GID verification, API import, worker import and Alembic
+    `0028_central_authorization (head)` checks passed;
+  - image runtime-context and history scans found no frontend, local database,
+    test tree, environment file or secret-bearing build instruction;
+  - deployment shell syntax and `git diff --check` passed.
+- Feature flags: none added or enabled. AI, ingestion and Search v2 production
+  defaults remain unchanged.
+- Known risks: the resource defaults are starting bounds and must be measured
+  against the real VPS workload. The image build downloads pinned Python
+  dependencies unless the Docker cache is warm.
+- Rollback: revert this isolated commit and rebuild the prior backend images.
+  Do not downgrade PostgreSQL; data and the Elasticsearch volume are unchanged.
+- Next recommended step: validate the image against the protected VPS
+  environment and native PostgreSQL during the normal deployment preflight;
+  this step intentionally performs no deployment.

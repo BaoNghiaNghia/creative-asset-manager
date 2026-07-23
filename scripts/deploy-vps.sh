@@ -90,7 +90,7 @@ printf '%s\n' "Checking native PostgreSQL from an ephemeral API container..."
   "from app.core.database import validate_database_connection; validate_database_connection()"
 
 printf '%s\n' "Running Alembic migration as a one-shot container..."
-"${COMPOSE[@]}" --profile migration run --rm migration
+"${COMPOSE[@]}" --profile migration run --rm migrate
 
 "${COMPOSE[@]}" up -d elasticsearch
 "${COMPOSE[@]}" up -d --no-build api worker
