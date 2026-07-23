@@ -129,18 +129,24 @@ class WorkerRuntimeTest(unittest.TestCase):
 
     def test_heartbeat_extends_the_lease(self) -> None:
         job_id = self.enqueue("heartbeat")
-        observed: list[datetime] = []
+        observed: list[tuple[datetime, datetime]] = []
 
         def handler(_context):
             time.sleep(0.07)
             with self.sessions() as session:
-                observed.append(session.get(ProcessingJobModel, job_id).lease_expires_at)
+                observed.append(
+                    (
+                        session.get(ProcessingJobModel, job_id).lease_expires_at,
+                        datetime.now(timezone.utc).replace(tzinfo=None),
+                    )
+                )
             return JobHandlerResult.completed()
 
         runtime = self.runtime(handler, heartbeat=0.02, lease=0.08)
         runtime.run_once()
         self.assertTrue(observed)
-        self.assertGreater(observed[0], datetime.now(timezone.utc).replace(tzinfo=None))
+        lease_expires_at, observed_at = observed[0]
+        self.assertGreater(lease_expires_at, observed_at)
 
     def test_lost_lease_prevents_completion(self) -> None:
         job_id = self.enqueue("lease-loss")

@@ -92,3 +92,8 @@
 ## Deployment
 
 - [x] DEPLOY-COMMITTED-FRONTEND Committed Vite bundle, Docker backend and native Nginx/PostgreSQL deployment
+
+- [x] PROD-DOCKER-01 Immutable Docker backend and production Compose
+- [x] PROD-FE-02 Reproducible committed frontend release
+- [x] PROD-VPS-03 Native Nginx and VPS deployment/rollback tooling
+- [ ] PROD-GATE-04 Production release gate (implemented; production readiness requires a green remote gate for the release SHA)

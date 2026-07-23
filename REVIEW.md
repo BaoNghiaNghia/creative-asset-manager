@@ -2167,3 +2167,57 @@ Validation was run in the requested order:
   Elasticsearch data; it never invokes Alembic downgrade.
 - Next recommended step: run `validate-production.sh --preflight` on the VPS
   during a reviewed maintenance window before the first deployment.
+
+
+## PROD-GATE-04 production release gate
+
+- CI regression investigated first: GitHub Actions workflow run #150, job
+  `API, worker and provider unit tests`, failed in
+  `WorkerRuntimeTest.test_heartbeat_extends_the_lease`. The assertion compared
+  a lease timestamp observed inside the handler with wall-clock time captured
+  only after `run_once()` returned; the 41 ms teardown delay made the timing
+  assertion flaky. Migration 0024 and provider configuration defaults were not
+  involved. The regression test now compares the lease with the timestamp
+  captured at the same observation point.
+- Files changed: production release-gate workflow, fail-closed gate runner,
+  release checklist, focused gate/regression tests, compatible Nginx HTTP/2
+  syntax, and roadmap/review documentation.
+- Migrations added: none. Domain and application runtime behavior are unchanged.
+- Behavior introduced:
+  - the release gate is downstream of every existing frontend, API/worker,
+    PostgreSQL, Elasticsearch and durable-pipeline CI group and fails when any
+    prerequisite is not successful;
+  - one immutable non-root backend image is built and validated; production
+    Compose topology, native-PostgreSQL connectivity, migration service,
+    Alembic head, persistent auth/RBAC schema, fail-closed configuration,
+    API health/version, worker SIGTERM/restart and Nginx syntax are checked;
+  - committed frontend artifacts are verified and scanned without echoing a
+    rejected secret-like match; image-history scanning is quiet;
+  - the gate uses generated test-only values and never requires production
+    credentials or live Google, Microsoft, Gemini or OpenAI calls.
+- Tests and actual results:
+  - failing test alone: `cd apps/api && .venv/bin/python -m unittest tests.modules.processing.test_runtime.WorkerRuntimeTest.test_heartbeat_extends_the_lease -v`: 1 passed in 1.482 s;
+  - containing module: `cd apps/api && .venv/bin/python -m unittest tests.modules.processing.test_runtime -v`: 16 passed in 13.400 s;
+  - exact clean Python 3.12 CI discovery command: `python -m unittest discover -s tests -v`: 516 tests passed, 16 skipped, in 166.621 s;
+  - focused gate plus regression: `cd apps/api && .venv/bin/python -m unittest tests.test_production_release_gate tests.modules.processing.test_runtime.WorkerRuntimeTest.test_heartbeat_extends_the_lease -v`: 4 passed in 1.483 s;
+  - Actionlint 1.7.7 workflow syntax: passed;
+  - ShellCheck 0.10.0 (with the known dynamic-source SC1091 excluded) and Bash syntax: passed;
+  - Nginx 1.24-alpine syntax with a temporary certificate and committed dist: passed;
+  - positive production configuration validation: passed; loopback PostgreSQL negative case was rejected as required;
+  - `git diff --check`: passed.
+- Feature flags: none enabled. Pipeline, ingestion, AI and Search v2 remain
+  false in the gate environment; the global AI emergency stop remains active.
+- Security: production SQLite, loopback container database URLs, development
+  personal tenants and legacy processing-admin compatibility are rejected.
+  API keys, OAuth credentials and signed URLs are not included in artifacts.
+- Known risk/status: the local host has legacy Docker Compose 2.0.1, which
+  cannot parse the current production Compose schema/default resource values.
+  The complete container gate therefore remains pending on the current GitHub
+  runner. PROD-GATE-04 and production readiness stay unchecked until the new
+  commit's remote `Production release gate` is green.
+- Rollback: revert this isolated commit. No database downgrade is required or
+  performed. Application rollback remains forward-schema compatible and never
+  downgrades PostgreSQL automatically.
+- Release procedure: follow
+  `docs/operations/PRODUCTION_RELEASE_CHECKLIST.md`; deploy only the exact SHA
+  with a green, non-skipped gate.
