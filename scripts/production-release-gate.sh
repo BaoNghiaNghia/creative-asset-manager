@@ -67,6 +67,8 @@ fi
 validate_production_env_file "$ENV_FILE"
 verify_frontend_dist "$PROJECT_ROOT/apps/client/dist"
 scan_frontend_dist "$PROJECT_ROOT/apps/client/dist" >/dev/null
+GATE_HOST="$(read_env_value "$ENV_FILE" TRUSTED_HOSTS)"
+GATE_HOST="${GATE_HOST%%,*}"
 
 export CAM_PRODUCTION_ENV_FILE="$ENV_FILE"
 export BUILD_COMMIT="${BUILD_COMMIT:-$(git -C "$PROJECT_ROOT" rev-parse HEAD)}"
@@ -100,11 +102,12 @@ if docker history --no-trunc "$IMAGE_REF" | grep -Eq \
 fi
 
 printf '%s\n' "Checking backend imports and Alembic command..."
+"${COMPOSE[@]}" run --rm --no-deps api printenv APP_ENV PUBLIC_APP_URL CORS_ALLOWED_ORIGINS TRUSTED_HOSTS API_DOCS_ENABLED AUTH_COOKIE_SECURE
 "${COMPOSE[@]}" run --rm --no-deps api \
   python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
 "${COMPOSE[@]}" run --rm --no-deps api \
   python -c "from app.core.config import get_settings; s=get_settings(); assert s.APP_ENV == 'production'; assert s.PERSISTENT_AUTH_ENABLED; assert not s.DEVELOPMENT_PERSONAL_TENANT_ENABLED; assert not s.AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED; assert not s.DATABASE_URL.startswith('sqlite'); assert '@host.docker.internal:5432/' in s.DATABASE_URL"
-"${COMPOSE[@]}" run --rm --no-deps api \
+"${COMPOSE[@]}" run --rm --no-deps -e PYTHONPYCACHEPREFIX=/tmp/pycache api \
   python -c "from pathlib import Path; import compileall; assert compileall.compile_dir(Path('/app/apps/worker'), quiet=1)"
 [[ "$("${COMPOSE[@]}" run --rm --no-deps api python -m alembic heads | grep -c '(head)')" -eq 1 ]] \
   || deploy_die "Alembic must have exactly one head."
@@ -124,9 +127,9 @@ printf '%s\n' "Starting Elasticsearch, API and worker..."
 
 api_ready=false
 for _attempt in $(seq 1 60); do
-  if curl --fail --silent --max-time 5 http://127.0.0.1:8000/live >/dev/null &&
-    curl --fail --silent --max-time 5 http://127.0.0.1:8000/ready >/dev/null &&
-    version_matches_commit http://127.0.0.1:8000/version "$BUILD_COMMIT"; then
+  if curl --fail --silent --max-time 5 --header "Host: $GATE_HOST" http://127.0.0.1:8000/live >/dev/null &&
+    curl --fail --silent --max-time 5 --header "Host: $GATE_HOST" http://127.0.0.1:8000/ready >/dev/null &&
+    curl --fail --silent --max-time 5 --header "Host: $GATE_HOST" http://127.0.0.1:8000/version | grep -Fq "$BUILD_COMMIT"; then
     api_ready=true
     break
   fi

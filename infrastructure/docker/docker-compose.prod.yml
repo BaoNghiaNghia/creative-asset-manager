@@ -7,7 +7,12 @@ x-backend-common: &backend-common
     - "${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}"
 
   environment:
-    APP_ENV: "production"
+    APP_ENV: "${APP_ENV:?APP_ENV is required}"
+    PUBLIC_APP_URL: "${PUBLIC_APP_URL:?PUBLIC_APP_URL is required}"
+    CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}"
+    TRUSTED_HOSTS: "${TRUSTED_HOSTS:?TRUSTED_HOSTS is required}"
+    API_DOCS_ENABLED: "${API_DOCS_ENABLED:?API_DOCS_ENABLED is required}"
+    AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:?AUTH_COOKIE_SECURE is required}"
     BUILD_COMMIT: "${BUILD_COMMIT:-unknown}"
     ELASTICSEARCH_URL: "http://elasticsearch:9200"
 
@@ -131,11 +136,12 @@ services:
         - python
         - -c
         - >-
-          import urllib.request;
-          response = urllib.request.urlopen(
+          import os, urllib.request;
+          request = urllib.request.Request(
               "http://127.0.0.1:8000/ready",
-              timeout=5
+              headers={"Host": os.environ["TRUSTED_HOSTS"].split(",")[0]},
           );
+          response = urllib.request.urlopen(request, timeout=5);
           raise SystemExit(0 if response.status == 200 else 1)
       interval: 15s
       timeout: 7s

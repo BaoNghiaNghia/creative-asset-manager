@@ -322,9 +322,9 @@ jobs:
           umask 077
           cat >"$RUNNER_TEMP/cam-production-gate.env" <<EOF
           APP_ENV=production
-          PUBLIC_APP_URL=https://assets.example.com
-          CORS_ALLOWED_ORIGINS=https://assets.example.com
-          TRUSTED_HOSTS=assets.example.com,127.0.0.1,localhost
+          PUBLIC_APP_URL=https://asset.example.com
+          CORS_ALLOWED_ORIGINS=https://asset.example.com
+          TRUSTED_HOSTS=asset.example.com
           API_DOCS_ENABLED=false
           BUILD_COMMIT=$GITHUB_SHA
           CAM_BACKEND_IMAGE=cam-production-gate

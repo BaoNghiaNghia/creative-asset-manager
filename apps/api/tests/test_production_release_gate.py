@@ -8,6 +8,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 GATE_SCRIPT = ROOT / "scripts" / "production-release-gate.sh"
+COMPOSE_FILE = ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml"
 
 
 class ProductionReleaseGateTest(unittest.TestCase):
@@ -46,6 +47,9 @@ class ProductionReleaseGateTest(unittest.TestCase):
             "http://127.0.0.1:8000/ready",
             "http://127.0.0.1:8000/version",
             "stop -t 45 worker",
+            "printenv APP_ENV PUBLIC_APP_URL CORS_ALLOWED_ORIGINS TRUSTED_HOSTS API_DOCS_ENABLED AUTH_COOKIE_SECURE",
+            "PYTHONPYCACHEPREFIX=/tmp/pycache",
+            "GATE_HOST",
             "nginx -t",
         ):
             self.assertIn(required, source)
@@ -53,6 +57,12 @@ class ProductionReleaseGateTest(unittest.TestCase):
     def test_gate_environment_is_fail_closed(self):
         workflow = WORKFLOW.read_text()
         required = (
+            "APP_ENV=production",
+            "PUBLIC_APP_URL=https://asset.example.com",
+            "CORS_ALLOWED_ORIGINS=https://asset.example.com",
+            "TRUSTED_HOSTS=asset.example.com",
+            "API_DOCS_ENABLED=false",
+            "AUTH_COOKIE_SECURE=true",
             "PERSISTENT_AUTH_ENABLED=true",
             "DEVELOPMENT_PERSONAL_TENANT_ENABLED=false",
             "AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED=false",
@@ -67,6 +77,18 @@ class ProductionReleaseGateTest(unittest.TestCase):
             "DATABASE_URL=postgresql+psycopg://cam_gate:cam_gate@127.0.0.1",
             workflow,
         )
+        compose = yaml.load(COMPOSE_FILE.read_text(), Loader=yaml.BaseLoader)
+        environment = compose["x-backend-common"]["environment"]
+        for name in (
+            "APP_ENV",
+            "PUBLIC_APP_URL",
+            "CORS_ALLOWED_ORIGINS",
+            "TRUSTED_HOSTS",
+            "API_DOCS_ENABLED",
+            "AUTH_COOKIE_SECURE",
+        ):
+            self.assertIsInstance(environment[name], str)
+            self.assertIn(f"{name} is required", environment[name])
 
 
 if __name__ == "__main__":
