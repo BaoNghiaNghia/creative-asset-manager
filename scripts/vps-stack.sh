@@ -80,9 +80,21 @@ validate_env_format() {
     exit 1
   fi
 
-  if grep -qE 'REPLACE_|assets\.example\.com' "$ENV_FILE"; then
+  local unresolved_placeholders
+
+  unresolved_placeholders="$(
+    awk '
+      /^[[:space:]]*#/ { next }
+      /^[[:space:]]*$/ { next }
+      /REPLACE_|assets[.]example[.]com/ {
+        print NR ": " $0
+      }
+    ' "$ENV_FILE"
+  )"
+
+  if [[ -n "$unresolved_placeholders" ]]; then
     echo "Unresolved placeholder found in $ENV_FILE:" >&2
-    grep -nE 'REPLACE_|assets\.example\.com' "$ENV_FILE" >&2
+    echo "$unresolved_placeholders" >&2
     exit 1
   fi
 }
