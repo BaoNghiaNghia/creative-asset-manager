@@ -141,14 +141,24 @@ OAuth consent supplies both. Configure admission before enabling callbacks:
 AUTH_SELF_SIGNUP_ENABLED=false
 AUTH_DEFAULT_TENANT_ID=
 AUTH_ALLOWED_EMAIL_DOMAINS=
+AUTH_SELF_SIGNUP_DEFAULT_ROLE=viewer
 AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL=
 ```
 
 Production starts with self-signup disabled. Pre-provision the user identity
 and membership using the approved bootstrap process, or briefly enable
 self-signup only after setting an active default tenant and, when required, an
-admission-domain allowlist. The allowlist never grants roles. AUTH-05 creates no
-tenant-admin or platform-admin assignment.
+admission-domain allowlist. Google and Microsoft use the same normalized-domain
+check. The allowlist never grants roles.
+
+Approved first logins atomically create the application user and provider
+identity, active membership in `AUTH_DEFAULT_TENANT_ID`, and the configured
+active `AUTH_SELF_SIGNUP_DEFAULT_ROLE`. The default is `viewer`; operators
+may select another pre-seeded least-privilege tenant role. `tenant_admin` and
+`platform_admin` are rejected. Repeated or concurrent callbacks converge on
+the provider subject and database uniqueness constraints, without duplicate
+membership or role assignments. Creation emits bounded provider/tenant audit
+events. Disable self-signup when open enrollment is not intended.
 
 For a rolling deployment, set `AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL` to a
 short, timezone-aware ISO-8601 deadline understood by all replicas. Before that

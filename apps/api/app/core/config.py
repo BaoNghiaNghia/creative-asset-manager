@@ -9,6 +9,7 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BUILD_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
+_ROLE_KEY_RE = re.compile(r"^[a-z][a-z0-9_.-]{1,127}$")
 
 FEATURE_FLAG_NAMES = (
     "UNIFIED_ASSET_INGESTION_ENABLED",
@@ -177,6 +178,7 @@ class Settings(BaseSettings):
     AUTH_COOKIE_PATH: str = "/"
     AUTH_DEFAULT_TENANT_ID: str = ""
     AUTH_ALLOWED_EMAIL_DOMAINS: str = ""
+    AUTH_SELF_SIGNUP_DEFAULT_ROLE: str = "viewer"
     AUTH_LEGACY_ACTOR_SESSION_COMPAT_UNTIL: str = ""
     APP_ENV: str = "development"
 
@@ -309,6 +311,18 @@ class Settings(BaseSettings):
         normalized = value.strip().lower()
         if normalized not in {"lax", "strict", "none"}:
             raise ValueError("AUTH_COOKIE_SAMESITE must be lax, strict or none")
+        return normalized
+
+    @field_validator("AUTH_SELF_SIGNUP_DEFAULT_ROLE")
+    @classmethod
+    def validate_self_signup_default_role(cls, value: str) -> str:
+        normalized = value.strip().casefold()
+        if not _ROLE_KEY_RE.fullmatch(normalized):
+            raise ValueError("AUTH_SELF_SIGNUP_DEFAULT_ROLE is invalid")
+        if normalized in {"tenant_admin", "platform_admin"}:
+            raise ValueError(
+                "AUTH_SELF_SIGNUP_DEFAULT_ROLE cannot grant administration"
+            )
         return normalized
 
     @field_validator("WORKER_LOG_LEVEL")

@@ -88,6 +88,7 @@
 - [x] AUTH-08 Durable RBAC for AI Operations and related admin routes
 - [x] AUTH-09 Authentication/RBAC migration tooling and final validation
 - [x] ADMIN-SETUP-SCRIPT Safe interactive first-administrator bootstrap
+- [x] AUTH-JIT Secure Google and Microsoft self-signup provisioning
 
 ## Deployment
 

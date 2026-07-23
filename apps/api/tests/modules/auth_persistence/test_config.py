@@ -67,9 +67,17 @@ class AuthConfigurationTest(unittest.TestCase):
     def test_auth_signup_defaults_fail_closed_and_domains_are_normalized(self):
         defaults = Settings()
         self.assertFalse(defaults.AUTH_SELF_SIGNUP_ENABLED)
+        self.assertEqual(defaults.AUTH_SELF_SIGNUP_DEFAULT_ROLE, "viewer")
         self.assertEqual(defaults.auth_allowed_email_domains, ())
-        configured = Settings(AUTH_ALLOWED_EMAIL_DOMAINS="Example.COM, studio.test,example.com")
+        configured = Settings(
+            AUTH_ALLOWED_EMAIL_DOMAINS="Example.COM, studio.test,example.com",
+            AUTH_SELF_SIGNUP_DEFAULT_ROLE="reviewer",
+        )
+        self.assertEqual(configured.AUTH_SELF_SIGNUP_DEFAULT_ROLE, "reviewer")
         self.assertEqual(configured.auth_allowed_email_domains,("example.com", "studio.test", "example.com"))
+        for forbidden in ("tenant_admin", "platform_admin"):
+            with self.assertRaisesRegex(ValueError, "cannot grant administration"):
+                Settings(AUTH_SELF_SIGNUP_DEFAULT_ROLE=forbidden)
 
     def test_legacy_actor_session_deadline_must_be_timezone_aware(self):
         with self.assertRaisesRegex(ValueError, "AUTH_LEGACY_ACTOR"):

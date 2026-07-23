@@ -2221,3 +2221,38 @@ Validation was run in the requested order:
 - Release procedure: follow
   `docs/operations/PRODUCTION_RELEASE_CHECKLIST.md`; deploy only the exact SHA
   with a green, non-skipped gate.
+
+## Secure OAuth JIT provisioning
+
+- Files changed: shared application-login/identity services, auth settings,
+  focused auth and PostgreSQL concurrency tests, environment examples, security
+  and operator documentation.
+- Migrations added: none. Existing provider-subject, tenant membership and
+  membership-role uniqueness constraints remain the final concurrency guards.
+- Behavior introduced:
+  - approved Google and Microsoft first logins atomically create one
+    application user/identity, active default-tenant membership, configured
+    least-privilege role and bounded audit records;
+  - `AUTH_SELF_SIGNUP_DEFAULT_ROLE` defaults to `viewer`; missing/inactive
+    roles fail closed, and `tenant_admin`/`platform_admin` are rejected;
+  - repeated and concurrent provider-subject logins reuse the existing user,
+    membership and role assignment without duplicate provisioning audits;
+  - admission-domain policy is shared by Google and Microsoft.
+- Tests and actual results:
+  - `python -m unittest discover -s tests/modules/auth_persistence -v`:
+    46 passed in 0.758 s;
+  - `python -m unittest discover -s tests/modules/authorization -v`:
+    34 passed in 1.313 s;
+  - PostgreSQL concurrent-login test: discovered locally but skipped because
+    `INTEGRATION_DATABASE_URL` is not configured; CI executes it with PostgreSQL;
+  - full `python -m unittest discover -s tests -v`: 522 tests ran in
+    161.654 s, with 17 integration skips and 7 pre-existing environment-leak
+    failures in auth/HTTP configuration tests. JIT/auth tests passed.
+- Feature flags: self-signup remains false by default; no administrator or
+  platform privilege is enabled.
+- Known risk: the target tenant must exist, be active and have the configured
+  role seeded before production self-signup is enabled.
+- Rollback: revert this isolated change and remove
+  `AUTH_SELF_SIGNUP_DEFAULT_ROLE` from deployment configuration. No database
+  downgrade is required; existing users, memberships, roles and audit history
+  remain authoritative.

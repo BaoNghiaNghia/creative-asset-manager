@@ -225,11 +225,34 @@ class IdentityResolutionService:
         provider_tenant_id: str | None = None,
         provider_metadata: Mapping[str, Any] | None = None,
     ) -> tuple[UserModel, UserIdentityModel]:
+        user, identity, _created = self.resolve_login_with_status(
+            provider=provider,
+            provider_subject=provider_subject,
+            provider_email=provider_email,
+            display_name=display_name,
+            avatar_url=avatar_url,
+            provider_tenant_id=provider_tenant_id,
+            provider_metadata=provider_metadata,
+        )
+        return user, identity
+
+    def resolve_login_with_status(
+        self,
+        *,
+        provider: str,
+        provider_subject: str,
+        provider_email: str | None = None,
+        display_name: str | None = None,
+        avatar_url: str | None = None,
+        provider_tenant_id: str | None = None,
+        provider_metadata: Mapping[str, Any] | None = None,
+    ) -> tuple[UserModel, UserIdentityModel, bool]:
         normalized_provider = self.normalize_provider(provider)
         normalized_subject = self.normalize_subject(provider_subject)
         identity = self.find_by_provider_subject(
             normalized_provider, normalized_subject
         )
+        created = False
         if identity is None:
             try:
                 with self.session.begin_nested():
@@ -242,6 +265,7 @@ class IdentityResolutionService:
                         provider_tenant_id=provider_tenant_id,
                         provider_metadata=provider_metadata,
                     )
+                    created = True
             except IntegrityError:
                 identity = self.find_by_provider_subject(
                     normalized_provider, normalized_subject
@@ -264,7 +288,7 @@ class IdentityResolutionService:
             provider_metadata=provider_metadata,
         )
         self.record_login(user, identity)
-        return user, identity
+        return user, identity, created
 
     @staticmethod
     def require_active(user: UserModel) -> None:

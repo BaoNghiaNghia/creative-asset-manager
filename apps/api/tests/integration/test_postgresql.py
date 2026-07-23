@@ -19,11 +19,17 @@ from app.core.database import (
     validate_database_connection,
 )
 from app.modules.assets.model import AssetModel
+from app.modules.auth_persistence.login import ApplicationLoginService
+from app.modules.auth_persistence.model import (
+    AuthAuditEventModel,
+    TenantMembershipModel,
+    UserIdentityModel,
+    UserModel,
+)
 from app.modules.assets.repository import (
     AssetContentConflictError,
     AssetRegistryRepository,
 )
-from app.modules.auth_persistence.model import TenantMembershipModel, UserModel
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
 from app.modules.authorization.model import MembershipRoleModel, RoleModel
 from app.modules.authorization.seed import seed_tenant_rbac
@@ -345,6 +351,95 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
                 MembershipRoleModel.role_id == role_id,
             ))
             self.assertEqual(count, 1)
+
+    def test_concurrent_jit_oauth_login_is_atomic_and_idempotent(self) -> None:
+        marker = uuid4().hex
+        tenant_id = f"pg-jit-{marker}"
+        subject = f"google-{marker}"
+        with self.sessions() as session:
+            memberships = TenantMembershipService(session)
+            memberships.create_tenant(
+                tenant_id=tenant_id,
+                name="JIT tenant",
+                slug=tenant_id,
+            )
+            seed_tenant_rbac(session, tenant_id)
+            session.commit()
+
+        settings = Settings(
+            AUTH_SELF_SIGNUP_ENABLED=True,
+            AUTH_DEFAULT_TENANT_ID=tenant_id,
+            AUTH_ALLOWED_EMAIL_DOMAINS="example.com",
+            AUTH_SELF_SIGNUP_DEFAULT_ROLE="viewer",
+        )
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+        login_results: list[tuple[str, bool]] = []
+        lock = threading.Lock()
+
+        def login() -> None:
+            try:
+                barrier.wait(timeout=5)
+                with self.sessions() as session:
+                    result = ApplicationLoginService(session, settings).resolve(
+                        provider="google",
+                        provider_subject=subject,
+                        provider_email=f"{marker}@example.com",
+                        display_name="Concurrent user",
+                    )
+                    session.commit()
+                    with lock:
+                        login_results.append((result.user.id, result.first_login))
+            except BaseException as exc:
+                with lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=login) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=15)
+
+        self.assertFalse(errors)
+        self.assertEqual(len(login_results), 2)
+        self.assertEqual(len({item[0] for item in login_results}), 1)
+        self.assertEqual(sorted(item[1] for item in login_results), [False, True])
+
+        with self.sessions() as session:
+            identity = session.scalar(
+                select(UserIdentityModel).where(
+                    UserIdentityModel.provider == "google",
+                    UserIdentityModel.provider_subject == subject,
+                )
+            )
+            membership = session.scalar(
+                select(TenantMembershipModel).where(
+                    TenantMembershipModel.tenant_id == tenant_id,
+                    TenantMembershipModel.user_id == identity.user_id,
+                )
+            )
+            assignments = session.scalar(
+                select(func.count())
+                .select_from(MembershipRoleModel)
+                .join(RoleModel, RoleModel.id == MembershipRoleModel.role_id)
+                .where(
+                    MembershipRoleModel.tenant_membership_id == membership.id,
+                    RoleModel.role_key == "viewer",
+                )
+            )
+            creation_events = session.scalar(
+                select(func.count())
+                .select_from(AuthAuditEventModel)
+                .where(
+                    AuthAuditEventModel.tenant_id == tenant_id,
+                    AuthAuditEventModel.action
+                    == "self_signup_default_role_assigned",
+                )
+            )
+            self.assertIsNotNone(identity)
+            self.assertEqual(membership.status, "active")
+            self.assertEqual(assignments, 1)
+            self.assertEqual(creation_events, 1)
 
 if __name__ == "__main__":
     unittest.main()

@@ -137,10 +137,17 @@ First-login admission is fail-closed. `AUTH_SELF_SIGNUP_ENABLED` defaults to
 false; an optional normalized domain allowlist is admission policy only and
 never grants tenant or platform roles. Approved signup requires an explicit
 active default tenant, except for the separately guarded local-development
-personal-tenant flow. No login path assigns an administrator role.
+personal-tenant flow. Both OAuth providers apply the same admission policy.
 
-New application sessions contain the durable user and active tenant IDs, use a
-fresh opaque session ID and validate active user, tenant and membership state.
+JIT provisioning is one transaction: it creates the user and provider-subject
+identity, adds an active membership, assigns the configured pre-seeded
+least-privilege role (default `viewer`) and appends bounded audit events.
+Database uniqueness constraints make repeated and concurrent callbacks
+idempotent. Configuration and runtime checks reject `tenant_admin` and
+`platform_admin`; no login path assigns either administrator role.
+
+New application sessions contain the durable user and active tenant IDs, use
+a fresh opaque session ID and validate active user, tenant and membership state.
 Tenant switching validates membership, rotates the session, revokes the old
 session and records a secret-free audit event. Legacy actor-only sessions are
 accepted only before an explicitly configured ISO-8601 compatibility deadline.

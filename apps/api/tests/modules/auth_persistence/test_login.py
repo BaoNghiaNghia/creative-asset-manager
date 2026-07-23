@@ -17,7 +17,8 @@ from app.modules.auth_persistence.model import (
     UserModel,
 )
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
-from app.modules.authorization.model import MembershipRoleModel
+from app.modules.authorization.model import MembershipRoleModel, RoleModel
+from app.modules.authorization.seed import seed_tenant_rbac
 
 
 class ApplicationLoginServiceTest(unittest.TestCase):
@@ -36,6 +37,7 @@ class ApplicationLoginServiceTest(unittest.TestCase):
         self.tenant = self.memberships.create_tenant(
             tenant_id="tenant-default", name="Default", slug="default"
         )
+        seed_tenant_rbac(self.session, self.tenant.id)
         self.session.commit()
 
     def tearDown(self):
@@ -85,6 +87,28 @@ class ApplicationLoginServiceTest(unittest.TestCase):
         self.assertEqual(first.user.id, second.user.id)
         self.assertEqual(first.active_tenant_id, self.tenant.id)
 
+    def test_existing_identity_login_does_not_require_self_signup(self):
+        first = self.resolve("google", "existing-subject", "user@example.com")
+        self.session.commit()
+        existing = self.resolve(
+            "google",
+            "existing-subject",
+            "updated@example.com",
+            Settings(
+                AUTH_SELF_SIGNUP_ENABLED=False,
+                AUTH_DEFAULT_TENANT_ID=self.tenant.id,
+            ),
+        )
+        self.session.commit()
+        self.assertFalse(existing.first_login)
+        self.assertEqual(existing.user.id, first.user.id)
+        creation_actions = self.session.scalars(
+            select(AuthAuditEventModel.action).where(
+                AuthAuditEventModel.action == "application_user_created"
+            )
+        ).all()
+        self.assertEqual(creation_actions, ["application_user_created"])
+
     def test_self_signup_disabled(self):
         settings = Settings(
             AUTH_SELF_SIGNUP_ENABLED=False,
@@ -101,15 +125,22 @@ class ApplicationLoginServiceTest(unittest.TestCase):
         allowed_settings = self.settings(
             AUTH_ALLOWED_EMAIL_DOMAINS="example.com, studio.test"
         )
-        accepted = self.resolve(
-            "google", "allowed", "artist@studio.test", allowed_settings
-        )
-        self.assertEqual(accepted.active_tenant_id, self.tenant.id)
-        with self.assertRaises(LoginAdmissionError) as captured:
-            self.resolve(
-                "google", "denied", "artist@outside.test", allowed_settings
+        for provider in ("google", "microsoft"):
+            accepted = self.resolve(
+                provider,
+                f"{provider}-allowed",
+                "artist@studio.test",
+                allowed_settings,
             )
-        self.assertEqual(captured.exception.code, "email_domain_not_allowed")
+            self.assertEqual(accepted.active_tenant_id, self.tenant.id)
+            with self.assertRaises(LoginAdmissionError) as captured:
+                self.resolve(
+                    provider,
+                    f"{provider}-denied",
+                    "artist@outside.test",
+                    allowed_settings,
+                )
+            self.assertEqual(captured.exception.code, "email_domain_not_allowed")
 
     def test_google_and_microsoft_same_email_are_not_linked(self):
         google = self.resolve("google", "google-one", "same@example.com")
@@ -149,7 +180,60 @@ class ApplicationLoginServiceTest(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.resolve("google", "disabled", "disabled@example.com")
 
-    def test_first_login_assigns_membership_but_no_admin_role_and_audits(self):
+    def test_configured_tenant_member_role_is_assigned(self):
+        role = RoleModel(
+            tenant_id=self.tenant.id,
+            role_key="tenant_member",
+            name="Tenant member",
+            description="Least privilege member",
+            status="active",
+        )
+        self.session.add(role)
+        self.session.commit()
+        login = self.resolve(
+            "microsoft",
+            "member-role",
+            "member@example.com",
+            self.settings(AUTH_SELF_SIGNUP_DEFAULT_ROLE="tenant_member"),
+        )
+        self.session.commit()
+        assigned = self.session.scalar(
+            select(RoleModel)
+            .join(MembershipRoleModel, MembershipRoleModel.role_id == RoleModel.id)
+            .join(
+                TenantMembershipModel,
+                TenantMembershipModel.id
+                == MembershipRoleModel.tenant_membership_id,
+            )
+            .where(
+                TenantMembershipModel.user_id == login.user.id,
+                RoleModel.role_key == "tenant_member",
+            )
+        )
+        self.assertEqual(assigned.id, role.id)
+
+    def test_development_personal_tenant_seeds_default_role(self):
+        login = self.resolve(
+            "google",
+            "development-personal",
+            "developer@example.com",
+            Settings(
+                APP_ENV="development",
+                AUTH_SELF_SIGNUP_ENABLED=True,
+                AUTH_DEFAULT_TENANT_ID="",
+                AUTH_SELF_SIGNUP_DEFAULT_ROLE="viewer",
+                DEVELOPMENT_PERSONAL_TENANT_ENABLED=True,
+            ),
+        )
+        self.session.commit()
+        assigned = self.session.scalar(
+            select(RoleModel)
+            .join(MembershipRoleModel, MembershipRoleModel.role_id == RoleModel.id)
+            .where(RoleModel.tenant_id == login.active_tenant_id)
+        )
+        self.assertEqual(assigned.role_key, "viewer")
+
+    def test_first_login_assigns_least_privilege_role_and_audits(self):
         login = self.resolve("google", "plain", "plain@example.com")
         self.session.commit()
         membership = self.session.scalar(
@@ -159,15 +243,61 @@ class ApplicationLoginServiceTest(unittest.TestCase):
             )
         )
         self.assertEqual(membership.status, "active")
-        self.assertEqual(
-            self.session.scalar(select(func.count()).select_from(MembershipRoleModel)),
-            0,
+        assigned_role = self.session.scalar(
+            select(RoleModel)
+            .join(MembershipRoleModel, MembershipRoleModel.role_id == RoleModel.id)
+            .where(
+                MembershipRoleModel.tenant_membership_id == membership.id,
+            )
+        )
+        self.assertEqual(assigned_role.role_key, "viewer")
+        self.assertNotIn(
+            assigned_role.role_key, {"tenant_admin", "platform_admin"}
         )
         actions = set(
             self.session.scalars(select(AuthAuditEventModel.action))
         )
         self.assertTrue(
-            {"application_login", "application_user_registered"} <= actions
+            {
+                "application_login",
+                "application_user_registered",
+                "application_user_created",
+                "provider_identity_created",
+                "tenant_membership_created",
+                "self_signup_default_role_assigned",
+            }
+            <= actions
+        )
+        role_audit = self.session.scalar(
+            select(AuthAuditEventModel).where(
+                AuthAuditEventModel.action
+                == "self_signup_default_role_assigned"
+            )
+        )
+        self.assertEqual(role_audit.provider, "google")
+        self.assertEqual(role_audit.tenant_id, self.tenant.id)
+        self.assertEqual(role_audit.detail_json["role_key"], "viewer")
+
+    def test_missing_default_tenant_rolls_back_all_provisioning(self):
+        with self.assertRaises(LoginAdmissionError) as captured:
+            self.resolve(
+                "microsoft",
+                "missing-tenant",
+                "missing@example.com",
+                Settings(
+                    AUTH_SELF_SIGNUP_ENABLED=True,
+                    AUTH_DEFAULT_TENANT_ID="missing",
+                ),
+            )
+        self.assertEqual(captured.exception.code, "default_tenant_unavailable")
+        self.assertEqual(
+            self.session.scalar(select(func.count()).select_from(UserModel)), 0
+        )
+        self.assertEqual(
+            self.session.scalar(
+                select(func.count()).select_from(UserIdentityModel)
+            ),
+            0,
         )
 
 
