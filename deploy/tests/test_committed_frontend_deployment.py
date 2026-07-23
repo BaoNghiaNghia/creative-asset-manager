@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import tempfile
 import unittest
@@ -17,6 +18,11 @@ VALIDATE = ROOT / "scripts" / "validate-production.sh"
 COMPOSE = ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml"
 NGINX = ROOT / "infrastructure" / "nginx" / "creative-asset-manager.conf"
 DIST = ROOT / "apps" / "client" / "dist"
+CI = ROOT / ".github" / "workflows" / "ci.yml"
+GITIGNORE = ROOT / ".gitignore"
+GITATTRIBUTES = ROOT / ".gitattributes"
+CLIENT_ROOT = ROOT / "apps" / "client"
+BUILD_INFO = DIST / "build-info.json"
 
 
 class CommittedFrontendDeploymentTest(unittest.TestCase):
@@ -32,7 +38,7 @@ class CommittedFrontendDeploymentTest(unittest.TestCase):
         dist = root / "dist"
         (dist / "assets").mkdir(parents=True)
         (dist / "index.html").write_text("<div id='root'></div>", encoding="utf-8")
-        (dist / "build-meta.json").write_text(
+        (dist / "build-info.json").write_text(
             '{"build_commit":"abc1234","build_utc_timestamp":"2026-01-01T00:00:00Z","frontend_version":"0.1.0"}',
             encoding="utf-8",
         )
@@ -74,17 +80,116 @@ class CommittedFrontendDeploymentTest(unittest.TestCase):
             self.assertIn("build marker is missing", result.stderr)
 
     def test_secret_scan_rejects_local_and_secret_like_values(self) -> None:
+        forbidden = (
+            "fetch('http://localhost:8000/api')",
+            "fetch('http://127.0.0.1:8000/api')",
+            "DATABASE_URL=postgresql://cam:password@database/assets",
+            "GEMINI_API_KEY=AIza12345678901234567890",
+            "OPENAI_API_KEY=sk-1234567890abcdefghijkl",
+            "GOOGLE_CLIENT_SECRET=google-secret",
+            "MICROSOFT_CLIENT_SECRET=microsoft-secret",
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "OAUTH_TOKEN=ya29.abcdefghijklmnopqrstuvwxyz",
+        )
+        for value in forbidden:
+            with self.subTest(kind=value.split("=", 1)[0]):
+                with tempfile.TemporaryDirectory() as temporary:
+                    dist = self.make_dist(Path(temporary), value)
+                    result = self.run_scan(dist)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    "Forbidden local or secret-like value",
+                    result.stderr,
+                )
+
+    def test_source_maps_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            dist = self.make_dist(Path(temporary), "fetch('http://localhost:8000/api')")
+            dist = self.make_dist(Path(temporary))
+            (dist / "assets" / "index.js.map").write_text("{}", encoding="utf-8")
             result = self.run_scan(dist)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Forbidden local or secret-like value", result.stderr)
+        self.assertIn("source maps are disabled", result.stderr)
 
     def test_safe_dist_passes_scan(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             dist = self.make_dist(Path(temporary), "fetch('/api/assets')")
             result = self.run_scan(dist)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_release_script_pipeline_and_push_are_explicit(self) -> None:
+        script = BUILD.read_text(encoding="utf-8")
+        expected = (
+            "npm --prefix apps/client ci",
+            "npm --prefix apps/client test",
+            "npm --prefix apps/client run typecheck",
+            "npm --prefix apps/client run build",
+            'scan_frontend_dist "$DIST"',
+        )
+        positions = [script.index(value) for value in expected]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("--push requires --commit", script)
+        self.assertIn('if [[ "$PUSH" == true ]]', script)
+        self.assertIn('[[ "$(id -un)" == "baonghia" ]]', script)
+
+    def test_only_client_dist_is_unignored_and_maps_stay_ignored(self) -> None:
+        rules = GITIGNORE.read_text(encoding="utf-8")
+        self.assertIn("**/dist/", rules)
+        self.assertIn("!apps/client/dist/", rules)
+        self.assertIn("!apps/client/dist/**", rules)
+        self.assertIn("apps/client/dist/**/*.map", rules)
+
+        other_dist = subprocess.run(
+            ("git", "check-ignore", "--no-index", "packages/example/dist/file.js"),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        client_dist = subprocess.run(
+            ("git", "check-ignore", "--no-index", "apps/client/dist/index.html"),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        source_map = subprocess.run(
+            ("git", "check-ignore", "--no-index", "apps/client/dist/assets/app.js.map"),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(other_dist.returncode, 0)
+        self.assertNotEqual(client_dist.returncode, 0)
+        self.assertEqual(source_map.returncode, 0)
+
+    def test_ci_rebuilds_and_compares_committed_dist(self) -> None:
+        workflow = CI.read_text(encoding="utf-8")
+        self.assertIn("Production build matches committed dist", workflow)
+        self.assertIn("dist/build-info.json", workflow)
+        self.assertIn("BUILD_COMMIT", workflow)
+        self.assertIn("BUILD_UTC_TIMESTAMP", workflow)
+        self.assertIn("git diff --exit-code -- dist", workflow)
+        self.assertIn("git status --porcelain --untracked-files=all -- dist", workflow)
+
+    def test_build_info_contains_only_safe_bounded_fields(self) -> None:
+        data = json.loads(BUILD_INFO.read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(data),
+            {"build_commit", "build_utc_timestamp", "frontend_version"},
+        )
+        for value in data.values():
+            self.assertIsInstance(value, str)
+            self.assertLessEqual(len(value), 128)
+
+    def test_production_bundle_uses_relative_api_urls(self) -> None:
+        bundle = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (DIST / "assets").glob("*.js")
+        )
+        self.assertIn("/api/", bundle)
+        self.assertNotIn("http://localhost", bundle)
+        self.assertNotIn("http://127.0.0.1", bundle)
 
     def test_deploy_defaults_and_safe_ordering(self) -> None:
         script = DEPLOY.read_text(encoding="utf-8")
@@ -133,13 +238,13 @@ class CommittedFrontendDeploymentTest(unittest.TestCase):
         config = NGINX.read_text(encoding="utf-8")
         self.assertIn("proxy_pass http://creative_asset_manager_api;", config)
         self.assertIn("try_files $uri $uri/ /index.html;", config)
-        self.assertIn("location = /build-meta.json", config)
+        self.assertIn("location = /build-info.json", config)
         self.assertIn("max-age=31536000, immutable", config)
         self.assertIn("no-store, no-cache, must-revalidate", config)
 
     def test_committed_frontend_has_marker_and_no_forbidden_values(self) -> None:
         self.assertTrue((DIST / "index.html").is_file())
-        self.assertTrue((DIST / "build-meta.json").is_file())
+        self.assertTrue((DIST / "build-info.json").is_file())
         result = self.run_scan(DIST)
         self.assertEqual(result.returncode, 0, result.stderr)
 

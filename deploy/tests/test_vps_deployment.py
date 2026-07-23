@@ -55,7 +55,7 @@ class VpsDeploymentArtifactTest(unittest.TestCase):
         self.assertIn("location /assets/", config)
         self.assertIn("expires 1y;", config)
         self.assertIn('Cache-Control "public, max-age=31536000, immutable"', config)
-        self.assertIn("location = /build-meta.json", config)
+        self.assertIn("location = /build-info.json", config)
         self.assertIn('Cache-Control "no-store, no-cache, must-revalidate"', config)
 
     def test_compose_contains_docker_backend_without_postgres(self) -> None:

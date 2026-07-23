@@ -8,3 +8,6 @@ Makefile text eol=lf
 *.tsx text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# Committed production frontend artifacts must compare byte-for-byte in CI.
+apps/client/dist/** text eol=lf

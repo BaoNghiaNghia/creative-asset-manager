@@ -25,13 +25,23 @@ sudo -u baonghia ./scripts/build-frontend-release.sh \
 ```
 
 The script runs `npm ci`, frontend tests, typecheck, and the production build.
-It verifies `index.html`, hashed assets, `build-meta.json`, absence of source
+It verifies `index.html`, hashed assets, `build-info.json`, absence of source
 maps, and a bounded list of local/secret-like patterns. The marker contains only
 the source commit, UTC build timestamp, and frontend package version.
 
 `dist` is intentionally versioned so production deploys the reviewed browser
 artifact without a Node toolchain. Hashed assets receive immutable caching while
-`index.html` and `build-meta.json` are never cached.
+`index.html` and `build-info.json` are never cached.
+
+The script never pushes unless `--push` is present; `--push` also requires
+`--commit`. The release scan rejects loopback URLs, database URLs, Gemini and
+OpenAI keys, Google/Microsoft client secrets, private keys and OAuth-token
+patterns. Source maps are ignored by Git and rejected from committed releases.
+
+CI reads the safe commit and timestamp from the committed `build-info.json`,
+rebuilds with those deterministic values, then requires both `git diff` and
+`git status` to remain clean for `apps/client/dist`. A frontend source change
+without its matching production artifact therefore fails the frontend job.
 
 ## First VPS setup
 

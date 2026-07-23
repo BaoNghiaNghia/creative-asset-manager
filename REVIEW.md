@@ -2080,3 +2080,41 @@ Validation was run in the requested order:
 - Next recommended step: validate the image against the protected VPS
   environment and native PostgreSQL during the normal deployment preflight;
   this step intentionally performs no deployment.
+
+
+## PROD-FE-02 committed frontend release
+
+- Files changed: committed frontend release metadata and artifacts, deterministic
+  build-info generation, release scanning and focused deployment tests, CI
+  parity validation, Nginx build-info cache handling and operator documentation.
+- Migrations added: none. Backend runtime and domain behavior are unchanged.
+- Behavior introduced:
+  - `apps/client/dist` remains the only tracked distribution directory and is
+    normalized to LF for byte-for-byte CI comparison; source maps remain ignored;
+  - production API calls remain relative `/api` URLs;
+  - the existing non-root release script runs lockfile-based `npm ci`, frontend
+    tests, typecheck, production build, artifact verification, safe
+    `build-info.json` generation, secret/local-URL scanning and size reporting;
+  - commit and push remain explicit options, and no push occurs without
+    `--push`;
+  - CI rebuilds with the committed build commit/timestamp and fails if the
+    regenerated distribution differs or contains untracked files.
+- Tests and actual results:
+  - `./scripts/build-frontend-release.sh --allow-dirty`: 70 frontend tests
+    passed across 11 files; typecheck passed; Vite transformed 66 modules;
+    artifact verification and security scan passed;
+  - `apps/api/.venv/bin/python -m unittest deploy.tests.test_committed_frontend_deployment deploy.tests.test_vps_deployment -v`:
+    20 focused tests passed;
+  - deterministic rebuild SHA-256 comparison: passed;
+  - Bash syntax, CI YAML parsing and `git diff --check`: passed.
+- Feature flags: none added or enabled.
+- Security: the committed release is rejected if it contains localhost,
+  loopback, database URLs, Gemini/OpenAI keys, Google/Microsoft secrets, private
+  keys, OAuth/access/refresh tokens or source maps. `build-info.json` contains
+  only commit, UTC timestamp and frontend version.
+- Known risks: byte-for-byte output depends on the pinned lockfile and CI Node
+  runtime; CI is the authoritative parity check.
+- Rollback: revert this isolated commit and restore the previous committed
+  distribution/build marker. No database rollback is involved.
+- Next recommended step: let the frontend CI job rebuild and verify the committed
+  artifacts before deployment.

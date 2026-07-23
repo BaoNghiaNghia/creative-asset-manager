@@ -25,15 +25,26 @@ function safeBuildCommit() {
   }
 }
 
-const marker = {
+function safeBuildTimestamp() {
+  const configured = process.env.BUILD_UTC_TIMESTAMP?.trim();
+  if (!configured) return new Date().toISOString();
+
+  const parsed = new Date(configured);
+  if (!Number.isFinite(parsed.valueOf())) {
+    throw new Error("BUILD_UTC_TIMESTAMP must be a valid ISO-8601 timestamp");
+  }
+  return parsed.toISOString();
+}
+
+const buildInfo = {
   build_commit: safeBuildCommit(),
-  build_utc_timestamp: new Date().toISOString(),
+  build_utc_timestamp: safeBuildTimestamp(),
   frontend_version: packageJson.version,
 };
 
-const output = resolve(clientRoot, "dist/build-meta.json");
+const output = resolve(clientRoot, "dist/build-info.json");
 mkdirSync(dirname(output), { recursive: true });
-writeFileSync(output, JSON.stringify(marker, null, 2) + "\n", {
+writeFileSync(output, JSON.stringify(buildInfo, null, 2) + "\n", {
   encoding: "utf8",
   mode: 0o644,
 });
