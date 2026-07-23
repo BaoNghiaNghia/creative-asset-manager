@@ -24,6 +24,7 @@ export type Asset = {
   ancestor_ids?: string[];
   ancestor_names?: string[];
   internal_asset_id?: string;
+  source_asset_id?: string;
   external_source_id?: string;
   folder_path?: string;
   score?: number;

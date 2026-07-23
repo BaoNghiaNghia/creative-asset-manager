@@ -3,6 +3,8 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 
+from app.modules.assets.status_service import AssetProcessingStatusService
+
 from app.modules.explorer.provider_contract import SourceProviderFactory
 from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
 from app.modules.metadata.service import MetadataService, schedule_metadata_index
@@ -26,8 +28,13 @@ MOCK = [
 
 
 class ExplorerService:
-    def __init__(self, provider_factory: SourceProviderFactory):
+    def __init__(
+        self,
+        provider_factory: SourceProviderFactory,
+        asset_status_service: AssetProcessingStatusService | None = None,
+    ):
         self.provider_factory = provider_factory
+        self.asset_status_service = asset_status_service
 
     async def list_folder(
         self,
@@ -35,6 +42,7 @@ class ExplorerService:
         access_token: str | None,
         account_id: str = "developer",
         provider: str = "google-drive",
+        tenant_id: str | None = None,
     ) -> FolderListing:
         if access_token:
             async with self.provider_factory(provider, access_token) as client:
@@ -51,6 +59,26 @@ class ExplorerService:
             children = [item for item in MOCK if item.parent_id == parent_id]
         else:
             raise PermissionError("Connect SharePoint to browse files.")
+
+        if self.asset_status_service is not None:
+            file_ids = [child.id for child in children if child.kind != "folder"]
+            identities = self.asset_status_service.list_source_identities(
+                tenant_id or account_id,
+                provider,
+                file_ids,
+            )
+            for child in children:
+                matches = identities.get(child.id, [])
+                if (
+                    child.kind == "folder"
+                    or len(matches) != 1
+                    or matches[0].internal_asset_id is None
+                ):
+                    continue
+                identity = matches[0]
+                child.source_asset_id = identity.source_asset_id
+                child.internal_asset_id = identity.internal_asset_id
+                child.external_source_id = identity.external_source_id
 
         metadata = MetadataService(account_id, provider)
         schedule_metadata_index(metadata.index_listing(parent, children))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy import func, select
@@ -42,34 +43,42 @@ _RELEVANT_ASSET_JOBS = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class AssetSourceIdentity:
+    source_asset_id: str
+    internal_asset_id: str | None
+    external_source_id: str
+
+
 class AssetProcessingStatusService:
     """Build read-only UI status projections from authoritative PostgreSQL state."""
 
     def __init__(self, session: Session):
         self.session = session
 
-    def list(
+    def list_source_identities(
         self,
         tenant_id: str,
         provider: str,
         item_ids: list[str],
-    ) -> dict[str, AssetProcessingStatus]:
+        *,
+        external_source_id: str | None = None,
+    ) -> dict[str, list[AssetSourceIdentity]]:
+        """Resolve registry identities for provider items with one tenant-scoped query."""
         unique_ids = tuple(dict.fromkeys(item_ids))
-        statuses: dict[str, AssetProcessingStatus] = {
-            item_id: "discovered" for item_id in unique_ids
-        }
         if not unique_ids:
-            return statuses
+            return {}
 
         source_type = _SOURCE_TYPES.get(provider)
         if source_type is None:
-            return statuses
+            return {}
 
-        source_rows = self.session.execute(
+        statement = (
             select(
                 SourceAssetModel.external_asset_id,
                 SourceAssetModel.id,
                 AssetSourceLinkModel.asset_id,
+                SourceAssetModel.external_source_id,
             )
             .join(
                 ExternalSourceModel,
@@ -86,16 +95,49 @@ class AssetProcessingStatusService:
                 SourceAssetModel.external_asset_id.in_(unique_ids),
                 SourceAssetModel.deleted_at.is_(None),
             )
-        ).all()
-        if not source_rows:
+        )
+        if external_source_id is not None:
+            statement = statement.where(
+                SourceAssetModel.external_source_id == external_source_id
+            )
+
+        identities: dict[str, list[AssetSourceIdentity]] = defaultdict(list)
+        for item_id, source_asset_id, asset_id, resolved_source_id in self.session.execute(
+            statement
+        ):
+            identities[item_id].append(
+                AssetSourceIdentity(
+                    source_asset_id=source_asset_id,
+                    internal_asset_id=asset_id,
+                    external_source_id=resolved_source_id,
+                )
+            )
+        return dict(identities)
+
+    def list(
+        self,
+        tenant_id: str,
+        provider: str,
+        item_ids: list[str],
+    ) -> dict[str, AssetProcessingStatus]:
+        unique_ids = tuple(dict.fromkeys(item_ids))
+        statuses: dict[str, AssetProcessingStatus] = {
+            item_id: "discovered" for item_id in unique_ids
+        }
+        if not unique_ids:
+            return statuses
+
+        identities = self.list_source_identities(tenant_id, provider, list(unique_ids))
+        if not identities:
             return statuses
 
         source_ids_by_item: dict[str, set[str]] = defaultdict(set)
         asset_ids_by_item: dict[str, set[str]] = defaultdict(set)
-        for item_id, source_asset_id, asset_id in source_rows:
-            source_ids_by_item[item_id].add(source_asset_id)
-            if asset_id:
-                asset_ids_by_item[item_id].add(asset_id)
+        for item_id, item_identities in identities.items():
+            for identity in item_identities:
+                source_ids_by_item[item_id].add(identity.source_asset_id)
+                if identity.internal_asset_id:
+                    asset_ids_by_item[item_id].add(identity.internal_asset_id)
 
         asset_ids = tuple(
             sorted({asset_id for values in asset_ids_by_item.values() for asset_id in values})

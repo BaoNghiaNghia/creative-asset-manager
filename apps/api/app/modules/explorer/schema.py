@@ -9,6 +9,9 @@ Provider = Literal["google-drive", "sharepoint"]
 
 class AssetNode(BaseModel):
     id: str
+    internal_asset_id: str | None = None
+    source_asset_id: str | None = None
+    external_source_id: str | None = None
     provider: Provider = "google-drive"
     name: str
     kind: AssetKind

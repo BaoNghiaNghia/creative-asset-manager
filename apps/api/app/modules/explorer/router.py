@@ -4,13 +4,16 @@ import json
 import time
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
 from app.core.config import get_settings
+from app.core.database import get_db
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
 from app.modules.search.query_parser import SearchQueryParser
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
@@ -49,6 +52,16 @@ def _account_id(request: Request, provider: Provider) -> str:
     return str(session.user.get("id") or session.user.get("email") or f"{provider}-user")
 
 
+def _tenant_id(request: Request, provider: Provider) -> str:
+    session = (
+        get_microsoft_session(request)
+        if provider == "sharepoint"
+        else get_google_session(request)
+    )
+    if session and session.active_tenant_id:
+        return str(session.active_tenant_id)
+    return _account_id(request, provider)
+
 async def _access_token(request: Request, provider: Provider) -> str | None:
     token = (
         await get_microsoft_token(request)
@@ -75,14 +88,19 @@ async def children(
     request: Request,
     parent_id: str = Query("root"),
     provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
 ):
     try:
         token = await _access_token(request, provider)
-        return await ExplorerService(create_source_provider).list_folder(
+        return await ExplorerService(
+            create_source_provider,
+            AssetProcessingStatusService(session),
+        ).list_folder(
             parent_id,
             token,
             _account_id(request, provider),
             provider,
+            _tenant_id(request, provider),
         )
     except HTTPException:
         raise
