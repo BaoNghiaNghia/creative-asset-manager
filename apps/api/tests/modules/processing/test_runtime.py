@@ -6,7 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -129,24 +129,60 @@ class WorkerRuntimeTest(unittest.TestCase):
 
     def test_heartbeat_extends_the_lease(self) -> None:
         job_id = self.enqueue("heartbeat")
-        observed: list[tuple[datetime, datetime]] = []
+        claim_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        heartbeat_time = claim_time + timedelta(seconds=5)
+        lease_seconds = 30
+        handler_ready = threading.Event()
+        lease_renewed = threading.Event()
+        observed: dict[str, datetime] = {}
+        original_renew_lease = ProcessingJobService.renew_lease
+
+        def frozen_utcnow() -> datetime:
+            if threading.current_thread().name.startswith("heartbeat-"):
+                return heartbeat_time
+            return claim_time
+
+        def renew_lease(service, **kwargs):
+            if not handler_ready.wait(1):
+                raise AssertionError("handler did not capture the claimed lease")
+            renewed = original_renew_lease(service, **kwargs)
+            lease_renewed.set()
+            return renewed
 
         def handler(_context):
-            time.sleep(0.07)
             with self.sessions() as session:
-                observed.append(
-                    (
-                        session.get(ProcessingJobModel, job_id).lease_expires_at,
-                        datetime.now(timezone.utc).replace(tzinfo=None),
-                    )
-                )
+                observed["previous"] = session.get(
+                    ProcessingJobModel, job_id
+                ).lease_expires_at
+            handler_ready.set()
+            if not lease_renewed.wait(1):
+                raise AssertionError("heartbeat did not renew the lease")
+            with self.sessions() as session:
+                observed["renewed"] = session.get(
+                    ProcessingJobModel, job_id
+                ).lease_expires_at
             return JobHandlerResult.completed()
 
-        runtime = self.runtime(handler, heartbeat=0.02, lease=0.08)
-        runtime.run_once()
-        self.assertTrue(observed)
-        lease_expires_at, observed_at = observed[0]
-        self.assertGreater(lease_expires_at, observed_at)
+        runtime = self.runtime(handler, heartbeat=0.1, lease=lease_seconds)
+        with (
+            patch(
+                "app.modules.processing.repository.utcnow",
+                side_effect=frozen_utcnow,
+            ),
+            patch.object(
+                ProcessingJobService,
+                "renew_lease",
+                autospec=True,
+                side_effect=renew_lease,
+            ),
+        ):
+            runtime.run_once()
+
+        expected_expiry = (
+            heartbeat_time + timedelta(seconds=lease_seconds)
+        ).replace(tzinfo=None)
+        self.assertGreater(observed["renewed"], observed["previous"])
+        self.assertEqual(observed["renewed"], expected_expiry)
 
     def test_lost_lease_prevents_completion(self) -> None:
         job_id = self.enqueue("lease-loss")
