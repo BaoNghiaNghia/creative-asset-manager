@@ -22,6 +22,13 @@ from app.modules.ai_batch.handlers import (
     AiBatchPrepareJobHandler, AiBatchRetryItemsJobHandler,
     AiBatchSubmitJobHandler,
 )
+from app.modules.pipeline.content_resolver import (
+    SourceAssetPipelineContentResolver,
+)
+from app.modules.pipeline.stages import (
+    ProviderDownloadStage,
+    ProviderStorageStage,
+)
 from app.modules.pipeline.handlers import (
     AssetIndexJobHandler,
     AssetStoreJobHandler,
@@ -125,14 +132,30 @@ def build_worker_runtime(
             settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN,
             root_folder_id=settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID,
         )
+    storage_configured = not isinstance(
+        storage_provider, UnconfiguredAssetStorageProvider
+    )
+    if settings.MANAGED_ASSET_STORAGE_ENABLED and not storage_configured:
+        raise RuntimeError("managed asset storage is enabled but not configured")
     ai_provider_registry = build_ai_provider_registry(settings)
+    resolver = SourceAssetPipelineContentResolver(session_factory)
+    default_resources: dict[str, Any] = {
+        "pipeline_download_stage": ProviderDownloadStage(
+            session_factory, resolver
+        ),
+    }
+    if storage_configured:
+        default_resources["pipeline_storage_stage"] = ProviderStorageStage(
+            session_factory, resolver, storage_provider
+        )
+    default_resources.update(resources or {})
     dependencies = WorkerDependencies(
         session_factory=session_factory,
         source_provider_factory=create_source_provider,
         storage_provider=storage_provider,
         ai_provider_registry=ai_provider_registry,
         closers=dependency_closers,
-        resources=dict(resources or {}),
+        resources=default_resources,
     )
     return WorkerRuntime(
         config=WorkerRuntimeConfig(
@@ -201,6 +224,11 @@ def run_worker(
             signal.signal(signal.SIGTERM, stop)
             signal.signal(signal.SIGINT, stop)
 
+        runtime_resources = getattr(
+            getattr(runtime, "dependencies", None),
+            "resources",
+            {},
+        )
         worker_logger.info(
             "worker_configuration",
             extra={
@@ -212,6 +240,14 @@ def run_worker(
                 "heartbeat_seconds": runtime.config.heartbeat_seconds,
                 "drain_timeout_seconds": runtime.config.drain_timeout_seconds,
                 "registered_job_types": runtime.registry.job_types,
+                "pipeline_download_stage_configured": (
+                    "pipeline_download_stage"
+                    in runtime_resources
+                ),
+                "pipeline_storage_stage_configured": (
+                    "pipeline_storage_stage"
+                    in runtime_resources
+                ),
             },
         )
         runtime.run_forever()
