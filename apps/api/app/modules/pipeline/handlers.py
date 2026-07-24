@@ -15,7 +15,11 @@ from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileM
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.ai_metadata.projection_service import SearchProjectionService
 from app.modules.ai_metadata.repository import AiMetadataRepository
-from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
+from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.pipeline.mime_types import (
+    SourceContentTooLarge, UnsupportedSourceMimeType,
+    is_supported_google_drive_image_mime_type,
+)
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.pipeline.service import AssetPipelineService
@@ -74,14 +78,18 @@ class _PipelineHandler:
             raise LookupError(pipeline_id)
         return session, repository, pipeline
 
-    def _failed(self, context: JobHandlerContext, exc: Exception, *, retryable: bool = True) -> JobHandlerResult:
+    def _failed(
+        self, context: JobHandlerContext, exc: Exception, *, retryable: bool = True,
+        error_code: str | None = None,
+    ) -> JobHandlerResult:
+        code = error_code or type(exc).__name__
         try:
             session, repository, pipeline = self._load(context)
             try:
                 expected = f"{self.failure_stage}_failed"
-                if pipeline.state != expected:
+                if pipeline.state != expected or pipeline.last_error_code != code:
                     repository.record_failure(
-                        pipeline, self.failure_stage, error_code=type(exc).__name__,
+                        pipeline, self.failure_stage, error_code=code,
                         error_message=str(exc), retryable=retryable,
                     )
                 session.commit()
@@ -90,8 +98,8 @@ class _PipelineHandler:
         except Exception:
             pass
         if retryable:
-            return JobHandlerResult.retryable(type(exc).__name__, str(exc))
-        return JobHandlerResult.non_retryable(type(exc).__name__, str(exc))
+            return JobHandlerResult.retryable(code, str(exc))
+        return JobHandlerResult.non_retryable(code, str(exc))
 
 
 class SourceAssetDownloadJobHandler(_PipelineHandler):
@@ -112,6 +120,11 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
             try:
                 if pipeline.state not in {PipelineState.DOWNLOAD_PENDING.value, PipelineState.DOWNLOAD_FAILED.value}:
                     return JobHandlerResult.completed()
+                self._require_supported_google_drive_image(
+                    session,
+                    tenant_id=context.job.tenant_id,
+                    source_asset_id=pipeline.source_asset_id,
+                )
                 if pipeline.state == PipelineState.DOWNLOAD_FAILED.value:
                     repository.transition(pipeline, PipelineState.DOWNLOAD_PENDING)
                 repository.transition(pipeline, PipelineState.DOWNLOADING)
@@ -134,8 +147,44 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
             finally:
                 session.close()
             return JobHandlerResult.completed()
+        except UnsupportedSourceMimeType as exc:
+            return self._failed(
+                context, exc, retryable=False,
+                error_code="unsupported_source_mime_type",
+            )
+        except SourceContentTooLarge as exc:
+            return self._failed(
+                context, exc, retryable=False,
+                error_code="source_content_too_large",
+            )
         except Exception as exc:
             return self._failed(context, exc)
+
+    @staticmethod
+    def _require_supported_google_drive_image(
+        session, *, tenant_id: str, source_asset_id: str | None,
+    ) -> None:
+        if not source_asset_id:
+            return
+        source_asset = session.scalar(select(SourceAssetModel).where(
+            SourceAssetModel.tenant_id == tenant_id,
+            SourceAssetModel.id == source_asset_id,
+            SourceAssetModel.deleted_at.is_(None),
+        ))
+        if source_asset is None:
+            return
+        source = session.scalar(select(ExternalSourceModel).where(
+            ExternalSourceModel.tenant_id == tenant_id,
+            ExternalSourceModel.id == source_asset.external_source_id,
+        ))
+        if (
+            source is not None
+            and source.source_type == "google_drive"
+            and not is_supported_google_drive_image_mime_type(source_asset.mime_type)
+        ):
+            raise UnsupportedSourceMimeType(
+                "Google Drive item MIME type is not supported for processing"
+            )
 
 
     @staticmethod

@@ -11,7 +11,7 @@ from app.core.database import Base
 from app.domain.providers.contracts import AssetDownloadStream
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.repository import AssetPipelineRepository
-from app.modules.pipeline.stages import ProviderDownloadStage
+from app.modules.pipeline.stages import ProviderDownloadStage, SourceContentTooLarge
 
 
 async def _close():
@@ -19,8 +19,9 @@ async def _close():
 
 
 class BytesResolver:
-    def __init__(self, content: bytes):
+    def __init__(self, content: bytes, content_type: str = "image/png"):
         self.content = content
+        self.content_type = content_type
 
     @asynccontextmanager
     async def open(self, *, tenant_id, pipeline):
@@ -29,12 +30,18 @@ class BytesResolver:
             yield self.content[:midpoint]
             yield self.content[midpoint:]
 
-        yield AssetDownloadStream(body=body(), close=_close, content_type="image/png")
+        yield AssetDownloadStream(body=body(), close=_close, content_type=self.content_type)
 
 
 def png(color):
     output = io.BytesIO()
     Image.new("RGB", (2, 2), color).save(output, format="PNG")
+    return output.getvalue()
+
+
+def webp(color):
+    output = io.BytesIO()
+    Image.new("RGB", (2, 2), color).save(output, format="WEBP")
     return output.getvalue()
 
 
@@ -86,3 +93,20 @@ class ProviderDownloadStageTest(unittest.TestCase):
         ).execute(tenant_id="tenant-a", pipeline=second))
         self.assertNotEqual(one.asset_id, two.asset_id)
         self.assertNotEqual(one.content_hash, two.content_hash)
+
+    def test_webp_is_accepted(self):
+        pipeline = self.pipeline("google_drive", "drive", "webp", "one.webp")
+        result = asyncio.run(ProviderDownloadStage(
+            self.sessions, BytesResolver(webp("green"), "image/webp")
+        ).execute(tenant_id="tenant-a", pipeline=pipeline))
+        self.assertIsNotNone(result.asset_id)
+
+    def test_byte_limit_raises_stable_oversized_error(self):
+        pipeline = self.pipeline("google_drive", "drive", "large", "large.png")
+        stage = ProviderDownloadStage(
+            self.sessions,
+            BytesResolver(png("red")),
+            max_bytes=1,
+        )
+        with self.assertRaises(SourceContentTooLarge):
+            asyncio.run(stage.execute(tenant_id="tenant-a", pipeline=pipeline))

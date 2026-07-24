@@ -14,6 +14,7 @@ from app.domain.providers.contracts import AssetDownloadStream, AssetStorageProv
 from app.modules.assets.content_dedup_service import ContentDeduplicationService
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.handlers import DownloadStageResult
+from app.modules.pipeline.mime_types import SourceContentTooLarge
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.storage.repository import ManagedStorageRepository
 from app.modules.storage.service import ManagedAssetStorageService
@@ -77,7 +78,7 @@ class ProviderDownloadStage:
                 async for chunk in body:
                     size += len(chunk)
                     if size > self.max_bytes:
-                        raise InvalidPipelineContent("source content exceeds configured byte limit")
+                        raise SourceContentTooLarge("source content exceeds configured byte limit")
                     output.write(chunk)
             if size == 0:
                 raise InvalidPipelineContent("source content is empty")
@@ -89,14 +90,17 @@ class ProviderDownloadStage:
     def _validate(self, path: Path, declared_type: str) -> str:
         with path.open("rb") as source:
             header = source.read(16)
-        image = header.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a"))
+        image = (
+            header.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a"))
+            or (len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP")
+        )
         video = len(header) >= 12 and header[4:8] == b"ftyp"
         if image:
             try:
                 with Image.open(path) as decoded:
                     width, height = decoded.size
                     if width * height > self.max_pixels:
-                        raise InvalidPipelineContent("image exceeds configured pixel limit")
+                        raise SourceContentTooLarge("image exceeds configured pixel limit")
                     decoded.verify()
             except (UnidentifiedImageError, OSError) as exc:
                 raise InvalidPipelineContent("image decode validation failed") from exc

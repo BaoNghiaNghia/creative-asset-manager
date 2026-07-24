@@ -23,6 +23,8 @@ def candidate(
     external_id: str,
     *,
     name: str = "asset.png",
+    mime_type: str = "image/png",
+    is_folder: bool = False,
     checksum: str | None = "hash-v1",
     parent: str = "folder-a",
 ) -> ExternalAssetCandidate:
@@ -31,10 +33,10 @@ def candidate(
         source_id="source-db-id",
         external_asset_id=external_id,
         filename=name,
-        mime_type="image/png",
+        mime_type=mime_type,
         source_modified_at="2026-07-18T08:00:00Z",
         provider_checksum=checksum,
-        source_metadata={"parents": [parent], "is_folder": False},
+        source_metadata={"parents": [parent], "is_folder": is_folder},
     )
 
 
@@ -258,6 +260,46 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(provider.inputs[0].reconciliation)
         self.assertTrue(result.reconciliation)
         self.assertIsNotNone(missing.deleted_at)
+
+    async def test_google_drive_persists_all_items_but_enqueues_supported_images_only(self) -> None:
+        mime_types = (
+            ("jpeg", "image/jpeg", False),
+            ("png", "image/png", False),
+            ("webp", "image/webp", False),
+            ("folder", "application/vnd.google-apps.folder", True),
+            ("shortcut", "application/vnd.google-apps.shortcut", False),
+            ("video", "video/mp4", False),
+            ("pdf", "application/pdf", False),
+            ("document", "application/vnd.google-apps.document", False),
+            ("gif", "image/gif", False),
+        )
+        changes = tuple(
+            SourceChange(
+                "updated",
+                external_id,
+                candidate(
+                    external_id,
+                    name=external_id,
+                    mime_type=mime_type,
+                    is_folder=is_folder,
+                ),
+            )
+            for external_id, mime_type, is_folder in mime_types
+        )
+
+        result = await self.service.sync_source(
+            tenant_id="tenant-a",
+            source_id=self.source.id,
+            provider=FakeProvider([SourceChangePage(changes, "done")]),
+        )
+
+        self.assertEqual(result.changes, len(mime_types))
+        self.assertEqual(result.jobs_created, 3)
+        self.assertEqual(
+            self.session.scalar(select(func.count()).select_from(SourceAssetModel)),
+            len(mime_types),
+        )
+        self.assertEqual(self.processing.count_jobs(), 3)
 
     async def test_feature_flag_preserves_existing_behavior(self) -> None:
         disabled = SourceSyncService(self.repository, self.processing, enabled=False)

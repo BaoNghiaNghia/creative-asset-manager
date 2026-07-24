@@ -6,6 +6,7 @@ from typing import Callable
 
 from app.core.redaction import sanitize_sensitive_urls
 from app.domain.providers.contracts import AssetSourceProvider, ListSourceChangesInput
+from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.source_sync.repository import SourceSyncRepository
 
@@ -112,8 +113,17 @@ class SourceSyncService:
                     if active_generation is not None:
                         self.repository.mark_seen(source_asset, active_generation)
                     is_folder = bool(candidate.source_metadata.get("is_folder"))
+                    is_download_supported = (
+                        source.source_type != "google_drive"
+                        or is_supported_google_drive_image_mime_type(candidate.mime_type)
+                    )
                     content_maybe_changed = existing is None or (new_marker is not None and old_marker != new_marker)
-                    if not is_folder and content_maybe_changed and not (was_deleted and old_marker == new_marker):
+                    if (
+                        not is_folder
+                        and is_download_supported
+                        and content_maybe_changed
+                        and not (was_deleted and old_marker == new_marker)
+                    ):
                         before = self.processing.count_jobs()
                         self.processing.create_job(
                             tenant_id=tenant_id,
