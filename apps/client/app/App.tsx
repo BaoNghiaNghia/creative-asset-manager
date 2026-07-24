@@ -54,6 +54,13 @@ export default function App() {
     item.kind !== "folder" && item.internal_asset_id ? [item.internal_asset_id] : []
   ));
   const completeAnalysisSelection = analysisAssetIds.length === explorer.selected.size;
+  const analysisTooltip = completeAnalysisSelection
+    ? "Analyze selected assets."
+    : selectedItems.length === 1 && selectedItems[0].kind === "folder"
+      ? "Folders cannot be analyzed. Select image or video files."
+      : selectedItems.length === 1 && !selectedItems[0].internal_asset_id
+        ? "This file has not been imported into the asset library yet."
+        : "Some selected files are not ready for AI analysis.";
 
   return <main
     className={["shell", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
@@ -278,7 +285,7 @@ export default function App() {
             <button
               type="button"
               disabled={!completeAnalysisSelection}
-              title={completeAnalysisSelection ? "Analyze selected assets" : "Only indexed files can be analyzed; folders are not supported"}
+              title={analysisTooltip}
               onClick={() => setAnalyzeOpen(true)}
             >Analyze metadata</button>
             <span className="bulk-divider" />

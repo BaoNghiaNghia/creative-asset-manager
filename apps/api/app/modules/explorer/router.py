@@ -158,21 +158,29 @@ async def _v2_shadow(body: SearchRequest, tenant: str, settings):
 
 
 @router.post("/search", response_model=SearchResponse)
-async def search(request: Request, body: SearchRequest):
+async def search(
+    request: Request,
+    body: SearchRequest,
+    session: Session = Depends(get_db),
+):
     try:
         token = await _access_token(request, body.provider)
-        tenant = _account_id(request, body.provider)
+        account_id = _account_id(request, body.provider)
+        tenant_id = _tenant_id(request, body.provider)
         settings = get_settings()
 
         async def primary():
-            result = await ExplorerService(create_source_provider).search_subtree(
-                body, token, tenant,
+            result = await ExplorerService(
+                create_source_provider,
+                AssetProcessingStatusService(session),
+            ).search_subtree(
+                body, token, account_id, tenant_id=tenant_id,
             )
             return result.model_dump(mode="json")
 
         return await SHADOW_SEARCH.execute(
-            tenant_id=tenant, query=body.query, primary=primary,
-            shadow=lambda: _v2_shadow(body, tenant, settings),
+            tenant_id=tenant_id, query=body.query, primary=primary,
+            shadow=lambda: _v2_shadow(body, tenant_id, settings),
             primary_version="v1", shadow_version="v2",
             surface="explorer_search",
         )
@@ -183,9 +191,14 @@ async def search(request: Request, body: SearchRequest):
 
 
 @router.post("/search/stream")
-async def search_stream(request: Request, body: SearchRequest):
+async def search_stream(
+    request: Request,
+    body: SearchRequest,
+    session: Session = Depends(get_db),
+):
     token = await _access_token(request, body.provider)
     account_id = _account_id(request, body.provider)
+    tenant_id = _tenant_id(request, body.provider)
 
     async def events():
         queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -196,19 +209,23 @@ async def search_stream(request: Request, body: SearchRequest):
         async def execute():
             try:
                 started = time.perf_counter()
-                result = await ExplorerService(create_source_provider).search_subtree(
+                result = await ExplorerService(
+                    create_source_provider,
+                    AssetProcessingStatusService(session),
+                ).search_subtree(
                     body,
                     token,
                     account_id,
                     progress=progress,
+                    tenant_id=tenant_id,
                 )
                 primary_document = jsonable_encoder(result)
                 settings = get_settings()
                 await SHADOW_SEARCH.observe(
-                    tenant_id=account_id, query=body.query,
+                    tenant_id=tenant_id, query=body.query,
                     primary_result=primary_document,
                     primary_ms=int((time.perf_counter() - started) * 1000),
-                    shadow=lambda: _v2_shadow(body, account_id, settings),
+                    shadow=lambda: _v2_shadow(body, tenant_id, settings),
                     primary_version="v1", shadow_version="v2",
                     surface="explorer_search_stream",
                 )

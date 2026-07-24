@@ -36,6 +36,29 @@ class ExplorerService:
         self.provider_factory = provider_factory
         self.asset_status_service = asset_status_service
 
+    def _enrich_asset_identities(
+        self,
+        items: list[AssetNode],
+        tenant_id: str,
+        provider: str,
+    ) -> list[AssetNode]:
+        if self.asset_status_service is None:
+            return items
+        identities = self.asset_status_service.list_source_identities(
+            tenant_id,
+            provider,
+            [item.id for item in items if item.kind != "folder"],
+        )
+        for item in items:
+            matches = identities.get(item.id, [])
+            if item.kind == "folder" or len(matches) != 1:
+                continue
+            identity = matches[0]
+            item.source_asset_id = identity.source_asset_id
+            item.external_source_id = identity.external_source_id
+            item.internal_asset_id = identity.internal_asset_id
+        return items
+
     async def list_folder(
         self,
         parent_id: str,
@@ -60,25 +83,7 @@ class ExplorerService:
         else:
             raise PermissionError("Connect SharePoint to browse files.")
 
-        if self.asset_status_service is not None:
-            file_ids = [child.id for child in children if child.kind != "folder"]
-            identities = self.asset_status_service.list_source_identities(
-                tenant_id or account_id,
-                provider,
-                file_ids,
-            )
-            for child in children:
-                matches = identities.get(child.id, [])
-                if (
-                    child.kind == "folder"
-                    or len(matches) != 1
-                    or matches[0].internal_asset_id is None
-                ):
-                    continue
-                identity = matches[0]
-                child.source_asset_id = identity.source_asset_id
-                child.internal_asset_id = identity.internal_asset_id
-                child.external_source_id = identity.external_source_id
+        self._enrich_asset_identities(children, tenant_id or account_id, provider)
 
         metadata = MetadataService(account_id, provider)
         schedule_metadata_index(metadata.index_listing(parent, children))
@@ -103,6 +108,7 @@ class ExplorerService:
         access_token: str | None,
         account_id: str,
         progress: ProgressCallback | None = None,
+        tenant_id: str | None = None,
     ) -> SearchResponse:
         metadata = MetadataService(account_id, body.provider)
         await _report(progress, status="Reading metadata index", progress=3, processed_folders=0, pending_folders=0)
@@ -311,8 +317,14 @@ class ExplorerService:
             pending_folders=0,
             skipped_folders=skipped_folders,
         )
+        items = metadata.search(indexed_rows, body.query, body.root_id, body.limit)
+        self._enrich_asset_identities(
+            items,
+            tenant_id or account_id,
+            body.provider,
+        )
         return SearchResponse(
-            items=metadata.search(indexed_rows, body.query, body.root_id, body.limit),
+            items=items,
             indexed_count=max(0, len(indexed_rows) - 1),
             index_source=metadata.source,
             truncated=truncated,
