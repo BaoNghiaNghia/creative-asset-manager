@@ -52,4 +52,53 @@ class AuthApiExposureTest(unittest.TestCase):
         remove.assert_called_once()
         self.assertEqual(response.json(),{"authenticated":False})
 
+    def test_google_callback_enqueues_scan_and_redirects_without_running_it(self):
+        cloud = SimpleNamespace(
+            active_tenant_id="tenant-a",
+            connection_id="connection-a",
+            user={"id": "google-a", "email": "a@example.com"},
+        )
+        flow = SimpleNamespace(fetch_token=lambda **_kwargs: None, credentials=object())
+        app = FastAPI()
+        app.include_router(google_router, prefix="/api")
+        with (
+            patch("app.modules.auth.router.consume_state", return_value=None),
+            patch("app.modules.auth.router.oauth_flow", return_value=flow),
+            patch(
+                "app.modules.auth.router.create_session",
+                new=AsyncMock(return_value=("session-id", cloud)),
+            ),
+            patch("app.modules.auth.router.enqueue_google_login_sync") as enqueue,
+            patch("app.modules.auth.router.remove_session"),
+        ):
+            response = TestClient(app).get(
+                "/api/auth/google/callback?state=state&code=code",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 307)
+        self.assertIn("google=connected", response.headers["location"])
+        enqueue.assert_called_once_with(cloud)
+
+    def test_google_oauth_failure_does_not_enqueue_scan(self):
+        def fail_exchange(**_kwargs):
+            raise RuntimeError("exchange failed")
+
+        flow = SimpleNamespace(fetch_token=fail_exchange, credentials=object())
+        app = FastAPI()
+        app.include_router(google_router, prefix="/api")
+        with (
+            patch("app.modules.auth.router.consume_state", return_value=None),
+            patch("app.modules.auth.router.oauth_flow", return_value=flow),
+            patch("app.modules.auth.router.enqueue_google_login_sync") as enqueue,
+        ):
+            response = TestClient(app).get(
+                "/api/auth/google/callback?state=state&code=code",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 307)
+        self.assertIn("auth_error=token_exchange", response.headers["location"])
+        enqueue.assert_not_called()
+
 if __name__=="__main__": unittest.main()

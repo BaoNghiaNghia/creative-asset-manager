@@ -33,6 +33,7 @@ from app.modules.processing.registry import build_handler_registry
 from app.modules.retention.handler import RetentionCleanupJobHandler
 from app.modules.retention.scheduler import RetentionCleanupScheduler
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
+from app.modules.source_sync.handler import SourceSyncJobHandler
 from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.source_factory import create_source_provider
@@ -147,6 +148,7 @@ def build_worker_runtime(
         dependencies=dependencies,
         registry=build_handler_registry(
             (
+                ("source_sync", SourceSyncJobHandler(settings)),
                 ("source_asset_download", SourceAssetDownloadJobHandler(settings)),
                 ("asset_store", AssetStoreJobHandler(settings)),
                 ("asset_analyze", AssetAnalyzeJobHandler(settings)),

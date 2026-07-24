@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.config import get_settings
+from app.modules.source_sync.login_trigger import enqueue_google_login_sync
 
 from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
@@ -95,7 +96,7 @@ async def callback(
         return client_redirect(auth_error="token_exchange", auth_request=request_id)
 
     try:
-        session_id, _ = await create_session(flow.credentials)
+        session_id, cloud_session = await create_session(flow.credentials)
     except ApplicationUserInactiveError:
         logger.warning("Google application user is inactive request_id=%s", request_id)
         return client_redirect(auth_error="account_inactive", auth_request=request_id)
@@ -116,6 +117,16 @@ async def callback(
             type(exc).__name__,
         )
         return client_redirect(auth_error="profile", auth_request=request_id)
+
+
+    try:
+        enqueue_google_login_sync(cloud_session)
+    except Exception as exc:
+        logger.exception(
+            "Google login source sync enqueue failed request_id=%s error_type=%s",
+            request_id,
+            type(exc).__name__,
+        )
 
     remove_session(request)
     response = client_redirect(google="connected")

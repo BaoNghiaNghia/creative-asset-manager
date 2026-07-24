@@ -99,6 +99,74 @@ async def create_session(credentials):
     AUTH_METRICS.increment("connection_created","google")
     return session_id,get_session_by_id(session_id)
 
+
+async def get_connection_access_token(connection_id: str) -> str:
+    settings = get_settings()
+    with auth_repository() as repository:
+        connection = repository.load_connection(
+            provider="google", connection_id=connection_id
+        )
+    if connection is None:
+        raise HTTPException(401, "Google connection is unavailable.")
+    if connection.expires_at > time.time() + 60:
+        return connection.access_token
+    if not connection.refresh_token:
+        raise HTTPException(401, "Google connection requires reconnection.")
+
+    owner = "google-sync-refresh-" + secrets.token_urlsafe(16)
+    with auth_repository() as repository:
+        claimed = repository.claim_refresh(
+            tenant_id=connection.tenant_id,
+            connection_id=connection.connection_id,
+            owner=owner,
+            lease_seconds=settings.AUTH_REFRESH_LEASE_SECONDS,
+        )
+    if not claimed:
+        raise HTTPException(503, "Google token refresh is already in progress.")
+
+    client_id, client_secret, _ = _settings()
+    credentials = Credentials(
+        token=connection.access_token,
+        refresh_token=connection.refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=SCOPES,
+    )
+    try:
+        await run_in_threadpool(credentials.refresh, GoogleAuthRequest())
+        expiry = credentials.expiry or datetime.now(timezone.utc)
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        with auth_repository() as repository:
+            repository.finish_refresh(
+                tenant_id=connection.tenant_id,
+                connection_id=connection.connection_id,
+                owner=owner,
+                access_token=credentials.token,
+                refresh_token=credentials.refresh_token,
+                expires_at=expiry,
+                scopes=list(credentials.granted_scopes or credentials.scopes or SCOPES),
+                token_type="Bearer",
+            )
+        AUTH_METRICS.increment("connection_refreshed", "google")
+        return credentials.token
+    except Exception as exc:
+        permanent = isinstance(exc, RefreshError) and "invalid_grant" in str(exc).lower()
+        with auth_repository() as repository:
+            repository.fail_refresh(
+                tenant_id=connection.tenant_id,
+                connection_id=connection.connection_id,
+                owner=owner,
+                code="invalid_grant" if permanent else "refresh_failed",
+                retryable=not permanent,
+            )
+        raise HTTPException(
+            401 if permanent else 503,
+            "Google connection requires reconnection."
+            if permanent else "Google connection could not be refreshed.",
+        ) from exc
+
 def get_session_by_id(session_id):
     settings = get_settings()
     if not settings.PERSISTENT_AUTH_ENABLED: return None

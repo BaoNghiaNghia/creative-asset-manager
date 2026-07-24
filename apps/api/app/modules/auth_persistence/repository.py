@@ -38,6 +38,17 @@ class PersistentCloudSession:
     expires_at: float
     user: dict[str, Any]
 
+
+@dataclass
+class PersistentOAuthConnection:
+    connection_id: str
+    tenant_id: str
+    provider: str
+    provider_account_id: str
+    access_token: str
+    refresh_token: str | None
+    expires_at: float
+
 class AuthPersistenceRepository:
     def __init__(self, session: Session, cipher: TokenCipher):
         self.session = session
@@ -213,6 +224,39 @@ class AuthPersistenceRepository:
             if connection.access_token_expires_at else 0,
             dict(row.user_json),
         )
+
+    def load_connection(
+        self, *, provider: str, connection_id: str
+    ) -> PersistentOAuthConnection | None:
+        connection = self.session.scalar(select(OAuthConnectionModel).where(
+            OAuthConnectionModel.id == connection_id,
+            OAuthConnectionModel.provider == provider,
+            OAuthConnectionModel.status.in_(("active", "refresh_error")),
+        ))
+        if connection is None:
+            return None
+        try:
+            access = self.cipher.decrypt(
+                connection.access_token_ciphertext,
+                key_version=connection.key_version,
+                aad=self._aad(connection, "access"),
+            )
+            refresh = self.cipher.decrypt(
+                connection.refresh_token_ciphertext,
+                key_version=connection.key_version,
+                aad=self._aad(connection, "refresh"),
+            )
+        except TokenEncryptionError:
+            return None
+        if not access:
+            return None
+        return PersistentOAuthConnection(
+            connection.id, connection.tenant_id, connection.provider,
+            connection.provider_account_id, access, refresh,
+            aware(connection.access_token_expires_at).timestamp()
+            if connection.access_token_expires_at else 0,
+        )
+
 
     def revoke_session(self, *, provider: str, session_id: str) -> bool:
         now = utcnow()
