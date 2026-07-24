@@ -133,7 +133,10 @@ class Settings(BaseSettings):
     AI_BATCH_MINIMUM_AGE_SECONDS: int = 300
     AI_BATCH_POLL_INTERVAL_SECONDS: float = 30.0
     AI_BATCH_MAX_ITEM_ATTEMPTS: int = 3
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
     GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN: str | None = None
+    GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN: str | None = None
     GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID: str | None = None
     ELASTICSEARCH_URL: str | None = None
     ELASTICSEARCH_INDEX_PREFIX: str = "creative-assets"

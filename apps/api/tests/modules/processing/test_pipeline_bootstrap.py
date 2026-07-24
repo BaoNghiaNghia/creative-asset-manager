@@ -75,6 +75,29 @@ class PipelineBootstrapTest(unittest.TestCase):
         finally:
             runtime.close()
 
+    def test_refresh_token_configures_storage_without_static_token(self):
+        runtime = build_worker_runtime(
+            Settings(
+                PROCESSING_JOBS_ENABLED=False,
+                GOOGLE_CLIENT_ID="client-id",
+                GOOGLE_CLIENT_SECRET="client-secret",
+                GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN="refresh-token",
+                GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="root-folder",
+            ),
+            session_factory=self.sessions,
+        )
+        try:
+            self.assertEqual(
+                runtime.dependencies.storage_provider._refresh_token,
+                "refresh-token",
+            )
+            self.assertIn(
+                "pipeline_storage_stage",
+                runtime.dependencies.resources,
+            )
+        finally:
+            runtime.close()
+
     def test_enabled_managed_storage_requires_configured_provider(self):
         with self.assertRaisesRegex(
             RuntimeError,

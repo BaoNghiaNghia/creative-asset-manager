@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+from collections.abc import Callable
 from pathlib import PurePath
 from urllib.parse import urlsplit
 
@@ -26,25 +29,42 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
     """Managed storage adapter; credentials are independent from Source Drive."""
 
     provider_name = "google_drive_managed"
+    token_uri = "https://oauth2.googleapis.com/token"
 
     def __init__(
         self,
-        storage_access_token: str,
+        storage_access_token: str | None = None,
         *,
         root_folder_id: str,
         transport: httpx.AsyncBaseTransport | None = None,
+        refresh_token: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
-        if not storage_access_token:
-            raise ValueError("storage access token is required")
         if not root_folder_id:
             raise ValueError("managed storage root folder ID is required")
-        self._access_token = storage_access_token
+        if not refresh_token and not storage_access_token:
+            raise ValueError("managed storage credentials are required")
+        if refresh_token and (not client_id or not client_secret):
+            raise ValueError(
+                "managed storage refresh token requires Google client credentials"
+            )
+        self._static_access_token = storage_access_token
+        self._refresh_token = refresh_token
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._cached_access_token: str | None = None
+        self._access_token_expires_at = 0.0
+        self._token_lock = asyncio.Lock()
         self._root_folder_id = root_folder_id
         self._transport = transport
+        self._clock = clock
 
     async def open_asset(self, input: OpenStoredAssetInput) -> StoredAssetReadStream:
+        access_token = await self._get_access_token()
         client = httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {self._access_token}"},
+            headers={"Authorization": f"Bearer {access_token}"},
             timeout=httpx.Timeout(60, connect=10, read=60),
             transport=self._transport,
         )
@@ -92,7 +112,8 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
         )
 
     async def store_asset(self, input: StoreAssetInput) -> StoredAsset:
-        headers = {"Authorization": f"Bearer {self._access_token}"}
+        access_token = await self._get_access_token()
+        headers = {"Authorization": f"Bearer {access_token}"}
         async with httpx.AsyncClient(
             headers=headers,
             timeout=httpx.Timeout(60, connect=10, read=60),
@@ -150,7 +171,8 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
     async def store_metadata_sidecar(
         self, input: StoreMetadataSidecarInput
     ) -> StoredMetadataSidecar:
-        headers = {"Authorization": f"Bearer {self._access_token}"}
+        access_token = await self._get_access_token()
+        headers = {"Authorization": f"Bearer {access_token}"}
         content = json.dumps(
             input.metadata,
             ensure_ascii=False,
@@ -220,6 +242,71 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
                     retryable=True,
                 )
             return self._stored_sidecar(input, data)
+
+    async def _get_access_token(self) -> str:
+        if not self._refresh_token:
+            if not self._static_access_token:
+                raise StorageProviderError(
+                    "Google Drive managed storage credentials are unavailable.",
+                    retryable=False,
+                )
+            return self._static_access_token
+
+        now = self._clock()
+        if (
+            self._cached_access_token
+            and self._access_token_expires_at > now + 60
+        ):
+            return self._cached_access_token
+
+        async with self._token_lock:
+            now = self._clock()
+            if (
+                self._cached_access_token
+                and self._access_token_expires_at > now + 60
+            ):
+                return self._cached_access_token
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(20, connect=8),
+                    transport=self._transport,
+                ) as client:
+                    response = await client.post(
+                        self.token_uri,
+                        data={
+                            "client_id": self._client_id,
+                            "client_secret": self._client_secret,
+                            "refresh_token": self._refresh_token,
+                            "grant_type": "refresh_token",
+                        },
+                    )
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                raise StorageProviderError(
+                    "Google managed storage token refresh failed.",
+                    retryable=True,
+                ) from exc
+            if response.status_code in {408, 425, 429, 500, 502, 503, 504}:
+                raise StorageProviderError(
+                    "Google managed storage token refresh failed.",
+                    retryable=True,
+                )
+            if response.status_code >= 400:
+                raise StorageProviderError(
+                    "Google managed storage credentials were rejected.",
+                    retryable=False,
+                )
+            payload = response.json()
+            access_token = payload.get("access_token")
+            expires_in = payload.get("expires_in")
+            if not isinstance(access_token, str) or not access_token:
+                raise StorageProviderError(
+                    "Google token response contained no access token.",
+                    retryable=True,
+                )
+            lifetime = float(expires_in) if expires_in is not None else 3600.0
+            self._cached_access_token = access_token
+            self._access_token_expires_at = self._clock() + max(lifetime, 0.0)
+            return access_token
 
     async def _find_existing_sidecar(
         self,

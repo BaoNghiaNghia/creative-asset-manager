@@ -125,12 +125,18 @@ def build_worker_runtime(
         RetentionCleanupScheduler(session_factory, settings).schedule_known_tenants()
     storage_provider = UnconfiguredAssetStorageProvider()
     if (
-        settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN
+        (
+            settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN
+            or settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN
+        )
         and settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID
     ):
         storage_provider = GoogleDriveAssetStorage(
             settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN,
             root_folder_id=settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID,
+            refresh_token=settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN,
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
         )
     storage_configured = not isinstance(
         storage_provider, UnconfiguredAssetStorageProvider

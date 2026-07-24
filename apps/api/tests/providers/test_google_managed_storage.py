@@ -186,3 +186,44 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
             {"asset": {"asset_id": "asset-1"}, "version": 1},
             {"asset": {"asset_id": "asset-1"}, "version": 2},
         ])
+
+    async def test_refresh_token_is_preferred_cached_and_refreshed_before_expiry(
+        self,
+    ) -> None:
+        clock = [100.0]
+        token_requests = []
+
+        async def handler(request):
+            token_requests.append(request)
+            payload = (await request.aread()).decode()
+            self.assertIn("grant_type=refresh_token", payload)
+            self.assertIn("refresh_token=refresh-secret", payload)
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": f"refreshed-{len(token_requests)}",
+                    "expires_in": 120,
+                },
+            )
+
+        provider = GoogleDriveAssetStorage(
+            "fallback-token",
+            root_folder_id="managed-root",
+            refresh_token="refresh-secret",
+            client_id="client-id",
+            client_secret="client-secret",
+            transport=httpx.MockTransport(handler),
+            clock=lambda: clock[0],
+        )
+
+        self.assertEqual(await provider._get_access_token(), "refreshed-1")
+        self.assertEqual(await provider._get_access_token(), "refreshed-1")
+        self.assertEqual(len(token_requests), 1)
+        self.assertEqual(
+            str(token_requests[0].url),
+            "https://oauth2.googleapis.com/token",
+        )
+
+        clock[0] = 161.0
+        self.assertEqual(await provider._get_access_token(), "refreshed-2")
+        self.assertEqual(len(token_requests), 2)

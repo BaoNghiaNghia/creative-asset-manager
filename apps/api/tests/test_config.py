@@ -56,6 +56,25 @@ class SettingsTest(unittest.TestCase):
         self.assertIs(settings.CONTENT_DEDUP_ENABLED, True)
         self.assertIs(settings.ELASTICSEARCH_V2_ENABLED, False)
 
+    def test_managed_storage_refresh_credentials_load_from_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_CLIENT_ID": "client-id",
+                "GOOGLE_CLIENT_SECRET": "client-secret",
+                "GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN": "refresh-token",
+            },
+            clear=True,
+        ):
+            settings = Settings()
+
+        self.assertEqual(settings.GOOGLE_CLIENT_ID, "client-id")
+        self.assertEqual(settings.GOOGLE_CLIENT_SECRET, "client-secret")
+        self.assertEqual(
+            settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN,
+            "refresh-token",
+        )
+
     def test_invalid_feature_flag_fails_validation(self) -> None:
         with patch.dict(
             os.environ,
