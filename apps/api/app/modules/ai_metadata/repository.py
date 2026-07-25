@@ -223,6 +223,7 @@ class AiMetadataRepository:
         self, analysis_id: str, *, error_code: str, error_message: str,
         retryable: bool | None = None,
         validation_errors: list[dict[str, Any]] | None = None,
+        provider_metadata: Mapping[str, Any] | None = None,
         terminal: bool = True,
     ) -> AssetAiAnalysisModel:
         analysis = self._analysis(analysis_id)
@@ -234,6 +235,8 @@ class AiMetadataRepository:
         analysis.last_error_message = redact_url_queries(error_message)
         analysis.failure_retryable = retryable
         analysis.validation_errors_json = validation_errors
+        if provider_metadata is not None:
+            analysis.provider_metadata_json = dict(provider_metadata)
         analysis.processing_stage = "failed" if terminal else "retry"
         analysis.claimed_by = None
         analysis.lease_expires_at = None

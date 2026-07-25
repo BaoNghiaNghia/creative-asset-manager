@@ -378,7 +378,8 @@ class AiAnalysisService:
                 and attempt_count >= self.settings.AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS
             )
             await self._record_failure(
-                analysis_id, code=exc.code, message=str(exc), retryable=retryable
+                analysis_id, code=exc.code, message=str(exc), retryable=retryable,
+                provider_metadata=exc.details or None,
             )
             return AiAnalysisOutcome(
                 "retryable_failure" if retryable else "non_retryable_failure",
@@ -403,6 +404,7 @@ class AiAnalysisService:
         message: str,
         retryable: bool,
         validation_errors: list[dict] | None = None,
+        provider_metadata: dict | None = None,
     ) -> None:
         with self.session_factory() as session:
             repository = AiMetadataRepository(session, self.validator)
@@ -415,6 +417,7 @@ class AiAnalysisService:
                     error_message=message,
                     retryable=retryable,
                     validation_errors=validation_errors,
+                    provider_metadata=provider_metadata,
                     terminal=terminal,
                 )
                 session.commit()

@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import re
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -95,9 +96,12 @@ class Settings(BaseSettings):
     AUTH_SELF_SIGNUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     GEMINI_TIMEOUT_SECONDS: float = 45.0
-    GEMINI_ALLOWED_MODELS: str = "gemini-2.5-flash"
+    GEMINI_ALLOWED_MODELS: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash"
+    GEMINI_MODEL_POOL: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash"
+    GEMINI_MODEL_LIMITS: str = ""
+    GEMINI_MODEL_COOLDOWN_SECONDS: float = 60.0
     OPENAI_AI_ENABLED: bool = False
     OPENAI_API_KEY: str | None = None
     OPENAI_BASE_URL: str | None = None
@@ -238,6 +242,43 @@ class Settings(BaseSettings):
             for value in self.GEMINI_ALLOWED_MODELS.split(",")
             if value.strip()
         )
+
+    @property
+    def gemini_model_pool(self) -> tuple[str, ...]:
+        pool = tuple(dict.fromkeys(
+            value.strip()
+            for value in self.GEMINI_MODEL_POOL.split(",")
+            if value.strip()
+        ))
+        return pool or (self.GEMINI_MODEL,)
+
+    @property
+    def gemini_model_limits(self) -> dict[str, tuple[int, int]]:
+        defaults = {
+            "gemini-3.5-flash-lite": (12, 400),
+            "gemini-3.1-flash-lite": (12, 400),
+            "gemini-3.6-flash": (4, 16),
+            "gemini-2.5-flash": (4, 16),
+        }
+        configured: dict[str, tuple[int, int]] = {}
+        if self.GEMINI_MODEL_LIMITS.strip():
+            try:
+                raw = json.loads(self.GEMINI_MODEL_LIMITS)
+            except json.JSONDecodeError as exc:
+                raise ValueError("GEMINI_MODEL_LIMITS must be a JSON object") from exc
+            if not isinstance(raw, dict):
+                raise ValueError("GEMINI_MODEL_LIMITS must be a JSON object")
+            for model, limits in raw.items():
+                if not isinstance(model, str) or not isinstance(limits, dict):
+                    raise ValueError("GEMINI_MODEL_LIMITS entries must be model objects")
+                rpm, rpd = limits.get("rpm"), limits.get("rpd")
+                if not isinstance(rpm, int) or not isinstance(rpd, int) or rpm < 1 or rpd < 1:
+                    raise ValueError("GEMINI_MODEL_LIMITS rpm and rpd must be positive integers")
+                configured[model] = (rpm, rpd)
+        return {
+            model: configured.get(model, defaults.get(model, (1, 1)))
+            for model in self.gemini_model_pool
+        }
 
     @property
     def openai_allowed_models(self) -> tuple[str, ...]:
@@ -552,6 +593,8 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_HEALTH_PORT must be between 1 and 65535")
         if self.GEMINI_TIMEOUT_SECONDS <= 0:
             raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive")
+        if self.GEMINI_MODEL_COOLDOWN_SECONDS < 0:
+            raise ValueError("GEMINI_MODEL_COOLDOWN_SECONDS cannot be negative")
         if self.OPENAI_TIMEOUT_SECONDS <= 0:
             raise ValueError("OPENAI_TIMEOUT_SECONDS must be positive")
         if self.OPENAI_MAX_RETRIES < 0:

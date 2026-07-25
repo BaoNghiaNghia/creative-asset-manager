@@ -75,6 +75,29 @@ class SettingsTest(unittest.TestCase):
             "refresh-token",
         )
 
+    def test_gemini_model_pool_defaults_and_configured_limits(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            defaults = Settings()
+        self.assertEqual(
+            defaults.gemini_model_pool,
+            (
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-3.6-flash",
+                "gemini-2.5-flash",
+            ),
+        )
+        configured = Settings(
+            GEMINI_MODEL_POOL="one,two",
+            GEMINI_MODEL_LIMITS='{"one":{"rpm":2,"rpd":3},"two":{"rpm":4,"rpd":5}}',
+        )
+        self.assertEqual(configured.gemini_model_limits, {"one": (2, 3), "two": (4, 5)})
+
+    def test_invalid_gemini_model_limits_fail_closed(self) -> None:
+        with self.assertRaises(ValueError):
+            Settings(GEMINI_MODEL_LIMITS='{"gemini-3.5-flash-lite":{"rpm":0,"rpd":400}}').gemini_model_limits
+
+
     def test_invalid_feature_flag_fails_validation(self) -> None:
         with patch.dict(
             os.environ,

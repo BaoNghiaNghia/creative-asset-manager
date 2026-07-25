@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
-from collections.abc import Mapping
+import time
+from collections import deque
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from collections.abc import AsyncIterator
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -19,6 +25,19 @@ from app.domain.providers.contracts import (
     AiMetadataAnalysisResult,
     AiProviderError,
 )
+
+
+_PACIFIC_TIME = ZoneInfo("America/Los_Angeles")
+
+
+@dataclass
+class _ModelRuntime:
+    recent_requests: deque[float] = field(default_factory=deque)
+    day: date | None = None
+    daily_requests: int = 0
+    cooldown_until: datetime | None = None
+    daily_exhausted_until: datetime | None = None
+    in_flight: bool = False
 
 
 class GeminiAiMetadataProvider:
@@ -37,21 +56,93 @@ class GeminiAiMetadataProvider:
         model: str = "gemini-2.5-flash",
         timeout_seconds: float = 45.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        model_pool: tuple[str, ...] | None = None,
+        model_limits: Mapping[str, tuple[int, int]] | None = None,
+        cooldown_seconds: float = 60.0,
+        sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ):
         if not api_key:
             raise ValueError("Gemini API key is required")
         if not model:
             raise ValueError("Gemini model is required")
+        if cooldown_seconds < 0:
+            raise ValueError("Gemini cooldown must be non-negative")
         self._api_key = api_key
         self.model = model
         self.default_model = model
         self._timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 10))
         self._transport = transport
+        self._models = tuple(dict.fromkeys(model_pool or (model,)))
+        self._limits = {
+            name: tuple((model_limits or {}).get(name, (1, 1)))
+            for name in self._models
+        }
+        if any(rpm < 1 or rpd < 1 for rpm, rpd in self._limits.values()):
+            raise ValueError("Gemini model limits must be positive")
+        self._runtime = {name: _ModelRuntime() for name in self._models}
+        self._cooldown = timedelta(seconds=cooldown_seconds)
+        self._sleeper = sleeper
 
     async def analyze_single(
         self, input: AiMetadataAnalysisInput
     ) -> AiMetadataAnalysisResult:
         self._check_cancelled(input)
+        attempted_models: list[str] = []
+        reasons: list[str] = []
+        for model in self._models:
+            unavailable = self._availability_reason(model)
+            if unavailable is not None:
+                reasons.append(f"{model}:{unavailable}")
+                continue
+            runtime = self._runtime[model]
+            runtime.in_flight = True
+            attempted_models.append(model)
+            try:
+                try:
+                    result = await self._analyze_model(model, input)
+                except AiProviderError as exc:
+                    if exc.status_code == 429 and exc.details.get("daily_quota"):
+                        self._mark_daily_exhausted(model)
+                        reasons.append(f"{model}:daily_quota_exhausted")
+                        continue
+                    if exc.status_code == 429:
+                        retry_after = exc.details.get("retry_after_seconds")
+                        delay = 1.0 if retry_after is None else float(retry_after)
+                        reasons.append(f"{model}:rpm_429_retry")
+                        await self._sleeper(delay)
+                        self._check_cancelled(input)
+                        try:
+                            result = await self._analyze_model(model, input)
+                        except AiProviderError as retried:
+                            if retried.status_code == 429 and retried.details.get("daily_quota"):
+                                self._mark_daily_exhausted(model)
+                                reasons.append(f"{model}:daily_quota_exhausted")
+                                continue
+                            if retried.status_code in {429, 503}:
+                                self._mark_cooldown(model)
+                                reasons.append(f"{model}:cooldown")
+                                continue
+                            raise self._with_failover_audit(retried, attempted_models, reasons)
+                    elif exc.status_code == 503:
+                        self._mark_cooldown(model)
+                        reasons.append(f"{model}:cooldown")
+                        continue
+                    else:
+                        raise self._with_failover_audit(exc, attempted_models, reasons)
+                return self._with_failover_result(result, attempted_models, reasons)
+            finally:
+                runtime.in_flight = False
+        raise AiProviderError(
+            "No Gemini model is currently available.",
+            code="gemini_model_pool_exhausted",
+            retryable=True,
+            details=self._audit_details(attempted_models, reasons),
+        )
+
+    async def _analyze_model(
+        self, model: str, input: AiMetadataAnalysisInput
+    ) -> AiMetadataAnalysisResult:
+        self._record_request(model)
         body = {
             "contents": [{
                 "role": "user",
@@ -67,7 +158,7 @@ class GeminiAiMetadataProvider:
         }
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.model}:generateContent"
+            f"{model}:generateContent"
         )
         try:
             async with httpx.AsyncClient(
@@ -107,7 +198,7 @@ class GeminiAiMetadataProvider:
         return AiMetadataAnalysisResult(
             metadata=dict(metadata),
             provider=self.provider_name,
-            model=payload.get("modelVersion") or self.model,
+            model=payload.get("modelVersion") or model,
             provider_request_id=payload.get("responseId"),
             usage=dict(payload.get("usageMetadata") or {}),
             provider_metadata={
@@ -116,6 +207,77 @@ class GeminiAiMetadataProvider:
             },
             raw_response=payload,
         )
+
+    def _availability_reason(self, model: str) -> str | None:
+        runtime = self._runtime[model]
+        now = datetime.now(timezone.utc)
+        pacific_day = now.astimezone(_PACIFIC_TIME).date()
+        if runtime.day != pacific_day:
+            runtime.day, runtime.daily_requests = pacific_day, 0
+            runtime.daily_exhausted_until = None
+        if runtime.daily_exhausted_until and runtime.daily_exhausted_until > now:
+            return "daily_quota_exhausted"
+        if runtime.cooldown_until and runtime.cooldown_until > now:
+            return "cooldown"
+        if runtime.in_flight:
+            return "concurrency_limited"
+        rpm, rpd = self._limits[model]
+        current = time.monotonic()
+        while runtime.recent_requests and current - runtime.recent_requests[0] >= 60:
+            runtime.recent_requests.popleft()
+        if runtime.daily_requests >= rpd:
+            self._mark_daily_exhausted(model)
+            return "daily_quota_exhausted"
+        if len(runtime.recent_requests) >= rpm:
+            self._mark_cooldown(model)
+            return "rpm_limit_reached"
+        return None
+
+    def _record_request(self, model: str) -> None:
+        runtime = self._runtime[model]
+        now = datetime.now(timezone.utc)
+        pacific_day = now.astimezone(_PACIFIC_TIME).date()
+        if runtime.day != pacific_day:
+            runtime.day, runtime.daily_requests = pacific_day, 0
+        runtime.daily_requests += 1
+        runtime.recent_requests.append(time.monotonic())
+
+    def _mark_cooldown(self, model: str) -> None:
+        self._runtime[model].cooldown_until = datetime.now(timezone.utc) + self._cooldown
+
+    def _mark_daily_exhausted(self, model: str) -> None:
+        now = datetime.now(timezone.utc).astimezone(_PACIFIC_TIME)
+        tomorrow = now.date() + timedelta(days=1)
+        reset = datetime.combine(tomorrow, datetime.min.time(), tzinfo=_PACIFIC_TIME)
+        self._runtime[model].daily_exhausted_until = reset.astimezone(timezone.utc)
+
+    def _audit_details(self, attempted_models: list[str], reasons: list[str]) -> dict[str, Any]:
+        return {
+            "requested_model": self.model,
+            "actual_model": None,
+            "attempted_models": list(attempted_models),
+            "failover_reason": ";".join(reasons) or None,
+        }
+
+    def _with_failover_result(
+        self, result: AiMetadataAnalysisResult, attempted_models: list[str], reasons: list[str],
+    ) -> AiMetadataAnalysisResult:
+        metadata = {
+            **dict(result.provider_metadata),
+            **self._audit_details(attempted_models, reasons),
+            "actual_model": result.model,
+        }
+        return AiMetadataAnalysisResult(
+            metadata=result.metadata, provider=result.provider, model=result.model,
+            provider_request_id=result.provider_request_id, usage=result.usage,
+            provider_metadata=metadata, raw_response=result.raw_response,
+        )
+
+    def _with_failover_audit(
+        self, exc: AiProviderError, attempted_models: list[str], reasons: list[str],
+    ) -> AiProviderError:
+        exc.details.update(self._audit_details(attempted_models, reasons))
+        return exc
 
     async def submit_batch(self, input: AiBatchSubmissionInput) -> AiBatchSubmission:
         existing = await self._find_batch(input.display_name)
@@ -376,6 +538,17 @@ class GeminiAiMetadataProvider:
     def _raise_for_status(response: httpx.Response) -> None:
         if response.status_code < 400:
             return
+        retry_after = None
+        value = response.headers.get("retry-after")
+        if value is not None:
+            try:
+                retry_after = max(0.0, float(value))
+            except ValueError:
+                retry_after = None
+        body = response.text.lower()
+        daily_quota = any(term in body for term in (
+            "per day", "daily quota", "per-day", "rpd",
+        ))
         retryable = (
             response.status_code in {408, 409, 425, 429}
             or response.status_code >= 500
@@ -384,6 +557,11 @@ class GeminiAiMetadataProvider:
             f"Gemini request failed with HTTP {response.status_code}.",
             code="gemini_rate_limited" if response.status_code == 429 else "gemini_http_error",
             retryable=retryable,
+            status_code=response.status_code,
+            details={
+                "retry_after_seconds": retry_after,
+                "daily_quota": daily_quota,
+            },
         )
 
     @staticmethod

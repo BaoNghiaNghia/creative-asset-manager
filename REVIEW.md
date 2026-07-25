@@ -1,3 +1,22 @@
+## Gemini multi-model failover
+
+- Files changed: Gemini provider adapter, provider factory/configuration,
+  analysis failure persistence, environment examples, and focused unit tests.
+- Migrations added: none.
+- Behavior introduced: image metadata analysis selects the configured Gemini
+  model pool in priority order, enforces per-model local RPM/RPD and one
+  in-flight request, retries a non-daily 429 once using Retry-After, then
+  fails over on repeated 429/503. Daily quota exhaustion holds a model until
+  the next America/Los_Angeles midnight. Permanent provider errors do not
+  fail over. Success and terminal pool failure metadata records requested,
+  actual and attempted models plus the failover reason.
+- Tests: focused provider, service, handler, registry and config suite passed
+  (54 tests); changed Python modules compile successfully.
+- Feature flags: none changed or enabled.
+- Known risk: rate/concurrency state is process-local; existing worker
+  concurrency controls remain the cross-process guard.
+- Rollback: revert this commit. No database rollback is required.
+
 # Architecture Review
 
 ## Current completed step

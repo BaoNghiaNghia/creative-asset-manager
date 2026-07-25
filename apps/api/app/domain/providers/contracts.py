@@ -145,10 +145,16 @@ class StorageProviderError(RuntimeError):
 
 
 class AiProviderError(RuntimeError):
-    def __init__(self, message: str, *, code: str, retryable: bool):
+    def __init__(
+        self, message: str, *, code: str, retryable: bool,
+        status_code: int | None = None,
+        details: Mapping[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+        self.status_code = status_code
+        self.details = dict(details or {})
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,6 +15,9 @@ def build_ai_provider_registry(settings: Settings) -> AiProviderRegistry:
             settings.GEMINI_API_KEY,
             model=settings.GEMINI_MODEL,
             timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+            model_pool=settings.gemini_model_pool,
+            model_limits=settings.gemini_model_limits,
+            cooldown_seconds=settings.GEMINI_MODEL_COOLDOWN_SECONDS,
         )
         registry.register(gemini.provider_name, gemini)
     if settings.OPENAI_AI_ENABLED and settings.OPENAI_API_KEY:

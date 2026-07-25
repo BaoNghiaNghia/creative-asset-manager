@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.domain.providers.contracts import (
     AiMetadataAnalysisResult,
+    AiProviderError,
     StoredAssetReadStream,
 )
 from app.modules.ai_metadata.repository import AiMetadataRepository
@@ -59,6 +60,22 @@ class FakeAi:
             usage={"total": 1},
             provider_metadata={"finish_reason": "STOP"},
             raw_response={"safe": "audit"},
+        )
+
+
+class FailoverErrorAi(FakeAi):
+    async def analyze_single(self, _input):
+        self.calls += 1
+        raise AiProviderError(
+            "No Gemini model is currently available.",
+            code="gemini_model_pool_exhausted",
+            retryable=True,
+            details={
+                "requested_model": self.model,
+                "actual_model": None,
+                "attempted_models": ["gemini-first", "gemini-second"],
+                "failover_reason": "gemini-first:daily_quota_exhausted",
+            },
         )
 
 
@@ -119,6 +136,7 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
             DYNAMIC_AI_METADATA_ENABLED=True,
             AI_SINGLE_ANALYSIS_ENABLED=True,
             GEMINI_API_KEY="test-only",
+            GEMINI_MODEL=FakeAi.model,
         )
 
     def tearDown(self):
@@ -330,6 +348,30 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.status, "budget_blocked")
         self.assertEqual(outcome.error_code, "missing_cost_rate")
         self.assertEqual(ai.calls, 0)
+
+    async def test_provider_failover_audit_is_persisted_on_terminal_provider_error(self):
+        outcome = await AiAnalysisService(
+            session_factory=self.factory,
+            storage_provider=self.storage,
+            ai_provider=FailoverErrorAi({"subject": "cat"}),
+            settings=self.settings,
+        ).analyze(
+            tenant_id="tenant-a",
+            analysis_id=self.analysis_id,
+            worker_id="worker-a",
+        )
+
+        self.assertEqual(outcome.status, "retryable_failure")
+        self.assertEqual(outcome.error_code, "gemini_model_pool_exhausted")
+        with self.factory() as session:
+            from app.modules.ai_metadata.model import AssetAiAnalysisModel
+
+            analysis = session.get(AssetAiAnalysisModel, self.analysis_id)
+            self.assertEqual(
+                analysis.provider_metadata_json["attempted_models"],
+                ["gemini-first", "gemini-second"],
+            )
+            self.assertEqual(analysis.provider_metadata_json["actual_model"], None)
 
     async def test_privileged_missing_rate_override_is_audited_and_does_not_report_zero(self):
         from sqlalchemy import delete
