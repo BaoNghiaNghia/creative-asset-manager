@@ -86,7 +86,11 @@ type ContentProps = {
 
 export function AccessManagementContent(props: ContentProps) {
   if (props.state !== "ready") return <AccessState state={props.state} message={props.message} onRetry={props.onRetry} />;
-  return <><header className="access-header"><div><small>SETTINGS</small><h1>Access Management</h1><p>Manage tenant members, roles, and your active workspace.</p></div><a href="/">Back to assets</a></header>
+  const activeTenant = props.identity!.available_tenants.find(item => item.id === props.identity!.active_tenant_id);
+  return <><header className="access-header"><div><small>SETTINGS</small><h1>Access Management</h1><p>Manage tenant members, roles, and your active workspace.</p></div><div className="access-header-actions">
+    {activeTenant && <span className="access-tenant-chip">Workspace · {activeTenant.name}</span>}
+    <a href="/">← Back to assets</a>
+  </div></header>
     <nav className="access-tabs" role="tablist" aria-label="Access Management sections" onKeyDown={event => handleAccessTabKeyDown(event, props.tab, props.onTab)}>
       {tabs.map(item => <button key={item.id} id={`access-tab-${item.id}`} role="tab" type="button" aria-selected={props.tab === item.id} aria-controls={`access-panel-${item.id}`} tabIndex={props.tab === item.id ? 0 : -1} className={props.tab === item.id ? "active" : ""} onClick={() => props.onTab(item.id)}>{item.label}</button>)}
     </nav>{props.message && <div className="access-notice" role="status" aria-live="polite">{props.message}</div>}
@@ -120,11 +124,11 @@ function MembersTab(props: ContentProps) {
   const canManageMembers = identity!.permissions.includes("tenant_members.manage");
   const canManageRoles = identity!.permissions.includes("tenant_roles.manage");
   const pages = Math.max(1, Math.ceil(members.total / members.page_size));
-  return <div className="access-content"><div className="access-toolbar"><form aria-label="Member filters" onSubmit={event => event.preventDefault()}>
+  return <div className="access-content"><div className="access-toolbar"><div><small className="access-toolbar-label">Find a member</small><form aria-label="Member filters" onSubmit={event => event.preventDefault()}>
     <label>Search<input value={filters.query} onChange={event => onFilters({ ...filters, query: event.target.value, page: 1 })} placeholder="Name or email" /></label>
     <label>Status<select value={filters.status} onChange={event => onFilters({ ...filters, status: event.target.value, page: 1 })}><option value="">All statuses</option>{["invited", "active", "suspended", "removed"].map(value => <option key={value}>{value}</option>)}</select></label>
     <label>Role<select value={filters.role} onChange={event => onFilters({ ...filters, role: event.target.value, page: 1 })}><option value="">All roles</option>{roles.map(role => <option key={role.id} value={role.key}>{role.name}</option>)}</select></label>
-  </form>{canManageMembers && <InviteMemberForm tenantId={identity!.active_tenant_id} onDone={onMutation} onMessage={onMessage} />}</div>
+  </form></div>{canManageMembers && <InviteMemberForm tenantId={identity!.active_tenant_id} onDone={onMutation} onMessage={onMessage} />}</div>
     {!members.items.length ? <div className="access-empty"><h2>No members found</h2><p>Adjust the filters or invite an existing application user.</p></div> : <div className="access-table-wrap"><table className="access-table"><caption>Tenant members</caption><thead><tr><th>Member</th><th>Status</th><th>Roles</th><th>Joined</th><th>Actions</th></tr></thead><tbody>{members.items.map(member => <tr key={member.membership_id}>
       <td><strong>{member.display_name || "Unnamed user"}</strong><small>{member.email || member.user_id}</small></td><td><StatusBadge status={member.status} /></td>
       <td><div className="role-chips">{member.roles.length ? member.roles.map(role => <span key={role.id}>{role.name}{canManageRoles && <DangerousAction label={`Remove ${role.name}`} title="Remove role" description={`Remove ${role.name} from this member?`} onConfirm={reason => removeMemberRole(identity!.active_tenant_id, member.membership_id, role.id, reason).then(() => { onMessage("Role removed."); onMutation(); })} />}</span>) : <em>No roles</em>}</div></td>

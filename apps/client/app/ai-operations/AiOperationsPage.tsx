@@ -187,8 +187,15 @@ export function AiOperationsContent({
     <nav className="ops-tabs" aria-label="AI Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
       {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}>{item.label}</button>)}
     </nav>
-    <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
-    <nav className="ops-export-actions" aria-label="AI Operations CSV exports">{(["daily", "usage", "failures", "jobs"] as const).map(kind => <a key={kind} href={aiOperationsExportUrl(kind, filters)}>Export {kind} CSV</a>)}</nav>
+    <div className="ops-query-bar">
+      <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
+      <details className="ops-export-menu">
+        <summary>Export data</summary>
+        <nav aria-label="AI Operations CSV exports">
+          {(["daily", "usage", "failures", "jobs"] as const).map(kind => <a key={kind} href={aiOperationsExportUrl(kind, filters)}>Export {kind} CSV</a>)}
+        </nav>
+      </details>
+    </div>
     {errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}>Retry</button>
