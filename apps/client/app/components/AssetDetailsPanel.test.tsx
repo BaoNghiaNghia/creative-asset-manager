@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset, AssetMetadata } from "../types";
-import { AssetDetailsPanel, formatBytes, readableKind } from "./AssetDetailsPanel";
+import { AssetDetailsPanel, formatBytes, readableKind, resolvePreviewUrl } from "./AssetDetailsPanel";
 
 const item: Asset = {
   provider: "google-drive",
@@ -39,6 +39,11 @@ describe("Asset details inspector", () => {
     expect(markup).toContain("Select a file or folder");
     expect(markup).toContain('aria-label="File information"');
     expect(markup).toContain('aria-label="Close file information"');
+  });
+
+  it("uses a source preview when a detail panel was opened without an Explorer item", () => {
+    expect(resolvePreviewUrl(null, { preview_url: "/api/explorer/media/external-1?provider=google-drive" })).toBe("/api/explorer/media/external-1?provider=google-drive");
+    expect(resolvePreviewUrl(item, { preview_url: "/api/explorer/media/other" })).toBe(item.thumbnail_url);
   });
 
   it("formats provider sizes and kinds deterministically", () => {

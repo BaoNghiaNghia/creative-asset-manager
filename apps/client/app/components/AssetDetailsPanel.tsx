@@ -136,11 +136,13 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
   const created = stringValue(source.source_created_at) || stringValue(assetRecord.created_at);
   const location = item?.folder_path || item?.ancestor_names?.join(" / ") || sourcePath(source) || "Current folder";
   const webUrl = item?.web_url || stringValue(source.web_url);
+  const previewUrl = resolvePreviewUrl(item, source);
+  const previewName = item?.name || stringValue(source.filename) || "asset";
 
   return <>
     <div className="inspector-preview">
-      {item?.thumbnail_url && (kind === "image" || kind === "video") ? <>
-        <img src={item.thumbnail_url} alt={`Preview of ${item.name}`} referrerPolicy="no-referrer" />
+      {previewUrl && (kind === "image" || kind === "video") ? <>
+        <img src={previewUrl} alt={`Preview of ${previewName}`} referrerPolicy="no-referrer" />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
       </> : <span className={"asset-kind-mark large " + kind}>{kindMark(kind)}</span>}
       {item && onPreview && (kind === "image" || kind === "video") && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
@@ -211,6 +213,10 @@ function sourcePath(source: Record<string, unknown>): string | undefined {
   const metadata = source.source_metadata;
   if (metadata && typeof metadata === "object" && "path" in metadata) return stringValue((metadata as Record<string, unknown>).path);
   return undefined;
+}
+
+export function resolvePreviewUrl(item: Asset | null, source: Record<string, unknown>): string | undefined {
+  return item?.thumbnail_url || stringValue(source.preview_url);
 }
 
 function stringValue(value: unknown): string | undefined { return typeof value === "string" && value ? value : undefined; }
