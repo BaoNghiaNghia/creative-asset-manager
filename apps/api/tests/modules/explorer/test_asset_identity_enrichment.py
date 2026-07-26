@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from sqlalchemy import create_engine, event
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
+from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.explorer.schema import AssetNode, SearchRequest
@@ -220,3 +222,60 @@ class ExplorerAssetIdentityEnrichmentTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(matched.source_asset_id, source_asset.id)
         self.assertEqual(matched.external_source_id, source.id)
         self.assertEqual(matched.internal_asset_id, asset.id)
+    async def test_search_subtree_finds_completed_ai_projection(self) -> None:
+        registry = AssetRegistryRepository(self.session)
+        source = registry.upsert_external_source(
+            tenant_id=TENANT_ID,
+            source_key="projection-google-account",
+            source_type="google_drive",
+            source_metadata={"provider_account_id": "projection-account"},
+        )
+        source_asset = registry.upsert_source_asset(
+            tenant_id=TENANT_ID,
+            external_source_id=source.id,
+            external_asset_id="bandana",
+            filename="bandana.jpg",
+            mime_type="image/jpeg",
+            source_metadata={"parents": ["root"]},
+        )
+        asset = registry.create_asset(
+            tenant_id=TENANT_ID,
+            content_hash="3" * 64,
+            mime_type="image/jpeg",
+        )
+        registry.link_source_asset(
+            tenant_id=TENANT_ID, asset_id=asset.id, source_asset_id=source_asset.id,
+        )
+        profile = MetadataProfileModel(
+            tenant_id=TENANT_ID, profile_name="creative-assets", profile_version="v1",
+            prompt_template="Analyze", search_config_json={}, active=True,
+        )
+        self.session.add(profile)
+        self.session.flush()
+        self.session.add(AssetAiAnalysisModel(
+            tenant_id=TENANT_ID, asset_id=asset.id, content_hash=asset.content_hash,
+            metadata_profile_id=profile.id, metadata_profile="creative-assets",
+            metadata_profile_version="v1", prompt_version="v1", pipeline_version="v1",
+            status="completed", metadata_json={}, search_projection={
+                "search_text": "white fabric dog bandana reading Please don't pet me I'm workin here",
+                "normalized_terms": ["please", "don", "t", "pet", "me"],
+                "phrases": ["please don t pet me"],
+            }, search_projection_version="search-projection-v1",
+            completed_at=datetime.now(timezone.utc),
+        ))
+        self.session.commit()
+
+        service = ExplorerService(
+            lambda _provider, _token: None,
+            AssetProcessingStatusService(self.session),
+        )
+        result = await service.search_subtree(
+            SearchRequest(
+                query="Please don't pet me", root_id="root", provider="google-drive",
+            ),
+            None, "projection-account", tenant_id=TENANT_ID,
+        )
+
+        self.assertEqual([item.id for item in result.items], ["bandana"])
+        self.assertEqual(result.items[0].internal_asset_id, asset.id)
+        self.assertGreaterEqual(result.indexed_count, 1)

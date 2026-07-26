@@ -3,6 +3,11 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 
+from sqlalchemy import select
+
+from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.ai_metadata.normalizer import MetadataNormalizer
+from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.assets.status_service import AssetProcessingStatusService
 
 from app.modules.explorer.provider_contract import SourceProviderFactory
@@ -101,6 +106,165 @@ class ExplorerService:
         if provider == "sharepoint":
             raise PermissionError("Connect SharePoint to browse folders.")
         return [item for item in MOCK if item.parent_id == parent_id and item.kind == "folder"]
+
+    def _search_analyzed_assets(
+        self,
+        body: SearchRequest,
+        tenant_id: str | None,
+        account_id: str,
+    ) -> list[AssetNode]:
+        """Search completed PostgreSQL projections when the legacy index has no AI metadata."""
+        if self.asset_status_service is None or not tenant_id:
+            return []
+
+        source_type = {"google-drive": "google_drive", "sharepoint": "sharepoint"}.get(body.provider)
+        if source_type is None:
+            return []
+
+        session = self.asset_status_service.session
+        sources = list(session.scalars(select(ExternalSourceModel).where(
+            ExternalSourceModel.tenant_id == tenant_id,
+            ExternalSourceModel.source_type == source_type,
+        )))
+        account_source_ids = [
+            source.id
+            for source in sources
+            if str((source.source_metadata or {}).get("provider_account_id") or "") == account_id
+        ]
+        # Older source records may predate provider-account metadata. Use those
+        # only when the current account has no explicit source record.
+        source_ids = account_source_ids or [
+            source.id
+            for source in sources
+            if not (source.source_metadata or {}).get("provider_account_id")
+        ]
+        if not source_ids:
+            return []
+
+        source_assets = list(session.scalars(select(SourceAssetModel).where(
+            SourceAssetModel.tenant_id == tenant_id,
+            SourceAssetModel.external_source_id.in_(source_ids),
+            SourceAssetModel.deleted_at.is_(None),
+        )))
+        parents_by_source_asset = {
+            (source.external_source_id, source.external_asset_id): self._source_parents(source)
+            for source in source_assets
+        }
+
+        rows = session.execute(
+            select(AssetAiAnalysisModel, SourceAssetModel)
+            .join(AssetSourceLinkModel, AssetSourceLinkModel.asset_id == AssetAiAnalysisModel.asset_id)
+            .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
+            .where(
+                AssetAiAnalysisModel.tenant_id == tenant_id,
+                AssetSourceLinkModel.tenant_id == tenant_id,
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id.in_(source_ids),
+                SourceAssetModel.deleted_at.is_(None),
+                AssetAiAnalysisModel.status == "completed",
+                AssetAiAnalysisModel.search_projection.is_not(None),
+            )
+            .order_by(
+                AssetAiAnalysisModel.asset_id,
+                AssetAiAnalysisModel.completed_at.desc(),
+                AssetAiAnalysisModel.id.desc(),
+            )
+        ).all()
+
+        latest_by_asset: dict[str, str] = {}
+        for analysis, _source in rows:
+            if (
+                analysis.asset_id not in latest_by_asset
+                and isinstance(analysis.search_projection, dict)
+                and not analysis.validation_errors_json
+            ):
+                latest_by_asset[analysis.asset_id] = analysis.id
+
+        normalized_query = MetadataNormalizer.normalize_text(body.query)
+        query_tokens = set(normalized_query.split())
+        matches: list[tuple[int, AssetNode]] = []
+        seen_assets: set[str] = set()
+        for analysis, source in rows:
+            if latest_by_asset.get(analysis.asset_id) != analysis.id or analysis.asset_id in seen_assets:
+                continue
+            if not self._is_in_search_scope(
+                source, body.root_id, parents_by_source_asset,
+            ):
+                continue
+            searchable = self._projection_search_text(analysis.search_projection or {})
+            searchable_tokens = set(MetadataNormalizer.normalize_text(searchable).split())
+            if not query_tokens or not query_tokens.issubset(searchable_tokens):
+                continue
+            seen_assets.add(analysis.asset_id)
+            mime_type = source.mime_type or "application/octet-stream"
+            kind = (
+                "image" if mime_type.startswith("image/") else
+                "video" if mime_type.startswith("video/") else
+                "pdf" if mime_type == "application/pdf" else
+                "document" if "document" in mime_type else "other"
+            )
+            parent_ids = self._source_parents(source)
+            score = len(query_tokens) + (100 if normalized_query in MetadataNormalizer.normalize_text(searchable) else 0)
+            matches.append((score, AssetNode(
+                id=source.external_asset_id,
+                internal_asset_id=analysis.asset_id,
+                source_asset_id=source.id,
+                external_source_id=source.external_source_id,
+                provider=body.provider,
+                name=source.filename or "Untitled",
+                kind=kind,
+                mime_type=mime_type,
+                parent_id=parent_ids[0] if parent_ids else None,
+                size=source.size_bytes,
+                modified_at=source.source_modified_at,
+                has_children=False,
+            )))
+
+        matches.sort(key=lambda item: (-item[0], item[1].name.casefold(), item[1].id))
+        return [item for _, item in matches[:body.limit]]
+
+    @staticmethod
+    def _source_parents(source: SourceAssetModel) -> list[str]:
+        metadata = source.source_metadata or {}
+        parents = metadata.get("parents")
+        if isinstance(parents, list):
+            return [str(parent) for parent in parents if parent]
+        parent_id = metadata.get("parent_id")
+        return [str(parent_id)] if parent_id else []
+
+    @classmethod
+    def _is_in_search_scope(
+        cls, source: SourceAssetModel, root_id: str,
+        parents_by_source_asset: dict[tuple[str, str], list[str]],
+    ) -> bool:
+        if root_id in {"root", "sharepoint-root"}:
+            return True
+        queue = cls._source_parents(source)
+        visited: set[str] = set()
+        while queue:
+            parent_id = queue.pop()
+            if parent_id == root_id:
+                return True
+            if parent_id in visited:
+                continue
+            visited.add(parent_id)
+            queue.extend(parents_by_source_asset.get((source.external_source_id, parent_id), ()))
+        return False
+
+    @staticmethod
+    def _projection_search_text(projection: dict) -> str:
+        values: list[str] = []
+        for key in ("search_text", "search_terms", "normalized_terms", "phrases", "numbers"):
+            value = projection.get(key)
+            if isinstance(value, str):
+                values.append(value)
+            elif isinstance(value, list):
+                values.extend(str(item) for item in value if isinstance(item, (str, int, float)))
+        for item in projection.get("path_values") or []:
+            if isinstance(item, dict) and isinstance(item.get("value"), (str, int, float)):
+                values.append(str(item["value"]))
+        return " ".join(values)
+
 
     async def search_subtree(
         self,
@@ -318,6 +482,11 @@ class ExplorerService:
             skipped_folders=skipped_folders,
         )
         items = metadata.search(indexed_rows, body.query, body.root_id, body.limit)
+        projected_items = self._search_analyzed_assets(body, tenant_id, account_id)
+        if projected_items:
+            legacy_ids = {item.id for item in projected_items}
+            items = [*projected_items, *(item for item in items if item.id not in legacy_ids)][:body.limit]
+        indexed_count = max(0, len(indexed_rows) - 1, len(projected_items))
         self._enrich_asset_identities(
             items,
             tenant_id or account_id,
@@ -325,7 +494,7 @@ class ExplorerService:
         )
         return SearchResponse(
             items=items,
-            indexed_count=max(0, len(indexed_rows) - 1),
+            indexed_count=indexed_count,
             index_source=metadata.source,
             truncated=truncated,
             skipped_folders=skipped_folders,
