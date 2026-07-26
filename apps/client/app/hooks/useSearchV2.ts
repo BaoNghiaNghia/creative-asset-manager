@@ -37,7 +37,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     setSelectedFacets(initial);
   }, []);
 
-  const active = capabilities.selected_version === "v2";
+  const active = capabilities.selected_version === "v2" || capabilities.selected_version === "v3";
   const facetKey = JSON.stringify(selectedFacets);
 
   useEffect(() => {
@@ -62,7 +62,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
           body: JSON.stringify({ query: query.trim(), source_provider: provider, facets: selectedFacets, limit: 200, debug: capabilities.debug_allowed }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw Error(payload.detail || "Search v2 is unavailable");
+        if (!response.ok) throw Error(payload.detail || "Search is unavailable");
         setItems(payload.items || []); setTotal(payload.total || 0);
         setFacets(payload.facets || {}); setParsed(payload.parsed_query || null);
       } catch (reason) {
