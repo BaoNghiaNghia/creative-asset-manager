@@ -47,7 +47,7 @@ class SearchMaintenanceService:
             raise RuntimeError("SEARCH_PROJECTION_ENABLED is false")
         if reindex and not run.dry_run:
             if not self.index_enabled:
-                raise RuntimeError("ELASTICSEARCH_V2_ENABLED is false")
+                raise RuntimeError("Elasticsearch search is disabled")
             if self.index_provider is None:
                 raise RuntimeError("Elasticsearch provider is required")
             if run.target_index is None:
@@ -59,7 +59,7 @@ class SearchMaintenanceService:
                         self.repository.session, self.index_provider
                     ).register(
                         physical_index_name=run.target_index,
-                        index_prefix=run.target_index.rsplit("-v2-", 1)[0],
+                        index_prefix=self._index_prefix(run.target_index),
                         index_version=index_version,
                         projection_version=run.target_projection_version,
                     )
@@ -156,7 +156,7 @@ class SearchMaintenanceService:
                         self.repository.session, self.index_provider
                     ).register(
                         physical_index_name=run.target_index,
-                        index_prefix=run.target_index.rsplit("-v2-", 1)[0],
+                        index_prefix=self._index_prefix(run.target_index),
                         index_version=index_version or "resumed",
                         projection_version=run.target_projection_version,
                     )
@@ -207,3 +207,10 @@ class SearchMaintenanceService:
             metadata_profile_version=analysis.metadata_profile_version,
             search_projection_version=analysis.search_projection_version or "",
         )
+    @staticmethod
+    def _index_prefix(target_index: str) -> str:
+        for generation in ("v2", "v3"):
+            marker = f"-{generation}-"
+            if marker in target_index:
+                return target_index.split(marker, 1)[0]
+        raise ValueError("target index has no supported versioned generation")

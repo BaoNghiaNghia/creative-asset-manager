@@ -25,7 +25,7 @@ from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.pipeline.service import AssetPipelineService
 from app.modules.pipeline.state import PipelineState
 from app.modules.processing.repository import ProcessingRepository
-from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider
+from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider, build_search_index_document
 from app.modules.search.governance_model import ActiveAssetAnalysisModel
 from app.modules.storage.sidecar_document import MetadataSidecarDocumentBuilder
 from app.modules.storage.sidecar_repository import MetadataSidecarRepository
@@ -533,34 +533,20 @@ class AssetIndexJobHandler(_PipelineHandler):
 
     @staticmethod
     def _document(session, analysis: AssetAiAnalysisModel) -> SearchIndexDocument:
-        projection = analysis.search_projection
-        if not isinstance(projection, Mapping):
-            raise ValueError("analysis has no persisted projection")
         source = session.scalar(select(SourceAssetModel).join(
             AssetSourceLinkModel, AssetSourceLinkModel.source_asset_id == SourceAssetModel.id
-        ).where(AssetSourceLinkModel.asset_id == analysis.asset_id).order_by(SourceAssetModel.created_at).limit(1))
+        ).where(
+            AssetSourceLinkModel.asset_id == analysis.asset_id,
+            AssetSourceLinkModel.tenant_id == analysis.tenant_id,
+            SourceAssetModel.tenant_id == analysis.tenant_id,
+            SourceAssetModel.deleted_at.is_(None),
+        ).order_by(SourceAssetModel.created_at).limit(1))
         metadata = source.source_metadata if source else {}
-        facets = projection.get("facets") or {}
-        visible_text = AssetIndexJobHandler._visible_text(analysis.metadata_json)
-        filename = source.filename if source and source.filename else ""
-        search_text = str(projection.get("search_text") or "")
-        return SearchIndexDocument(
-            asset_id=analysis.asset_id, tenant_id=analysis.tenant_id,
+        return build_search_index_document(
+            analysis,
             source_id=source.external_source_id if source else "",
-            filename=filename,
+            filename=source.filename if source and source.filename else "",
             folder_path=str(metadata.get("path") or metadata.get("folder_path") or ""),
-            visible_text=visible_text,
-            search_suggest=" ".join((filename, *visible_text, search_text)).strip(),
-            search_text=" ".join(value for value in (filename, *visible_text, search_text) if value),
-            search_terms=tuple(projection.get("search_terms") or ()),
-            normalized_terms=tuple(projection.get("normalized_terms") or ()),
-            phrases=tuple(projection.get("phrases") or ()),
-            numbers=tuple(projection.get("numbers") or ()),
-            facets={key: tuple(value) for key, value in facets.items()},
-            path_values=tuple(projection.get("path_values") or ()),
-            metadata_profile=analysis.metadata_profile,
-            metadata_profile_version=analysis.metadata_profile_version,
-            search_projection_version=analysis.search_projection_version or "",
         )
 
     @staticmethod

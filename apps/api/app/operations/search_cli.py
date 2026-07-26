@@ -37,6 +37,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--index-version")
     value.add_argument("--elasticsearch-url")
     value.add_argument("--index-prefix", default="creative-assets")
+    value.add_argument("--index-generation", choices=("v2", "v3"))
     return value
 
 
@@ -80,6 +81,7 @@ async def execute(args: argparse.Namespace) -> dict:
             session.commit()
 
         reindex = operation_type in {"reindex_assets", "rebuild_and_reindex"}
+        index_generation = args.index_generation or ("v3" if settings.SEARCH_V3_ENABLED else "v2")
         provider = None
         if reindex and not run.dry_run:
             if not args.elasticsearch_url:
@@ -98,7 +100,7 @@ async def execute(args: argparse.Namespace) -> dict:
                 ),
                 index_provider=provider,
                 projection_enabled=settings.SEARCH_PROJECTION_ENABLED,
-                index_enabled=settings.ELASTICSEARCH_V2_ENABLED,
+                index_enabled=(settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED),
                 deterministic_active_analysis_enabled=settings.DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED,
                 index_lifecycle_enabled=settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED,
             ).run(
