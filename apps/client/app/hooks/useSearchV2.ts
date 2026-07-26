@@ -15,16 +15,19 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
 
   useEffect(() => {
-    if (!authenticated) { setCapabilities(emptyCapabilities); return; }
+    if (!authenticated) { setCapabilities(emptyCapabilities); setCapabilitiesResolved(false); return; }
+    setCapabilitiesResolved(false);
     const controller = new AbortController();
     fetch("/api/v1/search/capabilities", { signal: controller.signal })
       .then(async response => {
         if (!response.ok) throw Error("Unable to read search capabilities");
         setCapabilities(await response.json());
       })
-      .catch(reason => !controller.signal.aborted && setError(reason.message));
+      .catch(reason => !controller.signal.aborted && setError(reason.message))
+      .finally(() => !controller.signal.aborted && setCapabilitiesResolved(true));
     return () => controller.abort();
   }, [authenticated, provider]);
 
@@ -82,5 +85,5 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     });
   }
 
-  return useMemo(() => ({ active, capabilities, items, facets, selectedFacets, parsed, total, loading, error, toggleFacet }), [active, capabilities, items, facets, selectedFacets, parsed, total, loading, error]);
+  return useMemo(() => ({ active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, error, toggleFacet }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, error]);
 }

@@ -120,7 +120,7 @@ export default function App() {
             <span aria-hidden="true">⌕</span>
             <input
               value={explorer.query}
-              disabled={!explorer.auth.authenticated || !explorer.searchReady}
+              disabled={!explorer.auth.authenticated || explorer.auth.checking}
               onChange={event => explorer.setQuery(event.target.value)}
               onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
               placeholder={!explorer.auth.authenticated

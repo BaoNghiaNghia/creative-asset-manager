@@ -361,7 +361,7 @@ export function useDriveExplorer() {
         if (!response.ok) throw Error("Unable to read indexing status");
         const status = await response.json() as DriveIndexStatus;
         if (applyStatus(status) === "running") {
-          pollTimer = window.setTimeout(() => void poll(), 750);
+          pollTimer = window.setTimeout(() => void poll(), 3000);
         }
       } catch (reason) {
         if (!cancelled) {
@@ -394,7 +394,7 @@ export function useDriveExplorer() {
         }
         const status = await response.json() as DriveIndexStatus;
         if (applyStatus(status) === "running") {
-          pollTimer = window.setTimeout(() => void poll(), 250);
+          pollTimer = window.setTimeout(() => void poll(), 3000);
         }
       } catch (reason) {
         if (!cancelled) {
@@ -408,12 +408,13 @@ export function useDriveExplorer() {
       }
     }
 
-    void start();
+    if (indexRetryKey > 0) void start();
+    else void poll();
     return () => {
       cancelled = true;
       window.clearTimeout(pollTimer);
     };
-  }, [auth.authenticated, indexRetryKey, provider]);
+  }, [auth.authenticated, indexRetryKey, provider, searchV2.active, searchV2.capabilitiesResolved]);
 
   useEffect(() => {
     const normalizedQuery = query.trim();
