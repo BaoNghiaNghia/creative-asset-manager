@@ -12,7 +12,7 @@ from app.infrastructure.search.elasticsearch_v2 import (
     ElasticsearchV2Index,
 )
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
-from app.modules.search.coverage_audit import SearchV3CoverageAudit
+from app.modules.search.coverage_audit import SearchV3CoverageAudit, SearchV3CoverageRepair
 from app.modules.search.operations_repository import SearchOperationRepository
 from app.modules.search.operations_service import SearchMaintenanceService
 
@@ -22,11 +22,12 @@ _COMMANDS = {
     "search:rebuild-and-reindex": "rebuild_and_reindex",
 }
 _AUDIT_COMMAND = "search:audit-coverage"
+_REPAIR_COMMAND = "search:repair-coverage"
 
 
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="Creative Asset Manager search operations")
-    value.add_argument("command", choices=[*_COMMANDS, _AUDIT_COMMAND, "search:cancel"])
+    value.add_argument("command", choices=[*_COMMANDS, _AUDIT_COMMAND, _REPAIR_COMMAND, "search:cancel"])
     value.add_argument("--tenant-id", required=True)
     value.add_argument("--run-id")
     value.add_argument("--metadata-profile")
@@ -47,6 +48,9 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--after-analysis-id")
     value.add_argument("--verify-elasticsearch", action="store_true")
     value.add_argument("--output-json", action="store_true")
+    value.add_argument("--apply", action="store_true")
+    value.add_argument("--repair-projections", action="store_true")
+    value.add_argument("--repair-indexes", action="store_true")
     return value
 
 
@@ -54,6 +58,8 @@ async def execute(args: argparse.Namespace) -> dict:
     settings = get_settings()
     if args.command == _AUDIT_COMMAND:
         return await _audit_coverage(args, settings)
+    if args.command == _REPAIR_COMMAND:
+        return await _repair_coverage(args, settings)
 
     with SessionLocal() as session:
         repository = SearchOperationRepository(session)
@@ -175,6 +181,39 @@ async def _audit_coverage(args: argparse.Namespace, settings) -> dict:
             await provider.__aexit__()
 
 
+async def _repair_coverage(args: argparse.Namespace, settings) -> dict:
+    projection_version = args.projection_version or SearchProjectionBuilder().projection_version
+    after_created_at = datetime.fromisoformat(args.after_created_at) if args.after_created_at else None
+    if (after_created_at is None) != (args.after_analysis_id is None):
+        raise ValueError("--after-created-at and --after-analysis-id must be provided together")
+    if args.apply and not (args.repair_projections or args.repair_indexes):
+        raise ValueError("--apply requires --repair-projections and/or --repair-indexes")
+    provider = None
+    if args.verify_elasticsearch:
+        base_url = args.elasticsearch_url or settings.ELASTICSEARCH_URL
+        if not base_url:
+            raise ValueError("--verify-elasticsearch requires --elasticsearch-url or ELASTICSEARCH_URL")
+        provider = ElasticsearchV2Index(ElasticsearchV2Config(base_url, index_prefix=args.index_prefix, index_generation="v3"))
+    try:
+        with SessionLocal() as session:
+            result = await SearchV3CoverageRepair(session, projection_version=projection_version, index=provider).repair(
+                tenant_id=args.tenant_id, page_size=args.page_size, limit=args.limit,
+                after_created_at=after_created_at, after_analysis_id=args.after_analysis_id,
+                verify_elasticsearch=args.verify_elasticsearch, apply=args.apply,
+                repair_projections=args.repair_projections, repair_indexes=args.repair_indexes,
+            )
+            if args.apply:
+                session.commit()
+            return {
+                "tenant_id": args.tenant_id, "projection_version": projection_version,
+                "verify_elasticsearch": args.verify_elasticsearch, "dry_run": not args.apply,
+                **result.to_document(),
+            }
+    finally:
+        if provider is not None:
+            await provider.__aexit__()
+
+
 def _progress(run) -> dict:
     return {
         "run_id": run.id,
@@ -214,7 +253,7 @@ def _print_audit(result: dict) -> None:
 def main() -> int:
     args = parser().parse_args()
     result = asyncio.run(execute(args))
-    if args.command == _AUDIT_COMMAND and not args.output_json:
+    if args.command in {_AUDIT_COMMAND, _REPAIR_COMMAND} and not args.output_json:
         _print_audit(result)
     else:
         print(json.dumps(result, sort_keys=True))

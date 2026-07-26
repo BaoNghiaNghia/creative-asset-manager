@@ -212,3 +212,130 @@ class SearchV3CoverageAudit:
         if verify_elasticsearch and document_version != self.projection_version:
             return "database_indexed_document_missing"
         return "healthy"
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageRepairResult:
+    audit: CoverageAuditResult
+    repair_candidates: int
+    projection_jobs_created: int
+    index_jobs_created: int
+    duplicate_jobs_skipped: int
+    failed: int
+
+    def to_document(self) -> dict[str, Any]:
+        value = self.audit.to_document()
+        value.update({
+            "repair_candidates": self.repair_candidates,
+            "projection_jobs_created": self.projection_jobs_created,
+            "index_jobs_created": self.index_jobs_created,
+            "duplicate_jobs_skipped": self.duplicate_jobs_skipped,
+            "repaired": self.projection_jobs_created + self.index_jobs_created,
+            "failed": self.failed,
+        })
+        return value
+
+
+class SearchV3CoverageRepair(SearchV3CoverageAudit):
+    """Idempotent repair companion; callers must explicitly commit writes."""
+
+    async def repair(
+        self, *, tenant_id: str, page_size: int, limit: int | None = None,
+        after_created_at: datetime | None = None, after_analysis_id: str | None = None,
+        verify_elasticsearch: bool = False, apply: bool = False,
+        repair_projections: bool = False, repair_indexes: bool = False,
+    ) -> CoverageRepairResult:
+        audit = await self.run(
+            tenant_id=tenant_id, page_size=page_size, limit=limit,
+            after_created_at=after_created_at, after_analysis_id=after_analysis_id,
+            verify_elasticsearch=verify_elasticsearch,
+        )
+        candidates = projection_created = index_created = duplicate_skipped = failed = 0
+        by_analysis = {item.analysis_id: item for item in audit.items}
+        analyses = self.session.scalars(select(AssetAiAnalysisModel).where(
+            AssetAiAnalysisModel.tenant_id == tenant_id,
+            AssetAiAnalysisModel.id.in_(tuple(by_analysis)),
+        )).all()
+        from app.modules.processing.repository import ProcessingRepository
+        from app.modules.ai_governance.repository import AiGovernanceRepository
+        jobs = ProcessingRepository(self.session)
+        for analysis in analyses:
+            category = by_analysis[analysis.id].category
+            job_type = None
+            if category in {"projection_missing", "projection_stale"} and repair_projections:
+                job_type = "search_projection_build"
+            elif category in {
+                "index_job_missing", "index_job_failed", "database_indexed_document_missing",
+            } and repair_indexes:
+                job_type = "asset_index"
+            if job_type is None:
+                continue
+            candidates += 1
+            if not apply:
+                continue
+            version = self.projection_version
+            if self._has_active_equivalent(tenant_id, analysis.asset_id, analysis.id, job_type, version):
+                duplicate_skipped += 1
+                continue
+            checksum = analysis.projection_checksum or "unresolved"
+            key = f"coverage:{job_type}:{analysis.id}:{version}:{checksum}"
+            existing = self.session.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.idempotency_key == key,
+            ))
+            if existing is not None:
+                duplicate_skipped += 1
+                continue
+            try:
+                jobs.create_job(
+                    tenant_id=tenant_id, job_type=job_type, entity_type="asset",
+                    entity_id=analysis.asset_id, idempotency_key=key,
+                    payload={
+                        "asset_id": analysis.asset_id,
+                        "analysis_id": analysis.id,
+                        "direct_analysis": True,
+                        "projection_version": version,
+                    },
+                    provider_key="elasticsearch" if job_type == "asset_index" else None,
+                    provider_scope="search" if job_type == "asset_index" else None,
+                )
+                if job_type == "search_projection_build":
+                    projection_created += 1
+                else:
+                    index_created += 1
+            except Exception:
+                failed += 1
+        if apply and (projection_created or index_created):
+            AiGovernanceRepository(self.session).event(
+                tenant_id, "search_coverage_repair",
+                details={
+                    "projection_version": self.projection_version,
+                    "projection_jobs_created": projection_created,
+                    "index_jobs_created": index_created,
+                    "duplicate_jobs_skipped": duplicate_skipped,
+                },
+            )
+        return CoverageRepairResult(
+            audit=audit, repair_candidates=candidates,
+            projection_jobs_created=projection_created, index_jobs_created=index_created,
+            duplicate_jobs_skipped=duplicate_skipped, failed=failed,
+        )
+
+    def _has_active_equivalent(
+        self, tenant_id: str, asset_id: str, analysis_id: str, job_type: str, version: str,
+    ) -> bool:
+        rows = self.session.scalars(select(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.job_type == job_type,
+            ProcessingJobModel.entity_type == "asset",
+            ProcessingJobModel.entity_id == asset_id,
+            ProcessingJobModel.status.in_(("pending", "processing", "retry")),
+        ))
+        for job in rows:
+            payload = job.payload_json or {}
+            payload_version = payload.get("projection_version")
+            if payload.get("analysis_id") != analysis_id:
+                continue
+            if payload_version == version or f":{analysis_id}:{version}" in job.idempotency_key:
+                return True
+        return False

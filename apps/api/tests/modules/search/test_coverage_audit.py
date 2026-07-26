@@ -224,3 +224,61 @@ class SearchCoverageCliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SearchV3CoverageRepairTest(SearchV3CoverageAuditTest):
+    async def test_dry_run_creates_no_jobs_and_apply_creates_projection_first(self):
+        from app.modules.search.coverage_audit import SearchV3CoverageRepair
+        _, analysis = self._analysis(projection=None)
+        self.session.commit()
+        repair = SearchV3CoverageRepair(self.session, projection_version="search-projection-v1")
+        dry = await repair.repair(
+            tenant_id="tenant-a", page_size=10, repair_projections=True,
+        )
+        self.assertEqual(dry.projection_jobs_created, 0)
+        self.assertEqual(self.session.query(ProcessingJobModel).count(), 0)
+
+        applied = await repair.repair(
+            tenant_id="tenant-a", page_size=10, apply=True, repair_projections=True,
+        )
+        self.session.commit()
+        self.assertEqual(applied.projection_jobs_created, 1)
+        job = self.session.query(ProcessingJobModel).one()
+        self.assertEqual(job.job_type, "search_projection_build")
+        self.assertEqual(job.entity_id, analysis.asset_id)
+
+    async def test_document_missing_creates_only_index_and_rerun_is_idempotent(self):
+        from app.modules.search.coverage_audit import SearchV3CoverageRepair
+        _, analysis = self._analysis()
+        self._index_job(analysis)
+        self.session.commit()
+        repair = SearchV3CoverageRepair(
+            self.session, projection_version="search-projection-v1", index=FakeV3Index(),
+        )
+        first = await repair.repair(
+            tenant_id="tenant-a", page_size=10, verify_elasticsearch=True,
+            apply=True, repair_indexes=True,
+        )
+        self.session.commit()
+        self.assertEqual(first.index_jobs_created, 1)
+        self.assertEqual(first.projection_jobs_created, 0)
+        second = await repair.repair(
+            tenant_id="tenant-a", page_size=10, verify_elasticsearch=True,
+            apply=True, repair_indexes=True,
+        )
+        self.assertEqual(second.index_jobs_created, 0)
+        self.assertEqual(second.duplicate_jobs_skipped, 1)
+
+    async def test_active_equivalent_job_is_not_duplicated_and_tenant_isolated(self):
+        from app.modules.search.coverage_audit import SearchV3CoverageRepair
+        _, analysis = self._analysis()
+        active = self._index_job(analysis, status="pending")
+        active.idempotency_key = f"direct:index:{analysis.id}:search-projection-v1:test"
+        self.session.flush()
+        _, foreign = self._analysis(tenant_id="tenant-b", offset=1)
+        self.session.commit()
+        result = await SearchV3CoverageRepair(
+            self.session, projection_version="search-projection-v1",
+        ).repair(tenant_id="tenant-a", page_size=10, apply=True, repair_indexes=True)
+        self.assertEqual(result.duplicate_jobs_skipped, 1)
+        self.assertEqual(self.session.query(ProcessingJobModel).filter_by(tenant_id="tenant-b").count(), 0)
+        self.assertNotEqual(foreign.tenant_id, "tenant-a")
