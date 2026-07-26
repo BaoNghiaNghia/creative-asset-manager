@@ -38,13 +38,21 @@ class GeminiModelLimit:
 
 
 @dataclass
+class _InputTokenReservation:
+    recorded_at: float
+    tokens: int
+
+
+@dataclass
 class _ModelRuntime:
     recent_requests: deque[float] = field(default_factory=deque)
+    recent_input_tokens: deque[_InputTokenReservation] = field(default_factory=deque)
     day: date | None = None
     daily_requests: int = 0
     cooldown_until: datetime | None = None
     daily_exhausted_until: datetime | None = None
     in_flight: bool = False
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class GeminiAiMetadataProvider:
@@ -67,6 +75,8 @@ class GeminiAiMetadataProvider:
         model_limits: Mapping[str, GeminiModelLimit | tuple[int, int]] | None = None,
         cooldown_seconds: float = 60.0,
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
+        now: Callable[[], datetime] | None = None,
     ):
         if not api_key:
             raise ValueError("Gemini API key is required")
@@ -82,7 +92,7 @@ class GeminiAiMetadataProvider:
         self._models = tuple(dict.fromkeys(model_pool or (model,)))
         self._limits = {
             name: self._coerce_model_limit(
-                (model_limits or {}).get(name, GeminiModelLimit(1, 1, 1))
+                (model_limits or {}).get(name, GeminiModelLimit(1, 2_000_000, 1))
             )
             for name in self._models
         }
@@ -94,13 +104,15 @@ class GeminiAiMetadataProvider:
         self._runtime = {name: _ModelRuntime() for name in self._models}
         self._cooldown = timedelta(seconds=cooldown_seconds)
         self._sleeper = sleeper
+        self._clock = clock
+        self._now = now or (lambda: datetime.now(timezone.utc))
 
     @staticmethod
     def _coerce_model_limit(value: GeminiModelLimit | tuple[int, int]) -> GeminiModelLimit:
         if isinstance(value, GeminiModelLimit):
             return value
         rpm, rpd = value
-        return GeminiModelLimit(rpm=rpm, tpm=1, rpd=rpd)
+        return GeminiModelLimit(rpm=rpm, tpm=2_000_000, rpd=rpd)
 
     async def analyze_single(
         self, input: AiMetadataAnalysisInput
@@ -109,59 +121,43 @@ class GeminiAiMetadataProvider:
         attempted_models: list[str] = []
         reasons: list[str] = []
         for model in self._models:
-            unavailable = self._availability_reason(model)
+            reservation, unavailable = await self._reserve_request(model, input)
             if unavailable is not None:
                 reasons.append(f"{model}:{unavailable}")
                 continue
-            runtime = self._runtime[model]
-            runtime.in_flight = True
+            assert reservation is not None
             attempted_models.append(model)
             try:
                 try:
                     result = await self._analyze_model(model, input)
                 except AiProviderError as exc:
                     if exc.status_code == 429 and exc.details.get("daily_quota"):
-                        self._mark_daily_exhausted(model)
+                        await self._mark_daily_exhausted(model)
                         reasons.append(f"{model}:daily_quota_exhausted")
                         continue
                     if exc.status_code == 429:
                         retry_after = exc.details.get("retry_after_seconds")
-                        delay = 1.0 if retry_after is None else float(retry_after)
-                        reasons.append(f"{model}:rpm_429_retry")
-                        await self._sleeper(delay)
-                        self._check_cancelled(input)
-                        try:
-                            result = await self._analyze_model(model, input)
-                        except AiProviderError as retried:
-                            if retried.status_code == 429 and retried.details.get("daily_quota"):
-                                self._mark_daily_exhausted(model)
-                                reasons.append(f"{model}:daily_quota_exhausted")
-                                continue
-                            if retried.status_code in {429, 503}:
-                                self._mark_cooldown(model)
-                                reasons.append(f"{model}:cooldown")
-                                continue
-                            raise self._with_failover_audit(retried, attempted_models, reasons)
-                    elif exc.status_code == 503:
-                        self._mark_cooldown(model)
+                        await self._mark_cooldown(model, retry_after)
+                        reasons.append(f"{model}:rate_limited")
+                        continue
+                    if exc.status_code == 503:
+                        await self._mark_cooldown(model)
                         reasons.append(f"{model}:cooldown")
                         continue
-                    else:
-                        raise self._with_failover_audit(exc, attempted_models, reasons)
+                    raise self._with_failover_audit(exc, attempted_models, reasons)
+                await self._reconcile_input_tokens(model, reservation, result.usage)
                 return self._with_failover_result(result, attempted_models, reasons)
             finally:
-                runtime.in_flight = False
+                await self._release_request(model)
         raise AiProviderError(
             "No Gemini model is currently available.",
             code="gemini_model_pool_exhausted",
             retryable=True,
             details=self._audit_details(attempted_models, reasons),
         )
-
     async def _analyze_model(
         self, model: str, input: AiMetadataAnalysisInput
     ) -> AiMetadataAnalysisResult:
-        self._record_request(model)
         body = {
             "contents": [{
                 "role": "user",
@@ -227,50 +223,113 @@ class GeminiAiMetadataProvider:
             raw_response=payload,
         )
 
-    def _availability_reason(self, model: str) -> str | None:
+    async def _reserve_request(
+        self, model: str, input: AiMetadataAnalysisInput
+    ) -> tuple[_InputTokenReservation | None, str | None]:
         runtime = self._runtime[model]
-        now = datetime.now(timezone.utc)
-        pacific_day = now.astimezone(_PACIFIC_TIME).date()
-        if runtime.day != pacific_day:
-            runtime.day, runtime.daily_requests = pacific_day, 0
-            runtime.daily_exhausted_until = None
-        if runtime.daily_exhausted_until and runtime.daily_exhausted_until > now:
-            return "daily_quota_exhausted"
-        if runtime.cooldown_until and runtime.cooldown_until > now:
-            return "cooldown"
-        if runtime.in_flight:
-            return "concurrency_limited"
-        limit = self._limits[model]
-        rpm, rpd = limit.rpm, limit.rpd
-        current = time.monotonic()
-        while runtime.recent_requests and current - runtime.recent_requests[0] >= 60:
-            runtime.recent_requests.popleft()
-        if runtime.daily_requests >= rpd:
-            self._mark_daily_exhausted(model)
-            return "daily_quota_exhausted"
-        if len(runtime.recent_requests) >= rpm:
-            self._mark_cooldown(model)
-            return "rpm_limit_reached"
-        return None
+        async with runtime.lock:
+            now = self._now()
+            pacific_day = now.astimezone(_PACIFIC_TIME).date()
+            if runtime.day != pacific_day:
+                runtime.day, runtime.daily_requests = pacific_day, 0
+                runtime.daily_exhausted_until = None
+            if runtime.daily_exhausted_until and runtime.daily_exhausted_until > now:
+                return None, "daily_quota_exhausted"
+            if runtime.cooldown_until and runtime.cooldown_until > now:
+                return None, "cooldown"
+            if runtime.in_flight:
+                return None, "concurrency_limited"
 
-    def _record_request(self, model: str) -> None:
+            current = self._clock()
+            self._prune_rolling_window(runtime, current)
+            limit = self._limits[model]
+            if runtime.daily_requests >= limit.rpd:
+                self._set_daily_exhausted(runtime)
+                return None, "daily_quota_exhausted"
+            if len(runtime.recent_requests) >= limit.rpm:
+                runtime.cooldown_until = self._now() + self._cooldown
+                return None, "rpm_limit_reached"
+
+            estimated_tokens = self._estimate_input_tokens(input)
+            reserved_tokens = sum(item.tokens for item in runtime.recent_input_tokens)
+            if reserved_tokens + estimated_tokens > limit.tpm:
+                return None, "tpm_limit_reached"
+
+            reservation = _InputTokenReservation(
+                recorded_at=current,
+                tokens=estimated_tokens,
+            )
+            runtime.recent_requests.append(current)
+            runtime.recent_input_tokens.append(reservation)
+            runtime.daily_requests += 1
+            runtime.in_flight = True
+            return reservation, None
+
+    async def _release_request(self, model: str) -> None:
         runtime = self._runtime[model]
-        now = datetime.now(timezone.utc)
-        pacific_day = now.astimezone(_PACIFIC_TIME).date()
-        if runtime.day != pacific_day:
-            runtime.day, runtime.daily_requests = pacific_day, 0
-        runtime.daily_requests += 1
-        runtime.recent_requests.append(time.monotonic())
+        async with runtime.lock:
+            runtime.in_flight = False
 
-    def _mark_cooldown(self, model: str) -> None:
-        self._runtime[model].cooldown_until = datetime.now(timezone.utc) + self._cooldown
+    async def _reconcile_input_tokens(
+        self,
+        model: str,
+        reservation: _InputTokenReservation,
+        usage: Mapping[str, Any],
+    ) -> None:
+        actual_tokens = self._actual_input_tokens(usage)
+        if actual_tokens is None:
+            return
+        runtime = self._runtime[model]
+        async with runtime.lock:
+            if any(item is reservation for item in runtime.recent_input_tokens):
+                reservation.tokens = actual_tokens
 
-    def _mark_daily_exhausted(self, model: str) -> None:
-        now = datetime.now(timezone.utc).astimezone(_PACIFIC_TIME)
+    async def _mark_cooldown(
+        self, model: str, retry_after_seconds: Any | None = None
+    ) -> None:
+        seconds = self._cooldown.total_seconds()
+        if isinstance(retry_after_seconds, (int, float)) and retry_after_seconds >= 0:
+            seconds = float(retry_after_seconds)
+        runtime = self._runtime[model]
+        async with runtime.lock:
+            cooldown_until = self._now() + timedelta(seconds=seconds)
+            if runtime.cooldown_until is None or cooldown_until > runtime.cooldown_until:
+                runtime.cooldown_until = cooldown_until
+
+    async def _mark_daily_exhausted(self, model: str) -> None:
+        runtime = self._runtime[model]
+        async with runtime.lock:
+            self._set_daily_exhausted(runtime)
+
+    def _set_daily_exhausted(self, runtime: _ModelRuntime) -> None:
+        now = self._now().astimezone(_PACIFIC_TIME)
         tomorrow = now.date() + timedelta(days=1)
         reset = datetime.combine(tomorrow, datetime.min.time(), tzinfo=_PACIFIC_TIME)
-        self._runtime[model].daily_exhausted_until = reset.astimezone(timezone.utc)
+        runtime.daily_exhausted_until = reset.astimezone(timezone.utc)
 
+    @staticmethod
+    def _estimate_input_tokens(input: AiMetadataAnalysisInput) -> int:
+        prompt_tokens = (len(input.prompt.encode("utf-8")) + 3) // 4
+        image_tokens = (len(input.image_bytes) + 3) // 4
+        return max(1, prompt_tokens + image_tokens)
+
+    @staticmethod
+    def _actual_input_tokens(usage: Mapping[str, Any]) -> int | None:
+        for key in ("promptTokenCount", "inputTokenCount"):
+            value = usage.get(key)
+            if type(value) is int and value >= 0:
+                return value
+        return None
+
+    @staticmethod
+    def _prune_rolling_window(runtime: _ModelRuntime, current: float) -> None:
+        while runtime.recent_requests and current - runtime.recent_requests[0] >= 60:
+            runtime.recent_requests.popleft()
+        while (
+            runtime.recent_input_tokens
+            and current - runtime.recent_input_tokens[0].recorded_at >= 60
+        ):
+            runtime.recent_input_tokens.popleft()
     def _audit_details(self, attempted_models: list[str], reasons: list[str]) -> dict[str, Any]:
         return {
             "requested_model": self.model,

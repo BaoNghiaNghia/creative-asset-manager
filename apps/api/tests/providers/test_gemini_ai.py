@@ -1,11 +1,12 @@
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 
 import asyncio
 import httpx
 
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiProviderError
-from app.providers.ai.gemini import GeminiAiMetadataProvider
+from app.providers.ai.gemini import GeminiAiMetadataProvider, GeminiModelLimit
 
 
 def analysis_input():
@@ -22,6 +23,22 @@ def analysis_input():
 
 async def _immediate():
     return None
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.seconds = 0.0
+
+    def __call__(self) -> float:
+        return self.seconds
+
+    def now(self) -> datetime:
+        return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(
+            seconds=self.seconds
+        )
+
+    def advance(self, seconds: float) -> None:
+        self.seconds += seconds
 
 
 class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
@@ -87,7 +104,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 await provider.analyze_single(analysis_input())
             self.assertIs(raised.exception.retryable, retryable)
 
-        self.assertEqual(delays, [1.0])
+        self.assertEqual(delays, [])
 
     async def test_timeout_is_retryable(self):
         async def handler(request):
@@ -132,21 +149,23 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.provider_metadata["attempted_models"], ["gemini-first", "gemini-second"])
         self.assertIn("daily_quota_exhausted", result.provider_metadata["failover_reason"])
 
-    async def test_rpm_429_retries_same_model_once_honoring_retry_after(self):
-        calls = []
+    async def test_rate_limit_tries_next_model_without_sleep(self):
+        seen = []
         delays = []
+        clock = FakeClock()
 
         async def handler(request):
-            calls.append(request.url.path)
-            if len(calls) == 1:
+            model = request.url.path.split("/models/")[1].split(":")[0]
+            seen.append(model)
+            if model == "gemini-first":
                 return httpx.Response(
                     429,
-                    headers={"retry-after": "0"},
+                    headers={"retry-after": "30"},
                     json={"error": {"message": "rate limit per minute"}},
                 )
             return httpx.Response(200, json={
                 "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
-                "modelVersion": "gemini-first",
+                "modelVersion": model,
             })
 
         async def sleeper(delay):
@@ -156,32 +175,31 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
-            model_limits={"gemini-first": (12, 400), "gemini-second": (12, 400)},
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=12, tpm=100, rpd=400),
+                "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=400),
+            },
             sleeper=sleeper,
+            clock=clock,
+            now=clock.now,
             transport=httpx.MockTransport(handler),
         )
         result = await provider.analyze_single(analysis_input())
 
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(len(set(calls)), 1)
-        self.assertEqual(delays, [0.0])
-        self.assertEqual(result.provider_metadata["attempted_models"], ["gemini-first"])
-        self.assertIn("rpm_429_retry", result.provider_metadata["failover_reason"])
+        self.assertEqual(seen, ["gemini-first", "gemini-second"])
+        self.assertEqual(delays, [])
+        self.assertEqual(result.model, "gemini-second")
+        self.assertIn("gemini-first:rate_limited", result.provider_metadata["failover_reason"])
 
-    async def test_repeated_rpm_429_cools_down_and_uses_next_model(self):
+    async def test_tpm_limit_uses_next_available_model(self):
         seen = []
+        clock = FakeClock()
 
         async def handler(request):
             model = request.url.path.split("/models/")[1].split(":")[0]
             seen.append(model)
-            if model == "gemini-first":
-                return httpx.Response(
-                    429,
-                    headers={"retry-after": "0"},
-                    json={"error": {"message": "rate limit per minute"}},
-                )
             return httpx.Response(200, json={
-                "candidates": [{"content": {"parts": [{"text": '{"subject":"dog"}'}]}}],
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
                 "modelVersion": model,
             })
 
@@ -189,16 +207,113 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
-            model_limits={"gemini-first": (12, 400), "gemini-second": (12, 400)},
-            sleeper=lambda _delay: _immediate(),
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=12, tpm=4, rpd=400),
+                "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=400),
+            },
+            clock=clock,
+            now=clock.now,
             transport=httpx.MockTransport(handler),
         )
         result = await provider.analyze_single(analysis_input())
 
-        self.assertEqual(seen, ["gemini-first", "gemini-first", "gemini-second"])
+        self.assertEqual(seen, ["gemini-second"])
         self.assertEqual(result.model, "gemini-second")
-        self.assertIn("gemini-first:cooldown", result.provider_metadata["failover_reason"])
+        self.assertIn("gemini-first:tpm_limit_reached", result.provider_metadata["failover_reason"])
 
+    async def test_rpm_limit_uses_next_available_model(self):
+        seen = []
+        clock = FakeClock()
+
+        async def handler(request):
+            model = request.url.path.split("/models/")[1].split(":")[0]
+            seen.append(model)
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+                "modelVersion": model,
+            })
+
+        provider = GeminiAiMetadataProvider(
+            "secret",
+            model="gemini-first",
+            model_pool=("gemini-first", "gemini-second"),
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=1, tpm=100, rpd=400),
+                "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=400),
+            },
+            clock=clock,
+            now=clock.now,
+            transport=httpx.MockTransport(handler),
+        )
+
+        await provider.analyze_single(analysis_input())
+        second = await provider.analyze_single(analysis_input())
+
+        self.assertEqual(seen, ["gemini-first", "gemini-second"])
+        self.assertEqual(second.model, "gemini-second")
+        self.assertIn(
+            "gemini-first:rpm_limit_reached",
+            second.provider_metadata["failover_reason"],
+        )
+    async def test_tpm_reservation_reconciles_prompt_usage(self):
+        seen = []
+        clock = FakeClock()
+
+        async def handler(request):
+            seen.append(request.url.path)
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+                "usageMetadata": {"promptTokenCount": 1},
+                "modelVersion": "gemini-first",
+            })
+
+        provider = GeminiAiMetadataProvider(
+            "secret",
+            model="gemini-first",
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=2, tpm=6, rpd=2),
+            },
+            clock=clock,
+            now=clock.now,
+            transport=httpx.MockTransport(handler),
+        )
+
+        await provider.analyze_single(analysis_input())
+        await provider.analyze_single(analysis_input())
+
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(
+            [item.tokens for item in provider._runtime["gemini-first"].recent_input_tokens],
+            [1, 1],
+        )
+
+    async def test_tpm_reservation_expires_from_the_rolling_window(self):
+        seen = []
+        clock = FakeClock()
+
+        async def handler(request):
+            seen.append(request.url.path)
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+                "modelVersion": "gemini-first",
+            })
+
+        provider = GeminiAiMetadataProvider(
+            "secret",
+            model="gemini-first",
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=2, tpm=5, rpd=2),
+            },
+            clock=clock,
+            now=clock.now,
+            transport=httpx.MockTransport(handler),
+        )
+
+        await provider.analyze_single(analysis_input())
+        clock.advance(60)
+        await provider.analyze_single(analysis_input())
+
+        self.assertEqual(len(seen), 2)
     async def test_bad_request_does_not_fail_over(self):
         seen = []
 
