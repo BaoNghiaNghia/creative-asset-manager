@@ -25,6 +25,7 @@ import {
   handleTabKeyDown,
   pageFilters,
   ProcessingJobAction,
+  StatusText,
 } from "./AiOperationsPage";
 
 const noop = () => undefined;
@@ -34,6 +35,7 @@ const filters: AiOpsFilters = {
   model: "gpt-test",
   processingMode: "batch",
   metadataProfile: "catalog",
+  status: "",
   page: 2,
 };
 
@@ -45,6 +47,8 @@ const summary = {
   failed: 2,
   cancelled: 0,
   budget_blocked: 1,
+  deferred: 0,
+  next_deferred_retry_at: null,
   success_rate: 0.8,
   input_units: 1_000,
   output_units: 200,
@@ -117,6 +121,8 @@ const data: AiOpsDashboardData = {
       max_attempts: 3,
       processing_duration_ms: 2_000,
       next_attempt_at: "2026-07-21T10:00:00Z",
+      is_deferred: false,
+      waiting_reason: null,
       claimed_at: "2026-07-21T10:00:00Z",
       lease_expires_at: null,
       created_at: "2026-07-21T09:59:00Z",
@@ -315,6 +321,14 @@ describe("AI Operations interactions", () => {
     expect(eligibleProcessingAction({ ...job, status: "failed", error: { code: "operation_cancelled", retryable: false } })).toBeNull();
   });
 
+  it("renders deferred Gemini jobs as waiting and keeps normal pending jobs queued", () => {
+    const waiting = { ...data.jobs.items[0], status: "pending", is_deferred: true, waiting_reason: "gemini_quota_deferred", next_attempt_at: "2099-01-01T10:00:00Z" };
+    expect(renderToStaticMarkup(<StatusText status={waiting.status} isDeferred={waiting.is_deferred} nextAttemptAt={waiting.next_attempt_at} />)).toContain("Waiting for Gemini quota");
+    expect(renderToStaticMarkup(<StatusText status="failed" />)).toContain("Failed");
+    expect(renderToStaticMarkup(<StatusText status="pending" />)).toContain("Queued");
+    expect(eligibleProcessingAction(waiting)).toBe("force_retry");
+  });
+
   it("hides mutation actions without their specific permissions and exposes AI Operations by read permission", () => {
     const failed = { ...data.jobs.items[0], status: "failed" };
     expect(renderToStaticMarkup(<ProcessingJobAction job={failed} permissions={[]} onAccepted={noop} />)).toBe("");
@@ -327,7 +341,7 @@ describe("AI Operations interactions", () => {
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => new Response(JSON.stringify({
       tenant_id: "tenant-a", outcome: "retry_requested", job: {},
     }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
-    await retryAiOperationsJob("job/a", "transient provider failure", fetcher);
+    await retryAiOperationsJob("job/a", "transient provider failure", false, fetcher);
     await cancelAiOperationsJob("job/a", "operator requested cancellation", fetcher);
     expect(String((fetcher as any).mock.calls[0][0])).toContain("/jobs/job%2Fa/retry");
     expect(String((fetcher as any).mock.calls[0][1]?.body)).toContain("transient provider failure");

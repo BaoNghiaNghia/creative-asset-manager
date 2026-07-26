@@ -261,6 +261,31 @@ class AiOperationsControlsTest(unittest.TestCase):
         self.assertNotIn("never-return", serialized)
         self.assertNotIn("api_key", serialized)
 
+    def test_deferred_job_requires_explicit_force_retry(self):
+        with self.factory() as session:
+            job = ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_ai_analysis", entity_id="analysis-deferred",
+                idempotency_key="deferred", provider_key="gemini", provider_scope="ai",
+                status="pending", attempt_count=1, max_attempts=3,
+                next_attempt_at=datetime.now(timezone.utc).replace(microsecond=0).replace(year=2099),
+                last_error_code="gemini_quota_deferred", payload_json={},
+            )
+            session.add(job)
+            session.commit()
+            job_id = job.id
+        blocked = self.request("POST", f"/api/v1/admin/ai-operations/jobs/{job_id}/retry", {"reason": "too early"})
+        self.assertEqual(blocked.status_code, 409)
+        forced = self.request("POST", f"/api/v1/admin/ai-operations/jobs/{job_id}/retry", {"reason": "operator override", "force": True})
+        self.assertEqual(forced.status_code, 200)
+        self.assertEqual(forced.json()["outcome"], "force_retry_requested")
+        with self.factory() as session:
+            job = session.get(ProcessingJobModel, job_id)
+            self.assertEqual(job.status, "pending")
+            self.assertLessEqual(job.next_attempt_at.replace(tzinfo=timezone.utc) if job.next_attempt_at.tzinfo is None else job.next_attempt_at, datetime.now(timezone.utc))
+            audit = session.scalar(select(ProcessingPolicyAuditModel).where(ProcessingPolicyAuditModel.action == "ai_job_force_retry_requested"))
+            self.assertIsNotNone(audit)
+
     def test_authorization_and_tenant_isolation(self):
         cross = self.request(
             "POST", "/api/v1/admin/ai-operations/controls/pause",

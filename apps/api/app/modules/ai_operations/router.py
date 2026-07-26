@@ -22,7 +22,7 @@ AI_OPERATIONS_READ = require_permission("ai_operations.read")
 _VALID_MODES = {"single", "batch"}
 _VALID_STATUSES = {
     "pending", "queued", "retrying", "running", "completed", "failed",
-    "cancelled", "budget_blocked", "processing", "retry",
+    "cancelled", "budget_blocked", "processing", "retry", "waiting",
 }
 
 

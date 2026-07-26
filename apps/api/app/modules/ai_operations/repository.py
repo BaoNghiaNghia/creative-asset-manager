@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 from sqlalchemy import case, exists, func, literal, or_, select
@@ -13,6 +13,9 @@ from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_operations.schema import AI_JOB_TYPES, AiOperationsFilters
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.processing.model import ProcessingJobModel
+
+
+DEFERRED_AI_REASON_CODES = frozenset({"gemini_quota_deferred"})
 
 
 def _source_type(value: str) -> str:
@@ -191,9 +194,23 @@ class AiOperationsRepository:
         )) or 0)
 
     def summary(self, f: AiOperationsFilters) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        deferred_job = (
+            (ProcessingJobModel.status == "pending")
+            & ProcessingJobModel.last_error_code.in_(DEFERRED_AI_REASON_CODES)
+            & ProcessingJobModel.next_attempt_at.is_not(None)
+            & (ProcessingJobModel.next_attempt_at > now)
+        )
+        deferred_for_analysis = exists(select(literal(1)).where(
+            ProcessingJobModel.tenant_id == AssetAiAnalysisModel.tenant_id,
+            ProcessingJobModel.entity_id == AssetAiAnalysisModel.id,
+            ProcessingJobModel.job_type == "asset_analyze",
+            deferred_job,
+        ))
         queued = case((
             (AssetAiAnalysisModel.status == "pending")
-            & (func.coalesce(AssetAiAnalysisModel.processing_stage, "") != "cancelled"), 1
+            & (func.coalesce(AssetAiAnalysisModel.processing_stage, "") != "cancelled")
+            & ~deferred_for_analysis, 1
         ), else_=0)
         status_count = lambda value: func.sum(case((AssetAiAnalysisModel.status == value, 1), else_=0))
         row = self.session.execute(select(
@@ -204,6 +221,18 @@ class AiOperationsRepository:
             func.coalesce(status_count("budget_blocked"), 0),
         ).where(*self._analysis_conditions(f))).one()
         requested, queued_count, running, completed, failed, cancelled, blocked = map(int, row)
+        deferred_conditions = [
+            ProcessingJobModel.tenant_id == f.tenant_id,
+            ProcessingJobModel.job_type.in_(AI_JOB_TYPES),
+            ProcessingJobModel.created_at >= f.from_at,
+            ProcessingJobModel.created_at < f.to_at,
+            deferred_job,
+        ]
+        if f.provider:
+            deferred_conditions.append(ProcessingJobModel.provider_key == f.provider)
+        deferred, next_deferred_retry_at = self.session.execute(select(
+            func.count(ProcessingJobModel.id), func.min(ProcessingJobModel.next_attempt_at),
+        ).where(*deferred_conditions)).one()
         usage = self.session.execute(self._usage_select(
             func.coalesce(func.sum(AiUsageRecordModel.input_units), 0),
             func.coalesce(func.sum(AiUsageRecordModel.output_units), 0),
@@ -218,7 +247,8 @@ class AiOperationsRepository:
             "period": {"from": f.from_at, "to": f.to_at},
             "requested": requested, "queued": queued_count, "running": running,
             "completed": completed, "failed": failed, "cancelled": cancelled,
-            "budget_blocked": blocked,
+            "budget_blocked": blocked, "deferred": int(deferred or 0),
+            "next_deferred_retry_at": next_deferred_retry_at,
             "success_rate": (completed / denominator) if denominator else 0.0,
             "input_units": input_units, "output_units": output_units,
             "cost": {

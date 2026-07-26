@@ -7,6 +7,7 @@ export type AiOpsFilters = {
   model: string;
   processingMode: string;
   metadataProfile: string;
+  status: string;
   page: number;
 };
 
@@ -25,6 +26,8 @@ export type AiOpsSummary = {
   failed: number;
   cancelled: number;
   budget_blocked: number;
+  deferred: number;
+  next_deferred_retry_at: string | null;
   success_rate: number;
   input_units: number;
   output_units: number;
@@ -77,7 +80,9 @@ export type AiOpsJob = {
   attempt_count: number;
   max_attempts: number;
   processing_duration_ms: number;
-  next_attempt_at: string;
+  next_attempt_at: string | null;
+  is_deferred: boolean;
+  waiting_reason: string | null;
   claimed_at: string | null;
   lease_expires_at: string | null;
   created_at: string;

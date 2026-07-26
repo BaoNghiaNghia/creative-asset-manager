@@ -33,6 +33,7 @@ function filteredParams(filters: AiOpsFilters, range: { from: string; to: string
   if (filters.model) params.set("model", filters.model);
   if (filters.processingMode) params.set("processing_mode", filters.processingMode);
   if (filters.metadataProfile) params.set("metadata_profile", filters.metadataProfile);
+  if (filters.status) params.set("status", filters.status);
   return params;
 }
 
@@ -101,6 +102,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
     model: params.get("model") || "",
     processingMode: params.get("mode") || "",
     metadataProfile: params.get("profile") || "",
+    status: params.get("status") || "",
     page: Math.max(1, Number(params.get("page")) || 1),
   };
 }
@@ -112,6 +114,7 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSec
   if (filters.model) params.set("model", filters.model);
   if (filters.processingMode) params.set("mode", filters.processingMode);
   if (filters.metadataProfile) params.set("profile", filters.metadataProfile);
+  if (filters.status) params.set("status", filters.status);
   if (filters.page > 1) params.set("page", String(filters.page));
   if (tab !== "overview") params.set("tab", tab);
   if (refreshSeconds) params.set("refresh", String(refreshSeconds));
@@ -159,13 +162,13 @@ export const setGlobalAiEmergencyStop = (stopped: boolean, reason: string, fetch
   mutate("/api/v1/admin/ai-governance/runtime-controls/global", "PUT", { stopped, reason }, fetcher);
 export type AiJobMutationResult = {
   tenant_id: string;
-  outcome: "retry_requested" | "already_requested" | "queued_cancelled" | "running_cancel_requested" | "provider_batch_cancel_requested";
+  outcome: "retry_requested" | "force_retry_requested" | "already_requested" | "queued_cancelled" | "running_cancel_requested" | "provider_batch_cancel_requested";
   job: Record<string, unknown>;
 };
 
-export const retryAiOperationsJob = (jobId: string, reason: string, fetcher: Fetcher = fetch) =>
+export const retryAiOperationsJob = (jobId: string, reason: string, force = false, fetcher: Fetcher = fetch) =>
   mutate<AiJobMutationResult>(
-    `/api/v1/admin/ai-operations/jobs/${encodeURIComponent(jobId)}/retry`, "POST", { reason }, fetcher,
+    `/api/v1/admin/ai-operations/jobs/${encodeURIComponent(jobId)}/retry`, "POST", { reason, force }, fetcher,
   );
 
 export const cancelAiOperationsJob = (jobId: string, reason: string, fetcher: Fetcher = fetch) =>

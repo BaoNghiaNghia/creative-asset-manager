@@ -26,6 +26,9 @@ class AiOperationsControlError(ValueError):
         self.status_code = status_code
 
 
+_DEFERRED_AI_REASON_CODES = frozenset({"gemini_quota_deferred"})
+
+
 def _job_document(job: ProcessingJobModel) -> dict[str, Any]:
     return {
         "id": job.id,
@@ -272,12 +275,39 @@ class AiOperationsControlService:
         return policy_document(policy)
     def retry_job(
         self, tenant_id: str, job_id: str, *, actor_id: str, reason: str,
+        force: bool = False,
     ) -> tuple[dict, str]:
         job = self._locked_job(tenant_id, job_id)
         if job.job_type not in AI_JOB_TYPES:
             raise AiOperationsControlError("job_not_ai", "Only AI jobs can be retried.")
         if job.status == "retry" and job.last_error_code == "operator_retry_requested":
             return _job_document(job), "already_requested"
+        now = datetime.now(timezone.utc)
+        retry_at = job.next_attempt_at
+        if retry_at is not None and retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        deferred = (
+            job.status == "pending"
+            and job.last_error_code in _DEFERRED_AI_REASON_CODES
+            and retry_at is not None
+            and retry_at > now
+        )
+        if deferred:
+            if not force:
+                raise AiOperationsControlError(
+                    "job_deferred", "This job is waiting for Gemini quota. Use force retry to run it now.",
+                    status_code=409,
+                )
+            before = _job_document(job)
+            job.next_attempt_at = now
+            job.claimed_by = None
+            job.claimed_at = None
+            job.lease_expires_at = None
+            job.updated_at = now
+            self.session.flush()
+            after = _job_document(job)
+            self._audit_job(tenant_id, actor_id, reason, "ai_job_force_retry_requested", before, after, job)
+            return after, "force_retry_requested"
         if job.status != "failed" or job.last_error_code in {
             "operation_cancelled", "analysis_cancelled", "batch_cancelled",
         }:
@@ -286,7 +316,7 @@ class AiOperationsControlService:
             )
         before = _job_document(job)
         job.status = "retry"
-        job.next_attempt_at = datetime.now(timezone.utc)
+        job.next_attempt_at = now
         job.completed_at = None
         job.claimed_by = None
         job.claimed_at = None

@@ -231,6 +231,7 @@ export function AiOperationsFilters({ filters, models, profiles, onChange }: {
     <label>Model<input aria-label="Model" list="ops-models" value={filters.model} onChange={event => field({ model: event.target.value })} placeholder="All models" /><datalist id="ops-models">{models.map(model => <option key={model} value={model} />)}</datalist></label>
     <label>Mode<select aria-label="Processing mode" value={filters.processingMode} onChange={event => field({ processingMode: event.target.value })}><option value="">All modes</option><option value="single">Single</option><option value="batch">Batch</option></select></label>
     <label>Metadata profile<input aria-label="Metadata profile" list="ops-profiles" value={filters.metadataProfile} onChange={event => field({ metadataProfile: event.target.value })} placeholder="All profiles" /><datalist id="ops-profiles">{profiles.map(profile => <option key={profile} value={profile} />)}</datalist></label>
+    <label>Status<select aria-label="Processing status" value={filters.status} onChange={event => field({ status: event.target.value })}><option value="">All statuses</option><option value="waiting">Waiting</option><option value="queued">Queued</option><option value="running">Running</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
   </form>;
 }
 
@@ -241,12 +242,14 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
   const cards = [
     ["Processed today", processedToday], ["Completed", summary?.completed || 0],
     ["Failed", summary?.failed || 0], ["Budget blocked", summary?.budget_blocked || 0],
-    ["Running", summary?.running || 0], ["Queued", summary?.queued || 0], ["Success rate", `${((summary?.success_rate || 0) * 100).toFixed(1)}%`],
+    ["Waiting for quota", summary?.deferred || 0], ["Running", summary?.running || 0],
+    ["Queued", summary?.queued || 0], ["Success rate", `${((summary?.success_rate || 0) * 100).toFixed(1)}%`],
     ["Estimated cost today", formatCost(data.today?.cost.estimated_cost_micros, data.today?.cost.currency)],
     ["Estimated cost this month", formatCost(data.month?.cost.estimated_cost_micros, data.month?.cost.currency)],
   ];
   return <div className="ops-content">
     <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
+    {summary?.next_deferred_retry_at && <p className="ops-deferred-retry" role="status">Next Gemini quota retry: <time dateTime={summary.next_deferred_retry_at}>{new Date(summary.next_deferred_retry_at).toLocaleString()}</time></p>}
     <section className="ops-kpis" aria-label="AI processing summary">{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
     <section className="ops-charts">
       <AccessibleChart title="Daily processing" description="Completed and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
@@ -275,7 +278,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted }:
         const mode = usage?.processing_mode || (job.job_type.startsWith("ai_batch_") ? "batch" : "single");
         const assetId = usage?.asset_id || (job.entity_type === "asset" ? job.entity_id : null);
         return <tr key={job.id}>
-          <td><StatusText status={job.status} /></td><td><code>{assetId || "—"}</code></td>
+          <td><StatusText status={job.status} isDeferred={job.is_deferred} nextAttemptAt={job.next_attempt_at} /></td><td><code>{assetId || "—"}</code></td>
           <td>{providerLabel(job.provider)}</td><td>{usage?.model || "—"}</td><td>{modeLabel(mode)}</td>
           <td>{usage?.metadata_profile || "—"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
           <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
@@ -297,9 +300,10 @@ export function formatProcessingDuration(durationMs: number | null | undefined):
   if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)} s`;
   return `${(durationMs / 60_000).toFixed(1)} min`;
 }
-export type ProcessingJobActionKind = "retry" | "cancel";
+export type ProcessingJobActionKind = "retry" | "force_retry" | "cancel";
 
 export function eligibleProcessingAction(job: AiOpsJob): ProcessingJobActionKind | null {
+  if (job.is_deferred) return "force_retry";
   if (job.status === "failed" && !["operation_cancelled", "analysis_cancelled", "batch_cancelled"].includes(job.error?.code || "")) return "retry";
   if (["pending", "retry", "processing"].includes(job.status)) return "cancel";
   return null;
@@ -311,18 +315,18 @@ export function ProcessingJobAction({ job, permissions = [], onAccepted }: { job
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const requiredPermission = action === "retry" ? "ai_jobs.retry" : "ai_jobs.cancel";
+  const requiredPermission = action === "retry" || action === "force_retry" ? "ai_jobs.retry" : "ai_jobs.cancel";
   if (action && !permissions.includes(requiredPermission)) return null;
   if (!action) return null;
   const running = job.status === "processing";
-  const label = action === "retry" ? "Retry failed job" : running ? "Request cancellation" : "Cancel queued job";
+  const label = action === "force_retry" ? "Force retry now" : action === "retry" ? "Retry failed job" : running ? "Request cancellation" : "Cancel queued job";
 
   async function submit() {
     if (!reason.trim()) return;
     setBusy(true); setMessage("");
     try {
-      const result = action === "retry"
-        ? await retryAiOperationsJob(job.id, reason.trim())
+      const result = action === "retry" || action === "force_retry"
+        ? await retryAiOperationsJob(job.id, reason.trim(), action === "force_retry")
         : await cancelAiOperationsJob(job.id, reason.trim());
       setMessage(result.outcome.replaceAll("_", " "));
       setConfirming(false);
@@ -361,8 +365,13 @@ function CostUsage({ data, filters }: { data: AiOpsDashboardData; filters: AiOps
   </div>;
 }
 
-export function StatusText({ status }: { status: string }) {
-  return <span className={`ops-status ${status}`} aria-label={`Status: ${status.replaceAll("_", " ")}`}><i aria-hidden="true" />{status.replaceAll("_", " ")}</span>;
+export function StatusText({ status, isDeferred = false, nextAttemptAt = null }: { status: string; isDeferred?: boolean; nextAttemptAt?: string | null }) {
+  if (isDeferred) {
+    const retry = nextAttemptAt ? ` Next retry ${new Date(nextAttemptAt).toLocaleString()}.` : "";
+    return <span className="ops-status waiting" aria-label={`Status: Waiting for Gemini quota.${retry}`}><i aria-hidden="true" />Waiting for Gemini quota{nextAttemptAt && <small> - {new Date(nextAttemptAt).toLocaleString()}</small>}</span>;
+  }
+  const label = status === "pending" ? "Queued" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase());
+  return <span className={`ops-status ${status}`} aria-label={`Status: ${label}`}><i aria-hidden="true" />{label}</span>;
 }
 
 export function DashboardSkeleton() {

@@ -12,6 +12,7 @@ const filters: AiOpsFilters = {
   model: "gpt-image-test",
   processingMode: "batch",
   metadataProfile: "catalog",
+  status: "",
   page: 3,
 };
 

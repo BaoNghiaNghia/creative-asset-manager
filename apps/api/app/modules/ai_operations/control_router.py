@@ -261,6 +261,7 @@ async def retry_ai_job(
         target,
         lambda service: service.retry_job(
             target, job_id, actor_id=principal.user_id, reason=body.reason,
+            force=body.force,
         ),
     )
     return {"tenant_id": target, "outcome": outcome, "job": job}

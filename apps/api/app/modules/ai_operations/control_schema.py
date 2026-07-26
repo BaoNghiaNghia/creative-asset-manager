@@ -76,4 +76,4 @@ class AiConfigurationUpdate(_Mutation):
         return self
 
 class AiJobMutation(_Mutation):
-    pass
+    force: bool = False

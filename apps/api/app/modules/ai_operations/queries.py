@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import case, exists, func, literal, or_, select
@@ -11,6 +12,9 @@ from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_operations.repository import AiOperationsRepository as BaseRepository
 from app.modules.ai_operations.schema import AI_JOB_TYPES, AiOperationsFilters
 from app.modules.processing.model import ProcessingJobModel
+
+
+DEFERRED_AI_REASON_CODES = frozenset({"gemini_quota_deferred"})
 
 
 class AiOperationsRepository(BaseRepository):
@@ -116,7 +120,18 @@ class AiOperationsRepository(BaseRepository):
         ]
         if f.provider:
             conditions.append(ProcessingJobModel.provider_key == f.provider)
-        if f.status:
+        now = datetime.now(timezone.utc)
+        deferred = (
+            (ProcessingJobModel.status == "pending")
+            & ProcessingJobModel.last_error_code.in_(DEFERRED_AI_REASON_CODES)
+            & ProcessingJobModel.next_attempt_at.is_not(None)
+            & (ProcessingJobModel.next_attempt_at > now)
+        )
+        if f.status == "waiting":
+            conditions.append(deferred)
+        elif f.status == "queued":
+            conditions.append((ProcessingJobModel.status == "pending") & ~deferred)
+        elif f.status:
             conditions.append(ProcessingJobModel.status == f.status)
         if failure_only:
             conditions.append(ProcessingJobModel.status == "failed")
@@ -158,6 +173,17 @@ class AiOperationsRepository(BaseRepository):
             .order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc())
             .offset((page - 1) * page_size).limit(page_size)
         ).all()
+        now = datetime.now(timezone.utc)
+        def is_deferred(job: ProcessingJobModel) -> bool:
+            retry_at = job.next_attempt_at
+            if retry_at is not None and retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            return bool(
+                job.status == "pending"
+                and job.last_error_code in DEFERRED_AI_REASON_CODES
+                and retry_at is not None
+                and retry_at > now
+            )
         return {
             "page": page, "page_size": page_size, "total": total,
             "items": [{
@@ -168,6 +194,8 @@ class AiOperationsRepository(BaseRepository):
                 "max_attempts": job.max_attempts,
                 "processing_duration_ms": job.processing_duration_ms,
                 "next_attempt_at": job.next_attempt_at,
+                "is_deferred": is_deferred(job),
+                "waiting_reason": job.last_error_code if is_deferred(job) else None,
                 "claimed_at": job.claimed_at,
                 "lease_expires_at": job.lease_expires_at,
                 "created_at": job.created_at, "updated_at": job.updated_at,

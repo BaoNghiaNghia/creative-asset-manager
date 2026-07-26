@@ -238,6 +238,30 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(usage["total"], 2)
         self.assertNotIn("provider_request_id", str(usage))
 
+    def test_deferred_jobs_are_waiting_not_failed_and_report_next_retry(self):
+        retry_at = self.now + timedelta(minutes=10)
+        with self.factory() as session:
+            session.add(ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_ai_analysis", entity_id=self.analysis_ids[3],
+                idempotency_key="gemini-quota-deferred", provider_key="gemini", provider_scope="ai",
+                status="pending", attempt_count=1, max_attempts=3,
+                next_attempt_at=retry_at, last_error_code="gemini_quota_deferred",
+                last_error_message="Gemini quota is temporarily unavailable.", payload_json={},
+                created_at=self.now - timedelta(minutes=1),
+            ))
+            session.commit()
+        waiting = self.get("/api/v1/admin/ai-operations/jobs", status="waiting").json()
+        self.assertEqual(waiting["total"], 1)
+        item = waiting["items"][0]
+        self.assertTrue(item["is_deferred"])
+        self.assertEqual(item["waiting_reason"], "gemini_quota_deferred")
+        self.assertEqual(item["status"], "pending")
+        summary = self.get("/api/v1/admin/ai-operations/summary").json()
+        self.assertEqual(summary["deferred"], 1)
+        self.assertEqual(summary["failed"], 1)
+        self.assertIsNotNone(summary["next_deferred_retry_at"])
+
     def test_daily_uses_completed_at_and_costs_are_not_double_counted(self):
         with self.factory() as session:
             analysis = session.get(AssetAiAnalysisModel, self.analysis_ids[0])
