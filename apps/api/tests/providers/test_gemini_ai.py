@@ -70,15 +70,24 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(raised.exception.retryable)
 
     async def test_rate_limit_is_retryable_and_bad_request_is_permanent(self):
+        delays = []
+
+        async def sleeper(delay):
+            delays.append(delay)
+
         for status, retryable in ((429, True), (400, False)):
             async def handler(_request, status=status):
                 return httpx.Response(status, json={"error": {}})
             provider = GeminiAiMetadataProvider(
-                "secret", transport=httpx.MockTransport(handler)
+                "secret",
+                sleeper=sleeper,
+                transport=httpx.MockTransport(handler),
             )
             with self.assertRaises(AiProviderError) as raised:
                 await provider.analyze_single(analysis_input())
             self.assertIs(raised.exception.retryable, retryable)
+
+        self.assertEqual(delays, [1.0])
 
     async def test_timeout_is_retryable(self):
         async def handler(request):
