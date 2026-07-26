@@ -27,3 +27,6 @@
 /* Keep refresh controls and navigation aligned as one compact header action group. */
 .ops-header-actions{align-items:center;gap:12px}.ops-header-actions label{min-height:54px;padding:7px 9px 8px;border:1px solid #e2e8f0;border-radius:10px;background:#f7f9fc;justify-content:center}.ops-header-actions select{min-width:130px;min-height:34px;padding:6px 28px 6px 9px;border-color:#c7d2e3;border-radius:7px}.ops-refresh-status{min-width:0;padding:0;color:#66778d;white-space:nowrap}.ops-header-actions>a{white-space:nowrap}
 @media(max-width:720px){.ops-header-actions label{min-height:48px}.ops-refresh-status{display:none}}
+
+/* Dense KPI layout: five cards on wide workspaces, four on regular desktops. */
+.ops-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}@media(min-width:1700px){.ops-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}}
