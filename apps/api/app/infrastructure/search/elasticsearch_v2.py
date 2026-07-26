@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ class ElasticsearchV2Config:
     index_prefix: str = "creative-assets"
     request_timeout_seconds: float = 10.0
     bulk_batch_size: int = 500
+    index_generation: str = "v2"
 
     def __post_init__(self) -> None:
         if not self.base_url.startswith(("http://", "https://")):
@@ -30,6 +32,8 @@ class ElasticsearchV2Config:
             raise ValueError("invalid index_prefix")
         if self.request_timeout_seconds <= 0 or self.bulk_batch_size < 1:
             raise ValueError("invalid Elasticsearch limits")
+        if self.index_generation not in {"v2", "v3"}:
+            raise ValueError("index_generation must be v2 or v3")
 
 
 class ElasticsearchV2Index:
@@ -40,8 +44,8 @@ class ElasticsearchV2Index:
         client: httpx.AsyncClient | None = None,
     ):
         self.config = config
-        self.read_alias = f"{config.index_prefix}-v2-read"
-        self.write_alias = f"{config.index_prefix}-v2-write"
+        self.read_alias = f"{config.index_prefix}-{config.index_generation}-read"
+        self.write_alias = f"{config.index_prefix}-{config.index_generation}-write"
         self._owns_client = client is None
         self.client = client or httpx.AsyncClient(
             base_url=config.base_url.rstrip("/"), timeout=config.request_timeout_seconds
@@ -58,9 +62,9 @@ class ElasticsearchV2Index:
         normalized = version.strip().lower()
         if not _VERSION_RE.fullmatch(normalized):
             raise ValueError("invalid index version")
-        if len(f"{self.config.index_prefix}-v2-{normalized}") > 255:
+        if len(f"{self.config.index_prefix}-{self.config.index_generation}-{normalized}") > 255:
             raise ValueError("physical index name exceeds Elasticsearch limit")
-        return f"{self.config.index_prefix}-v2-{normalized}"
+        return f"{self.config.index_prefix}-{self.config.index_generation}-{normalized}"
 
     @staticmethod
     def index_definition() -> dict[str, Any]:
@@ -111,9 +115,29 @@ class ElasticsearchV2Index:
             },
         }
 
+    def _index_definition(self) -> dict[str, Any]:
+        definition = copy.deepcopy(self.index_definition())
+        if self.config.index_generation != "v3":
+            return definition
+        analysis = definition["settings"]["analysis"]
+        analysis["normalizer"] = {
+            "cam_keyword": {"type": "custom", "filter": ["lowercase", "asciifolding"]}
+        }
+        properties = definition["mappings"]["properties"]
+        properties["source_id"] = {"type": "keyword"}
+        properties["filename"] = {
+            "type": "text",
+            "analyzer": "cam_text_v2",
+            "fields": {"normalized": {"type": "keyword", "normalizer": "cam_keyword"}},
+        }
+        properties["visible_text"] = {"type": "text", "analyzer": "cam_text_v2"}
+        properties["search_suggest"] = {
+            "type": "search_as_you_type", "analyzer": "cam_text_v2"
+        }
+        return definition
     async def create_index(self, version: str) -> str:
         index_name = self.physical_index_name(version)
-        await self._request("PUT", f"/{index_name}", json_body=self.index_definition())
+        await self._request("PUT", f"/{index_name}", json_body=self._index_definition())
         return index_name
 
     async def bulk_upsert(self, documents: Sequence[SearchIndexDocument]) -> int:
@@ -126,7 +150,7 @@ class ElasticsearchV2Index:
     ) -> int:
         if target_index != self.write_alias and (
             not _VERSION_RE.fullmatch(target_index)
-            or not target_index.startswith(f"{self.config.index_prefix}-v2-")
+            or not target_index.startswith(f"{self.config.index_prefix}-{self.config.index_generation}-")
         ):
             raise ValueError("invalid bulk target index")
         count = 0
@@ -173,7 +197,7 @@ class ElasticsearchV2Index:
 
     async def switch_aliases(self, target_index: str) -> AliasSwitchResult:
         if not _VERSION_RE.fullmatch(target_index) or not target_index.startswith(
-            f"{self.config.index_prefix}-v2-"
+            f"{self.config.index_prefix}-{self.config.index_generation}-"
         ):
             raise ValueError("invalid target index")
         await self._request("HEAD", f"/{target_index}")

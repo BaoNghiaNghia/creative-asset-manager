@@ -99,3 +99,10 @@
 - [x] PROD-VPS-03 Native Nginx and VPS deployment/rollback tooling
 - [ ] PROD-GATE-04 Production release gate (implemented; production readiness requires a green remote gate for the release SHA)
 - [x] GEMINI-MODEL-FAILOVER Per-model Gemini quota-aware image-analysis failover
+
+
+## Search V3 follow-up
+
+- [x] Durable projection-to-index job handoff and worker Elasticsearch provider registration.
+- [x] Versioned V3 search mapping/query foundation with visible text, prefix and fuzzy clauses.
+- [ ] Run tenant-scoped V3 backfill and alias activation only after Elasticsearch integration verification in the deployment environment.

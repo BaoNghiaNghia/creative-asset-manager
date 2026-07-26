@@ -34,7 +34,7 @@ class ElasticsearchQueryBuilderTest(unittest.TestCase):
         number_should = self.build("2015")["query"]["bool"]["must"][0]["bool"]["should"]
         phrase_should = self.build('"est 2015"')["query"]["bool"]["must"][0]["bool"]["should"]
         self.assertEqual(number_should[0]["term"]["numbers"]["boost"], 16.0)
-        self.assertEqual(phrase_should[0]["term"]["phrases"]["boost"], 14.0)
+        self.assertEqual(next(item["term"]["phrases"]["boost"] for item in phrase_should if "term" in item and "phrases" in item["term"]), 14.0)
         self.assertGreater(14.0, 12.0)
         self.assertGreater(12.0, 8.0)
         self.assertGreater(8.0, 6.0)

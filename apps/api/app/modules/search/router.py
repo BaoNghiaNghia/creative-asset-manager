@@ -41,7 +41,12 @@ def search_config(session, tenant):
 def enabled(session, tenant):
     settings = get_settings()
     effective = ProcessingPolicyService(ProcessingPolicyRepository(session), settings).effective(tenant)
-    return bool(effective.effective.get("search_v2_enabled") and settings.SEARCH_QUERY_PARSER_V2_ENABLED and settings.ELASTICSEARCH_URL)
+    return bool(
+        effective.effective.get("search_v2_enabled")
+        and settings.SEARCH_QUERY_PARSER_V2_ENABLED
+        and (settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED)
+        and settings.ELASTICSEARCH_URL
+    )
 
 @router.get("/capabilities", response_model=SearchCapabilities)
 def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
@@ -50,7 +55,7 @@ def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
         config, facets = search_config(session, tenant)
         available = enabled(session, tenant)
         session.commit()
-    return {"selected_version": "v2" if available else "v1", "v2_available": available, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES}
+    return {"selected_version": "v3" if available and get_settings().SEARCH_V3_ENABLED else "v2" if available else "v1", "v2_available": available, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES}
 
 @router.post("", response_model=SearchV2Response)
 async def search(body: SearchV2Request, request: Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
@@ -78,7 +83,11 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
         debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
         primary_started = time.perf_counter()
         try:
-            async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as index:
+            async with ElasticsearchV2Index(ElasticsearchV2Config(
+                    settings.ELASTICSEARCH_URL,
+                    settings.ELASTICSEARCH_INDEX_PREFIX,
+                    index_generation="v3" if settings.SEARCH_V3_ENABLED else "v2",
+                )) as index:
                 response = await index.search(query)
         except ElasticsearchV2RequestError as exc:
             raise HTTPException(503, "Search service is temporarily unavailable") from exc
@@ -104,7 +113,7 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
         total = int(total_value.get("value", 0) if isinstance(total_value, dict) else total_value)
         facet_output = {name: [{"value": bucket.get("key"), "count": bucket.get("doc_count", 0)} for bucket in response.get("aggregations", {}).get(name, {}).get("buckets", [])] for name in allowed_facets}
         parsed_doc = {"mode": parsed.mode.value, "clauses": [{"kind": clause.kind.value, "field": clause.field, "value": clause.value} for clause in parsed.clauses]} if debug else None
-        primary_result = {"search_version": "v2", "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took")}
+        primary_result = {"search_version": "v3" if settings.SEARCH_V3_ENABLED else "v2", "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took")}
         provider = body.source_provider or "google-drive"
 
         async def legacy_shadow():

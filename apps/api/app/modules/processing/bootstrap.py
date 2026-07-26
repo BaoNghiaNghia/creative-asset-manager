@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.redaction import redact_url_queries, sanitize_log_value
 from app.core.database import SessionLocal, engine
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
@@ -66,9 +67,18 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
+    def enabled(job_type: str, flags: tuple[str, ...]) -> bool:
+        if job_type == "asset_index":
+            return (
+                settings.PROCESSING_JOBS_ENABLED
+                and settings.UNIFIED_ASSET_INGESTION_ENABLED
+                and (settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED)
+            )
+        return all(bool(getattr(settings, flag)) for flag in flags)
+
     return tuple(
         job_type for job_type, flags in _JOB_GLOBAL_FLAGS.items()
-        if all(bool(getattr(settings, flag)) for flag in flags)
+        if enabled(job_type, flags)
         and not (settings.AI_EMERGENCY_STOP_ENABLED and job_type.startswith(("asset_analyze", "ai_batch_")))
     )
 
@@ -154,6 +164,15 @@ def build_worker_runtime(
         default_resources["pipeline_storage_stage"] = ProviderStorageStage(
             session_factory, resolver, storage_provider
         )
+    if settings.ELASTICSEARCH_URL:
+        default_resources["search_index_provider"] = ElasticsearchV2Index(
+            ElasticsearchV2Config(
+                settings.ELASTICSEARCH_URL,
+                settings.ELASTICSEARCH_INDEX_PREFIX,
+                index_generation="v3" if settings.SEARCH_V3_ENABLED else "v2",
+            )
+        )
+    # Explicit resources are deliberate test/operational overrides.
     default_resources.update(resources or {})
     dependencies = WorkerDependencies(
         session_factory=session_factory,

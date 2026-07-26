@@ -20,6 +20,14 @@ const statusContent: Record<
     label: "Metadata ready",
     description: "AI metadata is available for this asset.",
   },
+  search_pending: {
+    label: "Search pending",
+    description: "Metadata is ready and waiting to be indexed for search.",
+  },
+  indexing: {
+    label: "Indexing",
+    description: "The asset is being added to the search index.",
+  },
   indexed: {
     label: "Indexed",
     description: "The asset is available in the current search index.",
@@ -27,6 +35,10 @@ const statusContent: Record<
   duplicate: {
     label: "Duplicate",
     description: "This source item reuses existing tenant content.",
+  },
+  search_failed: {
+    label: "Search failed",
+    description: "Search indexing failed and can be retried.",
   },
   failed: {
     label: "Failed",

@@ -2275,3 +2275,12 @@ Validation was run in the requested order:
   `AUTH_SELF_SIGNUP_DEFAULT_ROLE` from deployment configuration. No database
   downgrade is required; existing users, memberships, roles and audit history
   remain authoritative.
+
+
+## Search V3 lifecycle and retrieval (2026-07-26)
+
+- Added a default-disabled `SEARCH_V3_ENABLED` flag and versioned Elasticsearch v3 aliases/mapping for visible text and type-ahead fields.
+- Completed AI analysis now enqueues the durable projection job before indexing; direct reindex/rebuild actions retain direct analysis identity.
+- Worker bootstrap configures the Elasticsearch index provider when Elasticsearch is configured.
+- Search query clauses add visible-text phrase priority, prefix/type-ahead and fuzzy matching while retaining mandatory tenant filtering.
+- Verified: focused backend search/projection/bootstrap tests (28), frontend typecheck, frontend tests (77), and production frontend build.

@@ -5,7 +5,10 @@ export type AssetProcessingStatus =
   | "stored"
   | "analyzing"
   | "metadata_ready"
+  | "search_pending"
+  | "indexing"
   | "indexed"
+  | "search_failed"
   | "duplicate"
   | "failed";
 
@@ -77,7 +80,7 @@ export type DriveIndexStatus = {
 export type ProviderSessions = Record<Provider, AuthState>;
 
 export type SearchCapabilities = {
-  selected_version: "v1" | "v2";
+  selected_version: "v1" | "v2" | "v3";
   v2_available: boolean;
   parser_available: boolean;
   debug_allowed: boolean;

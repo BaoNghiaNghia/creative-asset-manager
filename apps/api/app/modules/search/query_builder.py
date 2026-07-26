@@ -36,6 +36,9 @@ class ElasticsearchQueryBuilder:
     FILENAME_BOOST = 6.0
     SEARCH_TEXT_BOOST = 4.0
     FOLDER_BOOST = 2.0
+    VISIBLE_TEXT_BOOST = 20.0
+    PREFIX_BOOST = 7.0
+    FUZZY_BOOST = 3.0
 
     def build(
         self,
@@ -76,6 +79,7 @@ class ElasticsearchQueryBuilder:
         return {
             "from": offset,
             "size": size,
+            "highlight": {"fields": {"visible_text": {}, "filename": {}, "search_text": {"number_of_fragments": 3}}},
             "query": {
                 "bool": {
                     "filter": [{"term": {"tenant_id": tenant_id}}],
@@ -102,9 +106,14 @@ class ElasticsearchQueryBuilder:
             should.append({"term": {"numbers": {"value": value, "boost": self.EXACT_NUMBER_BOOST}}})
         should.extend(
             [
+                {"match_phrase": {"visible_text": {"query": value, "boost": self.VISIBLE_TEXT_BOOST}}},
                 {"term": {"search_terms": {"value": value, "boost": self.EXACT_TERM_BOOST}}},
                 *self._boosted_paths(value, config),
                 {"term": {"normalized_terms": {"value": value, "boost": self.NORMALIZED_TERM_BOOST}}},
+                {"match_phrase_prefix": {"visible_text": {"query": value, "boost": self.PREFIX_BOOST}}},
+                {"match_phrase_prefix": {"search_text": {"query": value, "boost": self.PREFIX_BOOST}}},
+                {"multi_match": {"query": value, "type": "bool_prefix", "fields": ["search_suggest", "search_suggest._2gram", "search_suggest._3gram"], "boost": self.PREFIX_BOOST}},
+                {"multi_match": {"query": value, "fields": ["visible_text^8", "filename^4", "search_text^2"], "fuzziness": "AUTO", "prefix_length": 1, "max_expansions": 30, "boost": self.FUZZY_BOOST}},
                 {"match": {"filename": {"query": value, "boost": self.FILENAME_BOOST}}},
                 {"match": {"search_text": {"query": value, "boost": self.SEARCH_TEXT_BOOST}}},
                 {"match": {"folder_path": {"query": value, "boost": self.FOLDER_BOOST}}},
@@ -116,6 +125,7 @@ class ElasticsearchQueryBuilder:
         return {
             "bool": {
                 "should": [
+                    {"match_phrase": {"visible_text": {"query": value, "boost": self.VISIBLE_TEXT_BOOST}}},
                     {"term": {"phrases": {"value": value, "boost": self.EXACT_PHRASE_BOOST}}},
                     *self._boosted_paths(value, config),
                     {"match_phrase": {"filename": {"query": value, "boost": self.FILENAME_BOOST}}},

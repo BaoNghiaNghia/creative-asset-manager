@@ -166,7 +166,7 @@ def action(asset_id: str, body: AssetActionRequest, principal: CurrentPrincipal 
                 raise HTTPException(409, "No analysis is available")
             job_type = "search_projection_build" if body.action == "rebuild_projection" else "asset_index"
             identity = current.projection_checksum or current.search_projection_version or current.id
-            job = repository.create_job(tenant_id=tenant, job_type=job_type, entity_type="asset", entity_id=asset_id, idempotency_key=f"operator:{job_type}:{asset_id}:{identity}", payload={"asset_id": asset_id, "analysis_id": current.id}, provider_key="elasticsearch" if job_type == "asset_index" else None, provider_scope="search" if job_type == "asset_index" else None)
+            job = repository.create_job(tenant_id=tenant, job_type=job_type, entity_type="asset", entity_id=asset_id, idempotency_key=f"operator:{job_type}:{asset_id}:{identity}", payload={"asset_id": asset_id, "analysis_id": current.id, "direct_analysis": True}, provider_key="elasticsearch" if job_type == "asset_index" else None, provider_scope="search" if job_type == "asset_index" else None)
             analysis_id = current.id
         else:
             pipeline = session.scalar(select(AssetPipelineModel).where(AssetPipelineModel.tenant_id == tenant, AssetPipelineModel.asset_id == asset_id).order_by(AssetPipelineModel.updated_at.desc()))

@@ -25,7 +25,10 @@ AssetProcessingStatus = Literal[
     "stored",
     "analyzing",
     "metadata_ready",
+    "search_pending",
+    "indexing",
     "indexed",
+    "search_failed",
     "duplicate",
     "failed",
 ]
@@ -269,12 +272,22 @@ class AssetProcessingStatusService:
                 if asset_id in latest_analysis
             ]
 
-            if (
+            if any(
+                job.job_type == "asset_index" and job.status == "failed"
+                for job in relevant_jobs
+            ):
+                statuses[item_id] = "search_failed"
+            elif (
                 any(job.status == "failed" for job in relevant_jobs)
                 or any(analysis.status == "failed" for analysis in analyses)
                 or bool(item_asset_ids & storage_failed_assets)
             ):
                 statuses[item_id] = "failed"
+            elif any(
+                job.job_type == "asset_index" and job.status == "processing"
+                for job in relevant_jobs
+            ):
+                statuses[item_id] = "indexing"
             elif (
                 bool(item_asset_ids & indexed_assets)
                 or any(
@@ -284,10 +297,15 @@ class AssetProcessingStatusService:
             ):
                 statuses[item_id] = "indexed"
             elif any(
+                job.job_type == "asset_index" and job.status in {"pending", "retry"}
+                for job in relevant_jobs
+            ):
+                statuses[item_id] = "search_pending"
+            elif any(
                 analysis.status == "completed" and analysis.metadata_json is not None
                 for analysis in analyses
             ):
-                statuses[item_id] = "metadata_ready"
+                statuses[item_id] = "search_pending"
             elif (
                 any(analysis.status in {"pending", "running"} for analysis in analyses)
                 or any(

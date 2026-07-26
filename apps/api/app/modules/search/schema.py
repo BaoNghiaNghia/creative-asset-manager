@@ -10,7 +10,7 @@ class SearchV2Request(BaseModel):
     debug: bool = False
 
 class SearchV2Response(BaseModel):
-    search_version: Literal["v2"]
+    search_version: Literal["v2", "v3"]
     items: list[dict[str, Any]]
     total: int
     facets: dict[str, list[dict[str, Any]]]
@@ -18,7 +18,7 @@ class SearchV2Response(BaseModel):
     took_ms: int | None = None
 
 class SearchCapabilities(BaseModel):
-    selected_version: Literal["v1", "v2"]
+    selected_version: Literal["v1", "v2", "v3"]
     v2_available: bool
     parser_available: bool
     debug_allowed: bool

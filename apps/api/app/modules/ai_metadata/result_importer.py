@@ -66,13 +66,24 @@ class AiAnalysisResultImporter:
             usage=result.usage,provider_metadata=result.provider_metadata,
             ai_model=result.model)
         if enqueue_index:
+            # The projection/index stages are durable and ordered.  Do not let a
+            # completed analysis jump directly to indexing.
             ProcessingRepository(self.session).create_job(
-                tenant_id=tenant_id,job_type="asset_index",entity_type="asset",
+                tenant_id=tenant_id,
+                job_type="search_projection_build",
+                entity_type="asset",
                 entity_id=completed.asset_id,
                 idempotency_key=(
-                    f"asset-index:{completed.id}:"
+                    f"direct-projection:{completed.id}:"
                     f"{projection_result.projection_version}:{checksum}"
-                ),provider_key="elasticsearch",provider_scope="search",
-                payload={"asset_id":completed.asset_id,"analysis_id":completed.id,
-                         "projection_version":projection_result.projection_version})
+                ),
+                provider_key="elasticsearch",
+                provider_scope="search",
+                payload={
+                    "asset_id": completed.asset_id,
+                    "analysis_id": completed.id,
+                    "direct_analysis": True,
+                    "projection_version": projection_result.projection_version,
+                },
+            )
         return ResultImportOutcome("completed")

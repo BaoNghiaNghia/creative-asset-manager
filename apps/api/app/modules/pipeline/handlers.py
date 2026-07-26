@@ -265,6 +265,8 @@ class SearchProjectionBuildJobHandler(_PipelineHandler):
         if not settings.SEARCH_PROJECTION_ENABLED:
             return JobHandlerResult.non_retryable("search_projection_disabled", "Search projection is disabled.")
         try:
+            if context.job.payload.get("direct_analysis") and not context.job.payload.get("pipeline_id"):
+                return self._run_direct(context)
             if context.job.payload.get("active_analysis_id") and not context.job.payload.get("pipeline_id"):
                 return self._run_active(context)
             session, repository, pipeline = self._load(context)
@@ -309,6 +311,40 @@ class SearchProjectionBuildJobHandler(_PipelineHandler):
         except Exception as exc:
             return self._failed(context, exc)
 
+    def _run_direct(self, context: JobHandlerContext) -> JobHandlerResult:
+        """Build then enqueue an index job for an analysis outside a source pipeline."""
+        with context.dependencies.session_factory() as session:
+            analysis = self._direct_analysis(
+                session,
+                tenant_id=context.job.tenant_id,
+                asset_id=context.job.entity_id,
+                analysis_id=context.job.payload.get("analysis_id"),
+            )
+            if analysis.search_projection is None:
+                SearchProjectionService(
+                    AiMetadataRepository(session), SearchProjectionBuilder(), enabled=True,
+                ).rebuild(analysis.id)
+                session.refresh(analysis)
+            if not isinstance(analysis.search_projection, Mapping) or not analysis.search_projection_version:
+                raise ValueError("analysis has no valid search projection")
+            encoded = json.dumps(analysis.search_projection, sort_keys=True, separators=(",", ":")).encode()
+            analysis.projection_checksum = analysis.projection_checksum or hashlib.sha256(encoded).hexdigest()
+            session.flush()
+            ProcessingRepository(session).create_job(
+                tenant_id=context.job.tenant_id,
+                job_type="asset_index",
+                entity_type="asset",
+                entity_id=analysis.asset_id,
+                idempotency_key=(
+                    f"direct:index:{analysis.id}:{analysis.search_projection_version}:"
+                    f"{analysis.projection_checksum}"
+                ),
+                payload={"asset_id": analysis.asset_id, "analysis_id": analysis.id, "direct_analysis": True},
+                provider_key="elasticsearch",
+                provider_scope="search",
+            )
+            session.commit()
+        return JobHandlerResult.completed()
     def _run_active(self, context: JobHandlerContext) -> JobHandlerResult:
         with context.dependencies.session_factory() as session:
             analysis = self._explicit_active_analysis(
@@ -345,6 +381,22 @@ class SearchProjectionBuildJobHandler(_PipelineHandler):
         return JobHandlerResult.completed()
 
 
+    @staticmethod
+    def _direct_analysis(
+        session, *, tenant_id: str, asset_id: str, analysis_id: str | None,
+    ) -> AssetAiAnalysisModel:
+        if not analysis_id:
+            raise ValueError("analysis_id is required for a direct search job")
+        analysis = session.get(AssetAiAnalysisModel, analysis_id)
+        if (
+            analysis is None
+            or analysis.tenant_id != tenant_id
+            or analysis.asset_id != asset_id
+            or analysis.status != "completed"
+            or analysis.validation_errors_json
+        ):
+            raise ValueError("job does not reference a valid completed analysis")
+        return analysis
     @staticmethod
     def _explicit_active_analysis(
         session, *, tenant_id: str, asset_id: str, analysis_id: str | None,
@@ -408,12 +460,25 @@ class AssetIndexJobHandler(_PipelineHandler):
 
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
         settings = self.settings or get_settings()
-        if not settings.ELASTICSEARCH_V2_ENABLED:
-            return JobHandlerResult.non_retryable("elasticsearch_v2_disabled", "Elasticsearch v2 is disabled.")
+        if not (settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED):
+            return JobHandlerResult.non_retryable("elasticsearch_search_disabled", "Elasticsearch search is disabled.")
         provider = context.dependencies.resources.get("search_index_provider")
         if provider is None:
             return JobHandlerResult.non_retryable("search_index_unconfigured", "Search index provider is not configured.")
         try:
+            if context.job.payload.get("direct_analysis") and not context.job.payload.get("pipeline_id"):
+                with context.dependencies.session_factory() as session:
+                    analysis = SearchProjectionBuildJobHandler._direct_analysis(
+                        session,
+                        tenant_id=context.job.tenant_id,
+                        asset_id=context.job.entity_id,
+                        analysis_id=context.job.payload.get("analysis_id"),
+                    )
+                    document = self._document(session, analysis)
+                asyncio.run(provider.bulk_upsert((document,)))
+                return JobHandlerResult.completed()
+            if context.job.payload.get("direct_analysis") and not context.job.payload.get("pipeline_id"):
+                return self._run_direct(context)
             if context.job.payload.get("active_analysis_id") and not context.job.payload.get("pipeline_id"):
                 with context.dependencies.session_factory() as session:
                     analysis = SearchProjectionBuildJobHandler._explicit_active_analysis(
@@ -476,11 +541,17 @@ class AssetIndexJobHandler(_PipelineHandler):
         ).where(AssetSourceLinkModel.asset_id == analysis.asset_id).order_by(SourceAssetModel.created_at).limit(1))
         metadata = source.source_metadata if source else {}
         facets = projection.get("facets") or {}
+        visible_text = AssetIndexJobHandler._visible_text(analysis.metadata_json)
+        filename = source.filename if source and source.filename else ""
+        search_text = str(projection.get("search_text") or "")
         return SearchIndexDocument(
             asset_id=analysis.asset_id, tenant_id=analysis.tenant_id,
-            filename=source.filename if source and source.filename else "",
+            source_id=source.external_source_id if source else "",
+            filename=filename,
             folder_path=str(metadata.get("path") or metadata.get("folder_path") or ""),
-            search_text=str(projection.get("search_text") or ""),
+            visible_text=visible_text,
+            search_suggest=" ".join((filename, *visible_text, search_text)).strip(),
+            search_text=" ".join(value for value in (filename, *visible_text, search_text) if value),
             search_terms=tuple(projection.get("search_terms") or ()),
             normalized_terms=tuple(projection.get("normalized_terms") or ()),
             phrases=tuple(projection.get("phrases") or ()),
@@ -492,6 +563,24 @@ class AssetIndexJobHandler(_PipelineHandler):
             search_projection_version=analysis.search_projection_version or "",
         )
 
+    @staticmethod
+    def _visible_text(metadata: object) -> tuple[str, ...]:
+        if not isinstance(metadata, Mapping):
+            return ()
+        entries = metadata.get("visible_text")
+        if not isinstance(entries, list):
+            return ()
+        values: list[str] = []
+        seen: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            for key in ("text", "normalized"):
+                value = entry.get(key)
+                if isinstance(value, str) and value.strip() and value not in seen:
+                    seen.add(value)
+                    values.append(value.strip())
+        return tuple(values)
 
 class MetadataSidecarExportJobHandler(_PipelineHandler):
     failure_stage = "sidecar"
