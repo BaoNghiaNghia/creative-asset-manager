@@ -99,12 +99,17 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview 
       {section === "history" && data && <><p>{data.analysis_total} analysis attempt(s)</p><div className="analysis-history">{data.analysis_history.map(entry => <AnalysisHistoryCard key={String(entry.id)} analysis={entry} showCost={data.can_administer} />)}</div></>}
       {section === "jobs" && data && <><p>{data.job_total} related job(s)</p>{data.pipelines.map(entry => <Detail key={String(entry.id)} title={"Pipeline · " + String(entry.state)} value={entry} />)}{data.jobs.map(job => <div className="job-row" key={String(job.id)}><div><b>{String(job.job_type)}</b><small>{String(job.status)} · {String(job.attempt_count)}/{String(job.max_attempts)}</small></div>{job.cancelable && data.can_administer && <button disabled={busy === "cancel_job"} onClick={() => action("cancel_job", { job_id: job.id })}>Cancel</button>}</div>)}</>}
       {data?.can_administer && <div className="asset-operations">
-        <b>Operator actions</b>
-        <button disabled={Boolean(busy)} onClick={() => { setForceAnalysis(false); setAnalysisOpen(true); }}>Analyze metadata</button>
-        <button disabled={Boolean(busy)} onClick={() => { setForceAnalysis(true); setAnalysisOpen(true); }}>Force reanalysis</button>
-        <button disabled={Boolean(busy)} onClick={() => action("rebuild_projection")}>Rebuild projection</button>
-        <button disabled={Boolean(busy)} onClick={() => action("reindex")}>Reindex</button>
-        <button disabled={Boolean(busy)} onClick={() => action("retry_failed_stage")}>Retry failed stage</button>
+        <div className="asset-actions-label"><span>Operator tools</span><b>Asset actions</b></div>
+        <button className="asset-action-primary" disabled={Boolean(busy)} onClick={() => { setForceAnalysis(false); setAnalysisOpen(true); }}>Analyze metadata</button>
+        <details className="asset-action-menu">
+          <summary>More actions</summary>
+          <div>
+            <button disabled={Boolean(busy)} onClick={() => { setForceAnalysis(true); setAnalysisOpen(true); }}>Force reanalysis</button>
+            <button disabled={Boolean(busy)} onClick={() => action("rebuild_projection")}>Rebuild projection</button>
+            <button disabled={Boolean(busy)} onClick={() => action("reindex")}>Reindex asset</button>
+            <button disabled={Boolean(busy)} onClick={() => action("retry_failed_stage")}>Retry failed stage</button>
+          </div>
+        </details>
       </div>}
     </div>}
   </aside>{data && assetId && <AnalyzeMetadataDialog
