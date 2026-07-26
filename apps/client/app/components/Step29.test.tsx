@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SafeJsonTree } from "./SafeJsonTree";
-import { SearchV2Controls } from "./SearchV2Controls";
+import { SearchGuide, SearchV2Controls } from "./SearchV2Controls";
 
 describe("Step 29 operator UI", () => {
   it("renders bounded nested metadata without mutating it", () => {
@@ -21,8 +21,9 @@ describe("Step 29 operator UI", () => {
       parsed={{ mode: "or", clauses: [{ kind: "term", value: "cat" }] }}
       onToggle={() => undefined}
     />);
-    expect(markup).toContain("Search guide");
-    expect(markup).toContain("Requires every term");
+    const guide = renderToStaticMarkup(<SearchGuide capabilities={{ selected_version: "v2", v2_available: true, parser_available: true, debug_allowed: true, facet_names: ["subject"], examples: ["cat OR dog"] }} />);
+    expect(guide).toContain("Search guide");
+    expect(guide).toContain("Requires every term");
     expect(markup).toContain("subject");
     expect(markup).toContain("Parsed query debug");
   });

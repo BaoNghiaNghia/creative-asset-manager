@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from "react";
 import { AssetGrid } from "./components/AssetGrid";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
-import { SearchV2Controls } from "./components/SearchV2Controls";
+import { SearchGuide, SearchV2Controls } from "./components/SearchV2Controls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
 import { SidebarIcon } from "./components/Icons";
@@ -97,31 +97,34 @@ export default function App() {
 
     <section>
       <header>
-        <label
-          className={[
-            "search-box",
-            explorer.searching ? "searching" : "",
-          ].filter(Boolean).join(" ")}
-        >
-          <span aria-hidden="true">⌕</span>
-          <input
-            value={explorer.query}
-            disabled={!explorer.auth.authenticated || !explorer.searchReady}
-            onChange={event => explorer.setQuery(event.target.value)}
-            onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
-            placeholder={!explorer.auth.authenticated
-              ? "Connect Google Drive or SharePoint to search"
-              : "Search this folder and subfolders"}
-            aria-label="Search folders and files in this folder and all subfolders"
-          />
-          {explorer.query && <button
-            type="button"
-            className="search-clear"
-            onClick={() => explorer.setQuery("")}
-            aria-label="Clear search"
-            title="Clear search"
-          >×</button>}
-        </label>
+        <div className="search-tools">
+          <label
+            className={[
+              "search-box",
+              explorer.searching ? "searching" : "",
+            ].filter(Boolean).join(" ")}
+          >
+            <span aria-hidden="true">⌕</span>
+            <input
+              value={explorer.query}
+              disabled={!explorer.auth.authenticated || !explorer.searchReady}
+              onChange={event => explorer.setQuery(event.target.value)}
+              onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
+              placeholder={!explorer.auth.authenticated
+                ? "Connect Google Drive or SharePoint to search"
+                : "Search this folder and subfolders"}
+              aria-label="Search folders and files in this folder and all subfolders"
+            />
+            {explorer.query && <button
+              type="button"
+              className="search-clear"
+              onClick={() => explorer.setQuery("")}
+              aria-label="Clear search"
+              title="Clear search"
+            >×</button>}
+          </label>
+          {explorer.searchV2.active && <SearchGuide capabilities={explorer.searchV2.capabilities} />}
+        </div>
         {explorer.auth.authenticated ? <div className="account">
           {explorer.auth.user?.picture
             ? <img className="avatar" src={explorer.auth.user.picture} alt="" referrerPolicy="no-referrer" />
