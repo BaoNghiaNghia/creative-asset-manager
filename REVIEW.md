@@ -2284,3 +2284,12 @@ Validation was run in the requested order:
 - Worker bootstrap configures the Elasticsearch index provider when Elasticsearch is configured.
 - Search query clauses add visible-text phrase priority, prefix/type-ahead and fuzzy matching while retaining mandatory tenant filtering.
 - Verified: focused backend search/projection/bootstrap tests (28), frontend typecheck, frontend tests (77), and production frontend build.
+
+## Search V3 coverage in AI Operations
+
+- Added a tenant-scoped, database-only coverage summary to AI Operations. It reports completed, current-projection, database-indexed, missing/stale, backlog, failed and latest Elasticsearch-verification discrepancy counts without scanning Elasticsearch on dashboard refresh.
+- `POST /api/v1/admin/ai-operations/coverage/audit` requires `search.rebuild`, records a bounded audit event and only verifies Elasticsearch when explicitly requested.
+- `POST /api/v1/admin/ai-operations/coverage/repair` requires `search.rebuild` plus explicit confirmation; it reuses the existing idempotent repair service, creates only projection/index jobs, and never calls AI.
+- The Overview now includes an accessible Search Coverage card with audited timestamp, discrepancy warning, queued/running repair progress and a minimum 10-second repair-refresh interval.
+- Tests: backend coverage/API focused suite 23 passed; frontend AI Operations page tests 18 passed; TypeScript typecheck and production build passed.
+- No migration, feature-flag, AI/provider, or repair-rule change was made.

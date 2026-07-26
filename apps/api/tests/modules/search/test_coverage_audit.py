@@ -10,6 +10,7 @@ from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.search.coverage_audit import SearchV3CoverageAudit
+from app.modules.ai_operations.coverage import SearchCoverageSummaryService
 from app.operations.search_cli import parser
 
 
@@ -183,6 +184,22 @@ class SearchV3CoverageAuditTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item.analysis_id for item in page_two.items], [third.id])
         self.assertNotIn(foreign.id, [item.analysis_id for item in (*page_one.items, *page_two.items)])
 
+    async def test_database_summary_is_tenant_scoped_and_does_not_query_elasticsearch(self):
+        _, ready = self._analysis(offset=1)
+        self._index_job(ready)
+        _, missing = self._analysis(projection=None, offset=2)
+        _, foreign = self._analysis(tenant_id="tenant-b", offset=3)
+        self._index_job(foreign)
+        self.session.commit()
+
+        summary = SearchCoverageSummaryService(
+            self.session, projection_version="search-projection-v1",
+        ).summary(tenant_id="tenant-a")
+
+        self.assertEqual(summary["completed_analysis_assets"], 2)
+        self.assertEqual(summary["v3_indexed_documents"], 1)
+        self.assertEqual(summary["projection_missing"], 1)
+        self.assertEqual(summary["database_indexed_document_missing"], 0)
     async def test_audit_performs_no_writes(self):
         _, analysis = self._analysis()
         self._index_job(analysis)

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from pydantic import BaseModel, ConfigDict, Field
+
 
 @dataclass(frozen=True, slots=True)
 class AiOperationsFilters:
@@ -25,3 +27,16 @@ AI_JOB_TYPES = (
     "ai_batch_import",
     "ai_batch_retry_items",
 )
+
+
+class SearchCoverageAuditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verify_elasticsearch: bool = False
+    limit: int = Field(default=100, ge=1, le=500)
+
+
+class SearchCoverageRepairRequest(SearchCoverageAuditRequest):
+    confirmed: bool
+    repair_projections: bool = True
+    repair_indexes: bool = True

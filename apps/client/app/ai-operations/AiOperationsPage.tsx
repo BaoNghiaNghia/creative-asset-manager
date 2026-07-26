@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch,
+  aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
   retryAiOperationsJob, searchFromFilters,
-  type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage,
+  type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
@@ -28,7 +28,7 @@ const tabs: Array<{ id: AiOpsTab; label: string }> = [
 const emptyPage = <T,>(page = 1) => ({ page, page_size: 25, total: 0, items: [] as T[] });
 export const emptyDashboard = (page = 1): AiOpsDashboardData => ({
   summary: null, today: null, month: null, daily: [], providers: [], todayProviders: [], failures: [],
-  jobs: emptyPage<AiOpsJob>(page), usage: emptyPage<AiOpsUsage>(),
+  jobs: emptyPage<AiOpsJob>(page), usage: emptyPage<AiOpsUsage>(), coverage: null,
 });
 
 export function AiOperationsPage() {
@@ -201,7 +201,7 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "overview" ? <Overview data={data} />
+      {loading ? <DashboardSkeleton /> : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
@@ -234,7 +234,7 @@ export function AiOperationsFilters({ filters, models, profiles, onChange }: {
   </form>;
 }
 
-function Overview({ data }: { data: AiOpsDashboardData }) {
+function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; canManage: boolean; onRefresh: () => void }) {
   const summary = data.summary;
   if (!summary && !data.daily.length) return <DashboardState kind="empty" />;
   const processedToday = (data.today?.completed || 0) + (data.today?.failed || 0);
@@ -246,6 +246,7 @@ function Overview({ data }: { data: AiOpsDashboardData }) {
     ["Estimated cost this month", formatCost(data.month?.cost.estimated_cost_micros, data.month?.cost.currency)],
   ];
   return <div className="ops-content">
+    <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
     <section className="ops-kpis" aria-label="AI processing summary">{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
     <section className="ops-charts">
       <AccessibleChart title="Daily processing" description="Completed and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
@@ -370,4 +371,36 @@ export function DashboardSkeleton() {
 
 export function DashboardState({ kind, label, onRetry }: { kind: "empty" | "unauthorized"; label?: string; onRetry?: () => void }) {
   return <div className={`ops-state ${kind}`} role={kind === "unauthorized" ? "alert" : "status"}><strong>{kind === "unauthorized" ? "AI Operations access required" : label || "No AI activity in this period"}</strong><p>{kind === "unauthorized" ? (label || "Sign in with an authorized account that has ai_operations.read.") : "Try a wider date range or clear one of the filters."}</p>{onRetry && <button type="button" onClick={onRetry}>Retry</button>}</div>;
+}
+
+function SearchCoverageCard({ coverage, canManage, onRefresh }: { coverage: AiOpsSearchCoverage | null | undefined; canManage: boolean; onRefresh: () => void }) {
+  const [busy, setBusy] = useState<"audit" | "repair" | null>(null);
+  const [message, setMessage] = useState("");
+  const activeRepair = Boolean(coverage && (coverage.repair_jobs.queued || coverage.repair_jobs.running));
+  useEffect(() => {
+    if (!activeRepair) return;
+    const timer = window.setInterval(onRefresh, 10_000);
+    return () => window.clearInterval(timer);
+  }, [activeRepair, onRefresh]);
+  if (!coverage) return null;
+  const run = async (kind: "audit" | "repair") => {
+    if (kind === "repair" && !window.confirm("Repair missing search data? This queues only projection and index jobs; it never runs AI.")) return;
+    setBusy(kind); setMessage("");
+    try {
+      if (kind === "audit") await runSearchCoverageAudit({ verify_elasticsearch: true, limit: 100 });
+      else await repairSearchCoverage({ confirmed: true, limit: 100, verify_elasticsearch: true, repair_projections: true, repair_indexes: true });
+      setMessage(kind === "audit" ? "Coverage audit completed." : "Repair jobs queued.");
+      onRefresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Search coverage action failed");
+    } finally { setBusy(null); }
+  };
+  return <section className="ops-coverage" aria-label="Search Coverage">
+    <div><h2>Search Coverage</h2><p>Database metrics are fast. Elasticsearch verification runs only when an administrator requests an audit.</p></div>
+    <dl><div><dt>Analyzed</dt><dd>{coverage.completed_analysis_assets}</dd></div><div><dt>Projected</dt><dd>{coverage.current_projection_assets}</dd></div><div><dt>Indexed</dt><dd>{coverage.v3_indexed_documents}</dd></div><div><dt>Missing</dt><dd>{coverage.projection_missing + coverage.projection_stale + coverage.indexing_backlog}</dd></div><div><dt>Coverage</dt><dd>{coverage.coverage_percent.toFixed(1)}%</dd></div></dl>
+    {coverage.database_indexed_document_missing > 0 && <p role="alert">Database and Elasticsearch disagree for {coverage.database_indexed_document_missing} asset(s). Run repair after reviewing the audit.</p>}
+    <p>Last audit: {coverage.last_audited_at ? new Date(coverage.last_audited_at).toLocaleString() : "Not run"}{coverage.elasticsearch_verification_included ? " (Elasticsearch verified)" : ""}. Repair queue: {coverage.repair_jobs.queued} queued, {coverage.repair_jobs.running} running.</p>
+    {canManage && <div className="ops-coverage-actions"><button type="button" disabled={busy !== null} onClick={() => void run("audit")}>{busy === "audit" ? "Running audit..." : "Run coverage audit"}</button><button type="button" className="danger" disabled={busy !== null} onClick={() => void run("repair")}>{busy === "repair" ? "Queuing repair..." : "Repair missing search data"}</button></div>}
+    {message && <p aria-live="polite">{message}</p>}
+  </section>;
 }

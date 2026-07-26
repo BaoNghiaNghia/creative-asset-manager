@@ -345,3 +345,23 @@ describe("AI Operations interactions", () => {
     expect(source).not.toContain("provider_api_key");
   });
 });
+
+describe("Search Coverage card", () => {
+  it("renders tenant coverage and administrator-only repair controls", () => {
+    const markup = renderToStaticMarkup(<AiOperationsContent
+      data={{ ...data, coverage: {
+        completed_analysis_assets: 12, current_projection_assets: 10, v3_indexed_documents: 8,
+        projection_missing: 1, projection_stale: 1, indexing_backlog: 0, search_failed: 0,
+        database_indexed_document_missing: 2, coverage_percent: 66.7,
+        last_audited_at: "2026-07-26T00:00:00Z", elasticsearch_verification_included: true,
+        repair_jobs: { queued: 1, running: 0, completed: 3, failed: 0 },
+      } }}
+      filters={filters} tab="overview" onTab={noop} onFilters={noop} onRetry={noop}
+      permissions={["search.rebuild"]}
+    />);
+    expect(markup).toContain("Search Coverage");
+    expect(markup).toContain("Run coverage audit");
+    expect(markup).toContain("Repair missing search data");
+    expect(markup).toContain("Database and Elasticsearch disagree");
+  });
+});

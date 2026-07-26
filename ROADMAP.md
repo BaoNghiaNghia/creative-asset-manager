@@ -106,3 +106,4 @@
 - [x] Durable projection-to-index job handoff and worker Elasticsearch provider registration.
 - [x] Versioned V3 search mapping/query foundation with visible text, prefix and fuzzy clauses.
 - [ ] Run tenant-scoped V3 backfill and alias activation only after Elasticsearch integration verification in the deployment environment.
+- [x] AI Operations Search V3 coverage metrics, explicit audit and repair controls.

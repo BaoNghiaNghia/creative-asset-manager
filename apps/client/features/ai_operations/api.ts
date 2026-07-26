@@ -1,6 +1,6 @@
 import type {
   AiOpsDaily, AiOpsDashboardData, AiOpsFailure, AiOpsFilters, AiOpsJob,
-  AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page,
+  AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSearchCoverage, AiOpsSummary, AiOpsUsage, Page,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -71,21 +71,22 @@ export async function fetchAiOperationsDashboard(
   const settled = await Promise.allSettled(calls);
   const errors = settled.flatMap(item => item.status === "rejected" ? [String(item.reason?.message || "Request failed")] : []);
   const unauthorized = settled.some(item => item.status === "rejected" && item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status));
-  const value = <T,>(index: number, fallback: T): T => settled[index].status === "fulfilled"
+  const value = <T,>(index: number, fallback: T): T => settled[index]?.status === "fulfilled"
     ? (settled[index] as PromiseFulfilledResult<T>).value : fallback;
   return {
     unauthorized,
     errors: [...new Set(errors)],
     data: {
-      summary: value<AiOpsSummary | null>(0, null),
-      today: value<AiOpsSummary | null>(1, null),
-      month: value<AiOpsSummary | null>(2, null),
-      daily: value<{ items: AiOpsDaily[] }>(3, { items: [] }).items,
-      providers: value<{ items: AiOpsProviderBreakdown[] }>(4, { items: [] }).items,
-      todayProviders: value<{ items: AiOpsProviderBreakdown[] }>(5, { items: [] }).items,
-      failures: value<{ items: AiOpsFailure[] }>(6, { items: [] }).items,
-      jobs: value<Page<AiOpsJob>>(7, { page: filters.page, page_size: 25, total: 0, items: [] }),
-      usage: value<Page<AiOpsUsage>>(8, { page: 1, page_size: 100, total: 0, items: [] }),
+      summary: value<AiOpsSummary | null>(1, null),
+      today: value<AiOpsSummary | null>(2, null),
+      month: value<AiOpsSummary | null>(3, null),
+      daily: value<{ items: AiOpsDaily[] }>(4, { items: [] }).items,
+      providers: value<{ items: AiOpsProviderBreakdown[] }>(5, { items: [] }).items,
+      todayProviders: value<{ items: AiOpsProviderBreakdown[] }>(6, { items: [] }).items,
+      failures: value<{ items: AiOpsFailure[] }>(7, { items: [] }).items,
+      jobs: value<Page<AiOpsJob>>(8, { page: filters.page, page_size: 25, total: 0, items: [] }),
+      usage: value<Page<AiOpsUsage>>(9, { page: 1, page_size: 100, total: 0, items: [] }),
+      coverage: value<AiOpsSearchCoverage | null>(0, null),
     },
   };
 }
@@ -183,3 +184,8 @@ export function aiOperationsExportUrl(
   params.set("row_limit", "5000");
   return `/api/v1/admin/ai-operations/exports/${exportType}.csv?${params}`;
 }
+export const runSearchCoverageAudit = (body: { verify_elasticsearch?: boolean; limit?: number }, fetcher: Fetcher = fetch) =>
+  mutate("/api/v1/admin/ai-operations/coverage/audit", "POST", body, fetcher);
+
+export const repairSearchCoverage = (body: { confirmed: true; limit: number; verify_elasticsearch?: boolean; repair_projections: boolean; repair_indexes: boolean }, fetcher: Fetcher = fetch) =>
+  mutate("/api/v1/admin/ai-operations/coverage/repair", "POST", body, fetcher);

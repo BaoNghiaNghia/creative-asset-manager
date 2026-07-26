@@ -120,6 +120,7 @@ export type AiOpsDashboardData = {
   failures: AiOpsFailure[];
   jobs: Page<AiOpsJob>;
   usage: Page<AiOpsUsage>;
+  coverage?: AiOpsSearchCoverage | null;
 };
 
 export type AiOpsAudit = { actor: string; action: string; reason: string; timestamp: string };
@@ -176,4 +177,19 @@ export type AiOpsConfiguration = {
     hard_stop_threshold_percent: number;
     currency: string;
   } | null;
+};
+
+export type AiOpsSearchCoverage = {
+  completed_analysis_assets: number;
+  current_projection_assets: number;
+  v3_indexed_documents: number;
+  projection_missing: number;
+  projection_stale: number;
+  indexing_backlog: number;
+  search_failed: number;
+  database_indexed_document_missing: number;
+  coverage_percent: number;
+  last_audited_at: string | null;
+  elasticsearch_verification_included: boolean;
+  repair_jobs: { queued: number; running: number; completed: number; failed: number };
 };

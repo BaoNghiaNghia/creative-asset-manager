@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.ai_operations.export import EXPORT_COLUMNS, audit_export, csv_stream, export_rows
 from app.modules.ai_operations.queries import AiOperationsRepository
-from app.modules.ai_operations.schema import AiOperationsFilters
+from app.modules.ai_operations.coverage import SearchCoverageSummaryService
+from app.modules.ai_operations.schema import AiOperationsFilters, SearchCoverageAuditRequest, SearchCoverageRepairRequest
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
+from app.modules.ai_governance.repository import AiGovernanceRepository
+from app.modules.search.coverage_audit import SearchV3CoverageAudit, SearchV3CoverageRepair
 
 
 router = APIRouter(prefix="/api/v1/admin/ai-operations", tags=["ai-operations"])
@@ -98,6 +103,103 @@ def common_filters(
 def _read(filters: AiOperationsFilters, operation):
     with SessionLocal() as session:
         return operation(AiOperationsRepository(session), filters)
+
+
+
+def _projection_version() -> str:
+    return "search-projection-v1"
+
+
+def _v3_index():
+    settings = get_settings()
+    if not settings.ELASTICSEARCH_URL:
+        raise HTTPException(status_code=503, detail={"code": "search_unavailable", "message": "Elasticsearch is not configured"})
+    from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+    return ElasticsearchV2Index(ElasticsearchV2Config(
+        base_url=settings.ELASTICSEARCH_URL,
+        index_prefix=settings.ELASTICSEARCH_INDEX_PREFIX,
+        index_generation="v3",
+    ))
+
+
+def _audit_details(result, verify_elasticsearch: bool) -> dict:
+    document = result.to_document()
+    return {
+        "verify_elasticsearch": verify_elasticsearch,
+        "database_indexed_document_missing": document["document_missing"],
+        "scanned": document["scanned"],
+        "projection_missing": document["projection_missing"],
+        "projection_stale": document["projection_stale"],
+        "index_job_missing": document["index_job_missing"],
+        "index_job_failed": document["index_job_failed"],
+    }
+
+
+@router.get("/coverage")
+def coverage(
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+    tenant_id: str | None = Query(default=None),
+):
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    with SessionLocal() as session:
+        return SearchCoverageSummaryService(session, projection_version=_projection_version()).summary(tenant_id=target)
+
+
+@router.post("/coverage/audit")
+def run_coverage_audit(
+    request: SearchCoverageAuditRequest,
+    principal: CurrentPrincipal = Depends(require_permission("search.rebuild")),
+    tenant_id: str | None = Query(default=None),
+):
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    with SessionLocal() as session:
+        index = _v3_index() if request.verify_elasticsearch else None
+        try:
+            result = asyncio.run(SearchV3CoverageAudit(
+                session, projection_version=_projection_version(), index=index,
+            ).run(tenant_id=target, page_size=request.limit, limit=request.limit, verify_elasticsearch=request.verify_elasticsearch))
+        finally:
+            if index is not None:
+                asyncio.run(index.client.aclose())
+        details = _audit_details(result, request.verify_elasticsearch)
+        AiGovernanceRepository(session).event(
+            target, "search_coverage_audit", actor_id=principal.user_id, details=details,
+        )
+        session.commit()
+        return {"audit": result.to_document(), "last_audited_at": datetime.now(timezone.utc), "elasticsearch_verification_included": request.verify_elasticsearch}
+
+
+@router.post("/coverage/repair")
+def repair_coverage(
+    request: SearchCoverageRepairRequest,
+    principal: CurrentPrincipal = Depends(require_permission("search.rebuild")),
+    tenant_id: str | None = Query(default=None),
+):
+    if not request.confirmed:
+        raise HTTPException(status_code=422, detail={"code": "confirmation_required", "message": "Repair requires explicit confirmation"})
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    with SessionLocal() as session:
+        index = _v3_index() if request.verify_elasticsearch else None
+        try:
+            result = asyncio.run(SearchV3CoverageRepair(
+                session, projection_version=_projection_version(), index=index,
+            ).repair(
+                tenant_id=target, page_size=request.limit, limit=request.limit,
+                verify_elasticsearch=request.verify_elasticsearch, apply=True,
+                repair_projections=request.repair_projections, repair_indexes=request.repair_indexes,
+            ))
+        finally:
+            if index is not None:
+                asyncio.run(index.client.aclose())
+        AiGovernanceRepository(session).event(
+            target, "search_coverage_repair_requested", actor_id=principal.user_id,
+            details={"limit": request.limit, "projection_jobs_created": result.projection_jobs_created, "index_jobs_created": result.index_jobs_created},
+        )
+        session.commit()
+        return {"repair": result.to_document(), "progress": SearchCoverageSummaryService(session, projection_version=_projection_version()).repair_jobs(tenant_id=target)}
 
 
 @router.get("/summary")
