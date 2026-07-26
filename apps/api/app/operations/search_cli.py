@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from datetime import datetime
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -11,6 +12,7 @@ from app.infrastructure.search.elasticsearch_v2 import (
     ElasticsearchV2Index,
 )
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
+from app.modules.search.coverage_audit import SearchV3CoverageAudit
 from app.modules.search.operations_repository import SearchOperationRepository
 from app.modules.search.operations_service import SearchMaintenanceService
 
@@ -19,11 +21,12 @@ _COMMANDS = {
     "search:reindex-assets": "reindex_assets",
     "search:rebuild-and-reindex": "rebuild_and_reindex",
 }
+_AUDIT_COMMAND = "search:audit-coverage"
 
 
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="Creative Asset Manager search operations")
-    value.add_argument("command", choices=[*_COMMANDS, "search:cancel"])
+    value.add_argument("command", choices=[*_COMMANDS, _AUDIT_COMMAND, "search:cancel"])
     value.add_argument("--tenant-id", required=True)
     value.add_argument("--run-id")
     value.add_argument("--metadata-profile")
@@ -38,11 +41,20 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--elasticsearch-url")
     value.add_argument("--index-prefix", default="creative-assets")
     value.add_argument("--index-generation", choices=("v2", "v3"))
+    value.add_argument("--projection-version")
+    value.add_argument("--limit", type=int)
+    value.add_argument("--after-created-at")
+    value.add_argument("--after-analysis-id")
+    value.add_argument("--verify-elasticsearch", action="store_true")
+    value.add_argument("--output-json", action="store_true")
     return value
 
 
 async def execute(args: argparse.Namespace) -> dict:
     settings = get_settings()
+    if args.command == _AUDIT_COMMAND:
+        return await _audit_coverage(args, settings)
+
     with SessionLocal() as session:
         repository = SearchOperationRepository(session)
         if args.command == "search:cancel":
@@ -96,9 +108,7 @@ async def execute(args: argparse.Namespace) -> dict:
         try:
             result = await SearchMaintenanceService(
                 repository,
-                SearchProjectionBuilder(
-                    projection_version=run.target_projection_version
-                ),
+                SearchProjectionBuilder(projection_version=run.target_projection_version),
                 index_provider=provider,
                 projection_enabled=settings.SEARCH_PROJECTION_ENABLED,
                 index_enabled=(settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED),
@@ -113,6 +123,56 @@ async def execute(args: argparse.Namespace) -> dict:
         finally:
             if provider is not None:
                 await provider.__aexit__()
+
+
+async def _audit_coverage(args: argparse.Namespace, settings) -> dict:
+    projection_version = args.projection_version or SearchProjectionBuilder().projection_version
+    after_created_at = (
+        datetime.fromisoformat(args.after_created_at)
+        if args.after_created_at
+        else None
+    )
+    if (after_created_at is None) != (args.after_analysis_id is None):
+        raise ValueError(
+            "--after-created-at and --after-analysis-id must be provided together"
+        )
+    provider = None
+    if args.verify_elasticsearch:
+        base_url = args.elasticsearch_url or settings.ELASTICSEARCH_URL
+        if not base_url:
+            raise ValueError(
+                "--verify-elasticsearch requires --elasticsearch-url or ELASTICSEARCH_URL"
+            )
+        provider = ElasticsearchV2Index(
+            ElasticsearchV2Config(
+                base_url,
+                index_prefix=args.index_prefix,
+                index_generation="v3",
+            )
+        )
+    try:
+        with SessionLocal() as session:
+            result = await SearchV3CoverageAudit(
+                session,
+                projection_version=projection_version,
+                index=provider,
+            ).run(
+                tenant_id=args.tenant_id,
+                page_size=args.page_size,
+                limit=args.limit,
+                after_created_at=after_created_at,
+                after_analysis_id=args.after_analysis_id,
+                verify_elasticsearch=args.verify_elasticsearch,
+            )
+            return {
+                "tenant_id": args.tenant_id,
+                "projection_version": projection_version,
+                "verify_elasticsearch": args.verify_elasticsearch,
+                **result.to_document(),
+            }
+    finally:
+        if provider is not None:
+            await provider.__aexit__()
 
 
 def _progress(run) -> dict:
@@ -130,17 +190,34 @@ def _progress(run) -> dict:
         "failed": run.failed_count,
         "skipped": run.skipped_count,
         "cursor": {
-            "created_at": (
-                run.cursor_created_at.isoformat() if run.cursor_created_at else None
-            ),
+            "created_at": run.cursor_created_at.isoformat() if run.cursor_created_at else None,
             "analysis_id": run.cursor_analysis_id,
         },
     }
 
 
+def _print_audit(result: dict) -> None:
+    print(
+        "scanned={scanned} healthy={healthy} projection_missing={projection_missing} "
+        "projection_stale={projection_stale} index_job_missing={index_job_missing} "
+        "index_job_failed={index_job_failed} document_missing={document_missing} "
+        "skipped={skipped} failed={failed}".format(**result)
+    )
+    cursor = result["cursor"]
+    print(
+        "resume: --after-created-at {after_created_at} --after-analysis-id {after_analysis_id}".format(
+            **cursor
+        )
+    )
+
+
 def main() -> int:
     args = parser().parse_args()
-    print(json.dumps(asyncio.run(execute(args)), sort_keys=True))
+    result = asyncio.run(execute(args))
+    if args.command == _AUDIT_COMMAND and not args.output_json:
+        _print_audit(result)
+    else:
+        print(json.dumps(result, sort_keys=True))
     return 0
 
 
