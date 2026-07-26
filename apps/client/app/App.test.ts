@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getAnalysisSelectionState, isEligibleAnalysisItem, pruneSelectionToVisible } from "./App";
+import { getAnalysisSelectionState, isEligibleAnalysisItem } from "./App";
+import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import type { Asset } from "./types";
 
 function asset(overrides: Partial<Asset>): Asset {
@@ -30,7 +31,7 @@ describe("Analyze metadata selection", () => {
 
   it("prunes hidden stale selections", () => {
     const item = asset({ id: "visible", internal_asset_id: "asset-1" });
-    expect([...pruneSelectionToVisible(new Set(["visible", "hidden"]), [item])]).toEqual(["visible"]);
+    expect([...pruneSelectedIds(new Set(["visible", "hidden"]), [item])]).toEqual(["visible"]);
     expect(getAnalysisSelectionState(new Set(["visible", "hidden"]), [item]).tooltip).toBe("Selection changed. Reselect the visible images.");
   });
 

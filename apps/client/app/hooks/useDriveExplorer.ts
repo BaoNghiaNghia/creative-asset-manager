@@ -219,12 +219,12 @@ export function useDriveExplorer() {
     }, 180);
   }
 
-  async function open(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider) {
+  async function open(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider, preserveSelection = false) {
     const requestSequence = ++openSequence.current;
     const cached = folderCache.current.has(source + ":" + id);
     setLoading(!cached);
     setError("");
-    setSelected(new Set());
+    if (!preserveSelection) setSelected(new Set());
     resetSearch();
     cancelFolderPrefetch();
 
@@ -253,7 +253,7 @@ export function useDriveExplorer() {
     const key = provider + ":" + currentFolder.id;
     folderCache.current.delete(key);
     treeFolderCache.current.delete(key);
-    await open(currentFolder.id, path.slice(0, -1), provider);
+    await open(currentFolder.id, path.slice(0, -1), provider, true);
   }
   async function toggleTree(node: Asset) {
     if (expanded.has(node.id)) {
@@ -535,9 +535,6 @@ export function useDriveExplorer() {
     clearExplorer(provider);
   }
 
-  useEffect(() => {
-    setSelected(current => pruneSelectedIds(current, visibleItems));
-  }, [visibleItems]);
   function toggleSelection(id: string) {
     setSelected(current => {
       const next = new Set(current);
@@ -624,6 +621,10 @@ export function useDriveExplorer() {
     [matchedItems, metadataByItem, visibilityFilter],
   );
 
+  useEffect(() => {
+    setSelected(current => pruneSelectedIds(current, visibleItems));
+  }, [visibleItems]);
+
   const visibilityFilterReady = visibilityFilter === "all"
     || matchedItems.every(item =>
       item.kind === "folder" || metadataByItem[item.id] !== undefined
@@ -698,7 +699,8 @@ export function useDriveExplorer() {
     metadataIndex,
     searchReady: searchV2.active || metadataIndex.state === "completed",
     searchV2,
-    retryMetadataIndex: () => setIndexRetryKey(current => current + 1),`n    refreshCurrentFolder,`r`n    refreshCurrentFolder,
+    retryMetadataIndex: () => setIndexRetryKey(current => current + 1),
+    refreshCurrentFolder,
     selectProvider,
     open,
     toggleTree,

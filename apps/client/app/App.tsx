@@ -18,12 +18,6 @@ export function isEligibleAnalysisItem(item: Asset): boolean {
   return item.kind === "image" && Boolean(item.internal_asset_id?.trim());
 }
 
-export function pruneSelectionToVisible(selected: ReadonlySet<string>, visibleItems: Asset[]): Set<string> {
-  const visibleIds = new Set(visibleItems.map(item => item.id));
-  const next = new Set([...selected].filter(id => visibleIds.has(id)));
-  return next.size === selected.size ? selected as Set<string> : next;
-}
-
 export function getAnalysisSelectionState(selected: ReadonlySet<string>, visibleItems: Asset[]) {
   const selectedItems = visibleItems.filter(item => selected.has(item.id));
   const stale = selectedItems.length !== selected.size;
@@ -76,18 +70,10 @@ export default function App() {
   const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : "root";
   const rootFolders = explorer.childrenByParent[sourceRootId] ?? [];
   const sourceName = explorer.provider === "sharepoint" ? "SharePoint" : "Google Drive";
-  const selectedItems = explorer.visibleItems.filter(item => explorer.selected.has(item.id));
-  const analysisAssetIds = selectedItems.flatMap(item => (
-    item.kind !== "folder" && item.internal_asset_id ? [item.internal_asset_id] : []
-  ));
-  const completeAnalysisSelection = analysisAssetIds.length === explorer.selected.size;
-  const analysisTooltip = completeAnalysisSelection
-    ? "Analyze selected assets."
-    : selectedItems.length === 1 && selectedItems[0].kind === "folder"
-      ? "Folders cannot be analyzed. Select image or video files."
-      : selectedItems.length === 1 && !selectedItems[0].internal_asset_id
-        ? "This file has not been imported into the asset library yet."
-        : "Some selected files are not ready for AI analysis.";
+  const analysisSelection = getAnalysisSelectionState(explorer.selected, explorer.visibleItems);
+  const analysisAssetIds = analysisSelection.assetIds;
+  const completeAnalysisSelection = analysisSelection.complete;
+  const analysisTooltip = analysisSelection.tooltip;
 
   return <main
     className={["shell", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
@@ -291,6 +277,12 @@ export default function App() {
               title={analysisTooltip}
               onClick={() => setAnalyzeOpen(true)}
             >Analyze metadata</button>
+            <button
+              type="button"
+              onClick={() => void explorer.refreshCurrentFolder()}
+              disabled={explorer.loading}
+              title="Refresh this folder to load newly imported assets"
+            >Refresh assets</button>
             <span className="bulk-divider" />
             <div className="bulk-group">
               <small>Visibility</small>
