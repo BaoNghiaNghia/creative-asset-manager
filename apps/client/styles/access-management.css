@@ -24,3 +24,13 @@
 /* Role and access cards should follow their content, not the tallest neighbour. */
 .role-grid,.my-access{align-items:start}.role-grid>article,.my-access>section{height:max-content}.access-permissions-card{grid-column:1/-1}.role-chips .danger-link{margin-left:2px;padding:3px 6px!important;background:transparent!important;text-decoration:underline;text-underline-offset:2px}.member-actions .danger-link{padding:6px 8px!important}.member-actions select+button{min-width:66px}
 @media(max-width:650px){.access-tabs{min-height:50px;gap:2px}.access-tabs button{padding:14px 12px 11px}.access-permissions-card{grid-column:auto}}
+
+/* Match the shared workspace navigation used by AI Operations. */
+.access-shell{grid-template-columns:248px minmax(0,1fr)}
+.access-sidebar{position:sticky;top:0;height:100vh;min-height:100vh;padding:22px 18px;gap:4px;background:#fff;color:#1d2939;border-right:1px solid #e3e8ef}
+.access-sidebar .brand{gap:11px;margin:0}.access-sidebar .brand>b{width:34px;height:34px;border-radius:9px;background:#151b26;color:#fff}.access-sidebar .brand small{color:#6b7785}
+.access-sidebar>p{margin:35px 10px 8px;color:#8b95a3;font-size:10px;font-weight:800;letter-spacing:.12em}
+.access-sidebar>a{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:8px;color:#536173;font-size:13px;font-weight:650}.access-sidebar>a:hover,.access-sidebar>a:focus-visible{background:#eaf0fb;color:#2455b5;outline:none}.access-sidebar>a.active{background:#e4ebfb;color:#214eae}
+.access-sidebar .access-sidebar-note{margin-top:auto;padding:14px 10px;color:#7a8798;font-size:11px;line-height:1.5}
+@media(max-width:900px){.access-sidebar{position:static;height:auto;min-height:auto;padding:14px;display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:5px}.access-sidebar .brand{margin:0 auto 0 0}.access-sidebar>p,.access-sidebar .access-sidebar-note{display:none}.access-sidebar>a{white-space:nowrap}}
+@media(max-width:460px){.access-sidebar{grid-template-columns:1fr auto}.access-sidebar>a:first-of-type{display:none}}

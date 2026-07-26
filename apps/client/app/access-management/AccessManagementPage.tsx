@@ -71,9 +71,11 @@ export function AccessManagementPage() {
 export function AccessManagementShell({ children, identity = null }: { children: React.ReactNode; identity?: AccessIdentity | null }) {
   return <main className="access-shell"><aside className="access-sidebar">
     <div className="brand"><b>C</b><span><strong>Creative assets</strong><small>Workspace settings</small></span></div>
-    <p>WORKSPACE</p><a href="/">Asset Explorer</a>{identity?.permissions.includes("ai_operations.read") && <a href="/ai-operations">AI Operations</a>}
+    <p>WORKSPACE</p>
+    <a href="/">▧ Asset Explorer</a>
+    {identity?.permissions.includes("ai_operations.read") && <a href="/ai-operations">◉ AI Operations</a>}
     <a href="/settings/access" className="active" aria-current="page">⚿ Access Management</a>
-    <small>Permissions are enforced by the server for every tenant operation.</small>
+    <small className="access-sidebar-note">Permissions are enforced by the server for every tenant operation.</small>
   </aside><section className="access-main">{children}</section></main>;
 }
 
