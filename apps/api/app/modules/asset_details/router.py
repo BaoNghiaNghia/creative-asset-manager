@@ -45,9 +45,14 @@ def safe_url(value):
     return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
-def source_preview_url(source: SourceAssetModel, external_source: ExternalSourceModel) -> str | None:
+def source_preview_url(
+    source: SourceAssetModel,
+    external_source: ExternalSourceModel,
+    asset_mime_type: str | None,
+) -> str | None:
     """Return a source-media proxy URL only for previewable, active files."""
-    if source.deleted_at is not None or not (source.mime_type or "").startswith(("image/", "video/")):
+    mime_type = source.mime_type or asset_mime_type or ""
+    if source.deleted_at is not None or not mime_type.startswith(("image/", "video/")):
         return None
     provider = "sharepoint" if "sharepoint" in (external_source.source_type or "").lower() else "google-drive"
     return f"/api/explorer/media/{quote(source.external_asset_id, safe='')}?provider={provider}"
@@ -99,7 +104,7 @@ def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit
         if asset is None:
             raise HTTPException(404, "Asset not found")
         source_rows = session.execute(select(SourceAssetModel, ExternalSourceModel).join(AssetSourceLinkModel, AssetSourceLinkModel.source_asset_id == SourceAssetModel.id).join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id).where(AssetSourceLinkModel.tenant_id == tenant, AssetSourceLinkModel.asset_id == asset_id, SourceAssetModel.tenant_id == tenant, ExternalSourceModel.tenant_id == tenant).order_by(SourceAssetModel.created_at)).all()
-        sources = [{"source_asset_id": s.id, "external_source_id": s.external_source_id, "external_asset_id": s.external_asset_id, "source_type": e.source_type, "source_key": e.source_key, "display_name": e.display_name, "filename": s.filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "provider_checksum": s.provider_checksum, "provider_version": s.provider_version, "preview_url": source_preview_url(s, e), "deleted": s.deleted_at is not None, "created_at": iso(s.source_created_at), "modified_at": iso(s.source_modified_at)} for s, e in source_rows]
+        sources = [{"source_asset_id": s.id, "external_source_id": s.external_source_id, "external_asset_id": s.external_asset_id, "source_type": e.source_type, "source_key": e.source_key, "display_name": e.display_name, "filename": s.filename, "mime_type": s.mime_type or asset.mime_type, "size_bytes": s.size_bytes, "provider_checksum": s.provider_checksum, "provider_version": s.provider_version, "preview_url": source_preview_url(s, e, asset.mime_type), "deleted": s.deleted_at is not None, "created_at": iso(s.source_created_at), "modified_at": iso(s.source_modified_at)} for s, e in source_rows]
         storage = [{"id": row.id, "provider": row.storage_provider, "status": row.status, "remote_file_id": row.remote_file_id, "remote_folder_id": row.remote_folder_id, "web_url": safe_url(row.web_url), "verified": row.status == "stored" and bool(row.remote_file_id), "attempt_count": row.attempt_count, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "stored_at": iso(row.stored_at)} for row in session.scalars(select(AssetStorageObjectModel).where(AssetStorageObjectModel.tenant_id == tenant, AssetStorageObjectModel.asset_id == asset_id).order_by(AssetStorageObjectModel.updated_at.desc()))]
         base_analysis = select(AssetAiAnalysisModel).where(AssetAiAnalysisModel.tenant_id == tenant, AssetAiAnalysisModel.asset_id == asset_id)
         analysis_total = int(session.scalar(select(func.count()).select_from(base_analysis.subquery())) or 0)

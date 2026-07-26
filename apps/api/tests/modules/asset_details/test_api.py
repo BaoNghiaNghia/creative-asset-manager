@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -61,5 +61,18 @@ class AssetDetailsApiTest(unittest.TestCase):
         response = self.client.post(f"/api/v1/admin/assets/{self.asset_id}/actions", json={"action": "reindex"})
         self.assertEqual(response.status_code, 401)
 
+
+    def test_preview_uses_internal_asset_mime_type_when_source_mime_is_missing(self):
+        self._principal()
+        with self.factory() as session:
+            source_asset = session.scalar(select(SourceAssetModel).where(SourceAssetModel.external_asset_id == "external-1"))
+            source_asset.mime_type = None
+            session.commit()
+        with patch("app.modules.asset_details.router.SessionLocal", self.factory):
+            response = self.client.get(f"/api/v1/assets/{self.asset_id}")
+        self.assertEqual(response.status_code, 200)
+        source = response.json()["sources"][0]
+        self.assertEqual(source["mime_type"], "image/png")
+        self.assertEqual(source["preview_url"], "/api/explorer/media/external-1?provider=google-drive")
 if __name__ == "__main__":
     unittest.main()
