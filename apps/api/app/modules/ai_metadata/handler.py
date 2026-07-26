@@ -4,6 +4,7 @@ import asyncio
 
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import (
+    DeferredJobOutcome,
     JobHandlerContext,
     JobHandlerResult,
 )
@@ -20,7 +21,7 @@ class AssetAnalyzeJobHandler:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings
 
-    def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
+    def __call__(self, context: JobHandlerContext) -> JobHandlerResult | DeferredJobOutcome:
         analysis_id = context.job.payload.get("analysis_id") or context.job.entity_id
         if not isinstance(analysis_id, str) or not analysis_id:
             return JobHandlerResult.non_retryable(
@@ -83,6 +84,18 @@ class AssetAnalyzeJobHandler:
                 enqueue_index=not (isinstance(pipeline_id, str) and bool(pipeline_id)),
             )
         )
+        if outcome.status == "deferred":
+            if outcome.retry_at is None:
+                return JobHandlerResult.retryable(
+                    "invalid_deferred_analysis_outcome",
+                    "Deferred analysis did not provide a retry timestamp.",
+                )
+            return DeferredJobOutcome(
+                reason_code=outcome.error_code or "gemini_quota_deferred",
+                reason_message=outcome.error_message or "Gemini capacity is temporarily unavailable.",
+                retry_at=outcome.retry_at,
+                metadata=outcome.metadata,
+            )
         if outcome.status == "completed":
             if isinstance(pipeline_id, str) and pipeline_id:
                 with context.dependencies.session_factory() as session:

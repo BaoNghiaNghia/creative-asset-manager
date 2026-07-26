@@ -1,5 +1,6 @@
 import logging
 import unittest
+from datetime import datetime, timedelta, timezone
 from threading import Event
 from unittest.mock import AsyncMock, patch
 
@@ -11,6 +12,7 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.domain.processing.handlers import (
     ClaimedJob,
+    DeferredJobOutcome,
     JobHandlerContext,
     JobOutcome,
     WorkerDependencies,
@@ -126,6 +128,31 @@ class AssetAnalyzeJobHandlerProviderTest(unittest.TestCase):
                 selected = service_class.call_args.kwargs["ai_provider"]
                 self.assertIs(selected, expected)
                 self.assertIsNot(selected, rejected)
+
+    def test_temporary_gemini_pool_outcome_is_deferred(self):
+        analysis_id = self._analysis("gemini")
+        registry = AiProviderRegistry()
+        registry.register("gemini", FakeProvider("gemini"))
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=1)
+
+        with patch("app.modules.ai_metadata.handler.AiAnalysisService") as service_class:
+            service_class.return_value.analyze = AsyncMock(
+                return_value=AiAnalysisOutcome(
+                    "deferred",
+                    "gemini_quota_deferred",
+                    "Gemini capacity is temporarily unavailable.",
+                    retry_at=retry_at,
+                    metadata={"attempted_models": ["gemini-first"]},
+                )
+            )
+            result = AssetAnalyzeJobHandler(Settings())(
+                self._context(analysis_id, registry)
+            )
+
+        self.assertIsInstance(result, DeferredJobOutcome)
+        self.assertEqual(result.reason_code, "gemini_quota_deferred")
+        self.assertEqual(result.retry_at, retry_at)
+        self.assertEqual(result.metadata["attempted_models"], ["gemini-first"])
 
     def test_missing_persisted_provider_is_non_retryable(self):
         analysis_id = self._analysis("openai")

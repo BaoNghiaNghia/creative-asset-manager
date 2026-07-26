@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.providers.ai.gemini import GeminiPoolTemporarilyUnavailable
+
 from app.domain.providers.contracts import (
     AiMetadataAnalysisInput,
     AiMetadataProvider,
@@ -33,9 +36,18 @@ from app.modules.storage.repository import ManagedStorageRepository
 
 @dataclass(frozen=True, slots=True)
 class AiAnalysisOutcome:
-    status: Literal["completed", "retryable_failure", "non_retryable_failure", "cancelled", "budget_blocked"]
+    status: Literal[
+        "completed",
+        "retryable_failure",
+        "non_retryable_failure",
+        "cancelled",
+        "budget_blocked",
+        "deferred",
+    ]
     error_code: str | None = None
     error_message: str | None = None
+    retry_at: datetime | None = None
+    metadata: Mapping[str, object] | None = None
 
 
 class AiAnalysisService:
@@ -343,6 +355,31 @@ class AiAnalysisService:
                 "retryable_failure" if exc.retryable else "non_retryable_failure",
                 exc.code,
                 str(exc),
+            )
+        except GeminiPoolTemporarilyUnavailable as exc:
+            if reservation_id:
+                with self.session_factory() as session:
+                    AiBudgetService(
+                        AiGovernanceRepository(session), self.settings
+                    ).reconcile(reservation_id, 0)
+                    session.commit()
+            await self._record_failure(
+                analysis_id,
+                code="gemini_quota_deferred",
+                message="Gemini model capacity is temporarily unavailable.",
+                retryable=True,
+                provider_metadata=exc.details,
+            )
+            return AiAnalysisOutcome(
+                "deferred",
+                "gemini_quota_deferred",
+                "Gemini model capacity is temporarily unavailable.",
+                retry_at=exc.earliest_retry_at,
+                metadata={
+                    "attempted_models": list(exc.attempted_models),
+                    "reasons_by_model": exc.details["reasons_by_model"],
+                    "provider": exc.provider,
+                },
             )
         except AiProviderError as exc:
             if operation_key and reservation_id:

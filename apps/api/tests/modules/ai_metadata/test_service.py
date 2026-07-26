@@ -13,6 +13,10 @@ from app.domain.providers.contracts import (
     AiProviderError,
     StoredAssetReadStream,
 )
+from app.providers.ai.gemini import (
+    GeminiModelUnavailable,
+    GeminiPoolTemporarilyUnavailable,
+)
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.ai_metadata.service import AiAnalysisService
 from app.modules.assets.model import AssetModel
@@ -79,6 +83,38 @@ class FailoverErrorAi(FakeAi):
         )
 
 
+class TemporaryPoolAi(FakeAi):
+    def __init__(self, reason: str):
+        super().__init__({"subject": "cat"})
+        self.reason = reason
+
+    async def analyze_single(self, _input):
+        self.calls += 1
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        raise GeminiPoolTemporarilyUnavailable(
+            attempted_models=["gemini-first"],
+            reasons_by_model={
+                "gemini-first": GeminiModelUnavailable(
+                    model="gemini-first",
+                    reason=self.reason,
+                    available_at=retry_at,
+                )
+            },
+            earliest_retry_at=retry_at,
+        )
+
+
+class PermanentGeminiErrorAi(FakeAi):
+    async def analyze_single(self, _input):
+        self.calls += 1
+        raise AiProviderError(
+            "Gemini API key is invalid.",
+            code="gemini_http_error",
+            retryable=False,
+            status_code=401,
+        )
+
+
 class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.engine = create_engine(
@@ -141,6 +177,62 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self):
         self.engine.dispose()
+
+    async def test_temporary_gemini_pool_exhaustion_defers_without_failure_or_usage(self):
+        from app.modules.ai_governance.model import AiUsageRecordModel
+        from app.modules.ai_metadata.model import AssetAiAnalysisModel
+
+        for reason in ("rpm_exhausted", "tpm_exhausted", "rpd_exhausted", "cooldown"):
+            with self.subTest(reason=reason):
+                ai = TemporaryPoolAi(reason)
+                outcome = await AiAnalysisService(
+                    session_factory=self.factory,
+                    storage_provider=self.storage,
+                    ai_provider=ai,
+                    settings=self.settings,
+                ).analyze(
+                    tenant_id="tenant-a",
+                    analysis_id=self.analysis_id,
+                    worker_id="worker-a",
+                )
+                self.assertEqual(outcome.status, "deferred")
+                self.assertEqual(outcome.error_code, "gemini_quota_deferred")
+                self.assertIsNotNone(outcome.retry_at)
+                self.assertEqual(
+                    outcome.metadata["reasons_by_model"]["gemini-first"]["reason"],
+                    reason,
+                )
+                with self.factory() as session:
+                    analysis = session.get(AssetAiAnalysisModel, self.analysis_id)
+                    self.assertEqual(analysis.status, "pending")
+                    self.assertTrue(analysis.failure_retryable)
+                    self.assertEqual(
+                        session.scalar(select(func.count()).select_from(AiUsageRecordModel)),
+                        0,
+                    )
+                    self.assertEqual(
+                        session.scalar(select(func.count()).select_from(ProcessingJobModel)),
+                        0,
+                    )
+
+    async def test_permanent_gemini_error_remains_failed(self):
+        from app.modules.ai_metadata.model import AssetAiAnalysisModel
+
+        outcome = await AiAnalysisService(
+            session_factory=self.factory,
+            storage_provider=self.storage,
+            ai_provider=PermanentGeminiErrorAi({"subject": "cat"}),
+            settings=self.settings,
+        ).analyze(
+            tenant_id="tenant-a",
+            analysis_id=self.analysis_id,
+            worker_id="worker-a",
+        )
+
+        self.assertEqual(outcome.status, "non_retryable_failure")
+        with self.factory() as session:
+            analysis = session.get(AssetAiAnalysisModel, self.analysis_id)
+            self.assertEqual(analysis.status, "failed")
 
     async def test_end_to_end_is_idempotent_and_enqueues_index(self):
         ai = FakeAi({"subject": "Cat", "nested": {"year": 2015}})
