@@ -250,7 +250,9 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_feature_flags_prevent_provider_call(self):
         ai = FakeAi({"subject": "cat"})
-        disabled = Settings(GEMINI_API_KEY=None)
+        disabled = self.settings.model_copy(
+            update={"AI_SINGLE_ANALYSIS_ENABLED": False}
+        )
         outcome = await AiAnalysisService(
             session_factory=self.factory,
             storage_provider=self.storage,
