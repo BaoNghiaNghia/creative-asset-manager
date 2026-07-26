@@ -21,7 +21,8 @@ describe("Step 29 operator UI", () => {
       parsed={{ mode: "or", clauses: [{ kind: "term", value: "cat" }] }}
       onToggle={() => undefined}
     />);
-    expect(markup).toContain("Search syntax");
+    expect(markup).toContain("Search guide");
+    expect(markup).toContain("Requires every term");
     expect(markup).toContain("subject");
     expect(markup).toContain("Parsed query debug");
   });

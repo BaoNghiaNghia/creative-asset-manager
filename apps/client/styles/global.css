@@ -378,59 +378,9 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 @media(prefers-reduced-motion:reduce){.search-progress>i{transition:none}}
 
 
-/* Account-level background indexing displayed inside the search control */
-.search-box.indexing,.search-box.index-failed{overflow:hidden;isolation:isolate}
-.search-box.indexing::before{
-  content:"";
-  position:absolute;
-  z-index:0;
-  inset:0 auto 0 0;
-  width:var(--index-progress,0%);
-  background:linear-gradient(90deg,#e8efff,#edf4ff);
-  transition:width .35s ease;
-}
- .search-box.indexing>*{position:relative;z-index:1}
-.search-box.indexing::after{
-  content:"";
-  position:absolute;
-  z-index:2;
-  right:0;
-  bottom:0;
-  left:0;
-  height:3px;
-  background:linear-gradient(90deg,#2f65d5 var(--index-progress,0%),#dce3ec 0);
-}
-.search-box.index-failed{background:#fff3f3}
 .search-box input:disabled{cursor:not-allowed;color:#596779;-webkit-text-fill-color:#596779;opacity:1}
-.index-percent-badge,.index-ready-badge{
-  flex:0 0 auto!important;
-  padding:3px 7px;
-  border-radius:999px;
-  font-size:10px;
-  font-weight:800;
-  white-space:nowrap;
-}
-.index-percent-badge{background:#dce8ff;color:#2457b8!important}
-.index-ready-badge{background:#e4f5eb;color:#237a4b!important}
-.index-retry{
-  position:relative;
-  z-index:3;
-  flex:0 0 auto;
-  padding:4px 9px;
-  border:0;
-  border-radius:6px;
-  background:#b42318;
-  color:#fff;
-  cursor:pointer;
-  font-size:11px;
-  font-weight:700;
-}
-.index-retry:hover{background:#941d14}
-@media(prefers-reduced-motion:reduce){.search-box.indexing::before{transition:none}}
-
 
 /* Actionable background-index diagnostics */
-.index-ready-badge.warning{background:#fff1cf;color:#8a5b0b!important}
 .indexing-error{
   display:flex;
   align-items:center;
@@ -816,15 +766,30 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 
 .asset-info{position:absolute;right:10px;top:10px;z-index:3;width:24px;height:24px;border:1px solid #cbd5e1;border-radius:50%;background:#fff;color:#3156b8;font-weight:700;opacity:0;transition:.15s}
 .grid article:hover .asset-info,.asset-info:focus{opacity:1}
-.search-v2-controls{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:0 24px 14px;position:relative}
-.search-help-button{border:1px solid #d9e0eb;background:#fff;border-radius:8px;padding:7px 10px;color:#334155}
-.search-help{position:absolute;z-index:20;top:38px;left:24px;width:330px;padding:14px;background:#fff;border:1px solid #d9e0eb;border-radius:10px;box-shadow:0 12px 35px #0f172a22}
-.search-help ul{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding-left:18px}
+.search-v2-controls{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:0 24px 14px}
+.search-guide{position:relative;flex:0 0 auto}
+.search-guide>summary{display:flex;align-items:center;gap:7px;min-height:34px;padding:6px 11px;border:1px solid #d9e0eb;border-radius:9px;background:#fff;color:#334155;cursor:pointer;list-style:none}
+.search-guide>summary::-webkit-details-marker{display:none}
+.search-guide>summary>span{display:grid;place-items:center;width:18px;height:18px;border-radius:5px;background:#edf3ff;color:#285fc0;font-size:12px}
+.search-guide>summary b{font-size:12px}
+.search-guide>summary small{padding-left:7px;border-left:1px solid #e3e8ef;color:#708096;font-size:10px}
+.search-guide[open]>summary{border-color:#9bb5e8;background:#f8fbff;color:#204e9d}
+.search-guide-content{position:absolute;z-index:20;top:42px;left:0;width:min(520px,calc(100vw - 48px));padding:14px;border:1px solid #d9e0eb;border-radius:11px;background:#fff;box-shadow:0 16px 38px #0f172a22}
+.search-guide-examples{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:0;padding:0;list-style:none}
+.search-guide-examples li{display:flex;min-width:0;flex-direction:column;gap:3px;padding:8px 9px;border:1px solid #eef1f5;border-radius:8px;background:#fafbfd}
+.search-guide-examples code,.search-guide-api-examples code{width:max-content;max-width:100%;overflow:hidden;text-overflow:ellipsis;border-radius:5px;background:#eaf0ff;color:#2757ae;padding:2px 5px;font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
+.search-guide-examples span{color:#68778b;font-size:10px;line-height:1.35}
+.search-guide-api-examples{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:12px;padding-top:11px;border-top:1px solid #edf0f4}
+.search-guide-api-examples>span{color:#697689;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.search-facet-groups{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
 .search-facets{display:flex;gap:7px;border:0;padding:0;margin:0}
 .search-facets legend{font-size:11px;text-transform:uppercase;color:#64748b}
-.search-facets label{display:flex;gap:5px;align-items:center;border:1px solid #d9e0eb;border-radius:999px;padding:5px 9px}
+.search-facets label{display:flex;gap:5px;align-items:center;border:1px solid #d9e0eb;border-radius:999px;padding:5px 9px;background:#fff;cursor:pointer}
+.search-facets label:hover{border-color:#a9bee7;background:#f7faff}
+.search-facets input:focus-visible{outline:2px solid #4f7ff0;outline-offset:2px}
 .search-facets small{color:#64748b}
 .parsed-query-debug{width:100%;font-size:12px}.parsed-query-debug pre{max-height:220px;overflow:auto;background:#111827;color:#dbeafe;padding:12px;border-radius:8px}
+@media(max-width:700px){.search-v2-controls{padding-inline:12px}.search-guide{width:100%}.search-guide>summary small{margin-left:auto}.search-guide-content{width:100%;left:0}.search-guide-examples{grid-template-columns:1fr}.search-facet-groups{width:100%}}
 .asset-details{position:fixed;z-index:50;right:0;top:0;bottom:0;width:min(620px,94vw);background:#fff;border-left:1px solid #dbe1ea;box-shadow:-16px 0 50px #0f172a26;display:flex;flex-direction:column}
 .asset-details>header{height:auto;display:flex;justify-content:space-between;align-items:flex-start;padding:18px 20px;border-bottom:1px solid #e5e9f0}.asset-details>header h2{margin:3px 0;font-size:20px}.asset-details>header button{font-size:26px;background:none;border:0}
 .asset-details>nav{display:flex;gap:4px;padding:8px 16px;overflow:auto;border-bottom:1px solid #e5e9f0}.asset-details>nav button{border:0;background:none;text-transform:capitalize;padding:8px;border-radius:7px}.asset-details>nav button.active{background:#e9efff;color:#244fc1}
