@@ -844,12 +844,16 @@ class OpenAiMetadataProvider:
                 exc,
             )
         if status == 429:
-            return cls._error(
+            error = cls._error(
                 "OpenAI rate limit was reached.",
                 "openai_rate_limit",
                 True,
                 exc,
             )
+            error.details["retry_after_seconds"] = cls._retry_after_seconds(
+                getattr(exc, "response", None)
+            )
+            return error
         if status in {401, 403}:
             return cls._error(
                 "OpenAI authentication failed.",
@@ -867,6 +871,15 @@ class OpenAiMetadataProvider:
             code = "openai_invalid_request"
             message = "OpenAI rejected the metadata request."
         return cls._error(message, code, False, exc)
+
+    @staticmethod
+    def _retry_after_seconds(response: Any) -> float | None:
+        headers = getattr(response, "headers", None)
+        value = headers.get("retry-after") if headers is not None else None
+        try:
+            return max(0.0, float(value)) if value is not None else None
+        except (TypeError, ValueError):
+            return None
 
     @classmethod
     def _error_hint(cls, exc: Exception) -> str:

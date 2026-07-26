@@ -106,6 +106,12 @@ class Settings(BaseSettings):
     GEMINI_MODEL_POOL: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
     GEMINI_MODEL_LIMITS: str = ""
     GEMINI_MODEL_COOLDOWN_SECONDS: float = 60.0
+    AI_MODEL_RPM_LIMITS: str = ""
+    AI_MODEL_RPM_GEMINI_2_5_FLASH: int | None = None
+    AI_MODEL_RPM_GPT_4_1_MINI: int | None = None
+    AI_JOB_MIN_INTERVAL_SECONDS: float = 10.0
+    AI_RATE_LIMIT_429_MAX_RETRIES: int = 8
+    AI_RATE_LIMIT_BACKOFF_MAX_SECONDS: float = 300.0
     OPENAI_AI_ENABLED: bool = False
     OPENAI_API_KEY: str | None = None
     OPENAI_BASE_URL: str | None = None
@@ -292,6 +298,43 @@ class Settings(BaseSettings):
                 )
             limits_by_model[model] = limit
         return limits_by_model
+
+    @property
+    def ai_model_rpm_limits(self) -> dict[tuple[str, str], int]:
+        """Configured per-provider/model RPM values.
+
+        AI_MODEL_RPM_LIMITS is JSON: {"gemini":{"gemini-2.5-flash":5},
+        "openai":{"gpt-4.1-mini":3}}. Gemini model-pool defaults remain an
+        while models without an explicit shared limit remain unlimited.
+        """
+        values: dict[tuple[str, str], int] = {}
+        if self.AI_MODEL_RPM_GEMINI_2_5_FLASH is not None:
+            if self.AI_MODEL_RPM_GEMINI_2_5_FLASH < 1:
+                raise ValueError("AI_MODEL_RPM_GEMINI_2_5_FLASH must be positive")
+            values[("gemini", "gemini-2.5-flash")] = self.AI_MODEL_RPM_GEMINI_2_5_FLASH
+        if self.AI_MODEL_RPM_GPT_4_1_MINI is not None:
+            if self.AI_MODEL_RPM_GPT_4_1_MINI < 1:
+                raise ValueError("AI_MODEL_RPM_GPT_4_1_MINI must be positive")
+            values[("openai", "gpt-4.1-mini")] = self.AI_MODEL_RPM_GPT_4_1_MINI
+        if not self.AI_MODEL_RPM_LIMITS.strip():
+            return values
+        try:
+            raw = json.loads(self.AI_MODEL_RPM_LIMITS)
+        except json.JSONDecodeError as exc:
+            raise ValueError("AI_MODEL_RPM_LIMITS must be a JSON object") from exc
+        if not isinstance(raw, dict):
+            raise ValueError("AI_MODEL_RPM_LIMITS must be a JSON object")
+        for provider, models in raw.items():
+            if not isinstance(provider, str) or not isinstance(models, dict):
+                raise ValueError("AI_MODEL_RPM_LIMITS must contain provider model objects")
+            for model, rpm in models.items():
+                if not isinstance(model, str) or type(rpm) is not int or rpm < 1:
+                    raise ValueError("AI_MODEL_RPM_LIMITS RPM values must be positive integers")
+                values[(provider.strip().lower(), model.strip())] = rpm
+        return values
+
+    def ai_model_rpm(self, provider: str, model: str) -> int | None:
+        return self.ai_model_rpm_limits.get((provider.strip().lower(), model.strip()))
 
     @property
     def openai_allowed_models(self) -> tuple[str, ...]:
@@ -609,6 +652,14 @@ class Settings(BaseSettings):
             raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive")
         if self.GEMINI_MODEL_COOLDOWN_SECONDS < 0:
             raise ValueError("GEMINI_MODEL_COOLDOWN_SECONDS cannot be negative")
+        if self.AI_JOB_MIN_INTERVAL_SECONDS < 10:
+            raise ValueError("AI_JOB_MIN_INTERVAL_SECONDS must be at least 10 seconds")
+        if self.AI_RATE_LIMIT_429_MAX_RETRIES < 0:
+            raise ValueError("AI_RATE_LIMIT_429_MAX_RETRIES cannot be negative")
+        if self.AI_RATE_LIMIT_BACKOFF_MAX_SECONDS < 10:
+            raise ValueError("AI_RATE_LIMIT_BACKOFF_MAX_SECONDS must be at least 10 seconds")
+        # Parse once during startup so malformed per-model limits fail closed.
+        _ = self.ai_model_rpm_limits
         if self.OPENAI_TIMEOUT_SECONDS <= 0:
             raise ValueError("OPENAI_TIMEOUT_SECONDS must be positive")
         if self.OPENAI_MAX_RETRIES < 0:

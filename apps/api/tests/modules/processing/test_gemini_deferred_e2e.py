@@ -126,6 +126,18 @@ class PermanentGeminiProvider(FakeGeminiPool):
         )
 
 
+class Http429GeminiProvider(FakeGeminiPool):
+    async def analyze_single(self, _input):
+        self.calls += 1
+        raise AiProviderError(
+            "Gemini rate limit was reached.",
+            code="gemini_rate_limited",
+            retryable=True,
+            status_code=429,
+            details={"retry_after_seconds": 45},
+        )
+
+
 class GeminiDeferredWorkerE2ETest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -342,6 +354,22 @@ class GeminiDeferredWorkerE2ETest(unittest.TestCase):
         self.assertEqual(outcome, [True])
         self.assertEqual(self._job(job_id).status, "completed")
         self.assertEqual(provider.calls, 2)
+
+    def test_http_429_requeues_without_sleeping(self):
+        job_id = self._enqueue()
+        provider = Http429GeminiProvider(self.clock)
+        started = datetime.now(timezone.utc)
+        self.assertTrue(self._runtime(provider, "worker-429").run_once())
+
+        job = self._job(job_id)
+        self.assertEqual(job.status, "pending")
+        self.assertEqual(job.attempt_count, 0)
+        self.assertEqual(job.last_error_code, "ai_provider_rate_limited")
+        self.assertGreaterEqual(
+            job.next_attempt_at.replace(tzinfo=timezone.utc),
+            started + timedelta(seconds=44),
+        )
+        self.assertFalse(self._runtime(provider, "worker-429-next").run_once())
 
     def test_permanent_gemini_failure_is_failed(self):
         from unittest.mock import patch

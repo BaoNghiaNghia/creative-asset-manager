@@ -105,6 +105,17 @@ class SettingsTest(unittest.TestCase):
             },
         )
 
+    def test_per_model_rpm_configuration_is_provider_scoped(self) -> None:
+        settings = Settings(
+            AI_MODEL_RPM_LIMITS='{"openai":{"gpt-4.1-mini":3}}',
+            AI_MODEL_RPM_GEMINI_2_5_FLASH=5,
+        )
+        self.assertEqual(settings.ai_model_rpm("gemini", "gemini-2.5-flash"), 5)
+        self.assertEqual(settings.ai_model_rpm("openai", "gpt-4.1-mini"), 3)
+        self.assertIsNone(settings.ai_model_rpm("openai", "other-model"))
+        with self.assertRaises(ValidationError):
+            Settings(AI_MODEL_RPM_LIMITS='{"openai":{"gpt-4.1-mini":0}}')
+
     def test_invalid_gemini_model_limits_fail_closed(self) -> None:
         with self.assertRaises(ValueError):
             Settings(

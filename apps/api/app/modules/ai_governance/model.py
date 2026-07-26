@@ -198,3 +198,30 @@ class AiPilotItemModel(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class AiModelRateLimitStateModel(Base):
+    """Shared start-rate state; primary key makes updates tenant/model atomic."""
+
+    __tablename__ = "ai_model_rate_limit_state"
+    __table_args__ = (
+        Index(
+            "ix_ai_model_rate_limit_next",
+            "tenant_id",
+            "provider",
+            "model",
+            "next_eligible_at",
+        ),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(100), primary_key=True)
+    model: Mapped[str] = mapped_column(String(255), primary_key=True)
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_eligible_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )

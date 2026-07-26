@@ -11,6 +11,7 @@ from app.modules.storage import model as storage_models  # noqa: F401
 from app.modules.external_ingestion import model as external_ingestion_models  # noqa: F401
 from app.modules.search import operations_model as search_operation_models  # noqa: F401
 from app.modules.ai_metadata import model as ai_metadata_models  # noqa: F401
+from app.modules.ai_governance import model as ai_governance_models  # noqa: F401
 from app.modules.metadata import model as metadata_models  # noqa: F401
 from app.modules.auth_persistence import model as auth_persistence_models  # noqa: F401
 from app.modules.authorization import model as authorization_models  # noqa: F401
