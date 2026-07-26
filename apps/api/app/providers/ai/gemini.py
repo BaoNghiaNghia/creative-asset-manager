@@ -91,14 +91,29 @@ class GeminiAiMetadataProvider:
         self._transport = transport
         self._models = tuple(dict.fromkeys(model_pool or (model,)))
         if not isinstance(model_limits, Mapping):
-            raise ValueError("Gemini model limits are required and must be a mapping of pool models to GeminiModelLimit values")
+            raise ValueError(
+                "Gemini model limits are required for model pool: "
+                + ", ".join(self._models)
+            )
+        missing_models = [name for name in self._models if name not in model_limits]
+        if missing_models:
+            raise ValueError(
+                "Gemini model limits are missing required model(s): "
+                + ", ".join(missing_models)
+            )
+        invalid_models = [
+            name
+            for name in self._models
+            if not isinstance(model_limits[name], GeminiModelLimit)
+        ]
+        if invalid_models:
+            raise ValueError(
+                "Gemini model limits must use GeminiModelLimit values for: "
+                + ", ".join(invalid_models)
+            )
         self._limits: dict[str, GeminiModelLimit] = {}
         for name in self._models:
-            limit = model_limits.get(name)
-            if not isinstance(limit, GeminiModelLimit):
-                raise ValueError(
-                    f"Gemini model limit must be an explicit GeminiModelLimit for pool model: {name}"
-                )
+            limit = model_limits[name]
             if limit.rpm < 1 or limit.tpm < 1 or limit.rpd < 1:
                 raise ValueError("Gemini model limits must be positive")
             self._limits[name] = limit

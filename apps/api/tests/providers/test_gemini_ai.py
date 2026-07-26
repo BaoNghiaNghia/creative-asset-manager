@@ -64,11 +64,18 @@ class FakeClock:
 
 class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
     def test_missing_model_limits_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "Gemini model limits are required"):
-            GeminiAiMetadataProvider("secret", model="gemini-test")
+        with self.assertRaisesRegex(
+            ValueError,
+            "gemini-first, gemini-second",
+        ):
+            GeminiAiMetadataProvider(
+                "secret",
+                model="gemini-first",
+                model_pool=("gemini-first", "gemini-second"),
+            )
 
     def test_tuple_model_limits_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "explicit GeminiModelLimit"):
+        with self.assertRaisesRegex(ValueError, "must use GeminiModelLimit values"):
             GeminiAiMetadataProvider(
                 "secret",
                 model="gemini-test",
