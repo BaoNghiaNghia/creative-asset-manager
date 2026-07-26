@@ -40,6 +40,12 @@ const emptyIndexStatus: DriveIndexStatus = {
 
 const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : "root";
 
+export function pruneSelectedIds(selected: ReadonlySet<string>, visibleItems: Asset[]): Set<string> {
+  const visibleIds = new Set(visibleItems.map(item => item.id));
+  const next = new Set([...selected].filter(id => visibleIds.has(id)));
+  return next.size === selected.size ? selected as Set<string> : next;
+}
+
 const oauthMessages: Record<string, string> = {
   denied: "Google access was cancelled or denied.",
   incomplete: "Google returned an incomplete authorization response.",
@@ -240,6 +246,15 @@ export function useDriveExplorer() {
     }
   }
 
+  async function refreshCurrentFolder() {
+    const currentFolder = path.at(-1);
+    if (!currentFolder) return;
+
+    const key = provider + ":" + currentFolder.id;
+    folderCache.current.delete(key);
+    treeFolderCache.current.delete(key);
+    await open(currentFolder.id, path.slice(0, -1), provider);
+  }
   async function toggleTree(node: Asset) {
     if (expanded.has(node.id)) {
       setExpanded(current => {
@@ -520,6 +535,9 @@ export function useDriveExplorer() {
     clearExplorer(provider);
   }
 
+  useEffect(() => {
+    setSelected(current => pruneSelectedIds(current, visibleItems));
+  }, [visibleItems]);
   function toggleSelection(id: string) {
     setSelected(current => {
       const next = new Set(current);
@@ -680,7 +698,7 @@ export function useDriveExplorer() {
     metadataIndex,
     searchReady: searchV2.active || metadataIndex.state === "completed",
     searchV2,
-    retryMetadataIndex: () => setIndexRetryKey(current => current + 1),
+    retryMetadataIndex: () => setIndexRetryKey(current => current + 1),`n    refreshCurrentFolder,`r`n    refreshCurrentFolder,
     selectProvider,
     open,
     toggleTree,

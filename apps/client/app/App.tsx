@@ -14,6 +14,33 @@ import type { Asset } from "./types";
 
 const visibilityFilters = ["all", "public", "draft"] as const;
 
+export function isEligibleAnalysisItem(item: Asset): boolean {
+  return item.kind === "image" && Boolean(item.internal_asset_id?.trim());
+}
+
+export function pruneSelectionToVisible(selected: ReadonlySet<string>, visibleItems: Asset[]): Set<string> {
+  const visibleIds = new Set(visibleItems.map(item => item.id));
+  const next = new Set([...selected].filter(id => visibleIds.has(id)));
+  return next.size === selected.size ? selected as Set<string> : next;
+}
+
+export function getAnalysisSelectionState(selected: ReadonlySet<string>, visibleItems: Asset[]) {
+  const selectedItems = visibleItems.filter(item => selected.has(item.id));
+  const stale = selectedItems.length !== selected.size;
+  const complete = selected.size > 0 && !stale && selectedItems.every(isEligibleAnalysisItem);
+  const assetIds = complete ? selectedItems.map(item => item.internal_asset_id!) : [];
+  const tooltip = selected.size === 0
+    ? "Select imported image files to analyze."
+    : stale
+      ? "Selection changed. Reselect the visible images."
+      : selectedItems.some(item => item.kind !== "image")
+        ? "Only imported image files can be analyzed."
+        : selectedItems.some(item => !item.internal_asset_id?.trim())
+          ? "Selected images are still being imported. Refresh the folder and try again."
+          : "Analyze selected assets.";
+  return { selectedItems, assetIds, complete, tooltip };
+}
+
 export default function App() {
   const explorer = useDriveExplorer();
   const sidebar = useResizableSidebar();
