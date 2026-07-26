@@ -306,6 +306,7 @@ class Settings(BaseSettings):
         return any(
             (
                 self.ELASTICSEARCH_V2_ENABLED,
+                self.SEARCH_V3_ENABLED,
                 self.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED,
                 self.SEARCH_SHADOW_COMPARISON_ENABLED,
             )

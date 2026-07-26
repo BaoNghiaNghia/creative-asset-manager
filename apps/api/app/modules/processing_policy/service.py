@@ -71,7 +71,14 @@ class ProcessingPolicyService:
         bounds = {
             stage: all(bool(getattr(self.settings, flag)) for flag in flags)
             for stage, flags in STAGE_GLOBALS.items()
+            if stage != "search_v2_enabled"
         }
+        bounds["search_v2_enabled"] = (
+            self.settings.UNIFIED_ASSET_INGESTION_ENABLED
+            and self.settings.SEARCH_PROJECTION_ENABLED
+            and self.settings.PROCESSING_JOBS_ENABLED
+            and (self.settings.ELASTICSEARCH_V2_ENABLED or self.settings.SEARCH_V3_ENABLED)
+        )
         bounds["ai_analysis_enabled"] = (
             bounds["ai_analysis_enabled"]
             and (
