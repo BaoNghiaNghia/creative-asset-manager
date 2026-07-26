@@ -72,7 +72,7 @@ class GeminiAiMetadataProvider:
         timeout_seconds: float = 45.0,
         transport: httpx.AsyncBaseTransport | None = None,
         model_pool: tuple[str, ...] | None = None,
-        model_limits: Mapping[str, GeminiModelLimit | tuple[int, int]] | None = None,
+        model_limits: Mapping[str, GeminiModelLimit] | None = None,
         cooldown_seconds: float = 60.0,
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
@@ -90,29 +90,24 @@ class GeminiAiMetadataProvider:
         self._timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 10))
         self._transport = transport
         self._models = tuple(dict.fromkeys(model_pool or (model,)))
-        self._limits = {
-            name: self._coerce_model_limit(
-                (model_limits or {}).get(name, GeminiModelLimit(1, 2_000_000, 1))
-            )
-            for name in self._models
-        }
-        if any(
-            limit.rpm < 1 or limit.tpm < 1 or limit.rpd < 1
-            for limit in self._limits.values()
-        ):
-            raise ValueError("Gemini model limits must be positive")
+        if not isinstance(model_limits, Mapping):
+            raise ValueError("Gemini model limits are required and must be a mapping of pool models to GeminiModelLimit values")
+        self._limits: dict[str, GeminiModelLimit] = {}
+        for name in self._models:
+            limit = model_limits.get(name)
+            if not isinstance(limit, GeminiModelLimit):
+                raise ValueError(
+                    f"Gemini model limit must be an explicit GeminiModelLimit for pool model: {name}"
+                )
+            if limit.rpm < 1 or limit.tpm < 1 or limit.rpd < 1:
+                raise ValueError("Gemini model limits must be positive")
+            self._limits[name] = limit
         self._runtime = {name: _ModelRuntime() for name in self._models}
         self._cooldown = timedelta(seconds=cooldown_seconds)
         self._sleeper = sleeper
         self._clock = clock
         self._now = now or (lambda: datetime.now(timezone.utc))
 
-    @staticmethod
-    def _coerce_model_limit(value: GeminiModelLimit | tuple[int, int]) -> GeminiModelLimit:
-        if isinstance(value, GeminiModelLimit):
-            return value
-        rpm, rpd = value
-        return GeminiModelLimit(rpm=rpm, tpm=2_000_000, rpd=rpd)
 
     async def analyze_single(
         self, input: AiMetadataAnalysisInput

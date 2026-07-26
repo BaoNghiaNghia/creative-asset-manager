@@ -25,6 +25,27 @@ async def _immediate():
     return None
 
 
+def configured_gemini_provider(
+    api_key: str,
+    *,
+    model: str = "gemini-2.5-flash",
+    model_pool: tuple[str, ...] | None = None,
+    model_limits: dict[str, GeminiModelLimit] | None = None,
+    **kwargs,
+) -> GeminiAiMetadataProvider:
+    pool = model_pool or (model,)
+    return GeminiAiMetadataProvider(
+        api_key,
+        model=model,
+        model_pool=model_pool,
+        model_limits=model_limits or {
+            name: GeminiModelLimit(rpm=12, tpm=200000, rpd=400)
+            for name in pool
+        },
+        **kwargs,
+    )
+
+
 class FakeClock:
     def __init__(self) -> None:
         self.seconds = 0.0
@@ -42,6 +63,17 @@ class FakeClock:
 
 
 class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
+    def test_missing_model_limits_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Gemini model limits are required"):
+            GeminiAiMetadataProvider("secret", model="gemini-test")
+
+    def test_tuple_model_limits_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "explicit GeminiModelLimit"):
+            GeminiAiMetadataProvider(
+                "secret",
+                model="gemini-test",
+                model_limits={"gemini-test": (12, 400)},  # type: ignore[dict-item]
+            )
     async def test_builds_structured_multimodal_request_and_captures_audit(self):
         async def handler(request):
             self.assertNotIn("key=", str(request.url))
@@ -62,7 +94,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 },
             )
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret", model="gemini-test",
             transport=httpx.MockTransport(handler),
         )
@@ -78,7 +110,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         ):
             async def handler(_request, payload=payload):
                 return httpx.Response(200, json=payload)
-            provider = GeminiAiMetadataProvider(
+            provider = configured_gemini_provider(
                 "secret", transport=httpx.MockTransport(handler)
             )
             with self.assertRaises(AiProviderError) as raised:
@@ -95,7 +127,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         for status, retryable in ((429, True), (400, False)):
             async def handler(_request, status=status):
                 return httpx.Response(status, json={"error": {}})
-            provider = GeminiAiMetadataProvider(
+            provider = configured_gemini_provider(
                 "secret",
                 sleeper=sleeper,
                 transport=httpx.MockTransport(handler),
@@ -109,7 +141,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
     async def test_timeout_is_retryable(self):
         async def handler(request):
             raise httpx.ReadTimeout("timeout", request=request)
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret", transport=httpx.MockTransport(handler)
         )
         with self.assertRaises(AiProviderError) as raised:
@@ -133,11 +165,11 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "modelVersion": model,
             })
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
-            model_limits={"gemini-first": (12, 400), "gemini-second": (12, 400)},
+            model_limits={"gemini-first": GeminiModelLimit(rpm=12, tpm=100, rpd=400), "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=400)},
             transport=httpx.MockTransport(handler),
         )
         result = await provider.analyze_single(analysis_input())
@@ -171,7 +203,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         async def sleeper(delay):
             delays.append(delay)
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
@@ -203,7 +235,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "modelVersion": model,
             })
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
@@ -233,7 +265,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "modelVersion": model,
             })
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
@@ -267,7 +299,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "modelVersion": "gemini-first",
             })
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_limits={
@@ -298,7 +330,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "modelVersion": "gemini-first",
             })
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_limits={
@@ -321,7 +353,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             seen.append(request.url.path)
             return httpx.Response(400, json={"error": {"message": "bad image"}})
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
@@ -345,11 +377,11 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "modelVersion": model,
             })
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
-            model_limits={"gemini-first": (12, 1), "gemini-second": (12, 1)},
+            model_limits={"gemini-first": GeminiModelLimit(rpm=12, tpm=100, rpd=1), "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=1)},
             transport=httpx.MockTransport(handler),
         )
         await provider.analyze_single(analysis_input())
@@ -371,7 +403,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "modelVersion": model,
             })
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
@@ -399,7 +431,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "modelVersion": model,
             })
 
-        provider = GeminiAiMetadataProvider(
+        provider = configured_gemini_provider(
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
@@ -435,7 +467,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 }]})
             raise httpx.ReadTimeout("lost response",request=request)
 
-        provider=GeminiAiMetadataProvider(
+        provider=configured_gemini_provider(
             "secret",model="gemini-test",transport=httpx.MockTransport(handler))
         with tempfile.NamedTemporaryFile("w",delete=False) as handle:
             json.dump({"custom_item_id":"item-1","prompt":"analyze",
@@ -477,7 +509,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                         }]}}
                     }})
             return httpx.Response(200,json={})
-        provider=GeminiAiMetadataProvider(
+        provider=configured_gemini_provider(
             "secret",model="gemini-test",transport=httpx.MockTransport(handler))
         with tempfile.NamedTemporaryFile("w",delete=False) as handle:
             json.dump({"custom_item_id":"item-1","prompt":"analyze",
