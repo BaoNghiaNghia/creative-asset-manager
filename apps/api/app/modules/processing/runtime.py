@@ -8,6 +8,7 @@ from typing import Callable
 
 from app.domain.processing.handlers import (
     ClaimedJob,
+    DeferredJobOutcome,
     JobHandlerContext,
     JobHandlerResult,
     JobOutcome,
@@ -221,10 +222,10 @@ class WorkerRuntime:
                 )
             else:
                 result = handler(context)
-                if not isinstance(result, JobHandlerResult):
+                if not isinstance(result, (JobHandlerResult, DeferredJobOutcome)):
                     result = JobHandlerResult.non_retryable(
                         "invalid_handler_result",
-                        "Handler did not return JobHandlerResult.",
+                        "Handler did not return a supported job result.",
                     )
         except Exception as exc:
             result = JobHandlerResult.retryable(type(exc).__name__, str(exc))
@@ -272,8 +273,16 @@ class WorkerRuntime:
             "job_finished",
             job,
             duration_ms=duration_ms,
-            final_outcome=result.outcome.value,
-            error_code=result.error_code,
+            final_outcome=(
+                result.outcome.value
+                if isinstance(result, JobHandlerResult)
+                else "deferred"
+            ),
+            error_code=(
+                result.error_code
+                if isinstance(result, JobHandlerResult)
+                else result.reason_code
+            ),
         )
 
     def _heartbeat_loop(
@@ -310,10 +319,20 @@ class WorkerRuntime:
                     error_code=type(exc).__name__,
                 )
 
-    def _finalize(self, job: ClaimedJob, result: JobHandlerResult) -> None:
+    def _finalize(
+        self, job: ClaimedJob, result: JobHandlerResult | DeferredJobOutcome
+    ) -> None:
         with self.dependencies.session_factory() as session:
             service = ProcessingJobService(ProcessingRepository(session))
-            if result.outcome is JobOutcome.COMPLETED:
+            if isinstance(result, DeferredJobOutcome):
+                service.defer(
+                    job_id=job.id,
+                    worker_id=self.config.worker_id,
+                    retry_at=result.retry_at,
+                    reason_code=result.reason_code,
+                    reason_message=result.reason_message,
+                )
+            elif result.outcome is JobOutcome.COMPLETED:
                 service.complete(job_id=job.id, worker_id=self.config.worker_id)
             elif result.outcome is JobOutcome.RETRYABLE_FAILURE:
                 service.fail(

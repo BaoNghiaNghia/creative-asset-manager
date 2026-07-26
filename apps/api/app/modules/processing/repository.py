@@ -301,6 +301,36 @@ class ProcessingRepository:
         self.session.flush()
         return job
 
+    def defer_job(
+        self,
+        *,
+        job_id: str,
+        worker_id: str,
+        retry_at: datetime,
+        reason_code: str,
+        reason_message: str,
+        now: datetime | None = None,
+    ) -> ProcessingJobModel:
+        if retry_at.tzinfo is None or retry_at.utcoffset() is None:
+            raise ValueError("retry_at must be timezone-aware")
+        deferred_at = now or utcnow()
+        job = self._owned_processing_job(job_id, worker_id)
+        self._record_execution_duration(job, deferred_at)
+        TenantAwareJobClaimer(self.session).release(job)
+        job.status = JobStatus.PENDING.value
+        job.next_attempt_at = retry_at
+        # Claiming increments attempts. Deferral is not an execution failure.
+        job.attempt_count = max(0, job.attempt_count - 1)
+        job.claimed_by = None
+        job.claimed_at = None
+        job.lease_expires_at = None
+        job.completed_at = None
+        job.last_error_code = reason_code[:100]
+        job.last_error_message = redact_url_queries(reason_message)
+        job.updated_at = deferred_at
+        self.session.flush()
+        return job
+
     def claim_next_outbox_event(
         self,
         *,

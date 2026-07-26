@@ -177,6 +177,71 @@ class ProcessingRepositoryTest(unittest.TestCase):
             self.assertEqual(failed.id, job_id)
             self.assertEqual(repository.count_jobs(), 1)
 
+    def test_deferred_job_waits_until_retry_time_then_worker_can_reclaim(self) -> None:
+        job_id = self._enqueue()
+        retry_at = NOW + timedelta(minutes=5)
+        with self.sessions() as session:
+            repository = ProcessingRepository(session)
+            claimed = repository.claim_next_job(
+                worker_id="worker-a", lease_seconds=30, now=NOW
+            )
+            deferred = repository.defer_job(
+                job_id=claimed.id,
+                worker_id="worker-a",
+                retry_at=retry_at,
+                reason_code="quota_deferred",
+                reason_message="Quota is temporarily unavailable.",
+                now=NOW + timedelta(seconds=1),
+            )
+            session.commit()
+            self.assertEqual(deferred.status, "pending")
+            self.assertEqual(deferred.attempt_count, 0)
+            self.assertIsNone(deferred.claimed_by)
+            self.assertIsNone(deferred.claimed_at)
+            self.assertIsNone(deferred.lease_expires_at)
+
+        with self.sessions() as session:
+            service = ProcessingJobService(ProcessingRepository(session))
+            self.assertIsNone(
+                service.claim_next(
+                    worker_id="worker-b",
+                    lease_seconds=30,
+                    now=retry_at - timedelta(seconds=1),
+                )
+            )
+            reclaimed = service.claim_next(
+                worker_id="worker-b", lease_seconds=30, now=retry_at
+            )
+            self.assertEqual(reclaimed.id, job_id)
+            self.assertEqual(reclaimed.attempt_count, 1)
+
+    def test_completed_and_non_retryable_failure_remain_terminal(self) -> None:
+        completed_id = self._enqueue(key="terminal-completed")
+        failed_id = self._enqueue(key="terminal-failed")
+        with self.sessions() as session:
+            repository = ProcessingRepository(session)
+            completed = repository.claim_next_job(
+                worker_id="worker-a", lease_seconds=30, now=NOW
+            )
+            repository.complete_job(
+                job_id=completed.id, worker_id="worker-a", now=NOW
+            )
+            failed = repository.claim_next_job(
+                worker_id="worker-a", lease_seconds=30, now=NOW
+            )
+            repository.fail_job_non_retryable(
+                job_id=failed.id,
+                worker_id="worker-a",
+                error_code="invalid",
+                error_message="Invalid input.",
+                now=NOW,
+            )
+            session.commit()
+
+        with self.sessions() as session:
+            self.assertEqual(session.get(ProcessingJobModel, completed_id).status, "completed")
+            self.assertEqual(session.get(ProcessingJobModel, failed_id).status, "failed")
+
     def test_domain_mutation_and_outbox_share_transaction(self) -> None:
         with self.sessions() as session:
             assets = AssetRegistryRepository(session)

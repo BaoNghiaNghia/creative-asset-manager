@@ -108,3 +108,22 @@ class ProcessingJobService:
         )
         self.repository.session.commit()
         return job
+
+    def defer(
+        self,
+        *,
+        job_id: str,
+        worker_id: str,
+        retry_at: datetime,
+        reason_code: str,
+        reason_message: str,
+    ) -> ProcessingJobModel:
+        job = self.repository.defer_job(
+            job_id=job_id,
+            worker_id=worker_id,
+            retry_at=retry_at,
+            reason_code=reason_code,
+            reason_message=reason_message,
+        )
+        self.repository.session.commit()
+        return job

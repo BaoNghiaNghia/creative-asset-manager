@@ -16,7 +16,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
 from app.core.database import Base
-from app.domain.processing.handlers import JobHandlerResult, WorkerDependencies
+from app.domain.processing.handlers import (
+    DeferredJobOutcome,
+    JobHandlerResult,
+    WorkerDependencies,
+)
 from app.modules.processing.bootstrap import build_worker_runtime, run_worker
 from app.modules.processing.health import WorkerHealthState
 from app.modules.processing.model import ProcessingJobModel
@@ -126,6 +130,44 @@ class WorkerRuntimeTest(unittest.TestCase):
                 runtime = self.runtime(lambda _context, value=result: value)
                 self.assertTrue(runtime.run_once())
                 self.assertEqual(self.job(job_id).status, status)
+
+    def test_deferred_outcome_requeues_without_consuming_attempt_or_lease(self) -> None:
+        job_id = self.enqueue("deferred")
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        runtime = self.runtime(
+            lambda _context: DeferredJobOutcome(
+                reason_code="temporarily_unavailable",
+                reason_message="Try again later.",
+                retry_at=retry_at,
+            )
+        )
+
+        self.assertTrue(runtime.run_once())
+        stored = self.job(job_id)
+        self.assertEqual(stored.status, "pending")
+        self.assertEqual(stored.attempt_count, 0)
+        self.assertEqual(stored.next_attempt_at.replace(tzinfo=timezone.utc), retry_at)
+        self.assertIsNone(stored.claimed_by)
+        self.assertIsNone(stored.claimed_at)
+        self.assertIsNone(stored.lease_expires_at)
+        self.assertIsNone(stored.completed_at)
+        self.assertEqual(stored.last_error_code, "temporarily_unavailable")
+
+    def test_deferred_outcome_releases_concurrency_once(self) -> None:
+        job_id = self.enqueue("deferred-concurrency")
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        with patch("app.modules.processing.repository.TenantAwareJobClaimer.release") as release:
+            runtime = self.runtime(
+                lambda _context: DeferredJobOutcome(
+                    reason_code="temporarily_unavailable",
+                    reason_message="Try again later.",
+                    retry_at=retry_at,
+                )
+            )
+            self.assertTrue(runtime.run_once())
+        self.assertEqual(release.call_count, 1)
+        self.assertEqual(self.job(job_id).status, "pending")
 
     def test_heartbeat_extends_the_lease(self) -> None:
         job_id = self.enqueue("heartbeat")

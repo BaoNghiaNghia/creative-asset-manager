@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from threading import Event
 from typing import Any, Protocol
@@ -40,6 +41,24 @@ class JobHandlerResult:
     @classmethod
     def cancelled(cls, message: str = "Job execution was interrupted.") -> "JobHandlerResult":
         return cls(JobOutcome.CANCELLED, "worker_interrupted", message)
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredJobOutcome:
+    """Returns a claimed job to the queue without consuming an attempt."""
+
+    reason_code: str
+    reason_message: str
+    retry_at: datetime
+    metadata: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.reason_code:
+            raise ValueError("reason_code is required")
+        if not self.reason_message:
+            raise ValueError("reason_message is required")
+        if self.retry_at.tzinfo is None or self.retry_at.utcoffset() is None:
+            raise ValueError("retry_at must be timezone-aware")
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,4 +122,4 @@ class JobHandlerContext:
 
 
 class JobHandler(Protocol):
-    def __call__(self, context: JobHandlerContext) -> JobHandlerResult: ...
+    def __call__(self, context: JobHandlerContext) -> JobHandlerResult | DeferredJobOutcome: ...
