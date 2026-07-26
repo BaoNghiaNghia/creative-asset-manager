@@ -30,3 +30,6 @@
 
 /* Dense KPI layout: five cards on wide workspaces, four on regular desktops. */
 .ops-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}@media(min-width:1700px){.ops-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+/* The asset-grid checkbox is absolutely positioned; configuration toggles are normal form controls. */
+.ops-configuration label.check{position:static;z-index:auto;width:auto;height:auto;min-height:40px;padding:8px 10px;border:1px solid #dbe3ee;border-radius:8px;background:#f8fafc;color:#344054;cursor:pointer}.ops-configuration label.check:hover{border-color:#9fb7e5;box-shadow:none}.ops-configuration label.check input{width:16px;height:16px;margin:0;padding:0;accent-color:#315fe9}.ops-configuration label.check:has(input:checked){border-color:#a9bee9;background:#f1f5ff;color:#244c9d}
