@@ -90,6 +90,7 @@ async def execute(args: argparse.Namespace) -> dict:
                 ElasticsearchV2Config(
                     args.elasticsearch_url,
                     index_prefix=args.index_prefix,
+                    index_generation=index_generation,
                 )
             )
         try:
