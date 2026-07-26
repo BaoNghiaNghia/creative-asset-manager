@@ -37,6 +37,52 @@ class GeminiModelLimit:
     rpd: int
 
 
+@dataclass(frozen=True, slots=True)
+class GeminiModelUnavailable:
+    model: str
+    reason: str
+    available_at: datetime
+    permanent: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "reason": self.reason,
+            "available_at": self.available_at.isoformat(),
+            "permanent": self.permanent,
+        }
+
+
+class GeminiPoolTemporarilyUnavailable(AiProviderError):
+    def __init__(
+        self,
+        *,
+        attempted_models: list[str],
+        reasons_by_model: Mapping[str, GeminiModelUnavailable],
+        earliest_retry_at: datetime,
+    ):
+        if earliest_retry_at.tzinfo is None or earliest_retry_at.utcoffset() is None:
+            raise ValueError("earliest_retry_at must be timezone-aware")
+        self.provider = "gemini"
+        self.attempted_models = tuple(attempted_models)
+        self.reasons_by_model = dict(reasons_by_model)
+        self.earliest_retry_at = earliest_retry_at
+        super().__init__(
+            "No Gemini model is currently available.",
+            code="gemini_model_pool_temporarily_unavailable",
+            retryable=True,
+            details={
+                "provider": "gemini",
+                "attempted_models": list(self.attempted_models),
+                "reasons_by_model": {
+                    model: unavailable.as_dict()
+                    for model, unavailable in self.reasons_by_model.items()
+                },
+                "earliest_retry_at": earliest_retry_at.isoformat(),
+            },
+        )
+
+
 @dataclass
 class _InputTokenReservation:
     recorded_at: float
@@ -130,10 +176,12 @@ class GeminiAiMetadataProvider:
         self._check_cancelled(input)
         attempted_models: list[str] = []
         reasons: list[str] = []
+        unavailable_by_model: dict[str, GeminiModelUnavailable] = {}
         for model in self._models:
             reservation, unavailable = await self._reserve_request(model, input)
             if unavailable is not None:
-                reasons.append(f"{model}:{unavailable}")
+                unavailable_by_model[model] = unavailable
+                reasons.append(f"{model}:{unavailable.reason}")
                 continue
             assert reservation is not None
             attempted_models.append(model)
@@ -141,30 +189,43 @@ class GeminiAiMetadataProvider:
                 try:
                     result = await self._analyze_model(model, input)
                 except AiProviderError as exc:
-                    if exc.status_code == 429 and exc.details.get("daily_quota"):
-                        await self._mark_daily_exhausted(model)
-                        reasons.append(f"{model}:daily_quota_exhausted")
-                        continue
                     if exc.status_code == 429:
-                        retry_after = exc.details.get("retry_after_seconds")
-                        await self._mark_cooldown(model, retry_after)
-                        reasons.append(f"{model}:rate_limited")
+                        unavailable = await self._mark_quota_unavailable(
+                            model,
+                            str(exc.details.get("quota_reason") or "rpm_exhausted"),
+                            exc.details.get("retry_after_seconds"),
+                        )
+                        unavailable_by_model[model] = unavailable
+                        reasons.append(f"{model}:{unavailable.reason}")
                         continue
                     if exc.status_code == 503:
-                        await self._mark_cooldown(model)
-                        reasons.append(f"{model}:cooldown")
+                        unavailable = await self._mark_cooldown(model)
+                        unavailable_by_model[model] = unavailable
+                        reasons.append(f"{model}:{unavailable.reason}")
                         continue
                     raise self._with_failover_audit(exc, attempted_models, reasons)
                 await self._reconcile_input_tokens(model, reservation, result.usage)
                 return self._with_failover_result(result, attempted_models, reasons)
             finally:
                 await self._release_request(model)
+
+        if unavailable_by_model:
+            earliest_retry_at = min(
+                unavailable.available_at
+                for unavailable in unavailable_by_model.values()
+            )
+            raise GeminiPoolTemporarilyUnavailable(
+                attempted_models=attempted_models,
+                reasons_by_model=unavailable_by_model,
+                earliest_retry_at=earliest_retry_at,
+            )
         raise AiProviderError(
             "No Gemini model is currently available.",
             code="gemini_model_pool_exhausted",
             retryable=True,
             details=self._audit_details(attempted_models, reasons),
         )
+
     async def _analyze_model(
         self, model: str, input: AiMetadataAnalysisInput
     ) -> AiMetadataAnalysisResult:
@@ -211,13 +272,13 @@ class GeminiAiMetadataProvider:
             raise AiProviderError(
                 "Gemini returned malformed JSON.",
                 code="gemini_invalid_json",
-                retryable=True,
+                retryable=False,
             ) from exc
         if not isinstance(metadata, Mapping):
             raise AiProviderError(
                 "Gemini metadata root must be an object.",
                 code="gemini_invalid_document",
-                retryable=True,
+                retryable=False,
             )
         candidate = (payload.get("candidates") or [{}])[0]
         return AiMetadataAnalysisResult(
@@ -235,35 +296,57 @@ class GeminiAiMetadataProvider:
 
     async def _reserve_request(
         self, model: str, input: AiMetadataAnalysisInput
-    ) -> tuple[_InputTokenReservation | None, str | None]:
+    ) -> tuple[_InputTokenReservation | None, GeminiModelUnavailable | None]:
         runtime = self._runtime[model]
         async with runtime.lock:
-            now = self._now()
+            now = self._aware_now()
             pacific_day = now.astimezone(_PACIFIC_TIME).date()
             if runtime.day != pacific_day:
                 runtime.day, runtime.daily_requests = pacific_day, 0
                 runtime.daily_exhausted_until = None
             if runtime.daily_exhausted_until and runtime.daily_exhausted_until > now:
-                return None, "daily_quota_exhausted"
+                return None, self._unavailable(
+                    model, "rpd_exhausted", runtime.daily_exhausted_until, now
+                )
             if runtime.cooldown_until and runtime.cooldown_until > now:
-                return None, "cooldown"
+                return None, self._unavailable(
+                    model, "cooldown", runtime.cooldown_until, now
+                )
             if runtime.in_flight:
-                return None, "concurrency_limited"
+                return None, self._unavailable(
+                    model, "in_flight", now + timedelta(seconds=1), now
+                )
 
             current = self._clock()
             self._prune_rolling_window(runtime, current)
             limit = self._limits[model]
             if runtime.daily_requests >= limit.rpd:
                 self._set_daily_exhausted(runtime)
-                return None, "daily_quota_exhausted"
+                return None, self._unavailable(
+                    model, "rpd_exhausted", runtime.daily_exhausted_until, now
+                )
             if len(runtime.recent_requests) >= limit.rpm:
-                runtime.cooldown_until = self._now() + self._cooldown
-                return None, "rpm_limit_reached"
+                return None, self._unavailable(
+                    model,
+                    "rpm_exhausted",
+                    self._rolling_available_at(
+                        now, current, runtime.recent_requests[0]
+                    ),
+                    now,
+                )
 
             estimated_tokens = self._estimate_input_tokens(input)
             reserved_tokens = sum(item.tokens for item in runtime.recent_input_tokens)
             if reserved_tokens + estimated_tokens > limit.tpm:
-                return None, "tpm_limit_reached"
+                return None, self._unavailable(
+                    model,
+                    "tpm_exhausted",
+                    self._tpm_available_at(
+                        now, current, runtime.recent_input_tokens,
+                        reserved_tokens, estimated_tokens, limit.tpm,
+                    ),
+                    now,
+                )
 
             reservation = _InputTokenReservation(
                 recorded_at=current,
@@ -296,15 +379,35 @@ class GeminiAiMetadataProvider:
 
     async def _mark_cooldown(
         self, model: str, retry_after_seconds: Any | None = None
-    ) -> None:
+    ) -> GeminiModelUnavailable:
         seconds = self._cooldown.total_seconds()
         if isinstance(retry_after_seconds, (int, float)) and retry_after_seconds >= 0:
             seconds = float(retry_after_seconds)
         runtime = self._runtime[model]
         async with runtime.lock:
-            cooldown_until = self._now() + timedelta(seconds=seconds)
+            now = self._aware_now()
+            cooldown_until = now + timedelta(seconds=seconds)
             if runtime.cooldown_until is None or cooldown_until > runtime.cooldown_until:
                 runtime.cooldown_until = cooldown_until
+            return self._unavailable(model, "cooldown", runtime.cooldown_until, now)
+
+    async def _mark_quota_unavailable(
+        self, model: str, reason: str, retry_after_seconds: Any | None
+    ) -> GeminiModelUnavailable:
+        if reason == "rpd_exhausted":
+            await self._mark_daily_exhausted(model)
+            runtime = self._runtime[model]
+            async with runtime.lock:
+                now = self._aware_now()
+                return self._unavailable(
+                    model, reason, runtime.daily_exhausted_until, now
+                )
+        cooldown = await self._mark_cooldown(model, retry_after_seconds)
+        return GeminiModelUnavailable(
+            model=model,
+            reason=reason if reason in {"rpm_exhausted", "tpm_exhausted"} else cooldown.reason,
+            available_at=cooldown.available_at,
+        )
 
     async def _mark_daily_exhausted(self, model: str) -> None:
         runtime = self._runtime[model]
@@ -312,10 +415,51 @@ class GeminiAiMetadataProvider:
             self._set_daily_exhausted(runtime)
 
     def _set_daily_exhausted(self, runtime: _ModelRuntime) -> None:
-        now = self._now().astimezone(_PACIFIC_TIME)
+        now = self._aware_now().astimezone(_PACIFIC_TIME)
         tomorrow = now.date() + timedelta(days=1)
         reset = datetime.combine(tomorrow, datetime.min.time(), tzinfo=_PACIFIC_TIME)
         runtime.daily_exhausted_until = reset.astimezone(timezone.utc)
+
+    def _aware_now(self) -> datetime:
+        now = self._now()
+        if now.tzinfo is None or now.utcoffset() is None:
+            return now.replace(tzinfo=timezone.utc)
+        return now.astimezone(timezone.utc)
+
+    @staticmethod
+    def _unavailable(
+        model: str, reason: str, available_at: datetime | None, now: datetime
+    ) -> GeminiModelUnavailable:
+        candidate = available_at or now + timedelta(seconds=1)
+        if candidate.tzinfo is None or candidate.utcoffset() is None:
+            candidate = candidate.replace(tzinfo=timezone.utc)
+        candidate = candidate.astimezone(timezone.utc)
+        if candidate <= now:
+            candidate = now + timedelta(milliseconds=1)
+        return GeminiModelUnavailable(model=model, reason=reason, available_at=candidate)
+
+    @staticmethod
+    def _rolling_available_at(
+        now: datetime, current: float, recorded_at: float
+    ) -> datetime:
+        return now + timedelta(seconds=max(0.0, 60 - (current - recorded_at)))
+
+    @classmethod
+    def _tpm_available_at(
+        cls,
+        now: datetime,
+        current: float,
+        reservations: deque[_InputTokenReservation],
+        reserved_tokens: int,
+        estimated_tokens: int,
+        limit: int,
+    ) -> datetime:
+        remaining = reserved_tokens
+        for reservation in reservations:
+            remaining -= reservation.tokens
+            if remaining + estimated_tokens <= limit:
+                return cls._rolling_available_at(now, current, reservation.recorded_at)
+        return now + timedelta(seconds=60)
 
     @staticmethod
     def _estimate_input_tokens(input: AiMetadataAnalysisInput) -> int:
@@ -340,6 +484,7 @@ class GeminiAiMetadataProvider:
             and current - runtime.recent_input_tokens[0].recorded_at >= 60
         ):
             runtime.recent_input_tokens.popleft()
+
     def _audit_details(self, attempted_models: list[str], reasons: list[str]) -> dict[str, Any]:
         return {
             "requested_model": self.model,
@@ -594,13 +739,13 @@ class GeminiAiMetadataProvider:
             raise AiProviderError(
                 "Gemini returned a non-JSON response.",
                 code="gemini_invalid_response",
-                retryable=True,
+                retryable=False,
             ) from exc
         if not isinstance(payload, dict):
             raise AiProviderError(
                 "Gemini returned an invalid response object.",
                 code="gemini_invalid_response",
-                retryable=True,
+                retryable=False,
             )
         return payload
 
@@ -619,7 +764,7 @@ class GeminiAiMetadataProvider:
             raise AiProviderError(
                 "Gemini returned no metadata document.",
                 code="gemini_empty_response",
-                retryable=True,
+                retryable=False,
             )
         return text
 
@@ -634,10 +779,8 @@ class GeminiAiMetadataProvider:
                 retry_after = max(0.0, float(value))
             except ValueError:
                 retry_after = None
-        body = response.text.lower()
-        daily_quota = any(term in body for term in (
-            "per day", "daily quota", "per-day", "rpd",
-        ))
+        quota_reason = GeminiAiMetadataProvider._quota_reason(response)
+        daily_quota = quota_reason == "rpd_exhausted"
         retryable = (
             response.status_code in {408, 409, 425, 429}
             or response.status_code >= 500
@@ -650,8 +793,35 @@ class GeminiAiMetadataProvider:
             details={
                 "retry_after_seconds": retry_after,
                 "daily_quota": daily_quota,
+                "quota_reason": quota_reason,
             },
         )
+
+    @staticmethod
+    def _quota_reason(response: httpx.Response) -> str:
+        values = [response.text.lower()]
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, Mapping):
+            error = payload.get("error")
+            if isinstance(error, Mapping):
+                details = error.get("details")
+                if isinstance(details, list):
+                    values.extend(str(detail).lower() for detail in details)
+                for key in ("message", "status", "quotaMetric", "quotaId"):
+                    value = error.get(key)
+                    if value is not None:
+                        values.append(str(value).lower())
+        text = " ".join(values)
+        if any(term in text for term in ("per day", "daily quota", "per-day", "rpd")):
+            return "rpd_exhausted"
+        if any(term in text for term in (
+            "tokens per minute", "token count per minute", "input_token", "tpm",
+        )):
+            return "tpm_exhausted"
+        return "rpm_exhausted"
 
     @staticmethod
     def _check_cancelled(input: AiMetadataAnalysisInput) -> None:

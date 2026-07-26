@@ -6,7 +6,11 @@ import asyncio
 import httpx
 
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiProviderError
-from app.providers.ai.gemini import GeminiAiMetadataProvider, GeminiModelLimit
+from app.providers.ai.gemini import (
+    GeminiAiMetadataProvider,
+    GeminiModelLimit,
+    GeminiPoolTemporarilyUnavailable,
+)
 
 
 def analysis_input():
@@ -110,7 +114,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.provider_request_id, "request-1")
         self.assertEqual(result.usage["totalTokenCount"], 9)
 
-    async def test_malformed_and_empty_output_are_retryable(self):
+    async def test_malformed_and_empty_output_are_permanent_provider_errors(self):
         for payload, code in (
             ({"candidates": [{"content": {"parts": [{"text": "nope"}]}}]}, "gemini_invalid_json"),
             ({"candidates": []}, "gemini_empty_response"),
@@ -123,7 +127,10 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AiProviderError) as raised:
                 await provider.analyze_single(analysis_input())
             self.assertEqual(raised.exception.code, code)
-            self.assertTrue(raised.exception.retryable)
+            self.assertFalse(raised.exception.retryable)
+            self.assertNotIsInstance(
+                raised.exception, GeminiPoolTemporarilyUnavailable
+            )
 
     async def test_rate_limit_is_retryable_and_bad_request_is_permanent(self):
         delays = []
@@ -186,7 +193,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.provider_metadata["requested_model"], "gemini-first")
         self.assertEqual(result.provider_metadata["actual_model"], "gemini-second")
         self.assertEqual(result.provider_metadata["attempted_models"], ["gemini-first", "gemini-second"])
-        self.assertIn("daily_quota_exhausted", result.provider_metadata["failover_reason"])
+        self.assertIn("rpd_exhausted", result.provider_metadata["failover_reason"])
 
     async def test_rate_limit_tries_next_model_without_sleep(self):
         seen = []
@@ -228,7 +235,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen, ["gemini-first", "gemini-second"])
         self.assertEqual(delays, [])
         self.assertEqual(result.model, "gemini-second")
-        self.assertIn("gemini-first:rate_limited", result.provider_metadata["failover_reason"])
+        self.assertIn("gemini-first:rpm_exhausted", result.provider_metadata["failover_reason"])
 
     async def test_tpm_limit_uses_next_available_model(self):
         seen = []
@@ -258,7 +265,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(seen, ["gemini-second"])
         self.assertEqual(result.model, "gemini-second")
-        self.assertIn("gemini-first:tpm_limit_reached", result.provider_metadata["failover_reason"])
+        self.assertIn("gemini-first:tpm_exhausted", result.provider_metadata["failover_reason"])
 
     async def test_rpm_limit_uses_next_available_model(self):
         seen = []
@@ -291,7 +298,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen, ["gemini-first", "gemini-second"])
         self.assertEqual(second.model, "gemini-second")
         self.assertIn(
-            "gemini-first:rpm_limit_reached",
+            "gemini-first:rpm_exhausted",
             second.provider_metadata["failover_reason"],
         )
     async def test_tpm_reservation_reconciles_prompt_usage(self):
@@ -454,6 +461,123 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen.count("gemini-first"), 1)
         self.assertEqual(seen.count("gemini-second"), 1)
 
+
+    async def test_all_rpm_limited_models_return_earliest_retry(self):
+        clock = FakeClock()
+
+        async def handler(_request):
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+            })
+
+        provider = configured_gemini_provider(
+            "secret",
+            model="gemini-first",
+            model_pool=("gemini-first", "gemini-second"),
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=1, tpm=100, rpd=10),
+                "gemini-second": GeminiModelLimit(rpm=1, tpm=100, rpd=10),
+            },
+            clock=clock,
+            now=clock.now,
+            transport=httpx.MockTransport(handler),
+        )
+        await provider.analyze_single(analysis_input())
+        await provider.analyze_single(analysis_input())
+        with self.assertRaises(GeminiPoolTemporarilyUnavailable) as raised:
+            await provider.analyze_single(analysis_input())
+
+        error = raised.exception
+        self.assertEqual(error.reasons_by_model["gemini-first"].reason, "rpm_exhausted")
+        self.assertEqual(error.reasons_by_model["gemini-second"].reason, "rpm_exhausted")
+        self.assertEqual(error.earliest_retry_at, clock.now() + timedelta(seconds=60))
+        self.assertEqual(error.provider, "gemini")
+        self.assertEqual(error.details["provider"], "gemini")
+
+    async def test_all_tpm_limited_models_return_earliest_retry(self):
+        clock = FakeClock()
+
+        async def handler(_request):
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+            })
+
+        provider = configured_gemini_provider(
+            "secret",
+            model="gemini-first",
+            model_pool=("gemini-first", "gemini-second"),
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=10, tpm=6, rpd=10),
+                "gemini-second": GeminiModelLimit(rpm=10, tpm=6, rpd=10),
+            },
+            clock=clock,
+            now=clock.now,
+            transport=httpx.MockTransport(handler),
+        )
+        await provider.analyze_single(analysis_input())
+        await provider.analyze_single(analysis_input())
+        with self.assertRaises(GeminiPoolTemporarilyUnavailable) as raised:
+            await provider.analyze_single(analysis_input())
+
+        self.assertEqual(
+            {item.reason for item in raised.exception.reasons_by_model.values()},
+            {"tpm_exhausted"},
+        )
+        self.assertEqual(raised.exception.earliest_retry_at, clock.now() + timedelta(seconds=60))
+
+    async def test_all_rpd_limited_models_return_next_pacific_reset(self):
+        clock = FakeClock()
+
+        async def handler(_request):
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+            })
+
+        provider = configured_gemini_provider(
+            "secret",
+            model="gemini-first",
+            model_pool=("gemini-first", "gemini-second"),
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=10, tpm=100, rpd=1),
+                "gemini-second": GeminiModelLimit(rpm=10, tpm=100, rpd=1),
+            },
+            clock=clock,
+            now=clock.now,
+            transport=httpx.MockTransport(handler),
+        )
+        await provider.analyze_single(analysis_input())
+        await provider.analyze_single(analysis_input())
+        with self.assertRaises(GeminiPoolTemporarilyUnavailable) as raised:
+            await provider.analyze_single(analysis_input())
+
+        self.assertEqual(
+            {item.reason for item in raised.exception.reasons_by_model.values()},
+            {"rpd_exhausted"},
+        )
+        self.assertGreater(raised.exception.earliest_retry_at, clock.now())
+
+    async def test_cooldown_and_in_flight_availability_use_earliest_retry(self):
+        clock = FakeClock()
+        provider = configured_gemini_provider(
+            "secret",
+            model="gemini-first",
+            model_pool=("gemini-first", "gemini-second"),
+            clock=clock,
+            now=clock.now,
+            transport=httpx.MockTransport(lambda _request: None),
+        )
+        first = provider._runtime["gemini-first"]
+        second = provider._runtime["gemini-second"]
+        first.cooldown_until = clock.now() + timedelta(seconds=30)
+        second.in_flight = True
+
+        with self.assertRaises(GeminiPoolTemporarilyUnavailable) as raised:
+            await provider.analyze_single(analysis_input())
+
+        error = raised.exception
+        self.assertEqual(error.reasons_by_model["gemini-first"].reason, "cooldown")
+        self.assertEqual(error.reasons_by_model["gemini-second"].reason, "in_flight")
+        self.assertEqual(error.earliest_retry_at, clock.now() + timedelta(seconds=1))
 
     async def test_batch_submit_recovers_ambiguous_transport_by_display_name(self):
         import tempfile
