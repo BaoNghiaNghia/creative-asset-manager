@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.providers.ai.gemini import GeminiModelLimit
+
 _BUILD_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
 _ROLE_KEY_RE = re.compile(r"^[a-z][a-z0-9_.-]{1,127}$")
 
@@ -98,8 +100,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     GEMINI_TIMEOUT_SECONDS: float = 45.0
-    GEMINI_ALLOWED_MODELS: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash"
-    GEMINI_MODEL_POOL: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash"
+    GEMINI_ALLOWED_MODELS: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
+    GEMINI_MODEL_POOL: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
     GEMINI_MODEL_LIMITS: str = ""
     GEMINI_MODEL_COOLDOWN_SECONDS: float = 60.0
     OPENAI_AI_ENABLED: bool = False
@@ -253,14 +255,15 @@ class Settings(BaseSettings):
         return pool or (self.GEMINI_MODEL,)
 
     @property
-    def gemini_model_limits(self) -> dict[str, tuple[int, int]]:
+    def gemini_model_limits(self) -> dict[str, GeminiModelLimit]:
         defaults = {
-            "gemini-3.5-flash-lite": (12, 400),
-            "gemini-3.1-flash-lite": (12, 400),
-            "gemini-3.6-flash": (4, 16),
-            "gemini-2.5-flash": (4, 16),
+            "gemini-3.5-flash-lite": GeminiModelLimit(rpm=12, tpm=200000, rpd=400),
+            "gemini-3.1-flash-lite": GeminiModelLimit(rpm=12, tpm=200000, rpd=400),
+            "gemini-3.6-flash": GeminiModelLimit(rpm=4, tpm=200000, rpd=16),
+            "gemini-2.5-flash-lite": GeminiModelLimit(rpm=8, tpm=200000, rpd=16),
+            "gemini-2.5-flash": GeminiModelLimit(rpm=4, tpm=200000, rpd=16),
         }
-        configured: dict[str, tuple[int, int]] = {}
+        configured: dict[str, GeminiModelLimit] = {}
         if self.GEMINI_MODEL_LIMITS.strip():
             try:
                 raw = json.loads(self.GEMINI_MODEL_LIMITS)
@@ -271,14 +274,22 @@ class Settings(BaseSettings):
             for model, limits in raw.items():
                 if not isinstance(model, str) or not isinstance(limits, dict):
                     raise ValueError("GEMINI_MODEL_LIMITS entries must be model objects")
-                rpm, rpd = limits.get("rpm"), limits.get("rpd")
-                if not isinstance(rpm, int) or not isinstance(rpd, int) or rpm < 1 or rpd < 1:
-                    raise ValueError("GEMINI_MODEL_LIMITS rpm and rpd must be positive integers")
-                configured[model] = (rpm, rpd)
-        return {
-            model: configured.get(model, defaults.get(model, (1, 1)))
-            for model in self.gemini_model_pool
-        }
+                rpm, tpm, rpd = limits.get("rpm"), limits.get("tpm"), limits.get("rpd")
+                if any(type(value) is not int or value < 1 for value in (rpm, tpm, rpd)):
+                    raise ValueError(
+                        "GEMINI_MODEL_LIMITS rpm, tpm and rpd must be positive integers"
+                    )
+                configured[model] = GeminiModelLimit(rpm=rpm, tpm=tpm, rpd=rpd)
+
+        limits_by_model: dict[str, GeminiModelLimit] = {}
+        for model in self.gemini_model_pool:
+            limit = configured.get(model, defaults.get(model))
+            if limit is None:
+                raise ValueError(
+                    "GEMINI_MODEL_LIMITS must define rpm, tpm and rpd for every model in GEMINI_MODEL_POOL"
+                )
+            limits_by_model[model] = limit
+        return limits_by_model
 
     @property
     def openai_allowed_models(self) -> tuple[str, ...]:
@@ -651,6 +662,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GEMINI_MODEL must be in GEMINI_ALLOWED_MODELS"
             )
+        self.gemini_model_limits
         if self.OPENAI_BASE_URL:
             openai_url = urlsplit(self.OPENAI_BASE_URL)
             if (

@@ -30,6 +30,13 @@ from app.domain.providers.contracts import (
 _PACIFIC_TIME = ZoneInfo("America/Los_Angeles")
 
 
+@dataclass(frozen=True)
+class GeminiModelLimit:
+    rpm: int
+    tpm: int
+    rpd: int
+
+
 @dataclass
 class _ModelRuntime:
     recent_requests: deque[float] = field(default_factory=deque)
@@ -57,7 +64,7 @@ class GeminiAiMetadataProvider:
         timeout_seconds: float = 45.0,
         transport: httpx.AsyncBaseTransport | None = None,
         model_pool: tuple[str, ...] | None = None,
-        model_limits: Mapping[str, tuple[int, int]] | None = None,
+        model_limits: Mapping[str, GeminiModelLimit | tuple[int, int]] | None = None,
         cooldown_seconds: float = 60.0,
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ):
@@ -74,14 +81,26 @@ class GeminiAiMetadataProvider:
         self._transport = transport
         self._models = tuple(dict.fromkeys(model_pool or (model,)))
         self._limits = {
-            name: tuple((model_limits or {}).get(name, (1, 1)))
+            name: self._coerce_model_limit(
+                (model_limits or {}).get(name, GeminiModelLimit(1, 1, 1))
+            )
             for name in self._models
         }
-        if any(rpm < 1 or rpd < 1 for rpm, rpd in self._limits.values()):
+        if any(
+            limit.rpm < 1 or limit.tpm < 1 or limit.rpd < 1
+            for limit in self._limits.values()
+        ):
             raise ValueError("Gemini model limits must be positive")
         self._runtime = {name: _ModelRuntime() for name in self._models}
         self._cooldown = timedelta(seconds=cooldown_seconds)
         self._sleeper = sleeper
+
+    @staticmethod
+    def _coerce_model_limit(value: GeminiModelLimit | tuple[int, int]) -> GeminiModelLimit:
+        if isinstance(value, GeminiModelLimit):
+            return value
+        rpm, rpd = value
+        return GeminiModelLimit(rpm=rpm, tpm=1, rpd=rpd)
 
     async def analyze_single(
         self, input: AiMetadataAnalysisInput
@@ -221,7 +240,8 @@ class GeminiAiMetadataProvider:
             return "cooldown"
         if runtime.in_flight:
             return "concurrency_limited"
-        rpm, rpd = self._limits[model]
+        limit = self._limits[model]
+        rpm, rpd = limit.rpm, limit.rpd
         current = time.monotonic()
         while runtime.recent_requests and current - runtime.recent_requests[0] >= 60:
             runtime.recent_requests.popleft()

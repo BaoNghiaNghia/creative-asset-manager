@@ -5,6 +5,7 @@ from unittest.mock import patch
 from pydantic import ValidationError
 
 from app.core.config import Settings, get_settings
+from app.providers.ai.gemini import GeminiModelLimit
 
 
 FEATURE_FLAGS = (
@@ -84,18 +85,36 @@ class SettingsTest(unittest.TestCase):
                 "gemini-3.5-flash-lite",
                 "gemini-3.1-flash-lite",
                 "gemini-3.6-flash",
+                "gemini-2.5-flash-lite",
                 "gemini-2.5-flash",
             ),
         )
+        self.assertEqual(
+            defaults.gemini_model_limits["gemini-2.5-flash-lite"],
+            GeminiModelLimit(rpm=8, tpm=200000, rpd=16),
+        )
         configured = Settings(
             GEMINI_MODEL_POOL="one,two",
-            GEMINI_MODEL_LIMITS='{"one":{"rpm":2,"rpd":3},"two":{"rpm":4,"rpd":5}}',
+            GEMINI_MODEL_LIMITS='{"one":{"rpm":2,"tpm":200,"rpd":3},"two":{"rpm":4,"tpm":500,"rpd":5}}',
         )
-        self.assertEqual(configured.gemini_model_limits, {"one": (2, 3), "two": (4, 5)})
+        self.assertEqual(
+            configured.gemini_model_limits,
+            {
+                "one": GeminiModelLimit(rpm=2, tpm=200, rpd=3),
+                "two": GeminiModelLimit(rpm=4, tpm=500, rpd=5),
+            },
+        )
 
     def test_invalid_gemini_model_limits_fail_closed(self) -> None:
         with self.assertRaises(ValueError):
-            Settings(GEMINI_MODEL_LIMITS='{"gemini-3.5-flash-lite":{"rpm":0,"rpd":400}}').gemini_model_limits
+            Settings(
+                GEMINI_MODEL_LIMITS='{"gemini-3.5-flash-lite":{"rpm":12,"rpd":400}}'
+            )
+        with self.assertRaises(ValueError):
+            Settings(
+                GEMINI_MODEL_POOL="one,two",
+                GEMINI_MODEL_LIMITS='{"one":{"rpm":2,"tpm":200,"rpd":3}}',
+            )
 
 
     def test_invalid_feature_flag_fails_validation(self) -> None:
