@@ -76,6 +76,7 @@ export type AiOpsJob = {
   priority: number;
   attempt_count: number;
   max_attempts: number;
+  processing_duration_ms: number;
   next_attempt_at: string;
   claimed_at: string | null;
   lease_expires_at: string | null;

@@ -841,7 +841,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .asset-inspector>nav button.active:after{content:"";position:absolute;right:0;bottom:0;left:0;height:3px;border-radius:3px 3px 0 0;background:#3468e8}
 .asset-inspector .asset-details-body{padding:16px 16px 90px}
 .inspector-preview{position:relative;display:grid;min-height:190px;place-items:center;overflow:hidden;border:1px solid #e2e7ee;border-radius:12px;background:linear-gradient(145deg,#f5f7fa,#edf1f5)}
-.inspector-preview>img{display:block;width:100%;max-height:270px;object-fit:contain;background:#f1f3f6}
+.inspector-preview>img{display:block;width:100%;object-fit:contain;background:#f1f3f6}
 .inspector-preview>button{position:absolute;right:10px;bottom:10px;padding:7px 11px;border:1px solid #cad4e2;border-radius:8px;background:#fffffff2;color:#254e9f;cursor:pointer;font-size:11px;font-weight:750;box-shadow:0 3px 12px #1821331c}
 .inspector-preview>button:hover{background:#fff;border-color:#9db4df}
 .inspector-play{position:absolute;display:grid;width:48px;height:48px;place-items:center;padding-left:3px;border:2px solid #ffffffdd;border-radius:50%;background:#172033b8;color:#fff;font-size:19px;box-shadow:0 4px 18px #1018284d}

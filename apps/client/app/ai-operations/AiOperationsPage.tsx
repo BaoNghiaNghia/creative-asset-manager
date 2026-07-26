@@ -277,7 +277,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted }:
           <td><StatusText status={job.status} /></td><td><code>{assetId || "—"}</code></td>
           <td>{providerLabel(job.provider)}</td><td>{usage?.model || "—"}</td><td>{modeLabel(mode)}</td>
           <td>{usage?.metadata_profile || "—"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
-          <td>{formatDuration(job.claimed_at || job.created_at, job.completed_at || (job.status === "processing" ? job.updated_at : null))}</td>
+          <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
           <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><code>{job.error?.code || "—"}</code></td>
           <td><div className="ops-job-actions">
             {assetId ? <a aria-label={`View asset ${assetId}`} href={`/?details=1&asset=${encodeURIComponent(assetId)}`}>View</a> : <span title="Asset identity is not available yet">Unavailable</span>}
@@ -290,6 +290,12 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted }:
   </div>;
 }
 
+export function formatProcessingDuration(durationMs: number | null | undefined): string {
+  if (!Number.isFinite(durationMs) || !durationMs || durationMs < 0) return "—";
+  if (durationMs < 1000) return `${durationMs} ms`;
+  if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)} s`;
+  return `${(durationMs / 60_000).toFixed(1)} min`;
+}
 export type ProcessingJobActionKind = "retry" | "cancel";
 
 export function eligibleProcessingAction(job: AiOpsJob): ProcessingJobActionKind | null {

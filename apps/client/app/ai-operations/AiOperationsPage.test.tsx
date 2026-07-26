@@ -20,6 +20,7 @@ import {
   AiOperationsFilters,
   AiOperationsShell,
   eligibleProcessingAction,
+  formatProcessingDuration,
   emptyDashboard,
   handleTabKeyDown,
   pageFilters,
@@ -114,6 +115,7 @@ const data: AiOpsDashboardData = {
       priority: 10,
       attempt_count: 1,
       max_attempts: 3,
+      processing_duration_ms: 2_000,
       next_attempt_at: "2026-07-21T10:00:00Z",
       claimed_at: "2026-07-21T10:00:00Z",
       lease_expires_at: null,
@@ -192,6 +194,12 @@ describe("AI Operations dashboard", () => {
     ]) expect(markup).toContain(value);
     expect(markup).toContain('role="img"');
     expect(markup).toContain("provider_timeout");
+  });
+
+  it("formats only accumulated worker execution time for completed jobs", () => {
+    expect(formatProcessingDuration(2_000)).toBe("2.0 s");
+    expect(formatProcessingDuration(125_000)).toBe("2.1 min");
+    expect(formatProcessingDuration(0)).toBe("—");
   });
 
   it("renders processing details, stable errors, pagination and the real asset link", () => {
