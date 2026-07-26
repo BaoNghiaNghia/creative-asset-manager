@@ -202,6 +202,7 @@ class ProcessingRepository:
         if job.status == JobStatus.COMPLETED.value:
             return job
         self._assert_owned(job, worker_id)
+        self._record_execution_duration(job, completed_at)
         job.status = JobStatus.COMPLETED.value
         job.completed_at = completed_at
         job.claimed_by = None
@@ -227,6 +228,7 @@ class ProcessingRepository:
     ) -> ProcessingJobModel:
         failed_at = now or utcnow()
         job = self._owned_processing_job(job_id, worker_id)
+        self._record_execution_duration(job, failed_at)
         job.last_error_code = error_code[:100]
         job.last_error_message = redact_url_queries(error_message)
         job.claimed_by = None
@@ -256,6 +258,7 @@ class ProcessingRepository:
     ) -> ProcessingJobModel:
         failed_at = now or utcnow()
         job = self._owned_processing_job(job_id, worker_id)
+        self._record_execution_duration(job, failed_at)
         job.status = JobStatus.FAILED.value
         job.completed_at = failed_at
         job.last_error_code = error_code[:100]
@@ -279,6 +282,7 @@ class ProcessingRepository:
     ) -> ProcessingJobModel:
         released_at = now or utcnow()
         job = self._owned_processing_job(job_id, worker_id)
+        self._record_execution_duration(job, released_at)
         if job.cancellation_requested:
             job.status = JobStatus.FAILED.value
             job.completed_at = released_at
@@ -437,6 +441,19 @@ class ProcessingRepository:
         job.updated_at = cancelled_at
         self.session.flush()
         return job
+
+    @staticmethod
+    def _record_execution_duration(job: ProcessingJobModel, ended_at: datetime) -> None:
+        """Accumulate active worker time while excluding queue and retry-backoff time."""
+        if job.claimed_at is None:
+            return
+        started_at = job.claimed_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        if ended_at.tzinfo is None:
+            ended_at = ended_at.replace(tzinfo=timezone.utc)
+        elapsed_ms = max(0, int((ended_at - started_at).total_seconds() * 1000))
+        job.processing_duration_ms = int(job.processing_duration_ms or 0) + elapsed_ms
 
     def _job_by_key(self, tenant_id: str, key: str) -> ProcessingJobModel | None:
         return self.session.scalar(

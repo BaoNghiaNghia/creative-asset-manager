@@ -117,6 +117,26 @@ class ProcessingRepositoryTest(unittest.TestCase):
             self.assertEqual(recovered.claimed_by, "worker-b")
             self.assertEqual(recovered.attempt_count, 2)
 
+    def test_accumulates_active_worker_time_without_queue_delay(self) -> None:
+        job_id = self._enqueue(max_attempts=2)
+        with self.sessions() as session:
+            repository = ProcessingRepository(session)
+            first = repository.claim_next_job(worker_id="worker-a", lease_seconds=30, now=NOW + timedelta(hours=2))
+            repository.fail_job(
+                job_id=first.id, worker_id="worker-a", error_code="temporary",
+                error_message="retry", base_backoff_seconds=5, now=NOW + timedelta(hours=2, seconds=2),
+            )
+            session.commit()
+        with self.sessions() as session:
+            repository = ProcessingRepository(session)
+            second = repository.claim_next_job(worker_id="worker-b", lease_seconds=30, now=NOW + timedelta(hours=2, seconds=7))
+            completed = repository.complete_job(
+                job_id=second.id, worker_id="worker-b", now=NOW + timedelta(hours=2, seconds=10),
+            )
+            session.commit()
+            self.assertEqual(completed.processing_duration_ms, 5_000)
+            self.assertIsNone(completed.claimed_at)
+
     def test_retry_uses_same_job_and_reaches_terminal_failure(self) -> None:
         job_id = self._enqueue(max_attempts=2)
         with self.sessions() as session:

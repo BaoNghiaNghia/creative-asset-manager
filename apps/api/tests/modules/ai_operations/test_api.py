@@ -120,7 +120,7 @@ class AiOperationsApiTest(unittest.TestCase):
                     tenant_id="tenant-a", job_type="asset_analyze",
                     entity_type="asset_ai_analysis", entity_id=analyses[1].id,
                     idempotency_key="failed-job", provider_key="openai", provider_scope="ai",
-                    status="failed", attempt_count=2, max_attempts=2,
+                    status="failed", attempt_count=2, max_attempts=2, processing_duration_ms=2_000,
                     last_error_code="provider_timeout",
                     last_error_message="https://signed.example/file?credential=secret",
                     payload_json={"signed_url": "https://signed.example/file?token=secret"},
@@ -222,6 +222,9 @@ class AiOperationsApiTest(unittest.TestCase):
         ).json()
         self.assertEqual(jobs["total"], 2)
         self.assertEqual(len(jobs["items"]), 1)
+        self.assertIn("processing_duration_ms", jobs["items"][0])
+        all_jobs = self.get("/api/v1/admin/ai-operations/jobs", page=1, page_size=10).json()
+        self.assertIn(2_000, [item["processing_duration_ms"] for item in all_jobs["items"]])
         serialized = str(jobs)
         self.assertNotIn("signed_url", serialized)
         self.assertNotIn("credential", serialized)
