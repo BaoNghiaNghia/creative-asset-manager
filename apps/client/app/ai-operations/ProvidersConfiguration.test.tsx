@@ -29,7 +29,7 @@ describe("AI Operations provider and configuration tabs", () => {
 
   it("renders tenant configuration, model allowlist, budgets and read-only global controls", () => {
     const markup = renderToStaticMarkup(<ConfigurationForm configuration={configuration} onChanged={noop} onReload={noop} />);
-    for (const value of ["Tenant defaults", "gpt-5-mini", "Default metadata profile", "Daily item limit", "Retry count", "Timeout", "Daily budget", "Monthly budget", "Warning threshold", "Hard-stop threshold", "Platform administrator permission is required"]) expect(markup).toContain(value);
+    for (const value of ["Thiết lập mặc định", "gpt-5-mini", "Default metadata profile", "Daily item limit", "Retry count", "Timeout", "Daily budget", "Monthly budget", "Warning threshold", "Hard-stop threshold", "Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục"]) expect(markup).toContain(value);
     expect(markup).not.toContain("Emergency stop all AI");
   });
 

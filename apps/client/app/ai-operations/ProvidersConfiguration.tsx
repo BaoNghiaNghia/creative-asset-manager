@@ -194,34 +194,56 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
     <div className="ops-section-heading"><div><h2 id="configuration-title">Configuration</h2><p>Tenant settings are editable. Global upper bounds are deployment-managed and read-only.</p></div><span className="ops-scope">Tenant: {configuration.tenant_id}</span></div>
     {error && <div className="ops-inline-error" role="alert">{error}</div>}{audit && <AuditNotice audit={audit} />}
     <div className="ops-config-grid">
-      <form onSubmit={event => { event.preventDefault(); saveConfiguration(); }}>
-        <h3>Tenant defaults</h3>
-        <label>Default provider<select disabled={!canEdit} value={form.default_provider || selectedProvider?.id || ""} onChange={event => { const provider = configuration.providers.find(item => item.id === event.target.value)!; setForm({ ...form, default_provider: provider.id, default_model: provider.default_model }); setSingleConcurrency(provider.single_concurrency); setBatchConcurrency(provider.batch_concurrency); }}><option value="">Select provider</option>{configuration.providers.filter(item => item.connection_configured).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-        <label>Default model<select disabled={!canEdit} value={form.default_model || ""} onChange={event => setForm({ ...form, default_model: event.target.value })}><option value="">Select model</option>{allowedModels.map(model => <option key={model}>{model}</option>)}</select></label>
-        <label>Default mode<select disabled={!canEdit} value={form.default_mode} onChange={event => setForm({ ...form, default_mode: event.target.value as "single" | "batch" })}>{selectedProvider?.single_enabled && <option value="single">Single</option>}{selectedProvider?.batch_enabled && <option value="batch">Batch</option>}</select></label>
-        <label>Default metadata profile<select disabled={!canEdit} value={form.default_metadata_profile || ""} onChange={event => setForm({ ...form, default_metadata_profile: event.target.value || null })}><option value="">Server default</option>{configuration.metadata_profiles.map(profile => <option key={profile}>{profile}</option>)}</select></label>
-        <label className="check"><input disabled={!canEdit || !configuration.global.ai_auto_analyze_enabled} type="checkbox" checked={form.auto_analyze_new_assets} onChange={event => setForm({ ...form, auto_analyze_new_assets: event.target.checked })} /> Auto-analyze new assets</label>
-        {!configuration.global.ai_auto_analyze_enabled && <small>Disabled by the global deployment upper bound.</small>}
-        <label>Single concurrency<input disabled={!canEdit} type="number" min="1" max="100" value={singleConcurrency} onChange={event => setSingleConcurrency(Number(event.target.value))} /></label>
-        <label>Batch concurrency<input disabled={!canEdit} type="number" min="1" max="100" value={batchConcurrency} onChange={event => setBatchConcurrency(Number(event.target.value))} /></label>
-        <label>Total AI concurrency<input disabled={!canEdit} type="number" min="1" max="500" value={form.total_ai_concurrency} onChange={event => setForm({ ...form, total_ai_concurrency: Number(event.target.value) })} /></label>
-        <label>Daily item limit<input disabled={!canEdit} type="number" min="1" max="10000" value={form.daily_item_limit} onChange={event => setForm({ ...form, daily_item_limit: Number(event.target.value) })} /></label>
-        <label>Retry count<input disabled={!canEdit} type="number" min="0" max="20" value={form.retry_count} onChange={event => setForm({ ...form, retry_count: Number(event.target.value) })} /></label>
-        <label>Timeout (seconds)<input disabled={!canEdit} type="number" min="1" max="3600" value={form.timeout_seconds} onChange={event => setForm({ ...form, timeout_seconds: Number(event.target.value) })} /></label>
-        <label>Change reason<input disabled={!canEdit} required value={reason} onChange={event => setReason(event.target.value)} /></label>
-        <button className="primary" disabled={!canEdit || saving} type="submit">Save tenant defaults</button>
+      <form className="ops-config-card" onSubmit={event => { event.preventDefault(); saveConfiguration(); }}>
+        <header className="ops-config-card-header"><div><h3>Thiết lập mặc định</h3><p>Chọn cách hệ thống xử lý tài sản mới trong workspace này.</p></div><span className="ops-card-kicker">Tenant</span></header>
+        <div className="ops-form-section">
+          <div className="ops-form-section-heading"><h4>Nhà cung cấp &amp; mô hình</h4><p>Chỉ các nhà cung cấp đã kết nối và mô hình được phép mới có thể chọn.</p></div>
+          <div className="ops-field-grid">
+            <label>Default provider<select disabled={!canEdit} value={form.default_provider || selectedProvider?.id || ""} onChange={event => { const provider = configuration.providers.find(item => item.id === event.target.value)!; setForm({ ...form, default_provider: provider.id, default_model: provider.default_model }); setSingleConcurrency(provider.single_concurrency); setBatchConcurrency(provider.batch_concurrency); }}><option value="">Select provider</option>{configuration.providers.filter(item => item.connection_configured).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+            <label>Default model<select disabled={!canEdit} value={form.default_model || ""} onChange={event => setForm({ ...form, default_model: event.target.value })}><option value="">Select model</option>{allowedModels.map(model => <option key={model}>{model}</option>)}</select></label>
+            <label>Default mode<select disabled={!canEdit} value={form.default_mode} onChange={event => setForm({ ...form, default_mode: event.target.value as "single" | "batch" })}>{selectedProvider?.single_enabled && <option value="single">Single</option>}{selectedProvider?.batch_enabled && <option value="batch">Batch</option>}</select><small>Single xử lý ngay; Batch phù hợp khi cần xử lý số lượng lớn.</small></label>
+            <label>Default metadata profile<select disabled={!canEdit} value={form.default_metadata_profile || ""} onChange={event => setForm({ ...form, default_metadata_profile: event.target.value || null })}><option value="">Server default</option>{configuration.metadata_profiles.map(profile => <option key={profile}>{profile}</option>)}</select><small>Profile quyết định cấu trúc metadata được tạo.</small></label>
+          </div>
+        </div>
+        <div className="ops-form-section">
+          <div className="ops-form-section-heading"><h4>Tự động hóa &amp; tải xử lý</h4><p>Giới hạn đồng thời giúp bảo vệ quota và tránh làm nghẽn hàng đợi.</p></div>
+          <label className="check ops-field-full"><input disabled={!canEdit || !configuration.global.ai_auto_analyze_enabled} type="checkbox" checked={form.auto_analyze_new_assets} onChange={event => setForm({ ...form, auto_analyze_new_assets: event.target.checked })} /> Tự động phân tích tài sản mới</label>
+          {!configuration.global.ai_auto_analyze_enabled && <small className="ops-field-note">Tính năng này đang bị giới hạn ở cấu hình triển khai toàn cục.</small>}
+          <div className="ops-field-grid">
+            <label>Single concurrency<input disabled={!canEdit} type="number" min="1" max="100" value={singleConcurrency} onChange={event => setSingleConcurrency(Number(event.target.value))} /></label>
+            <label>Batch concurrency<input disabled={!canEdit} type="number" min="1" max="100" value={batchConcurrency} onChange={event => setBatchConcurrency(Number(event.target.value))} /></label>
+            <label>Total AI concurrency<input disabled={!canEdit} type="number" min="1" max="500" value={form.total_ai_concurrency} onChange={event => setForm({ ...form, total_ai_concurrency: Number(event.target.value) })} /><small>Tổng tác vụ AI chạy đồng thời trong tenant.</small></label>
+            <label>Daily item limit<input disabled={!canEdit} type="number" min="1" max="10000" value={form.daily_item_limit} onChange={event => setForm({ ...form, daily_item_limit: Number(event.target.value) })} /><small>Số tài sản tối đa được xử lý mỗi ngày.</small></label>
+            <label>Retry count<input disabled={!canEdit} type="number" min="0" max="20" value={form.retry_count} onChange={event => setForm({ ...form, retry_count: Number(event.target.value) })} /></label>
+            <label>Timeout (seconds)<input disabled={!canEdit} type="number" min="1" max="3600" value={form.timeout_seconds} onChange={event => setForm({ ...form, timeout_seconds: Number(event.target.value) })} /></label>
+          </div>
+        </div>
+        <div className="ops-form-footer">
+          <label>Change reason<input disabled={!canEdit} required value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: tăng giới hạn xử lý cho chiến dịch tháng 7" /><small>Lý do được lưu trong nhật ký kiểm toán.</small></label>
+          <button className="primary" disabled={!canEdit || saving} type="submit">Save tenant defaults</button>
+        </div>
       </form>
-      {configuration.permissions.can_read_budget !== false ? <form onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
-        <h3>Budget policy</h3>
-        <label className="check"><input disabled={!canUpdateBudget} type="checkbox" checked={budget.enabled} onChange={event => setBudget({ ...budget, enabled: event.target.checked })} /> Budget enabled</label>
-        <label>Daily budget (micros)<input disabled={!canUpdateBudget} type="number" min="0" value={budget.daily_limit_micros ?? ""} onChange={event => setBudget({ ...budget, daily_limit_micros: event.target.value ? Number(event.target.value) : null })} /></label>
-        <label>Monthly budget (micros)<input disabled={!canUpdateBudget} type="number" min="0" value={budget.monthly_limit_micros ?? ""} onChange={event => setBudget({ ...budget, monthly_limit_micros: event.target.value ? Number(event.target.value) : null })} /></label>
-        <label>Warning threshold (%)<input disabled={!canUpdateBudget} type="number" min="0" max="100" value={budget.warning_threshold_percent} onChange={event => setBudget({ ...budget, warning_threshold_percent: Number(event.target.value) })} /></label>
-        <label>Hard-stop threshold (%)<input disabled={!canUpdateBudget} type="number" min="1" max="100" value={budget.hard_stop_threshold_percent} onChange={event => setBudget({ ...budget, hard_stop_threshold_percent: Number(event.target.value) })} /></label>
-        <button className="primary" disabled={!canUpdateBudget || saving} type="submit">Review budget update</button>
-      </form> : <section><h3>Budget policy</h3><small>Permission ai_budget.read is required to view budget settings.</small></section>}
-      <section className="ops-global-settings"><h3>Global controls</h3><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Global settings are deployment upper bounds. Tenant policies cannot override a disabled global setting.</p>
-        {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Platform administrator permission is required to change global controls.</small>}
+      {configuration.permissions.can_read_budget !== false ? <form className="ops-config-card" onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
+        <header className="ops-config-card-header"><div><h3>Chính sách ngân sách</h3><p>Đặt ngưỡng chi phí AI cho tenant. Mọi thay đổi đều cần xác nhận.</p></div><span className="ops-card-kicker">Budget</span></header>
+        <label className="check ops-field-full"><input disabled={!canUpdateBudget} type="checkbox" checked={budget.enabled} onChange={event => setBudget({ ...budget, enabled: event.target.checked })} /> Bật kiểm soát ngân sách</label>
+        <div className="ops-form-section">
+          <div className="ops-form-section-heading"><h4>Hạn mức chi phí</h4><p>Đơn vị micro theo loại tiền tệ được cấu hình ở máy chủ.</p></div>
+          <div className="ops-field-grid">
+            <label>Daily budget (micros)<input disabled={!canUpdateBudget} type="number" min="0" value={budget.daily_limit_micros ?? ""} onChange={event => setBudget({ ...budget, daily_limit_micros: event.target.value ? Number(event.target.value) : null })} /><small>Ngân sách tối đa theo ngày.</small></label>
+            <label>Monthly budget (micros)<input disabled={!canUpdateBudget} type="number" min="0" value={budget.monthly_limit_micros ?? ""} onChange={event => setBudget({ ...budget, monthly_limit_micros: event.target.value ? Number(event.target.value) : null })} /><small>Ngân sách tối đa theo tháng.</small></label>
+          </div>
+        </div>
+        <div className="ops-form-section">
+          <div className="ops-form-section-heading"><h4>Ngưỡng cảnh báo</h4><p>Hệ thống cảnh báo trước khi chạm ngưỡng dừng cứng.</p></div>
+          <div className="ops-field-grid">
+            <label>Warning threshold (%)<input disabled={!canUpdateBudget} type="number" min="0" max="100" value={budget.warning_threshold_percent} onChange={event => setBudget({ ...budget, warning_threshold_percent: Number(event.target.value) })} /><small>Gửi cảnh báo khi đạt tỷ lệ này.</small></label>
+            <label>Hard-stop threshold (%)<input disabled={!canUpdateBudget} type="number" min="1" max="100" value={budget.hard_stop_threshold_percent} onChange={event => setBudget({ ...budget, hard_stop_threshold_percent: Number(event.target.value) })} /><small>Chặn tác vụ AI mới khi đạt tỷ lệ này.</small></label>
+          </div>
+        </div>
+        <button className="primary ops-form-submit" disabled={!canUpdateBudget || saving} type="submit">Review budget update</button>
+      </form> : <section className="ops-config-card"><h3>Budget policy</h3><small>Permission ai_budget.read is required to view budget settings.</small></section>}
+      <section className="ops-global-settings"><header className="ops-config-card-header"><div><h3>Global controls</h3><p>Giới hạn toàn cục do deployment quản lý và chỉ có thể xem tại đây.</p></div><span className="ops-card-kicker">Read-only</span></header><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Tenant không thể bật lại chức năng đã bị tắt ở cấp toàn cục.</p>
+        {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục.</small>}
         <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
       </section>
     </div>
