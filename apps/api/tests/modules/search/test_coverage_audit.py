@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -106,7 +106,10 @@ class SearchV3CoverageAuditTest(unittest.IsolatedAsyncioTestCase):
             entity_type="asset",
             entity_id=analysis.asset_id,
             idempotency_key=f"test:{analysis.id}:{status}",
-            payload_json={"analysis_id": analysis.id},
+            payload_json={
+                "analysis_id": analysis.id,
+                "projection_version": analysis.search_projection_version,
+            },
             status=status,
         )
         self.session.add(job)
@@ -284,6 +287,98 @@ class SearchV3CoverageRepairTest(SearchV3CoverageAuditTest):
         )
         self.assertEqual(second.index_jobs_created, 0)
         self.assertEqual(second.duplicate_jobs_skipped, 1)
+
+    async def test_failed_index_job_creates_one_fresh_retry_and_preserves_history(self):
+        from app.modules.processing.repository import ProcessingRepository
+        from app.modules.search.coverage_audit import SearchV3CoverageRepair
+
+        _, analysis = self._analysis()
+        failed = self._index_job(analysis, status="failed")
+        failed.attempt_count = failed.max_attempts = 2
+        failed.last_error_code = "search_index_unconfigured"
+        failed.last_error_message = "historical failure"
+        self.session.commit()
+
+        repair = SearchV3CoverageRepair(
+            self.session, projection_version="search-projection-v1",
+        )
+        first = await repair.repair(
+            tenant_id="tenant-a", page_size=10, apply=True, repair_indexes=True,
+        )
+        self.session.commit()
+
+        self.assertEqual(first.index_jobs_created, 1)
+        fresh = self.session.scalars(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.id != failed.id,
+            )
+        ).one()
+        self.assertEqual(
+            fresh.idempotency_key,
+            f"coverage:asset_index:retry:{failed.id}:{analysis.id}:"
+            "search-projection-v1:" + ("a" * 64),
+        )
+        historical = self.session.get(ProcessingJobModel, failed.id)
+        self.assertEqual(historical.status, "failed")
+        self.assertEqual(historical.attempt_count, 2)
+        self.assertEqual(historical.last_error_message, "historical failure")
+
+        second = await repair.repair(
+            tenant_id="tenant-a", page_size=10, apply=True, repair_indexes=True,
+        )
+        self.assertEqual(second.index_jobs_created, 0)
+        self.assertEqual(second.duplicate_jobs_skipped, 1)
+
+        repository = ProcessingRepository(self.session)
+        claimed = repository.claim_next_job(worker_id="worker-a", lease_seconds=30)
+        self.assertEqual(claimed.id, fresh.id)
+        self.session.expire_all()
+        repository.complete_job(job_id=fresh.id, worker_id="worker-a")
+        self.session.commit()
+
+        verified = await SearchV3CoverageAudit(
+            self.session,
+            projection_version="search-projection-v1",
+            index=FakeV3Index((
+                {
+                    "asset_id": analysis.asset_id,
+                    "tenant_id": "tenant-a",
+                    "search_projection_version": "search-projection-v1",
+                },
+            )),
+        ).run(tenant_id="tenant-a", page_size=10, verify_elasticsearch=True)
+        self.assertEqual(verified.to_document()["healthy"], 1)
+        self.assertEqual(verified.to_document()["index_job_failed"], 0)
+
+    async def test_pipeline_index_key_is_matched_to_its_projection_version(self):
+        _, analysis = self._analysis()
+        job = self._index_job(analysis, status="completed")
+        job.payload_json = {"analysis_id": analysis.id}
+        job.idempotency_key = (
+            f"pipeline:pipeline-1:asset_index:{analysis.id}:"
+            "search-projection-v1:" + ("a" * 64)
+        )
+        self.session.commit()
+
+        result = await SearchV3CoverageAudit(
+            self.session, projection_version="search-projection-v1",
+        ).run(tenant_id="tenant-a", page_size=10)
+
+        self.assertEqual(result.items[0].category, "healthy")
+
+    async def test_latest_relevant_index_job_wins_over_older_failed_job(self):
+        _, analysis = self._analysis()
+        older_failed = self._index_job(analysis, status="failed")
+        newer_completed = self._index_job(analysis, status="completed")
+        older_failed.created_at = self.now
+        newer_completed.created_at = self.now + timedelta(seconds=1)
+        self.session.commit()
+
+        result = await SearchV3CoverageAudit(
+            self.session, projection_version="search-projection-v1",
+        ).run(tenant_id="tenant-a", page_size=10)
+
+        self.assertEqual(result.items[0].category, "healthy")
 
     async def test_active_equivalent_job_is_not_duplicated_and_tenant_isolated(self):
         from app.modules.search.coverage_audit import SearchV3CoverageRepair

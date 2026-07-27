@@ -108,6 +108,7 @@
 - [ ] Run tenant-scoped V3 backfill and alias activation only after Elasticsearch integration verification in the deployment environment.
 - [x] AI Operations Search V3 coverage metrics, explicit audit and repair controls.
 - [x] Search V3 metadata text indexing: shared document construction now preserves short OCR terms, safely flattens dynamic metadata, and waits for single-asset Elasticsearch visibility.
+- [x] Search V3 repair retries: failed terminal asset_index jobs create one fresh, audit-preserving index job keyed by the failed job ID.
 
 ## Test reliability
 

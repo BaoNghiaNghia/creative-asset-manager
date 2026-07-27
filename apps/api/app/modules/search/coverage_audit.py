@@ -92,7 +92,7 @@ class SearchV3CoverageAudit:
             after_analysis_id=after_analysis_id,
         )
         duplicates = self._duplicate_count(tenant_id=tenant_id, page=selected)
-        index_jobs = self._index_jobs(tenant_id=tenant_id, asset_ids=[analysis.asset_id for analysis in selected])
+        index_jobs = self._index_jobs(tenant_id=tenant_id, analyses=selected)
         document_versions = await self._document_versions(tenant_id, selected) if verify_elasticsearch else {}
 
         counts: Counter[str] = Counter()
@@ -160,21 +160,38 @@ class SearchV3CoverageAudit:
         ))
         return sum(1 for _ in rows)
 
-    def _index_jobs(self, *, tenant_id: str, asset_ids: Sequence[str]) -> dict[tuple[str, str], tuple[ProcessingJobModel, ...]]:
-        if not asset_ids:
+    def _index_jobs(
+        self, *, tenant_id: str, analyses: Sequence[AssetAiAnalysisModel],
+    ) -> dict[tuple[str, str], tuple[ProcessingJobModel, ...]]:
+        if not analyses:
             return {}
+        by_asset: dict[str, list[AssetAiAnalysisModel]] = defaultdict(list)
+        for analysis in analyses:
+            by_asset[analysis.asset_id].append(analysis)
         grouped: dict[tuple[str, str], list[ProcessingJobModel]] = defaultdict(list)
         jobs = self.session.scalars(select(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == tenant_id,
             ProcessingJobModel.job_type == "asset_index",
             ProcessingJobModel.entity_type == "asset",
-            ProcessingJobModel.entity_id.in_(tuple(asset_ids)),
+            ProcessingJobModel.entity_id.in_(tuple(by_asset)),
         ).order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc()))
         for job in jobs:
-            analysis_id = (job.payload_json or {}).get("analysis_id")
-            if isinstance(analysis_id, str):
-                grouped[(job.entity_id, analysis_id)].append(job)
+            for analysis in by_asset.get(job.entity_id, ()):
+                if self._targets_projection(job, analysis.id):
+                    grouped[(job.entity_id, analysis.id)].append(job)
         return {key: tuple(value) for key, value in grouped.items()}
+
+    def _targets_projection(self, job: ProcessingJobModel, analysis_id: str) -> bool:
+        payload = job.payload_json or {}
+        if payload.get("analysis_id") == analysis_id and (
+            payload.get("projection_version") == self.projection_version
+        ):
+            return True
+        # Existing pipeline/direct job keys persist the immutable analysis and
+        # projection identity even where old payloads did not duplicate it.
+        return (
+            f":{analysis_id}:{self.projection_version}:" in job.idempotency_key
+        )
 
     async def _document_versions(self, tenant_id: str, analyses: Sequence[AssetAiAnalysisModel]) -> dict[str, str]:
         asset_ids = [analysis.asset_id for analysis in analyses]
@@ -206,9 +223,13 @@ class SearchV3CoverageAudit:
             return "projection_missing"
         if analysis.search_projection_version != self.projection_version:
             return "projection_stale"
-        statuses = {job.status for job in jobs}
-        if "completed" not in statuses:
-            return "index_job_failed" if "failed" in statuses else "index_job_missing"
+        latest_job = jobs[0] if jobs else None
+        if latest_job is None:
+            return "index_job_missing"
+        if latest_job.status == "failed":
+            return "index_job_failed"
+        if latest_job.status != "completed":
+            return "index_job_missing"
         if verify_elasticsearch and document_version != self.projection_version:
             return "database_indexed_document_missing"
         return "healthy"
@@ -274,11 +295,33 @@ class SearchV3CoverageRepair(SearchV3CoverageAudit):
             if not apply:
                 continue
             version = self.projection_version
-            if self._has_active_equivalent(tenant_id, analysis.asset_id, analysis.id, job_type, version):
+            relevant_jobs = self._index_jobs(
+                tenant_id=tenant_id, analyses=[analysis],
+            ).get((analysis.asset_id, analysis.id), ())
+            latest_job = relevant_jobs[0] if relevant_jobs else None
+            if self._has_active_equivalent(
+                tenant_id, analysis.asset_id, analysis.id, job_type, version,
+            ):
+                duplicate_skipped += 1
+                continue
+            if (
+                job_type == "asset_index"
+                and latest_job is not None
+                and latest_job.status == "completed"
+                and latest_job.idempotency_key.startswith("coverage:asset_index:retry:")
+            ):
+                # A coverage retry has already completed. Do not create another
+                # duplicate merely because Elasticsearch is temporarily absent.
                 duplicate_skipped += 1
                 continue
             checksum = analysis.projection_checksum or "unresolved"
-            key = f"coverage:{job_type}:{analysis.id}:{version}:{checksum}"
+            if job_type == "asset_index" and latest_job is not None:
+                key = (
+                    f"coverage:asset_index:retry:{latest_job.id}:{analysis.id}:"
+                    f"{version}:{checksum}"
+                )
+            else:
+                key = f"coverage:{job_type}:{analysis.id}:{version}:{checksum}"
             existing = self.session.scalar(select(ProcessingJobModel).where(
                 ProcessingJobModel.tenant_id == tenant_id,
                 ProcessingJobModel.idempotency_key == key,
@@ -329,7 +372,9 @@ class SearchV3CoverageRepair(SearchV3CoverageAudit):
             ProcessingJobModel.job_type == job_type,
             ProcessingJobModel.entity_type == "asset",
             ProcessingJobModel.entity_id == asset_id,
-            ProcessingJobModel.status.in_(("pending", "processing", "retry")),
+            ProcessingJobModel.status.in_(
+                ("pending", "claimed", "processing", "running", "retry"),
+            ),
         ))
         for job in rows:
             payload = job.payload_json or {}

@@ -2375,3 +2375,12 @@ Validation was run in the requested order:
 - The layout now moves deterministically to three, two and one column breakpoints as space narrows; the export menu stays visually associated with the filters.
 - Tests: focused AI Operations page test: 20 passed. Frontend typecheck and production build passed.
 - No backend, API, migration, feature-flag or authorization behavior changed. Rollback: revert this isolated UI commit.
+
+
+## Search V3 failed index-job repair retry (2026-07-27)
+
+- Coverage classification now uses the latest relevant asset_index job for the tenant, analysis and current projection version; older failed jobs no longer override newer completed work.
+- A terminal failed index job remains immutable for audit. Repair queues one new asset_index job using coverage:asset_index:retry:<failed_job_id>:<analysis_id>:<projection_version>:<projection_hash>.
+- Pending, processing and retrying equivalent work remains deduplicated. A completed coverage retry is not re-enqueued unless a later retry itself reaches terminal failure. Repair continues to index only: it neither re-runs AI nor rebuilds a healthy projection.
+- Tests: python -m unittest tests.modules.search.test_coverage_audit -v: 19 passed; python -m unittest tests.modules.processing.test_repository tests.modules.processing.test_runtime tests.modules.processing.test_worker tests.modules.pipeline.test_state_and_repository tests.modules.pipeline.test_stages tests.infrastructure.search.test_elasticsearch_v2 -v: 51 passed; python -m unittest tests.integration.test_elasticsearch -v: 2 skipped because Elasticsearch is not configured locally.
+- No migration or feature-flag change. Rollback: revert this isolated commit; historical failed jobs remain intact and no existing job is mutated.
