@@ -68,7 +68,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       } finally {
         if (!controller.signal.aborted) setSuggestionsLoading(false);
       }
-    }, 180);
+    }, 100);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [active, authenticated, provider, query]);
 

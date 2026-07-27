@@ -79,9 +79,8 @@ class SearchV2ApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["search_version"], "v3")
         self.assertEqual(response.json()["suggestions"], [
-            {"text": "milo-bandana.jpg", "kind": "filename"},
-            {"text": "Milo's Mom", "kind": "visible_text"},
-            {"text": "other.jpg", "kind": "filename"},
+            {"text": "Milo's Mom", "prefix": "Milo", "completion": "'s Mom", "kind": "visible_text"},
+            {"text": "milo-bandana.jpg", "prefix": "milo", "completion": "-bandana.jpg", "kind": "filename"},
         ])
         self.assertEqual(captured[0]["query"]["bool"]["filter"][0], {"term": {"tenant_id": "tenant-a"}})
         self.assertIn("search_suggest._3gram", str(captured[0]))

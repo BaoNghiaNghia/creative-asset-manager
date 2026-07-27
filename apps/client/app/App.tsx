@@ -172,7 +172,7 @@ export default function App() {
                     onMouseDown={event => event.preventDefault()}
                     onMouseEnter={() => setSuggestionIndex(index)}
                     onClick={() => applySuggestion(suggestion.text)}
-                  ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : "T"}</span><b>{suggestion.text}</b><small>{suggestion.kind === "filename" ? "File name" : "Detected text"}</small></button>)}
+                  ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : "T"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : "Detected text"}</small></button>)}
               </div>}
             </div>
             {explorer.searchV2.active && <SearchGuide capabilities={explorer.searchV2.capabilities} />}

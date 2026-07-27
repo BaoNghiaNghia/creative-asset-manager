@@ -329,10 +329,10 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .search-suggestions{position:absolute;z-index:22;top:calc(100% + 7px);left:0;width:100%;min-width:320px;overflow:hidden;border:1px solid #d8e1ee;border-radius:11px;background:#fff;box-shadow:0 16px 34px #15243a22}
 .search-suggestions button{display:grid;width:100%;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:9px;padding:10px 12px;border:0;border-bottom:1px solid #eef2f6;background:#fff;color:#28384e;cursor:pointer;text-align:left}
 .search-suggestions button:last-child{border-bottom:0}.search-suggestions button:hover,.search-suggestions button.active{background:#f1f5ff}
-.search-suggestions button>span{display:grid;place-items:center;width:20px;height:20px;border-radius:5px;background:#edf3ff;color:#3561c7;font-size:10px;font-weight:800}
-.search-suggestions button>b{overflow:hidden;color:#203149;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.search-suggestions button small{color:#77859a;font-size:10px;white-space:nowrap}
+.search-suggestions button>span:not(.search-suggestion-text){display:grid;place-items:center;width:20px;height:20px;border-radius:5px;background:#edf3ff;color:#3561c7;font-size:10px;font-weight:800}
+.search-suggestion-text{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.search-suggestion-text b{color:#203149;font-size:13px}.search-suggestion-text em{color:#687991;font-size:13px;font-style:normal}.search-suggestions button small{color:#77859a;font-size:10px;white-space:nowrap}
 .search-suggestions-loading{display:block;padding:11px 13px;color:#718096;font-size:12px}
-@media(max-width:700px){.search-suggestions{min-width:0}.search-suggestions button{grid-template-columns:22px minmax(0,1fr)}.search-suggestions button small{grid-column:2;font-size:9px}.search-suggestions button>b{font-size:12px}}
+@media(max-width:700px){.search-suggestions{min-width:0}.search-suggestions button{grid-template-columns:22px minmax(0,1fr)}.search-suggestions button small{grid-column:2;font-size:9px}.search-suggestion-text b,.search-suggestion-text em{font-size:12px}}
 
 
 /* Directus-backed recursive Drive search */

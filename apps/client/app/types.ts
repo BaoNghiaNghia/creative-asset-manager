@@ -90,6 +90,8 @@ export type SearchCapabilities = {
 export type SearchFacetBucket = { value: string; count: number };
 export type SearchSuggestion = {
   text: string;
+  prefix: string;
+  completion: string;
   kind: "filename" | "visible_text";
 };
 export type ParsedQueryDebug = {

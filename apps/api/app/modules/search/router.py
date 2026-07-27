@@ -57,36 +57,68 @@ def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
         session.commit()
     return {"selected_version": "v3" if available and get_settings().SEARCH_V3_ENABLED else "v2" if available else "v1", "v2_available": available, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES}
 
-def _source_provider_asset_ids(session, tenant: str, source_provider: str | None) -> list[str] | None:
+def _source_provider_filter(session, tenant: str, source_provider: str | None, *, generation: str) -> dict | None:
     if not source_provider:
         return None
     source_type = "google_drive" if source_provider == "google-drive" else "sharepoint"
-    statement = (
-        select(AssetSourceLinkModel.asset_id)
-        .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
-        .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
-        .where(
-            AssetSourceLinkModel.tenant_id == tenant,
-            ExternalSourceModel.source_type == source_type,
+    source_ids = [
+        str(source_id)
+        for source_id in session.scalars(
+            select(ExternalSourceModel.id).where(
+                ExternalSourceModel.tenant_id == tenant,
+                ExternalSourceModel.source_type == source_type,
+            )
         )
-    )
-    return [str(asset_id) for asset_id in session.scalars(statement)]
+    ]
+    if generation == "v3":
+        return {"terms": {"source_id": source_ids or ["__none__"]}}
+    asset_ids = [
+        str(asset_id)
+        for asset_id in session.scalars(
+            select(AssetSourceLinkModel.asset_id)
+            .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
+            .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
+            .where(
+                AssetSourceLinkModel.tenant_id == tenant,
+                ExternalSourceModel.source_type == source_type,
+            )
+        )
+    ]
+    return {"terms": {"asset_id": asset_ids or ["__none__"]}}
 
 
-def _suggestion_values(document: dict) -> list[tuple[str, str]]:
-    values: list[tuple[str, str]] = []
-    filename = str(document.get("filename") or "").strip()
+def _completion_value(value: object, query: str) -> tuple[str, str] | None:
+    text = " ".join(str(value or "").split())
+    needle = " ".join(query.split()).casefold()
+    if not text or not needle:
+        return None
+    index = text.casefold().find(needle)
+    if index < 0:
+        return None
+    while index and text[index - 1].isalnum():
+        index -= 1
+    suggestion = text[index:index + 160].rstrip(" ,;:-")
+    prefix = suggestion[:len(query)].strip()
+    if not prefix.casefold().startswith(needle):
+        return None
+    return suggestion, suggestion[len(prefix):]
+
+
+def _suggestion_values(document: dict, query: str) -> list[tuple[str, str, str]]:
+    values: list[tuple[str, str, str]] = []
     visible_text = document.get("visible_text")
     if isinstance(visible_text, list):
         visible_text = " ".join(str(value) for value in visible_text if isinstance(value, str))
-    for kind, value in (("filename", filename), ("visible_text", str(visible_text or "").strip())):
-        normalized = " ".join(value.split())
-        if normalized:
-            values.append((kind, normalized[:160]))
-    if not values:
-        fallback = " ".join(str(document.get("search_suggest") or "").split())
-        if fallback:
-            values.append(("visible_text", fallback[:160]))
+    for kind, value in (("visible_text", visible_text), ("filename", document.get("filename"))):
+        completion = _completion_value(value, query)
+        if completion:
+            text, suffix = completion
+            values.append((kind, text, suffix))
+    if not any(kind == "visible_text" for kind, _, _ in values):
+        completion = _completion_value(document.get("search_suggest"), query)
+        if completion:
+            text, suffix = completion
+            values.append(("visible_text", text, suffix))
     return values
 
 
@@ -99,13 +131,14 @@ async def suggestions(
 ):
     tenant = principal.active_tenant_id
     settings = get_settings()
+    generation = "v3" if settings.SEARCH_V3_ENABLED else "v2"
     with SessionLocal() as session:
         if not enabled(session, tenant):
             raise HTTPException(409, "Search is not enabled for this tenant")
         filters = [{"term": {"tenant_id": tenant}}]
-        source_asset_ids = _source_provider_asset_ids(session, tenant, source_provider)
-        if source_asset_ids is not None:
-            filters.append({"terms": {"asset_id": source_asset_ids or ["__none__"]}})
+        source_filter = _source_provider_filter(session, tenant, source_provider, generation=generation)
+        if source_filter:
+            filters.append(source_filter)
         session.commit()
     value = q.strip()
     query = {
@@ -127,7 +160,7 @@ async def suggestions(
         async with ElasticsearchV2Index(ElasticsearchV2Config(
             settings.ELASTICSEARCH_URL,
             settings.ELASTICSEARCH_INDEX_PREFIX,
-            index_generation="v3" if settings.SEARCH_V3_ENABLED else "v2",
+            index_generation=generation,
         )) as index:
             response = await index.search(query)
     except ElasticsearchV2RequestError as exc:
@@ -135,16 +168,15 @@ async def suggestions(
     seen: set[str] = set()
     result = []
     for hit in response.get("hits", {}).get("hits", []):
-        for kind, text in _suggestion_values(hit.get("_source", {})):
+        for kind, text, completion in _suggestion_values(hit.get("_source", {}), value):
             key = text.casefold()
             if key in seen:
                 continue
             seen.add(key)
-            result.append({"text": text, "kind": kind})
+            result.append({"text": text, "prefix": text[:len(text) - len(completion)], "completion": completion, "kind": kind})
             if len(result) >= limit:
-                return {"search_version": "v3" if settings.SEARCH_V3_ENABLED else "v2", "suggestions": result, "took_ms": response.get("took")}
-    return {"search_version": "v3" if settings.SEARCH_V3_ENABLED else "v2", "suggestions": result, "took_ms": response.get("took")}
-
+                return {"search_version": generation, "suggestions": result, "took_ms": response.get("took")}
+    return {"search_version": generation, "suggestions": result, "took_ms": response.get("took")}
 
 @router.post("", response_model=SearchV2Response)
 async def search(body: SearchV2Request, request: Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):

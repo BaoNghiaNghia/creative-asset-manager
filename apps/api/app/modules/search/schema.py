@@ -28,6 +28,8 @@ class SearchCapabilities(BaseModel):
 
 class SearchSuggestion(BaseModel):
     text: str
+    prefix: str
+    completion: str
     kind: Literal["filename", "visible_text"]
 
 class SearchSuggestionsResponse(BaseModel):
