@@ -268,24 +268,45 @@ export function pageFilters(filters: AiOpsFilters, page: number): AiOpsFilters {
   return { ...filters, page: Math.max(1, page) };
 }
 
+export function visiblePages(currentPage: number, totalPages: number): Array<number | "ellipsis"> {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  if (currentPage <= 4) return [1, 2, 3, 4, 5, "ellipsis", totalPages];
+  if (currentPage >= totalPages - 3) return [1, "ellipsis", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  return [1, "ellipsis", currentPage - 1, currentPage, currentPage + 1, "ellipsis", totalPages];
+}
+
 function Processing({ data, filters, permissions, onFilters, onActionAccepted }: { data: AiOpsDashboardData; filters: AiOpsFilters; permissions: string[]; onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void }) {
   const usageByJob = new Map(data.usage.items.filter(item => item.job_id).map(item => [item.job_id!, item]));
   if (!data.jobs.items.length) return <DashboardState kind="empty" label="No processing jobs in this period" />;
   const pages = Math.max(1, Math.ceil(data.jobs.total / data.jobs.page_size));
+  const currentPage = Math.min(Math.max(1, data.jobs.page), pages);
+  const firstItem = (currentPage - 1) * data.jobs.page_size + 1;
+  const lastItem = Math.min(currentPage * data.jobs.page_size, data.jobs.total);
   return <div className="ops-content">
+    <div className="ops-table-heading">
+      <div><h2>AI processing jobs</h2><p>Showing {firstItem}-{lastItem} of {data.jobs.total}</p></div>
+      <div className="ops-pagination" aria-label="Processing pagination">
+        <label>Items per page<select aria-label="Items per page" value={data.jobs.page_size} onChange={event => onFilters({ ...filters, page: 1, pageSize: Number(event.target.value) as 25 | 50 | 100 })}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <nav aria-label="Processing page numbers">
+          <button type="button" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => onFilters(pageFilters(filters, currentPage - 1))}>Previous</button>
+          {visiblePages(currentPage, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" aria-hidden="true" key={`ellipsis-${index}`}>...</span> : <button type="button" key={entry} aria-label={`Page ${entry}`} aria-current={entry === currentPage ? "page" : undefined} className={entry === currentPage ? "active" : ""} onClick={() => onFilters(pageFilters(filters, entry))}>{entry}</button>)}
+          <button type="button" aria-label="Next page" disabled={currentPage >= pages} onClick={() => onFilters(pageFilters(filters, currentPage + 1))}>Next</button>
+        </nav>
+      </div>
+    </div>
     <div className="ops-table-scroll"><table className="ops-data-table">
-      <caption>AI processing jobs</caption>
+      <caption className="sr-only">AI processing jobs</caption>
       <thead><tr>{["Status", "Asset", "Provider", "Model", "Mode", "Profile", "Attempts", "Duration", "Cost", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
       <tbody>{data.jobs.items.map(job => {
         const usage = usageByJob.get(job.id);
         const mode = usage?.processing_mode || (job.job_type.startsWith("ai_batch_") ? "batch" : "single");
         const assetId = usage?.asset_id || (job.entity_type === "asset" ? job.entity_id : null);
         return <tr key={job.id}>
-          <td><StatusText status={job.status} isDeferred={job.is_deferred} nextAttemptAt={job.next_attempt_at} /></td><td><code>{assetId || "—"}</code></td>
-          <td>{providerLabel(job.provider)}</td><td>{usage?.model || "—"}</td><td>{modeLabel(mode)}</td>
-          <td>{usage?.metadata_profile || "—"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
+          <td><StatusText status={job.status} isDeferred={job.is_deferred} nextAttemptAt={job.next_attempt_at} /></td><td><code>{assetId || "\u2014"}</code></td>
+          <td>{providerLabel(job.provider)}</td><td>{usage?.model || "\u2014"}</td><td>{modeLabel(mode)}</td>
+          <td>{usage?.metadata_profile || "\u2014"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
           <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
-          <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><code>{job.error?.code || "—"}</code></td>
+          <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><code>{job.error?.code || "\u2014"}</code></td>
           <td><div className="ops-job-actions">
             {assetId ? <a aria-label={`View asset ${assetId}`} href={`/?details=1&asset=${encodeURIComponent(assetId)}`}>View</a> : <span title="Asset identity is not available yet">Unavailable</span>}
             <ProcessingJobAction job={job} permissions={permissions} onAccepted={onActionAccepted} />
@@ -293,7 +314,6 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted }:
         </tr>;
       })}</tbody>
     </table></div>
-    <div className="ops-pagination" aria-label="Processing pagination"><button type="button" disabled={filters.page <= 1} onClick={() => onFilters(pageFilters(filters, filters.page - 1))}>Previous</button><span>Page {filters.page} of {pages}</span><button type="button" disabled={filters.page >= pages} onClick={() => onFilters(pageFilters(filters, filters.page + 1))}>Next</button></div>
   </div>;
 }
 

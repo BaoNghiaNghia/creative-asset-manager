@@ -24,6 +24,7 @@ import {
   emptyDashboard,
   handleTabKeyDown,
   pageFilters,
+  visiblePages,
   ProcessingJobAction,
   StatusText,
 } from "./AiOperationsPage";
@@ -37,6 +38,7 @@ const filters: AiOpsFilters = {
   metadataProfile: "catalog",
   status: "",
   page: 2,
+  pageSize: 25,
 };
 
 const summary = {
@@ -210,7 +212,7 @@ describe("AI Operations dashboard", () => {
 
   it("renders processing details, stable errors, pagination and the real asset link", () => {
     const markup = render("processing");
-    for (const value of ["AI processing jobs", "OpenAI", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Page 2 of 3"]) expect(markup).toContain(value);
+    for (const value of ["AI processing jobs", "OpenAI", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Showing 26-50 of 60", "Items per page"]) expect(markup).toContain(value);
     expect(markup).toContain("asset-1");
     expect(markup).toContain("asset=asset-1");
     expect(markup).not.toContain(">analysis-1</code>");
@@ -292,6 +294,7 @@ describe("AI Operations interactions", () => {
     expect(markup).toContain('role="tab"');
     expect(markup).toContain('role="tabpanel"');
     expect(markup).toContain('aria-selected="true"');
+    expect(markup).toContain("Items per page");
     for (const value of ["Off", "15s", "30s", "60s"]) expect(markup).toContain(value);
     expect(markup).toContain("Last updated");
     expect(markup).toContain("10:00:00");
@@ -331,6 +334,8 @@ describe("AI Operations interactions", () => {
     expect(focus).toHaveBeenCalledOnce();
     expect(pageFilters(filters, 3).page).toBe(3);
     expect(pageFilters(filters, 0).page).toBe(1);
+    expect(visiblePages(2, 18)).toEqual([1, 2, 3, 4, 5, "ellipsis", 18]);
+    expect(visiblePages(10, 18)).toEqual([1, "ellipsis", 9, 10, 11, "ellipsis", 18]);
   });
 
   it("keeps budget-blocked separate and uses server terminal success rate", () => {

@@ -83,3 +83,19 @@
 @media(max-width:980px){.ops-header{align-items:flex-start}.ops-header-actions{grid-template-columns:auto auto;justify-content:end}.ops-back-link{grid-column:2}.ops-refresh-status{grid-column:1;grid-row:1/3;align-self:stretch;align-content:center}}
 @media(max-width:720px){.ops-header-actions{width:100%;grid-template-columns:minmax(0,1fr) auto;justify-content:stretch}.ops-refresh-control{width:100%}.ops-refresh-status{display:grid;min-width:0;padding-left:10px}.ops-back-link{grid-column:2;grid-row:1/3;align-self:center}}
 @media(max-width:430px){.ops-header-actions{grid-template-columns:1fr}.ops-refresh-status{grid-column:auto;grid-row:auto;border-left:0;border-top:1px solid #e2e8f0;padding:9px 0 0}.ops-back-link{grid-column:auto;grid-row:auto;width:100%;justify-content:center}}
+
+/* Processing pagination belongs with the table title, not below the results. */
+.ops-table-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.ops-table-heading h2{margin:0;color:#253449;font-size:18px;letter-spacing:-.015em}
+.ops-table-heading p{margin:3px 0 0;color:#718096;font-size:11px}
+.ops-pagination{display:flex;align-items:center;justify-content:flex-end;gap:12px;color:#687589;font-size:11px}
+.ops-pagination label{display:flex;align-items:center;gap:7px;color:#66778d;font-size:11px;font-weight:650;white-space:nowrap}
+.ops-pagination select{min-height:34px;padding:6px 26px 6px 9px;border:1px solid #ccd5e1;border-radius:7px;background:#fff;color:#31445f;font:inherit}
+.ops-pagination nav{display:flex;align-items:center;gap:4px}
+.ops-pagination button{min-width:34px;min-height:34px;padding:6px 9px;border:1px solid #d2dbe8;border-radius:7px;background:#fff;color:#3159b8;font-size:11px;font-weight:650}
+.ops-pagination button:hover:not(:disabled),.ops-pagination button:focus-visible{border-color:#8ca9df;background:#f1f5ff;outline:none}
+.ops-pagination button.active{border-color:#315fe9;background:#315fe9;color:#fff}
+.ops-pagination button:disabled{cursor:not-allowed;opacity:.45}
+.ops-page-ellipsis{width:20px;text-align:center;color:#8995a5;font-weight:700}
+@media(max-width:850px){.ops-table-heading{align-items:flex-start;flex-direction:column}.ops-pagination{width:100%;justify-content:space-between}}
+@media(max-width:560px){.ops-pagination{align-items:flex-start;flex-direction:column}.ops-pagination nav{max-width:100%;overflow-x:auto;padding-bottom:2px}.ops-pagination button{flex:0 0 auto}}

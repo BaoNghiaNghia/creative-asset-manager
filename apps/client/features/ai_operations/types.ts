@@ -9,6 +9,7 @@ export type AiOpsFilters = {
   metadataProfile: string;
   status: string;
   page: number;
+  pageSize?: 25 | 50 | 100;
 };
 
 export type AiOpsCost = {

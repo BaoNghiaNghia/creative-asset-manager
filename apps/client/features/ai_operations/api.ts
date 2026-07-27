@@ -55,7 +55,7 @@ export async function fetchAiOperationsDashboard(
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const today = filteredParams(filters, { from: todayStart.toISOString(), to: now.toISOString() });
   const month = filteredParams(filters, { from: monthStart.toISOString(), to: now.toISOString() });
-  const jobs = new URLSearchParams(current); jobs.set("page", String(filters.page)); jobs.set("page_size", "25");
+  const jobs = new URLSearchParams(current); jobs.set("page", String(filters.page)); jobs.set("page_size", String(filters.pageSize || 25));
   const usage = new URLSearchParams(current); usage.set("page", "1"); usage.set("page_size", "100");
   const base = "/api/v1/admin/ai-operations";
   const calls = [
@@ -85,7 +85,7 @@ export async function fetchAiOperationsDashboard(
       providers: value<{ items: AiOpsProviderBreakdown[] }>(4, { items: [] }).items,
       todayProviders: value<{ items: AiOpsProviderBreakdown[] }>(5, { items: [] }).items,
       failures: value<{ items: AiOpsFailure[] }>(6, { items: [] }).items,
-      jobs: value<Page<AiOpsJob>>(7, { page: filters.page, page_size: 25, total: 0, items: [] }),
+      jobs: value<Page<AiOpsJob>>(7, { page: filters.page, page_size: filters.pageSize || 25, total: 0, items: [] }),
       usage: value<Page<AiOpsUsage>>(8, { page: 1, page_size: 100, total: 0, items: [] }),
       coverage: null,
     },
@@ -104,6 +104,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
     metadataProfile: params.get("profile") || "",
     status: params.get("status") || "",
     page: Math.max(1, Number(params.get("page")) || 1),
+    pageSize: [25, 50, 100].includes(Number(params.get("page_size"))) ? Number(params.get("page_size")) as 25 | 50 | 100 : 25,
   };
 }
 
@@ -116,6 +117,7 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSec
   if (filters.metadataProfile) params.set("profile", filters.metadataProfile);
   if (filters.status) params.set("status", filters.status);
   if (filters.page > 1) params.set("page", String(filters.page));
+  if ((filters.pageSize || 25) !== 25) params.set("page_size", String(filters.pageSize));
   if (tab !== "overview") params.set("tab", tab);
   if (refreshSeconds) params.set("refresh", String(refreshSeconds));
   return params.toString();

@@ -2402,3 +2402,9 @@ Validation was run in the requested order:
 - The timestamp remains readable on desktop, reflows at tablet widths and stacks cleanly on narrow screens.
 - Tests: npm test -- --run app/ai-operations/AiOperationsPage.test.tsx (20 passed); npm run typecheck; npm run build.
 
+## AI Operations processing pagination (2026-07-27)
+
+- Moved processing pagination to the table heading, alongside the job title. It now supports 25, 50 or 100 items per page and compact numeric page navigation with ellipses.
+- The selected page size is persisted in the AI Operations URL as page_size; changing a filter or page size resets safely to page one.
+- Tests: npm test (81 passed); npm run typecheck; npm run build.
+
