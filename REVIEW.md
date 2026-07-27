@@ -2414,3 +2414,9 @@ Validation was run in the requested order:
 - Its URL state uses usage_page and usage_page_size so it does not conflict with processing-job pagination. Filter changes reset both tables to page one.
 - Tests: npm test (81 passed); npm run typecheck; npm run build.
 
+## AI Operations overview clarity (2026-07-27)
+
+- Added a dedicated quota notice with the number of waiting analyses, a clear automatic-retry explanation, and the next retry timestamp.
+- KPI cards now have concise operational context and state-specific hierarchy; chart labels use readable dates and provider/mode names. Empty charts explain the next action.
+- Tests: npm test (82 passed); npm run typecheck; npm run build.
+

@@ -243,17 +243,25 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
   if (!summary && !data.daily.length) return <DashboardState kind="empty" />;
   const processedToday = (data.today?.completed || 0) + (data.today?.failed || 0);
   const cards = [
-    ["Processed today", processedToday], ["Completed", summary?.completed || 0],
-    ["Failed", summary?.failed || 0], ["Budget blocked", summary?.budget_blocked || 0],
-    ["Waiting for quota", summary?.deferred || 0], ["Running", summary?.running || 0],
-    ["Queued", summary?.queued || 0], ["Success rate", `${((summary?.success_rate || 0) * 100).toFixed(1)}%`],
-    ["Estimated cost today", formatCost(data.today?.cost?.estimated_cost_micros, data.today?.cost?.currency)],
-    ["Estimated cost this month", formatCost(data.month?.cost?.estimated_cost_micros, data.month?.cost?.currency)],
+    { label: "Processed today", value: processedToday, detail: "Completed and failed today", tone: "neutral" },
+    { label: "Completed", value: summary?.completed || 0, detail: "Finished successfully", tone: "success" },
+    { label: "Failed", value: summary?.failed || 0, detail: "Needs attention", tone: "danger" },
+    { label: "Budget blocked", value: summary?.budget_blocked || 0, detail: "Stopped by budget policy", tone: "danger" },
+    { label: "Waiting for quota", value: summary?.deferred || 0, detail: "Will retry automatically", tone: "warning" },
+    { label: "Running", value: summary?.running || 0, detail: "Currently being processed", tone: "info" },
+    { label: "Queued", value: summary?.queued || 0, detail: "Waiting to start", tone: "neutral" },
+    { label: "Success rate", value: `${((summary?.success_rate || 0) * 100).toFixed(1)}%`, detail: "Completed out of terminal jobs", tone: "success" },
+    { label: "Estimated cost today", value: formatCost(data.today?.cost?.estimated_cost_micros, data.today?.cost?.currency), detail: "Projected usage for today", tone: "neutral" },
+    { label: "Estimated cost this month", value: formatCost(data.month?.cost?.estimated_cost_micros, data.month?.cost?.currency), detail: "Projected monthly usage", tone: "neutral" },
   ];
+  const nextQuotaRetry = summary?.next_deferred_retry_at;
   return <div className="ops-content">
     <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
-    {summary?.next_deferred_retry_at && <p className="ops-deferred-retry" role="status">Next Gemini quota retry: <time dateTime={summary.next_deferred_retry_at}>{new Date(summary.next_deferred_retry_at).toLocaleString()}</time></p>}
-    <section className="ops-kpis" aria-label="AI processing summary">{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
+    {nextQuotaRetry && <section className="ops-quota-notice" role="status" aria-label="Gemini quota retry status">
+      <div><span className="ops-quota-badge">Quota</span><div><strong>Gemini quota is temporarily busy</strong><p>{summary?.deferred || 0} {summary?.deferred === 1 ? "analysis" : "analyses"} will retry automatically. No action is needed unless this keeps recurring.</p></div></div>
+      <time dateTime={nextQuotaRetry}><span>Next retry</span>{new Date(nextQuotaRetry).toLocaleString()}</time>
+    </section>}
+    <section className="ops-kpis" aria-label="AI processing summary">{cards.map(card => <article key={card.label} className={`ops-kpi ops-kpi-${card.tone}`}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
     <section className="ops-charts">
       <AccessibleChart title="Daily processing" description="Completed and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
       <AccessibleChart title="Daily estimated cost by provider" description="Estimated provider cost aggregated by the server for the selected period." data={dailyProviderCostChart(data.daily)} valueLabel={value => formatCost(value)} />

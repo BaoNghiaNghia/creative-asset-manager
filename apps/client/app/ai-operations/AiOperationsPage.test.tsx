@@ -207,6 +207,13 @@ describe("AI Operations dashboard", () => {
     expect(markup).toContain("provider_timeout");
   });
 
+  it("explains deferred Gemini work with its next retry time", () => {
+    const markup = render("overview", { data: { ...data, summary: { ...summary, deferred: 3, next_deferred_retry_at: "2026-07-22T10:30:00Z" } } });
+    expect(markup).toContain("Gemini quota is temporarily busy");
+    expect(markup).toContain("3 analyses will retry automatically");
+    expect(markup).toContain("Next retry");
+  });
+
   it("formats only accumulated worker execution time for completed jobs", () => {
     expect(formatProcessingDuration(2_000)).toBe("2.0 s");
     expect(formatProcessingDuration(125_000)).toBe("2.1 min");

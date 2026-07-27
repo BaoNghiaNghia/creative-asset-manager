@@ -17,12 +17,13 @@ export function AccessibleChart({ title, description, data, valueLabel = String 
   const plotHeight = 145;
   const groupWidth = data.length ? width / data.length : width;
   const barWidth = Math.max(3, Math.min(24, (groupWidth - 12) / Math.max(1, series.length)));
-  return <figure className="ops-chart" aria-labelledby={`chart-${slug(title)}`}>
+  const isEmpty = data.length === 0;
+  return <figure className={`ops-chart${isEmpty ? " is-empty" : ""}`} aria-labelledby={`chart-${slug(title)}`}>
     <div className="ops-chart-heading">
       <div><h3 id={`chart-${slug(title)}`}>{title}</h3><p>{description}</p></div>
       <span className="ops-chart-legend">{series.map((name, index) => <i key={name}><b style={{ background: colors[index % colors.length] }} />{name}</i>)}</span>
     </div>
-    {!data.length ? <div className="ops-chart-empty">No data in this period</div> : <>
+    {isEmpty ? <div className="ops-chart-empty"><strong>No data in this period</strong><span>Try a wider date range or different filters.</span></div> : <>
       <svg role="img" aria-label={`${title}. ${description}`} viewBox={`0 0 ${width} ${height}`}>
         <line x1="0" x2={width} y1={plotHeight} y2={plotHeight} stroke="#d9e0e8" />
         {data.map((item, groupIndex) => <g key={item.label}>
@@ -59,5 +60,10 @@ function slug(value: string): string {
 }
 
 function shortLabel(value: string): string {
-  return value.length > 12 ? `${value.slice(5, 10)}…` : value;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(`${value}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  }
+  const [provider, mode] = value.split(" \u00b7 ");
+  if (mode) return `${provider.replace("Google ", "")} / ${mode}`;
+  return value.length > 16 ? `${value.slice(0, 15)}...` : value;
 }

@@ -99,3 +99,24 @@
 .ops-page-ellipsis{width:20px;text-align:center;color:#8995a5;font-weight:700}
 @media(max-width:850px){.ops-table-heading{align-items:flex-start;flex-direction:column}.ops-pagination{width:100%;justify-content:space-between}}
 @media(max-width:560px){.ops-pagination{align-items:flex-start;flex-direction:column}.ops-pagination nav{max-width:100%;overflow-x:auto;padding-bottom:2px}.ops-pagination button{flex:0 0 auto}}
+
+/* Overview communicates queue health before chart detail. */
+.ops-quota-notice{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:0 0 16px;padding:13px 15px;border:1px solid #f0d69b;border-radius:12px;background:#fffaf0;color:#57421a}
+.ops-quota-notice>div{display:flex;min-width:0;align-items:flex-start;gap:10px}
+.ops-quota-badge{display:inline-grid;flex:0 0 auto;place-items:center;min-width:42px;min-height:28px;border-radius:7px;background:#fff0c8;color:#8a5a00;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.ops-quota-notice strong{display:block;color:#634d1f;font-size:13px}
+.ops-quota-notice p{margin:3px 0 0;color:#7a663a;font-size:11px;line-height:1.45}
+.ops-quota-notice time{display:flex;flex:0 0 auto;flex-direction:column;gap:3px;padding-left:14px;border-left:1px solid #efdcae;color:#5e491e;font-size:12px;font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ops-quota-notice time span{color:#927544;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
+.ops-kpis .ops-kpi{position:relative;min-height:108px;gap:4px;justify-content:flex-start;overflow:hidden}
+.ops-kpis .ops-kpi:before{position:absolute;top:0;left:0;width:100%;height:3px;background:#cbd5e1;content:""}
+.ops-kpis .ops-kpi strong{margin-top:8px}
+.ops-kpis .ops-kpi small{color:#78869a;font-size:10px;line-height:1.35}
+.ops-kpis .ops-kpi-success:before{background:#32a36a}.ops-kpis .ops-kpi-success strong{color:#247a50!important}
+.ops-kpis .ops-kpi-danger:before{background:#d65a50}.ops-kpis .ops-kpi-danger strong{color:#b5473e!important}
+.ops-kpis .ops-kpi-warning:before{background:#d39a2b}.ops-kpis .ops-kpi-warning strong{color:#9a6700!important}
+.ops-kpis .ops-kpi-info:before{background:#466de0}.ops-kpis .ops-kpi-info strong{color:#315fd7!important}
+.ops-chart.is-empty{display:flex;min-height:0;flex-direction:column}
+.ops-chart.is-empty .ops-chart-empty{min-height:156px;gap:6px;border:1px dashed #dce4ee;border-radius:9px;background:#fafcff;color:#77869a}
+.ops-chart-empty strong{color:#536276;font-size:12px}.ops-chart-empty span{font-size:10px}
+@media(max-width:720px){.ops-quota-notice{align-items:flex-start;flex-direction:column;gap:10px}.ops-quota-notice time{padding-top:9px;padding-left:0;border-top:1px solid #efdcae;border-left:0}.ops-kpis .ops-kpi{min-height:98px}}
