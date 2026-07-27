@@ -2408,3 +2408,9 @@ Validation was run in the requested order:
 - The selected page size is persisted in the AI Operations URL as page_size; changing a filter or page size resets safely to page one.
 - Tests: npm test (81 passed); npm run typecheck; npm run build.
 
+## AI Operations cost and usage pagination (2026-07-27)
+
+- Added independent numeric pagination and 25/50/100 page-size selection to the AI cost and usage table.
+- Its URL state uses usage_page and usage_page_size so it does not conflict with processing-job pagination. Filter changes reset both tables to page one.
+- Tests: npm test (81 passed); npm run typecheck; npm run build.
+

@@ -10,6 +10,8 @@ export type AiOpsFilters = {
   status: string;
   page: number;
   pageSize?: 25 | 50 | 100;
+  usagePage?: number;
+  usagePageSize?: 25 | 50 | 100;
 };
 
 export type AiOpsCost = {

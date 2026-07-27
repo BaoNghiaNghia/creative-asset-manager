@@ -56,7 +56,7 @@ export async function fetchAiOperationsDashboard(
   const today = filteredParams(filters, { from: todayStart.toISOString(), to: now.toISOString() });
   const month = filteredParams(filters, { from: monthStart.toISOString(), to: now.toISOString() });
   const jobs = new URLSearchParams(current); jobs.set("page", String(filters.page)); jobs.set("page_size", String(filters.pageSize || 25));
-  const usage = new URLSearchParams(current); usage.set("page", "1"); usage.set("page_size", "100");
+  const usage = new URLSearchParams(current); usage.set("page", String(filters.usagePage || 1)); usage.set("page_size", String(filters.usagePageSize || 25));
   const base = "/api/v1/admin/ai-operations";
   const calls = [
     read<AiOpsSummary>(`${base}/summary?${current}`, fetcher),
@@ -86,7 +86,7 @@ export async function fetchAiOperationsDashboard(
       todayProviders: value<{ items: AiOpsProviderBreakdown[] }>(5, { items: [] }).items,
       failures: value<{ items: AiOpsFailure[] }>(6, { items: [] }).items,
       jobs: value<Page<AiOpsJob>>(7, { page: filters.page, page_size: filters.pageSize || 25, total: 0, items: [] }),
-      usage: value<Page<AiOpsUsage>>(8, { page: 1, page_size: 100, total: 0, items: [] }),
+      usage: value<Page<AiOpsUsage>>(8, { page: filters.usagePage || 1, page_size: filters.usagePageSize || 25, total: 0, items: [] }),
       coverage: null,
     },
   };
@@ -105,6 +105,8 @@ export function filtersFromSearch(search: string): AiOpsFilters {
     status: params.get("status") || "",
     page: Math.max(1, Number(params.get("page")) || 1),
     pageSize: [25, 50, 100].includes(Number(params.get("page_size"))) ? Number(params.get("page_size")) as 25 | 50 | 100 : 25,
+    usagePage: Math.max(1, Number(params.get("usage_page")) || 1),
+    usagePageSize: [25, 50, 100].includes(Number(params.get("usage_page_size"))) ? Number(params.get("usage_page_size")) as 25 | 50 | 100 : 25,
   };
 }
 
@@ -118,6 +120,8 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSec
   if (filters.status) params.set("status", filters.status);
   if (filters.page > 1) params.set("page", String(filters.page));
   if ((filters.pageSize || 25) !== 25) params.set("page_size", String(filters.pageSize));
+  if ((filters.usagePage || 1) > 1) params.set("usage_page", String(filters.usagePage));
+  if ((filters.usagePageSize || 25) !== 25) params.set("usage_page_size", String(filters.usagePageSize));
   if (tab !== "overview") params.set("tab", tab);
   if (refreshSeconds) params.set("refresh", String(refreshSeconds));
   return params.toString();

@@ -24,6 +24,7 @@ import {
   emptyDashboard,
   handleTabKeyDown,
   pageFilters,
+  usagePageFilters,
   visiblePages,
   ProcessingJobAction,
   StatusText,
@@ -39,6 +40,8 @@ const filters: AiOpsFilters = {
   status: "",
   page: 2,
   pageSize: 25,
+  usagePage: 1,
+  usagePageSize: 25,
 };
 
 const summary = {
@@ -220,7 +223,7 @@ describe("AI Operations dashboard", () => {
 
   it("keeps estimated, provider-reported and reconciled cost clearly separated", () => {
     const markup = render("cost");
-    for (const value of ["Cost &amp; Usage", "Estimated total", "Provider-reported total", "Reconciled total", "$1.20", "$1.10", "$1.05", "Input units", "Output units", "Export usage CSV"]) expect(markup).toContain(value);
+    for (const value of ["Cost &amp; Usage", "AI cost and usage records", "Showing 1-1 of 1", "Items per page", "Estimated total", "Provider-reported total", "Reconciled total", "$1.20", "$1.10", "$1.05", "Input units", "Output units", "Export usage CSV"]) expect(markup).toContain(value);
     expect(markup).toContain("/api/v1/admin/ai-operations/exports/usage.csv");
   });
 
@@ -334,6 +337,7 @@ describe("AI Operations interactions", () => {
     expect(focus).toHaveBeenCalledOnce();
     expect(pageFilters(filters, 3).page).toBe(3);
     expect(pageFilters(filters, 0).page).toBe(1);
+    expect(usagePageFilters(filters, 3).usagePage).toBe(3);
     expect(visiblePages(2, 18)).toEqual([1, 2, 3, 4, 5, "ellipsis", 18]);
     expect(visiblePages(10, 18)).toEqual([1, "ellipsis", 9, 10, 11, "ellipsis", 18]);
   });

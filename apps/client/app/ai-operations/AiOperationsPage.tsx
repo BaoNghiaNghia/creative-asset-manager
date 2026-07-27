@@ -206,7 +206,7 @@ export function AiOperationsContent({
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
       {loading ? <DashboardSkeleton /> : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
-        : tab === "cost" ? <CostUsage data={data} filters={filters} />
+        : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
         : <ConfigurationTab />}
     </section>
@@ -227,7 +227,7 @@ export function AiOperationsFilters({ filters, models, profiles, onChange }: {
   filters: AiOpsFilters; models: string[]; profiles: string[];
   onChange: (value: AiOpsFilters) => void;
 }) {
-  const field = (changes: Partial<AiOpsFilters>) => onChange({ ...filters, ...changes, page: 1 });
+  const field = (changes: Partial<AiOpsFilters>) => onChange({ ...filters, ...changes, page: 1, usagePage: 1 });
   return <form className="ops-filters" aria-label="Dashboard filters" onSubmit={event => event.preventDefault()}>
     <label>Date range<select aria-label="Date range" value={filters.range} onChange={event => field({ range: Number(event.target.value) as 7 | 30 | 90 })}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label>
     <label>Provider<select aria-label="Provider" value={filters.provider} onChange={event => field({ provider: event.target.value })}><option value="">All providers</option><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option></select></label>
@@ -266,6 +266,10 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
 
 export function pageFilters(filters: AiOpsFilters, page: number): AiOpsFilters {
   return { ...filters, page: Math.max(1, page) };
+}
+
+export function usagePageFilters(filters: AiOpsFilters, usagePage: number): AiOpsFilters {
+  return { ...filters, usagePage: Math.max(1, usagePage) };
 }
 
 export function visiblePages(currentPage: number, totalPages: number): Array<number | "ellipsis"> {
@@ -373,17 +377,29 @@ export function ProcessingJobAction({ job, permissions = [], onAccepted }: { job
   </>;
 }
 
-function CostUsage({ data, filters }: { data: AiOpsDashboardData; filters: AiOpsFilters }) {
+function CostUsage({ data, filters, onFilters }: { data: AiOpsDashboardData; filters: AiOpsFilters; onFilters: (value: AiOpsFilters) => void }) {
   if (!data.usage.items.length) return <DashboardState kind="empty" label="No usage records in this period" />;
+  const pages = Math.max(1, Math.ceil(data.usage.total / data.usage.page_size));
+  const currentPage = Math.min(Math.max(1, data.usage.page), pages);
+  const firstItem = (currentPage - 1) * data.usage.page_size + 1;
+  const lastItem = Math.min(currentPage * data.usage.page_size, data.usage.total);
   return <div className="ops-content">
-    <div className="ops-section-heading"><div><h2>Cost & Usage</h2><p>Estimated, provider-reported and reconciled values remain explicitly separate.</p></div><a href={aiOperationsExportUrl("usage", filters)}>Export usage CSV</a></div>
+    <div className="ops-table-heading">
+      <div><h2>AI cost and usage records</h2><p>Showing {firstItem}-{lastItem} of {data.usage.total}</p></div>
+      <div className="ops-pagination" aria-label="Cost and usage pagination">
+        <label>Items per page<select aria-label="Usage items per page" value={data.usage.page_size} onChange={event => onFilters({ ...filters, usagePage: 1, usagePageSize: Number(event.target.value) as 25 | 50 | 100 })}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <nav aria-label="Cost and usage page numbers">
+          <button type="button" aria-label="Previous usage page" disabled={currentPage <= 1} onClick={() => onFilters(usagePageFilters(filters, currentPage - 1))}>Previous</button>
+          {visiblePages(currentPage, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" aria-hidden="true" key={`usage-ellipsis-${index}`}>...</span> : <button type="button" key={entry} aria-label={`Usage page ${entry}`} aria-current={entry === currentPage ? "page" : undefined} className={entry === currentPage ? "active" : ""} onClick={() => onFilters(usagePageFilters(filters, entry))}>{entry}</button>)}
+          <button type="button" aria-label="Next usage page" disabled={currentPage >= pages} onClick={() => onFilters(usagePageFilters(filters, currentPage + 1))}>Next</button>
+        </nav>
+      </div>
+    </div>
     {data.summary && <section className="ops-cost-summary" aria-label="Cost totals for selected period">
-      <article><span>Estimated total</span><strong>{formatCost(data.summary.cost.estimated_cost_micros, data.summary.cost.currency)}</strong></article>
-      <article><span>Provider-reported total</span><strong>{formatCost(data.summary.cost.provider_reported_cost_micros, data.summary.cost.currency)}</strong></article>
-      <article><span>Reconciled total</span><strong>{formatCost(data.summary.cost.reconciled_cost_micros, data.summary.cost.currency)}</strong></article>
+      <article><span>Estimated total</span><strong>{formatCost(data.summary.cost.estimated_cost_micros, data.summary.cost.currency)}</strong></article><article><span>Provider-reported total</span><strong>{formatCost(data.summary.cost.provider_reported_cost_micros, data.summary.cost.currency)}</strong></article><article><span>Reconciled total</span><strong>{formatCost(data.summary.cost.reconciled_cost_micros, data.summary.cost.currency)}</strong></article>
     </section>}
-    <div className="ops-table-scroll"><table className="ops-data-table"><caption>AI cost and usage records</caption><thead><tr>{["Date", "Provider", "Model", "Mode", "Input units", "Output units", "Estimated cost", "Provider-reported cost"].map(value => <th key={value}>{value}</th>)}</tr></thead><tbody>{data.usage.items.map(item => <tr key={item.id}>
-      <td><time dateTime={item.occurred_at}>{new Date(item.occurred_at).toLocaleString()}</time></td><td>{providerLabel(item.provider)}</td><td>{item.model || "—"}</td><td>{modeLabel(item.processing_mode)}</td><td>{item.input_units.toLocaleString()}</td><td>{item.output_units.toLocaleString()}</td><td>{formatCost(item.estimated_cost_micros, item.currency)}</td><td>{formatCost(item.provider_reported_cost_micros, item.currency)}</td>
+    <div className="ops-table-scroll"><table className="ops-data-table"><caption className="sr-only">AI cost and usage records</caption><thead><tr>{["Date", "Provider", "Model", "Mode", "Input units", "Output units", "Estimated cost", "Provider-reported cost"].map(value => <th key={value}>{value}</th>)}</tr></thead><tbody>{data.usage.items.map(item => <tr key={item.id}>
+      <td><time dateTime={item.occurred_at}>{new Date(item.occurred_at).toLocaleString()}</time></td><td>{providerLabel(item.provider)}</td><td>{item.model || "\u2014"}</td><td>{modeLabel(item.processing_mode)}</td><td>{item.input_units.toLocaleString()}</td><td>{item.output_units.toLocaleString()}</td><td>{formatCost(item.estimated_cost_micros, item.currency)}</td><td>{formatCost(item.provider_reported_cost_micros, item.currency)}</td>
     </tr>)}</tbody></table></div>
   </div>;
 }
