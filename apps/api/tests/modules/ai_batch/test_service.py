@@ -177,9 +177,11 @@ class AiBatchServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(again.status,"partial_failed")
         self.assertEqual(self.session.scalar(select(func.count()).select_from(
             AiUsageRecordModel)),before)
-        index_jobs=self.session.scalars(select(ProcessingJobModel).where(
-            ProcessingJobModel.job_type=="asset_index")).all()
-        self.assertEqual(len(index_jobs),2)
+        projection_jobs=self.session.scalars(select(ProcessingJobModel).where(
+            ProcessingJobModel.job_type=="search_projection_build")).all()
+        self.assertEqual(len(projection_jobs),2)
+        self.assertFalse(self.session.scalars(select(ProcessingJobModel).where(
+            ProcessingJobModel.job_type=="asset_index")).all())
 
     async def test_streamed_import_resumes_and_marks_missing(self):
         batch=await self._batch();await self.service().submit(

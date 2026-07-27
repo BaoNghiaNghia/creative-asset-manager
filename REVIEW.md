@@ -2351,3 +2351,10 @@ Validation was run in the requested order:
 - Regression coverage verifies all nine dashboard responses map to the correct fields.
 - Tests: focused AI Operations test (20 passed); full frontend suite (81 passed); npm run typecheck and production build passed.
 - No backend API, migration, feature flag or authorization behavior changed. Rollback: revert this isolated frontend commit.
+
+## CI API suite regression alignment (2026-07-27)
+
+- Investigated GitHub Actions run 30233350349. Only API, worker and provider unit tests failed; the Production release gate correctly stopped because it depends on that job.
+- Updated stale assertions to match the durable Search V3 handoff: batch metadata completion queues search_projection_build jobs, and assets remain search_pending until the index stage completes. This preserves the ordered projection-before-index contract and does not alter runtime behavior.
+- Regression tests: each former failure passed independently; the two affected modules passed (10 tests); exact CI command python -m unittest discover -s tests -v passed: 614 tests, 18 expected integration skips, 173.830 seconds.
+- No migration, feature flag, provider behavior, or deployment file changed. Rollback: revert this isolated test-alignment commit.

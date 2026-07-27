@@ -189,7 +189,7 @@ class AssetProcessingStatusTest(unittest.TestCase):
                 "stored": "stored",
                 "duplicate": "duplicate",
                 "analyzing": "analyzing",
-                "metadata-ready": "metadata_ready",
+                "metadata-ready": "search_pending",
                 "indexed": "indexed",
                 "failed": "failed",
             },
