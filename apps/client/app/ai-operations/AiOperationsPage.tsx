@@ -254,19 +254,20 @@ export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipel
   }, ...pipeline.stages];
   return <div className="ops-content pipeline-content">
     <section className="pipeline-summary" aria-label="Pipeline summary">
-      <PipelineMetric label="Supported assets" value={pipeline.overall.supported_assets} detail="Images eligible for processing" />
-      <PipelineMetric label="Indexed" value={pipeline.overall.completed} detail={pipeline.overall.indexed_percentage === null ? "Calculating progress" : String(pipeline.overall.indexed_percentage) + "% complete"} />
-      <PipelineMetric label="Active" value={pipeline.overall.active} detail="Currently moving through the pipeline" />
-      <PipelineMetric label="Queued" value={pipeline.overall.queued} detail="Waiting to start" />
-      <PipelineMetric label="Needs attention" value={pipeline.overall.failed} detail="Current unresolved failures" tone="attention" />
-      <PipelineMetric label="Unsupported" value={pipeline.overall.unsupported_assets} detail="Excluded from image processing" />
+      <PipelineMetric icon="eligible" label="Eligible images" value={pipeline.overall.supported_assets} detail="Images that can enter processing" />
+      <PipelineMetric icon="ready" label="Search ready" value={pipeline.overall.completed} detail={pipeline.overall.indexed_percentage === null ? "Calculating progress" : String(pipeline.overall.indexed_percentage) + "% of eligible images"} tone="success" />
+      <PipelineMetric icon="active" label="In progress" value={pipeline.overall.active} detail="At least one stage is active" tone="info" />
+      <PipelineMetric icon="queued" label="Ready to start" value={pipeline.overall.queued} detail="Waiting for worker capacity" tone="warning" />
+      <PipelineMetric icon="attention" label="Action required" value={pipeline.overall.failed} detail="Current unresolved failures" tone="attention" />
+      <PipelineMetric icon="skipped" label="Skipped" value={pipeline.overall.unsupported_assets} detail="Folders and non-images are excluded" tone="muted" />
     </section>
+    <p className="pipeline-summary-note"><b>How to read this:</b> Search ready is an asset count. In progress, ready to start, and action required describe current work, so an asset can appear in more than one operational count.</p>
     <section className="pipeline-scan-card" aria-label="Latest Google Drive scan">
       <div><small>GOOGLE DRIVE SCAN</small><h2>{scan ? "Last " + scan.mode + " scan" : "No scan recorded"}</h2>
-      <p>{scan ? (scan.status === "completed" ? "Found " + scan.items_seen_count.toLocaleString() + " Drive items and created " + scan.jobs_created_count.toLocaleString() + " processing jobs." : "Scan is " + scan.status + ". " + scan.items_seen_count.toLocaleString() + " items seen so far.") : "Run a source sync to discover Drive assets."}</p></div>
+      <p>{scan ? (scan.status === "completed" ? "Discovered " + scan.items_seen_count.toLocaleString() + " Drive items and queued " + scan.jobs_created_count.toLocaleString() + " pipeline jobs." : "Scan is " + scan.status + ". " + scan.items_seen_count.toLocaleString() + " items seen so far.") : "Run a source sync to discover Drive assets."}</p></div>
       {scan && <dl><div><dt>Status</dt><dd><StatusText status={scan.status} /></dd></div><div><dt>Pages</dt><dd>{scan.pages_count}</dd></div><div><dt>Items</dt><dd>{scan.items_seen_count.toLocaleString()}</dd></div><div><dt>Jobs created</dt><dd>{scan.jobs_created_count.toLocaleString()}</dd></div><div><dt>Completed</dt><dd>{scan.completed_at ? new Date(scan.completed_at).toLocaleString() : "-"}</dd></div><div><dt>Duration</dt><dd>{formatProcessingDuration(scan.duration_ms)}</dd></div></dl>}
     </section>
-    <section className="pipeline-progress-summary" aria-label="Asset progress by furthest completed stage"><div><small>ASSET PROGRESS</small><h2>Furthest completed stage</h2><p>Each supported source asset appears once, at its latest completed stage.</p></div><dl>{pipeline.overall.asset_progress.map(item => <div key={item.key}><dt>{item.key.replaceAll("_", " ")}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
+    <section className="pipeline-progress-summary" aria-label="Asset readiness by furthest completed stage"><div><small>ASSET READINESS</small><h2>Furthest verified stage</h2><p>Each supported image is counted once at its latest completed stage.</p></div><dl>{pipeline.overall.asset_progress.map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
     <ol className="pipeline-flow" aria-label="Google Drive asset processing flow">{flowStages.map(stage => <li key={stage.key} className={stage.key === active?.job_type ? "processing" : stage.failed ? "failed" : stage.processing ? "processing" : stage.pending ? "pending" : stage.completed ? "completed" : "idle"}><b>{stage.label}</b><span>{stage.completed} completed</span><small>{stage.pending} pending / {stage.processing} running / {stage.failed} failed</small></li>)}</ol>
     <section className="pipeline-stage-grid" aria-label="Pipeline stages">{pipeline.stages.map(stage => <article key={stage.key} className={stage.key === active?.job_type ? "active" : ""}>
       <header><div><small>STAGE</small><h2>{stage.label}</h2></div><StatusText status={stage.processing ? "processing" : stage.failed ? "failed" : stage.pending ? "pending" : stage.completed ? "completed" : "idle"} /></header><p>{stage.subtitle}</p>
@@ -288,8 +289,12 @@ function PipelineRecentAssets({ recent, onPage }: { recent: PipelineSnapshot["re
   return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Recent asset progress</h2><p>Showing {first}-{last} of {recent.total} logical assets. Select a name to open details.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Items per page<select aria-label="Pipeline items per page" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Previous</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Next</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Asset</th><th>Current stage</th><th>Download</th><th>Store</th><th>AI</th><th>Projection</th><th>Index</th><th>Updated</th><th>Attention</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)}>{item.filename}</a> : item.filename}</td><td>{item.state.replaceAll("_", " ")}</td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
 }
 
-function PipelineMetric({ label, value, detail, tone = "" }: { label: string; value: number; detail: string; tone?: string }) {
-  return <article className={tone}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>;
+function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: string; label: string; value: number; detail: string; tone?: string }) {
+  return <article className={tone}><span className={"pipeline-metric-heading pipeline-icon-" + icon}><i aria-hidden="true" /><span>{label}</span></span><strong>{value.toLocaleString()}</strong><small>{detail}</small></article>;
+}
+
+function assetProgressLabel(key: string): string {
+  return ({ discovered: "Discovered", downloaded: "Downloaded", stored: "Stored", analyzed: "Analyzed", projection_built: "Projection ready", indexed: "Search ready" } as Record<string, string>)[key] || key.replaceAll("_", " ");
 }
 
 function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; canManage: boolean; onRefresh: () => void }) {

@@ -478,7 +478,9 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Elasticsearch Index");
     expect(markup).toContain("Downloading from Google Drive");
     expect(markup).toContain("Queue by stage");
-    expect(markup).toContain("Furthest completed stage");
+    expect(markup).toContain("Furthest verified stage");
+    expect(markup).toContain("How to read this:");
+    expect(markup).toContain("Search ready");
     expect(markup).toContain("Showing 26-50 of 60");
     expect(markup).toContain("Pipeline asset pagination");
   });
