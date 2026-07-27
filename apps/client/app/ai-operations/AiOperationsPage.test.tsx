@@ -7,6 +7,7 @@ import {
   cancelAiOperationsJob,
   fetchAiOperationsDashboard,
   filtersFromSearch,
+  normalizePipelineSnapshot,
   retryAiOperationsJob,
   searchFromFilters,
   type AiOpsDashboardData,
@@ -299,6 +300,18 @@ describe("AI Operations dashboard", () => {
     expect(result.data.daily).toEqual(data.daily);
     expect(result.data.jobs).toEqual(data.jobs);
     expect(result.data.usage).toEqual(data.usage);
+  });
+
+  it("normalizes a pre-pagination pipeline response without crashing", () => {
+    const result = normalizePipelineSnapshot({
+      generated_at: "2026-07-27T00:00:00Z",
+      latest_source_sync: null,
+      overall: { source_items_discovered: 0, supported_assets: 0, unsupported_assets: 0, completed: 0, active: 0, queued: 0, failed: 0, skipped: 0, indexed_percentage: null, throughput_today: 0, asset_progress: [] },
+      stages: [], active_job: null, failure_groups: [],
+      recent_assets: [{ asset_id: "asset-1", filename: "legacy.jpg", state: "indexed", stage_statuses: {}, updated_at: "2026-07-27T00:00:00Z", error_code: null }],
+    } as unknown as AiOpsDashboardData["pipeline"]);
+    expect(result?.recent_assets.items).toHaveLength(1);
+    expect(result?.recent_assets.total).toBe(1);
   });
 
   it("keeps AI Operations usable while an older API returns 404 for pipeline", async () => {

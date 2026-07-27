@@ -43,6 +43,24 @@ export type DashboardResult = {
   unauthorized: boolean;
 };
 
+export function normalizePipelineSnapshot(value: PipelineSnapshot | null | undefined): PipelineSnapshot | null | undefined {
+  if (!value) return value;
+  const recent = (value as unknown as { recent_assets?: unknown }).recent_assets;
+  if (Array.isArray(recent)) {
+    return {
+      ...value,
+      recent_assets: { page: 1, page_size: 25, total: recent.length, items: recent },
+    };
+  }
+  if (!recent || typeof recent !== "object" || !Array.isArray((recent as { items?: unknown }).items)) {
+    return {
+      ...value,
+      recent_assets: { page: 1, page_size: 25, total: 0, items: [] },
+    };
+  }
+  return value;
+}
+
 export async function fetchAiOperationsDashboard(
   filters: AiOpsFilters,
   fetcher: Fetcher = fetch,
@@ -95,7 +113,7 @@ export async function fetchAiOperationsDashboard(
       coverage: null,
       // The pipeline snapshot was introduced after the original AI Operations API.
       // A rolling deployment may briefly serve the prior API; keep AI metrics usable.
-      pipeline: pipelineUnavailable ? undefined : value<PipelineSnapshot | null>(9, null),
+      pipeline: pipelineUnavailable ? undefined : normalizePipelineSnapshot(value<PipelineSnapshot | null>(9, null)),
     },
   };
 }

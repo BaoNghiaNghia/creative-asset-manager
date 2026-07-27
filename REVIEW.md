@@ -2454,3 +2454,8 @@ Validation was run in the requested order:
 
 - Recent asset progress now uses tenant-scoped server pagination with page-number navigation and 25/50/100 item selection. The current page remains in the URL query state.
 - Tests: focused backend AI Operations API suite (11 passed); focused frontend dashboard suite (23 passed); npm run typecheck; npm run build.
+
+## Pipeline response compatibility (2026-07-27)
+
+- The frontend now normalizes the legacy array-shaped recent_assets response and the paginated response, preventing runtime errors during rolling API/frontend deployments.
+- Tests: focused AI Operations frontend suite (24 passed); npm run typecheck; npm run build.
