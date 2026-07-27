@@ -13,14 +13,18 @@ from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
 
 
 class _DatabaseGeminiQuotaCoordinator:
-    def __init__(self, session_factory: Callable[[], Session], quota_scope: str):
+    def __init__(
+        self, session_factory: Callable[[], Session], quota_scope: str, project_rpd: int
+    ):
         self.session_factory = session_factory
         self.quota_scope = quota_scope
+        self.project_rpd = project_rpd
 
     def reserve_request(self, *, model: str, rpd: int, now: datetime):
         with self.session_factory() as session:
             decision = GeminiProjectQuotaRepository(session).reserve_request(
-                quota_scope=self.quota_scope, model=model, rpd=rpd, now=now
+                quota_scope=self.quota_scope, model=model, rpd=rpd,
+                project_rpd=self.project_rpd, now=now
             )
             session.commit()
         if decision.allowed:
@@ -49,7 +53,8 @@ def build_ai_provider_registry(
     if settings.GEMINI_API_KEY:
         quota_coordinator = (
             _DatabaseGeminiQuotaCoordinator(
-                session_factory, settings.GEMINI_PROJECT_QUOTA_SCOPE
+                session_factory, settings.GEMINI_PROJECT_QUOTA_SCOPE,
+                settings.gemini_project_daily_request_limit,
             )
             if session_factory is not None
             else None

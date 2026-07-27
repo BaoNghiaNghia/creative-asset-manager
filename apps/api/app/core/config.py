@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL_LIMITS: str = ""
     GEMINI_MODEL_COOLDOWN_SECONDS: float = 60.0
     GEMINI_PROJECT_QUOTA_SCOPE: str = "default"
+    GEMINI_PROJECT_DAILY_REQUEST_LIMIT: int | None = None
     AI_MODEL_RPM_LIMITS: str = ""
     AI_MODEL_RPM_GEMINI_2_5_FLASH: int | None = None
     AI_MODEL_RPM_GPT_4_1_MINI: int | None = None
@@ -301,6 +302,15 @@ class Settings(BaseSettings):
                 )
             limits_by_model[model] = limit
         return limits_by_model
+
+    @property
+    def gemini_project_daily_request_limit(self) -> int:
+        configured = self.GEMINI_PROJECT_DAILY_REQUEST_LIMIT
+        if configured is not None:
+            if configured < 1:
+                raise ValueError("GEMINI_PROJECT_DAILY_REQUEST_LIMIT must be positive")
+            return configured
+        return sum(limit.rpd for limit in self.gemini_model_limits.values())
 
     @property
     def ai_model_rpm_limits(self) -> dict[tuple[str, str], int]:

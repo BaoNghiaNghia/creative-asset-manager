@@ -29,10 +29,16 @@ class GeminiProjectQuotaRepositoryTest(unittest.TestCase):
         self.engine.dispose()
         self.directory.cleanup()
 
-    def reserve(self, scope: str, model: str, rpd: int):
+    def reserve(
+        self, scope: str, model: str, rpd: int, project_rpd: int | None = None
+    ):
         with self.sessions() as session:
             result = GeminiProjectQuotaRepository(session).reserve_request(
-                quota_scope=scope, model=model, rpd=rpd, now=self.now
+                quota_scope=scope,
+                model=model,
+                rpd=rpd,
+                project_rpd=project_rpd,
+                now=self.now,
             )
             session.commit()
             return result
@@ -49,6 +55,26 @@ class GeminiProjectQuotaRepositoryTest(unittest.TestCase):
         self.assertTrue(self.reserve("project-a", "gemini-a", 1).allowed)
         self.assertTrue(self.reserve("project-b", "gemini-a", 1).allowed)
         self.assertTrue(self.reserve("project-a", "gemini-b", 1).allowed)
+
+    def test_project_cap_is_shared_across_models(self) -> None:
+        self.assertTrue(self.reserve("creative-assets", "gemini-a", 10, 2).allowed)
+        self.assertTrue(self.reserve("creative-assets", "gemini-b", 10, 2).allowed)
+        blocked = self.reserve("creative-assets", "gemini-c", 10, 2)
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.reason, "project_rpd_exhausted")
+        self.assertGreater(blocked.available_at, self.now)
+
+    def test_project_cap_includes_reservations_made_before_global_cap_deploys(self) -> None:
+        self.assertTrue(self.reserve("creative-assets", "gemini-a", 10).allowed)
+        self.assertTrue(self.reserve("creative-assets", "gemini-b", 10).allowed)
+        blocked = self.reserve("creative-assets", "gemini-c", 10, 2)
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.reason, "project_rpd_exhausted")
+
+    def test_model_rejection_does_not_consume_project_capacity(self) -> None:
+        self.assertTrue(self.reserve("creative-assets", "gemini-a", 1, 2).allowed)
+        self.assertFalse(self.reserve("creative-assets", "gemini-a", 1, 2).allowed)
+        self.assertTrue(self.reserve("creative-assets", "gemini-b", 10, 2).allowed)
 
     def test_concurrent_workers_cannot_reserve_more_than_rpd(self) -> None:
         barrier = threading.Barrier(3)

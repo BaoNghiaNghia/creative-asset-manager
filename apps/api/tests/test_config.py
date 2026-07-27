@@ -104,6 +104,11 @@ class SettingsTest(unittest.TestCase):
                 "two": GeminiModelLimit(rpm=4, tpm=500, rpd=5),
             },
         )
+        self.assertEqual(configured.gemini_project_daily_request_limit, 8)
+        self.assertEqual(
+            Settings(GEMINI_PROJECT_DAILY_REQUEST_LIMIT=7).gemini_project_daily_request_limit,
+            7,
+        )
 
     def test_per_model_rpm_configuration_is_provider_scoped(self) -> None:
         settings = Settings(

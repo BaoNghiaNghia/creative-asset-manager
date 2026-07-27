@@ -36,10 +36,12 @@ class AiProviderFactoryTest(unittest.TestCase):
                 Settings(
                     GEMINI_API_KEY="test-key",
                     GEMINI_MODEL_POOL="gemini-2.5-flash-lite",
+                    GEMINI_PROJECT_DAILY_REQUEST_LIMIT=7,
                 ),
                 session_factory=sessions,
             ).require("gemini")
             self.assertIsNotNone(provider._quota_coordinator)
+            self.assertEqual(provider._quota_coordinator.project_rpd, 7)
         finally:
             engine.dispose()
 
