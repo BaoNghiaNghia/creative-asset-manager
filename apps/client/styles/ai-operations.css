@@ -61,3 +61,14 @@
 .ops-global-settings>p{margin:0}
 @media(max-width:1320px){.ops-config-grid{grid-template-columns:repeat(2,minmax(330px,1fr))}.ops-global-settings{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;align-items:start}.ops-global-settings .ops-config-card-header,.ops-global-settings>p{grid-column:1/-1}.ops-global-settings button{width:max-content}}
 @media(max-width:820px){.ops-config-grid{grid-template-columns:1fr}.ops-global-settings{grid-column:auto;grid-template-columns:1fr}.ops-global-settings .ops-config-card-header,.ops-global-settings>p{grid-column:auto}.ops-field-grid{grid-template-columns:1fr}.ops-form-footer{grid-template-columns:1fr}.ops-form-footer .primary,.ops-form-submit{width:100%}}
+
+
+/* Keep all operational filters together, including status, on wide screens. */
+.ops-query-bar{align-items:flex-end;padding-top:14px;padding-bottom:14px}
+.ops-query-bar .ops-filters{grid-template-columns:minmax(150px,.82fr) minmax(170px,1fr) minmax(180px,1fr) minmax(150px,.82fr) minmax(180px,1fr) minmax(150px,.82fr);gap:12px}
+.ops-query-bar .ops-filters label{gap:6px}
+.ops-query-bar .ops-filters input,.ops-query-bar .ops-filters select{min-height:36px;padding:8px 10px}
+.ops-export-menu{margin-bottom:0}
+@media(max-width:1500px){.ops-query-bar{align-items:stretch}.ops-query-bar .ops-filters{grid-template-columns:repeat(3,minmax(160px,1fr))}.ops-export-menu{align-self:flex-end}}
+@media(max-width:920px){.ops-query-bar .ops-filters{grid-template-columns:repeat(2,minmax(150px,1fr))}}
+@media(max-width:560px){.ops-query-bar .ops-filters{grid-template-columns:1fr}.ops-export-menu{width:100%}.ops-export-menu>summary{justify-content:center}}

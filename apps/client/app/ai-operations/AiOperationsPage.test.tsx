@@ -239,6 +239,8 @@ describe("AI Operations dashboard", () => {
     expect(styles).toContain("@media(max-width:1050px)");
     expect(styles).toContain("@media(max-width:720px)");
     expect(styles).toContain("@media(max-width:460px)");
+    expect(styles).toContain("@media(max-width:1500px)");
+    expect(styles).toContain("grid-template-columns:minmax(150px,.82fr)");
     expect(styles).toContain(".ops-table-scroll{max-width:100%;overflow:auto");
     const markup = render("processing").toLowerCase();
     for (const secret of ["api_key", "signed_url", "provider_request_id", "sk-"]) expect(markup).not.toContain(secret);

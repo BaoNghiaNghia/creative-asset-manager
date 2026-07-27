@@ -2367,3 +2367,11 @@ Validation was run in the requested order:
 - Retry behavior is unchanged: failed index jobs still retry only indexing and do not re-run AI analysis or mutate historical job failures.
 - Tests: python -m unittest tests.modules.processing.test_runtime tests.infrastructure.search.test_elasticsearch_v2 -v: 29 passed. python -m unittest discover -s tests/modules/pipeline -p test_*.py -v: 14 passed.
 - No migration or feature-flag change. Rollback: revert this isolated commit, then restart workers; existing failed index jobs remain historical and can be repaired by enqueuing new index jobs through the existing coverage repair command.
+
+
+## AI Operations filter toolbar UX (2026-07-27)
+
+- Refined the filter toolbar so Date range, Provider, Model, Mode, Metadata profile and Status stay on one balanced row on wide screens.
+- The layout now moves deterministically to three, two and one column breakpoints as space narrows; the export menu stays visually associated with the filters.
+- Tests: focused AI Operations page test: 20 passed. Frontend typecheck and production build passed.
+- No backend, API, migration, feature-flag or authorization behavior changed. Rollback: revert this isolated UI commit.

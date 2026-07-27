@@ -116,3 +116,4 @@
 - [x] WORKER-ELASTICSEARCH-LOOP Persistent worker event loop for sequential asset indexing
 - [x] UX File inspector activity timeline and AI Operations header controls
 - [x] AI-OPS dashboard response mapping correctness
+- [x] AI-OPS responsive filter toolbar refinement
