@@ -167,7 +167,8 @@ async def suggestions(
     value = q.strip()
     query = {
         "_source": ["filename", "visible_text", "search_suggest", "search_terms", "normalized_terms"],
-        "size": min(limit * 3, 30),
+        "size": min(limit * 2, 16),
+        "track_total_hits": False,
         "query": {
             "bool": {
                 "filter": filters,

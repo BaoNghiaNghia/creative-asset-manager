@@ -86,6 +86,8 @@ class SearchV2ApiTest(unittest.TestCase):
         ])
         self.assertEqual(captured[0]["query"]["bool"]["filter"][0], {"term": {"tenant_id": "tenant-a"}})
         self.assertIn("search_suggest._3gram", str(captured[0]))
+        self.assertFalse(captured[0]["track_total_hits"])
+        self.assertEqual(captured[0]["size"], 14)
 
     def test_suggestion_values_prefer_exact_and_compact_completions(self):
         values = _suggestion_values({

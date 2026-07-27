@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, ParsedQueryDebug, Provider, SearchCapabilities, SearchFacetBucket, SearchSuggestion } from "../types";
 
 const emptyCapabilities: SearchCapabilities = {
   selected_version: "v1", v2_available: false, parser_available: false,
   debug_allowed: false, facet_names: [], examples: [],
 };
+const SUGGESTION_DEBOUNCE_MS = 60;
+const SUGGESTION_CACHE_TTL_MS = 20_000;
 
 export function shouldFetchSearchSuggestions(active: boolean, authenticated: boolean, query: string): boolean {
   return active && authenticated && query.trim().length >= 2;
@@ -23,9 +25,15 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [error, setError] = useState("");
   const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
+  const suggestionCache = useRef(new Map<string, { expiresAt: number; values: SearchSuggestion[] }>());
 
   useEffect(() => {
-    if (!authenticated) { setCapabilities(emptyCapabilities); setCapabilitiesResolved(false); return; }
+    if (!authenticated) {
+      suggestionCache.current.clear();
+      setCapabilities(emptyCapabilities);
+      setCapabilitiesResolved(false);
+      return;
+    }
     setCapabilitiesResolved(false);
     const controller = new AbortController();
     fetch("/api/v1/search/capabilities", { signal: controller.signal })
@@ -54,21 +62,31 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     if (!shouldFetchSearchSuggestions(active, authenticated, query)) {
       setSuggestions([]); setSuggestionsLoading(false); return;
     }
+    const normalizedQuery = query.trim();
+    const cacheKey = provider + ":" + normalizedQuery.toLocaleLowerCase();
+    const cached = suggestionCache.current.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      setSuggestions(cached.values);
+      setSuggestionsLoading(false);
+      return;
+    }
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setSuggestionsLoading(true);
       try {
-        const params = new URLSearchParams({ q: query.trim(), source_provider: provider, limit: "7" });
+        const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, limit: "7" });
         const response = await fetch("/api/v1/search/suggestions?" + params, { signal: controller.signal });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw Error(payload.detail || "Suggestions are unavailable");
-        setSuggestions(Array.isArray(payload.suggestions) ? payload.suggestions : []);
+        const values = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+        suggestionCache.current.set(cacheKey, { values, expiresAt: Date.now() + SUGGESTION_CACHE_TTL_MS });
+        setSuggestions(values);
       } catch {
         if (!controller.signal.aborted) setSuggestions([]);
       } finally {
         if (!controller.signal.aborted) setSuggestionsLoading(false);
       }
-    }, 100);
+    }, SUGGESTION_DEBOUNCE_MS);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [active, authenticated, provider, query]);
 
