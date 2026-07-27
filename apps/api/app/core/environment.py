@@ -5,12 +5,18 @@ from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
 
+from app.core.test_bootstrap import activate_test_environment
+
+activate_test_environment()
+
 API_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 _PRODUCTION_ENVIRONMENTS = {"prod", "production"}
 
 
 def load_development_environment(env_file: Path = API_ENV_FILE) -> bool:
     """Load only the fixed API .env file, and never its values in production."""
+    if os.getenv("TESTING", "").strip().lower() == "true":
+        return False
     process_environment = os.getenv("APP_ENV")
     file_environment: str | None = None
     if process_environment is None and env_file.is_file():

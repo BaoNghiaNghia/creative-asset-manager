@@ -8,6 +8,20 @@ from app.core.environment import load_development_environment
 
 
 class EnvironmentLoadingTest(unittest.TestCase):
+    def test_unittest_bootstrap_uses_safe_environment(self) -> None:
+        self.assertEqual(os.environ.get("APP_ENV"), "test")
+        self.assertEqual(os.environ.get("ENVIRONMENT"), "test")
+        self.assertEqual(os.environ.get("TESTING"), "true")
+        self.assertIsNone(os.environ.get("GEMINI_API_KEY"))
+
+    def test_test_environment_never_loads_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("ARBITRARY_SECRET=from-file\n", encoding="utf-8")
+            with patch.dict(os.environ, {"TESTING": "true"}, clear=True):
+                self.assertFalse(load_development_environment(path))
+                self.assertNotIn("ARBITRARY_SECRET", os.environ)
+
     def test_production_declared_in_process_never_loads_dotenv(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"

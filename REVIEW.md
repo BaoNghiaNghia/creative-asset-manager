@@ -2305,3 +2305,30 @@ Validation was run in the requested order:
 - No migration or feature-flag change. Rollback: revert this isolated commit; Elasticsearch documents can be rebuilt with `python -m app.operations.search_cli search:repair-coverage --tenant-id <tenant-id> --apply --repair-projections --repair-indexes --verify-elasticsearch`.
 
 - Additional validation: frontend `npm test` — 79 passed; `npm run typecheck` and `npm run build` passed. Full backend discovery ran 612 tests in 179.252 s but remains red on 5 failures and 4 errors outside this change (ambient development/production config and pre-existing AI batch/status expectations); all Search V3-focused tests passed.
+
+## Backend unittest environment isolation (2026-07-27)
+
+- Added a test-only bootstrap that is activated only while `unittest` is the
+  executing command. It clears application configuration inherited from the
+  shell, repository dotenv files and deployment environments, then forces
+  `APP_ENV=test`, `ENVIRONMENT=test` and `TESTING=true` before application
+  settings or `app.main` are imported.
+- `load_development_environment()` now refuses dotenv loading when `TESTING`
+  is true. Normal development and production loading behavior is unchanged.
+  The bootstrap resets cached settings and the application-specific environment
+  before and after each `unittest.TestCase`.
+- Focused verification: `python -m unittest discover -s tests -p
+  test_environment.py -v` — 5 passed; `python -m unittest discover -s tests
+  -p test_http_config.py -v` — 4 passed. The previous production HTTP errors
+  caused by leaked `DEVELOPMENT_PERSONAL_TENANT_ENABLED` are fixed.
+- Full verification: `python -m unittest discover -s tests -v` — 614 tests
+  ran in 183.974 s; 18 integration tests skipped cleanly because
+  `INTEGRATION_DATABASE_URL` and/or `ELASTICSEARCH_URL` were not explicitly
+  configured. No real provider credentials or endpoints were used.
+- Remaining legitimate regressions, unrelated to environment leakage:
+  - `modules.ai_batch.test_service.AiBatchServiceTest.test_submit_poll_out_of_order_partial_import_and_usage_idempotency`: expected two index jobs, received zero.
+  - `modules.assets.test_processing_status.AssetProcessingStatusTest.test_status_projection_covers_lifecycle_and_precedence`: expected `metadata_ready`, received `search_pending`.
+  These preserve the current full-suite red state and require separate
+  pipeline/status behavior fixes; this change does not hide or skip them.
+- No migration or feature flag changes. Rollback: revert the isolated test
+  bootstrap commit.
