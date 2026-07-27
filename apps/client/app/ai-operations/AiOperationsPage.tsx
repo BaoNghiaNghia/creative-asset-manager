@@ -180,7 +180,10 @@ export function AiOperationsContent({
         <label className="ops-refresh-control"><span>Auto-refresh</span><select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
           {AUTO_REFRESH_SECONDS.map(seconds => <option key={seconds} value={seconds}>{seconds ? `${seconds}s` : "Off"}</option>)}
         </select></label>
-        <span className="ops-refresh-status" aria-live="polite">{loading ? "Refreshing dashboard…" : lastUpdated ? <>Updated <time dateTime={lastUpdated.toISOString()}>{lastUpdated.toLocaleTimeString()}</time></> : "Manual refresh"}</span>
+        <div className="ops-refresh-status" aria-live="polite">
+          <span className="ops-refresh-status-label">{loading ? "Refreshing dashboard" : lastUpdated ? "Last updated" : "Refresh status"}</span>
+          {lastUpdated ? <time dateTime={lastUpdated.toISOString()}>{loading ? "Refreshing..." : lastUpdated.toLocaleTimeString()}</time> : <span className="ops-refresh-status-value">Manual refresh</span>}
+        </div>
         <a className="ops-back-link" href="/">← Back to assets</a>
       </div>
     </header>

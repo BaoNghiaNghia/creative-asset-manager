@@ -293,6 +293,8 @@ describe("AI Operations interactions", () => {
     expect(markup).toContain('role="tabpanel"');
     expect(markup).toContain('aria-selected="true"');
     for (const value of ["Off", "15s", "30s", "60s"]) expect(markup).toContain(value);
+    expect(markup).toContain("Last updated");
+    expect(markup).toContain("10:00:00");
     const query = searchFromFilters(filters, "processing", 30);
     expect(new URLSearchParams(query).get("refresh")).toBe("30");
     expect(filtersFromSearch(query)).toEqual(filters);

@@ -2395,3 +2395,10 @@ Validation was run in the requested order:
 - Added python -m app.operations.processing_cli pipeline:repair-downloads --tenant-id <tenant> --apply --yes. It walks latest terminal source_asset_download failures deterministically, preserves historical rows and creates one fresh job keyed by the failed job ID. Oversized and unsupported content remain skipped by default.
 - Focused tests: download repair/source sync/pipeline/worker suite: 46 passed, 6 expected PostgreSQL/Elasticsearch integration skips. A complete backend discovery run was started but did not produce output within the bounded validation window, so it is intentionally not recorded as a passing gate.
 - No migration or feature-flag default changed. Rollback: revert this isolated commit; fresh repair jobs can be allowed to finish or cancelled without changing their historical failed predecessors.
+
+## AI Operations header action layout (2026-07-27)
+
+- Reworked the header action group: Auto-refresh, Last updated and Back to assets now have dedicated non-shrinking areas.
+- The timestamp remains readable on desktop, reflows at tablet widths and stacks cleanly on narrow screens.
+- Tests: npm test -- --run app/ai-operations/AiOperationsPage.test.tsx (20 passed); npm run typecheck; npm run build.
+
