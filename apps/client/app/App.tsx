@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type KeyboardEvent } from "react";
 import { AssetGrid } from "./components/AssetGrid";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
@@ -49,6 +49,20 @@ export default function App() {
   const [detailsItem, setDetailsItem] = useState<Asset | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => Boolean(initialDetailsAssetId || new URLSearchParams(window.location.search).get("details")));
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
+  const [suggestionIndex, setSuggestionIndex] = useState(-1);
+  const suggestions = explorer.searchV2.suggestions;
+  const showSuggestions = explorer.searchV2.active && explorer.query.trim().length >= 2 && (explorer.searchV2.suggestionsLoading || suggestions.length > 0);
+  function applySuggestion(value: string) {
+    setSuggestionIndex(-1);
+    explorer.setQuery(value);
+  }
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") { setSuggestionIndex(-1); explorer.setQuery(""); return; }
+    if (!suggestions.length) return;
+    if (event.key === "ArrowDown") { event.preventDefault(); setSuggestionIndex(current => (current + 1) % suggestions.length); return; }
+    if (event.key === "ArrowUp") { event.preventDefault(); setSuggestionIndex(current => (current - 1 + suggestions.length) % suggestions.length); return; }
+    if (event.key === "Enter" && suggestionIndex >= 0) { event.preventDefault(); applySuggestion(suggestions[suggestionIndex].text); }
+  }
   function openDetails(item: Asset) {
     setDetailsOpen(true);
     setDetailsItem(item);
@@ -117,31 +131,50 @@ export default function App() {
       <header>
         <div className="search-area">
           <div className="search-tools">
-            <label
-            className={[
-              "search-box",
-              explorer.searching ? "searching" : "",
-            ].filter(Boolean).join(" ")}
-          >
-            <span aria-hidden="true">⌕</span>
-            <input
-              value={explorer.query}
-              disabled={!explorer.auth.authenticated || explorer.auth.checking}
-              onChange={event => explorer.setQuery(event.target.value)}
-              onKeyDown={event => event.key === "Escape" && explorer.setQuery("")}
-              placeholder={!explorer.auth.authenticated
-                ? "Connect Google Drive or SharePoint to search"
-                : "Search this folder and subfolders"}
-              aria-label="Search folders and files in this folder and all subfolders"
-            />
-            {explorer.query && <button
-              type="button"
-              className="search-clear"
-              onClick={() => explorer.setQuery("")}
-              aria-label="Clear search"
-              title="Clear search"
-            >×</button>}
-            </label>
+            <div
+              className={[
+                "search-box",
+                explorer.searching ? "searching" : "",
+              ].filter(Boolean).join(" ")}
+            >
+              <span aria-hidden="true">⌕</span>
+              <input
+                value={explorer.query}
+                disabled={!explorer.auth.authenticated || explorer.auth.checking}
+                onChange={event => { setSuggestionIndex(-1); explorer.setQuery(event.target.value); }}
+                onKeyDown={handleSearchKeyDown}
+                placeholder={!explorer.auth.authenticated
+                  ? "Connect Google Drive or SharePoint to search"
+                  : "Search this folder and subfolders"}
+                aria-label="Search folders and files in this folder and all subfolders"
+                aria-autocomplete="list"
+                aria-expanded={showSuggestions}
+                aria-controls={showSuggestions ? "asset-search-suggestions" : undefined}
+                aria-activedescendant={suggestionIndex >= 0 ? "asset-search-suggestion-" + suggestionIndex : undefined}
+              />
+              {explorer.query && <button
+                type="button"
+                className="search-clear"
+                onClick={() => { setSuggestionIndex(-1); explorer.setQuery(""); }}
+                aria-label="Clear search"
+                title="Clear search"
+              >{"\u00d7"}</button>}
+              {showSuggestions && <div id="asset-search-suggestions" className="search-suggestions" role="listbox" aria-label="Search suggestions">
+                {explorer.searchV2.suggestionsLoading && !suggestions.length
+                  ? <span className="search-suggestions-loading">Finding suggestions...</span>
+                  : suggestions.map((suggestion, index) => <button
+                    key={suggestion.kind + ":" + suggestion.text}
+                    id={"asset-search-suggestion-" + index}
+                    type="button"
+                    role="option"
+                    aria-selected={suggestionIndex === index}
+                    className={suggestionIndex === index ? "active" : ""}
+                    onMouseDown={event => event.preventDefault()}
+                    onMouseEnter={() => setSuggestionIndex(index)}
+                    onClick={() => applySuggestion(suggestion.text)}
+                  ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : "T"}</span><b>{suggestion.text}</b><small>{suggestion.kind === "filename" ? "File name" : "Detected text"}</small></button>)}
+              </div>}
+            </div>
             {explorer.searchV2.active && <SearchGuide capabilities={explorer.searchV2.capabilities} />}
           </div>
           {explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">

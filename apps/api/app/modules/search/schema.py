@@ -24,3 +24,13 @@ class SearchCapabilities(BaseModel):
     debug_allowed: bool
     facet_names: list[str]
     examples: list[str]
+
+
+class SearchSuggestion(BaseModel):
+    text: str
+    kind: Literal["filename", "visible_text"]
+
+class SearchSuggestionsResponse(BaseModel):
+    search_version: Literal["v2", "v3"]
+    suggestions: list[SearchSuggestion]
+    took_ms: int | None = None

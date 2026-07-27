@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatSearchDuration, getAnalysisSelectionState, isEligibleAnalysisItem } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
+import { shouldFetchSearchSuggestions } from "./hooks/useSearchV2";
 import type { Asset } from "./types";
 
 function asset(overrides: Partial<Asset>): Asset {
@@ -49,5 +50,15 @@ describe("formatSearchDuration", () => {
     expect(formatSearchDuration(42)).toBe("42 ms");
     expect(formatSearchDuration(1_250)).toBe("1.25 s");
     expect(formatSearchDuration(null)).toBeNull();
+  });
+});
+
+
+describe("Search suggestions eligibility", () => {
+  it("loads suggestions only for authenticated modern search with two or more characters", () => {
+    expect(shouldFetchSearchSuggestions(true, true, "mi")).toBe(true);
+    expect(shouldFetchSearchSuggestions(true, true, "m")).toBe(false);
+    expect(shouldFetchSearchSuggestions(false, true, "milo")).toBe(false);
+    expect(shouldFetchSearchSuggestions(true, false, "milo")).toBe(false);
   });
 });

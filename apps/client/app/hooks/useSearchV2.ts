@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Asset, ParsedQueryDebug, Provider, SearchCapabilities, SearchFacetBucket } from "../types";
+import type { Asset, ParsedQueryDebug, Provider, SearchCapabilities, SearchFacetBucket, SearchSuggestion } from "../types";
 
 const emptyCapabilities: SearchCapabilities = {
   selected_version: "v1", v2_available: false, parser_available: false,
   debug_allowed: false, facet_names: [], examples: [],
 };
+
+export function shouldFetchSearchSuggestions(active: boolean, authenticated: boolean, query: string): boolean {
+  return active && authenticated && query.trim().length >= 2;
+}
 
 export function useSearchV2(authenticated: boolean, provider: Provider, query: string) {
   const [capabilities, setCapabilities] = useState(emptyCapabilities);
@@ -15,6 +19,8 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [durationMs, setDurationMs] = useState<number | null>(null);
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [error, setError] = useState("");
   const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
 
@@ -43,6 +49,28 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
 
   const active = capabilities.selected_version === "v2" || capabilities.selected_version === "v3";
   const facetKey = JSON.stringify(selectedFacets);
+
+  useEffect(() => {
+    if (!shouldFetchSearchSuggestions(active, authenticated, query)) {
+      setSuggestions([]); setSuggestionsLoading(false); return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSuggestionsLoading(true);
+      try {
+        const params = new URLSearchParams({ q: query.trim(), source_provider: provider, limit: "7" });
+        const response = await fetch("/api/v1/search/suggestions?" + params, { signal: controller.signal });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw Error(payload.detail || "Suggestions are unavailable");
+        setSuggestions(Array.isArray(payload.suggestions) ? payload.suggestions : []);
+      } catch {
+        if (!controller.signal.aborted) setSuggestions([]);
+      } finally {
+        if (!controller.signal.aborted) setSuggestionsLoading(false);
+      }
+    }, 180);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [active, authenticated, provider, query]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -89,5 +117,5 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     });
   }
 
-  return useMemo(() => ({ active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, error, toggleFacet }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, error]);
+  return useMemo(() => ({ active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, suggestions, suggestionsLoading, error, toggleFacet }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, suggestions, suggestionsLoading, error]);
 }

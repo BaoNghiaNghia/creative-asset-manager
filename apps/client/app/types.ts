@@ -88,6 +88,10 @@ export type SearchCapabilities = {
   examples: string[];
 };
 export type SearchFacetBucket = { value: string; count: number };
+export type SearchSuggestion = {
+  text: string;
+  kind: "filename" | "visible_text";
+};
 export type ParsedQueryDebug = {
   mode: string;
   clauses: Array<{ kind: string; field?: string | null; value: string }>;

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import time
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from urllib.parse import quote
 from sqlalchemy import select
 
@@ -19,7 +19,7 @@ from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService
 from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
 from app.modules.search.query_parser import SearchQueryParser
-from app.modules.search.schema import SearchCapabilities, SearchV2Request, SearchV2Response
+from app.modules.search.schema import SearchCapabilities, SearchSuggestionsResponse, SearchV2Request, SearchV2Response
 
 router = APIRouter(prefix="/api/v1/search", tags=["search-v2"])
 SEARCH_READ = require_permission("search.read")
@@ -56,6 +56,95 @@ def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
         available = enabled(session, tenant)
         session.commit()
     return {"selected_version": "v3" if available and get_settings().SEARCH_V3_ENABLED else "v2" if available else "v1", "v2_available": available, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES}
+
+def _source_provider_asset_ids(session, tenant: str, source_provider: str | None) -> list[str] | None:
+    if not source_provider:
+        return None
+    source_type = "google_drive" if source_provider == "google-drive" else "sharepoint"
+    statement = (
+        select(AssetSourceLinkModel.asset_id)
+        .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
+        .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
+        .where(
+            AssetSourceLinkModel.tenant_id == tenant,
+            ExternalSourceModel.source_type == source_type,
+        )
+    )
+    return [str(asset_id) for asset_id in session.scalars(statement)]
+
+
+def _suggestion_values(document: dict) -> list[tuple[str, str]]:
+    values: list[tuple[str, str]] = []
+    filename = str(document.get("filename") or "").strip()
+    visible_text = document.get("visible_text")
+    if isinstance(visible_text, list):
+        visible_text = " ".join(str(value) for value in visible_text if isinstance(value, str))
+    for kind, value in (("filename", filename), ("visible_text", str(visible_text or "").strip())):
+        normalized = " ".join(value.split())
+        if normalized:
+            values.append((kind, normalized[:160]))
+    if not values:
+        fallback = " ".join(str(document.get("search_suggest") or "").split())
+        if fallback:
+            values.append(("visible_text", fallback[:160]))
+    return values
+
+
+@router.get("/suggestions", response_model=SearchSuggestionsResponse)
+async def suggestions(
+    q: str = Query(min_length=2, max_length=160),
+    source_provider: str | None = Query(default=None, pattern="^(google-drive|sharepoint)$"),
+    limit: int = Query(default=7, ge=1, le=10),
+    principal: CurrentPrincipal = Depends(SEARCH_READ),
+):
+    tenant = principal.active_tenant_id
+    settings = get_settings()
+    with SessionLocal() as session:
+        if not enabled(session, tenant):
+            raise HTTPException(409, "Search is not enabled for this tenant")
+        filters = [{"term": {"tenant_id": tenant}}]
+        source_asset_ids = _source_provider_asset_ids(session, tenant, source_provider)
+        if source_asset_ids is not None:
+            filters.append({"terms": {"asset_id": source_asset_ids or ["__none__"]}})
+        session.commit()
+    value = q.strip()
+    query = {
+        "_source": ["filename", "visible_text", "search_suggest"],
+        "size": min(limit * 3, 30),
+        "query": {
+            "bool": {
+                "filter": filters,
+                "should": [
+                    {"match_phrase_prefix": {"visible_text": {"query": value, "boost": 12}}},
+                    {"match_phrase_prefix": {"filename": {"query": value, "boost": 8}}},
+                    {"multi_match": {"query": value, "type": "bool_prefix", "fields": ["search_suggest", "search_suggest._2gram", "search_suggest._3gram"], "boost": 4}},
+                ],
+                "minimum_should_match": 1,
+            }
+        },
+    }
+    try:
+        async with ElasticsearchV2Index(ElasticsearchV2Config(
+            settings.ELASTICSEARCH_URL,
+            settings.ELASTICSEARCH_INDEX_PREFIX,
+            index_generation="v3" if settings.SEARCH_V3_ENABLED else "v2",
+        )) as index:
+            response = await index.search(query)
+    except ElasticsearchV2RequestError as exc:
+        raise HTTPException(503, "Search service is temporarily unavailable") from exc
+    seen: set[str] = set()
+    result = []
+    for hit in response.get("hits", {}).get("hits", []):
+        for kind, text in _suggestion_values(hit.get("_source", {})):
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append({"text": text, "kind": kind})
+            if len(result) >= limit:
+                return {"search_version": "v3" if settings.SEARCH_V3_ENABLED else "v2", "suggestions": result, "took_ms": response.get("took")}
+    return {"search_version": "v3" if settings.SEARCH_V3_ENABLED else "v2", "suggestions": result, "took_ms": response.get("took")}
+
 
 @router.post("", response_model=SearchV2Response)
 async def search(body: SearchV2Request, request: Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
