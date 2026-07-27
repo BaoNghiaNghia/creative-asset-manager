@@ -2332,3 +2332,14 @@ Validation was run in the requested order:
   pipeline/status behavior fixes; this change does not hide or skip them.
 - No migration or feature flag changes. Rollback: revert the isolated test
   bootstrap commit.
+
+## File activity and dashboard control UX (2026-07-27)
+
+- The file inspector now renders a readable processing timeline: source import,
+  managed storage, AI analysis, search-projection and search-index events each
+  have a plain-language outcome, category and state indicator. Failed jobs show
+  a safe human-readable error and point operators to the retry action.
+- AI Operations now groups Auto-refresh, update status and the back-to-assets
+  action into one consistent, responsive header control area.
+- Tests: `npm test` — 80 passed; `npm run typecheck` passed; `npm run build`
+  passed. No API, authorization or background-processing behavior changed.

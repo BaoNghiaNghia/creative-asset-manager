@@ -177,11 +177,11 @@ export function AiOperationsContent({
     <header className="ops-header">
       <div><small>OPERATIONS</small><h1>AI Operations</h1><p>Processing health, usage and cost for the current tenant.</p></div>
       <div className="ops-header-actions">
-        <label>Auto-refresh<select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
+        <label className="ops-refresh-control"><span>Auto-refresh</span><select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
           {AUTO_REFRESH_SECONDS.map(seconds => <option key={seconds} value={seconds}>{seconds ? `${seconds}s` : "Off"}</option>)}
         </select></label>
-        <span className="ops-refresh-status" aria-live="polite">{loading ? "Refreshing dashboard…" : lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Auto-refresh off"}</span>
-        <a href="/">Back to assets</a>
+        <span className="ops-refresh-status" aria-live="polite">{loading ? "Refreshing dashboard…" : lastUpdated ? <>Updated <time dateTime={lastUpdated.toISOString()}>{lastUpdated.toLocaleTimeString()}</time></> : "Manual refresh"}</span>
+        <a className="ops-back-link" href="/">← Back to assets</a>
       </div>
     </header>
     <nav className="ops-tabs" aria-label="AI Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>

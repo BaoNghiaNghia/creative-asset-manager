@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset, AssetMetadata } from "../types";
-import { AssetDetailsPanel, formatBytes, readableKind, resolvePreviewUrl } from "./AssetDetailsPanel";
+import { AssetDetailsPanel, buildActivity, formatBytes, readableKind, resolvePreviewUrl } from "./AssetDetailsPanel";
 
 const item: Asset = {
   provider: "google-drive",
@@ -34,6 +34,23 @@ describe("Asset details inspector", () => {
     expect(markup).not.toContain("Operator actions");
   });
 
+  it("turns technical processing states into an understandable activity timeline", () => {
+    const entries = buildActivity(item, {
+      asset: {}, sources: [], storage: [], active_analysis: null,
+      analysis_history: [{ id: "analysis-1", status: "completed", ai_provider: "gemini", ai_model: "gemini-3.5-flash-lite", completed_at: "2026-07-27T10:00:00Z" }],
+      analysis_total: 1,
+      jobs: [
+        { id: "index-1", job_type: "asset_index", status: "failed", last_error_code: "search_provider_unconfigured", updated_at: "2026-07-27T10:01:00Z" },
+        { id: "projection-1", job_type: "search_projection_build", status: "completed", completed_at: "2026-07-27T09:59:00Z" },
+      ],
+      job_total: 2, pipelines: [], lifecycle_status: "search_failed", can_administer: true,
+      limits: { max_json_nodes: 10, max_json_depth: 3 },
+    });
+    expect(entries.map(entry => entry.title)).toContain("Search index updated failed");
+    expect(entries.map(entry => entry.title)).toContain("Search data prepared");
+    expect(entries.map(entry => entry.title)).toContain("AI metadata analysis completed");
+    expect(entries.find(entry => entry.id === "job-index-1")?.detail).toContain("Search Provider Unconfigured");
+  });
   it("renders an accessible empty state when the panel is toggled without a selection", () => {
     const markup = renderToStaticMarkup(<AssetDetailsPanel item={null} onClose={noop} />);
     expect(markup).toContain("Select a file or folder");

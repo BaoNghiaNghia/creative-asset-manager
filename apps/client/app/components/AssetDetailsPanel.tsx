@@ -15,7 +15,8 @@ type Props = {
 
 type Section = "details" | "activity" | "metadata" | "history" | "jobs";
 
-type ActivityEntry = { id: string; title: string; detail: string; at?: string };
+type ActivityTone = "success" | "warning" | "danger" | "neutral";
+type ActivityEntry = { id: string; title: string; detail: string; category: string; tone: ActivityTone; at?: string };
 
 export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview }: Props) {
   const [data, setData] = useState<AssetDetails | null>(null);
@@ -180,10 +181,12 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
 }
 
 function Activity({ entries }: { entries: ActivityEntry[] }) {
-  if (!entries.length) return <div className="inspector-empty"><b>No activity yet</b><span>Changes and processing events will appear here.</span></div>;
-  return <ol className="activity-list">{entries.map(entry => <li key={entry.id}><i aria-hidden="true" /><div><b>{entry.title}</b><span>{entry.detail}</span>{entry.at && <time dateTime={entry.at}>{humanDate(entry.at)}</time>}</div></li>)}</ol>;
+  if (!entries.length) return <div className="inspector-empty compact"><b>No activity yet</b><span>Processing updates and file changes will appear here.</span></div>;
+  return <section className="activity-timeline" aria-label="Asset activity timeline">
+    <div className="activity-timeline-heading"><div><h3>Processing timeline</h3><p>Newest activity first. Each entry explains what happened to this file.</p></div><span>{entries.length} event{entries.length === 1 ? "" : "s"}</span></div>
+    <ol className="activity-list">{entries.map(entry => <li key={entry.id} data-tone={entry.tone}><i aria-hidden="true" /><div><div className="activity-entry-heading"><b>{entry.title}</b><span className="activity-category">{entry.category}</span></div><span className="activity-detail">{entry.detail}</span>{entry.at && <time dateTime={entry.at}>{humanDate(entry.at)}</time>}</div></li>)}</ol>
+  </section>;
 }
-
 function InspectorEmpty() {
   return <div className="inspector-empty"><span className="info-empty-icon" aria-hidden="true">i</span><b>Select a file or folder</b><span>Its preview, location, metadata and activity will appear here.</span></div>;
 }
@@ -201,14 +204,60 @@ function Summary({ analysis }: { analysis: Record<string, any> | null }) {
   return <div className="analysis-summary"><p><b>{analysis.metadata_profile}</b> v{analysis.metadata_profile_version}</p><p>{analysis.ai_provider || "provider"} / {analysis.ai_model || "model pending"}</p><p>Prompt {analysis.prompt_version} · Pipeline {analysis.pipeline_version}</p><p>Status: {analysis.status}{analysis.processing_stage ? " · " + analysis.processing_stage : ""}</p></div>;
 }
 
-function buildActivity(item: Asset | null, data: AssetDetails | null): ActivityEntry[] {
+export function buildActivity(item: Asset | null, data: AssetDetails | null): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
-  if (item?.modified_at) entries.push({ id: "modified", title: "File modified", detail: `Updated in ${item.provider === "sharepoint" ? "SharePoint" : "Google Drive"}`, at: item.modified_at });
-  data?.analysis_history.forEach((analysis, index) => entries.push({ id: `analysis-${String(analysis.id || index)}`, title: `Metadata analysis ${String(analysis.status || "updated")}`, detail: `${String(analysis.ai_provider || "AI")} · ${String(analysis.ai_model || "model")}`, at: stringValue(analysis.completed_at) || stringValue(analysis.updated_at) || stringValue(analysis.created_at) }));
-  data?.jobs.slice(0, 20).forEach((job, index) => entries.push({ id: `job-${String(job.id || index)}`, title: `${String(job.job_type || "Processing job")} ${String(job.status || "updated")}`, detail: job.last_error_code ? String(job.last_error_code) : "Asset processing", at: stringValue(job.completed_at) || stringValue(job.updated_at) || stringValue(job.created_at) }));
+  if (item?.modified_at) entries.push({
+    id: "modified", title: "File updated", category: "Source file", tone: "neutral",
+    detail: `The file was updated in ${item.provider === "sharepoint" ? "SharePoint" : "Google Drive"}.`, at: item.modified_at,
+  });
+  data?.analysis_history.forEach((analysis, index) => {
+    const status = String(analysis.status || "updated");
+    const completed = status === "completed";
+    entries.push({
+      id: `analysis-${String(analysis.id || index)}`,
+      title: completed ? "AI metadata analysis completed" : `AI metadata analysis ${readableStatus(status)}`,
+      category: "AI analysis", tone: completed ? "success" : status === "failed" ? "danger" : "warning",
+      detail: completed
+        ? `Metadata was generated with ${String(analysis.ai_provider || "AI")} using ${String(analysis.ai_model || "the selected model")}.`
+        : `Metadata analysis is ${readableStatus(status)} using ${String(analysis.ai_provider || "AI")}.`,
+      at: stringValue(analysis.completed_at) || stringValue(analysis.updated_at) || stringValue(analysis.created_at),
+    });
+  });
+  data?.jobs.slice(0, 20).forEach((job, index) => entries.push(describeJobActivity(job, index)));
   return entries.sort((left, right) => Date.parse(right.at || "") - Date.parse(left.at || ""));
 }
 
+function describeJobActivity(job: Record<string, any>, index: number): ActivityEntry {
+  const jobType = String(job.job_type || "processing");
+  const status = String(job.status || "updated");
+  const completed = status === "completed";
+  const failed = status === "failed";
+  const definitions: Record<string, { title: string; detail: string; category: string }> = {
+    source_asset_download: { title: "Source image downloaded", detail: "The original image was downloaded securely from the connected source.", category: "Import" },
+    asset_store: { title: "Managed copy stored", detail: "A managed copy of the image was saved for reliable processing.", category: "Storage" },
+    asset_analyze: { title: "Metadata analysis processed", detail: "AI metadata processing was queued or completed for this image.", category: "AI analysis" },
+    search_projection_build: { title: "Search data prepared", detail: "Search terms and phrases were built from the completed metadata.", category: "Search" },
+    asset_index: { title: "Search index updated", detail: "The asset was added to the search index and is ready to be found.", category: "Search" },
+  };
+  const definition = definitions[jobType] || { title: "Background processing updated", detail: "A background processing step was updated.", category: "Processing" };
+  const error = job.last_error_code ? ` Search indexing could not finish (${humanizeError(String(job.last_error_code))}). Use “More actions” to retry when the service is available.` : "";
+  return {
+    id: `job-${String(job.id || index)}`,
+    title: failed ? `${definition.title} failed` : completed ? definition.title : `${definition.title} ${readableStatus(status)}`,
+    category: definition.category,
+    tone: failed ? "danger" : completed ? "success" : "warning",
+    detail: failed ? error || "This processing step could not finish. You can retry it from More actions." : definition.detail,
+    at: stringValue(job.completed_at) || stringValue(job.updated_at) || stringValue(job.created_at),
+  };
+}
+
+function readableStatus(status: string): string {
+  return status.replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
+}
+
+function humanizeError(code: string): string {
+  return code.replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
+}
 function sourcePath(source: Record<string, unknown>): string | undefined {
   const metadata = source.source_metadata;
   if (metadata && typeof metadata === "object" && "path" in metadata) return stringValue((metadata as Record<string, unknown>).path);
