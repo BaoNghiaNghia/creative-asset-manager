@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import Base
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
+from app.modules.ai_governance.model import GeminiProjectQuotaStateModel
 
 
 class GeminiProjectQuotaRepositoryTest(unittest.TestCase):
@@ -81,14 +82,17 @@ class GeminiProjectQuotaRepositoryTest(unittest.TestCase):
         outcomes = []
         errors = []
 
-        def reserve() -> None:
+        def reserve(model: str) -> None:
             try:
                 barrier.wait()
-                outcomes.append(self.reserve("creative-assets", "gemini-3.5-flash-lite", 1).allowed)
+                outcomes.append(self.reserve("creative-assets", model, 10, 1).allowed)
             except Exception as exc:
                 errors.append(exc)
 
-        workers = [threading.Thread(target=reserve) for _ in range(3)]
+        workers = [
+            threading.Thread(target=reserve, args=(f"gemini-{index}",))
+            for index in range(3)
+        ]
         for worker in workers:
             worker.start()
         for worker in workers:
@@ -96,6 +100,13 @@ class GeminiProjectQuotaRepositoryTest(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(outcomes.count(True), 1)
         self.assertEqual(outcomes.count(False), 2)
+        with self.sessions() as session:
+            project_total = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "__project_total__"},
+            )
+        self.assertIsNotNone(project_total)
+        self.assertEqual(project_total.reserved_requests, 1)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -11,6 +13,8 @@ from app.providers.ai.gemini import GeminiAiMetadataProvider
 from app.providers.ai.openai import OpenAiMetadataProvider
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
 
+_PACIFIC_TIME = ZoneInfo("America/Los_Angeles")
+
 
 class _DatabaseGeminiQuotaCoordinator:
     def __init__(
@@ -19,6 +23,7 @@ class _DatabaseGeminiQuotaCoordinator:
         self.session_factory = session_factory
         self.quota_scope = quota_scope
         self.project_rpd = project_rpd
+        self.logger = logging.getLogger("cam.gemini_quota")
 
     def reserve_request(self, *, model: str, rpd: int, now: datetime):
         with self.session_factory() as session:
@@ -29,6 +34,19 @@ class _DatabaseGeminiQuotaCoordinator:
             session.commit()
         if decision.allowed:
             return None
+        if decision.reason == "project_rpd_exhausted":
+            self.logger.warning(
+                "gemini_project_daily_cap_deferred",
+                extra={
+                    "quota_scope": self.quota_scope,
+                    "quota_day": now.astimezone(_PACIFIC_TIME).date().isoformat(),
+                    "project_reserved_requests": decision.reserved_requests,
+                    "project_daily_limit": self.project_rpd,
+                    "retry_at": (decision.available_at or now).isoformat(),
+                    "model": model,
+                    "provider_call_started": False,
+                },
+            )
         from app.providers.ai.gemini import GeminiModelUnavailable
         return GeminiModelUnavailable(
             model=model,

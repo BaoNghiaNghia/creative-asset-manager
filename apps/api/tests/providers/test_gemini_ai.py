@@ -1,11 +1,18 @@
 import json
 import unittest
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import asyncio
 import httpx
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from app.core.database import Base
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiProviderError
+from app.modules.ai_governance.model import GeminiProjectQuotaStateModel
+from app.providers.ai.factory import _DatabaseGeminiQuotaCoordinator
 from app.providers.ai.gemini import (
     GeminiAiMetadataProvider,
     GeminiModelLimit,
@@ -524,6 +531,247 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             {"tpm_exhausted"},
         )
         self.assertEqual(raised.exception.earliest_retry_at, clock.now() + timedelta(seconds=60))
+
+    async def test_project_cap_defers_without_a_provider_call_and_persists_across_restart(self):
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        sessions = sessionmaker(engine, class_=Session, expire_on_commit=False)
+        now = datetime(2040, 1, 1, tzinfo=timezone.utc)
+        with sessions() as session:
+            session.add(GeminiProjectQuotaStateModel(
+                quota_scope="creative-assets",
+                model="__project_total__",
+                quota_day=now.astimezone(ZoneInfo("America/Los_Angeles")).date(),
+                reserved_requests=2,
+                updated_at=now,
+            ))
+            session.commit()
+        calls = 0
+
+        async def handler(_request):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+            })
+
+        def provider():
+            return configured_gemini_provider(
+                "secret",
+                model="gemini-test",
+                model_pool=("gemini-test",),
+                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=100, rpd=10)},
+                now=lambda: now,
+                quota_coordinator=_DatabaseGeminiQuotaCoordinator(
+                    sessions, "creative-assets", 2
+                ),
+                transport=httpx.MockTransport(handler),
+            )
+
+        pacific = ZoneInfo("America/Los_Angeles")
+        expected_retry_at = datetime.combine(
+            now.astimezone(pacific).date() + timedelta(days=1),
+            datetime.min.time(),
+            tzinfo=pacific,
+        ).astimezone(timezone.utc)
+        with self.assertLogs("cam.gemini_quota", level="WARNING") as logs:
+            for runtime in (provider(), provider()):
+                with self.assertRaises(GeminiPoolTemporarilyUnavailable) as raised:
+                    await runtime.analyze_single(analysis_input())
+                self.assertEqual(
+                    {item.reason for item in raised.exception.reasons_by_model.values()},
+                    {"project_rpd_exhausted"},
+                )
+                self.assertEqual(raised.exception.earliest_retry_at, expected_retry_at)
+        self.assertEqual(calls, 0)
+        self.assertEqual(len(logs.records), 2)
+        for record in logs.records:
+            self.assertEqual(record.msg, "gemini_project_daily_cap_deferred")
+            self.assertEqual(record.quota_scope, "creative-assets")
+            self.assertEqual(record.project_reserved_requests, 2)
+            self.assertEqual(record.project_daily_limit, 2)
+            self.assertEqual(record.model, "gemini-test")
+            self.assertFalse(record.provider_call_started)
+        with sessions() as session:
+            project = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "__project_total__"},
+            )
+            model = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "gemini-test"},
+            )
+        self.assertEqual(project.reserved_requests, 2)
+        self.assertIsNone(model)
+        engine.dispose()
+
+    async def test_project_cap_last_slot_authorizes_one_provider_call(self):
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        sessions = sessionmaker(engine, class_=Session, expire_on_commit=False)
+        now = datetime(2040, 1, 1, tzinfo=timezone.utc)
+        with sessions() as session:
+            session.add(GeminiProjectQuotaStateModel(
+                quota_scope="creative-assets",
+                model="__project_total__",
+                quota_day=now.astimezone(ZoneInfo("America/Los_Angeles")).date(),
+                reserved_requests=1,
+                updated_at=now,
+            ))
+            session.commit()
+        calls = 0
+
+        async def handler(_request):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+            })
+
+        provider = configured_gemini_provider(
+            "secret",
+            model="gemini-test",
+            model_pool=("gemini-test",),
+            model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=100, rpd=10)},
+            now=lambda: now,
+            quota_coordinator=_DatabaseGeminiQuotaCoordinator(
+                sessions, "creative-assets", 2
+            ),
+            transport=httpx.MockTransport(handler),
+        )
+        await provider.analyze_single(analysis_input())
+        with self.assertRaises(GeminiPoolTemporarilyUnavailable):
+            await provider.analyze_single(analysis_input())
+        self.assertEqual(calls, 1)
+        with sessions() as session:
+            project = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "__project_total__"},
+            )
+            model = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "gemini-test"},
+            )
+        self.assertEqual(project.reserved_requests, 2)
+        self.assertEqual(model.reserved_requests, 1)
+        engine.dispose()
+
+    async def test_concurrent_workers_only_start_one_provider_call_at_last_project_slot(self):
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        sessions = sessionmaker(engine, class_=Session, expire_on_commit=False)
+        now = datetime(2040, 1, 1, tzinfo=timezone.utc)
+        calls = 0
+
+        async def handler(_request):
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0)
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+            })
+
+        def provider():
+            return configured_gemini_provider(
+                "secret",
+                model="gemini-test",
+                model_pool=("gemini-test",),
+                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=100, rpd=10)},
+                now=lambda: now,
+                quota_coordinator=_DatabaseGeminiQuotaCoordinator(
+                    sessions, "creative-assets", 1
+                ),
+                transport=httpx.MockTransport(handler),
+            )
+
+        results = await asyncio.gather(
+            provider().analyze_single(analysis_input()),
+            provider().analyze_single(analysis_input()),
+            return_exceptions=True,
+        )
+        self.assertEqual(sum(not isinstance(result, Exception) for result in results), 1)
+        self.assertEqual(
+            sum(isinstance(result, GeminiPoolTemporarilyUnavailable) for result in results),
+            1,
+        )
+        self.assertEqual(calls, 1)
+        with sessions() as session:
+            project = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "__project_total__"},
+            )
+            model = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "gemini-test"},
+            )
+        self.assertEqual(project.reserved_requests, 1)
+        self.assertEqual(model.reserved_requests, 1)
+        engine.dispose()
+
+    async def test_skipped_failover_model_does_not_consume_project_capacity(self):
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        sessions = sessionmaker(engine, class_=Session, expire_on_commit=False)
+        now = datetime(2040, 1, 1, tzinfo=timezone.utc)
+        calls: list[str] = []
+
+        async def handler(request):
+            calls.append(request.url.path)
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+            })
+
+        provider = configured_gemini_provider(
+            "secret",
+            model="gemini-first",
+            model_pool=("gemini-first", "gemini-second"),
+            model_limits={
+                "gemini-first": GeminiModelLimit(rpm=10, tpm=100, rpd=1),
+                "gemini-second": GeminiModelLimit(rpm=10, tpm=100, rpd=10),
+            },
+            now=lambda: now,
+            quota_coordinator=_DatabaseGeminiQuotaCoordinator(
+                sessions, "creative-assets", 10
+            ),
+            transport=httpx.MockTransport(handler),
+        )
+        await provider.analyze_single(analysis_input())
+        await provider.analyze_single(analysis_input())
+
+        with sessions() as session:
+            project = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "__project_total__"},
+            )
+            first = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "gemini-first"},
+            )
+            second = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "gemini-second"},
+            )
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(project.reserved_requests, 2)
+        self.assertEqual(first.reserved_requests, 1)
+        self.assertEqual(second.reserved_requests, 1)
+        engine.dispose()
 
     async def test_all_rpd_limited_models_return_next_pacific_reset(self):
         clock = FakeClock()

@@ -19,6 +19,7 @@ class GeminiQuotaDecision:
     allowed: bool
     reason: str | None = None
     available_at: datetime | None = None
+    reserved_requests: int | None = None
 
 class GeminiProjectQuotaRepository:
     """Atomically reserve Gemini RPD capacity for one Google-project scope."""
@@ -49,6 +50,7 @@ class GeminiProjectQuotaRepository:
                     False,
                     "project_rpd_exhausted",
                     project_decision.available_at,
+                    project_decision.reserved_requests,
                 )
         model_decision = self._reserve_capacity(
             quota_scope=quota_scope, model=model, rpd=rpd, now=now
@@ -64,6 +66,26 @@ class GeminiProjectQuotaRepository:
         self, *, quota_scope: str, project_rpd: int, now: datetime
     ) -> GeminiQuotaDecision:
         quota_day = now.astimezone(_PACIFIC_TIME).date()
+        project_state = self.session.get(
+            GeminiProjectQuotaStateModel,
+            {"quota_scope": quota_scope, "model": _PROJECT_TOTAL_MODEL},
+        )
+        if project_state is not None and project_state.quota_day == quota_day:
+            if project_state.reserved_requests >= project_rpd:
+                return GeminiQuotaDecision(
+                    False,
+                    "rpd_exhausted",
+                    self._next_reset(now),
+                    project_state.reserved_requests,
+                )
+            return self._reserve_capacity(
+                quota_scope=quota_scope,
+                model=_PROJECT_TOTAL_MODEL,
+                rpd=project_rpd,
+                now=now,
+            )
+
+        # A newly deployed cap inherits reservations already made this quota day.
         table = GeminiProjectQuotaStateModel.__table__
         existing_reserved = int(
             self.session.scalar(
@@ -76,7 +98,9 @@ class GeminiProjectQuotaRepository:
             or 0
         )
         if existing_reserved >= project_rpd:
-            return GeminiQuotaDecision(False, "rpd_exhausted", self._next_reset(now))
+            return GeminiQuotaDecision(
+                False, "rpd_exhausted", self._next_reset(now), existing_reserved
+            )
         return self._reserve_capacity(
             quota_scope=quota_scope,
             model=_PROJECT_TOTAL_MODEL,
@@ -125,7 +149,7 @@ class GeminiProjectQuotaRepository:
         ).returning(table.c.reserved_requests)
         reserved = self.session.execute(statement).scalar_one_or_none()
         if reserved is not None:
-            return GeminiQuotaDecision(True)
+            return GeminiQuotaDecision(True, reserved_requests=int(reserved))
         state = self.session.scalar(
             select(GeminiProjectQuotaStateModel).where(
                 GeminiProjectQuotaStateModel.quota_scope == quota_scope,
@@ -136,7 +160,12 @@ class GeminiProjectQuotaRepository:
         available_at = (
             max(self._utc(blocked_until), reset_at) if blocked_until else reset_at
         )
-        return GeminiQuotaDecision(False, "rpd_exhausted", available_at)
+        return GeminiQuotaDecision(
+            False,
+            "rpd_exhausted",
+            available_at,
+            state.reserved_requests if state is not None else None,
+        )
 
     def block_until(self, *, quota_scope: str, model: str, retry_at: datetime, now: datetime | None = None) -> None:
         now = self._utc(now)
