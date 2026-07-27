@@ -11,6 +11,8 @@ from app.core.database import Base
 from app.main import app
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
+from app.modules.search.router import _suggestion_values
+
 
 class SearchV2ApiTest(unittest.TestCase):
     def setUp(self):
@@ -84,6 +86,15 @@ class SearchV2ApiTest(unittest.TestCase):
         ])
         self.assertEqual(captured[0]["query"]["bool"]["filter"][0], {"term": {"tenant_id": "tenant-a"}})
         self.assertIn("search_suggest._3gram", str(captured[0]))
+
+    def test_suggestion_values_prefer_exact_and_compact_completions(self):
+        values = _suggestion_values({
+            "visible_text": "nurse sweatshirt overhead soft natural product photography",
+            "search_terms": ["nurse"],
+        }, "nurse")
+        self.assertEqual(values[0], ("search_text", "nurse", ""))
+        self.assertIn(("visible_text", "nurse sweatshirt", " sweatshirt"), values)
+        self.assertNotIn(("visible_text", "nurse sweatshirt overhead soft natural product photography", " sweatshirt overhead soft natural product photography"), values)
 
     def test_suggestions_require_at_least_two_characters(self):
         response = self.client.get("/api/v1/search/suggestions?q=m")

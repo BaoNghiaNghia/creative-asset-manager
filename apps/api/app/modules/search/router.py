@@ -87,7 +87,7 @@ def _source_provider_filter(session, tenant: str, source_provider: str | None, *
     return {"terms": {"asset_id": asset_ids or ["__none__"]}}
 
 
-def _completion_value(value: object, query: str) -> tuple[str, str] | None:
+def _completion_value(value: object, query: str) -> str | None:
     text = " ".join(str(value or "").split())
     needle = " ".join(query.split()).casefold()
     if not text or not needle:
@@ -98,27 +98,51 @@ def _completion_value(value: object, query: str) -> tuple[str, str] | None:
     while index and text[index - 1].isalnum():
         index -= 1
     suggestion = text[index:index + 160].rstrip(" ,;:-")
-    prefix = suggestion[:len(query)].strip()
-    if not prefix.casefold().startswith(needle):
+    if not suggestion[: len(needle)].casefold().startswith(needle):
         return None
-    return suggestion, suggestion[len(prefix):]
+    return suggestion
+
+
+def _completion_variants(value: object, query: str, *, include_exact: bool = False) -> list[tuple[str, str]]:
+    suggestion = _completion_value(value, query)
+    normalized_query = " ".join(query.split())
+    if not suggestion or not normalized_query:
+        return []
+    query_words = len(normalized_query.split())
+    words = suggestion.split()
+    if len(words) <= query_words:
+        return [(suggestion, suggestion[len(normalized_query):])]
+    variants: list[tuple[str, str]] = []
+    if include_exact:
+        variants.append((suggestion, suggestion[len(normalized_query):]))
+    for end in range(query_words + 1, min(len(words), query_words + 4) + 1):
+        text = " ".join(words[:end]).rstrip(" ,;:-")
+        if len(text) <= 80:
+            variants.append((text, text[len(normalized_query):]))
+    return variants
 
 
 def _suggestion_values(document: dict, query: str) -> list[tuple[str, str, str]]:
     values: list[tuple[str, str, str]] = []
+    exact_terms = [
+        str(value).strip()
+        for key in ("search_terms", "normalized_terms")
+        for value in (document.get(key) or [])
+        if isinstance(value, str)
+    ]
+    if any(value.casefold() == query.casefold() for value in exact_terms):
+        values.append(("search_text", query, ""))
+
     visible_text = document.get("visible_text")
     if isinstance(visible_text, list):
         visible_text = " ".join(str(value) for value in visible_text if isinstance(value, str))
-    for kind, value in (("visible_text", visible_text), ("filename", document.get("filename"))):
-        completion = _completion_value(value, query)
-        if completion:
-            text, suffix = completion
-            values.append((kind, text, suffix))
-    if not any(kind == "visible_text" for kind, _, _ in values):
-        completion = _completion_value(document.get("search_suggest"), query)
-        if completion:
-            text, suffix = completion
-            values.append(("visible_text", text, suffix))
+    for text, completion in _completion_variants(visible_text, query):
+        values.append(("visible_text", text, completion))
+    for text, completion in _completion_variants(document.get("filename"), query, include_exact=True):
+        values.append(("filename", text, completion))
+    if not any(kind in {"visible_text", "search_text"} for kind, _, _ in values):
+        for text, completion in _completion_variants(document.get("search_suggest"), query):
+            values.append(("search_text", text, completion))
     return values
 
 
@@ -142,7 +166,7 @@ async def suggestions(
         session.commit()
     value = q.strip()
     query = {
-        "_source": ["filename", "visible_text", "search_suggest"],
+        "_source": ["filename", "visible_text", "search_suggest", "search_terms", "normalized_terms"],
         "size": min(limit * 3, 30),
         "query": {
             "bool": {
@@ -166,16 +190,16 @@ async def suggestions(
     except ElasticsearchV2RequestError as exc:
         raise HTTPException(503, "Search service is temporarily unavailable") from exc
     seen: set[str] = set()
-    result = []
+    candidates = []
     for hit in response.get("hits", {}).get("hits", []):
         for kind, text, completion in _suggestion_values(hit.get("_source", {}), value):
             key = text.casefold()
             if key in seen:
                 continue
             seen.add(key)
-            result.append({"text": text, "prefix": text[:len(text) - len(completion)], "completion": completion, "kind": kind})
-            if len(result) >= limit:
-                return {"search_version": generation, "suggestions": result, "took_ms": response.get("took")}
+            candidates.append({"text": text, "prefix": text[:len(text) - len(completion)], "completion": completion, "kind": kind})
+    kind_rank = {"search_text": 0, "visible_text": 1, "filename": 2}
+    result = sorted(candidates, key=lambda item: (len(item["text"]), kind_rank[item["kind"]], item["text"].casefold()))[:limit]
     return {"search_version": generation, "suggestions": result, "took_ms": response.get("took")}
 
 @router.post("", response_model=SearchV2Response)

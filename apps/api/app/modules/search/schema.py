@@ -30,7 +30,7 @@ class SearchSuggestion(BaseModel):
     text: str
     prefix: str
     completion: str
-    kind: Literal["filename", "visible_text"]
+    kind: Literal["filename", "visible_text", "search_text"]
 
 class SearchSuggestionsResponse(BaseModel):
     search_version: Literal["v2", "v3"]

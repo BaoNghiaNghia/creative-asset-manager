@@ -160,6 +160,7 @@ export default function App() {
                 title="Clear search"
               >{"\u00d7"}</button>}
               {showSuggestions && <div id="asset-search-suggestions" className="search-suggestions" role="listbox" aria-label="Search suggestions">
+                <div className="search-suggestions-header"><strong>Suggestions</strong><span>Use ↑ ↓ then Enter</span></div>
                 {explorer.searchV2.suggestionsLoading && !suggestions.length
                   ? <span className="search-suggestions-loading">Finding suggestions...</span>
                   : suggestions.map((suggestion, index) => <button
@@ -172,7 +173,7 @@ export default function App() {
                     onMouseDown={event => event.preventDefault()}
                     onMouseEnter={() => setSuggestionIndex(index)}
                     onClick={() => applySuggestion(suggestion.text)}
-                  ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : "T"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : "Detected text"}</small></button>)}
+                  ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
               </div>}
             </div>
             {explorer.searchV2.active && <SearchGuide capabilities={explorer.searchV2.capabilities} />}

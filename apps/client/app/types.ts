@@ -92,7 +92,7 @@ export type SearchSuggestion = {
   text: string;
   prefix: string;
   completion: string;
-  kind: "filename" | "visible_text";
+  kind: "filename" | "visible_text" | "search_text";
 };
 export type ParsedQueryDebug = {
   mode: string;
