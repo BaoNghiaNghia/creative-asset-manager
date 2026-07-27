@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSearchDuration, getAnalysisSelectionState, isEligibleAnalysisItem } from "./App";
+import { formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { shouldFetchSearchSuggestions } from "./hooks/useSearchV2";
 import type { Asset } from "./types";
@@ -60,5 +60,19 @@ describe("Search suggestions eligibility", () => {
     expect(shouldFetchSearchSuggestions(true, true, "m")).toBe(false);
     expect(shouldFetchSearchSuggestions(false, true, "milo")).toBe(false);
     expect(shouldFetchSearchSuggestions(true, false, "milo")).toBe(false);
+  });
+});
+
+
+describe("Search suggestion keyboard actions", () => {
+  it("submits the typed query and dismisses suggestions when Enter has no active option", () => {
+    expect(getSearchSuggestionKeyAction("Enter", 4, -1)).toBe("submit");
+    expect(getSearchSuggestionKeyAction("Enter", 0, -1)).toBe("submit");
+  });
+
+  it("selects an active suggestion and preserves arrow navigation", () => {
+    expect(getSearchSuggestionKeyAction("Enter", 4, 2)).toBe("select");
+    expect(getSearchSuggestionKeyAction("ArrowDown", 4, -1)).toBe("next");
+    expect(getSearchSuggestionKeyAction("ArrowUp", 4, 0)).toBe("previous");
   });
 });

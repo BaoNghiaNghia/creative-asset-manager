@@ -40,6 +40,20 @@ export function formatSearchDuration(durationMs: number | null): string | null {
   return durationMs < 1_000 ? durationMs + " ms" : (durationMs / 1_000).toFixed(2) + " s";
 }
 
+export function getSearchSuggestionKeyAction(
+  key: string,
+  suggestionCount: number,
+  suggestionIndex: number,
+): "clear" | "next" | "previous" | "select" | "submit" | null {
+  if (key === "Escape") return "clear";
+  if (key === "ArrowDown" && suggestionCount > 0) return "next";
+  if (key === "ArrowUp" && suggestionCount > 0) return "previous";
+  if (key === "Enter") {
+    return suggestionIndex >= 0 && suggestionIndex < suggestionCount ? "select" : "submit";
+  }
+  return null;
+}
+
 export default function App() {
   const explorer = useDriveExplorer();
   const sidebar = useResizableSidebar();
@@ -50,18 +64,24 @@ export default function App() {
   const [detailsOpen, setDetailsOpen] = useState(() => Boolean(initialDetailsAssetId || new URLSearchParams(window.location.search).get("details")));
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const suggestions = explorer.searchV2.suggestions;
-  const showSuggestions = explorer.searchV2.active && explorer.query.trim().length >= 2 && (explorer.searchV2.suggestionsLoading || suggestions.length > 0);
+  const showSuggestions = !suggestionsDismissed
+    && explorer.searchV2.active
+    && explorer.query.trim().length >= 2
+    && (explorer.searchV2.suggestionsLoading || suggestions.length > 0);
   function applySuggestion(value: string) {
     setSuggestionIndex(-1);
+    setSuggestionsDismissed(true);
     explorer.setQuery(value);
   }
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Escape") { setSuggestionIndex(-1); explorer.setQuery(""); return; }
-    if (!suggestions.length) return;
-    if (event.key === "ArrowDown") { event.preventDefault(); setSuggestionIndex(current => (current + 1) % suggestions.length); return; }
-    if (event.key === "ArrowUp") { event.preventDefault(); setSuggestionIndex(current => (current - 1 + suggestions.length) % suggestions.length); return; }
-    if (event.key === "Enter" && suggestionIndex >= 0) { event.preventDefault(); applySuggestion(suggestions[suggestionIndex].text); }
+    const action = getSearchSuggestionKeyAction(event.key, suggestions.length, suggestionIndex);
+    if (action === "clear") { setSuggestionIndex(-1); setSuggestionsDismissed(true); explorer.setQuery(""); return; }
+    if (action === "next") { event.preventDefault(); setSuggestionIndex(current => (current + 1) % suggestions.length); return; }
+    if (action === "previous") { event.preventDefault(); setSuggestionIndex(current => (current - 1 + suggestions.length) % suggestions.length); return; }
+    if (action === "select") { event.preventDefault(); applySuggestion(suggestions[suggestionIndex].text); return; }
+    if (action === "submit") { event.preventDefault(); setSuggestionIndex(-1); setSuggestionsDismissed(true); }
   }
   function openDetails(item: Asset) {
     setDetailsOpen(true);
@@ -141,7 +161,7 @@ export default function App() {
               <input
                 value={explorer.query}
                 disabled={!explorer.auth.authenticated || explorer.auth.checking}
-                onChange={event => { setSuggestionIndex(-1); explorer.setQuery(event.target.value); }}
+                onChange={event => { setSuggestionIndex(-1); setSuggestionsDismissed(false); explorer.setQuery(event.target.value); }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={!explorer.auth.authenticated
                   ? "Connect Google Drive or SharePoint to search"
@@ -155,7 +175,7 @@ export default function App() {
               {explorer.query && <button
                 type="button"
                 className="search-clear"
-                onClick={() => { setSuggestionIndex(-1); explorer.setQuery(""); }}
+                onClick={() => { setSuggestionIndex(-1); setSuggestionsDismissed(true); explorer.setQuery(""); }}
                 aria-label="Clear search"
                 title="Clear search"
               >{"\u00d7"}</button>}

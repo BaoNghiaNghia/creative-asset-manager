@@ -306,9 +306,10 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 
 
 /* Folder and file search */
-.search-box{position:relative;align-items:center}
-.search-box>span{flex:0 0 auto;color:#647184}
-.search-box input{min-width:0}
+.search-box{position:relative;display:flex;align-items:center;gap:9px;width:100%;min-height:42px;padding:0 10px 0 13px;border:1px solid transparent;border-radius:9px;background:#f5f6f8}
+.search-box:focus-within{border-color:#aac0ef;background:#fff;box-shadow:0 0 0 3px #2f68db14}
+.search-box>span{display:grid;place-items:center;flex:0 0 14px;width:14px;color:#647184;line-height:1}
+.search-box input{flex:1 1 auto;min-width:0;padding:0}
 .search-clear{
   display:grid;
   place-items:center;
