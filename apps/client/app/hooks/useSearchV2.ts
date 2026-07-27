@@ -14,6 +14,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   const [parsed, setParsed] = useState<ParsedQueryDebug | null>(null);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [durationMs, setDurationMs] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
 
@@ -54,11 +55,13 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
 
   useEffect(() => {
     if (!active || !authenticated || query.trim().length < 1) {
-      setItems([]); setTotal(0); setParsed(null); setError(""); return;
+      setItems([]); setTotal(0); setParsed(null); setDurationMs(null); setError(""); return;
     }
+    setDurationMs(null);
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoading(true); setError("");
+      const startedAt = performance.now();
       try {
         const response = await fetch("/api/v1/search", {
           method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
@@ -68,6 +71,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
         if (!response.ok) throw Error(payload.detail || "Search is unavailable");
         setItems(payload.items || []); setTotal(payload.total || 0);
         setFacets(payload.facets || {}); setParsed(payload.parsed_query || null);
+        setDurationMs(Math.max(0, Math.round(performance.now() - startedAt)));
       } catch (reason) {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Search failed");
       } finally {
@@ -85,5 +89,5 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     });
   }
 
-  return useMemo(() => ({ active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, error, toggleFacet }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, error]);
+  return useMemo(() => ({ active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, error, toggleFacet }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, error]);
 }

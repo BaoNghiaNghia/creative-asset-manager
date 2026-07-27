@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAnalysisSelectionState, isEligibleAnalysisItem } from "./App";
+import { formatSearchDuration, getAnalysisSelectionState, isEligibleAnalysisItem } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import type { Asset } from "./types";
 
@@ -40,5 +40,14 @@ describe("Analyze metadata selection", () => {
     const afterRefresh = asset({ internal_asset_id: "asset-1" });
     expect(getAnalysisSelectionState(new Set([beforeRefresh.id]), [beforeRefresh]).complete).toBe(false);
     expect(getAnalysisSelectionState(new Set([afterRefresh.id]), [afterRefresh]).complete).toBe(true);
+  });
+});
+
+
+describe("formatSearchDuration", () => {
+  it("formats the completed search duration for the compact search indicator", () => {
+    expect(formatSearchDuration(42)).toBe("42 ms");
+    expect(formatSearchDuration(1_250)).toBe("1.25 s");
+    expect(formatSearchDuration(null)).toBeNull();
   });
 });

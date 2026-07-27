@@ -2430,3 +2430,9 @@ Validation was run in the requested order:
 - Immediately runnable pending jobs are Queued. Future Gemini quota deferrals are kept separate as Waiting for quota, and an older failed repair job no longer inflates current failure counts after a replacement job completes.
 - Tests: API aggregation and cancellation tests (11 passed); focused dashboard test (21 passed); npm run typecheck; npm run build.
 
+
+## Search duration indicator (2026-07-27)
+
+- The explorer now measures the completed modern search request in the browser and shows a compact Vietnamese duration line directly below the search bar.
+- The indicator clears while a new query is pending, and remains hidden without a query or result.
+- Tests: App search-duration unit test (6 passed); npm run typecheck; npm run build.

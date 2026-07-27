@@ -35,6 +35,11 @@ export function getAnalysisSelectionState(selected: ReadonlySet<string>, visible
   return { selectedItems, assetIds, complete, tooltip };
 }
 
+export function formatSearchDuration(durationMs: number | null): string | null {
+  if (!Number.isFinite(durationMs) || durationMs === null || durationMs < 0) return null;
+  return durationMs < 1_000 ? durationMs + " ms" : (durationMs / 1_000).toFixed(2) + " s";
+}
+
 export default function App() {
   const explorer = useDriveExplorer();
   const sidebar = useResizableSidebar();
@@ -110,8 +115,9 @@ export default function App() {
 
     <section>
       <header>
-        <div className="search-tools">
-          <label
+        <div className="search-area">
+          <div className="search-tools">
+            <label
             className={[
               "search-box",
               explorer.searching ? "searching" : "",
@@ -135,8 +141,12 @@ export default function App() {
               aria-label="Clear search"
               title="Clear search"
             >×</button>}
-          </label>
-          {explorer.searchV2.active && <SearchGuide capabilities={explorer.searchV2.capabilities} />}
+            </label>
+            {explorer.searchV2.active && <SearchGuide capabilities={explorer.searchV2.capabilities} />}
+          </div>
+          {explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
+            {"T\u00ecm ki\u1ebfm ho\u00e0n t\u1ea5t trong "}{formatSearchDuration(explorer.searchDurationMs)}
+          </small>}
         </div>
         {explorer.auth.authenticated ? <div className="account">
           {explorer.auth.user?.picture

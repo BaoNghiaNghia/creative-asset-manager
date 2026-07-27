@@ -872,7 +872,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 @media(prefers-reduced-motion:reduce){.shell>section,.details-toggle{transition:none}}
 
 /* Search help belongs beside the query field; active filters remain below it. */
-.search-tools{display:flex;align-items:center;gap:10px;min-width:0;flex:1}.search-tools>.search-box{flex:1 1 520px;max-width:520px}.search-tools .search-guide{z-index:21}.search-v2-controls:empty{display:none}
+.search-area{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px}.search-tools{display:flex;align-items:center;gap:10px;min-width:0;width:100%}.search-tools>.search-box{flex:1 1 520px;max-width:520px}.search-tools .search-guide{z-index:21}.search-duration{margin-left:2px;color:#728096;font-size:10px;line-height:1.25;font-variant-numeric:tabular-nums}.search-v2-controls:empty{display:none}
 @media(max-width:700px){.search-tools{gap:7px}.search-tools>.search-box{flex-basis:0}.search-tools .search-guide>summary{padding:6px 9px}.search-tools .search-guide>summary small,.search-tools .search-guide>summary b{display:none}.search-tools .search-guide-content{left:auto;right:0}}
 
 /* Search syntax stays out of the way until the trigger is hovered or focused. */

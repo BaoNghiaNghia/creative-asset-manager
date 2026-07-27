@@ -691,6 +691,7 @@ export function useDriveExplorer() {
     searchIndexSource,
     searchTruncated,
     searchError: searchV2.active ? searchV2.error : searchError,
+    searchDurationMs: searchV2.active ? searchV2.durationMs : null,
     loading,
     error,
     provider,
