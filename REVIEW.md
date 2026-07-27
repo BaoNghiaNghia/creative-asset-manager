@@ -2424,4 +2424,9 @@ Validation was run in the requested order:
 - Reworked the five Overview charts into a compact responsive 3+2 grid. The latency chart no longer expands across the entire viewport.
 - Added period/peak context, subtle gridlines, clearer legends, fixed-height chart canvases, and model-aware provider volume labels.
 - Tests: focused chart/dashboard tests (24 passed); npm run typecheck; npm run build.
+## AI Operations canonical job-status aggregation (2026-07-27)
+
+- Summary cards now aggregate the latest relevant processing job per tenant, job type and entity. Processing is counted as Running; legacy claimed and running values remain readable.
+- Immediately runnable pending jobs are Queued. Future Gemini quota deferrals are kept separate as Waiting for quota, and an older failed repair job no longer inflates current failure counts after a replacement job completes.
+- Tests: API aggregation and cancellation tests (11 passed); focused dashboard test (21 passed); npm run typecheck; npm run build.
 

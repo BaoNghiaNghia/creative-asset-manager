@@ -11,7 +11,11 @@ from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRec
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_operations.repository import AiOperationsRepository as BaseRepository
 from app.modules.ai_operations.schema import AI_JOB_TYPES, AiOperationsFilters
-from app.modules.processing.model import ProcessingJobModel
+from app.domain.processing.types import JobStatus
+from app.modules.processing.model import (
+    PROCESSING_JOB_QUEUED_STATUSES, PROCESSING_JOB_RUNNING_STATUSES,
+    PROCESSING_JOB_TERMINAL_STATUSES, ProcessingJobModel,
+)
 
 
 DEFERRED_AI_REASON_CODES = frozenset({"gemini_quota_deferred"})
@@ -111,33 +115,184 @@ class AiOperationsRepository(BaseRepository):
             ))
         return exists(select(literal(1)).where(*terms))
 
-    def _job_conditions(self, f: AiOperationsFilters, *, failure_only=False):
+    def _job_scope_conditions(self, f: AiOperationsFilters):
         conditions = [
             ProcessingJobModel.tenant_id == f.tenant_id,
             ProcessingJobModel.job_type.in_(AI_JOB_TYPES),
-            ProcessingJobModel.created_at >= f.from_at,
-            ProcessingJobModel.created_at < f.to_at,
         ]
         if f.provider:
             conditions.append(ProcessingJobModel.provider_key == f.provider)
-        now = datetime.now(timezone.utc)
-        deferred = (
-            (ProcessingJobModel.status == "pending")
-            & ProcessingJobModel.last_error_code.in_(DEFERRED_AI_REASON_CODES)
-            & ProcessingJobModel.next_attempt_at.is_not(None)
-            & (ProcessingJobModel.next_attempt_at > now)
-        )
-        if f.status == "waiting":
-            conditions.append(deferred)
-        elif f.status == "queued":
-            conditions.append((ProcessingJobModel.status == "pending") & ~deferred)
-        elif f.status:
-            conditions.append(ProcessingJobModel.status == f.status)
-        if failure_only:
-            conditions.append(ProcessingJobModel.status == "failed")
         if f.model or f.processing_mode or f.metadata_profile or f.source_provider:
             conditions.append(or_(self._job_analysis_match(f), self._job_batch_match(f)))
         return conditions
+
+    @staticmethod
+    def _deferred_condition(status, job_type, error_code, next_attempt_at, now: datetime):
+        return (
+            status.in_(PROCESSING_JOB_QUEUED_STATUSES)
+            & (job_type == "asset_analyze")
+            & error_code.in_(DEFERRED_AI_REASON_CODES)
+            & next_attempt_at.is_not(None)
+            & (next_attempt_at > now)
+        )
+
+    def _job_status_condition(
+        self,
+        f: AiOperationsFilters,
+        *,
+        status,
+        job_type,
+        error_code,
+        next_attempt_at,
+        now: datetime,
+    ):
+        deferred = self._deferred_condition(status, job_type, error_code, next_attempt_at, now)
+        if f.status == "waiting":
+            return deferred
+        if f.status == "queued":
+            return status.in_(PROCESSING_JOB_QUEUED_STATUSES) & ~deferred & (
+                next_attempt_at.is_(None) | (next_attempt_at <= now)
+            )
+        if f.status == "running":
+            return status.in_(PROCESSING_JOB_RUNNING_STATUSES)
+        if f.status == "retrying":
+            return status == JobStatus.RETRY.value
+        if f.status:
+            return status == f.status
+        return literal(True)
+
+    def _latest_relevant_jobs(self, f: AiOperationsFilters):
+        ranked = select(
+            ProcessingJobModel.id.label("job_id"),
+            func.row_number().over(
+                partition_by=(
+                    ProcessingJobModel.tenant_id,
+                    ProcessingJobModel.job_type,
+                    ProcessingJobModel.entity_type,
+                    ProcessingJobModel.entity_id,
+                ),
+                order_by=(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc()),
+            ).label("position"),
+        ).where(*self._job_scope_conditions(f)).subquery()
+        return select(ProcessingJobModel).join(
+            ranked, ranked.c.job_id == ProcessingJobModel.id,
+        ).where(ranked.c.position == 1).subquery()
+
+    def _job_conditions(self, f: AiOperationsFilters, *, failure_only=False):
+        now = datetime.now(timezone.utc)
+        conditions = self._job_scope_conditions(f) + [
+            ProcessingJobModel.created_at >= f.from_at,
+            ProcessingJobModel.created_at < f.to_at,
+            self._job_status_condition(
+                f,
+                status=ProcessingJobModel.status,
+                job_type=ProcessingJobModel.job_type,
+                error_code=ProcessingJobModel.last_error_code,
+                next_attempt_at=ProcessingJobModel.next_attempt_at,
+                now=now,
+            ),
+        ]
+        if failure_only:
+            conditions.append(ProcessingJobModel.status == JobStatus.FAILED.value)
+        return conditions
+
+    def summary(self, f: AiOperationsFilters) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        latest = self._latest_relevant_jobs(f)
+        terminal_at = func.coalesce(latest.c.completed_at, latest.c.updated_at)
+        created_in_period = (
+            (latest.c.created_at >= f.from_at)
+            & (latest.c.created_at < f.to_at)
+        )
+        terminal_in_period = (
+            latest.c.status.in_(PROCESSING_JOB_TERMINAL_STATUSES)
+            & (terminal_at >= f.from_at)
+            & (terminal_at < f.to_at)
+        )
+        deferred = self._deferred_condition(
+            latest.c.status, latest.c.job_type, latest.c.last_error_code,
+            latest.c.next_attempt_at, now,
+        )
+        visible_status = self._job_status_condition(
+            f,
+            status=latest.c.status,
+            job_type=latest.c.job_type,
+            error_code=latest.c.last_error_code,
+            next_attempt_at=latest.c.next_attempt_at,
+            now=now,
+        )
+        queued = (
+            latest.c.status.in_(PROCESSING_JOB_QUEUED_STATUSES)
+            & ~deferred
+            & (latest.c.next_attempt_at.is_(None) | (latest.c.next_attempt_at <= now))
+        )
+        blocked = select(func.count(AssetAiAnalysisModel.id)).where(
+            *self._analysis_conditions(f),
+            AssetAiAnalysisModel.status == "budget_blocked",
+        ).scalar_subquery()
+        cancelled = select(func.count(AssetAiAnalysisModel.id)).where(
+            *self._analysis_conditions(f),
+            AssetAiAnalysisModel.processing_stage == "cancelled",
+        ).scalar_subquery()
+        row = self.session.execute(select(
+            func.coalesce(func.sum(case((created_in_period & visible_status, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((created_in_period & visible_status & queued, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((
+                created_in_period
+                & visible_status
+                & latest.c.status.in_(PROCESSING_JOB_RUNNING_STATUSES), 1
+            ), else_=0)), 0),
+            func.coalesce(func.sum(case((
+                terminal_in_period
+                & visible_status
+                & (latest.c.status == JobStatus.COMPLETED.value), 1
+            ), else_=0)), 0),
+            func.coalesce(func.sum(case((
+                terminal_in_period
+                & visible_status
+                & (latest.c.status == JobStatus.FAILED.value), 1
+            ), else_=0)), 0),
+            func.coalesce(func.sum(case((visible_status & deferred, 1), else_=0)), 0),
+            func.min(case((visible_status & deferred, latest.c.next_attempt_at), else_=None)),
+            func.coalesce(blocked, 0),
+            func.coalesce(cancelled, 0),
+        ).select_from(latest)).one()
+        requested, queued_count, running, completed, failed, deferred_count, next_retry, blocked_count, cancelled_count = row
+        requested = int(requested or 0)
+        queued_count = int(queued_count or 0)
+        running = int(running or 0)
+        completed = int(completed or 0)
+        failed = int(failed or 0)
+        deferred_count = int(deferred_count or 0)
+        blocked_count = int(blocked_count or 0)
+        cancelled_count = int(cancelled_count or 0)
+        usage = self.session.execute(self._usage_select(
+            func.coalesce(func.sum(AiUsageRecordModel.input_units), 0),
+            func.coalesce(func.sum(AiUsageRecordModel.output_units), 0),
+            func.coalesce(func.sum(AiUsageRecordModel.locally_estimated_cost_micros), 0),
+            func.coalesce(func.sum(AiUsageRecordModel.provider_reported_cost_micros), 0),
+            filters=f,
+        )).one()
+        input_units, output_units, estimated, provider_reported = map(int, usage)
+        reconciled = self._reconciled_cost(f)
+        denominator = completed + failed
+        return {
+            "period": {"from": f.from_at, "to": f.to_at},
+            "requested": requested, "queued": queued_count, "running": running,
+            "completed": completed, "failed": failed, "cancelled": cancelled_count,
+            "budget_blocked": blocked_count, "deferred": deferred_count,
+            "next_deferred_retry_at": next_retry,
+            "success_rate": (completed / denominator) if denominator else 0.0,
+            "input_units": input_units, "output_units": output_units,
+            "cost": {
+                "estimated_cost_micros": estimated,
+                "provider_reported_cost_micros": provider_reported,
+                "reconciled_cost_micros": reconciled,
+                "currency": "USD",
+            },
+            "latency": self._latency(f),
+            "average_cost_per_completed_asset_micros": reconciled / completed if completed else 0.0,
+        }
 
     def failures(self, f: AiOperationsFilters) -> list[dict[str, Any]]:
         result: dict[tuple[str, str], int] = defaultdict(int)

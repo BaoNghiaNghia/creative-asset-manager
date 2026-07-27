@@ -248,7 +248,7 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
     { label: "Failed", value: summary?.failed || 0, detail: "Needs attention", tone: "danger" },
     { label: "Budget blocked", value: summary?.budget_blocked || 0, detail: "Stopped by budget policy", tone: "danger" },
     { label: "Waiting for quota", value: summary?.deferred || 0, detail: "Will retry automatically", tone: "warning" },
-    { label: "Running", value: summary?.running || 0, detail: "Currently being processed", tone: "info" },
+    { label: "Running", value: summary?.running || 0, detail: "Currently processing", tone: "info" },
     { label: "Queued", value: summary?.queued || 0, detail: "Waiting to start", tone: "neutral" },
     { label: "Success rate", value: `${((summary?.success_rate || 0) * 100).toFixed(1)}%`, detail: "Completed out of terminal jobs", tone: "success" },
     { label: "Estimated cost today", value: formatCost(data.today?.cost?.estimated_cost_micros, data.today?.cost?.currency), detail: "Projected usage for today", tone: "neutral" },

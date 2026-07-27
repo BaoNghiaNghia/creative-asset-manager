@@ -203,6 +203,10 @@ describe("AI Operations dashboard", () => {
       "Daily estimated cost by provider", "Provider and mode volume",
       "Failure categories", "Latency", "View chart data table",
     ]) expect(markup).toContain(value);
+    expect(markup).toContain("Running");
+    expect(markup).toContain("Currently processing");
+    expect(markup).toContain("Queued");
+    expect(markup).toContain("Waiting to start");
     expect(markup).toContain('role="img"');
     expect(markup).toContain("provider_timeout");
   });

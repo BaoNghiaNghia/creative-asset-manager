@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, JSON,
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.domain.processing.types import JobStatus
 
 
 def new_id() -> str:
@@ -13,6 +14,14 @@ def new_id() -> str:
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# These values document the worker state machine. Compatibility values remain
+# readable so dashboards can report rows written by older deployments.
+PROCESSING_JOB_STATUSES = frozenset(status.value for status in JobStatus)
+PROCESSING_JOB_RUNNING_STATUSES = frozenset({JobStatus.PROCESSING.value, "claimed", "running"})
+PROCESSING_JOB_QUEUED_STATUSES = frozenset({JobStatus.PENDING.value, "queued"})
+PROCESSING_JOB_TERMINAL_STATUSES = frozenset({JobStatus.COMPLETED.value, JobStatus.FAILED.value})
 
 
 class ProcessingJobModel(Base):

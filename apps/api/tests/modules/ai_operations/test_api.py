@@ -125,6 +125,7 @@ class AiOperationsApiTest(unittest.TestCase):
                     last_error_message="https://signed.example/file?credential=secret",
                     payload_json={"signed_url": "https://signed.example/file?token=secret"},
                     created_at=self.now - timedelta(hours=2),
+                    completed_at=self.now - timedelta(hours=2),
                 ),
                 ProcessingJobModel(
                     tenant_id="tenant-a", job_type="asset_analyze",
@@ -178,10 +179,10 @@ class AiOperationsApiTest(unittest.TestCase):
                 "requested", "queued", "running", "completed", "failed",
                 "cancelled", "budget_blocked",
             )},
-            {"requested": 6, "queued": 1, "running": 1, "completed": 1,
+            {"requested": 2, "queued": 0, "running": 0, "completed": 0,
              "failed": 1, "cancelled": 1, "budget_blocked": 1},
         )
-        self.assertEqual(value["success_rate"], 0.5)
+        self.assertEqual(value["success_rate"], 0.0)
         self.assertEqual(value["input_units"], 60)
         self.assertEqual(value["output_units"], 30)
         self.assertEqual(value["cost"]["estimated_cost_micros"], 60)
@@ -211,7 +212,7 @@ class AiOperationsApiTest(unittest.TestCase):
             provider="gemini", model="g-model", processing_mode="single",
             metadata_profile="general", source_provider="google-drive",
         ).json()
-        self.assertEqual(gemini["requested"], 4)
+        self.assertEqual(gemini["requested"], 1)
         failures = self.get("/api/v1/admin/ai-operations/failures").json()["items"]
         self.assertTrue(any(item["error_code"] == "provider_timeout" for item in failures))
         self.assertFalse(any(item["error_code"] == "rate_limited" for item in failures))
@@ -237,6 +238,86 @@ class AiOperationsApiTest(unittest.TestCase):
         ).json()
         self.assertEqual(usage["total"], 2)
         self.assertNotIn("provider_request_id", str(usage))
+
+    def test_summary_uses_canonical_current_job_states_and_latest_replacement(self):
+        today_start = self.now.replace(hour=0, minute=0, second=0, microsecond=0)
+        with self.factory() as session:
+            session.add_all([
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id="current-processing",
+                    idempotency_key="current-processing", provider_key="gemini", provider_scope="ai",
+                    status="processing", payload_json={}, created_at=self.now - timedelta(minutes=3),
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id="current-pending",
+                    idempotency_key="current-pending", provider_key="gemini", provider_scope="ai",
+                    status="pending", payload_json={}, next_attempt_at=self.now - timedelta(seconds=1),
+                    created_at=self.now - timedelta(minutes=2),
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id="completed-today",
+                    idempotency_key="completed-today", provider_key="gemini", provider_scope="ai",
+                    status="completed", payload_json={}, created_at=self.now - timedelta(days=1),
+                    completed_at=self.now - timedelta(minutes=1),
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id="replacement",
+                    idempotency_key="replacement-failed", provider_key="gemini", provider_scope="ai",
+                    status="failed", payload_json={}, created_at=self.now - timedelta(minutes=5),
+                    completed_at=self.now - timedelta(minutes=5), last_error_code="provider_timeout",
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id="replacement",
+                    idempotency_key="replacement-completed", provider_key="gemini", provider_scope="ai",
+                    status="completed", payload_json={}, created_at=self.now - timedelta(minutes=4),
+                    completed_at=self.now - timedelta(minutes=4),
+                ),
+            ])
+            session.commit()
+
+        current = self.get("/api/v1/admin/ai-operations/summary").json()
+        self.assertEqual(current["running"], 1)
+        self.assertEqual(current["queued"], 1)
+        self.assertEqual(current["completed"], 2)
+        # The earlier failure is history, not the current state of replacement.
+        self.assertEqual(current["failed"], 1)
+
+        today = self.get(
+            "/api/v1/admin/ai-operations/summary",
+            **{"from": today_start.isoformat(), "to": self.now.isoformat()},
+        ).json()
+        self.assertEqual(today["completed"], 2)
+        self.assertEqual(today["failed"], 1)
+
+    def test_legacy_running_and_queued_statuses_remain_dashboard_compatible(self):
+        # Older deployments may contain these values even though new workers
+        # write processing and pending. SQLite permits this test fixture only.
+        with self.factory() as session:
+            session.connection().exec_driver_sql("PRAGMA ignore_check_constraints = ON")
+            session.add_all([
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id="legacy-running",
+                    idempotency_key="legacy-running", provider_key="gemini", provider_scope="ai",
+                    status="running", payload_json={}, created_at=self.now - timedelta(minutes=2),
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id="legacy-queued",
+                    idempotency_key="legacy-queued", provider_key="gemini", provider_scope="ai",
+                    status="queued", payload_json={}, next_attempt_at=self.now - timedelta(seconds=1),
+                    created_at=self.now - timedelta(minutes=1),
+                ),
+            ])
+            session.commit()
+        summary = self.get("/api/v1/admin/ai-operations/summary").json()
+        self.assertEqual(summary["running"], 1)
+        self.assertEqual(summary["queued"], 1)
 
     def test_deferred_jobs_are_waiting_not_failed_and_report_next_retry(self):
         retry_at = self.now + timedelta(minutes=10)
@@ -330,7 +411,7 @@ class AiOperationsApiTest(unittest.TestCase):
         failures = self.get("/api/v1/admin/ai-operations/failures", **filters).json()["items"]
         jobs = self.get("/api/v1/admin/ai-operations/jobs", **filters).json()
         usage = self.get("/api/v1/admin/ai-operations/usage", **filters).json()
-        self.assertEqual(summary["requested"], 2)
+        self.assertEqual(summary["requested"], 1)
         self.assertEqual(sum(item["requested"] for item in daily), 2)
         self.assertEqual({item["provider"] for item in providers}, {"openai"})
         self.assertEqual({item["processing_mode"] for item in providers}, {"batch"})
