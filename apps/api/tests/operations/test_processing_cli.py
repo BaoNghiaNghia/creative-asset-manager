@@ -9,6 +9,7 @@ from app.core.database import Base
 from app.modules.processing.model import ProcessingJobModel
 from app.operations.processing_cli import (
     requeue_download_stage_unconfigured,
+    repair_downloads,
 )
 
 
@@ -47,6 +48,50 @@ class ProcessingCliTest(unittest.TestCase):
             session.add(job)
             session.commit()
             return job.id
+
+    def test_repair_creates_fresh_job_without_mutating_terminal_failure(self):
+        failed_id = self.add_job(
+            tenant_id="tenant-a",
+            error_code="download_stage_unconfigured",
+        )
+        oversized_id = self.add_job(
+            tenant_id="tenant-a",
+            error_code="source_content_too_large",
+        )
+        with self.sessions() as session:
+            failed = session.get(ProcessingJobModel, failed_id)
+            failed.entity_id = "source-asset-a"
+            oversized = session.get(ProcessingJobModel, oversized_id)
+            oversized.entity_id = "source-asset-b"
+            session.commit()
+
+        dry = repair_downloads(tenant_id="tenant-a", session_factory=self.sessions)
+        self.assertEqual(dry["created"], 0)
+        self.assertEqual(dry["skipped"], 1)
+
+        applied = repair_downloads(
+            tenant_id="tenant-a", apply=True, session_factory=self.sessions,
+        )
+        self.assertEqual(applied["created"], 1)
+        self.assertEqual(applied["skipped"], 1)
+
+        with self.sessions() as session:
+            historical = session.get(ProcessingJobModel, failed_id)
+            self.assertEqual(historical.status, "failed")
+            self.assertEqual(historical.attempt_count, 5)
+            fresh = session.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.idempotency_key
+                == f"repair:source_asset_download:{failed_id}:source-asset-a"
+            ))
+            self.assertIsNotNone(fresh)
+            self.assertEqual(fresh.status, "pending")
+
+        repeated = repair_downloads(
+            tenant_id="tenant-a", apply=True, session_factory=self.sessions,
+        )
+        self.assertEqual(repeated["created"], 0)
+        self.assertEqual(repeated["matched"], 1)
+        self.assertEqual(repeated["duplicate_jobs_skipped"], 0)
 
     def test_requeue_is_tenant_scoped_in_place_and_idempotent(self):
         target_id = self.add_job(

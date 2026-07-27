@@ -48,6 +48,15 @@ class PipelineStorageStage(Protocol):
     async def execute(self, *, tenant_id: str, pipeline: AssetPipelineModel) -> None: ...
 
 
+def _run_worker_async(context: JobHandlerContext, awaitable):
+    executor = context.dependencies.resources.get("async_executor")
+    if executor is not None:
+        return executor.run(awaitable)
+    # Direct handler tests retain a local fallback; production workers always
+    # provide their lifetime-owned executor.
+    return asyncio.run(awaitable)
+
+
 class _PipelineHandler:
     failure_stage = ""
 
@@ -114,7 +123,11 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
             return JobHandlerResult.non_retryable("asset_pipeline_disabled", "Unified ingestion and content deduplication must be enabled.")
         stage = context.dependencies.resources.get("pipeline_download_stage")
         if stage is None:
-            return JobHandlerResult.non_retryable("download_stage_unconfigured", "Pipeline download stage is not configured.")
+            return self._failed(
+                context,
+                RuntimeError("Pipeline download stage is not configured."),
+                error_code="download_stage_unconfigured",
+            )
         try:
             session, repository, pipeline = self._load(context)
             try:
@@ -131,7 +144,10 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
                 session.commit()
             finally:
                 session.close()
-            result = asyncio.run(stage.execute(tenant_id=context.job.tenant_id, pipeline=pipeline))
+            result = _run_worker_async(
+                context,
+                stage.execute(tenant_id=context.job.tenant_id, pipeline=pipeline),
+            )
             session, repository, pipeline = self._load(context)
             try:
                 pipeline.source_asset_id = result.source_asset_id
@@ -199,8 +215,11 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
             pipeline.analysis_id = completed.id
             coordinator.enqueue(pipeline, "search_projection_build")
             return
-        if (settings.MANAGED_ASSET_STORAGE_ENABLED and settings.DYNAMIC_AI_METADATA_ENABLED and settings.AI_AUTO_ANALYZE_ENABLED
-                and settings.AI_SINGLE_ANALYSIS_ENABLED):
+        if (
+            settings.DYNAMIC_AI_METADATA_ENABLED
+            and settings.AI_AUTO_ANALYZE_ENABLED
+            and settings.AI_SINGLE_ANALYSIS_ENABLED
+        ):
             profile = session.scalar(select(MetadataProfileModel).where(
                 MetadataProfileModel.tenant_id == pipeline.tenant_id,
                 MetadataProfileModel.active.is_(True),
@@ -229,7 +248,11 @@ class AssetStoreJobHandler(_PipelineHandler):
             return JobHandlerResult.non_retryable("managed_storage_disabled", "Managed storage is disabled.")
         stage = context.dependencies.resources.get("pipeline_storage_stage")
         if stage is None:
-            return JobHandlerResult.non_retryable("storage_stage_unconfigured", "Pipeline storage stage is not configured.")
+            return self._failed(
+                context,
+                RuntimeError("Pipeline storage stage is not configured."),
+                error_code="storage_stage_unconfigured",
+            )
         try:
             session, repository, pipeline = self._load(context)
             if pipeline.state not in {PipelineState.STORAGE_PENDING.value, PipelineState.STORAGE_FAILED.value}:
@@ -237,7 +260,10 @@ class AssetStoreJobHandler(_PipelineHandler):
                 return JobHandlerResult.completed()
 
             session.close()
-            asyncio.run(stage.execute(tenant_id=context.job.tenant_id, pipeline=pipeline))
+            _run_worker_async(
+                context,
+                stage.execute(tenant_id=context.job.tenant_id, pipeline=pipeline),
+            )
             session, repository, pipeline = self._load(context)
             try:
                 if pipeline.state == PipelineState.STORAGE_FAILED.value:
@@ -302,6 +328,7 @@ class SearchProjectionBuildJobHandler(_PipelineHandler):
                         "analysis_id": analysis.id,
                         "active_analysis_id": context.job.payload.get("active_analysis_id"),
                         "search_context": context.job.payload.get("search_context", "search_v2"),
+                        "projection_version": analysis.search_projection_version,
                     },
                 )
                 session.commit()
@@ -339,7 +366,12 @@ class SearchProjectionBuildJobHandler(_PipelineHandler):
                     f"direct:index:{analysis.id}:{analysis.search_projection_version}:"
                     f"{analysis.projection_checksum}"
                 ),
-                payload={"asset_id": analysis.asset_id, "analysis_id": analysis.id, "direct_analysis": True},
+                payload={
+                    "asset_id": analysis.asset_id,
+                    "analysis_id": analysis.id,
+                    "direct_analysis": True,
+                    "projection_version": analysis.search_projection_version,
+                },
                 provider_key="elasticsearch",
                 provider_scope="search",
             )
@@ -374,6 +406,7 @@ class SearchProjectionBuildJobHandler(_PipelineHandler):
                     "asset_id": analysis.asset_id, "analysis_id": analysis.id,
                     "active_analysis_id": context.job.payload["active_analysis_id"],
                     "search_context": context.job.payload.get("search_context", "search_v2"),
+                    "projection_version": analysis.search_projection_version,
                 },
                 provider_key="elasticsearch", provider_scope="search",
             )

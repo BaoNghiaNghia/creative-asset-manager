@@ -2384,3 +2384,14 @@ Validation was run in the requested order:
 - Pending, processing and retrying equivalent work remains deduplicated. A completed coverage retry is not re-enqueued unless a later retry itself reaches terminal failure. Repair continues to index only: it neither re-runs AI nor rebuilds a healthy projection.
 - Tests: python -m unittest tests.modules.search.test_coverage_audit -v: 19 passed; python -m unittest tests.modules.processing.test_repository tests.modules.processing.test_runtime tests.modules.processing.test_worker tests.modules.pipeline.test_state_and_repository tests.modules.pipeline.test_stages tests.infrastructure.search.test_elasticsearch_v2 -v: 51 passed; python -m unittest tests.integration.test_elasticsearch -v: 2 skipped because Elasticsearch is not configured locally.
 - No migration or feature-flag change. Rollback: revert this isolated commit; historical failed jobs remain intact and no existing job is mutated.
+
+
+## Automatic pipeline recovery and download repair (2026-07-27)
+
+- Google login source-sync jobs now retain the intended full-reconciliation decision in their payload. The source-sync handler no longer treats a manual/queued sync as disabled merely because login auto-scan is off.
+- Source sync, source download and managed-storage async stages use the worker lifetime async executor when available. Source-sync opens its database session inside that executor, preventing cross-thread SQLAlchemy session reuse and per-job event-loop shutdown.
+- A missing download or storage stage now records a retryable pipeline failure instead of terminally exhausting every source download. Normal worker bootstrap still registers the real download stage and logs pipeline_download_stage_configured.
+- Auto-analysis after download/storage now depends on the AI feature flags rather than managed storage being enabled, so direct source downloads can continue into analysis and search indexing. Index job payloads retain the projection version for deterministic coverage/repair selection.
+- Added python -m app.operations.processing_cli pipeline:repair-downloads --tenant-id <tenant> --apply --yes. It walks latest terminal source_asset_download failures deterministically, preserves historical rows and creates one fresh job keyed by the failed job ID. Oversized and unsupported content remain skipped by default.
+- Focused tests: download repair/source sync/pipeline/worker suite: 46 passed, 6 expected PostgreSQL/Elasticsearch integration skips. A complete backend discovery run was started but did not produce output within the bounded validation window, so it is intentionally not recorded as a passing gate.
+- No migration or feature-flag default changed. Rollback: revert this isolated commit; fresh repair jobs can be allowed to finish or cancelled without changing their historical failed predecessors.

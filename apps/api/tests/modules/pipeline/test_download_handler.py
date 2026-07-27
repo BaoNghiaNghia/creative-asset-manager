@@ -86,6 +86,19 @@ class SourceAssetDownloadJobHandlerTest(unittest.TestCase):
             logger=logging.LoggerAdapter(logging.getLogger(__name__), {}),
         )
 
+    def test_missing_download_stage_is_retryable_not_terminal(self) -> None:
+        context = self._context("image/jpeg", FailIfCalledStage())
+        context.dependencies.resources.clear()
+
+        result = SourceAssetDownloadJobHandler(self.settings)(context)
+
+        self.assertEqual(result.outcome, JobOutcome.RETRYABLE_FAILURE)
+        self.assertEqual(result.error_code, "download_stage_unconfigured")
+        with self.sessions() as session:
+            pipeline = session.scalar(select(AssetPipelineModel))
+            self.assertEqual(pipeline.last_error_code, "download_stage_unconfigured")
+            self.assertTrue(pipeline.failure_retryable)
+
     def test_unsupported_google_drive_mime_is_terminal_before_download(self) -> None:
         stage = FailIfCalledStage()
         result = SourceAssetDownloadJobHandler(self.settings)(

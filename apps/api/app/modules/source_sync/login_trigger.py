@@ -99,6 +99,7 @@ class GoogleLoginSyncScheduler:
             payload={
                 "external_source_id": source.id,
                 "oauth_connection_id": cloud_session.connection_id,
+                "reconciliation": reconciliation,
             },
             priority=10,
 

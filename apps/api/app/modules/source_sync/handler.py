@@ -21,8 +21,7 @@ class SourceSyncJobHandler:
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
         settings = self.settings or get_settings()
         if not (
-            settings.GOOGLE_AUTO_SCAN_ON_LOGIN_ENABLED
-            and settings.PROCESSING_JOBS_ENABLED
+            settings.PROCESSING_JOBS_ENABLED
             and settings.UNIFIED_ASSET_INGESTION_ENABLED
             and settings.INCREMENTAL_SOURCE_SYNC_ENABLED
         ):
@@ -47,8 +46,7 @@ class SourceSyncJobHandler:
                 "source_provider_unconfigured", "Source provider is unavailable."
             )
 
-        session = context.dependencies.session_factory()
-        try:
+        with context.dependencies.session_factory() as session:
             repository = SourceSyncRepository(session)
             source = repository.get_source(context.job.tenant_id, source_id)
             if source is None:
@@ -71,39 +69,48 @@ class SourceSyncJobHandler:
                     SourceSyncRunModel.status == "completed",
                 ).limit(1)
             )
-            reconciliation = bool(
-                settings.GOOGLE_FULL_SCAN_ON_FIRST_LOGIN_ENABLED
-                and completed_full_sync is None
-            )
-            resolver = context.dependencies.resources.get(
-                "google_connection_access_token_resolver",
-                get_connection_access_token,
-            )
 
-            async def run_sync() -> None:
-                token = resolver(connection_id)
-                if inspect.isawaitable(token):
-                    token = await token
-                async with context.dependencies.source_provider_factory(
-                    "google-drive", token
-                ) as provider:
+        reconciliation = bool(
+            context.job.payload.get(
+                "reconciliation",
+                settings.GOOGLE_FULL_SCAN_ON_FIRST_LOGIN_ENABLED
+                and completed_full_sync is None,
+            )
+        )
+        resolver = context.dependencies.resources.get(
+            "google_connection_access_token_resolver",
+            get_connection_access_token,
+        )
+
+        async def run_sync() -> None:
+            token = resolver(connection_id)
+            if inspect.isawaitable(token):
+                token = await token
+            async with context.dependencies.source_provider_factory(
+                "google-drive", token
+            ) as provider:
+                with context.dependencies.session_factory() as sync_session:
                     await SourceSyncService(
-                        repository, ProcessingRepository(session), enabled=True
+                        SourceSyncRepository(sync_session),
+                        ProcessingRepository(sync_session),
+                        enabled=True,
                     ).sync_source(
                         tenant_id=context.job.tenant_id,
                         source_id=source_id,
                         provider=provider,
                         reconciliation=reconciliation,
                         continue_check=lambda: not context.is_cancelled
-
                         and not context.shutdown_requested.is_set(),
                     )
 
-            asyncio.run(run_sync())
+        try:
+            executor = context.dependencies.resources.get("async_executor")
+            if executor is not None:
+                executor.run(run_sync())
+            else:
+                asyncio.run(run_sync())
             return JobHandlerResult.completed()
         except Exception as exc:
             if context.is_cancelled or context.shutdown_requested.is_set():
                 return JobHandlerResult.cancelled()
             return JobHandlerResult.retryable(type(exc).__name__, str(exc))
-        finally:
-            session.close()

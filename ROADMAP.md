@@ -115,6 +115,7 @@
 - [x] TEST-ENV Deterministic backend unittest environment isolation
 - [x] CI API suite aligned with durable Search V3 projection-to-index handoff
 - [x] WORKER-ELASTICSEARCH-LOOP Persistent worker event loop for sequential asset indexing
+- [x] PIPELINE-RECOVERY Durable Google source-sync/download recovery, fresh failed-download repair jobs, and worker-owned async stage execution
 - [x] UX File inspector activity timeline and AI Operations header controls
 - [x] AI-OPS dashboard response mapping correctness
 - [x] AI-OPS responsive filter toolbar refinement
