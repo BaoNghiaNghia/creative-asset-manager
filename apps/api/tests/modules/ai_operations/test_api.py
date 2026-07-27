@@ -312,6 +312,14 @@ class AiOperationsApiTest(unittest.TestCase):
                 ),
                 ProcessingJobModel(
                     tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id="older-pending",
+                    idempotency_key="older-pending", provider_key="gemini", provider_scope="ai",
+                    status="pending", payload_json={}, next_attempt_at=self.now - timedelta(seconds=1),
+                    # Live queue state remains visible even when it predates the dashboard range.
+                    created_at=self.now - timedelta(days=10),
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
                     entity_type="asset_ai_analysis", entity_id="completed-today",
                     idempotency_key="completed-today", provider_key="gemini", provider_scope="ai",
                     status="completed", payload_json={}, created_at=self.now - timedelta(days=1),
@@ -336,7 +344,7 @@ class AiOperationsApiTest(unittest.TestCase):
 
         current = self.get("/api/v1/admin/ai-operations/summary").json()
         self.assertEqual(current["running"], 1)
-        self.assertEqual(current["queued"], 1)
+        self.assertEqual(current["queued"], 2)
         self.assertEqual(current["completed"], 2)
         # The earlier failure is history, not the current state of replacement.
         self.assertEqual(current["failed"], 1)
@@ -347,6 +355,7 @@ class AiOperationsApiTest(unittest.TestCase):
         ).json()
         self.assertEqual(today["completed"], 2)
         self.assertEqual(today["failed"], 1)
+        self.assertEqual(today["queued"], 2)
 
     def test_legacy_running_and_queued_statuses_remain_dashboard_compatible(self):
         # Older deployments may contain these values even though new workers

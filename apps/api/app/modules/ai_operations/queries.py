@@ -236,10 +236,12 @@ class AiOperationsRepository(BaseRepository):
         ).scalar_subquery()
         row = self.session.execute(select(
             func.coalesce(func.sum(case((created_in_period & visible_status, 1), else_=0)), 0),
-            func.coalesce(func.sum(case((created_in_period & visible_status & queued, 1), else_=0)), 0),
+            # Queue/running cards describe the tenant's live work state. They
+            # must not disappear merely because a job was created before the
+            # selected reporting period; historical cards remain period-bounded.
+            func.coalesce(func.sum(case((visible_status & queued, 1), else_=0)), 0),
             func.coalesce(func.sum(case((
-                created_in_period
-                & visible_status
+                visible_status
                 & latest.c.status.in_(PROCESSING_JOB_RUNNING_STATUSES), 1
             ), else_=0)), 0),
             func.coalesce(func.sum(case((

@@ -2459,3 +2459,9 @@ Validation was run in the requested order:
 
 - The frontend now normalizes the legacy array-shaped recent_assets response and the paginated response, preventing runtime errors during rolling API/frontend deployments.
 - Tests: focused AI Operations frontend suite (24 passed); npm run typecheck; npm run build.
+
+## AI Operations live queue counts (2026-07-27)
+
+- Running and Queued now represent the tenant's current AI job state, independent of the selected historical date range.
+- Completed, failed, costs, and daily metrics remain bounded by the selected date range.
+- Tests: apps/api/.venv/bin/python -m unittest tests.modules.ai_operations.test_api -v (11 passed).
