@@ -1,16 +1,59 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import datetime
+
+from sqlalchemy.orm import Session
+
 from app.core.config import Settings
 from app.domain.providers.registry import AiProviderRegistry
 from app.providers.ai.gemini import GeminiAiMetadataProvider
 from app.providers.ai.openai import OpenAiMetadataProvider
+from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
 
 
-def build_ai_provider_registry(settings: Settings) -> AiProviderRegistry:
+class _DatabaseGeminiQuotaCoordinator:
+    def __init__(self, session_factory: Callable[[], Session], quota_scope: str):
+        self.session_factory = session_factory
+        self.quota_scope = quota_scope
+
+    def reserve_request(self, *, model: str, rpd: int, now: datetime):
+        with self.session_factory() as session:
+            decision = GeminiProjectQuotaRepository(session).reserve_request(
+                quota_scope=self.quota_scope, model=model, rpd=rpd, now=now
+            )
+            session.commit()
+        if decision.allowed:
+            return None
+        from app.providers.ai.gemini import GeminiModelUnavailable
+        return GeminiModelUnavailable(
+            model=model,
+            reason=decision.reason or "rpd_exhausted",
+            available_at=decision.available_at or now,
+        )
+
+    def block_until(self, *, model: str, retry_at: datetime) -> None:
+        with self.session_factory() as session:
+            GeminiProjectQuotaRepository(session).block_until(
+                quota_scope=self.quota_scope, model=model, retry_at=retry_at
+            )
+            session.commit()
+
+
+def build_ai_provider_registry(
+    settings: Settings, *, session_factory: Callable[[], Session] | None = None
+) -> AiProviderRegistry:
     """Build configured adapters without exposing provider SDKs to services."""
 
     registry = AiProviderRegistry()
     if settings.GEMINI_API_KEY:
+        quota_coordinator = (
+            _DatabaseGeminiQuotaCoordinator(
+                session_factory, settings.GEMINI_PROJECT_QUOTA_SCOPE
+            )
+            if session_factory is not None
+            else None
+        )
         gemini = GeminiAiMetadataProvider(
             settings.GEMINI_API_KEY,
             model=settings.GEMINI_MODEL,
@@ -18,6 +61,7 @@ def build_ai_provider_registry(settings: Settings) -> AiProviderRegistry:
             model_pool=settings.gemini_model_pool,
             model_limits=settings.gemini_model_limits,
             cooldown_seconds=settings.GEMINI_MODEL_COOLDOWN_SECONDS,
+            quota_coordinator=quota_coordinator,
         )
         registry.register(gemini.provider_name, gemini)
     if settings.OPENAI_AI_ENABLED and settings.OPENAI_API_KEY:

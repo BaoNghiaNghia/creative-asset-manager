@@ -108,6 +108,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL_POOL: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
     GEMINI_MODEL_LIMITS: str = ""
     GEMINI_MODEL_COOLDOWN_SECONDS: float = 60.0
+    GEMINI_PROJECT_QUOTA_SCOPE: str = "default"
     AI_MODEL_RPM_LIMITS: str = ""
     AI_MODEL_RPM_GEMINI_2_5_FLASH: int | None = None
     AI_MODEL_RPM_GPT_4_1_MINI: int | None = None

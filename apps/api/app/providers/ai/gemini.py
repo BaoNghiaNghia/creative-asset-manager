@@ -8,7 +8,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Protocol
 from collections.abc import AsyncIterator
 from zoneinfo import ZoneInfo
 
@@ -35,6 +35,14 @@ class GeminiModelLimit:
     rpm: int
     tpm: int
     rpd: int
+
+
+class GeminiProjectQuotaCoordinator(Protocol):
+    def reserve_request(
+        self, *, model: str, rpd: int, now: datetime
+    ) -> "GeminiModelUnavailable | None": ...
+
+    def block_until(self, *, model: str, retry_at: datetime) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +131,7 @@ class GeminiAiMetadataProvider:
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
         now: Callable[[], datetime] | None = None,
+        quota_coordinator: GeminiProjectQuotaCoordinator | None = None,
     ):
         if not api_key:
             raise ValueError("Gemini API key is required")
@@ -168,6 +177,7 @@ class GeminiAiMetadataProvider:
         self._sleeper = sleeper
         self._clock = clock
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self._quota_coordinator = quota_coordinator
 
 
     async def analyze_single(
@@ -348,6 +358,13 @@ class GeminiAiMetadataProvider:
                     now,
                 )
 
+            if self._quota_coordinator is not None:
+                shared_unavailable = self._quota_coordinator.reserve_request(
+                    model=model, rpd=limit.rpd, now=now
+                )
+                if shared_unavailable is not None:
+                    return None, shared_unavailable
+
             reservation = _InputTokenReservation(
                 recorded_at=current,
                 tokens=estimated_tokens,
@@ -399,6 +416,14 @@ class GeminiAiMetadataProvider:
             runtime = self._runtime[model]
             async with runtime.lock:
                 now = self._aware_now()
+                if self._quota_coordinator is not None:
+                    self._quota_coordinator.block_until(
+                        model=model,
+                        retry_at=(
+                            runtime.daily_exhausted_until
+                            or now + timedelta(seconds=1)
+                        ),
+                    )
                 return self._unavailable(
                     model, reason, runtime.daily_exhausted_until, now
                 )

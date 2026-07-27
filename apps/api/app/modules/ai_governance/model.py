@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKeyConstraint, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -221,6 +221,25 @@ class AiModelRateLimitStateModel(Base):
     next_eligible_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
+class GeminiProjectQuotaStateModel(Base):
+    """Durable Gemini request budget shared by every worker using one project."""
+
+    __tablename__ = "gemini_project_quota_state"
+    __table_args__ = (
+        CheckConstraint("reserved_requests >= 0", name="ck_gemini_project_quota_requests"),
+        Index("ix_gemini_project_quota_reset", "quota_scope", "quota_day", "blocked_until"),
+    )
+
+    quota_scope: Mapped[str] = mapped_column(String(255), primary_key=True)
+    model: Mapped[str] = mapped_column(String(255), primary_key=True)
+    quota_day: Mapped[date] = mapped_column(Date, nullable=False)
+    reserved_requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow

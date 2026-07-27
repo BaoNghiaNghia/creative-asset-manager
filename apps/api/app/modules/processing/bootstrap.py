@@ -153,7 +153,7 @@ def build_worker_runtime(
     )
     if settings.MANAGED_ASSET_STORAGE_ENABLED and not storage_configured:
         raise RuntimeError("managed asset storage is enabled but not configured")
-    ai_provider_registry = build_ai_provider_registry(settings)
+    ai_provider_registry = build_ai_provider_registry(settings, session_factory=session_factory)
     resolver = SourceAssetPipelineContentResolver(session_factory)
     default_resources: dict[str, Any] = {
         "pipeline_download_stage": ProviderDownloadStage(
