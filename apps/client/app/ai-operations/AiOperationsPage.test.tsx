@@ -458,11 +458,13 @@ describe("Search Coverage card", () => {
       latest_source_sync: { mode: "full", status: "completed", pages_count: 2, items_seen_count: 8, jobs_created_count: 4, started_at: "2026-07-27T00:00:00Z", completed_at: "2026-07-27T00:01:00Z", duration_ms: 60_000, error_code: null },
       overall: { source_items_discovered: 8, supported_assets: 3, unsupported_assets: 5, completed: 1, active: 1, queued: 1, failed: 0, skipped: 0, indexed_percentage: 33.3, throughput_today: 1, asset_progress: [{ key: "discovered", count: 1 }, { key: "downloaded", count: 0 }, { key: "stored", count: 0 }, { key: "analyzed", count: 1 }, { key: "projection_built", count: 0 }, { key: "indexed", count: 1 }] },
       stages, active_job: { stage: "Download", job_type: "source_asset_download", status: "processing", filename: "nurse.jpg", provider: "google_drive", attempt_count: 1, max_attempts: 5, started_at: "2026-07-27T00:00:00Z", elapsed_ms: 1_000, message: "Downloading from Google Drive" },
-      failure_groups: [], recent_assets: [],
+      failure_groups: [], recent_assets: { page: 2, page_size: 25, total: 60, items: [{ asset_id: "asset-1", filename: "nurse.jpg", state: "search_pending", stage_statuses: { download: "completed", store: "completed", analyze: "completed", projection: "completed", index: "pending" }, updated_at: "2026-07-27T00:00:00Z", error_code: null }] },
     }} />);
     expect(markup).toContain("Google Drive Scan");
     expect(markup).toContain("Elasticsearch Index");
     expect(markup).toContain("Downloading from Google Drive");
     expect(markup).toContain("Queue by stage");
     expect(markup).toContain("Furthest completed stage");
+    expect(markup).toContain("Showing 26-50 of 60");
+    expect(markup).toContain("Pipeline asset pagination");
   });

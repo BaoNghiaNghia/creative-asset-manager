@@ -12,6 +12,8 @@ export type AiOpsFilters = {
   pageSize?: 25 | 50 | 100;
   usagePage?: number;
   usagePageSize?: 25 | 50 | 100;
+  pipelinePage?: number;
+  pipelinePageSize?: 25 | 50 | 100;
 };
 
 export type AiOpsCost = {
@@ -216,5 +218,5 @@ export type PipelineSnapshot = {
   stages: PipelineStage[];
   active_job: PipelineActiveJob | null;
   failure_groups: Array<{ stage: string; error_code: string; message: string; count: number; latest_at: string }>;
-  recent_assets: Array<{ asset_id: string | null; filename: string; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
+  recent_assets: Page<{ asset_id: string | null; filename: string; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
 };

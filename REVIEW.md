@@ -2449,3 +2449,8 @@ Validation was run in the requested order:
 
 - A 404 from the optional Pipeline Overview endpoint no longer marks the existing AI Operations dashboard as failed during a rolling deployment. The Pipeline tab explains that the API must be updated and restarted.
 - Tests: focused AI Operations frontend tests (23 passed); npm run typecheck; npm run build.
+
+## Pipeline Operations pagination (2026-07-27)
+
+- Recent asset progress now uses tenant-scoped server pagination with page-number navigation and 25/50/100 item selection. The current page remains in the URL query state.
+- Tests: focused backend AI Operations API suite (11 passed); focused frontend dashboard suite (23 passed); npm run typecheck; npm run build.

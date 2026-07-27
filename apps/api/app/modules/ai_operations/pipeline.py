@@ -251,7 +251,10 @@ class PipelineOperationsRepository:
         counts["discovered"] = max(0, counts["discovered"] - sum(counts[stage] for stage in stages[1:]))
         return [{"key": stage, "count": counts[stage]} for stage in stages]
 
-    def _recent_assets(self, tenant_id: str) -> list[dict[str, Any]]:
+    def _recent_assets(self, tenant_id: str, *, page: int, page_size: int) -> dict[str, Any]:
+        total = int(self.session.scalar(select(func.count(AssetPipelineModel.id)).where(
+            AssetPipelineModel.tenant_id == tenant_id,
+        )) or 0)
         rows = self.session.execute(select(
             AssetPipelineModel, SourceAssetModel.filename,
         ).outerjoin(
@@ -262,15 +265,17 @@ class PipelineOperationsRepository:
             AssetPipelineModel.tenant_id == tenant_id,
         ).order_by(
             AssetPipelineModel.updated_at.desc(), AssetPipelineModel.id.desc(),
-        ).limit(50)).all()
-        return [{
+        ).offset((page - 1) * page_size).limit(page_size)).all()
+        return {"page": page, "page_size": page_size, "total": total, "items": [{
             "asset_id": pipeline.asset_id,
             "filename": filename or "Untitled source asset",
             "state": pipeline.state, "stage_statuses": self._asset_stage_statuses(pipeline.state),
             "updated_at": pipeline.updated_at, "error_code": pipeline.last_error_code,
-        } for pipeline, filename in rows]
+        } for pipeline, filename in rows]}
 
-    def snapshot(self, tenant_id: str) -> dict[str, Any]:
+    def snapshot(self, tenant_id: str, *, recent_page: int = 1, recent_page_size: int = 25) -> dict[str, Any]:
+        recent_page = max(1, recent_page)
+        recent_page_size = recent_page_size if recent_page_size in {25, 50, 100} else 25
         now = datetime.now(timezone.utc)
         stages = self._stage_counts(tenant_id, now)
         latest_sync = self._latest_source_sync(tenant_id)
@@ -317,5 +322,5 @@ class PipelineOperationsRepository:
             "stages": list(stages.values()),
             "active_job": self._active_job(tenant_id, now),
             "failure_groups": self._failures(tenant_id),
-            "recent_assets": self._recent_assets(tenant_id),
+            "recent_assets": self._recent_assets(tenant_id, page=recent_page, page_size=recent_page_size),
         }

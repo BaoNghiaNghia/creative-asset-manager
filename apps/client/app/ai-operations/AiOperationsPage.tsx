@@ -205,7 +205,7 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} />
+      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
@@ -240,7 +240,7 @@ export function AiOperationsFilters({ filters, models, profiles, onChange }: {
   </form>;
 }
 
-export function PipelineOverview({ pipeline }: { pipeline?: PipelineSnapshot | null }) {
+export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipeline?: PipelineSnapshot | null; onPage?: (page: number, pageSize: 25 | 50 | 100) => void }) {
   if (pipeline === undefined) return <DashboardState kind="empty" label="Pipeline overview is unavailable until the API is updated and restarted." />;
   if (pipeline === null) return <DashboardState kind="empty" label="No pipeline activity for this tenant" />;
   const scan = pipeline.latest_source_sync;
@@ -276,9 +276,18 @@ export function PipelineOverview({ pipeline }: { pipeline?: PipelineSnapshot | n
     <section className="pipeline-active-job"><div><small>CURRENTLY PROCESSING</small><h2>{active ? active.stage : "No job is currently processing"}</h2><p>{active ? active.message : "The worker will claim the next eligible job automatically."}</p></div>{active && <dl><div><dt>Item</dt><dd>{active.filename || "Pipeline item"}</dd></div><div><dt>Started</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Elapsed</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Attempt</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl>}</section>
     <section className="pipeline-queue"><h2>Queue by stage</h2><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Stage</th><th>Pending</th><th>Eligible now</th><th>Waiting</th><th>Processing</th><th>Completed</th><th>Failed</th></tr></thead><tbody>{pipeline.stages.map(stage => <tr key={stage.key}><td>{stage.label}</td><td>{stage.pending}</td><td>{stage.eligible_now}</td><td>{stage.waiting}</td><td>{stage.processing}</td><td>{stage.completed}</td><td>{stage.failed}</td></tr>)}</tbody></table></div></section>
     <section className="pipeline-attention"><h2>Needs attention</h2>{pipeline.failure_groups.length ? <ul>{pipeline.failure_groups.map(item => <li key={item.stage + item.error_code}><b>{item.stage}</b><code>{item.error_code}</code><span>{item.count} affected / {new Date(item.latest_at).toLocaleString()}</span></li>)}</ul> : <p>No current unresolved pipeline failures.</p>}</section>
-    <section className="pipeline-recent"><h2>Recent asset progress</h2><p>Latest 50 logical assets. Select an asset name to open its existing details panel.</p>{pipeline.recent_assets.length ? <div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Asset</th><th>Current stage</th><th>Download</th><th>Store</th><th>AI</th><th>Projection</th><th>Index</th><th>Updated</th><th>Attention</th></tr></thead><tbody>{pipeline.recent_assets.map(item => <tr key={item.asset_id || item.filename}><td>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)}>{item.filename}</a> : item.filename}</td><td>{item.state.replaceAll("_", " ")}</td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div> : <p>No pipeline assets have been created yet.</p>}</section>
+    <PipelineRecentAssets recent={pipeline.recent_assets} onPage={onPage} />
   </div>;
 }
+function PipelineRecentAssets({ recent, onPage }: { recent: PipelineSnapshot["recent_assets"]; onPage: (page: number, pageSize: 25 | 50 | 100) => void }) {
+  if (!recent.items.length) return <section className="pipeline-recent"><h2>Recent asset progress</h2><p>No pipeline assets have been created yet.</p></section>;
+  const pages = Math.max(1, Math.ceil(recent.total / recent.page_size));
+  const page = Math.min(recent.page, pages);
+  const first = (page - 1) * recent.page_size + 1;
+  const last = Math.min(page * recent.page_size, recent.total);
+  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Recent asset progress</h2><p>Showing {first}-{last} of {recent.total} logical assets. Select a name to open details.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Items per page<select aria-label="Pipeline items per page" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Previous</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Next</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Asset</th><th>Current stage</th><th>Download</th><th>Store</th><th>AI</th><th>Projection</th><th>Index</th><th>Updated</th><th>Attention</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)}>{item.filename}</a> : item.filename}</td><td>{item.state.replaceAll("_", " ")}</td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
+}
+
 function PipelineMetric({ label, value, detail, tone = "" }: { label: string; value: number; detail: string; tone?: string }) {
   return <article className={tone}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>;
 }

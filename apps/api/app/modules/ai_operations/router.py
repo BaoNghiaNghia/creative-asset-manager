@@ -207,11 +207,15 @@ def repair_coverage(
 def pipeline_summary(
     principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
     tenant_id: str | None = Query(default=None),
+    recent_page: int = Query(default=1, ge=1),
+    recent_page_size: int = Query(default=25, ge=1, le=100),
 ):
     target = tenant_id or principal.active_tenant_id
     require_tenant_scope(principal, target)
     with SessionLocal() as session:
-        return PipelineOperationsRepository(session).snapshot(target)
+        return PipelineOperationsRepository(session).snapshot(
+            target, recent_page=recent_page, recent_page_size=recent_page_size,
+        )
 
 
 @router.get("/summary")

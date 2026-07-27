@@ -68,7 +68,7 @@ export async function fetchAiOperationsDashboard(
     read<{ items: AiOpsFailure[] }>(`${base}/failures?${current}`, fetcher),
     read<Page<AiOpsJob>>(`${base}/jobs?${jobs}`, fetcher),
     read<Page<AiOpsUsage>>(`${base}/usage?${usage}`, fetcher),
-    read<PipelineSnapshot>(`${base}/pipeline`, fetcher),
+    read<PipelineSnapshot>(base + "/pipeline?recent_page=" + (filters.pipelinePage || 1) + "&recent_page_size=" + (filters.pipelinePageSize || 25), fetcher),
   ] as const;
   const settled = await Promise.allSettled(calls);
   const pipelineUnavailable = settled[9]?.status === "rejected"
@@ -115,6 +115,8 @@ export function filtersFromSearch(search: string): AiOpsFilters {
     pageSize: [25, 50, 100].includes(Number(params.get("page_size"))) ? Number(params.get("page_size")) as 25 | 50 | 100 : 25,
     usagePage: Math.max(1, Number(params.get("usage_page")) || 1),
     usagePageSize: [25, 50, 100].includes(Number(params.get("usage_page_size"))) ? Number(params.get("usage_page_size")) as 25 | 50 | 100 : 25,
+    pipelinePage: params.has("pipeline_page") ? Math.max(1, Number(params.get("pipeline_page")) || 1) : undefined,
+    pipelinePageSize: params.has("pipeline_page_size") && [25, 50, 100].includes(Number(params.get("pipeline_page_size"))) ? Number(params.get("pipeline_page_size")) as 25 | 50 | 100 : undefined,
   };
 }
 
@@ -130,6 +132,8 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSec
   if ((filters.pageSize || 25) !== 25) params.set("page_size", String(filters.pageSize));
   if ((filters.usagePage || 1) > 1) params.set("usage_page", String(filters.usagePage));
   if ((filters.usagePageSize || 25) !== 25) params.set("usage_page_size", String(filters.usagePageSize));
+  if ((filters.pipelinePage || 1) > 1) params.set("pipeline_page", String(filters.pipelinePage));
+  if ((filters.pipelinePageSize || 25) !== 25) params.set("pipeline_page_size", String(filters.pipelinePageSize));
   if (tab !== "overview") params.set("tab", tab);
   if (refreshSeconds) params.set("refresh", String(refreshSeconds));
   return params.toString();
