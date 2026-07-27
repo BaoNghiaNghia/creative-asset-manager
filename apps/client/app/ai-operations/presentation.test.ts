@@ -53,7 +53,7 @@ describe("AI Operations presentation", () => {
       estimated_cost_micros: 10, provider_reported_cost_micros: 8,
       reconciled_cost_micros: 9, currency: "USD",
     }])).toEqual([{
-      label: "OpenAI · Batch",
+      label: "OpenAI · gpt-test · Batch",
       values: { Analyses: 4 },
     }]);
     expect(failureChart([

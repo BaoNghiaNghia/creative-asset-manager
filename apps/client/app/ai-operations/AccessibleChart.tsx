@@ -16,15 +16,22 @@ export function AccessibleChart({ title, description, data, valueLabel = String 
   const height = 210;
   const plotHeight = 145;
   const groupWidth = data.length ? width / data.length : width;
-  const barWidth = Math.max(3, Math.min(24, (groupWidth - 12) / Math.max(1, series.length)));
+  const preferredBarWidth = data.length <= 2 ? 52 : 28;
+  const barWidth = Math.max(4, Math.min(preferredBarWidth, (groupWidth - 16) / Math.max(1, series.length)));
   const isEmpty = data.length === 0;
+  const bucketLabel = `${data.length} ${data.length === 1 ? "period" : "periods"}`;
   return <figure className={`ops-chart${isEmpty ? " is-empty" : ""}`} aria-labelledby={`chart-${slug(title)}`}>
     <div className="ops-chart-heading">
-      <div><h3 id={`chart-${slug(title)}`}>{title}</h3><p>{description}</p></div>
+      <div>
+        <h3 id={`chart-${slug(title)}`}>{title}</h3>
+        <p>{description}</p>
+        {!isEmpty && <span className="ops-chart-context"><i>{bucketLabel}</i><i>Peak {valueLabel(maximum)}</i></span>}
+      </div>
       <span className="ops-chart-legend">{series.map((name, index) => <i key={name}><b style={{ background: colors[index % colors.length] }} />{name}</i>)}</span>
     </div>
     {isEmpty ? <div className="ops-chart-empty"><strong>No data in this period</strong><span>Try a wider date range or different filters.</span></div> : <>
       <svg role="img" aria-label={`${title}. ${description}`} viewBox={`0 0 ${width} ${height}`}>
+        {[.25, .5, .75].map(ratio => <line key={ratio} x1="0" x2={width} y1={plotHeight * ratio} y2={plotHeight * ratio} className="ops-chart-gridline" />)}
         <line x1="0" x2={width} y1={plotHeight} y2={plotHeight} stroke="#d9e0e8" />
         {data.map((item, groupIndex) => <g key={item.label}>
           {series.map((name, seriesIndex) => {
@@ -63,7 +70,8 @@ function shortLabel(value: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return new Date(`${value}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   }
-  const [provider, mode] = value.split(" \u00b7 ");
-  if (mode) return `${provider.replace("Google ", "")} / ${mode}`;
+  const [provider, model, mode] = value.split(" \u00b7 ");
+  if (mode) return `${provider.replace("Google ", "")} / ${model} / ${mode}`;
+  if (model) return `${provider.replace("Google ", "")} / ${model}`;
   return value.length > 16 ? `${value.slice(0, 15)}...` : value;
 }

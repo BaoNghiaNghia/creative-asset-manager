@@ -2419,4 +2419,9 @@ Validation was run in the requested order:
 - Added a dedicated quota notice with the number of waiting analyses, a clear automatic-retry explanation, and the next retry timestamp.
 - KPI cards now have concise operational context and state-specific hierarchy; chart labels use readable dates and provider/mode names. Empty charts explain the next action.
 - Tests: npm test (82 passed); npm run typecheck; npm run build.
+## AI Operations chart layout (2026-07-27)
+
+- Reworked the five Overview charts into a compact responsive 3+2 grid. The latency chart no longer expands across the entire viewport.
+- Added period/peak context, subtle gridlines, clearer legends, fixed-height chart canvases, and model-aware provider volume labels.
+- Tests: focused chart/dashboard tests (24 passed); npm run typecheck; npm run build.
 

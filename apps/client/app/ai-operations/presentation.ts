@@ -20,7 +20,7 @@ export function dailyProviderCostChart(items: AiOpsDaily[]): ChartDatum[] {
 
 export function providerVolumeChart(items: AiOpsProviderBreakdown[]): ChartDatum[] {
   return items.map(item => ({
-    label: `${providerLabel(item.provider)} · ${modeLabel(item.processing_mode)}`,
+    label: `${providerLabel(item.provider)} · ${item.model || "Default model"} · ${modeLabel(item.processing_mode)}`,
     values: { Analyses: item.count },
   }));
 }

@@ -120,3 +120,26 @@
 .ops-chart.is-empty .ops-chart-empty{min-height:156px;gap:6px;border:1px dashed #dce4ee;border-radius:9px;background:#fafcff;color:#77869a}
 .ops-chart-empty strong{color:#536276;font-size:12px}.ops-chart-empty span{font-size:10px}
 @media(max-width:720px){.ops-quota-notice{align-items:flex-start;flex-direction:column;gap:10px}.ops-quota-notice time{padding-top:9px;padding-left:0;border-top:1px solid #efdcae;border-left:0}.ops-kpis .ops-kpi{min-height:98px}}
+
+/* Compact chart dashboard: related operational signals scan as a balanced 3 + 2 grid. */
+.ops-charts{grid-template-columns:repeat(12,minmax(0,1fr));gap:16px;margin-top:20px}
+.ops-chart{grid-column:span 4;display:flex;min-height:286px;flex-direction:column;padding:18px;border-radius:13px}
+.ops-chart:last-child{grid-column:span 6}
+.ops-chart:nth-child(4){grid-column:span 6}
+.ops-chart-heading{min-height:54px;padding-bottom:10px;border-bottom:1px solid #edf1f6}
+.ops-chart-heading>div{min-width:0}
+.ops-chart h3{font-size:15px;letter-spacing:-.01em}
+.ops-chart p{max-width:480px;font-size:11px}
+.ops-chart-context{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.ops-chart-context i{padding:3px 6px;border-radius:999px;background:#f2f5f9;color:#65748a;font-size:9px;font-style:normal;font-weight:700}
+.ops-chart svg{height:184px;margin:10px 0 0;flex:0 0 auto}
+.ops-chart-gridline{stroke:#edf1f6;stroke-dasharray:3 4}
+.ops-chart-label{font-size:10px}
+.ops-chart-legend{max-width:48%;gap:6px;padding-top:2px}
+.ops-chart-legend i{padding:3px 5px;border-radius:5px;background:#f7f9fc;font-size:9px}
+.ops-chart-table{margin-top:auto;padding-top:8px;border-top:1px solid #f0f3f7}
+.ops-chart-table summary{font-weight:650}
+.ops-chart.is-empty{min-height:286px}
+.ops-chart.is-empty .ops-chart-empty{min-height:184px;margin-top:10px}
+@media(max-width:1280px){.ops-charts{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-chart,.ops-chart:last-child,.ops-chart:nth-child(4){grid-column:auto}.ops-chart svg{height:196px}}
+@media(max-width:720px){.ops-charts{grid-template-columns:1fr;gap:12px}.ops-chart{min-height:270px;padding:15px}.ops-chart-heading{min-height:0}.ops-chart svg{height:174px}.ops-chart-legend{max-width:none}.ops-chart.is-empty,.ops-chart.is-empty .ops-chart-empty{min-height:166px}}
