@@ -367,7 +367,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted }:
       <tbody>{data.jobs.items.map(job => {
         const usage = usageByJob.get(job.id);
         const mode = usage?.processing_mode || (job.job_type.startsWith("ai_batch_") ? "batch" : "single");
-        const assetId = usage?.asset_id || (job.entity_type === "asset" ? job.entity_id : null);
+        const assetId = job.asset_id || usage?.asset_id || (job.entity_type === "asset" ? job.entity_id : null);
         return <tr key={job.id}>
           <td><StatusText status={job.status} isDeferred={job.is_deferred} nextAttemptAt={job.next_attempt_at} /></td><td><code>{assetId || "\u2014"}</code></td>
           <td>{providerLabel(job.provider)}</td><td>{usage?.model || "\u2014"}</td><td>{modeLabel(mode)}</td>

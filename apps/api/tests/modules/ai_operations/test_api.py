@@ -45,6 +45,7 @@ class AiOperationsApiTest(unittest.TestCase):
             )
             session.add_all([profile, asset, other_asset, source])
             session.flush()
+            self.asset_id = asset.id
             source_asset = SourceAssetModel(
                 tenant_id="tenant-a", external_source_id=source.id,
                 external_asset_id="drive-item",
@@ -280,6 +281,8 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertIn("processing_duration_ms", jobs["items"][0])
         all_jobs = self.get("/api/v1/admin/ai-operations/jobs", page=1, page_size=10).json()
         self.assertIn(2_000, [item["processing_duration_ms"] for item in all_jobs["items"]])
+        analysis_job = next(item for item in all_jobs["items"] if item["entity_id"] == self.analysis_ids[1])
+        self.assertEqual(analysis_job["asset_id"], self.asset_id)
         serialized = str(jobs)
         self.assertNotIn("signed_url", serialized)
         self.assertNotIn("credential", serialized)

@@ -4,7 +4,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import case, exists, func, literal, or_, select
+from sqlalchemy import and_, case, exists, func, literal, or_, select
+from sqlalchemy.orm import aliased
 
 from app.modules.ai_batch.model import AiBatchItemModel, AiBatchJobModel
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
@@ -325,8 +326,19 @@ class AiOperationsRepository(BaseRepository):
         total = int(self.session.scalar(
             select(func.count()).select_from(ProcessingJobModel).where(*conditions)
         ) or 0)
-        rows = self.session.scalars(
-            select(ProcessingJobModel).where(*conditions)
+        analysis_for_job = aliased(AssetAiAnalysisModel)
+        rows = self.session.execute(
+            select(
+                ProcessingJobModel,
+                analysis_for_job.asset_id.label("analysis_asset_id"),
+            ).outerjoin(
+                analysis_for_job,
+                and_(
+                    ProcessingJobModel.entity_type == "asset_ai_analysis",
+                    analysis_for_job.tenant_id == ProcessingJobModel.tenant_id,
+                    analysis_for_job.id == ProcessingJobModel.entity_id,
+                ),
+            ).where(*conditions)
             .order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc())
             .offset((page - 1) * page_size).limit(page_size)
         ).all()
@@ -346,6 +358,11 @@ class AiOperationsRepository(BaseRepository):
             "items": [{
                 "id": job.id, "job_type": job.job_type,
                 "entity_type": job.entity_type, "entity_id": job.entity_id,
+                # asset_analyze points at an analysis record, not an asset. Resolve
+                # it server-side so the operations UI always links the internal asset.
+                "asset_id": analysis_asset_id or (
+                    job.entity_id if job.entity_type == "asset" else None
+                ),
                 "provider": job.provider_key, "status": job.status,
                 "priority": job.priority, "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,
@@ -361,7 +378,7 @@ class AiOperationsRepository(BaseRepository):
                     "code": job.last_error_code,
                     "retryable": job.status == "retry",
                 },
-            } for job in rows],
+            } for job, analysis_asset_id in rows],
         }
 
     def usage(self, f: AiOperationsFilters, *, page: int, page_size: int) -> dict[str, Any]:

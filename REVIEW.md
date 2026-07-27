@@ -2465,3 +2465,8 @@ Validation was run in the requested order:
 - Running and Queued now represent the tenant's current AI job state, independent of the selected historical date range.
 - Completed, failed, costs, and daily metrics remain bounded by the selected date range.
 - Tests: apps/api/.venv/bin/python -m unittest tests.modules.ai_operations.test_api -v (11 passed).
+
+## AI Operations job asset links (2026-07-27)
+
+- The jobs API now resolves an internal asset ID for asset-analysis jobs in the tenant scope, so completed jobs retain a View action even when the usage page does not contain the matching record.
+- Tests: API job tests (11 passed); focused AI Operations UI tests (24 passed); frontend typecheck and production build passed.

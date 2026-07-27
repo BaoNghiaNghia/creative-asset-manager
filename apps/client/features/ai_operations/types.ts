@@ -79,6 +79,7 @@ export type AiOpsJob = {
   job_type: string;
   entity_type: string;
   entity_id: string;
+  asset_id: string | null;
   provider: string | null;
   status: string;
   priority: number;

@@ -121,6 +121,7 @@ const data: AiOpsDashboardData = {
       job_type: "asset_analyze",
       entity_type: "asset_ai_analysis",
       entity_id: "analysis-1",
+      asset_id: "asset-1",
       provider: "openai",
       status: "completed",
       priority: 10,
@@ -227,7 +228,7 @@ describe("AI Operations dashboard", () => {
   });
 
   it("renders processing details, stable errors, pagination and the real asset link", () => {
-    const markup = render("processing");
+    const markup = render("processing", { data: { ...data, usage: { ...data.usage, total: 0, items: [] } } });
     for (const value of ["AI processing jobs", "OpenAI", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Showing 26-50 of 60", "Items per page"]) expect(markup).toContain(value);
     expect(markup).toContain("asset-1");
     expect(markup).toContain("asset=asset-1");
