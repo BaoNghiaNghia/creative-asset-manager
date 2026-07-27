@@ -286,6 +286,7 @@ describe("AI Operations dashboard", () => {
       { items: data.failures },
       data.jobs,
       data.usage,
+      null,
     ];
     let index = 0;
     const fetcher = vi.fn(async () => new Response(JSON.stringify(responses[index++]), {
@@ -298,6 +299,19 @@ describe("AI Operations dashboard", () => {
     expect(result.data.daily).toEqual(data.daily);
     expect(result.data.jobs).toEqual(data.jobs);
     expect(result.data.usage).toEqual(data.usage);
+  });
+
+  it("keeps AI Operations usable while an older API returns 404 for pipeline", async () => {
+    const responses = [summary, summary, summary, { items: [] }, { items: [] }, { items: [] }, { items: [] }, data.jobs, data.usage];
+    let index = 0;
+    const fetcher = vi.fn(async () => {
+      if (index++ === 9) return new Response(JSON.stringify({ detail: "Not Found" }), { status: 404, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(responses[index - 1]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const result = await fetchAiOperationsDashboard(filters, fetcher, new Date("2026-07-22T00:00:00Z"));
+    expect(result.errors).toEqual([]);
+    expect(result.data.pipeline).toBeUndefined();
+    expect(renderToStaticMarkup(<PipelineOverview pipeline={result.data.pipeline} />)).toContain("API is updated and restarted");
   });
 });
 

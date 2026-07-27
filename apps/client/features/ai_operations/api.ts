@@ -71,7 +71,11 @@ export async function fetchAiOperationsDashboard(
     read<PipelineSnapshot>(`${base}/pipeline`, fetcher),
   ] as const;
   const settled = await Promise.allSettled(calls);
-  const errors = settled.flatMap(item => item.status === "rejected" ? [String(item.reason?.message || "Request failed")] : []);
+  const pipelineUnavailable = settled[9]?.status === "rejected"
+    && settled[9].reason instanceof AiOperationsApiError
+    && settled[9].reason.status === 404;
+  const errors = settled.flatMap((item, index) => item.status === "rejected" && !(index === 9 && pipelineUnavailable)
+    ? [String(item.reason?.message || "Request failed")] : []);
   const unauthorized = settled.some(item => item.status === "rejected" && item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status));
   const value = <T,>(index: number, fallback: T): T => settled[index]?.status === "fulfilled"
     ? (settled[index] as PromiseFulfilledResult<T>).value : fallback;
@@ -89,7 +93,9 @@ export async function fetchAiOperationsDashboard(
       jobs: value<Page<AiOpsJob>>(7, { page: filters.page, page_size: filters.pageSize || 25, total: 0, items: [] }),
       usage: value<Page<AiOpsUsage>>(8, { page: filters.usagePage || 1, page_size: filters.usagePageSize || 25, total: 0, items: [] }),
       coverage: null,
-      pipeline: value<PipelineSnapshot | null>(9, null),
+      // The pipeline snapshot was introduced after the original AI Operations API.
+      // A rolling deployment may briefly serve the prior API; keep AI metrics usable.
+      pipeline: pipelineUnavailable ? undefined : value<PipelineSnapshot | null>(9, null),
     },
   };
 }

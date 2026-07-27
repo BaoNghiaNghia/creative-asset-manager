@@ -205,7 +205,7 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline || null} />
+      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} />
         : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
@@ -240,8 +240,9 @@ export function AiOperationsFilters({ filters, models, profiles, onChange }: {
   </form>;
 }
 
-export function PipelineOverview({ pipeline }: { pipeline: PipelineSnapshot | null }) {
-  if (!pipeline) return <DashboardState kind="empty" label="No pipeline activity for this tenant" />;
+export function PipelineOverview({ pipeline }: { pipeline?: PipelineSnapshot | null }) {
+  if (pipeline === undefined) return <DashboardState kind="empty" label="Pipeline overview is unavailable until the API is updated and restarted." />;
+  if (pipeline === null) return <DashboardState kind="empty" label="No pipeline activity for this tenant" />;
   const scan = pipeline.latest_source_sync;
   const active = pipeline.active_job;
   const flowStages = [{

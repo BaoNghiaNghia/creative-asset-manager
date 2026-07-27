@@ -2444,3 +2444,8 @@ Validation was run in the requested order:
 - The Processing Operations page now has a Pipeline overview tab with the Google Drive scan summary, six-stage flow, stage cards, active job panel, queue-by-stage table, unresolved failure groups, and recent asset progress. Existing AI analysis metrics remain in the separate AI analysis tab.
 - No migration: all displayed data is derived from existing processing_jobs, source_sync_runs, source_assets, and asset_pipelines tables.
 - Tests: focused backend AI Operations API suite (11 passed); frontend suite (84 passed); npm run typecheck; npm run build. Full backend unittest discovery was attempted with a 120-second bound and timed out; it was not treated as a pass. PostgreSQL and Elasticsearch integration tests also skip unless their explicit services are configured.
+
+## Pipeline endpoint rolling-deployment compatibility (2026-07-27)
+
+- A 404 from the optional Pipeline Overview endpoint no longer marks the existing AI Operations dashboard as failed during a rolling deployment. The Pipeline tab explains that the API must be updated and restarted.
+- Tests: focused AI Operations frontend tests (23 passed); npm run typecheck; npm run build.
