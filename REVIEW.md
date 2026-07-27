@@ -2436,3 +2436,11 @@ Validation was run in the requested order:
 - The explorer now measures the completed modern search request in the browser and shows a compact Vietnamese duration line directly below the search bar.
 - The indicator clears while a new query is pending, and remains hidden without a query or result.
 - Tests: App search-duration unit test (6 passed); npm run typecheck; npm run build.
+
+
+## Pipeline Operations overview (2026-07-27)
+
+- Added one tenant-scoped pipeline snapshot endpoint at GET /api/v1/admin/ai-operations/pipeline. It uses current durable processing job rows per stage and logical entity, so a superseded failed job is not counted as an unresolved failure.
+- The Processing Operations page now has a Pipeline overview tab with the Google Drive scan summary, six-stage flow, stage cards, active job panel, queue-by-stage table, unresolved failure groups, and recent asset progress. Existing AI analysis metrics remain in the separate AI analysis tab.
+- No migration: all displayed data is derived from existing processing_jobs, source_sync_runs, source_assets, and asset_pipelines tables.
+- Tests: focused backend AI Operations API suite (11 passed); frontend suite (84 passed); npm run typecheck; npm run build. Full backend unittest discovery was attempted with a 120-second bound and timed out; it was not treated as a pass. PostgreSQL and Elasticsearch integration tests also skip unless their explicit services are configured.

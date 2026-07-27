@@ -73,6 +73,7 @@
 - [x] AI-OPS-04 Provider and tenant configuration UI
 - [x] AI-OPS-05 Performance, bounded exports and final validation
 - [x] AI-OPS-CI-FIX Migration and durable pipeline CI regressions
+- [x] PIPELINE-OPS Tenant-scoped end-to-end Google Drive processing operations overview
 
 - [x] 21D Toggleable file details and activity inspector
 

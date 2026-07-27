@@ -129,6 +129,7 @@ export type AiOpsDashboardData = {
   jobs: Page<AiOpsJob>;
   usage: Page<AiOpsUsage>;
   coverage?: AiOpsSearchCoverage | null;
+  pipeline?: PipelineSnapshot | null;
 };
 
 export type AiOpsAudit = { actor: string; action: string; reason: string; timestamp: string };
@@ -200,4 +201,20 @@ export type AiOpsSearchCoverage = {
   last_audited_at: string | null;
   elasticsearch_verification_included: boolean;
   repair_jobs: { queued: number; running: number; completed: number; failed: number };
+};
+
+export type PipelineStage = {
+  key: string; label: string; subtitle: string; total: number; pending: number; eligible_now: number; waiting: number; processing: number; completed: number; failed: number; percentage: number | null; oldest_pending_at: string | null;
+};
+export type PipelineActiveJob = {
+  stage: string; job_type: string; status: string; filename: string | null; provider: string | null; attempt_count: number; max_attempts: number; started_at: string | null; elapsed_ms: number | null; message: string;
+};
+export type PipelineSnapshot = {
+  generated_at: string;
+  latest_source_sync: { mode: string; status: string; pages_count: number; items_seen_count: number; jobs_created_count: number; started_at: string; completed_at: string | null; duration_ms: number | null; error_code: string | null } | null;
+  overall: { source_items_discovered: number; supported_assets: number; unsupported_assets: number; completed: number; active: number; queued: number; failed: number; skipped: number; indexed_percentage: number | null; throughput_today: number; asset_progress: Array<{ key: string; count: number }>; };
+  stages: PipelineStage[];
+  active_job: PipelineActiveJob | null;
+  failure_groups: Array<{ stage: string; error_code: string; message: string; count: number; latest_at: string }>;
+  recent_assets: Array<{ asset_id: string | null; filename: string; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
 };

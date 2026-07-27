@@ -26,6 +26,7 @@ import {
   pageFilters,
   usagePageFilters,
   visiblePages,
+  PipelineOverview,
   ProcessingJobAction,
   StatusText,
 } from "./AiOperationsPage";
@@ -428,3 +429,26 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Database and Elasticsearch disagree");
   });
 });
+
+
+  it("renders the full pipeline flow and current active download", () => {
+    const stages = [
+      ["source_asset_download", "Download"],
+      ["asset_store", "Store"],
+      ["asset_analyze", "AI Analyze"],
+      ["search_projection_build", "Search Projection"],
+      ["asset_index", "Elasticsearch Index"],
+    ].map(([key, label]) => ({ key, label, subtitle: "Pipeline stage", total: 3, pending: 1, eligible_now: 1, waiting: 0, processing: key === "source_asset_download" ? 1 : 0, completed: 1, failed: 0, percentage: 33.3, oldest_pending_at: null }));
+    const markup = renderToStaticMarkup(<PipelineOverview pipeline={{
+      generated_at: "2026-07-27T00:00:00Z",
+      latest_source_sync: { mode: "full", status: "completed", pages_count: 2, items_seen_count: 8, jobs_created_count: 4, started_at: "2026-07-27T00:00:00Z", completed_at: "2026-07-27T00:01:00Z", duration_ms: 60_000, error_code: null },
+      overall: { source_items_discovered: 8, supported_assets: 3, unsupported_assets: 5, completed: 1, active: 1, queued: 1, failed: 0, skipped: 0, indexed_percentage: 33.3, throughput_today: 1, asset_progress: [{ key: "discovered", count: 1 }, { key: "downloaded", count: 0 }, { key: "stored", count: 0 }, { key: "analyzed", count: 1 }, { key: "projection_built", count: 0 }, { key: "indexed", count: 1 }] },
+      stages, active_job: { stage: "Download", job_type: "source_asset_download", status: "processing", filename: "nurse.jpg", provider: "google_drive", attempt_count: 1, max_attempts: 5, started_at: "2026-07-27T00:00:00Z", elapsed_ms: 1_000, message: "Downloading from Google Drive" },
+      failure_groups: [], recent_assets: [],
+    }} />);
+    expect(markup).toContain("Google Drive Scan");
+    expect(markup).toContain("Elasticsearch Index");
+    expect(markup).toContain("Downloading from Google Drive");
+    expect(markup).toContain("Queue by stage");
+    expect(markup).toContain("Furthest completed stage");
+  });

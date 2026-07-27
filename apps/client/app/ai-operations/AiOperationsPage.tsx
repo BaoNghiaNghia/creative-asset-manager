@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
   retryAiOperationsJob, searchFromFilters,
-  type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage,
+  type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage, type PipelineSnapshot,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
@@ -16,9 +16,10 @@ import {
   shouldAutoRefresh, type AutoRefreshSeconds,
 } from "./requestCoordinator";
 
-export type AiOpsTab = "overview" | "processing" | "cost" | "providers" | "configuration";
+export type AiOpsTab = "pipeline" | "overview" | "processing" | "cost" | "providers" | "configuration";
 const tabs: Array<{ id: AiOpsTab; label: string }> = [
-  { id: "overview", label: "Overview" },
+  { id: "pipeline", label: "Pipeline overview" },
+  { id: "overview", label: "AI analysis" },
   { id: "processing", label: "Processing" },
   { id: "cost", label: "Cost & Usage" },
   { id: "providers", label: "Providers" },
@@ -28,7 +29,7 @@ const tabs: Array<{ id: AiOpsTab; label: string }> = [
 const emptyPage = <T,>(page = 1) => ({ page, page_size: 25, total: 0, items: [] as T[] });
 export const emptyDashboard = (page = 1): AiOpsDashboardData => ({
   summary: null, today: null, month: null, daily: [], providers: [], todayProviders: [], failures: [],
-  jobs: emptyPage<AiOpsJob>(page), usage: emptyPage<AiOpsUsage>(), coverage: null,
+  jobs: emptyPage<AiOpsJob>(page), usage: emptyPage<AiOpsUsage>(), coverage: null, pipeline: null,
 });
 
 export function AiOperationsPage() {
@@ -175,7 +176,7 @@ export function AiOperationsContent({
   if (unauthorized) return <DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} />;
   return <>
     <header className="ops-header">
-      <div><small>OPERATIONS</small><h1>AI Operations</h1><p>Processing health, usage and cost for the current tenant.</p></div>
+      <div><small>OPERATIONS</small><h1>Processing Operations</h1><p>Pipeline progress, AI analysis, usage and cost for the current tenant.</p></div>
       <div className="ops-header-actions">
         <label className="ops-refresh-control"><span>Auto-refresh</span><select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
           {AUTO_REFRESH_SECONDS.map(seconds => <option key={seconds} value={seconds}>{seconds ? `${seconds}s` : "Off"}</option>)}
@@ -187,7 +188,7 @@ export function AiOperationsContent({
         <a className="ops-back-link" href="/">← Back to assets</a>
       </div>
     </header>
-    <nav className="ops-tabs" aria-label="AI Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
+    <nav className="ops-tabs" aria-label="Processing Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
       {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}>{item.label}</button>)}
     </nav>
     <div className="ops-query-bar">
@@ -204,7 +205,8 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
+      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline || null} />
+        : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
@@ -238,6 +240,48 @@ export function AiOperationsFilters({ filters, models, profiles, onChange }: {
   </form>;
 }
 
+export function PipelineOverview({ pipeline }: { pipeline: PipelineSnapshot | null }) {
+  if (!pipeline) return <DashboardState kind="empty" label="No pipeline activity for this tenant" />;
+  const scan = pipeline.latest_source_sync;
+  const active = pipeline.active_job;
+  const flowStages = [{
+    key: "source_sync", label: "Google Drive Scan",
+    completed: scan?.status === "completed" ? 1 : 0,
+    pending: scan?.status === "running" ? 1 : 0,
+    processing: scan?.status === "running" ? 1 : 0,
+    failed: scan?.status === "failed" ? 1 : 0,
+  }, ...pipeline.stages];
+  return <div className="ops-content pipeline-content">
+    <section className="pipeline-summary" aria-label="Pipeline summary">
+      <PipelineMetric label="Supported assets" value={pipeline.overall.supported_assets} detail="Images eligible for processing" />
+      <PipelineMetric label="Indexed" value={pipeline.overall.completed} detail={pipeline.overall.indexed_percentage === null ? "Calculating progress" : String(pipeline.overall.indexed_percentage) + "% complete"} />
+      <PipelineMetric label="Active" value={pipeline.overall.active} detail="Currently moving through the pipeline" />
+      <PipelineMetric label="Queued" value={pipeline.overall.queued} detail="Waiting to start" />
+      <PipelineMetric label="Needs attention" value={pipeline.overall.failed} detail="Current unresolved failures" tone="attention" />
+      <PipelineMetric label="Unsupported" value={pipeline.overall.unsupported_assets} detail="Excluded from image processing" />
+    </section>
+    <section className="pipeline-scan-card" aria-label="Latest Google Drive scan">
+      <div><small>GOOGLE DRIVE SCAN</small><h2>{scan ? "Last " + scan.mode + " scan" : "No scan recorded"}</h2>
+      <p>{scan ? (scan.status === "completed" ? "Found " + scan.items_seen_count.toLocaleString() + " Drive items and created " + scan.jobs_created_count.toLocaleString() + " processing jobs." : "Scan is " + scan.status + ". " + scan.items_seen_count.toLocaleString() + " items seen so far.") : "Run a source sync to discover Drive assets."}</p></div>
+      {scan && <dl><div><dt>Status</dt><dd><StatusText status={scan.status} /></dd></div><div><dt>Pages</dt><dd>{scan.pages_count}</dd></div><div><dt>Items</dt><dd>{scan.items_seen_count.toLocaleString()}</dd></div><div><dt>Jobs created</dt><dd>{scan.jobs_created_count.toLocaleString()}</dd></div><div><dt>Completed</dt><dd>{scan.completed_at ? new Date(scan.completed_at).toLocaleString() : "-"}</dd></div><div><dt>Duration</dt><dd>{formatProcessingDuration(scan.duration_ms)}</dd></div></dl>}
+    </section>
+    <section className="pipeline-progress-summary" aria-label="Asset progress by furthest completed stage"><div><small>ASSET PROGRESS</small><h2>Furthest completed stage</h2><p>Each supported source asset appears once, at its latest completed stage.</p></div><dl>{pipeline.overall.asset_progress.map(item => <div key={item.key}><dt>{item.key.replaceAll("_", " ")}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
+    <ol className="pipeline-flow" aria-label="Google Drive asset processing flow">{flowStages.map(stage => <li key={stage.key} className={stage.key === active?.job_type ? "processing" : stage.failed ? "failed" : stage.processing ? "processing" : stage.pending ? "pending" : stage.completed ? "completed" : "idle"}><b>{stage.label}</b><span>{stage.completed} completed</span><small>{stage.pending} pending / {stage.processing} running / {stage.failed} failed</small></li>)}</ol>
+    <section className="pipeline-stage-grid" aria-label="Pipeline stages">{pipeline.stages.map(stage => <article key={stage.key} className={stage.key === active?.job_type ? "active" : ""}>
+      <header><div><small>STAGE</small><h2>{stage.label}</h2></div><StatusText status={stage.processing ? "processing" : stage.failed ? "failed" : stage.pending ? "pending" : stage.completed ? "completed" : "idle"} /></header><p>{stage.subtitle}</p>
+      <strong>{stage.completed} / {stage.total || "-"}</strong><span>{stage.percentage === null ? "Calculating progress" : String(stage.percentage) + "% complete"}</span><div className="pipeline-progress"><i style={{ width: String(stage.percentage || 0) + "%" }} /></div>
+      <dl><div><dt>Queued</dt><dd>{stage.pending}</dd></div><div><dt>Running</dt><dd>{stage.processing}</dd></div><div><dt>Waiting</dt><dd>{stage.waiting}</dd></div><div><dt>Failed</dt><dd>{stage.failed}</dd></div></dl>
+    </article>)}</section>
+    <section className="pipeline-active-job"><div><small>CURRENTLY PROCESSING</small><h2>{active ? active.stage : "No job is currently processing"}</h2><p>{active ? active.message : "The worker will claim the next eligible job automatically."}</p></div>{active && <dl><div><dt>Item</dt><dd>{active.filename || "Pipeline item"}</dd></div><div><dt>Started</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Elapsed</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Attempt</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl>}</section>
+    <section className="pipeline-queue"><h2>Queue by stage</h2><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Stage</th><th>Pending</th><th>Eligible now</th><th>Waiting</th><th>Processing</th><th>Completed</th><th>Failed</th></tr></thead><tbody>{pipeline.stages.map(stage => <tr key={stage.key}><td>{stage.label}</td><td>{stage.pending}</td><td>{stage.eligible_now}</td><td>{stage.waiting}</td><td>{stage.processing}</td><td>{stage.completed}</td><td>{stage.failed}</td></tr>)}</tbody></table></div></section>
+    <section className="pipeline-attention"><h2>Needs attention</h2>{pipeline.failure_groups.length ? <ul>{pipeline.failure_groups.map(item => <li key={item.stage + item.error_code}><b>{item.stage}</b><code>{item.error_code}</code><span>{item.count} affected / {new Date(item.latest_at).toLocaleString()}</span></li>)}</ul> : <p>No current unresolved pipeline failures.</p>}</section>
+    <section className="pipeline-recent"><h2>Recent asset progress</h2><p>Latest 50 logical assets. Select an asset name to open its existing details panel.</p>{pipeline.recent_assets.length ? <div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Asset</th><th>Current stage</th><th>Download</th><th>Store</th><th>AI</th><th>Projection</th><th>Index</th><th>Updated</th><th>Attention</th></tr></thead><tbody>{pipeline.recent_assets.map(item => <tr key={item.asset_id || item.filename}><td>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)}>{item.filename}</a> : item.filename}</td><td>{item.state.replaceAll("_", " ")}</td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div> : <p>No pipeline assets have been created yet.</p>}</section>
+  </div>;
+}
+function PipelineMetric({ label, value, detail, tone = "" }: { label: string; value: number; detail: string; tone?: string }) {
+  return <article className={tone}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>;
+}
+
 function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; canManage: boolean; onRefresh: () => void }) {
   const summary = data.summary;
   if (!summary && !data.daily.length) return <DashboardState kind="empty" />;
@@ -256,6 +300,7 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
   ];
   const nextQuotaRetry = summary?.next_deferred_retry_at;
   return <div className="ops-content">
+    <p className="ops-ai-scope-note">These metrics cover AI analysis only. Download, storage, projection, and indexing are shown in Pipeline Overview.</p>
     <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
     {nextQuotaRetry && <section className="ops-quota-notice" role="status" aria-label="Gemini quota retry status">
       <div><span className="ops-quota-badge">Quota</span><div><strong>Gemini quota is temporarily busy</strong><p>{summary?.deferred || 0} {summary?.deferred === 1 ? "analysis" : "analyses"} will retry automatically. No action is needed unless this keeps recurring.</p></div></div>

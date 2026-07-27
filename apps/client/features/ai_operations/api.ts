@@ -1,6 +1,6 @@
 import type {
   AiOpsDaily, AiOpsDashboardData, AiOpsFailure, AiOpsFilters, AiOpsJob,
-  AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page,
+  AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page, PipelineSnapshot,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -68,6 +68,7 @@ export async function fetchAiOperationsDashboard(
     read<{ items: AiOpsFailure[] }>(`${base}/failures?${current}`, fetcher),
     read<Page<AiOpsJob>>(`${base}/jobs?${jobs}`, fetcher),
     read<Page<AiOpsUsage>>(`${base}/usage?${usage}`, fetcher),
+    read<PipelineSnapshot>(`${base}/pipeline`, fetcher),
   ] as const;
   const settled = await Promise.allSettled(calls);
   const errors = settled.flatMap(item => item.status === "rejected" ? [String(item.reason?.message || "Request failed")] : []);
@@ -88,6 +89,7 @@ export async function fetchAiOperationsDashboard(
       jobs: value<Page<AiOpsJob>>(7, { page: filters.page, page_size: filters.pageSize || 25, total: 0, items: [] }),
       usage: value<Page<AiOpsUsage>>(8, { page: filters.usagePage || 1, page_size: filters.usagePageSize || 25, total: 0, items: [] }),
       coverage: null,
+      pipeline: value<PipelineSnapshot | null>(9, null),
     },
   };
 }

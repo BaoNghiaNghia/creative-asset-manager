@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.ai_operations.export import EXPORT_COLUMNS, audit_export, csv_stream, export_rows
 from app.modules.ai_operations.queries import AiOperationsRepository
+from app.modules.ai_operations.pipeline import PipelineOperationsRepository
 from app.modules.ai_operations.coverage import SearchCoverageSummaryService
 from app.modules.ai_operations.schema import AiOperationsFilters, SearchCoverageAuditRequest, SearchCoverageRepairRequest
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
@@ -200,6 +201,17 @@ def repair_coverage(
         )
         session.commit()
         return {"repair": result.to_document(), "progress": SearchCoverageSummaryService(session, projection_version=_projection_version()).repair_jobs(tenant_id=target)}
+
+
+@router.get("/pipeline")
+def pipeline_summary(
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+    tenant_id: str | None = Query(default=None),
+):
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    with SessionLocal() as session:
+        return PipelineOperationsRepository(session).snapshot(target)
 
 
 @router.get("/summary")

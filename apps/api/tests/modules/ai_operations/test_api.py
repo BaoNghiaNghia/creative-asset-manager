@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -18,6 +18,8 @@ from app.modules.assets.model import (
     AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel,
 )
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.pipeline.model import AssetPipelineModel
+from app.modules.source_sync.model import SourceSyncRunModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 
@@ -169,6 +171,58 @@ class AiOperationsApiTest(unittest.TestCase):
         defaults.update(params)
         with patch("app.modules.ai_operations.router.SessionLocal", self.factory):
             return self.client.get(path, params=defaults)
+
+    def test_pipeline_snapshot_uses_current_pipeline_jobs(self):
+        with self.factory() as session:
+            source = session.scalar(select(ExternalSourceModel).where(
+                ExternalSourceModel.tenant_id == "tenant-a",
+            ))
+            source_asset = session.scalar(select(SourceAssetModel).where(
+                SourceAssetModel.tenant_id == "tenant-a",
+            ))
+            source_asset.mime_type = "image/jpeg"
+            session.add(SourceSyncRunModel(
+                tenant_id="tenant-a", external_source_id=source.id, mode="full",
+                generation=1, status="completed", pages_count=2, items_seen_count=8,
+                jobs_created_count=4, started_at=self.now - timedelta(minutes=5),
+                completed_at=self.now - timedelta(minutes=1),
+            ))
+            session.add(AssetPipelineModel(
+                tenant_id="tenant-a", correlation_id="pipeline-a", origin_type="source_asset",
+                origin_id=source_asset.id, source_asset_id=source_asset.id, state="indexed",
+            ))
+            session.add_all([
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="source_asset_download",
+                    entity_type="source_asset", entity_id=source_asset.id,
+                    idempotency_key="download-old-failed", status="failed", payload_json={},
+                    created_at=self.now - timedelta(minutes=4), completed_at=self.now - timedelta(minutes=4),
+                    last_error_code="download_stage_unconfigured",
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="source_asset_download",
+                    entity_type="source_asset", entity_id=source_asset.id,
+                    idempotency_key="download-current", status="processing", payload_json={},
+                    claimed_at=self.now - timedelta(minutes=1), created_at=self.now - timedelta(minutes=2),
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_store", entity_type="asset_pipeline",
+                    entity_id="pipeline-a", idempotency_key="store-waiting", status="pending", payload_json={},
+                    next_attempt_at=self.now + timedelta(minutes=5), created_at=self.now - timedelta(minutes=1),
+                ),
+            ])
+            session.commit()
+        value = self.get("/api/v1/admin/ai-operations/pipeline").json()
+        self.assertEqual(value["overall"]["supported_assets"], 1)
+        self.assertEqual(value["latest_source_sync"]["items_seen_count"], 8)
+        self.assertEqual(dict((item["key"], item["count"]) for item in value["overall"]["asset_progress"])["indexed"], 1)
+        download = next(item for item in value["stages"] if item["key"] == "source_asset_download")
+        self.assertEqual(download["processing"], 1)
+        self.assertEqual(download["failed"], 0)
+        store = next(item for item in value["stages"] if item["key"] == "asset_store")
+        self.assertEqual(store["waiting"], 1)
+        self.assertEqual(value["active_job"]["job_type"], "source_asset_download")
+        self.assertNotIn("payload_json", str(value))
 
     def test_summary_costs_percentiles_and_empty_period(self):
         response = self.get("/api/v1/admin/ai-operations/summary")
