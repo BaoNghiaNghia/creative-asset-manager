@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import signal
 import tempfile
@@ -22,6 +23,7 @@ from app.domain.processing.handlers import (
     WorkerDependencies,
 )
 from app.modules.processing.bootstrap import build_worker_runtime, run_worker
+from app.modules.pipeline.handlers import AssetIndexJobHandler
 from app.modules.processing.health import WorkerHealthState
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.registry import WORKER_HANDLER_TYPES, build_handler_registry
@@ -324,6 +326,59 @@ class WorkerRuntimeTest(unittest.TestCase):
             )
         self.assertEqual(recovered.id, job_id)
         release.set()
+
+    def test_sequential_asset_index_jobs_share_one_worker_event_loop(self) -> None:
+        class LoopBoundIndex:
+            def __init__(self) -> None:
+                self.loop = None
+                self.calls = 0
+                self.close_calls = 0
+
+            async def bulk_upsert(self, _documents) -> int:
+                current_loop = asyncio.get_running_loop()
+                if self.loop is not None and self.loop is not current_loop:
+                    raise RuntimeError("Event loop is closed")
+                self.loop = current_loop
+                self.calls += 1
+                return 1
+
+            async def aclose(self) -> None:
+                self.close_calls += 1
+
+        provider = LoopBoundIndex()
+        job_ids = [self.enqueue(f"asset-index-{number}", "asset_index") for number in range(3)]
+
+        def handler(context):
+            AssetIndexJobHandler._bulk_upsert(context, provider, object())
+            return JobHandlerResult.completed()
+
+        runtime = WorkerRuntime(
+            config=WorkerRuntimeConfig(
+                worker_id="worker-index",
+                enabled=True,
+                lease_seconds=1,
+                heartbeat_seconds=0.1,
+                idle_poll_seconds=0.01,
+                drain_timeout_seconds=0.1,
+            ),
+            dependencies=WorkerDependencies(
+                self.sessions,
+                resources={"search_index_provider": provider},
+            ),
+            registry=build_handler_registry((("asset_index", handler),)),
+        )
+        try:
+            self.assertTrue(runtime.run_once())
+            self.assertTrue(runtime.run_once())
+            self.assertTrue(runtime.run_once())
+        finally:
+            runtime.close()
+
+        self.assertEqual([self.job(job_id).status for job_id in job_ids], ["completed"] * 3)
+        self.assertEqual(provider.calls, 3)
+        self.assertIsNotNone(provider.loop)
+        self.assertTrue(provider.loop.is_closed())
+        self.assertEqual(provider.close_calls, 1)
 
     def test_readiness_transitions_and_clean_shutdown(self) -> None:
         closed: list[str] = []

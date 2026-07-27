@@ -113,5 +113,6 @@
 
 - [x] TEST-ENV Deterministic backend unittest environment isolation
 - [x] CI API suite aligned with durable Search V3 projection-to-index handoff
+- [x] WORKER-ELASTICSEARCH-LOOP Persistent worker event loop for sequential asset indexing
 - [x] UX File inspector activity timeline and AI Operations header controls
 - [x] AI-OPS dashboard response mapping correctness

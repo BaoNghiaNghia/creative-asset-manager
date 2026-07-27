@@ -475,7 +475,7 @@ class AssetIndexJobHandler(_PipelineHandler):
                         analysis_id=context.job.payload.get("analysis_id"),
                     )
                     document = self._document(session, analysis)
-                asyncio.run(provider.bulk_upsert((document,)))
+                self._bulk_upsert(context, provider, document)
                 return JobHandlerResult.completed()
             if context.job.payload.get("direct_analysis") and not context.job.payload.get("pipeline_id"):
                 return self._run_direct(context)
@@ -488,7 +488,7 @@ class AssetIndexJobHandler(_PipelineHandler):
                         search_context=context.job.payload.get("search_context", "search_v2"),
                     )
                     document = self._document(session, analysis)
-                asyncio.run(provider.bulk_upsert((document,)))
+                self._bulk_upsert(context, provider, document)
                 return JobHandlerResult.completed()
             session, repository, pipeline = self._load(context)
             if pipeline.state == PipelineState.COMPLETED.value:
@@ -511,7 +511,7 @@ class AssetIndexJobHandler(_PipelineHandler):
             finally:
                 session.close()
             if document is not None:
-                asyncio.run(provider.bulk_upsert((document,)))
+                self._bulk_upsert(context, provider, document)
             session, repository, pipeline = self._load(context)
             try:
                 if pipeline.state == PipelineState.SEARCH_FAILED.value:
@@ -530,6 +530,19 @@ class AssetIndexJobHandler(_PipelineHandler):
             return JobHandlerResult.completed()
         except Exception as exc:
             return self._failed(context, exc)
+
+    @staticmethod
+    def _bulk_upsert(
+        context: JobHandlerContext,
+        provider: SearchIndexProvider,
+        document: SearchIndexDocument,
+    ) -> None:
+        executor = context.dependencies.resources.get("async_executor")
+        operation = provider.bulk_upsert((document,))
+        if executor is None:
+            asyncio.run(operation)
+            return
+        executor.run(operation)
 
     @staticmethod
     def _document(session, analysis: AssetAiAnalysisModel) -> SearchIndexDocument:

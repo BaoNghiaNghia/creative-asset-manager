@@ -2358,3 +2358,12 @@ Validation was run in the requested order:
 - Updated stale assertions to match the durable Search V3 handoff: batch metadata completion queues search_projection_build jobs, and assets remain search_pending until the index stage completes. This preserves the ordered projection-before-index contract and does not alter runtime behavior.
 - Regression tests: each former failure passed independently; the two affected modules passed (10 tests); exact CI command python -m unittest discover -s tests -v passed: 614 tests, 18 expected integration skips, 173.830 seconds.
 - No migration, feature flag, provider behavior, or deployment file changed. Rollback: revert this isolated test-alignment commit.
+
+
+## Worker Elasticsearch event-loop lifecycle (2026-07-27)
+
+- Fixed sequential asset_index failures caused by asyncio.run() creating and closing a new loop for each job while reusing one Elasticsearch HTTP client.
+- WorkerRuntime now owns one persistent async executor for its lifetime; AssetIndexJobHandler dispatches bulk upserts through it. ElasticsearchV2Index constructs its HTTP client lazily in that loop and closes it during worker shutdown before the loop ends.
+- Retry behavior is unchanged: failed index jobs still retry only indexing and do not re-run AI analysis or mutate historical job failures.
+- Tests: python -m unittest tests.modules.processing.test_runtime tests.infrastructure.search.test_elasticsearch_v2 -v: 29 passed. python -m unittest discover -s tests/modules/pipeline -p test_*.py -v: 14 passed.
+- No migration or feature-flag change. Rollback: revert this isolated commit, then restart workers; existing failed index jobs remain historical and can be repaired by enqueuing new index jobs through the existing coverage repair command.

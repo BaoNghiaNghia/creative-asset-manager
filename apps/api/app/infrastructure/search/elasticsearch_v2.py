@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import re
@@ -47,16 +48,47 @@ class ElasticsearchV2Index:
         self.read_alias = f"{config.index_prefix}-{config.index_generation}-read"
         self.write_alias = f"{config.index_prefix}-{config.index_generation}-write"
         self._owns_client = client is None
-        self.client = client or httpx.AsyncClient(
-            base_url=config.base_url.rstrip("/"), timeout=config.request_timeout_seconds
+        self._client = client
+        self._client_loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """Compatibility accessor; worker requests use the loop-bound client path."""
+        if self._client is None:
+            self._client = self._new_client()
+        return self._client
+
+    def _new_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url=self.config.base_url.rstrip("/"),
+            timeout=self.config.request_timeout_seconds,
         )
+
+    async def _client_for_current_loop(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        if self._client is None:
+            self._client = self._new_client()
+            self._client_loop = loop
+        elif self._client_loop is None:
+            self._client_loop = loop
+        elif self._client_loop is not loop:
+            raise RuntimeError(
+                "Elasticsearch async client must be used from its owning event loop."
+            )
+        return self._client
+
+    async def aclose(self) -> None:
+        client = self._client
+        self._client = None
+        self._client_loop = None
+        if self._owns_client and client is not None:
+            await client.aclose()
 
     async def __aenter__(self) -> "ElasticsearchV2Index":
         return self
 
     async def __aexit__(self, *_: object) -> None:
-        if self._owns_client:
-            await self.client.aclose()
+        await self.aclose()
 
     def physical_index_name(self, version: str) -> str:
         normalized = version.strip().lower()
@@ -282,7 +314,8 @@ class ElasticsearchV2Index:
         headers: Mapping[str, str] | None = None,
         allow_not_found: bool = False,
     ) -> dict[str, Any]:
-        response = await self.client.request(
+        client = await self._client_for_current_loop()
+        response = await client.request(
             method, path, json=json_body, content=content, headers=headers
         )
         if allow_not_found and response.status_code == 404:

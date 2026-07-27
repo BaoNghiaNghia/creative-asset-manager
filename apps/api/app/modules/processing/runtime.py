@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 import threading
 import time
@@ -70,6 +72,60 @@ class _ActiveExecution:
         self.stop_heartbeat.set()
 
 
+class WorkerAsyncExecutor:
+    """Runs worker-owned async resources on one event loop for its lifetime."""
+
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._ready = threading.Event()
+        self._closed = False
+        self._lock = threading.Lock()
+
+    def run(self, awaitable):
+        self._start()
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            raise RuntimeError("worker async executor is not available")
+        return asyncio.run_coroutine_threadsafe(awaitable, loop).result()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            loop = self._loop
+            thread = self._thread
+        if loop is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(loop.stop)
+        if thread is not None:
+            thread.join(timeout=5)
+
+    def _start(self) -> None:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("worker async executor is closed")
+            if self._thread is not None:
+                return
+            self._thread = threading.Thread(
+                target=self._run_loop,
+                name="worker-async-io",
+                daemon=True,
+            )
+            self._thread.start()
+        self._ready.wait()
+
+    def _run_loop(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._loop = loop
+        self._ready.set()
+        try:
+            loop.run_forever()
+        finally:
+            loop.close()
+
+
 class WorkerRuntime:
     """Single-concurrency database worker with renewable leases and safe draining."""
 
@@ -93,6 +149,10 @@ class WorkerRuntime:
         self._active: _ActiveExecution | None = None
         self._active_lock = threading.Lock()
         self._closed = False
+        self._async_executor = WorkerAsyncExecutor()
+        resources = dict(self.dependencies.resources)
+        resources.setdefault("async_executor", self._async_executor)
+        self.dependencies.resources = resources
 
     def start(self) -> None:
         self.health.startup_complete(enabled=self.config.enabled, database_available=True)
@@ -150,8 +210,22 @@ class WorkerRuntime:
             return
         self._closed = True
         self.health.stop()
-        self.dependencies.close()
+        try:
+            self._close_async_resources()
+            self.dependencies.close()
+        finally:
+            self._async_executor.close()
         self._log(logging.INFO, "worker_stopped")
+
+    def _close_async_resources(self) -> None:
+        """Close worker-owned async clients before their event loop stops."""
+        for resource in self.dependencies.resources.values():
+            closer = getattr(resource, "aclose", None)
+            if closer is None:
+                continue
+            result = closer()
+            if inspect.isawaitable(result):
+                self._async_executor.run(result)
 
     def _claim_and_start(self) -> bool:
         if self.shutdown_requested.is_set():
