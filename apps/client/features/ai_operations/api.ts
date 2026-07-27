@@ -1,6 +1,6 @@
 import type {
   AiOpsDaily, AiOpsDashboardData, AiOpsFailure, AiOpsFilters, AiOpsJob,
-  AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSearchCoverage, AiOpsSummary, AiOpsUsage, Page,
+  AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -78,16 +78,16 @@ export async function fetchAiOperationsDashboard(
     unauthorized,
     errors: [...new Set(errors)],
     data: {
-      summary: value<AiOpsSummary | null>(1, null),
-      today: value<AiOpsSummary | null>(2, null),
-      month: value<AiOpsSummary | null>(3, null),
-      daily: value<{ items: AiOpsDaily[] }>(4, { items: [] }).items,
-      providers: value<{ items: AiOpsProviderBreakdown[] }>(5, { items: [] }).items,
-      todayProviders: value<{ items: AiOpsProviderBreakdown[] }>(6, { items: [] }).items,
-      failures: value<{ items: AiOpsFailure[] }>(7, { items: [] }).items,
-      jobs: value<Page<AiOpsJob>>(8, { page: filters.page, page_size: 25, total: 0, items: [] }),
-      usage: value<Page<AiOpsUsage>>(9, { page: 1, page_size: 100, total: 0, items: [] }),
-      coverage: value<AiOpsSearchCoverage | null>(0, null),
+      summary: value<AiOpsSummary | null>(0, null),
+      today: value<AiOpsSummary | null>(1, null),
+      month: value<AiOpsSummary | null>(2, null),
+      daily: value<{ items: AiOpsDaily[] }>(3, { items: [] }).items,
+      providers: value<{ items: AiOpsProviderBreakdown[] }>(4, { items: [] }).items,
+      todayProviders: value<{ items: AiOpsProviderBreakdown[] }>(5, { items: [] }).items,
+      failures: value<{ items: AiOpsFailure[] }>(6, { items: [] }).items,
+      jobs: value<Page<AiOpsJob>>(7, { page: filters.page, page_size: 25, total: 0, items: [] }),
+      usage: value<Page<AiOpsUsage>>(8, { page: 1, page_size: 100, total: 0, items: [] }),
+      coverage: null,
     },
   };
 }

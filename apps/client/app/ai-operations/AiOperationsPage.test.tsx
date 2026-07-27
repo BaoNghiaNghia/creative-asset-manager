@@ -255,6 +255,31 @@ describe("AI Operations dashboard", () => {
     expect(result.unauthorized).toBe(true);
     expect(result.errors).toEqual(["Forbidden"]);
   });
+
+  it("maps each dashboard response to its matching field", async () => {
+    const responses = [
+      summary,
+      { ...summary, completed: 3, cost: { ...summary.cost, estimated_cost_micros: 250_000 } },
+      { ...summary, completed: 8, cost: { ...summary.cost, estimated_cost_micros: 900_000 } },
+      { items: data.daily },
+      { items: data.providers },
+      { items: [] },
+      { items: data.failures },
+      data.jobs,
+      data.usage,
+    ];
+    let index = 0;
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(responses[index++]), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    })) as unknown as typeof fetch;
+    const result = await fetchAiOperationsDashboard(filters, fetcher, new Date("2026-07-22T00:00:00Z"));
+    expect(result.data.summary?.cost.estimated_cost_micros).toBe(1_200_000);
+    expect(result.data.today?.cost.estimated_cost_micros).toBe(250_000);
+    expect(result.data.month?.cost.estimated_cost_micros).toBe(900_000);
+    expect(result.data.daily).toEqual(data.daily);
+    expect(result.data.jobs).toEqual(data.jobs);
+    expect(result.data.usage).toEqual(data.usage);
+  });
 });
 
 

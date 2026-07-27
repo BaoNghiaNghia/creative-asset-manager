@@ -2343,3 +2343,11 @@ Validation was run in the requested order:
   action into one consistent, responsive header control area.
 - Tests: `npm test` — 80 passed; `npm run typecheck` passed; `npm run build`
   passed. No API, authorization or background-processing behavior changed.
+
+## AI Operations dashboard response mapping regression (2026-07-27)
+
+- Fixed the frontend dashboard response mapping: summary, today, month, daily, provider, failure, job and usage responses now remain aligned with their request order. The old one-offset mapping assigned the daily response to month, causing a runtime error when the Overview read estimated_cost_micros.
+- Overview cost cards now also safely tolerate an incomplete cost object while a partial dashboard response is loading.
+- Regression coverage verifies all nine dashboard responses map to the correct fields.
+- Tests: focused AI Operations test (20 passed); full frontend suite (81 passed); npm run typecheck and production build passed.
+- No backend API, migration, feature flag or authorization behavior changed. Rollback: revert this isolated frontend commit.

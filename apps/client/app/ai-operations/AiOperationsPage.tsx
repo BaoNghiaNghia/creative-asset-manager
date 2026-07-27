@@ -244,8 +244,8 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
     ["Failed", summary?.failed || 0], ["Budget blocked", summary?.budget_blocked || 0],
     ["Waiting for quota", summary?.deferred || 0], ["Running", summary?.running || 0],
     ["Queued", summary?.queued || 0], ["Success rate", `${((summary?.success_rate || 0) * 100).toFixed(1)}%`],
-    ["Estimated cost today", formatCost(data.today?.cost.estimated_cost_micros, data.today?.cost.currency)],
-    ["Estimated cost this month", formatCost(data.month?.cost.estimated_cost_micros, data.month?.cost.currency)],
+    ["Estimated cost today", formatCost(data.today?.cost?.estimated_cost_micros, data.today?.cost?.currency)],
+    ["Estimated cost this month", formatCost(data.month?.cost?.estimated_cost_micros, data.month?.cost?.currency)],
   ];
   return <div className="ops-content">
     <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />

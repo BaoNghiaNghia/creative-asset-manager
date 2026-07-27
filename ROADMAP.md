@@ -113,3 +113,4 @@
 
 - [x] TEST-ENV Deterministic backend unittest environment isolation
 - [x] UX File inspector activity timeline and AI Operations header controls
+- [x] AI-OPS dashboard response mapping correctness
