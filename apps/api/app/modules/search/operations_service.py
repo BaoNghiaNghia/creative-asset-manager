@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.ai_metadata.projection_service import SearchProjectionService
 from app.modules.ai_metadata.repository import AiMetadataRepository
-from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider
+from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider, build_search_index_document
 from app.modules.search.index_lifecycle import SearchIndexLifecycleService
 from app.modules.search.operations_model import SearchOperationRunModel
 from app.modules.search.operations_repository import SearchOperationRepository
@@ -183,29 +183,15 @@ class SearchMaintenanceService:
             raise
 
     def _index_document(self, run, analysis) -> SearchIndexDocument:
-        projection = analysis.search_projection
-        if not isinstance(projection, Mapping):
-            raise ValueError("analysis has no search projection")
-        filename, folder_path = self.repository.source_display(
+        source_id, filename, folder_path = self.repository.source_index_details(
             run.tenant_id,
             analysis.asset_id,
         )
-        facets = projection.get("facets") or {}
-        return SearchIndexDocument(
-            asset_id=analysis.asset_id,
-            tenant_id=run.tenant_id,
+        return build_search_index_document(
+            analysis,
+            source_id=source_id,
             filename=filename,
             folder_path=folder_path,
-            search_text=str(projection.get("search_text") or ""),
-            search_terms=tuple(projection.get("search_terms") or ()),
-            normalized_terms=tuple(projection.get("normalized_terms") or ()),
-            phrases=tuple(projection.get("phrases") or ()),
-            numbers=tuple(projection.get("numbers") or ()),
-            facets={key: tuple(value) for key, value in facets.items()},
-            path_values=tuple(projection.get("path_values") or ()),
-            metadata_profile=analysis.metadata_profile,
-            metadata_profile_version=analysis.metadata_profile_version,
-            search_projection_version=analysis.search_projection_version or "",
         )
     @staticmethod
     def _index_prefix(target_index: str) -> str:

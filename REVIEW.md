@@ -2293,3 +2293,15 @@ Validation was run in the requested order:
 - The Overview now includes an accessible Search Coverage card with audited timestamp, discrepancy warning, queued/running repair progress and a minimum 10-second repair-refresh interval.
 - Tests: backend coverage/API focused suite 23 passed; frontend AI Operations page tests 18 passed; TypeScript typecheck and production build passed.
 - No migration, feature-flag, AI/provider, or repair-rule change was made.
+
+
+## Search V3 completed metadata retrieval (2026-07-27)
+
+- Fixed the Search V3 document schema mismatch that prevented worker indexing: source ID, visible text and type-ahead text are now persisted in the Elasticsearch document.
+- The shared document builder now safely traverses dynamic metadata, preserves short visible-text tokens such as `BSN` and `RN`, and creates normalized `search_text`/type-ahead values without mutating the original AI metadata.
+- Both worker indexing and maintenance reindexing use the shared builder. A one-asset bulk upsert requests Elasticsearch `refresh=wait_for`, so a completed single-asset index is searchable before the job returns.
+- Existing durable handoff and retry behavior remains: completed analysis queues projection build, projection queues index, and failed index jobs can be retried without rerunning AI. Existing `search:repair-coverage` remains the tenant-scoped backfill command.
+- Tests: `python -m unittest tests.modules.search.test_index_types tests.infrastructure.search.test_elasticsearch_v2 tests.modules.ai_metadata.test_projection tests.modules.search.test_operations_service tests.modules.search.test_active_analysis_service tests.modules.pipeline.test_state_and_repository` — 33 passed. `python -m unittest tests.integration.test_elasticsearch` — 2 skipped because Elasticsearch is not configured locally. `python -m unittest tests.integration.test_pipeline_e2e` — 1 passed, 6 skipped because integration services are not configured locally.
+- No migration or feature-flag change. Rollback: revert this isolated commit; Elasticsearch documents can be rebuilt with `python -m app.operations.search_cli search:repair-coverage --tenant-id <tenant-id> --apply --repair-projections --repair-indexes --verify-elasticsearch`.
+
+- Additional validation: frontend `npm test` — 79 passed; `npm run typecheck` and `npm run build` passed. Full backend discovery ran 612 tests in 179.252 s but remains red on 5 failures and 4 errors outside this change (ambient development/production config and pre-existing AI batch/status expectations); all Search V3-focused tests passed.

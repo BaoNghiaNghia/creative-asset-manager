@@ -25,6 +25,16 @@ class ElasticsearchV2MappingTest(unittest.TestCase):
         analyzer = analysis["analyzer"]["cam_text_v2"]
         self.assertEqual(analyzer["char_filter"], ["cam_punctuation"])
         self.assertEqual(analyzer["filter"], ["lowercase", "asciifolding"])
+    def test_v3_mapping_includes_searchable_visible_text_without_short_token_filter(self) -> None:
+        definition = ElasticsearchV2Index(
+            ElasticsearchV2Config("http://elastic.test", index_generation="v3")
+        )._index_definition()
+        properties = definition["mappings"]["properties"]
+        self.assertEqual(properties["source_id"]["type"], "keyword")
+        self.assertEqual(properties["visible_text"]["analyzer"], "cam_text_v2")
+        self.assertEqual(properties["search_suggest"]["type"], "search_as_you_type")
+        self.assertEqual(properties["filename"]["fields"]["normalized"]["type"], "keyword")
+        self.assertNotIn("length", definition["settings"]["analysis"].get("filter", {}))
 
 
 class ElasticsearchV2HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
@@ -84,7 +94,37 @@ class ElasticsearchV2HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
         lines = bulk_requests[0].content.decode().splitlines()
         self.assertEqual(json.loads(lines[0])["update"]["_id"], "asset-1")
         self.assertTrue(json.loads(lines[1])["doc_as_upsert"])
-        self.assertNotIn("metadata_json", json.loads(lines[1])["doc"])
+        body = json.loads(lines[1])["doc"]
+        self.assertNotIn("metadata_json", body)
+        self.assertNotIn("visible_text", body)
+        self.assertNotIn("search_suggest", body)
+
+    async def test_single_asset_upsert_waits_for_refresh(self) -> None:
+        await self.index.bulk_upsert([self.document()])
+        request = [item for item in self.requests if item.url.path == "/_bulk"][-1]
+        self.assertEqual(request.url.params.get("refresh"), "wait_for")
+
+
+    async def test_v3_bulk_includes_v3_document_fields(self) -> None:
+        index = ElasticsearchV2Index(
+            ElasticsearchV2Config(
+                "http://elastic.test", index_generation="v3", bulk_batch_size=1
+            ),
+            client=self.client,
+        )
+        document = SearchIndexDocument(
+            asset_id="asset-1", tenant_id="tenant-a", source_id="source-1",
+            filename="badge.jpg", folder_path="badges",
+            visible_text=("BSN, RN",), search_suggest="bsn rn",
+            search_text="bsn rn",
+        )
+        await index.bulk_upsert([document])
+        request = [item for item in self.requests if item.url.path == "/_bulk"][-1]
+        body = json.loads(request.content.decode().splitlines()[1])["doc"]
+        self.assertEqual(body["source_id"], "source-1")
+        self.assertEqual(body["visible_text"], ["BSN, RN"])
+        self.assertEqual(body["search_suggest"], "bsn rn")
+
 
     async def test_bulk_can_target_new_physical_index_before_alias_switch(self) -> None:
         target = "creative-assets-v2-000002"

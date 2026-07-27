@@ -147,7 +147,7 @@ class SearchOperationRepository:
             )
         )
 
-    def source_display(self, tenant_id: str, asset_id: str) -> tuple[str, str]:
+    def source_index_details(self, tenant_id: str, asset_id: str) -> tuple[str, str, str]:
         source = self.session.scalar(
             select(SourceAssetModel)
             .join(
@@ -158,14 +158,23 @@ class SearchOperationRepository:
                 AssetSourceLinkModel.tenant_id == tenant_id,
                 AssetSourceLinkModel.asset_id == asset_id,
                 SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.deleted_at.is_(None),
             )
             .order_by(SourceAssetModel.id)
             .limit(1)
         )
         if source is None:
-            return "", ""
+            return "", "", ""
         path = source.source_metadata.get("path", "")
-        return source.filename or "", path if isinstance(path, str) else ""
+        return (
+            source.external_source_id,
+            source.filename or "",
+            path if isinstance(path, str) else "",
+        )
+
+    def source_display(self, tenant_id: str, asset_id: str) -> tuple[str, str]:
+        _, filename, folder_path = self.source_index_details(tenant_id, asset_id)
+        return filename, folder_path
 
     def mark_item(
         self,

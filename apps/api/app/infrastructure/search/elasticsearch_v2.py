@@ -171,7 +171,10 @@ class ElasticsearchV2Index:
                 )
                 lines.append(
                     json.dumps(
-                        {"doc": document.to_document(), "doc_as_upsert": True},
+                        {
+                            "doc": self._document_body(document),
+                            "doc_as_upsert": True,
+                        },
                         separators=(",", ":"),
                     )
                 )
@@ -179,7 +182,7 @@ class ElasticsearchV2Index:
                 continue
             response = await self._request(
                 "POST",
-                "/_bulk",
+                "/_bulk?refresh=wait_for" if len(documents) == 1 else "/_bulk",
                 content=("\n".join(lines) + "\n").encode(),
                 headers={"Content-Type": "application/x-ndjson"},
             )
@@ -195,6 +198,12 @@ class ElasticsearchV2Index:
             count += len(batch)
         return count
 
+    def _document_body(self, document: SearchIndexDocument) -> dict[str, Any]:
+        body = document.to_document()
+        if self.config.index_generation == "v2":
+            for field in ("source_id", "visible_text", "search_suggest"):
+                body.pop(field, None)
+        return body
     async def switch_aliases(self, target_index: str) -> AliasSwitchResult:
         if not _VERSION_RE.fullmatch(target_index) or not target_index.startswith(
             f"{self.config.index_prefix}-{self.config.index_generation}-"

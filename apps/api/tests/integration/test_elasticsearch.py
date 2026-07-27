@@ -90,6 +90,48 @@ class ElasticsearchRealIntegrationTest(unittest.IsolatedAsyncioTestCase):
         payload = await self.index.search(body)
         return {hit["_id"] for hit in payload["hits"]["hits"]}
 
+    async def test_v3_visible_text_matches_short_case_insensitive_terms(self) -> None:
+        index = ElasticsearchV2Index(
+            ElasticsearchV2Config(
+                ELASTICSEARCH_URL,
+                index_prefix=f"{self.prefix}-v3",
+                index_generation="v3",
+            )
+        )
+        try:
+            physical = await index.create_index("000001")
+            await index.switch_aliases(physical)
+            await index.bulk_upsert((
+                SearchIndexDocument(
+                    asset_id="nurse-1",
+                    tenant_id="tenant-a",
+                    source_id="source-a",
+                    filename="badge.jpg",
+                    folder_path="badges",
+                    visible_text=("BSN, RN",),
+                    search_suggest="bsn rn nurse badge",
+                    search_text="bsn rn nurse badge",
+                    metadata_profile="integration",
+                    metadata_profile_version="1",
+                    search_projection_version="search-projection-v1",
+                ),
+            ))
+            parser = SearchQueryParser()
+            builder = ElasticsearchQueryBuilder()
+            for query in ("bsn", "BSN", "rn"):
+                response = await index.search(
+                    builder.build(parser.parse(query), tenant_id="tenant-a")
+                )
+                self.assertEqual([hit["_id"] for hit in response["hits"]["hits"]], ["nurse-1"])
+            response = await index.search(
+                builder.build(parser.parse("bsn"), tenant_id="tenant-b")
+            )
+            self.assertEqual(response["hits"]["hits"], [])
+        finally:
+            await index.client.delete(
+                f"/{self.prefix}-v3-v3-*", params={"expand_wildcards": "all"}
+            )
+            await index.client.aclose()
     async def test_real_mapping_bulk_alias_queries_rollback_and_cleanup(self) -> None:
         mapping = await self.index.client.get(f"/{self.first}/_mapping")
         mapping.raise_for_status()
