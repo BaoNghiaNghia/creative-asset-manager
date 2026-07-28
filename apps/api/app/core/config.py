@@ -158,6 +158,10 @@ class Settings(BaseSettings):
     GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID: str | None = None
     ELASTICSEARCH_URL: str | None = None
     ELASTICSEARCH_INDEX_PREFIX: str = "creative-assets"
+    SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS: float = 0.8
+    SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS: int = 300
+    SEARCH_SUGGESTIONS_CACHE_TTL_SECONDS: int = 45
+    SEARCH_SUGGESTIONS_CACHE_MAX_ENTRIES: int = 512
     SEARCH_SHADOW_DEFAULT_TIMEOUT_MS: int = 250
     SEARCH_SHADOW_MAX_TIMEOUT_MS: int = 2000
     SEARCH_SHADOW_DEFAULT_SAMPLE_PERCENTAGE: int = 0
@@ -633,6 +637,14 @@ class Settings(BaseSettings):
             raise ValueError("Retention settings must be positive")
         if self.RETENTION_CLEANUP_BATCH_SIZE > self.RETENTION_CLEANUP_MAX_ROWS:
             raise ValueError("RETENTION_CLEANUP_BATCH_SIZE cannot exceed RETENTION_CLEANUP_MAX_ROWS")
+        if not 0 < self.SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS <= 5:
+            raise ValueError("SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS must be between 0 and 5")
+        if not 0 < self.SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS <= 5000:
+            raise ValueError("SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS must be between 0 and 5000")
+        if self.SEARCH_SUGGESTIONS_CACHE_TTL_SECONDS < 1:
+            raise ValueError("SEARCH_SUGGESTIONS_CACHE_TTL_SECONDS must be positive")
+        if self.SEARCH_SUGGESTIONS_CACHE_MAX_ENTRIES < 1:
+            raise ValueError("SEARCH_SUGGESTIONS_CACHE_MAX_ENTRIES must be positive")
         if not 0 <= self.SEARCH_SHADOW_DEFAULT_SAMPLE_PERCENTAGE <= 100:
             raise ValueError("SEARCH_SHADOW_DEFAULT_SAMPLE_PERCENTAGE must be between 0 and 100")
         if not 0 < self.SEARCH_SHADOW_DEFAULT_TIMEOUT_MS <= self.SEARCH_SHADOW_MAX_TIMEOUT_MS:

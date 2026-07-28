@@ -315,9 +315,14 @@ class ElasticsearchV2Index:
         allow_not_found: bool = False,
     ) -> dict[str, Any]:
         client = await self._client_for_current_loop()
-        response = await client.request(
-            method, path, json=json_body, content=content, headers=headers
-        )
+        try:
+            response = await client.request(
+                method, path, json=json_body, content=content, headers=headers
+            )
+        except httpx.RequestError as exc:
+            raise ElasticsearchV2RequestError(
+                f"Elasticsearch {method} {path} request failed"
+            ) from exc
         if allow_not_found and response.status_code == 404:
             return {}
         if method == "HEAD" and response.is_success:

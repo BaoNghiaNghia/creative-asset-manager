@@ -30,6 +30,7 @@ from app.modules.processing_policy.router import router as processing_policy_rou
 from app.modules.search.governance_router import router as search_governance_router
 from app.modules.search.router import router as search_router
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
+from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.tag.router import router as tag_router
 
 
@@ -49,7 +50,11 @@ async def lifespan(_app: FastAPI):
                     settings.SEARCH_SHADOW_SHUTDOWN_TIMEOUT_MS / 1000
                 )
         finally:
-            dispose_database()
+            try:
+                await API_SEARCH_INDEX_POOL.aclose_current_loop()
+                SEARCH_SUGGESTION_CACHE.clear()
+            finally:
+                dispose_database()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

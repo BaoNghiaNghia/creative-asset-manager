@@ -110,6 +110,18 @@ class SettingsTest(unittest.TestCase):
             7,
         )
 
+    def test_search_suggestion_performance_defaults_and_validation(self) -> None:
+        settings = Settings()
+        self.assertEqual(settings.SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS, 0.8)
+        self.assertEqual(settings.SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS, 300)
+        self.assertEqual(settings.SEARCH_SUGGESTIONS_CACHE_TTL_SECONDS, 45)
+        with self.assertRaises(ValidationError):
+            Settings(SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS=0)
+        with self.assertRaises(ValidationError):
+            Settings(SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS=0)
+        with self.assertRaises(ValidationError):
+            Settings(SEARCH_SUGGESTIONS_CACHE_TTL_SECONDS=0)
+
     def test_per_model_rpm_configuration_is_provider_scoped(self) -> None:
         settings = Settings(
             AI_MODEL_RPM_LIMITS='{"openai":{"gpt-4.1-mini":3}}',

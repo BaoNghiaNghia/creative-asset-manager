@@ -12,6 +12,7 @@ from app.modules.explorer.schema import SearchRequest
 from app.modules.explorer.service import ExplorerService
 from app.providers.source_factory import create_source_provider
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
+from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
@@ -165,16 +166,22 @@ async def suggestions(
             filters.append(source_filter)
         session.commit()
     value = q.strip()
+    cache_key = (tenant, source_provider or "", generation, value.casefold(), limit)
+    cached = SEARCH_SUGGESTION_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     query = {
         "_source": ["filename", "visible_text", "search_suggest", "search_terms", "normalized_terms"],
         "size": min(limit * 2, 16),
+        "terminate_after": 100,
+        "timeout": f"{settings.SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS}ms",
         "track_total_hits": False,
         "query": {
             "bool": {
                 "filter": filters,
                 "should": [
-                    {"match_phrase_prefix": {"visible_text": {"query": value, "boost": 12}}},
-                    {"match_phrase_prefix": {"filename": {"query": value, "boost": 8}}},
+                    {"match_phrase_prefix": {"visible_text": {"query": value, "boost": 12, "max_expansions": 20}}},
+                    {"match_phrase_prefix": {"filename": {"query": value, "boost": 8, "max_expansions": 20}}},
                     {"multi_match": {"query": value, "type": "bool_prefix", "fields": ["search_suggest", "search_suggest._2gram", "search_suggest._3gram"], "boost": 4}},
                 ],
                 "minimum_should_match": 1,
@@ -182,12 +189,15 @@ async def suggestions(
         },
     }
     try:
-        async with ElasticsearchV2Index(ElasticsearchV2Config(
-            settings.ELASTICSEARCH_URL,
-            settings.ELASTICSEARCH_INDEX_PREFIX,
-            index_generation=generation,
-        )) as index:
-            response = await index.search(query)
+        index = await API_SEARCH_INDEX_POOL.get(
+            ElasticsearchV2Config(
+                settings.ELASTICSEARCH_URL,
+                settings.ELASTICSEARCH_INDEX_PREFIX,
+                request_timeout_seconds=settings.SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS,
+                index_generation=generation,
+            )
+        )
+        response = await index.search(query)
     except ElasticsearchV2RequestError as exc:
         raise HTTPException(503, "Search service is temporarily unavailable") from exc
     seen: set[str] = set()
@@ -201,7 +211,15 @@ async def suggestions(
             candidates.append({"text": text, "prefix": text[:len(text) - len(completion)], "completion": completion, "kind": kind})
     kind_rank = {"search_text": 0, "visible_text": 1, "filename": 2}
     result = sorted(candidates, key=lambda item: (len(item["text"]), kind_rank[item["kind"]], item["text"].casefold()))[:limit]
-    return {"search_version": generation, "suggestions": result, "took_ms": response.get("took")}
+    payload = {"search_version": generation, "suggestions": result, "took_ms": response.get("took")}
+    if not response.get("timed_out"):
+        SEARCH_SUGGESTION_CACHE.put(
+            cache_key,
+            payload,
+            ttl_seconds=settings.SEARCH_SUGGESTIONS_CACHE_TTL_SECONDS,
+            max_entries=settings.SEARCH_SUGGESTIONS_CACHE_MAX_ENTRIES,
+        )
+    return payload
 
 @router.post("", response_model=SearchV2Response)
 async def search(body: SearchV2Request, request: Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
@@ -229,12 +247,14 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
         debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
         primary_started = time.perf_counter()
         try:
-            async with ElasticsearchV2Index(ElasticsearchV2Config(
+            index = await API_SEARCH_INDEX_POOL.get(
+                ElasticsearchV2Config(
                     settings.ELASTICSEARCH_URL,
                     settings.ELASTICSEARCH_INDEX_PREFIX,
                     index_generation="v3" if settings.SEARCH_V3_ENABLED else "v2",
-                )) as index:
-                response = await index.search(query)
+                )
+            )
+            response = await index.search(query)
         except ElasticsearchV2RequestError as exc:
             raise HTTPException(503, "Search service is temporarily unavailable") from exc
         hits = response.get("hits", {}).get("hits", [])
