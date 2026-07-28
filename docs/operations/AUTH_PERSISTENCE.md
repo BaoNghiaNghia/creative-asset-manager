@@ -294,3 +294,23 @@ through Access Management. Preserve users, identities, memberships and audit
 events for investigation. Re-run the idempotent commands after correcting the
 target identity/tenant; never repair access by editing OAuth tokens or matching
 email addresses.
+
+## Workspace Google Drive access
+
+Google application sign-in and Google Drive access are intentionally separate.
+
+1. A tenant administrator signs in normally, then opens
+   /api/auth/google/connect-drive once while authenticated. This endpoint
+   requires assets.manage and requests drive.readonly.
+2. The resulting tenant source is used by Asset Explorer and source
+   synchronization. Its tokens stay in encrypted OAuth connection storage.
+3. Invite users to the tenant with the viewer role. They sign in through
+   /api/auth/google/login, which requests only openid, email and profile
+   scopes. They do not need to grant Google Drive access.
+4. Viewers with assets.read browse the tenant-configured Drive. A workspace
+   with multiple Drive sources must mark one source metadata record
+   is_default=true, or clients must select an explicit source ID.
+
+Do not use an invited user's Google Drive account as a source connection.
+Folder-level restrictions are a separate authorization layer; the default
+viewer policy grants access to all assets in the active tenant.

@@ -28,6 +28,8 @@ from app.modules.explorer.schema import (
     SearchResponse,
 )
 from app.modules.explorer.service import ExplorerService
+from app.modules.explorer.tenant_source import TenantSourceResolver
+from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.providers.source_factory import create_source_provider
 from app.providers.google.auth import get_access_token as get_google_token
 from app.providers.google.auth import get_session as get_google_session
@@ -73,6 +75,27 @@ async def _access_token(request: Request, provider: Provider) -> str | None:
     return token
 
 
+ASSETS_READ = require_permission("assets.read")
+
+
+async def _source_context(
+    request: Request,
+    provider: Provider,
+    session: Session,
+    principal: CurrentPrincipal,
+    external_source_id: str | None = None,
+) -> tuple[str | None, str, str]:
+    """Return the configured tenant source for Google, never the viewer token."""
+    if provider == "google-drive":
+        source = await TenantSourceResolver(session).google_drive(
+            tenant_id=principal.active_tenant_id,
+            external_source_id=external_source_id,
+        )
+        return source.access_token, source.provider_account_id, principal.active_tenant_id
+    token = await _access_token(request, provider)
+    return token, _account_id(request, provider), principal.active_tenant_id
+
+
 def _provider_error(exc: Exception, detail: str) -> HTTPException:
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
@@ -89,18 +112,22 @@ async def children(
     parent_id: str = Query("root"),
     provider: Provider = Query("google-drive"),
     session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
 ):
     try:
-        token = await _access_token(request, provider)
+        token, account_id, tenant_id = await _source_context(
+            request, provider, session, principal, external_source_id
+        )
         return await ExplorerService(
             create_source_provider,
             AssetProcessingStatusService(session),
         ).list_folder(
             parent_id,
             token,
-            _account_id(request, provider),
+            account_id,
             provider,
-            _tenant_id(request, provider),
+            tenant_id,
         )
     except HTTPException:
         raise
@@ -113,9 +140,14 @@ async def folders(
     request: Request,
     parent_id: str = Query("root"),
     provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
 ):
     try:
-        token = await _access_token(request, provider)
+        token, _account_id_value, _tenant_id_value = await _source_context(
+            request, provider, session, principal, external_source_id
+        )
         return await ExplorerService(create_source_provider).list_folders(parent_id, token, provider)
     except HTTPException:
         raise
@@ -124,21 +156,25 @@ async def folders(
 
 
 @router.post("/index/start", response_model=IndexStatus)
-async def start_index(request: Request, body: IndexRequest):
-    token = await _access_token(request, body.provider)
-    return start_index_job(
-        _account_id(request, body.provider),
-        token,
-        body,
+async def start_index(
+    request: Request,
+    body: IndexRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+):
+    token, account_id, _tenant_id_value = await _source_context(
+        request, body.provider, session, principal
     )
+    return start_index_job(account_id, token, body)
 
 
 @router.get("/index/status", response_model=IndexStatus)
 async def index_status(
     request: Request,
     provider: Provider = Query("google-drive"),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
 ):
-    return get_index_status(_account_id(request, provider), provider)
+    return get_index_status(principal.active_tenant_id, provider)
 
 
 async def _v2_shadow(body: SearchRequest, tenant: str, settings):
@@ -162,11 +198,13 @@ async def search(
     request: Request,
     body: SearchRequest,
     session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
 ):
     try:
-        token = await _access_token(request, body.provider)
-        account_id = _account_id(request, body.provider)
-        tenant_id = _tenant_id(request, body.provider)
+        token, account_id, tenant_id = await _source_context(
+            request, body.provider, session, principal, external_source_id
+        )
         settings = get_settings()
 
         async def primary():
@@ -195,10 +233,12 @@ async def search_stream(
     request: Request,
     body: SearchRequest,
     session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
 ):
-    token = await _access_token(request, body.provider)
-    account_id = _account_id(request, body.provider)
-    tenant_id = _tenant_id(request, body.provider)
+    token, account_id, tenant_id = await _source_context(
+        request, body.provider, session, principal, external_source_id
+    )
 
     async def events():
         queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -272,9 +312,14 @@ async def media(
     request: Request,
     item_id: str,
     provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
 ):
     try:
-        token = await _access_token(request, provider)
+        token, _account_id_value, _tenant_id_value = await _source_context(
+            request, provider, session, principal, external_source_id
+        )
         if not token:
             raise HTTPException(status_code=401, detail=f"Connect {provider} to preview files.")
 

@@ -26,7 +26,7 @@ class AuthApiExposureTest(unittest.TestCase):
         from app.modules.auth_persistence.login import LoginAdmissionError
         flow=SimpleNamespace(fetch_token=lambda **_kwargs: None,credentials=object())
         app=FastAPI(); app.include_router(google_router,prefix="/api")
-        with patch("app.modules.auth.router.consume_state",return_value=None), patch("app.modules.auth.router.oauth_flow",return_value=flow), patch("app.modules.auth.router.create_session",new=AsyncMock(side_effect=LoginAdmissionError("self_signup_disabled","denied"))):
+        with patch("app.modules.auth.router.consume_state_details",return_value=(None, "application_login")), patch("app.modules.auth.router.oauth_flow",return_value=flow), patch("app.modules.auth.router.create_session",new=AsyncMock(side_effect=LoginAdmissionError("self_signup_disabled","denied"))):
             response=TestClient(app).get("/api/auth/google/callback?state=state&code=code",follow_redirects=False)
         self.assertEqual(response.status_code,307)
         self.assertIn("auth_error=self_signup_disabled",response.headers["location"])
@@ -62,7 +62,7 @@ class AuthApiExposureTest(unittest.TestCase):
         app = FastAPI()
         app.include_router(google_router, prefix="/api")
         with (
-            patch("app.modules.auth.router.consume_state", return_value=None),
+            patch("app.modules.auth.router.consume_state_details", return_value=(None, "application_login")),
             patch("app.modules.auth.router.oauth_flow", return_value=flow),
             patch(
                 "app.modules.auth.router.create_session",
@@ -77,7 +77,24 @@ class AuthApiExposureTest(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 307)
-        self.assertIn("google=connected", response.headers["location"])
+        self.assertIn("google=signed_in", response.headers["location"])
+        enqueue.assert_not_called()
+
+    def test_google_drive_connect_enqueues_scan_only_for_drive_intent(self):
+        cloud = SimpleNamespace(active_tenant_id="tenant-a", connection_id="connection-a", user={"id": "google-a"})
+        flow = SimpleNamespace(fetch_token=lambda **_kwargs: None, credentials=object())
+        app = FastAPI(); app.include_router(google_router, prefix="/api")
+        with (
+            patch("app.modules.auth.router.consume_state_details", return_value=(None, "drive_connect:tenant-a")),
+            patch("app.modules.auth.router.oauth_flow", return_value=flow),
+            patch("app.modules.auth.router.create_session", new=AsyncMock(return_value=("session-id", cloud))) as create,
+            patch("app.modules.auth.router.enqueue_google_login_sync") as enqueue,
+            patch("app.modules.auth.router.remove_session"),
+        ):
+            response = TestClient(app).get("/api/auth/google/callback?state=state&code=code", follow_redirects=False)
+        self.assertEqual(response.status_code, 307)
+        self.assertIn("google=source_connected", response.headers["location"])
+        self.assertFalse(create.await_args.kwargs["require_drive_scope"] is False)
         enqueue.assert_called_once_with(cloud)
 
     def test_google_oauth_failure_does_not_enqueue_scan(self):
@@ -88,7 +105,7 @@ class AuthApiExposureTest(unittest.TestCase):
         app = FastAPI()
         app.include_router(google_router, prefix="/api")
         with (
-            patch("app.modules.auth.router.consume_state", return_value=None),
+            patch("app.modules.auth.router.consume_state_details", return_value=(None, "application_login")),
             patch("app.modules.auth.router.oauth_flow", return_value=flow),
             patch("app.modules.auth.router.enqueue_google_login_sync") as enqueue,
         ):

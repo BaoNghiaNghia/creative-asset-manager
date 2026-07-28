@@ -21,7 +21,13 @@ from app.modules.auth_persistence.service import AUTH_METRICS, auth_repository
 
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
-SCOPES = ["openid","https://www.googleapis.com/auth/userinfo.email","https://www.googleapis.com/auth/userinfo.profile",DRIVE_READONLY_SCOPE]
+IDENTITY_SCOPES = [
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+]
+DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_READONLY_SCOPE]
+SCOPES = DRIVE_SCOPES
 SESSION_COOKIE = "cam_google_session"
 OAUTH_BINDING_COOKIE = "cam_oauth_binding"
 
@@ -34,9 +40,10 @@ def _settings():
         raise HTTPException(503,"Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
     return client_id,client_secret,redirect_uri
 
-def oauth_flow(state=None):
+def oauth_flow(state=None, *, require_drive_scope: bool = False):
     client_id,client_secret,redirect_uri=_settings()
-    flow=Flow.from_client_config({"web":{"client_id":client_id,"client_secret":client_secret,"auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":[redirect_uri]}},scopes=SCOPES,state=state)
+    scopes = DRIVE_SCOPES if require_drive_scope else IDENTITY_SCOPES
+    flow=Flow.from_client_config({"web":{"client_id":client_id,"client_secret":client_secret,"auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":[redirect_uri]}},scopes=scopes,state=state)
     flow.redirect_uri=redirect_uri
     return flow
 
@@ -53,13 +60,21 @@ def consume_state(state,session_binding=None):
     except LookupError as exc:
         raise HTTPException(400,"Invalid or expired OAuth state.") from exc
 
+def consume_state_details(state, session_binding=None) -> tuple[str | None, str]:
+    try:
+        with auth_repository() as repository:
+            return repository.consume_state(provider="google", state=state, session_binding=session_binding)
+    except LookupError as exc:
+        raise HTTPException(400,"Invalid or expired OAuth state.") from exc
+
 def validate_granted_scopes(credentials):
     granted=set(credentials.granted_scopes or credentials.scopes or [])
     if DRIVE_READONLY_SCOPE not in granted:
         raise PermissionError("The required Google Drive read-only scope was not granted.")
 
-async def create_session(credentials):
-    validate_granted_scopes(credentials)
+async def create_session(credentials, *, require_drive_scope: bool = True, connection_tenant_id: str | None = None):
+    if require_drive_scope:
+        validate_granted_scopes(credentials)
     async with httpx.AsyncClient(timeout=15) as client:
         response=await client.get("https://openidconnect.googleapis.com/v1/userinfo",headers={"Authorization":f"Bearer {credentials.token}"})
         response.raise_for_status(); profile=response.json()
@@ -83,12 +98,13 @@ async def create_session(credentials):
                 "locale": profile.get("locale"),
             },
         )
+        connection_tenant_id = connection_tenant_id or account_id
         connection=repository.upsert_connection(
-            tenant_id=account_id,provider="google",provider_account_id=account_id,
+            tenant_id=connection_tenant_id,provider="google",provider_account_id=account_id,
             account_email=profile.get("email"),access_token=credentials.token,
             refresh_token=credentials.refresh_token,expires_at=expiry,
-            scopes=list(credentials.granted_scopes or credentials.scopes or SCOPES),
-            token_type="Bearer",provider_metadata={"picture":profile.get("picture")},
+            scopes=list(credentials.granted_scopes or credentials.scopes or (DRIVE_SCOPES if require_drive_scope else IDENTITY_SCOPES)),
+            token_type="Bearer",provider_metadata={"picture":profile.get("picture"), "connection_purpose": "drive_source" if require_drive_scope else "application_login"},
         )
         session_id,_=repository.create_session(
             connection=connection, user=user,
