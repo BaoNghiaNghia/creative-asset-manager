@@ -480,7 +480,8 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Queue by stage");
     expect(markup).toContain("Furthest verified stage");
     expect(markup).toContain("Search ready");
-    expect(markup).toContain("Work in progress");
+    expect(markup).toContain("In progress");
+    expect(markup).toContain("Queued work");
     expect(markup).toContain("Showing 26-50 of 60");
     expect(markup).toContain("Pipeline asset pagination");
     expect(markup).toContain("Eligible now");

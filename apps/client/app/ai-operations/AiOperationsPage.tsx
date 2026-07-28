@@ -251,7 +251,8 @@ export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipel
     <section className="pipeline-summary" aria-label="Pipeline summary">
       <PipelineMetric icon="eligible" label="Eligible images" value={pipeline.overall.supported_assets} detail="Images that can enter processing" />
       <PipelineMetric icon="ready" label="Search ready" value={pipeline.overall.completed} detail={pipeline.overall.indexed_percentage === null ? "Calculating progress" : String(pipeline.overall.indexed_percentage) + "% of eligible images"} tone="success" />
-      <PipelineMetric icon="active" label="Work in progress" value={pipeline.overall.active} detail={pipeline.overall.queued.toLocaleString() + " waiting to start"} tone="info" />
+      <PipelineMetric icon="active" label="In progress" value={pipeline.overall.active} detail="Assets currently moving through the pipeline" tone="info" />
+      <PipelineMetric icon="queued" label="Queued work" value={pipeline.overall.queued} detail="Waiting for worker capacity or a retry window" tone="warning" />
       <PipelineMetric icon="attention" label="Needs attention" value={pipeline.overall.failed} detail="Current unresolved failures" tone="attention" />
     </section>
     <section className="pipeline-scan-card pipeline-scan-card-compact" aria-label="Latest Google Drive scan">
