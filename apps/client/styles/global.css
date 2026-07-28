@@ -347,16 +347,17 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .search-box.searching:before{
   position:absolute;
   z-index:1;
-  inset:-2px;
-  padding:2px;
-  border-radius:11px;
-  background:conic-gradient(from 90deg,transparent 0deg,transparent 66%,#c4d5ff 74%,#3f6de3 85%,#9ab7ff 94%,transparent 100%);
+  inset:-1px;
+  padding:1px;
+  border-radius:10px;
+  background:linear-gradient(90deg,#dce5f5 0%,#dce5f5 36%,#b9ccff 44%,#3f6de3 50%,#b9ccff 56%,#dce5f5 64%,#dce5f5 100%) 100% 0/250% 100%;
   content:"";
   pointer-events:none;
+  will-change:background-position;
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;
   mask-composite:exclude;
-  animation:search-border-sweep 1.15s linear infinite;
+  animation:search-border-shimmer 1.35s linear infinite;
 }
 .search-box.searching>span,
 .search-box.searching>input,
@@ -391,7 +392,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   color:#805b16;
   font-size:12px;
 }
-@keyframes search-border-sweep{to{transform:rotate(1turn)}}
+@keyframes search-border-shimmer{to{background-position:-150% 0}}
 @keyframes search-waiting-dot{
   0%,100%{opacity:.55;transform:scale(.85)}
   50%{opacity:1;transform:scale(1)}
