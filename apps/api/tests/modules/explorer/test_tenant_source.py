@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -45,10 +46,27 @@ class TenantSourceResolverTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(access.external_source_id, "default")
         token.assert_awaited_once_with("default")
 
-    async def test_rejects_ambiguous_tenant_sources_without_explicit_source(self):
+    async def test_uses_most_recent_legacy_source_when_no_default_is_marked(self):
+        earlier = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        later = datetime(2026, 7, 2, tzinfo=timezone.utc)
         sources = [
-            SimpleNamespace(id="one", source_metadata={"oauth_connection_id": "one"}),
-            SimpleNamespace(id="two", source_metadata={"oauth_connection_id": "two"}),
+            SimpleNamespace(id="older", created_at=earlier, updated_at=earlier, source_metadata={"oauth_connection_id": "older"}),
+            SimpleNamespace(id="newer", created_at=earlier, updated_at=later, source_metadata={"oauth_connection_id": "newer"}),
+        ]
+        with patch(
+            "app.modules.explorer.tenant_source.get_connection_access_token",
+            new=AsyncMock(return_value="tenant-drive-token"),
+        ) as token:
+            access = await TenantSourceResolver(self._session(sources)).google_drive(
+                tenant_id="tenant-a"
+            )
+        self.assertEqual(access.external_source_id, "newer")
+        token.assert_awaited_once_with("newer")
+
+    async def test_rejects_multiple_default_tenant_sources(self):
+        sources = [
+            SimpleNamespace(id="one", source_metadata={"oauth_connection_id": "one", "is_default": True}),
+            SimpleNamespace(id="two", source_metadata={"oauth_connection_id": "two", "is_default": True}),
         ]
         with self.assertRaises(HTTPException) as raised:
             await TenantSourceResolver(self._session(sources)).google_drive(

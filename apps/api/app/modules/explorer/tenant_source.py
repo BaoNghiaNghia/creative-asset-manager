@@ -56,10 +56,19 @@ class TenantSourceResolver:
             ]
             if len(defaults) == 1:
                 sources = defaults
+            elif not defaults:
+                # Legacy workspaces may predate the default-source flag. All
+                # candidates are already tenant-scoped, so choose the most
+                # recently connected source deterministically rather than
+                # leaving Explorer unusable after an upgrade.
+                sources = [max(
+                    sources,
+                    key=lambda source: (source.updated_at, source.created_at, source.id),
+                )]
             else:
                 raise HTTPException(
                     status_code=409,
-                    detail="Multiple Google Drive sources are configured. Select a source.",
+                    detail="Multiple Google Drive sources are marked as default. Reconnect the intended Drive source.",
                 )
         if len(sources) != 1:
             raise HTTPException(
