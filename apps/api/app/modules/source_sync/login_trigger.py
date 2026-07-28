@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
-from app.modules.assets.model import ExternalSourceModel
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.auth_persistence.repository import PersistentCloudSession
 from app.modules.processing.model import ProcessingJobModel
@@ -43,9 +43,58 @@ class GoogleLoginSyncScheduler:
         if not provider_account_id:
             raise ValueError("Google session has no provider account identity")
 
+        # OAuth connection IDs are transport credentials, while the Google
+        # account subject is the stable Drive identity. Reuse a source already
+        # registered for this account so reconnecting does not rescan the same
+        # Drive through a second source and duplicate downstream jobs.
+        account_sources = [
+            source
+            for source in self.session.scalars(
+                select(ExternalSourceModel).where(
+                    ExternalSourceModel.tenant_id == tenant_id,
+                    ExternalSourceModel.source_type == "google_drive",
+                )
+            )
+            if str((source.source_metadata or {}).get("provider_account_id") or "")
+            == provider_account_id
+        ]
+        source = None
+        if account_sources:
+            source_counts = dict(
+                self.session.execute(
+                    select(
+                        SourceAssetModel.external_source_id,
+                        func.count(SourceAssetModel.id),
+                    )
+                    .where(
+                        SourceAssetModel.tenant_id == tenant_id,
+                        SourceAssetModel.external_source_id.in_(
+                            [candidate.id for candidate in account_sources]
+                        ),
+                    )
+                    .group_by(SourceAssetModel.external_source_id)
+                ).all()
+            )
+            # Prefer the existing source with the most reconciled assets. This
+            # makes legacy duplicate recovery deterministic and avoids moving a
+            # live Drive to a newly created, empty source.
+            source = max(
+                account_sources,
+                key=lambda candidate: (
+                    int(source_counts.get(candidate.id, 0)),
+                    bool((candidate.source_metadata or {}).get("is_default")),
+                    candidate.updated_at,
+                    candidate.id,
+                ),
+            )
+
         source = AssetRegistryRepository(self.session).upsert_external_source(
             tenant_id=tenant_id,
-            source_key=f"google-drive:{cloud_session.connection_id}",
+            source_key=(
+                source.source_key
+                if source is not None
+                else f"google-drive:{cloud_session.connection_id}"
+            ),
             source_type="google_drive",
             display_name=cloud_session.user.get("email") or cloud_session.user.get("name"),
             source_metadata={

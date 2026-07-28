@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.core.database import Base
-from app.modules.assets.model import ExternalSourceModel
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.source_sync.login_trigger import GoogleLoginSyncScheduler
 from app.modules.source_sync.model import SourceSyncRunModel
@@ -94,6 +94,70 @@ class GoogleLoginSyncSchedulerTest(unittest.TestCase):
         self.assertTrue(second.created)
         self.assertFalse(second.reconciliation)
         self.assertNotEqual(first.job_id, second.job_id)
+
+    def test_reconnection_reuses_existing_source_for_same_google_account(self) -> None:
+        first = self.scheduler.enqueue(self.cloud("google-a", "connection-old"))
+        first_job = self.session.get(ProcessingJobModel, first.job_id)
+        first_job.status = "completed"
+        self.session.commit()
+
+        second = self.scheduler.enqueue(self.cloud("google-a", "connection-new"))
+        self.session.commit()
+
+        self.assertEqual(second.external_source_id, first.external_source_id)
+        self.assertEqual(
+            self.session.scalar(select(func.count()).select_from(ExternalSourceModel)),
+            1,
+        )
+        source = self.session.get(ExternalSourceModel, first.external_source_id)
+        self.assertEqual(source.source_metadata["oauth_connection_id"], "connection-new")
+        self.assertEqual(source.source_metadata["provider_account_id"], "google-a")
+
+    def test_reuses_populated_legacy_source_for_the_same_google_account(self) -> None:
+        legacy = ExternalSourceModel(
+            tenant_id="tenant-a",
+            source_key="google-drive:legacy-connection",
+            source_type="google_drive",
+            source_metadata={
+                "oauth_connection_id": "legacy-connection",
+                "provider_account_id": "google-a",
+            },
+        )
+        duplicate = ExternalSourceModel(
+            tenant_id="tenant-a",
+            source_key="google-drive:duplicate-connection",
+            source_type="google_drive",
+            source_metadata={
+                "oauth_connection_id": "duplicate-connection",
+                "provider_account_id": "google-a",
+                "is_default": True,
+            },
+        )
+        self.session.add_all([legacy, duplicate])
+        self.session.flush()
+        self.session.add(
+            SourceAssetModel(
+                tenant_id="tenant-a",
+                external_source_id=legacy.id,
+                external_asset_id="drive-file-1",
+            )
+        )
+        self.session.commit()
+
+        result = self.scheduler.enqueue(self.cloud("google-a", "connection-new"))
+        self.session.commit()
+
+        self.assertEqual(result.external_source_id, legacy.id)
+        self.assertEqual(
+            self.session.scalar(select(func.count()).select_from(ExternalSourceModel)),
+            2,
+        )
+        self.assertTrue(
+            self.session.get(ExternalSourceModel, legacy.id).source_metadata["is_default"]
+        )
+        self.assertFalse(
+            self.session.get(ExternalSourceModel, duplicate.id).source_metadata["is_default"]
+        )
 
     def test_different_google_accounts_use_different_sources(self) -> None:
         first = self.scheduler.enqueue(self.cloud("google-a", "connection-a"))
