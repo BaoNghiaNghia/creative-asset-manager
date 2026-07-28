@@ -207,7 +207,11 @@ export type AiOpsSearchCoverage = {
 };
 
 export type PipelineStage = {
-  key: string; label: string; subtitle: string; total: number; pending: number; eligible_now: number; waiting: number; processing: number; completed: number; failed: number; percentage: number | null; oldest_pending_at: string | null;
+  key: string; label: string; subtitle: string;
+  total: number; pending: number; eligible_now: number; waiting: number; processing: number; completed: number; failed: number;
+  total_logical_assets: number; completed_assets: number; queued_assets: number; eligible_now_assets: number; waiting_assets: number; processing_assets: number; needs_attention_assets: number; skipped_assets: number; not_started_assets: number;
+  total_attempts: number; completed_attempts: number; failed_attempts: number;
+  percentage: number | null; oldest_pending_at?: string | null;
 };
 export type PipelineActiveJob = {
   stage: string; job_type: string; status: string; filename: string | null; provider: string | null; attempt_count: number; max_attempts: number; started_at: string | null; elapsed_ms: number | null; message: string;
@@ -215,9 +219,12 @@ export type PipelineActiveJob = {
 export type PipelineSnapshot = {
   generated_at: string;
   latest_source_sync: { mode: string; status: string; pages_count: number; items_seen_count: number; jobs_created_count: number; started_at: string; completed_at: string | null; duration_ms: number | null; error_code: string | null } | null;
-  overall: { source_items_discovered: number; supported_assets: number; unsupported_assets: number; completed: number; active: number; queued: number; failed: number; skipped: number; indexed_percentage: number | null; throughput_today: number; asset_progress: Array<{ key: string; count: number }>; };
+  overall: { source_items_discovered: number; supported_assets: number; eligible_assets?: number; unsupported_assets: number; completed: number; search_ready_assets?: number; active: number; in_progress_assets?: number; queued: number; queued_assets?: number; failed: number; needs_attention_assets?: number; skipped: number; skipped_assets?: number; indexed_percentage: number | null; throughput_today: number; asset_progress: Array<{ key: string; count: number }>; };
   stages: PipelineStage[];
   active_job: PipelineActiveJob | null;
-  failure_groups: Array<{ stage: string; error_code: string; message: string; count: number; latest_at: string }>;
+  failure_groups: Array<{ stage: string; error_code: string; category?: string; message: string; count: number; latest_at: string }>;
+  skipped_breakdown?: Array<{ category: string; count: number }>;
+  diagnostics?: { decommissioned_sources_excluded: number; raw_attempts: Record<string, { total_attempts: number; completed_attempts: number; failed_attempts: number }> };
+  definitions?: { snapshot: string; attempt_diagnostics: string };
   recent_assets: Page<{ asset_id: string | null; filename: string; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
 };

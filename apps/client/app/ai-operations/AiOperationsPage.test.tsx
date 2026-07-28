@@ -466,7 +466,7 @@ describe("Search Coverage card", () => {
       ["asset_analyze", "AI Analyze"],
       ["search_projection_build", "Search Projection"],
       ["asset_index", "Elasticsearch Index"],
-    ].map(([key, label]) => ({ key, label, subtitle: "Pipeline stage", total: 3, pending: 1, eligible_now: 1, waiting: 0, processing: key === "source_asset_download" ? 1 : 0, completed: 1, failed: 0, percentage: 33.3, oldest_pending_at: null }));
+    ].map(([key, label]) => ({ key, label, subtitle: "Pipeline stage", total: 3, pending: 1, eligible_now: 1, waiting: 0, processing: key === "source_asset_download" ? 1 : 0, completed: 1, failed: 0, percentage: 33.3, oldest_pending_at: null, total_logical_assets: 3, completed_assets: 1, queued_assets: 1, eligible_now_assets: 1, waiting_assets: 0, processing_assets: key === "source_asset_download" ? 1 : 0, needs_attention_assets: 0, skipped_assets: 0, not_started_assets: 0, total_attempts: 3, completed_attempts: 1, failed_attempts: 0 }));
     const markup = renderToStaticMarkup(<PipelineOverview pipeline={{
       generated_at: "2026-07-27T00:00:00Z",
       latest_source_sync: { mode: "full", status: "completed", pages_count: 2, items_seen_count: 8, jobs_created_count: 4, started_at: "2026-07-27T00:00:00Z", completed_at: "2026-07-27T00:01:00Z", duration_ms: 60_000, error_code: null },
@@ -477,11 +477,11 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("GOOGLE DRIVE SCAN");
     expect(markup).toContain("Elasticsearch Index");
     expect(markup).toContain("Downloading from Google Drive");
-    expect(markup).toContain("Queue by stage");
+    expect(markup).toContain("Current asset state by stage");
     expect(markup).toContain("Furthest verified stage");
     expect(markup).toContain("Search ready");
     expect(markup).toContain("In progress");
-    expect(markup).toContain("Queued work");
+    expect(markup).toContain("Queued or waiting");
     expect(markup).toContain("Showing 26-50 of 60");
     expect(markup).toContain("Pipeline asset pagination");
     expect(markup).toContain("Eligible now");
@@ -491,7 +491,7 @@ describe("Search Coverage card", () => {
   });
 
   it("explains unresolved pipeline failures without hiding their technical codes", () => {
-    const stage = { key: "asset_analyze", label: "AI Analyze", subtitle: "Generate metadata", total: 1, pending: 1, eligible_now: 0, waiting: 1, processing: 0, completed: 0, failed: 1, percentage: 0, oldest_pending_at: null };
+    const stage = { key: "asset_analyze", label: "AI Analyze", subtitle: "Generate metadata", total: 1, pending: 1, eligible_now: 0, waiting: 1, processing: 0, completed: 0, failed: 1, percentage: 0, oldest_pending_at: null, total_logical_assets: 1, completed_assets: 0, queued_assets: 0, eligible_now_assets: 0, waiting_assets: 1, processing_assets: 0, needs_attention_assets: 1, skipped_assets: 0, not_started_assets: 0, total_attempts: 1, completed_attempts: 0, failed_attempts: 1 };
     const markup = renderToStaticMarkup(<PipelineOverview pipeline={{
       generated_at: "2026-07-27T00:00:00Z", latest_source_sync: null,
       overall: { source_items_discovered: 1, supported_assets: 1, unsupported_assets: 0, completed: 0, active: 0, queued: 1, failed: 1, skipped: 0, indexed_percentage: 0, throughput_today: 0, asset_progress: [] },

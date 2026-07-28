@@ -2470,3 +2470,5 @@ Validation was run in the requested order:
 
 - The jobs API now resolves an internal asset ID for asset-analysis jobs in the tenant scope, so completed jobs retain a View action even when the usage page does not contain the matching record.
 - Tests: API job tests (11 passed); focused AI Operations UI tests (24 passed); frontend typecheck and production build passed.
+
+- Pipeline Overview logical-state reporting: replaced raw processing-job aggregation with canonical active source-asset state; added skipped/actionable classification, source decommission exclusion, attempt diagnostics, and pipeline:validate-overview. Focused API and frontend tests passed.

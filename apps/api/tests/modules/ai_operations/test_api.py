@@ -216,14 +216,41 @@ class AiOperationsApiTest(unittest.TestCase):
         value = self.get("/api/v1/admin/ai-operations/pipeline").json()
         self.assertEqual(value["overall"]["supported_assets"], 1)
         self.assertEqual(value["latest_source_sync"]["items_seen_count"], 8)
-        self.assertEqual(dict((item["key"], item["count"]) for item in value["overall"]["asset_progress"])["indexed"], 1)
+        self.assertEqual(dict((item["key"], item["count"]) for item in value["overall"]["asset_progress"])["search_ready"], 1)
         download = next(item for item in value["stages"] if item["key"] == "source_asset_download")
-        self.assertEqual(download["processing"], 1)
-        self.assertEqual(download["failed"], 0)
+        self.assertEqual(download["completed_assets"], 1)
+        self.assertEqual(download["needs_attention_assets"], 0)
         store = next(item for item in value["stages"] if item["key"] == "asset_store")
-        self.assertEqual(store["waiting"], 1)
+        self.assertEqual(store["completed_assets"], 1)
         self.assertEqual(value["active_job"]["job_type"], "source_asset_download")
         self.assertNotIn("payload_json", str(value))
+
+    def test_pipeline_snapshot_deduplicates_retries_skips_and_decommissioned_sources(self):
+        with self.factory() as session:
+            source = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == "tenant-a"))
+            source_asset = session.scalar(select(SourceAssetModel).where(SourceAssetModel.tenant_id == "tenant-a"))
+            source_asset.mime_type = "image/jpeg"
+            pipeline = AssetPipelineModel(tenant_id="tenant-a", correlation_id="logical-current", origin_type="source_asset", origin_id=source_asset.id, source_asset_id=source_asset.id, state="downloaded")
+            duplicate = ExternalSourceModel(tenant_id="tenant-a", source_key="retired-drive", source_type="google_drive", source_metadata={"decommissioned_at": self.now.isoformat(), "canonical_source_id": source.id})
+            session.add_all([pipeline, duplicate]); session.flush()
+            retired = SourceAssetModel(tenant_id="tenant-a", external_source_id=duplicate.id, external_asset_id="same-file", mime_type="image/jpeg")
+            skipped = SourceAssetModel(tenant_id="tenant-a", external_source_id=source.id, external_asset_id="too-large", mime_type="image/jpeg")
+            session.add_all([retired, skipped]); session.flush()
+            session.add(AssetPipelineModel(tenant_id="tenant-a", correlation_id="logical-skipped", origin_type="source_asset", origin_id=skipped.id, source_asset_id=skipped.id, state="download_failed", last_error_code="source_content_too_large"))
+            session.add_all([
+                ProcessingJobModel(tenant_id="tenant-a", job_type="source_asset_download", entity_type="source_asset", entity_id=source_asset.id, idempotency_key="old-failed", status="failed", payload_json={}, last_error_code="download_stage_unconfigured", created_at=self.now - timedelta(minutes=3)),
+                ProcessingJobModel(tenant_id="tenant-a", job_type="source_asset_download", entity_type="source_asset", entity_id=source_asset.id, idempotency_key="new-completed", status="completed", payload_json={}, created_at=self.now - timedelta(minutes=1)),
+                ProcessingJobModel(tenant_id="tenant-a", job_type="source_asset_download", entity_type="source_asset", entity_id=retired.id, idempotency_key="retired-failed", status="failed", payload_json={}, last_error_code="download_stage_unconfigured"),
+            ])
+            session.commit()
+        value = self.get("/api/v1/admin/ai-operations/pipeline").json()
+        self.assertEqual(value["overall"]["eligible_assets"], 2)
+        self.assertEqual(value["overall"]["needs_attention_assets"], 0)
+        self.assertEqual(value["overall"]["skipped_assets"], 1)
+        self.assertEqual(value["diagnostics"]["decommissioned_sources_excluded"], 1)
+        download = next(item for item in value["stages"] if item["key"] == "source_asset_download")
+        self.assertLessEqual(download["total_logical_assets"], value["overall"]["eligible_assets"])
+        self.assertEqual(download["needs_attention_assets"], 0)
 
     def test_summary_costs_percentiles_and_empty_period(self):
         response = self.get("/api/v1/admin/ai-operations/summary")

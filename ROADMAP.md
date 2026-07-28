@@ -120,3 +120,5 @@
 - [x] UX File inspector activity timeline and AI Operations header controls
 - [x] AI-OPS dashboard response mapping correctness
 - [x] AI-OPS responsive filter toolbar refinement
+
+- Pipeline Overview logical-asset aggregation: completed — current dashboard state is deduplicated by active source asset; raw processing attempts are diagnostics only.
