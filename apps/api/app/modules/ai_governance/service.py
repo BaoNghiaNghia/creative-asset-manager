@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
@@ -150,6 +150,55 @@ class AiBudgetService:
         AI_METRICS.increment("budget_blocks",provider=provider,mode=processing_mode,outcome=code)
         AI_METRICS.increment("breaker_state",provider=provider,mode=processing_mode,outcome="open")
         return BudgetDecision(False,existing.id,estimate,code,reason,action)
+
+    def release(
+        self,
+        reservation_id: str,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ) -> AiBudgetReservationModel:
+        """Release an unused reservation exactly once without charging it."""
+        now = now or datetime.now(timezone.utc)
+        statement = select(AiBudgetReservationModel).where(
+            AiBudgetReservationModel.id == reservation_id
+        )
+        if self.session.get_bind().dialect.name == "postgresql":
+            statement = statement.with_for_update()
+        reservation = self.session.scalar(statement)
+        if reservation is None:
+            raise LookupError(reservation_id)
+        if reservation.status != "reserved":
+            return reservation
+        for value in reservation.account_keys_json:
+            currency, period_type, period_key = value.split(":", 2)
+            self.session.execute(
+                update(AiBudgetAccountModel)
+                .where(
+                    AiBudgetAccountModel.tenant_id == reservation.tenant_id,
+                    AiBudgetAccountModel.period_type == period_type,
+                    AiBudgetAccountModel.period_key == period_key,
+                    AiBudgetAccountModel.currency == currency,
+                )
+                .values(
+                    reserved_micros=case(
+                        (
+                            AiBudgetAccountModel.reserved_micros
+                            >= reservation.estimated_cost_micros,
+                            AiBudgetAccountModel.reserved_micros
+                            - reservation.estimated_cost_micros,
+                        ),
+                        else_=0,
+                    ),
+                    updated_at=now,
+                )
+                .execution_options(synchronize_session=False)
+            )
+        reservation.status = "released"
+        reservation.denial_reason = reason[:1000]
+        reservation.updated_at = now
+        self.session.flush()
+        return reservation
 
     def reconcile(self, reservation_id: str, actual_cost_micros: int, *, now: datetime | None = None):
         now=now or datetime.now(timezone.utc)

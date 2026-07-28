@@ -136,6 +136,9 @@ class AiMetadataAnalysisInput:
     metadata_profile_version: str
     json_schema: Mapping[str, Any] | None = None
     is_cancelled: Callable[[], bool] | None = None
+    # Correlation values are optional and never included in the provider request.
+    analysis_id: str | None = None
+    pipeline_id: str | None = None
 
 
 class StorageProviderError(RuntimeError):

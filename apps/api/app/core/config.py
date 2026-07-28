@@ -288,14 +288,30 @@ class Settings(BaseSettings):
             if not isinstance(raw, dict):
                 raise ValueError("GEMINI_MODEL_LIMITS must be a JSON object")
             for model, limits in raw.items():
-                if not isinstance(model, str) or not isinstance(limits, dict):
-                    raise ValueError("GEMINI_MODEL_LIMITS entries must be model objects")
+                if (
+                    not isinstance(model, str)
+                    or model != model.strip()
+                    or any(character.isspace() for character in model)
+                    or not isinstance(limits, dict)
+                ):
+                    raise ValueError(
+                        "GEMINI_MODEL_LIMITS model keys must not contain whitespace"
+                    )
                 rpm, tpm, rpd = limits.get("rpm"), limits.get("tpm"), limits.get("rpd")
                 if any(type(value) is not int or value < 1 for value in (rpm, tpm, rpd)):
                     raise ValueError(
                         "GEMINI_MODEL_LIMITS rpm, tpm and rpd must be positive integers"
                     )
                 configured[model] = GeminiModelLimit(rpm=rpm, tpm=tpm, rpd=rpd)
+
+        unknown_configured_models = sorted(
+            set(configured) - set(self.gemini_model_pool)
+        )
+        if unknown_configured_models:
+            raise ValueError(
+                "GEMINI_MODEL_LIMITS defines models outside GEMINI_MODEL_POOL: "
+                + ", ".join(unknown_configured_models)
+            )
 
         limits_by_model: dict[str, GeminiModelLimit] = {}
         for model in self.gemini_model_pool:
@@ -345,9 +361,23 @@ class Settings(BaseSettings):
             if not isinstance(provider, str) or not isinstance(models, dict):
                 raise ValueError("AI_MODEL_RPM_LIMITS must contain provider model objects")
             for model, rpm in models.items():
-                if not isinstance(model, str) or type(rpm) is not int or rpm < 1:
-                    raise ValueError("AI_MODEL_RPM_LIMITS RPM values must be positive integers")
-                values[(provider.strip().lower(), model.strip())] = rpm
+                if (
+                    not isinstance(model, str)
+                    or model != model.strip()
+                    or any(character.isspace() for character in model)
+                    or type(rpm) is not int
+                    or rpm < 1
+                ):
+                    raise ValueError(
+                        "AI_MODEL_RPM_LIMITS model keys must be whitespace-free positive integer entries"
+                    )
+                normalized_provider = provider.strip().lower()
+                if normalized_provider == "gemini" and model not in self.gemini_model_pool:
+                    raise ValueError(
+                        "AI_MODEL_RPM_LIMITS Gemini models must exist in GEMINI_MODEL_POOL: "
+                        + model
+                    )
+                values[(normalized_provider, model)] = rpm
         return values
 
     def ai_model_rpm(self, provider: str, model: str) -> int | None:

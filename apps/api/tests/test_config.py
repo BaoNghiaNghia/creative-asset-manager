@@ -133,6 +133,22 @@ class SettingsTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             Settings(AI_MODEL_RPM_LIMITS='{"openai":{"gpt-4.1-mini":0}}')
 
+    def test_gemini_model_configuration_rejects_whitespace_and_unknown_rpm_models(self) -> None:
+        with self.assertRaises(ValueError):
+            Settings(
+                GEMINI_MODEL_LIMITS='{"gemini-2.5- flash-lite":{"rpm":8,"tpm":200000,"rpd":16}}'
+            ).gemini_model_limits
+        with self.assertRaises(ValueError):
+            Settings(
+                AI_MODEL_RPM_LIMITS='{"gemini":{"gemini-unknown":5}}'
+            ).ai_model_rpm_limits
+        valid = Settings(
+            GEMINI_MODEL_POOL="gemini-2.5-flash",
+            GEMINI_MODEL_LIMITS='{"gemini-2.5-flash":{"rpm":4,"tpm":200000,"rpd":16}}',
+            AI_MODEL_RPM_LIMITS='{"gemini":{"gemini-2.5-flash":4}}',
+        )
+        self.assertEqual(valid.ai_model_rpm("gemini", "gemini-2.5-flash"), 4)
+
     def test_invalid_gemini_model_limits_fail_closed(self) -> None:
         with self.assertRaises(ValueError):
             Settings(

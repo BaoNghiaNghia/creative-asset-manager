@@ -215,6 +215,27 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
                         0,
                     )
 
+    async def test_provider_error_releases_budget_reservation(self):
+        from app.modules.ai_governance.model import AiBudgetReservationModel
+
+        outcome = await AiAnalysisService(
+            session_factory=self.factory,
+            storage_provider=self.storage,
+            ai_provider=PermanentGeminiErrorAi({"subject": "cat"}),
+            settings=self.settings,
+        ).analyze(
+            tenant_id="tenant-a",
+            analysis_id=self.analysis_id,
+            worker_id="worker-a",
+            job_id="job-terminal",
+        )
+        self.assertEqual(outcome.status, "non_retryable_failure")
+        with self.factory() as session:
+            reservation = session.scalar(select(AiBudgetReservationModel))
+            self.assertIsNotNone(reservation)
+            self.assertEqual(reservation.status, "released")
+            self.assertEqual(reservation.denial_reason, "gemini_http_error")
+
     async def test_permanent_gemini_error_remains_failed(self):
         from app.modules.ai_metadata.model import AssetAiAnalysisModel
 

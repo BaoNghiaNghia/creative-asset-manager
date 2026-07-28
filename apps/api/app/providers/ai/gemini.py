@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
+import re
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
@@ -10,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Protocol
 from collections.abc import AsyncIterator
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -28,6 +31,8 @@ from app.domain.providers.contracts import (
 
 
 _PACIFIC_TIME = ZoneInfo("America/Los_Angeles")
+_MAX_ERROR_DETAIL_CHARS = 1_000
+_LOGGER = logging.getLogger("cam.providers.gemini")
 
 
 @dataclass(frozen=True)
@@ -208,8 +213,10 @@ class GeminiAiMetadataProvider:
                         unavailable_by_model[model] = unavailable
                         reasons.append(f"{model}:{unavailable.reason}")
                         continue
-                    if exc.status_code == 503:
-                        unavailable = await self._mark_cooldown(model)
+                    if exc.status_code == 503 or exc.code == "gemini_model_or_method_not_found":
+                        unavailable = await self._mark_cooldown(
+                            model, exc.details.get("retry_after_seconds")
+                        )
                         unavailable_by_model[model] = unavailable
                         reasons.append(f"{model}:{unavailable.reason}")
                         continue
@@ -273,7 +280,7 @@ class GeminiAiMetadataProvider:
                 retryable=True,
             ) from exc
         self._check_cancelled(input)
-        self._raise_for_status(response)
+        self._raise_for_status(response, model=model, input=input)
         payload = self._response_object(response)
         text = self._candidate_text(payload)
         try:
@@ -749,7 +756,13 @@ class GeminiAiMetadataProvider:
         return dict(operation)
 
     @staticmethod
-    def _retry_after(payload: Mapping[str, Any]) -> float | None:
+    def _retry_after(payload: Mapping[str, Any] | httpx.Response) -> float | None:
+        if isinstance(payload, httpx.Response):
+            header = payload.headers.get("retry-after")
+            try:
+                return max(0.0, float(header)) if header is not None else None
+            except ValueError:
+                return None
         value = payload.get("retryAfterSeconds")
         try:
             return max(0.0, float(value)) if value is not None else None
@@ -793,34 +806,136 @@ class GeminiAiMetadataProvider:
             )
         return text
 
-    @staticmethod
-    def _raise_for_status(response: httpx.Response) -> None:
+    def _raise_for_status(
+        self,
+        response: httpx.Response,
+        *,
+        model: str | None = None,
+        input: AiMetadataAnalysisInput | None = None,
+    ) -> None:
         if response.status_code < 400:
             return
-        retry_after = None
-        value = response.headers.get("retry-after")
-        if value is not None:
-            try:
-                retry_after = max(0.0, float(value))
-            except ValueError:
-                retry_after = None
-        quota_reason = GeminiAiMetadataProvider._quota_reason(response)
-        daily_quota = quota_reason == "rpd_exhausted"
-        retryable = (
-            response.status_code in {408, 409, 425, 429}
-            or response.status_code >= 500
-        )
-        raise AiProviderError(
-            f"Gemini request failed with HTTP {response.status_code}.",
-            code="gemini_rate_limited" if response.status_code == 429 else "gemini_http_error",
-            retryable=retryable,
-            status_code=response.status_code,
-            details={
+        retry_after = self._retry_after(response)
+        quota_reason = self._quota_reason(response)
+        details = self._error_details(response, model=model, input=input)
+        details.update(
+            {
                 "retry_after_seconds": retry_after,
-                "daily_quota": daily_quota,
+                "daily_quota": quota_reason == "rpd_exhausted",
                 "quota_reason": quota_reason,
+            }
+        )
+        status = response.status_code
+        code = "gemini_rate_limited" if status == 429 else "gemini_http_error"
+        retryable = status in {408, 409, 425, 429} or status >= 500
+        message = f"Gemini request failed with HTTP {status}."
+        if status == 404:
+            classification = self._classify_not_found(details)
+            if classification == "model_or_method":
+                code = "gemini_model_or_method_not_found"
+                retryable = True
+                message = "The configured Gemini model or generateContent method was not found."
+            elif classification == "resource_or_input":
+                code = "gemini_input_resource_not_found"
+                retryable = False
+                message = "Gemini could not find a referenced input resource."
+            else:
+                code = "gemini_http_not_found"
+                retryable = False
+                message = "Gemini request target was not found."
+        _LOGGER.warning(
+            "gemini_http_error",
+            extra={
+                "actual_model": model,
+                "endpoint_path": details.get("endpoint_path"),
+                "http_status": status,
+                "google_error_status": details.get("google_error_status"),
+                "google_error_message": details.get("google_error_message"),
+                "provider_request_id": details.get("provider_request_id"),
+                "analysis_id": input.analysis_id if input else None,
+                "pipeline_id": input.pipeline_id if input else None,
+                "error_code": code,
             },
         )
+        raise AiProviderError(
+            message,
+            code=code,
+            retryable=retryable,
+            status_code=status,
+            details=details,
+        )
+
+    def _error_details(
+        self,
+        response: httpx.Response,
+        *,
+        model: str | None,
+        input: AiMetadataAnalysisInput | None,
+    ) -> dict[str, Any]:
+        payload: Mapping[str, Any] = {}
+        try:
+            value = response.json()
+            if isinstance(value, Mapping):
+                payload = value
+        except ValueError:
+            pass
+        error = payload.get("error")
+        error = error if isinstance(error, Mapping) else {}
+        request_id = next(
+            (
+                response.headers.get(header)
+                for header in ("x-goog-request-id", "x-request-id", "x-cloud-trace-context")
+                if response.headers.get(header)
+            ),
+            None,
+        )
+        try:
+            endpoint_path = urlsplit(str(response.url)).path
+        except Exception:
+            endpoint_path = "/v1beta/models"
+        excerpt = (
+            json.dumps({"error": dict(error)}, ensure_ascii=False, sort_keys=True)
+            if error
+            else response.text
+        )
+        return {
+            "actual_model": model,
+            "endpoint_path": self._sanitize_error_text(endpoint_path),
+            "http_status": response.status_code,
+            "google_error_status": self._sanitize_error_text(error.get("status")),
+            "google_error_message": self._sanitize_error_text(error.get("message")),
+            "provider_request_id": self._sanitize_error_text(request_id),
+            "provider_response_excerpt": self._sanitize_error_text(excerpt),
+            "analysis_id": input.analysis_id if input else None,
+            "pipeline_id": input.pipeline_id if input else None,
+        }
+
+    def _sanitize_error_text(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).replace(self._api_key, "[REDACTED]")
+        text = re.sub(
+            r'(?i)("?(?:api[_-]?key|authorization|key)"?\s*[:=]\s*"?)[^\s,;"]+',
+            r"[REDACTED]",
+            text,
+        )
+        return text[:_MAX_ERROR_DETAIL_CHARS]
+
+    @staticmethod
+    def _classify_not_found(details: Mapping[str, Any]) -> str:
+        text = " ".join(
+            str(details.get(key) or "").lower()
+            for key in (
+                "google_error_status",
+                "google_error_message",
+                "provider_response_excerpt",
+            )
+        )
+        if any(marker in text for marker in ("model", "generatecontent", "method", "api version")):
+            return "model_or_method"
+        if any(marker in text for marker in ("resource", "input", "file", "image", "contents")):
+            return "resource_or_input"
+        return "unknown"
 
     @staticmethod
     def _quota_reason(response: httpx.Response) -> str:

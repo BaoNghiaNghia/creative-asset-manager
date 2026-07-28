@@ -81,6 +81,7 @@ class AiAnalysisService:
         is_cancelled: Callable[[], bool] | None = None,
         job_id: str | None = None,
         pilot_run_id: str | None = None,
+        pipeline_id: str | None = None,
         enqueue_index: bool = True,
     ) -> AiAnalysisOutcome:
         if not (
@@ -96,6 +97,7 @@ class AiAnalysisService:
         attempt_count = 0
         operation_key = None
         reservation_id = None
+        reservation_finalized = False
         provider_name = str(getattr(self.ai_provider, "provider_name", "gemini"))
         provider_model = str(getattr(self.ai_provider, "model", self.settings.GEMINI_MODEL))
         estimated_cost_micros = 0
@@ -261,6 +263,10 @@ class AiAnalysisService:
                 try:
                     governance.assert_provider_allowed(tenant_id, provider_name, "single")
                 except ProviderGovernanceBlocked as exc:
+                    self._release_budget_reservation(
+                        reservation_id, reason=exc.code
+                    )
+                    reservation_finalized = reservation_id is not None
                     AiMetadataRepository(session, self.validator).mark_budget_blocked(analysis_id, code=exc.code, reason=exc.reason)
                     session.commit()
                     return AiAnalysisOutcome("budget_blocked", exc.code, exc.reason)
@@ -271,6 +277,10 @@ class AiAnalysisService:
                 retry_count=max(0, attempt_count - 1),
             )
             if deferred is not None:
+                self._release_budget_reservation(
+                    reservation_id, reason=deferred.error_code or "ai_model_rate_limited"
+                )
+                reservation_finalized = reservation_id is not None
                 await self._record_failure(
                     analysis_id,
                     code=deferred.error_code or "ai_model_rate_limited",
@@ -290,6 +300,8 @@ class AiAnalysisService:
                     metadata_profile_version=profile_version,
                     json_schema=schema,
                     is_cancelled=is_cancelled,
+                    analysis_id=analysis_id,
+                    pipeline_id=pipeline_id,
                 )
             )
             provider_latency_ms = int((time.monotonic() - provider_started) * 1000)
@@ -301,8 +313,11 @@ class AiAnalysisService:
                 reported = result.usage.get("costMicros")
                 reported_micros = max(0, int(reported)) if isinstance(reported, (int, float)) else None
                 actual_cost = reported_micros if reported_micros is not None else local_actual
-                if reservation_id and actual_cost is not None:
-                    AiBudgetService(governance, self.settings).reconcile(reservation_id, actual_cost)
+                if reservation_id:
+                    AiBudgetService(governance, self.settings).reconcile(
+                        reservation_id, actual_cost or 0
+                    )
+                    reservation_finalized = True
                 governance.record_usage(tenant_id=tenant_id, operation_key=operation_key, values={
                     "asset_id": asset_id, "analysis_id": analysis_id, "job_id": job_id,
                     "provider": result.provider or provider_name, "processing_mode": "single", "model": result.model or provider_model,
@@ -383,12 +398,10 @@ class AiAnalysisService:
                 retry_count=max(0, attempt_count - 1),
                 reason_code="gemini_quota_deferred",
             )
-            if reservation_id:
-                with self.session_factory() as session:
-                    AiBudgetService(
-                        AiGovernanceRepository(session), self.settings
-                    ).reconcile(reservation_id, 0)
-                    session.commit()
+            self._release_budget_reservation(
+                reservation_id, reason="gemini_quota_deferred"
+            )
+            reservation_finalized = reservation_id is not None
             await self._record_failure(
                 analysis_id,
                 code="gemini_quota_deferred",
@@ -409,6 +422,10 @@ class AiAnalysisService:
             )
         except AiProviderError as exc:
             if exc.status_code == 429:
+                self._release_budget_reservation(
+                    reservation_id, reason=exc.code
+                )
+                reservation_finalized = reservation_id is not None
                 retry_at = self._retry_at_after_429(exc, attempt_count)
                 self._defer_model_until(
                     tenant_id=tenant_id,
@@ -436,7 +453,10 @@ class AiAnalysisService:
                 latency_ms = int((time.monotonic() - provider_started) * 1000) if "provider_started" in locals() else 0
                 with self.session_factory() as session:
                     governance = AiGovernanceRepository(session)
-                    AiBudgetService(governance, self.settings).reconcile(reservation_id, estimated_cost_micros)
+                    AiBudgetService(governance, self.settings).release(
+                        reservation_id, reason=exc.code
+                    )
+                    reservation_finalized = True
                     governance.record_usage(tenant_id=tenant_id, operation_key=operation_key, values={
                         "asset_id": asset_id, "analysis_id": analysis_id, "job_id": job_id,
                         "provider": provider_name, "processing_mode": "single", "model": provider_model,
@@ -473,6 +493,23 @@ class AiAnalysisService:
                 exc.code,
                 str(exc),
             )
+        except BaseException:
+            if reservation_id and not reservation_finalized:
+                self._release_budget_reservation(
+                    reservation_id, reason="unexpected_analysis_exception"
+                )
+            raise
+
+    def _release_budget_reservation(
+        self, reservation_id: str | None, *, reason: str
+    ) -> None:
+        if not reservation_id:
+            return
+        with self.session_factory() as session:
+            AiBudgetService(
+                AiGovernanceRepository(session), self.settings
+            ).release(reservation_id, reason=reason)
+            session.commit()
 
     def _reserve_model_start(
         self,

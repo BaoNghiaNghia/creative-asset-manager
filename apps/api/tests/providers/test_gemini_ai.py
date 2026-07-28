@@ -159,6 +159,74 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(delays, [])
 
+    async def test_404_diagnostics_are_sanitized_and_model_not_found_fails_over(self):
+        seen = []
+
+        async def handler(request):
+            model = request.url.path.split("/models/")[1].split(":")[0]
+            seen.append(model)
+            if model == "gemini-first":
+                return httpx.Response(
+                    404,
+                    headers={"x-goog-request-id": "google-request-1"},
+                    json={
+                        "error": {
+                            "status": "NOT_FOUND",
+                            "message": "Model gemini-first was not found; key=secret",
+                        }
+                    },
+                )
+            return httpx.Response(200, json={
+                "candidates": [{"content": {"parts": [{"text": '{"subject":"cat"}'}]}}],
+                "modelVersion": model,
+            })
+
+        provider = configured_gemini_provider(
+            "secret",
+            model="gemini-first",
+            model_pool=("gemini-first", "gemini-second"),
+            transport=httpx.MockTransport(handler),
+        )
+        result = await provider.analyze_single(
+            AiMetadataAnalysisInput(
+                tenant_id="tenant-a", asset_id="asset-a", prompt="Return metadata",
+                image_bytes=b"jpeg", image_mime_type="image/jpeg",
+                metadata_profile="general", metadata_profile_version="1",
+                analysis_id="analysis-1", pipeline_id="pipeline-1",
+            )
+        )
+        self.assertEqual(seen, ["gemini-first", "gemini-second"])
+        self.assertEqual(result.model, "gemini-second")
+        self.assertIn("gemini-first:cooldown", result.provider_metadata["failover_reason"])
+
+    async def test_404_input_error_is_terminal_and_redacts_key(self):
+        async def handler(_request):
+            return httpx.Response(
+                404,
+                json={"error": {
+                    "status": "NOT_FOUND",
+                    "message": "Input image resource was not found; api_key=secret",
+                }},
+            )
+
+        provider = configured_gemini_provider(
+            "secret", transport=httpx.MockTransport(handler)
+        )
+        with self.assertRaises(AiProviderError) as raised:
+            await provider.analyze_single(
+                AiMetadataAnalysisInput(
+                    tenant_id="tenant-a", asset_id="asset-a", prompt="Return metadata",
+                    image_bytes=b"jpeg", image_mime_type="image/jpeg",
+                    metadata_profile="general", metadata_profile_version="1",
+                    analysis_id="analysis-1", pipeline_id="pipeline-1",
+                )
+            )
+        self.assertEqual(raised.exception.code, "gemini_input_resource_not_found")
+        self.assertFalse(raised.exception.retryable)
+        self.assertEqual(raised.exception.details["analysis_id"], "analysis-1")
+        self.assertEqual(raised.exception.details["pipeline_id"], "pipeline-1")
+        self.assertNotIn("secret", str(raised.exception.details))
+
     async def test_timeout_is_retryable(self):
         async def handler(request):
             raise httpx.ReadTimeout("timeout", request=request)
