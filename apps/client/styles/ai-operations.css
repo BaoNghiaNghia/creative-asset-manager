@@ -160,3 +160,36 @@
 .ops-ai-scope-note{margin:0 0 10px 0;padding:10px 12px;border:1px solid #cddcf4;border-radius:9px;background:#f7faff;color:#46627f;font-size:11px;line-height:1.45}
 
 .pipeline-recent{padding:17px;border:1px solid #dfe7f0;border-radius:13px;background:#fff;box-shadow:0 6px 18px #17203308}.pipeline-recent h2{margin:0 0 3px;color:#172b4d;font-size:17px}.pipeline-recent>p{margin:0 0 12px;color:#718096;font-size:12px}.pipeline-recent a{color:#2859bb;font-weight:650;text-decoration:none}.pipeline-recent a:hover{text-decoration:underline}
+
+
+/* Pipeline overview: surface current work once, compact historical success. */
+.pipeline-content{gap:14px}
+.pipeline-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
+.pipeline-summary>article{min-height:104px;padding:14px}
+.pipeline-summary strong{font-size:26px}
+.pipeline-scan-card-compact{padding:15px 17px}
+.pipeline-scan-card-compact dl{grid-template-columns:repeat(4,minmax(88px,1fr));gap:16px}
+.pipeline-scan-card-compact dl div:nth-child(4) dd{white-space:nowrap}
+.pipeline-progress-summary-compact{padding:13px 17px}
+.pipeline-progress-summary-compact h2{font-size:15px}
+.pipeline-progress-summary-compact p{font-size:11px}
+.pipeline-progress-summary-compact dl{grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:0}
+.pipeline-progress-summary-compact dl div{padding:7px 10px}
+.pipeline-stage-section{padding:0}
+.pipeline-stage-section>header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:10px}
+.pipeline-stage-section>header small{color:#728096;font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+.pipeline-stage-section>header h2{margin:4px 0 3px;color:#172b4d;font-size:17px}
+.pipeline-stage-section>header p{margin:0;color:#66778d;font-size:11px}
+.pipeline-stage-section>header>span{padding:5px 8px;border-radius:999px;background:#eef3ff;color:#3159b8;font-size:11px;font-weight:750;white-space:nowrap}
+.pipeline-stage-grid>article{min-height:218px;padding:15px}
+.pipeline-stage-grid>article>p{min-height:0;margin:7px 0 12px}
+.pipeline-settled-stages{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid #cce7d6;border-radius:11px;background:#f7fcf8;color:#347551}
+.pipeline-settled-stages>span{display:inline-flex;flex:0 0 auto;align-items:center;gap:7px;font-size:12px;font-weight:800;white-space:nowrap}
+.pipeline-settled-stages>span i{display:grid;width:20px;height:20px;place-items:center;border-radius:6px;background:#e2f5e8;color:#287448;font-style:normal}
+.pipeline-settled-stages ul{display:flex;gap:8px;flex-wrap:wrap;margin:0;padding:0;list-style:none}
+.pipeline-settled-stages li{display:inline-flex;gap:5px;padding:4px 7px;border:1px solid #d5ebdd;border-radius:999px;background:#fff;color:#4b6d59;font-size:11px}
+.pipeline-settled-stages li b{color:#2f5740}
+.pipeline-settled-stages li span{color:#688274}
+@media(max-width:1250px){.pipeline-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.pipeline-scan-card-compact dl{grid-template-columns:repeat(2,minmax(100px,1fr))}}
+@media(max-width:760px){.pipeline-summary{grid-template-columns:1fr 1fr}.pipeline-scan-card-compact dl{grid-template-columns:repeat(2,minmax(0,1fr))}.pipeline-stage-section>header{align-items:flex-start;flex-direction:column}.pipeline-settled-stages{align-items:flex-start;flex-direction:column}.pipeline-settled-stages ul{width:100%}}
+@media(max-width:460px){.pipeline-summary{grid-template-columns:1fr}.pipeline-progress-summary-compact dl{grid-template-columns:repeat(2,minmax(0,1fr))}}

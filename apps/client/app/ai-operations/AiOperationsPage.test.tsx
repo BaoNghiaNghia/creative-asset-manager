@@ -474,19 +474,19 @@ describe("Search Coverage card", () => {
       stages, active_job: { stage: "Download", job_type: "source_asset_download", status: "processing", filename: "nurse.jpg", provider: "google_drive", attempt_count: 1, max_attempts: 5, started_at: "2026-07-27T00:00:00Z", elapsed_ms: 1_000, message: "Downloading from Google Drive" },
       failure_groups: [], recent_assets: { page: 2, page_size: 25, total: 60, items: [{ asset_id: "asset-1", filename: "nurse.jpg", state: "search_pending", stage_statuses: { download: "completed", store: "completed", analyze: "completed", projection: "completed", index: "pending" }, updated_at: "2026-07-27T00:00:00Z", error_code: null }] },
     }} />);
-    expect(markup).toContain("Google Drive Scan");
+    expect(markup).toContain("GOOGLE DRIVE SCAN");
     expect(markup).toContain("Elasticsearch Index");
     expect(markup).toContain("Downloading from Google Drive");
     expect(markup).toContain("Queue by stage");
     expect(markup).toContain("Furthest verified stage");
-    expect(markup).toContain("How to read this:");
     expect(markup).toContain("Search ready");
+    expect(markup).toContain("Work in progress");
     expect(markup).toContain("Showing 26-50 of 60");
     expect(markup).toContain("Pipeline asset pagination");
     expect(markup).toContain("Eligible now");
-    expect(markup).toContain("Where to focus");
+    expect(markup).toContain("Active pipeline stages");
     expect(markup).toContain("Needs attention");
-    expect(markup).toContain("Downloading from Google Drive");
+    expect(markup).not.toContain("Folders and non-images are excluded");
   });
 
   it("explains unresolved pipeline failures without hiding their technical codes", () => {
@@ -498,7 +498,6 @@ describe("Search Coverage card", () => {
       failure_groups: [{ stage: "AI Analyze", error_code: "analysis_image_dimensions", message: "Image dimensions are invalid", count: 3, latest_at: "2026-07-27T00:00:00Z" }],
       recent_assets: { page: 1, page_size: 25, total: 0, items: [] },
     }} />);
-    expect(markup).toContain("Worker is ready");
     expect(markup).toContain("The image could not be prepared safely for analysis.");
     expect(markup).toContain("Image dimensions are not supported");
     expect(markup).toContain("analysis_image_dimensions");
