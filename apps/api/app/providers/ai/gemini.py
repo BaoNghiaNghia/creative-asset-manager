@@ -419,18 +419,22 @@ class GeminiAiMetadataProvider:
         self, model: str, reason: str, retry_after_seconds: Any | None
     ) -> GeminiModelUnavailable:
         if reason == "rpd_exhausted":
-            await self._mark_daily_exhausted(model)
+            await self._mark_daily_exhausted(model, retry_after_seconds)
             runtime = self._runtime[model]
             async with runtime.lock:
                 now = self._aware_now()
+                retry_at = runtime.daily_exhausted_until or now + timedelta(seconds=1)
                 if self._quota_coordinator is not None:
-                    self._quota_coordinator.block_until(
-                        model=model,
-                        retry_at=(
-                            runtime.daily_exhausted_until
-                            or now + timedelta(seconds=1)
-                        ),
-                    )
+                    self._quota_coordinator.block_until(model=model, retry_at=retry_at)
+                _LOGGER.warning(
+                    "gemini_model_daily_quota_deferred",
+                    extra={
+                        "model": model,
+                        "reason": reason,
+                        "retry_at": retry_at.isoformat(),
+                        "provider_call_started": False,
+                    },
+                )
                 return self._unavailable(
                     model, reason, runtime.daily_exhausted_until, now
                 )
@@ -441,16 +445,26 @@ class GeminiAiMetadataProvider:
             available_at=cooldown.available_at,
         )
 
-    async def _mark_daily_exhausted(self, model: str) -> None:
+    async def _mark_daily_exhausted(
+        self, model: str, retry_after_seconds: Any | None = None
+    ) -> None:
         runtime = self._runtime[model]
         async with runtime.lock:
-            self._set_daily_exhausted(runtime)
+            self._set_daily_exhausted(runtime, retry_after_seconds)
 
-    def _set_daily_exhausted(self, runtime: _ModelRuntime) -> None:
+    def _set_daily_exhausted(
+        self, runtime: _ModelRuntime, retry_after_seconds: Any | None = None
+    ) -> None:
         now = self._aware_now().astimezone(_PACIFIC_TIME)
         tomorrow = now.date() + timedelta(days=1)
         reset = datetime.combine(tomorrow, datetime.min.time(), tzinfo=_PACIFIC_TIME)
-        runtime.daily_exhausted_until = reset.astimezone(timezone.utc)
+        retry_at = reset.astimezone(timezone.utc)
+        if isinstance(retry_after_seconds, (int, float)) and retry_after_seconds >= 0:
+            retry_at = max(
+                retry_at,
+                self._aware_now() + timedelta(seconds=float(retry_after_seconds)),
+            )
+        runtime.daily_exhausted_until = retry_at
 
     def _aware_now(self) -> datetime:
         now = self._now()
@@ -955,11 +969,20 @@ class GeminiAiMetadataProvider:
                     if value is not None:
                         values.append(str(value).lower())
         text = " ".join(values)
-        if any(term in text for term in ("per day", "daily quota", "per-day", "rpd")):
+        normalized = re.sub(r"[^a-z0-9]+", "", text)
+        if any(term in text for term in ("per day", "daily quota", "per-day", "rpd")) or any(
+            term in normalized
+            for term in (
+                "requestsperday",
+                "requestperday",
+                "generaterequestsperday",
+                "requestsperprojectpermodel",
+            )
+        ):
             return "rpd_exhausted"
         if any(term in text for term in (
             "tokens per minute", "token count per minute", "input_token", "tpm",
-        )):
+        )) or any(term in normalized for term in ("tokensperminute", "tokenperminute")):
             return "tpm_exhausted"
         return "rpm_exhausted"
 

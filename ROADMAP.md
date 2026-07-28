@@ -100,6 +100,7 @@
 - [x] PROD-VPS-03 Native Nginx and VPS deployment/rollback tooling
 - [ ] PROD-GATE-04 Production release gate (implemented; production readiness requires a green remote gate for the release SHA)
 - [x] GEMINI-MODEL-FAILOVER Per-model Gemini quota-aware image-analysis failover
+- [x] GEMINI-RPD-RESET Durable Gemini RPD quota-ID recognition and Pacific reset deferral
 
 
 ## Search V3 follow-up

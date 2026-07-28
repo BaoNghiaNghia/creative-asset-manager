@@ -2477,3 +2477,10 @@ Validation was run in the requested order:
 
 - Enlarged the Search guide trigger and replaced the ambiguous magnifier pulse with a clear animated search-input border, visible “Đang tìm kiếm…” status, and an accessible busy state.
 - Tests: focused frontend tests (11 passed); npm run typecheck; npm run build.
+
+## Gemini RPD quota reset alignment (2026-07-28)
+
+- Gemini 429 quota identifiers such as `GenerateRequestsPerDayPerProjectPerModel-FreeTier` are now classified as RPD exhaustion rather than a short RPM cooldown. The affected model is durably blocked until the next America/Los_Angeles quota-day reset (or a later provider `Retry-After` value), so a restarted worker cannot keep issuing 429 requests for it.
+- Added the safe `gemini_model_daily_quota_deferred` log event with model, reason, retry timestamp and `provider_call_started=false`.
+- Regression coverage verifies Google quota-ID recognition, a durable database block across a provider/runtime restart, no second provider call, and the persisted Pacific-reset retry time.
+- Tests: `apps/api/.venv/bin/python -m unittest tests.providers.test_gemini_ai tests.modules.ai_governance.test_gemini_quota tests.providers.test_ai_factory tests.test_config -v` — 64 passed.

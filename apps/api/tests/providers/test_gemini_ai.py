@@ -270,6 +270,75 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.provider_metadata["attempted_models"], ["gemini-first", "gemini-second"])
         self.assertIn("rpd_exhausted", result.provider_metadata["failover_reason"])
 
+    async def test_google_requests_per_day_quota_blocks_model_until_reset_across_restart(self):
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        sessions = sessionmaker(engine, class_=Session, expire_on_commit=False)
+        now = datetime(2040, 1, 1, tzinfo=timezone.utc)
+        calls = 0
+
+        async def handler(_request):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(
+                429,
+                headers={"retry-after": "36000"},
+                json={
+                    "error": {
+                        "status": "RESOURCE_EXHAUSTED",
+                        "message": "Quota exhausted.",
+                        "details": [{
+                            "quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+                            "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+                        }],
+                    }
+                },
+            )
+
+        def provider():
+            return configured_gemini_provider(
+                "secret",
+                model="gemini-test",
+                model_pool=("gemini-test",),
+                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=100, rpd=400)},
+                now=lambda: now,
+                quota_coordinator=_DatabaseGeminiQuotaCoordinator(
+                    sessions, "creative-assets", 1_000
+                ),
+                transport=httpx.MockTransport(handler),
+            )
+
+        expected_retry_at = now + timedelta(hours=10)
+        for runtime in (provider(), provider()):
+            with self.assertRaises(GeminiPoolTemporarilyUnavailable) as raised:
+                await runtime.analyze_single(analysis_input())
+            self.assertEqual(
+                raised.exception.reasons_by_model["gemini-test"].reason,
+                "rpd_exhausted",
+            )
+            self.assertEqual(raised.exception.earliest_retry_at, expected_retry_at)
+
+        self.assertEqual(calls, 1)
+        with sessions() as session:
+            project = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "__project_total__"},
+            )
+            model = session.get(
+                GeminiProjectQuotaStateModel,
+                {"quota_scope": "creative-assets", "model": "gemini-test"},
+            )
+        self.assertEqual(project.reserved_requests, 1)
+        self.assertEqual(model.reserved_requests, 1)
+        self.assertEqual(
+            model.blocked_until.replace(tzinfo=timezone.utc), expected_retry_at
+        )
+        engine.dispose()
+
     async def test_rate_limit_tries_next_model_without_sleep(self):
         seen = []
         delays = []
