@@ -126,9 +126,13 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 
 /* Google Drive image and video thumbnails */
 .preview{position:relative;overflow:hidden;padding:0}
-.preview-thumbnail{display:block;width:100%;height:100%;object-fit:cover;background:#e8ebef;transition:transform .2s ease,opacity .2s ease}
+.thumbnail-frame{display:block;width:100%;height:100%}
+.thumbnail-skeleton{position:absolute;inset:0;background:linear-gradient(105deg,#e9edf2 25%,#f7f9fc 42%,#e9edf2 58%);background-size:220% 100%;animation:thumbnail-shimmer 1.25s ease-in-out infinite}
+.preview-thumbnail{position:relative;z-index:1;display:block;width:100%;height:100%;object-fit:cover;background:#e8ebef;opacity:0;transition:transform .2s ease,opacity .2s ease}
+.preview-thumbnail.is-loaded{opacity:1}
 .grid article:hover .preview-thumbnail{transform:scale(1.025)}
 .preview-fallback{font-size:36px}
+@keyframes thumbnail-shimmer{to{background-position:-220% 0}}
 .video-thumbnail-badge{
   position:absolute;
   left:50%;
@@ -148,7 +152,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   transform:translate(-50%,-50%);
   backdrop-filter:blur(3px);
 }
-@media(prefers-reduced-motion:reduce){.preview-thumbnail{transition:none}.grid article:hover .preview-thumbnail{transform:none}}
+@media(prefers-reduced-motion:reduce){.preview-thumbnail{transition:none}.thumbnail-skeleton{animation:none}.grid article:hover .preview-thumbnail{transform:none}}
 
 
 /* Full-screen image and video viewer */

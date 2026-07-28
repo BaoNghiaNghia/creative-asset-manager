@@ -2489,3 +2489,10 @@ Validation was run in the requested order:
 
 - Clearing the search query now immediately resets the modern search loading state and prevents a stale aborted request from rendering “Đang tìm kiếm…”, indexing progress, or the animated input border.
 - Tests: `npm test -- --run app/App.test.ts app/hooks/useDriveExplorer.test.ts` — 12 passed; `npm run typecheck`; `npm run build`.
+
+
+## Search-result thumbnail lazy loading (2026-07-28)
+
+- Explorer search results now attach thumbnail URLs only after their cards reach the viewport (with a 480px prefetch margin), reducing concurrent Google Drive media requests for large result sets.
+- Cards retain their layout and show an accessible shimmer placeholder until each image has decoded; failed thumbnails retain the existing safe file-type fallback.
+- Tests: npm test -- --run app/components/AssetGrid.test.ts — 2 passed; npm test — 93 passed; npm run typecheck; npm run build.

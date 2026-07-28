@@ -126,3 +126,4 @@
 
 - [x] UX Search guide sizing and accessible input-border loading feedback
 - [x] UX Search cleared-query loading-state reset
+- [x] UX Search-result thumbnail viewport lazy loading with loading skeletons

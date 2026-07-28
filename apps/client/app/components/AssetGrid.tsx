@@ -1,31 +1,64 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 
 const icons = { folder: "📁", image: "▧", video: "▶", pdf: "PDF", document: "DOC", other: "◇" };
 
+export function shouldLoadAssetThumbnail(inViewport: boolean, thumbnailUrl?: string | null): boolean {
+  return inViewport && Boolean(thumbnailUrl);
+}
+
 function AssetPreview({ item }: { item: Asset }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
+  const [inViewport, setInViewport] = useState(false);
+  const previewRef = useRef<HTMLSpanElement>(null);
   const canShowThumbnail = (item.kind === "image" || item.kind === "video")
     && Boolean(item.thumbnail_url)
     && !thumbnailFailed;
+
+  useEffect(() => {
+    setThumbnailFailed(false);
+    setThumbnailLoaded(false);
+  }, [item.id, item.thumbnail_url]);
+
+  useEffect(() => {
+    if (!canShowThumbnail) return;
+
+    const target = previewRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") {
+      setInViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      setInViewport(true);
+      observer.disconnect();
+    }, { rootMargin: "480px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [canShowThumbnail]);
 
   if (!canShowThumbnail) {
     return <span className="preview-fallback">{icons[item.kind]}</span>;
   }
 
-  return <>
-    <img
-      className="preview-thumbnail"
+  const shouldLoad = shouldLoadAssetThumbnail(inViewport, item.thumbnail_url);
+  return <span ref={previewRef} className="thumbnail-frame">
+    {!thumbnailLoaded && <span className="thumbnail-skeleton" aria-hidden="true" />}
+    {shouldLoad && <img
+      className={"preview-thumbnail" + (thumbnailLoaded ? " is-loaded" : "")}
       src={item.thumbnail_url}
       alt=""
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
+      onLoad={() => setThumbnailLoaded(true)}
       onError={() => setThumbnailFailed(true)}
-    />
-    {item.kind === "video" && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
-  </>;
+    />}
+    {item.kind === "video" && thumbnailLoaded && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
+  </span>;
 }
 
 function AssetMetadataBar({
