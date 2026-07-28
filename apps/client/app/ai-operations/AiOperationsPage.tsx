@@ -252,6 +252,11 @@ export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipel
     processing: scan?.status === "running" ? 1 : 0,
     failed: scan?.status === "failed" ? 1 : 0,
   }, ...pipeline.stages];
+  const operationalGroups = [
+    { tone: "attention", icon: "!", label: "Needs attention", detail: "Has unresolved failures", count: pipeline.stages.filter(stage => stage.failed > 0).length },
+    { tone: "active", icon: "↻", label: "In progress", detail: "Running, ready, or waiting", count: pipeline.stages.filter(stage => stage.processing > 0 || stage.pending > 0 || stage.waiting > 0).length },
+    { tone: "complete", icon: "✓", label: "Healthy stages", detail: "No active work or failures", count: pipeline.stages.filter(stage => stage.completed > 0 && stage.pending === 0 && stage.processing === 0 && stage.waiting === 0 && stage.failed === 0).length },
+  ];
   return <div className="ops-content pipeline-content">
     <section className="pipeline-summary" aria-label="Pipeline summary">
       <PipelineMetric icon="eligible" label="Eligible images" value={pipeline.overall.supported_assets} detail="Images that can enter processing" />
@@ -268,18 +273,39 @@ export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipel
       {scan && <dl><div><dt>Status</dt><dd><StatusText status={scan.status} /></dd></div><div><dt>Pages</dt><dd>{scan.pages_count}</dd></div><div><dt>Items</dt><dd>{scan.items_seen_count.toLocaleString()}</dd></div><div><dt>Jobs created</dt><dd>{scan.jobs_created_count.toLocaleString()}</dd></div><div><dt>Completed</dt><dd>{scan.completed_at ? new Date(scan.completed_at).toLocaleString() : "-"}</dd></div><div><dt>Duration</dt><dd>{formatProcessingDuration(scan.duration_ms)}</dd></div></dl>}
     </section>
     <section className="pipeline-progress-summary" aria-label="Asset readiness by furthest completed stage"><div><small>ASSET READINESS</small><h2>Furthest verified stage</h2><p>Each supported image is counted once at its latest completed stage.</p></div><dl>{pipeline.overall.asset_progress.map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
-    <ol className="pipeline-flow" aria-label="Google Drive asset processing flow">{flowStages.map(stage => <li key={stage.key} className={stage.key === active?.job_type ? "processing" : stage.failed ? "failed" : stage.processing ? "processing" : stage.pending ? "pending" : stage.completed ? "completed" : "idle"}><b>{stage.label}</b><span>{stage.completed} completed</span><small>{stage.pending} pending / {stage.processing} running / {stage.failed} failed</small></li>)}</ol>
-    <section className="pipeline-stage-grid" aria-label="Pipeline stages">{pipeline.stages.map(stage => <article key={stage.key} className={stage.key === active?.job_type ? "active" : ""}>
-      <header><div><small>STAGE</small><h2>{stage.label}</h2></div><StatusText status={stage.processing ? "processing" : stage.failed ? "failed" : stage.pending ? "pending" : stage.completed ? "completed" : "idle"} /></header><p>{stage.subtitle}</p>
-      <strong>{stage.completed} / {stage.total || "-"}</strong><span>{stage.percentage === null ? "Calculating progress" : String(stage.percentage) + "% complete"}</span><div className="pipeline-progress"><i style={{ width: String(stage.percentage || 0) + "%" }} /></div>
-      <dl><div><dt>Queued</dt><dd>{stage.pending}</dd></div><div><dt>Running</dt><dd>{stage.processing}</dd></div><div><dt>Waiting</dt><dd>{stage.waiting}</dd></div><div><dt>Failed</dt><dd>{stage.failed}</dd></div></dl>
-    </article>)}</section>
+    <section className="pipeline-status-groups" aria-label="Pipeline status groups"><div><small>OPERATING STATUS</small><h2>Where to focus</h2><p>Stages are grouped by their current operational state. A stage with a failure is always shown as needing attention.</p></div><ul>{operationalGroups.map(group => <li key={group.tone} className={group.tone}><i aria-hidden="true">{group.icon}</i><div><b>{group.label}</b><span>{group.detail}</span></div><strong>{group.count}</strong></li>)}</ul></section>
+    <ol className="pipeline-flow" aria-label="Google Drive asset processing flow">{flowStages.map(stage => { const tone = pipelineStageTone(stage, active?.job_type); return <li key={stage.key} className={tone}><header><i className={"pipeline-flow-icon " + stage.key} aria-hidden="true">{pipelineStageIcon(stage.key)}</i><b>{stage.label}</b></header><span>{stage.completed.toLocaleString()} completed</span><small>{stage.pending.toLocaleString()} pending / {stage.processing.toLocaleString()} running / {stage.failed.toLocaleString()} failed</small></li>; })}</ol>
+    <section className="pipeline-stage-grid" aria-label="Pipeline stages">{pipeline.stages.map(stage => { const tone = pipelineStageTone(stage, active?.job_type); return <article key={stage.key} className={tone}>
+      <header><div><small>STAGE</small><h2>{stage.label}</h2></div><StageStatusBadge tone={tone} /></header><p>{stage.subtitle}</p>
+      <strong>{stage.completed.toLocaleString()} / {stage.total ? stage.total.toLocaleString() : "-"}</strong><span>{stage.percentage === null ? "Calculating progress" : String(stage.percentage) + "% complete"}</span><div className={"pipeline-progress " + tone}><i style={{ width: String(stage.percentage || 0) + "%" }} /></div>
+      <dl><div><dt>Queued</dt><dd>{stage.pending.toLocaleString()}</dd></div><div><dt>Running</dt><dd>{stage.processing.toLocaleString()}</dd></div><div><dt>Waiting</dt><dd>{stage.waiting.toLocaleString()}</dd></div><div><dt>Failed</dt><dd>{stage.failed.toLocaleString()}</dd></div></dl>
+    </article>; })}</section>
     <section className="pipeline-active-job" aria-live="polite"><div><small>{active ? "CURRENTLY PROCESSING" : "WORKER STATUS"}</small><div className="pipeline-active-title"><span className={active ? "pipeline-status-dot active" : "pipeline-status-dot idle"} aria-hidden="true" /><h2>{active ? active.stage : "Worker is ready"}</h2></div><p>{active ? active.message : "No job is running now. The worker will automatically claim the next job that is eligible to start."}</p></div>{active ? <dl><div><dt>Item</dt><dd>{active.filename || "Pipeline item"}</dd></div><div><dt>Started</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Elapsed</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Attempt</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl> : <div className="pipeline-active-empty"><b>What happens next?</b><span>Queued jobs start when their scheduled retry time and worker capacity are available.</span></div>}</section>
     <section className="pipeline-queue"><header><div><h2>Queue by stage</h2><p>Only <b>Eligible now</b> jobs can be claimed immediately. <b>Waiting</b> jobs are paused until a scheduled retry or quota window.</p></div><span className="pipeline-queue-total">{pipeline.stages.reduce((total, stage) => total + stage.pending + stage.processing, 0).toLocaleString()} jobs not finished</span></header><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Stage</th><th title="All jobs not yet terminal">Pending</th><th title="Jobs ready for a worker now">Eligible now</th><th title="Jobs delayed until a scheduled retry or quota window">Waiting</th><th title="Jobs currently held by a worker">Processing</th><th>Completed</th><th>Needs attention</th></tr></thead><tbody>{pipeline.stages.map(stage => <tr key={stage.key}><td><b>{stage.label}</b><small>{stage.subtitle}</small></td><td><QueueCount value={stage.pending} tone="neutral" /></td><td><QueueCount value={stage.eligible_now} tone="ready" /></td><td><QueueCount value={stage.waiting} tone="waiting" /></td><td><QueueCount value={stage.processing} tone="active" /></td><td><QueueCount value={stage.completed} tone="complete" /></td><td><QueueCount value={stage.failed} tone="failed" /></td></tr>)}</tbody></table></div></section>
     <section className="pipeline-attention"><header><div><h2>Issues needing attention</h2><p>These are current unresolved issues. The technical code is retained for support and troubleshooting.</p></div>{pipeline.failure_groups.length > 0 && <span>{pipeline.failure_groups.length} issue groups</span>}</header>{pipeline.failure_groups.length ? <ul>{pipeline.failure_groups.map(item => <PipelineFailureCard key={item.stage + item.error_code} item={item} />)}</ul> : <p className="pipeline-attention-empty">No current unresolved pipeline failures.</p>}</section>
     <PipelineRecentAssets recent={pipeline.recent_assets} onPage={onPage} />
   </div>;
 }
+type PipelineStageState = "attention" | "active" | "waiting" | "complete" | "idle";
+
+function pipelineStageTone(stage: { key: string; pending: number; waiting?: number; processing: number; completed: number; failed: number }, activeJobType?: string): PipelineStageState {
+  if (stage.failed > 0) return "attention";
+  if (stage.key === activeJobType || stage.processing > 0) return "active";
+  if ((stage.waiting || 0) > 0 || stage.pending > 0) return "waiting";
+  if (stage.completed > 0) return "complete";
+  return "idle";
+}
+
+function pipelineStageIcon(key: string): string {
+  return ({ source_sync: "◌", source_asset_download: "↓", asset_store: "▣", asset_analyze: "✦", search_projection_build: "⌕", asset_index: "↗" } as Record<string, string>)[key] || "•";
+}
+
+function StageStatusBadge({ tone }: { tone: PipelineStageState }) {
+  const labels: Record<PipelineStageState, string> = { attention: "Needs attention", active: "Processing", waiting: "Waiting", complete: "Completed", idle: "Not started" };
+  const icons: Record<PipelineStageState, string> = { attention: "!", active: "↻", waiting: "◷", complete: "✓", idle: "–" };
+  return <span className={"pipeline-stage-status " + tone}><i aria-hidden="true">{icons[tone]}</i>{labels[tone]}</span>;
+}
+
 function QueueCount({ value, tone }: { value: number; tone: "neutral" | "ready" | "waiting" | "active" | "complete" | "failed" }) {
   return <span className={"pipeline-queue-count " + tone}>{value.toLocaleString()}</span>;
 }

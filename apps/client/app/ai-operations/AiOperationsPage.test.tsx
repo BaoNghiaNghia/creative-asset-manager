@@ -484,6 +484,8 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Showing 26-50 of 60");
     expect(markup).toContain("Pipeline asset pagination");
     expect(markup).toContain("Eligible now");
+    expect(markup).toContain("Where to focus");
+    expect(markup).toContain("Needs attention");
     expect(markup).toContain("Downloading from Google Drive");
   });
 
