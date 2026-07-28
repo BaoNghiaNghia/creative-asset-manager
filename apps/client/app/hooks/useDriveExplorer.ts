@@ -15,7 +15,7 @@ import type {
   VisibilityFilter,
 } from "../types";
 import { searchAssets } from "../utils/searchAssets";
-import { useSearchV2 } from "./useSearchV2";
+import { isSearchRequestInFlight, useSearchV2 } from "./useSearchV2";
 
 type SearchStreamEvent = {
   type: "progress" | "result" | "error";
@@ -681,7 +681,9 @@ export function useDriveExplorer() {
     loadingTreeIds,
     query,
     setQuery,
-    searching: searchV2.active ? searchV2.loading : searching,
+    searching: searchV2.active
+      ? isSearchRequestInFlight(query, searchV2.loading)
+      : searching,
     searchProgress,
     searchStatus,
     searchProcessedFolders,

@@ -2484,3 +2484,8 @@ Validation was run in the requested order:
 - Added the safe `gemini_model_daily_quota_deferred` log event with model, reason, retry timestamp and `provider_call_started=false`.
 - Regression coverage verifies Google quota-ID recognition, a durable database block across a provider/runtime restart, no second provider call, and the persisted Pacific-reset retry time.
 - Tests: `apps/api/.venv/bin/python -m unittest tests.providers.test_gemini_ai tests.modules.ai_governance.test_gemini_quota tests.providers.test_ai_factory tests.test_config -v` — 64 passed.
+
+## Search cleared-query loading reset (2026-07-28)
+
+- Clearing the search query now immediately resets the modern search loading state and prevents a stale aborted request from rendering “Đang tìm kiếm…”, indexing progress, or the animated input border.
+- Tests: `npm test -- --run app/App.test.ts app/hooks/useDriveExplorer.test.ts` — 12 passed; `npm run typecheck`; `npm run build`.

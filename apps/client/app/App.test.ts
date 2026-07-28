@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
-import { shouldFetchSearchSuggestions } from "./hooks/useSearchV2";
+import { isSearchRequestInFlight, shouldFetchSearchSuggestions } from "./hooks/useSearchV2";
 import type { Asset } from "./types";
 
 function asset(overrides: Partial<Asset>): Asset {
@@ -74,5 +74,14 @@ describe("Search suggestion keyboard actions", () => {
     expect(getSearchSuggestionKeyAction("Enter", 4, 2)).toBe("select");
     expect(getSearchSuggestionKeyAction("ArrowDown", 4, -1)).toBe("next");
     expect(getSearchSuggestionKeyAction("ArrowUp", 4, 0)).toBe("previous");
+  });
+});
+
+
+describe("Search loading state", () => {
+  it("does not report an in-flight search after the query is cleared", () => {
+    expect(isSearchRequestInFlight("", true)).toBe(false);
+    expect(isSearchRequestInFlight("   ", true)).toBe(false);
+    expect(isSearchRequestInFlight("nurse", true)).toBe(true);
   });
 });

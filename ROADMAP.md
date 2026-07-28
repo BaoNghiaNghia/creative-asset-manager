@@ -125,3 +125,4 @@
 - Pipeline Overview logical-asset aggregation: completed — current dashboard state is deduplicated by active source asset; raw processing attempts are diagnostics only.
 
 - [x] UX Search guide sizing and accessible input-border loading feedback
+- [x] UX Search cleared-query loading-state reset

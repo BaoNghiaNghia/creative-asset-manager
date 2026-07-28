@@ -12,6 +12,10 @@ export function shouldFetchSearchSuggestions(active: boolean, authenticated: boo
   return active && authenticated && query.trim().length >= 2;
 }
 
+export function isSearchRequestInFlight(query: string, loading: boolean): boolean {
+  return query.trim().length > 0 && loading;
+}
+
 export function useSearchV2(authenticated: boolean, provider: Provider, query: string) {
   const [capabilities, setCapabilities] = useState(emptyCapabilities);
   const [items, setItems] = useState<Asset[]>([]);
@@ -101,7 +105,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
 
   useEffect(() => {
     if (!active || !authenticated || query.trim().length < 1) {
-      setItems([]); setTotal(0); setParsed(null); setDurationMs(null); setError(""); return;
+      setItems([]); setTotal(0); setParsed(null); setDurationMs(null); setError(""); setLoading(false); return;
     }
     setDurationMs(null);
     const controller = new AbortController();
