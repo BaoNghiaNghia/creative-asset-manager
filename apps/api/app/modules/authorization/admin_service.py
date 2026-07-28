@@ -138,7 +138,11 @@ class TenantAccessAdminService:
         status: str,
     ) -> TenantMembershipModel:
         self._lock_tenant(tenant_id)
-        user = self._resolve_user(user_id=user_id, email=email)
+        user = self._resolve_user(
+            user_id=user_id,
+            email=email,
+            create_invited_user=status == "invited",
+        )
         if user.status != "active":
             raise TenantAccessAdminError("user_inactive", "User is not active", status_code=409)
         existing = self.memberships.get_membership(tenant_id, user.id)
@@ -403,34 +407,91 @@ class TenantAccessAdminService:
             reason=reason,
         )
 
-    def _resolve_user(self, *, user_id: str | None, email: str | None) -> UserModel:
+
+    def _resolve_user(
+        self,
+        *,
+        user_id: str | None,
+        email: str | None,
+        create_invited_user: bool = False,
+    ) -> UserModel:
         if bool(user_id) == bool(email):
             raise TenantAccessAdminError(
-                "invalid_member_target", "Provide exactly one of user_id or email", status_code=422
+                "invalid_member_target",
+                "Provide exactly one of user_id or email",
+                status_code=422,
             )
+
         if user_id:
             user = self.session.get(UserModel, user_id)
+
             if user is None:
-                raise TenantAccessAdminError("user_not_found", "User was not found", status_code=404)
+                raise TenantAccessAdminError(
+                    "user_not_found",
+                    "User was not found",
+                    status_code=404,
+                )
+
             return user
+
         normalized = normalize_email(email)
+
+        if (
+            not normalized
+            or "@" not in normalized
+            or normalized.startswith("@")
+            or normalized.endswith("@")
+        ):
+            raise TenantAccessAdminError(
+                "invalid_email",
+                "A valid email address is required",
+                status_code=422,
+            )
+
         matches = list(
             self.session.scalars(
-                select(UserModel).where(UserModel.primary_email == normalized).limit(2)
+                select(UserModel)
+                .where(UserModel.primary_email == normalized)
+                .limit(2)
             )
         )
-        if not matches:
-            raise TenantAccessAdminError(
-                "user_not_found",
-                "No existing application user matches this email; email delivery is not configured",
-                status_code=404,
-            )
+
         if len(matches) > 1:
             raise TenantAccessAdminError(
-                "ambiguous_user", "More than one unlinked user has this email; use user_id", status_code=409
+                "ambiguous_user",
+                (
+                    "More than one application user has this email; "
+                    "use user_id"
+                ),
+                status_code=409,
             )
-        return matches[0]
 
+        if matches:
+            return matches[0]
+
+        if not create_invited_user:
+            raise TenantAccessAdminError(
+                "user_not_found",
+                (
+                    "No existing application user matches this email; "
+                    "email delivery is not configured"
+                ),
+                status_code=404,
+            )
+
+        # This is a non-authenticated placeholder. It cannot enter a tenant
+        # until a verified external identity claims the invited membership.
+        user = UserModel(
+            primary_email=normalized,
+            display_name=None,
+            avatar_url=None,
+            status="active",
+        )
+
+        self.session.add(user)
+        self.session.flush()
+
+        return user
     def _lock_tenant(self, tenant_id: str) -> TenantModel:
         tenant = self.session.scalar(
             select(TenantModel).where(TenantModel.id == tenant_id).with_for_update()
