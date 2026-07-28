@@ -222,3 +222,15 @@
 @media(max-width:900px){.pipeline-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.pipeline-progress-summary-compact>div{flex-basis:auto}.pipeline-progress-summary-compact dl{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:760px){.pipeline-progress-summary-compact dl{grid-template-columns:repeat(2,minmax(0,1fr))}.pipeline-active-job dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:460px){.pipeline-summary{grid-template-columns:1fr}}
+
+/* Pipeline Overview: compact operational groups. */
+.pipeline-summary{grid-template-columns:repeat(5,minmax(0,1fr))}
+.pipeline-context-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:14px}
+.pipeline-context-row>.pipeline-scan-card,.pipeline-context-row>.pipeline-active-job{min-width:0;height:100%;box-sizing:border-box}
+.pipeline-context-row>.pipeline-scan-card{align-items:flex-start}
+.pipeline-context-row .pipeline-scan-card-compact dl{grid-template-columns:repeat(2,minmax(110px,1fr));gap:16px}
+.pipeline-context-row .pipeline-active-job{align-items:flex-start}
+.pipeline-context-row .pipeline-active-job dl{width:100%;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px}
+@media(max-width:1450px){.pipeline-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:900px){.pipeline-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.pipeline-context-row{grid-template-columns:1fr}}
+@media(max-width:460px){.pipeline-summary{grid-template-columns:1fr}}

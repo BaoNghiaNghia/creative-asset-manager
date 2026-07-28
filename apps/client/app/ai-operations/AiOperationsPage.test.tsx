@@ -482,6 +482,9 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Search ready");
     expect(markup).toContain("In progress");
     expect(markup).toContain("Queued or waiting");
+    expect(markup).toContain('aria-label="Latest scan and current processing"');
+    expect(markup).toContain("8 Drive items discovered · 4 pipeline jobs queued.");
+    expect(markup).not.toContain("<dd>Pipeline item</dd>");
     expect(markup).toContain("Showing 26-50 of 60");
     expect(markup).toContain("Pipeline asset pagination");
     expect(markup).toContain("Eligible now");

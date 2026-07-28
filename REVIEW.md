@@ -2502,3 +2502,9 @@ Validation was run in the requested order:
 
 - While the modern search request is pending, the explorer now renders a bounded 18-card skeleton grid instead of stale or empty cards. Individual visible thumbnails continue to use viewport lazy loading and their own shimmer until decoded.
 - Tests: npm test -- --run app/components/AssetGrid.test.ts app/App.test.ts — 13 passed; npm run typecheck; npm run build.
+
+## Pipeline Overview compact layout (2026-07-28)
+
+- Grouped the five actionable overview metrics into one responsive row on desktop and moved scan/current-worker context into a single paired row.
+- Removed the duplicated skipped/excluded summary card; permanent exclusions remain in the detailed diagnostic section. Scan items/jobs are summarized once, while empty worker item names no longer display the placeholder “Pipeline item”.
+- Tests: focused PipelineOverview test (25 passed); full frontend suite (94 passed); npm run typecheck; npm run build.
