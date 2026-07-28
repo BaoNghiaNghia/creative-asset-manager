@@ -483,4 +483,21 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Search ready");
     expect(markup).toContain("Showing 26-50 of 60");
     expect(markup).toContain("Pipeline asset pagination");
+    expect(markup).toContain("Eligible now");
+    expect(markup).toContain("Downloading from Google Drive");
+  });
+
+  it("explains unresolved pipeline failures without hiding their technical codes", () => {
+    const stage = { key: "asset_analyze", label: "AI Analyze", subtitle: "Generate metadata", total: 1, pending: 1, eligible_now: 0, waiting: 1, processing: 0, completed: 0, failed: 1, percentage: 0, oldest_pending_at: null };
+    const markup = renderToStaticMarkup(<PipelineOverview pipeline={{
+      generated_at: "2026-07-27T00:00:00Z", latest_source_sync: null,
+      overall: { source_items_discovered: 1, supported_assets: 1, unsupported_assets: 0, completed: 0, active: 0, queued: 1, failed: 1, skipped: 0, indexed_percentage: 0, throughput_today: 0, asset_progress: [] },
+      stages: [stage], active_job: null,
+      failure_groups: [{ stage: "AI Analyze", error_code: "analysis_image_dimensions", message: "Image dimensions are invalid", count: 3, latest_at: "2026-07-27T00:00:00Z" }],
+      recent_assets: { page: 1, page_size: 25, total: 0, items: [] },
+    }} />);
+    expect(markup).toContain("Worker is ready");
+    expect(markup).toContain("The image could not be prepared safely for analysis.");
+    expect(markup).toContain("Image dimensions are not supported");
+    expect(markup).toContain("analysis_image_dimensions");
   });
