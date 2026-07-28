@@ -338,9 +338,32 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 
 
 /* Directus-backed recursive Drive search */
-.search-box.searching>span{
-  color:#1f5eea;
-  animation:search-pulse .7s ease-in-out infinite alternate;
+.search-box.searching{
+  border-color:#3d69df;
+  background:#fff;
+  box-shadow:0 0 0 3px #2f68db14;
+  animation:search-border-loading 1.15s ease-in-out infinite;
+}
+.search-box.searching>span{color:#1f5eea}
+.search-box.searching:focus-within{border-color:#2f5ed2}
+.search-waiting{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-left:2px;
+  color:#4164a6;
+  font-size:10px;
+  font-weight:650;
+  line-height:1.25;
+}
+.search-waiting:before{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:#416de2;
+  box-shadow:0 0 0 3px #416de21c;
+  content:"";
+  animation:search-waiting-dot 1.15s ease-in-out infinite;
 }
 .search-warning{
   margin:0 34px 14px;
@@ -351,11 +374,17 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   color:#805b16;
   font-size:12px;
 }
-@keyframes search-pulse{
-  from{opacity:.35;transform:scale(.88)}
-  to{opacity:1;transform:scale(1.08)}
+@keyframes search-border-loading{
+  0%,100%{border-color:#3d69df;box-shadow:0 0 0 3px #2f68db14}
+  50%{border-color:#91afe9;box-shadow:0 0 0 5px #2f68db0d}
 }
-@media(prefers-reduced-motion:reduce){.search-box.searching>span{animation:none}}
+@keyframes search-waiting-dot{
+  0%,100%{opacity:.55;transform:scale(.85)}
+  50%{opacity:1;transform:scale(1)}
+}
+@media(prefers-reduced-motion:reduce){
+  .search-box.searching,.search-waiting:before{animation:none}
+}
 
 
 /* Live recursive metadata indexing progress */
@@ -882,10 +911,10 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 
 /* Search help belongs beside the query field; active filters remain below it. */
 .search-area{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px}.search-tools{display:flex;align-items:center;gap:10px;min-width:0;width:100%}.search-tools>.search-box{flex:1 1 520px;max-width:520px}.search-tools .search-guide{z-index:21}.search-duration{margin-left:2px;color:#728096;font-size:10px;line-height:1.25;font-variant-numeric:tabular-nums}.search-v2-controls:empty{display:none}
-@media(max-width:700px){.search-tools{gap:7px}.search-tools>.search-box{flex-basis:0}.search-tools .search-guide>summary{padding:6px 9px}.search-tools .search-guide>summary small,.search-tools .search-guide>summary b{display:none}.search-tools .search-guide-content{left:auto;right:0}}
+@media(max-width:700px){.search-tools{gap:7px}.search-tools>.search-box{flex-basis:0}.search-tools .search-guide>button{min-height:42px;padding:8px 10px}.search-tools .search-guide>button small,.search-tools .search-guide>button b{display:none}.search-tools .search-guide-content{left:auto;right:0}}
 
 /* Search syntax stays out of the way until the trigger is hovered or focused. */
-.search-guide>button{display:flex;align-items:center;gap:7px;min-height:34px;padding:6px 11px;border:1px solid #d9e0eb;border-radius:9px;background:#fff;color:#334155;cursor:help}.search-guide>button>span{display:grid;place-items:center;width:18px;height:18px;border-radius:5px;background:#edf3ff;color:#285fc0;font-size:12px}.search-guide>button b{font-size:12px}.search-guide>button small{padding-left:7px;border-left:1px solid #e3e8ef;color:#708096;font-size:10px}.search-guide>button:hover,.search-guide>button:focus-visible{border-color:#9bb5e8;background:#f8fbff;color:#204e9d;outline:none}.search-guide-content{display:none}.search-guide:hover .search-guide-content,.search-guide:focus-within .search-guide-content{display:block}
+.search-guide>button{display:flex;align-items:center;gap:9px;min-height:42px;padding:8px 15px;border:1px solid #c8d7ef;border-radius:10px;background:#fff;color:#253b62;cursor:help;box-shadow:0 1px 1px #1d3d7210}.search-guide>button>span{display:grid;place-items:center;width:20px;height:20px;border-radius:6px;background:#e8f0ff;color:#285fc0;font-size:13px}.search-guide>button b{font-size:13px}.search-guide>button small{padding-left:9px;border-left:1px solid #dfe7f3;color:#667b9b;font-size:10px}.search-guide>button:hover,.search-guide>button:focus-visible{border-color:#7e9ee0;background:#f7faff;color:#204e9d;box-shadow:0 0 0 3px #2f68db12;outline:none}.search-guide-content{display:none}.search-guide:hover .search-guide-content,.search-guide:focus-within .search-guide-content{display:block}
 
 /* Compact file-inspector refresh: separate viewing, system records, and operator tools. */
 .asset-inspector{width:min(460px,100vw);border-left-color:#dfe6ef;background:#fff}

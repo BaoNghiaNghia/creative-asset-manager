@@ -156,6 +156,7 @@ export default function App() {
                 "search-box",
                 explorer.searching ? "searching" : "",
               ].filter(Boolean).join(" ")}
+              aria-busy={explorer.searching}
             >
               <span aria-hidden="true">⌕</span>
               <input
@@ -198,6 +199,9 @@ export default function App() {
             </div>
             {explorer.searchV2.active && <SearchGuide capabilities={explorer.searchV2.capabilities} />}
           </div>
+          {explorer.searching && <small className="search-waiting" role="status" aria-live="polite">
+            Đang tìm kiếm…
+          </small>}
           {explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
             {"T\u00ecm ki\u1ebfm ho\u00e0n t\u1ea5t trong "}{formatSearchDuration(explorer.searchDurationMs)}
           </small>}

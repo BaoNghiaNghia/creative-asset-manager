@@ -2472,3 +2472,8 @@ Validation was run in the requested order:
 - Tests: API job tests (11 passed); focused AI Operations UI tests (24 passed); frontend typecheck and production build passed.
 
 - Pipeline Overview logical-state reporting: replaced raw processing-job aggregation with canonical active source-asset state; added skipped/actionable classification, source decommission exclusion, attempt diagnostics, and pipeline:validate-overview. Focused API and frontend tests passed.
+
+## Search loading feedback (2026-07-28)
+
+- Enlarged the Search guide trigger and replaced the ambiguous magnifier pulse with a clear animated search-input border, visible “Đang tìm kiếm…” status, and an accessible busy state.
+- Tests: focused frontend tests (11 passed); npm run typecheck; npm run build.
