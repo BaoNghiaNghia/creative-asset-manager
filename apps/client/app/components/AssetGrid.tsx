@@ -90,6 +90,21 @@ function AssetMetadataBar({
   </div>;
 }
 
+export const SEARCH_RESULT_SKELETON_COUNT = 18;
+
+export function AssetGridSkeleton({ count = SEARCH_RESULT_SKELETON_COUNT }: { count?: number }) {
+  return <div className="grid grid-skeleton" role="status" aria-live="polite" aria-label="Loading search results">
+    {Array.from({ length: count }, (_, index) => <article key={index} aria-hidden="true">
+      <span className="asset-card-skeleton-preview" />
+      <div className="asset-card-skeleton-details">
+        <i />
+        <i />
+        <i />
+      </div>
+    </article>)}
+  </div>;
+}
+
 type Props = {
   items: Asset[];
   path: Asset[];

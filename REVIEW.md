@@ -2496,3 +2496,9 @@ Validation was run in the requested order:
 - Explorer search results now attach thumbnail URLs only after their cards reach the viewport (with a 480px prefetch margin), reducing concurrent Google Drive media requests for large result sets.
 - Cards retain their layout and show an accessible shimmer placeholder until each image has decoded; failed thumbnails retain the existing safe file-type fallback.
 - Tests: npm test -- --run app/components/AssetGrid.test.ts — 2 passed; npm test — 93 passed; npm run typecheck; npm run build.
+
+
+## Search-result grid skeleton (2026-07-28)
+
+- While the modern search request is pending, the explorer now renders a bounded 18-card skeleton grid instead of stale or empty cards. Individual visible thumbnails continue to use viewport lazy loading and their own shimmer until decoded.
+- Tests: npm test -- --run app/components/AssetGrid.test.ts app/App.test.ts — 13 passed; npm run typecheck; npm run build.

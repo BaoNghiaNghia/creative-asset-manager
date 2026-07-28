@@ -1,5 +1,5 @@
 import { useState, type CSSProperties, type KeyboardEvent } from "react";
-import { AssetGrid } from "./components/AssetGrid";
+import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchGuide, SearchV2Controls } from "./components/SearchV2Controls";
@@ -311,7 +311,7 @@ export default function App() {
             Search reached the metadata indexing limit; refine the query for more precise results.
           </div>}
 
-          {explorer.loading ? <div className="state">Loading assets…</div> : <AssetGrid
+          {explorer.loading || explorer.searching ? <AssetGridSkeleton /> : <AssetGrid
             items={explorer.visibleItems}
             path={explorer.path}
             selected={explorer.selected}
