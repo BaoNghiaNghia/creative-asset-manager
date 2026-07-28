@@ -57,6 +57,7 @@ class GoogleLoginSyncSchedulerTest(unittest.TestCase):
             {
                 "external_source_id": result.external_source_id,
                 "oauth_connection_id": "connection-a",
+                "reconciliation": True,
             },
         )
         self.assertNotIn("access_token", job.payload_json)
@@ -105,8 +106,10 @@ class GoogleLoginSyncSchedulerTest(unittest.TestCase):
             {source.source_key for source in sources},
             {"google-drive:connection-a", "google-drive:connection-b"},
         )
+        defaults = [source for source in sources if source.source_metadata.get("is_default")]
+        self.assertEqual([source.source_key for source in defaults], ["google-drive:connection-b"])
 
-    def test_disabled_flag_creates_no_source_or_job(self) -> None:
+    def test_disabled_flag_registers_default_source_without_enqueuing_job(self) -> None:
         disabled = GoogleLoginSyncScheduler(
             self.session,
             Settings(
@@ -121,12 +124,9 @@ class GoogleLoginSyncSchedulerTest(unittest.TestCase):
             ),
             0,
         )
-        self.assertEqual(
-            self.session.scalar(
-                select(func.count()).select_from(ExternalSourceModel)
-            ),
-            0,
-        )
+        sources = list(self.session.scalars(select(ExternalSourceModel)))
+        self.assertEqual(len(sources), 1)
+        self.assertTrue(sources[0].source_metadata.get("is_default"))
 
 
 if __name__ == "__main__":

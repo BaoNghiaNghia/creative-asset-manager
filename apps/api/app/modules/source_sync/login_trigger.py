@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
+from app.modules.assets.model import ExternalSourceModel
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.auth_persistence.repository import PersistentCloudSession
 from app.modules.processing.model import ProcessingJobModel
@@ -34,8 +35,6 @@ class GoogleLoginSyncScheduler:
         self,
         cloud_session: PersistentCloudSession,
     ) -> LoginSyncEnqueueResult | None:
-        if not self.settings.GOOGLE_AUTO_SCAN_ON_LOGIN_ENABLED:
-            return None
         tenant_id = cloud_session.active_tenant_id
         if not tenant_id:
             return None
@@ -52,9 +51,29 @@ class GoogleLoginSyncScheduler:
             source_metadata={
                 "oauth_connection_id": cloud_session.connection_id,
                 "provider_account_id": provider_account_id,
+                # Connecting a Drive is an explicit workspace-admin choice.
+                # Keep exactly one default so Explorer can reopen predictably.
+                "is_default": True,
             },
         )
+        for configured_source in self.session.scalars(
+            select(ExternalSourceModel).where(
+                ExternalSourceModel.tenant_id == tenant_id,
+                ExternalSourceModel.source_type == "google_drive",
+                ExternalSourceModel.id != source.id,
+            )
+        ):
+            metadata = dict(configured_source.source_metadata or {})
+            if metadata.get("is_default"):
+                metadata["is_default"] = False
+                configured_source.source_metadata = metadata
         self.session.flush()
+
+        # Source registration is independent of scanning. A workspace must be
+        # able to browse the Drive an administrator explicitly connected even
+        # when login-triggered auto-scan is disabled.
+        if not self.settings.GOOGLE_AUTO_SCAN_ON_LOGIN_ENABLED:
+            return None
 
         completed_full_sync = self.session.scalar(
             select(SourceSyncRunModel.id).where(

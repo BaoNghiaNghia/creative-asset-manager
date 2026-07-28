@@ -30,6 +30,21 @@ class TenantSourceResolverTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(access.provider_account_id, "admin-google-subject")
         token.assert_awaited_once_with("connection-admin")
 
+    async def test_uses_the_single_default_when_multiple_tenant_sources_exist(self):
+        sources = [
+            SimpleNamespace(id="older", source_metadata={"oauth_connection_id": "older"}),
+            SimpleNamespace(id="default", source_metadata={"oauth_connection_id": "default", "is_default": True}),
+        ]
+        with patch(
+            "app.modules.explorer.tenant_source.get_connection_access_token",
+            new=AsyncMock(return_value="tenant-drive-token"),
+        ) as token:
+            access = await TenantSourceResolver(self._session(sources)).google_drive(
+                tenant_id="tenant-a"
+            )
+        self.assertEqual(access.external_source_id, "default")
+        token.assert_awaited_once_with("default")
+
     async def test_rejects_ambiguous_tenant_sources_without_explicit_source(self):
         sources = [
             SimpleNamespace(id="one", source_metadata={"oauth_connection_id": "one"}),
