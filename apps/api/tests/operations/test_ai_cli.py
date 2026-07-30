@@ -13,6 +13,7 @@ from app.modules.ai_governance.service import AiBudgetService
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.operations import ai_cli
 
 
@@ -94,6 +95,115 @@ class AiCliTest(unittest.TestCase):
         self.assertEqual(result["repaired"], 0)
         self.assertEqual(result["repair_reasons"]["active_job_skipped"], 1)
 
+    def test_rate_limit_repair_is_dry_run_tenant_scoped_and_idempotent(self):
+        with self.factory() as session:
+            session.add(
+                TenantProcessingPolicyModel(
+                    tenant_id="tenant-a",
+                    pipeline_enabled=True,
+                    ai_analysis_enabled=True,
+                    total_active_jobs=1,
+                    ai_active_jobs=1,
+                )
+            )
+            target = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="asset_analyze",
+                entity_type="asset_ai_analysis",
+                entity_id="analysis-rate-a",
+                idempotency_key="rate-a",
+                status="pending",
+                attempt_count=0,
+                next_attempt_at=self.now - timedelta(seconds=1),
+                claimed_by="stale-worker",
+                claimed_at=self.now - timedelta(minutes=1),
+                lease_expires_at=self.now - timedelta(seconds=1),
+                last_error_code="ai_model_rate_limited",
+                last_error_message="stale local defer",
+                concurrency_accounted=True,
+            )
+            other_tenant = ProcessingJobModel(
+                tenant_id="tenant-b",
+                job_type="asset_analyze",
+                entity_type="asset_ai_analysis",
+                entity_id="analysis-rate-b",
+                idempotency_key="rate-b",
+                status="pending",
+                attempt_count=0,
+                next_attempt_at=self.now - timedelta(seconds=1),
+                last_error_code="ai_model_rate_limited",
+            )
+            session.add_all((target, other_tenant))
+            session.commit()
+            target_id = target.id
+            other_id = other_tenant.id
+
+        with patch.object(ai_cli, "SessionLocal", self.factory):
+            dry_run = ai_cli.repair_rate_limit_backlog(
+                tenant_id="tenant-a", now=self.now
+            )
+            self.assertTrue(dry_run["dry_run"])
+            self.assertEqual(dry_run["repair_candidates"], 1)
+            self.assertEqual(dry_run["due_jobs"], 1)
+            self.assertEqual(dry_run["future_jobs"], 0)
+            self.assertEqual(dry_run["processing_jobs"], 0)
+            self.assertEqual(dry_run["leases_or_accounting_to_release"], 1)
+            self.assertEqual(dry_run["error_fields_to_clear"], 1)
+            self.assertEqual(dry_run["jobs_would_be_made_normally_claimable"], 1)
+            self.assertEqual(dry_run["repaired"], 0)
+            applied = ai_cli.repair_rate_limit_backlog(
+                tenant_id="tenant-a", now=self.now, apply=True
+            )
+            self.assertEqual(applied["repaired"], 1)
+            repeated = ai_cli.repair_rate_limit_backlog(
+                tenant_id="tenant-a", now=self.now, apply=True
+            )
+            self.assertEqual(repeated["repaired"], 0)
+
+        with self.factory() as session:
+            repaired = session.get(ProcessingJobModel, target_id)
+            untouched = session.get(ProcessingJobModel, other_id)
+            self.assertEqual(repaired.status, "pending")
+            self.assertEqual(repaired.attempt_count, 0)
+            self.assertEqual(repaired.next_attempt_at.replace(tzinfo=timezone.utc), self.now)
+            self.assertIsNone(repaired.claimed_by)
+            self.assertIsNone(repaired.claimed_at)
+            self.assertIsNone(repaired.lease_expires_at)
+            self.assertIsNone(repaired.last_error_code)
+            self.assertFalse(repaired.concurrency_accounted)
+            policy = session.get(TenantProcessingPolicyModel, "tenant-a")
+            self.assertEqual(policy.total_active_jobs, 0)
+            self.assertEqual(policy.ai_active_jobs, 0)
+            self.assertEqual(untouched.last_error_code, "ai_model_rate_limited")
+
+    def test_rate_limit_repair_skips_currently_processing_job(self):
+        with self.factory() as session:
+            active = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="asset_analyze",
+                entity_type="asset_ai_analysis",
+                entity_id="active-rate",
+                idempotency_key="active-rate",
+                status="processing",
+                attempt_count=1,
+                next_attempt_at=self.now,
+                claimed_by="worker",
+                claimed_at=self.now,
+                lease_expires_at=self.now + timedelta(minutes=1),
+                last_error_code="ai_model_rate_limited",
+            )
+            session.add(active)
+            session.commit()
+            active_id = active.id
+        with patch.object(ai_cli, "SessionLocal", self.factory):
+            result = ai_cli.repair_rate_limit_backlog(
+                tenant_id="tenant-a", now=self.now, apply=True
+            )
+        self.assertEqual(result["active_jobs_skipped"], 1)
+        self.assertEqual(result["repaired"], 0)
+        with self.factory() as session:
+            self.assertEqual(session.get(ProcessingJobModel, active_id).status, "processing")
+
     def test_rate_limit_validation_is_read_only_and_reports_eligible_defer(self):
         with self.factory() as session:
             session.add(AiModelRateLimitStateModel(
@@ -119,7 +229,11 @@ class AiCliTest(unittest.TestCase):
             result = ai_cli.validate_rate_limits(tenant_id="tenant-a", now=self.now)
         self.assertEqual(result["local_rate_deferred_jobs"], 1)
         self.assertEqual(result["improperly_eligible_local_deferred_jobs"], 1)
-        self.assertEqual(result["models"][0]["effective_interval_seconds"], 15)
+        target = next(
+            model for model in result["models"]
+            if model["model"] == "gemini-2.5-flash"
+        )
+        self.assertEqual(target["effective_interval_seconds"], 15)
         with self.factory() as session:
             self.assertEqual(
                 session.scalar(select(ProcessingJobModel.status).where(

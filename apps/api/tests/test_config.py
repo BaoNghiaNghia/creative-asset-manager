@@ -57,6 +57,12 @@ class SettingsTest(unittest.TestCase):
         self.assertIs(settings.CONTENT_DEDUP_ENABLED, True)
         self.assertIs(settings.ELASTICSEARCH_V2_ENABLED, False)
 
+    def test_rate_limit_safety_margin_defaults_and_rejects_negative_values(self) -> None:
+        settings = Settings()
+        self.assertEqual(settings.AI_JOB_RATE_LIMIT_SAFETY_SECONDS, 0.5)
+        with self.assertRaises(ValidationError):
+            Settings(AI_JOB_RATE_LIMIT_SAFETY_SECONDS=-0.1)
+
     def test_managed_storage_refresh_credentials_load_from_environment(self) -> None:
         with patch.dict(
             os.environ,

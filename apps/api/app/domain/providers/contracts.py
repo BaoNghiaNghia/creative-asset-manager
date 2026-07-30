@@ -139,6 +139,8 @@ class AiMetadataAnalysisInput:
     # Correlation values are optional and never included in the provider request.
     analysis_id: str | None = None
     pipeline_id: str | None = None
+    # Internal scheduling hint; never populated directly from a browser request.
+    preferred_model: str | None = None
 
 
 class StorageProviderError(RuntimeError):

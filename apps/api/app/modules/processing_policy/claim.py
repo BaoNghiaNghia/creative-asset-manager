@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, exists, func, or_, select, update
+from sqlalchemy import and_, exists, func, or_, select, true, update
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
 from app.domain.processing.types import JobStatus
-from app.modules.ai_governance.model import AiModelRateLimitStateModel
+from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository, configured_model_rates
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
@@ -16,6 +17,8 @@ from app.modules.processing_policy.model import TenantProcessingPolicyModel, Ten
 AI_JOB_TYPES = ("asset_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items")
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download")
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export")
+AI_MODEL_SLOT_PAYLOAD_KEY = "_ai_model_start_slot"
+_ANALYSIS_MODEL_GATE_NOT_APPLICABLE = object()
 
 STAGE_POLICY = {
     "source_sync": "source_sync_enabled",
@@ -35,52 +38,85 @@ STAGE_POLICY = {
 
 
 class TenantAwareJobClaimer:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, settings: Settings | None = None):
         self.session = session
+        self.settings = settings or get_settings()
 
     def claim(self, *, worker_id: str, lease_seconds: int, now: datetime,
               allowed_job_types: tuple[str, ...]) -> ProcessingJobModel | None:
         if not allowed_job_types:
             return None
-        eligibility = self._eligibility(now, allowed_job_types)
-        statement = (
-            select(ProcessingJobModel)
-            .where(eligibility)
-            .order_by(
-                ProcessingJobModel.priority.desc(),
-                ProcessingJobModel.next_attempt_at,
-                ProcessingJobModel.created_at,
+        excluded_ai_scopes: set[tuple[str, str | None]] = set()
+        while True:
+            eligibility = self._eligibility(
+                now, allowed_job_types, excluded_ai_scopes=excluded_ai_scopes
             )
-            .limit(1)
-        )
-        if self.session.get_bind().dialect.name == "postgresql":
-            statement = statement.with_for_update(skip_locked=True)
-        candidate = self.session.scalar(statement)
-        if candidate is None:
-            return None
-        already_accounted = candidate.concurrency_accounted
-        if not already_accounted and not self._reserve(candidate):
-            return None
+            statement = (
+                select(ProcessingJobModel)
+                .where(eligibility)
+                .order_by(
+                    ProcessingJobModel.priority.desc(),
+                    ProcessingJobModel.next_attempt_at,
+                    ProcessingJobModel.created_at,
+                )
+                .limit(1)
+            )
+            if self.session.get_bind().dialect.name == "postgresql":
+                statement = statement.with_for_update(skip_locked=True)
+            candidate = self.session.scalar(statement)
+            if candidate is None:
+                return None
 
-        lease_expires_at = now + timedelta(seconds=lease_seconds)
-        claimed = self.session.scalars(
-            update(ProcessingJobModel)
-            .where(ProcessingJobModel.id == candidate.id, self._base_eligibility(now))
-            .values(
-                status=JobStatus.PROCESSING.value,
-                claimed_by=worker_id,
-                claimed_at=now,
-                lease_expires_at=lease_expires_at,
-                attempt_count=ProcessingJobModel.attempt_count + 1,
-                concurrency_accounted=True,
-                updated_at=now,
-            )
-            .returning(ProcessingJobModel)
-            .execution_options(synchronize_session=False, populate_existing=True)
-        ).first()
-        if claimed is None and not already_accounted:
-            self.release(candidate)
-        return claimed
+            already_accounted = candidate.concurrency_accounted
+            if not already_accounted and not self._reserve(candidate):
+                return None
+
+            model_slot = None
+            if candidate.job_type == "asset_analyze":
+                model_slot = self._reserve_analysis_model(candidate, now)
+                if model_slot is None:
+                    if not already_accounted:
+                        self.release(candidate)
+                    excluded_ai_scopes.add(
+                        (candidate.tenant_id, candidate.provider_key)
+                    )
+                    continue
+                if model_slot is _ANALYSIS_MODEL_GATE_NOT_APPLICABLE:
+                    model_slot = None
+
+            lease_expires_at = now + timedelta(seconds=lease_seconds)
+            values = {
+                "status": JobStatus.PROCESSING.value,
+                "claimed_by": worker_id,
+                "claimed_at": now,
+                "lease_expires_at": lease_expires_at,
+                "attempt_count": ProcessingJobModel.attempt_count + 1,
+                "concurrency_accounted": True,
+                "updated_at": now,
+            }
+            if model_slot is not None:
+                payload = dict(candidate.payload_json or {})
+                payload[AI_MODEL_SLOT_PAYLOAD_KEY] = {
+                    "provider": model_slot["provider"],
+                    "model": model_slot["model"],
+                    "reserved_at": now.isoformat(),
+                    "next_eligible_at": model_slot["next_eligible_at"].isoformat(),
+                    "attempt_count": candidate.attempt_count + 1,
+                    "worker_id": worker_id,
+                }
+                values["payload_json"] = payload
+            claimed = self.session.scalars(
+                update(ProcessingJobModel)
+                .where(ProcessingJobModel.id == candidate.id, self._base_eligibility(now))
+                .values(**values)
+                .returning(ProcessingJobModel)
+                .execution_options(
+                    synchronize_session=False, populate_existing=True
+                )
+            ).first()
+            if claimed is None and not already_accounted:
+                self.release(candidate)
+            return claimed
 
     def release(self, job: ProcessingJobModel) -> None:
         if not job.concurrency_accounted:
@@ -177,7 +213,10 @@ class TenantAwareJobClaimer:
         self.session.flush()
         return True
 
-    def _eligibility(self, now: datetime, allowed_job_types: tuple[str, ...]):
+    def _eligibility(
+        self, now: datetime, allowed_job_types: tuple[str, ...],
+        *, excluded_ai_scopes: set[tuple[str, str | None]] | None = None,
+    ):
         policy_conditions = [
             TenantProcessingPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
             TenantProcessingPolicyModel.pipeline_enabled.is_(True),
@@ -207,11 +246,23 @@ class TenantAwareJobClaimer:
                 ),
             ),
         ))
+        excluded_ai_scopes = excluded_ai_scopes or set()
+        scope_available = and_(
+            true(),
+            *[
+                ~and_(
+                    ProcessingJobModel.job_type == "asset_analyze",
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.provider_key == provider_key,
+                )
+                for tenant_id, provider_key in excluded_ai_scopes
+            ],
+        )
         return and_(
             self._base_eligibility(now),
+            scope_available,
             ProcessingJobModel.job_type.in_(allowed_job_types),
             self._runtime_control_available(),
-            self._model_start_available(now),
             exists(select(TenantProcessingPolicyModel.tenant_id).where(*policy_conditions)),
             or_(ProcessingJobModel.provider_key.is_(None), ~provider_blocked),
         )
@@ -222,7 +273,15 @@ class TenantAwareJobClaimer:
             ProcessingJobModel.cancellation_requested.is_(False),
             ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
             or_(
-                and_(ProcessingJobModel.status.in_((JobStatus.PENDING.value, JobStatus.RETRY.value)), ProcessingJobModel.next_attempt_at <= now),
+                and_(
+                    ProcessingJobModel.status.in_(
+                        (JobStatus.PENDING.value, JobStatus.RETRY.value)
+                    ),
+                    or_(
+                        ProcessingJobModel.next_attempt_at.is_(None),
+                        ProcessingJobModel.next_attempt_at <= now,
+                    ),
+                ),
                 and_(ProcessingJobModel.status == JobStatus.PROCESSING.value, ProcessingJobModel.lease_expires_at <= now),
             ),
         )
@@ -302,32 +361,42 @@ class TenantAwareJobClaimer:
         ))
         return or_(~ProcessingJobModel.job_type.in_(AI_JOB_TYPES), ~stopped)
 
-    @staticmethod
-    def _model_start_available(now: datetime):
-        """Exclude locally delayed single-analysis jobs before lease acquisition."""
-        unavailable = exists(
-            select(AiModelRateLimitStateModel.tenant_id)
-            .select_from(AiModelRateLimitStateModel)
-            .join(
-                AssetAiAnalysisModel,
-                and_(
-                    AssetAiAnalysisModel.tenant_id
-                    == AiModelRateLimitStateModel.tenant_id,
-                    AssetAiAnalysisModel.ai_provider
-                    == AiModelRateLimitStateModel.provider,
-                    AssetAiAnalysisModel.ai_model
-                    == AiModelRateLimitStateModel.model,
-                ),
-            )
-            .where(
-                ProcessingJobModel.job_type == "asset_analyze",
-                ProcessingJobModel.entity_type == "asset_ai_analysis",
-                AssetAiAnalysisModel.id == ProcessingJobModel.entity_id,
-                AssetAiAnalysisModel.tenant_id == ProcessingJobModel.tenant_id,
-                or_(
-                    AiModelRateLimitStateModel.next_eligible_at > now,
-                    AiModelRateLimitStateModel.blocked_until > now,
-                ),
+    def _reserve_analysis_model(
+        self, job: ProcessingJobModel, now: datetime
+    ) -> dict[str, object] | object | None:
+        analysis = self.session.scalar(
+            select(AssetAiAnalysisModel).where(
+                AssetAiAnalysisModel.id == job.entity_id,
+                AssetAiAnalysisModel.tenant_id == job.tenant_id,
             )
         )
-        return or_(ProcessingJobModel.job_type != "asset_analyze", ~unavailable)
+        if analysis is None:
+            # Legacy/malformed jobs must remain claimable so their handler can
+            # terminalize them; only a resolved provider/model can be gated.
+            return _ANALYSIS_MODEL_GATE_NOT_APPLICABLE
+        model_rates = configured_model_rates(
+            self.settings, analysis.ai_provider, analysis.ai_model
+        )
+        if not model_rates:
+            return {
+                "provider": analysis.ai_provider,
+                "model": analysis.ai_model,
+                "next_eligible_at": now,
+            }
+        limiter = AiModelRateLimitRepository(self.session)
+        for model, rpm in model_rates:
+            decision = limiter.reserve_start(
+                tenant_id=job.tenant_id,
+                provider=analysis.ai_provider,
+                model=model,
+                rpm=rpm,
+                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+                now=now,
+            )
+            if decision.allowed:
+                return {
+                    "provider": analysis.ai_provider,
+                    "model": model,
+                    "next_eligible_at": decision.next_eligible_at,
+                }
+        return None

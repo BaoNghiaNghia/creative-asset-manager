@@ -10,12 +10,17 @@ from sqlalchemy import func, select
 
 from app.core.database import SessionLocal
 from app.modules.ai_governance.model import (
-    AiBudgetReservationModel, AiModelRateLimitStateModel, GeminiProjectQuotaStateModel,
+    AiBudgetReservationModel,
+    AiModelRateLimitStateModel,
+    AiUsageRecordModel,
+    GeminiProjectQuotaStateModel,
 )
+from app.modules.ai_governance.rate_limit import configured_model_rates
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.ai_governance.service import AiBudgetService
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.processing_policy.claim import TenantAwareJobClaimer
 
 _ACTIVE_JOB_STATUSES = {"pending", "processing", "retry", "claimed", "running", "queued"}
 _TERMINAL_ANALYSIS_STATUSES = {"completed", "failed", "budget_blocked"}
@@ -24,11 +29,17 @@ _TERMINAL_ANALYSIS_STATUSES = {"completed", "failed", "budget_blocked"}
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="AI governance maintenance operations")
     value.add_argument(
-        "command", choices=["budget:repair-stale-reservations", "rate-limit:validate"]
+        "command",
+        choices=[
+            "budget:repair-stale-reservations",
+            "rate-limit:repair",
+            "rate-limit:validate",
+        ],
     )
     value.add_argument("--tenant-id", required=True)
     value.add_argument("--older-than-minutes", type=int, default=60)
     value.add_argument("--apply", action="store_true")
+    value.add_argument("--dry-run", action="store_true")
     value.add_argument("--output-json", action="store_true")
     return value
 
@@ -118,13 +129,92 @@ def repair_stale_reservations(
     }
 
 
+def repair_rate_limit_backlog(
+    *,
+    tenant_id: str,
+    apply: bool = False,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Clear stale local scheduling errors without changing attempt history."""
+    now = now or datetime.now(timezone.utc)
+    repaired = released_accounting = skipped_active = 0
+    with SessionLocal() as session:
+        jobs = list(
+            session.scalars(
+                select(ProcessingJobModel)
+                .where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == "asset_analyze",
+                    ProcessingJobModel.last_error_code == "ai_model_rate_limited",
+                )
+                .order_by(ProcessingJobModel.created_at, ProcessingJobModel.id)
+            )
+        )
+        candidates = [job for job in jobs if job.status in {"pending", "retry", "queued"}]
+        skipped_active = sum(
+            job.status in {"processing", "claimed", "running"} for job in jobs
+        )
+        due_jobs = sum(
+            job.next_attempt_at is None or _as_utc(job.next_attempt_at) <= now
+            for job in candidates
+        )
+        future_jobs = len(candidates) - due_jobs
+        error_fields_to_clear = sum(
+            bool(job.last_error_code or job.last_error_message) for job in candidates
+        )
+        leases_to_release = sum(
+            bool(
+                job.concurrency_accounted
+                or job.claimed_by
+                or job.claimed_at
+                or job.lease_expires_at
+            )
+            for job in candidates
+        )
+        if apply:
+            claimer = TenantAwareJobClaimer(session)
+            for job in candidates:
+                if job.concurrency_accounted:
+                    claimer.release(job)
+                    released_accounting += 1
+                job.status = "pending"
+                job.next_attempt_at = now
+                job.claimed_by = None
+                job.claimed_at = None
+                job.lease_expires_at = None
+                job.last_error_code = None
+                job.last_error_message = None
+                job.updated_at = now
+                repaired += 1
+            session.commit()
+        else:
+            session.rollback()
+    return {
+        "tenant_id": tenant_id,
+        "dry_run": not apply,
+        "matching_jobs": len(jobs),
+        "repair_candidates": len(candidates),
+        "due_jobs": due_jobs,
+        "future_jobs": future_jobs,
+        "processing_jobs": skipped_active,
+        "repaired": repaired,
+        "leases_or_accounting_to_release": leases_to_release,
+        "error_fields_to_clear": error_fields_to_clear,
+        "released_accounting": released_accounting,
+        "active_jobs_skipped": skipped_active,
+        "jobs_would_be_made_normally_claimable": len(candidates),
+        "jobs_made_normally_claimable": repaired,
+    }
+
+
 def validate_rate_limits(
     *,
     tenant_id: str,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Read-only diagnostic for durable AI start-rate scheduling state."""
+    """Read-only diagnostic for shared AI model start scheduling state."""
     now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=5)
     settings = _settings_for_cli()
     models: list[dict[str, Any]] = []
     with SessionLocal() as session:
@@ -136,47 +226,120 @@ def validate_rate_limits(
                 )
             )
         }
-        for (provider, model), rpm in sorted(settings.ai_model_rpm_limits.items()):
-            state = states.get((provider, model))
-            interval = max(
-                float(settings.AI_JOB_MIN_INTERVAL_SECONDS), 60.0 / rpm
-            )
-            next_eligible = _as_utc(state.next_eligible_at) if state else now
-            blocked_until = _as_utc(state.blocked_until) if state and state.blocked_until else None
-            effective_next = max(next_eligible, blocked_until or now)
-            models.append({
-                "provider": provider,
-                "model": model,
-                "rpm": rpm,
-                "effective_interval_seconds": interval,
-                "last_started_at": state.last_started_at if state else None,
-                "next_eligible_at": next_eligible,
-                "blocked_until": blocked_until,
-                "available_now": effective_next <= now,
-            })
-        local_jobs = list(session.scalars(
-            select(ProcessingJobModel).where(
-                ProcessingJobModel.tenant_id == tenant_id,
-                ProcessingJobModel.job_type == "asset_analyze",
-                ProcessingJobModel.status.in_(("pending", "queued")),
-                ProcessingJobModel.last_error_code == "ai_model_rate_limited",
-            )
-        ))
-        improperly_eligible = sum(
-            1 for job in local_jobs
-            if job.next_attempt_at is None or _as_utc(job.next_attempt_at) <= now
+        configured = list(
+            configured_model_rates(settings, "gemini", settings.GEMINI_MODEL)
         )
-        real_429_count = int(session.scalar(
-            select(func.count(ProcessingJobModel.id)).where(
-                ProcessingJobModel.tenant_id == tenant_id,
-                ProcessingJobModel.job_type == "asset_analyze",
-                ProcessingJobModel.last_error_code.in_((
-                    "ai_provider_rate_limited",
-                    "gemini_quota_deferred",
-                    "gemini_model_pool_temporarily_unavailable",
-                )),
+        configured_keys = {("gemini", model) for model, _ in configured}
+        configured.extend(
+            (model, rpm)
+            for (provider, model), rpm in sorted(settings.ai_model_rpm_limits.items())
+            if provider == "gemini" and (provider, model) not in configured_keys
+        )
+        model_rates = [("gemini", model, rpm) for model, rpm in configured]
+        model_rates.extend(
+            (provider, model, rpm)
+            for (provider, model), rpm in sorted(settings.ai_model_rpm_limits.items())
+            if provider != "gemini"
+        )
+        for provider, model, rpm in model_rates:
+            state = states.get((provider, model))
+            interval = max(float(settings.AI_JOB_MIN_INTERVAL_SECONDS), 60.0 / rpm)
+            next_eligible = _as_utc(state.next_eligible_at) if state else now
+            blocked_until = (
+                _as_utc(state.blocked_until)
+                if state and state.blocked_until
+                else None
             )
-        ) or 0)
+            effective_next = max(next_eligible, blocked_until or now)
+            models.append(
+                {
+                    "provider": provider,
+                    "model": model,
+                    "rpm": rpm,
+                    "effective_interval_seconds": interval,
+                    "last_started_at": state.last_started_at if state else None,
+                    "next_eligible_at": next_eligible,
+                    "blocked_until": blocked_until,
+                    "effective_next_eligible_at": effective_next,
+                    "available_now": effective_next <= now,
+                }
+            )
+        local_jobs = list(
+            session.scalars(
+                select(ProcessingJobModel).where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == "asset_analyze",
+                    ProcessingJobModel.status.in_(("pending", "retry", "queued")),
+                    ProcessingJobModel.last_error_code == "ai_model_rate_limited",
+                )
+            )
+        )
+        due_local = sum(
+            job.next_attempt_at is None or _as_utc(job.next_attempt_at) <= now
+            for job in local_jobs
+        )
+        valid_future_local = len(local_jobs) - due_local
+        local_defers_last_5m = int(
+            session.scalar(
+                select(func.count(ProcessingJobModel.id)).where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == "asset_analyze",
+                    ProcessingJobModel.last_error_code == "ai_model_rate_limited",
+                    ProcessingJobModel.updated_at >= cutoff,
+                )
+            )
+            or 0
+        )
+        provider_attempts_last_5m = int(
+            session.scalar(
+                select(func.count(AiUsageRecordModel.id)).where(
+                    AiUsageRecordModel.tenant_id == tenant_id,
+                    AiUsageRecordModel.provider == "gemini",
+                    AiUsageRecordModel.occurred_at >= cutoff,
+                )
+            )
+            or 0
+        )
+        completions_last_5m = int(
+            session.scalar(
+                select(func.count(AssetAiAnalysisModel.id)).where(
+                    AssetAiAnalysisModel.tenant_id == tenant_id,
+                    AssetAiAnalysisModel.status == "completed",
+                    AssetAiAnalysisModel.completed_at >= cutoff,
+                )
+            )
+            or 0
+        )
+        all_models_blocked = bool(models) and not any(
+            model["available_now"] for model in models if model["provider"] == "gemini"
+        )
+        recent_claims = int(
+            session.scalar(
+                select(func.count(ProcessingJobModel.id)).where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == "asset_analyze",
+                    ProcessingJobModel.status.in_(("processing", "claimed", "running")),
+                    ProcessingJobModel.claimed_at >= cutoff,
+                )
+            )
+            or 0
+        )
+        real_429_count = int(
+            session.scalar(
+                select(func.count(ProcessingJobModel.id)).where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == "asset_analyze",
+                    ProcessingJobModel.last_error_code.in_(
+                        (
+                            "ai_provider_rate_limited",
+                            "gemini_quota_deferred",
+                            "gemini_model_pool_temporarily_unavailable",
+                        )
+                    ),
+                )
+            )
+            or 0
+        )
         project = session.get(
             GeminiProjectQuotaStateModel,
             {
@@ -184,12 +347,35 @@ def validate_rate_limits(
                 "model": "__project_total__",
             },
         )
+    eligible_models = [
+        model["model"]
+        for model in models
+        if model["provider"] == "gemini" and model["available_now"]
+    ]
+    future_slots = [
+        model["effective_next_eligible_at"]
+        for model in models
+        if model["provider"] == "gemini" and not model["available_now"]
+    ]
     return {
         "tenant_id": tenant_id,
         "checked_at": now,
         "models": models,
+        "queue_gate": {
+            "eligible_models": eligible_models,
+            "eligible_model_exists": bool(eligible_models),
+            "worker_should_claim_one_analyze_job": bool(eligible_models),
+            "earliest_next_slot": min(future_slots) if future_slots else None,
+            "all_models_blocked": all_models_blocked,
+        },
         "local_rate_deferred_jobs": len(local_jobs),
-        "improperly_eligible_local_deferred_jobs": improperly_eligible,
+        "stale_due_local_deferred_jobs": due_local,
+        "improperly_eligible_local_deferred_jobs": due_local,
+        "valid_future_local_deferred_jobs": valid_future_local,
+        "local_defers_last_5m": local_defers_last_5m,
+        "provider_attempt_records_last_5m": provider_attempts_last_5m,
+        "successful_completions_last_5m": completions_last_5m,
+        "recent_analyze_claims": recent_claims,
         "real_provider_rate_or_quota_events": real_429_count,
         "project_quota": {
             "quota_scope": settings.GEMINI_PROJECT_QUOTA_SCOPE,
@@ -199,7 +385,9 @@ def validate_rate_limits(
             "blocked_until": project.blocked_until if project else None,
         },
         "invariants": {
-            "no_immediately_claimable_local_defers": improperly_eligible == 0,
+            "no_stale_due_local_defers": due_local == 0,
+            "no_claims_while_all_models_blocked": not all_models_blocked
+            or recent_claims == 0,
             "project_quota_within_limit": (
                 settings.GEMINI_PROJECT_DAILY_REQUEST_LIMIT is None
                 or project is None
@@ -228,6 +416,13 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         return repair_stale_reservations(
             tenant_id=args.tenant_id,
             older_than_minutes=args.older_than_minutes,
+            apply=args.apply,
+        )
+    if args.command == "rate-limit:repair":
+        if args.apply and args.dry_run:
+            raise ValueError("--apply and --dry-run cannot be used together")
+        return repair_rate_limit_backlog(
+            tenant_id=args.tenant_id,
             apply=args.apply,
         )
     if args.command == "rate-limit:validate":

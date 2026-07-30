@@ -114,6 +114,7 @@ class Settings(BaseSettings):
     AI_MODEL_RPM_GEMINI_2_5_FLASH: int | None = None
     AI_MODEL_RPM_GPT_4_1_MINI: int | None = None
     AI_JOB_MIN_INTERVAL_SECONDS: float = 10.0
+    AI_JOB_RATE_LIMIT_SAFETY_SECONDS: float = 0.5
     AI_RATE_LIMIT_429_MAX_RETRIES: int = 8
     AI_RATE_LIMIT_BACKOFF_MAX_SECONDS: float = 300.0
     OPENAI_AI_ENABLED: bool = False
@@ -709,6 +710,8 @@ class Settings(BaseSettings):
             raise ValueError("GEMINI_MODEL_COOLDOWN_SECONDS cannot be negative")
         if self.AI_JOB_MIN_INTERVAL_SECONDS < 10:
             raise ValueError("AI_JOB_MIN_INTERVAL_SECONDS must be at least 10 seconds")
+        if self.AI_JOB_RATE_LIMIT_SAFETY_SECONDS < 0:
+            raise ValueError("AI_JOB_RATE_LIMIT_SAFETY_SECONDS cannot be negative")
         if self.AI_RATE_LIMIT_429_MAX_RETRIES < 0:
             raise ValueError("AI_RATE_LIMIT_429_MAX_RETRIES cannot be negative")
         if self.AI_RATE_LIMIT_BACKOFF_MAX_SECONDS < 10:

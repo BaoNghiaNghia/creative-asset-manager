@@ -192,7 +192,12 @@ class GeminiAiMetadataProvider:
         attempted_models: list[str] = []
         reasons: list[str] = []
         unavailable_by_model: dict[str, GeminiModelUnavailable] = {}
-        for model in self._models:
+        models = self._models
+        if input.preferred_model in self._models:
+            models = (input.preferred_model,) + tuple(
+                model for model in self._models if model != input.preferred_model
+            )
+        for model in models:
             reservation, unavailable = await self._reserve_request(model, input)
             if unavailable is not None:
                 unavailable_by_model[model] = unavailable

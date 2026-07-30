@@ -34,6 +34,8 @@ from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 from app.modules.ai_governance.repository import AiGovernanceRepository, MissingCostRateError, ProviderGovernanceBlocked
 from app.modules.ai_governance.service import AiBudgetService, usage_units
 from app.modules.assets.model import AssetModel
+from app.modules.processing.model import ProcessingJobModel
+from app.modules.processing_policy.claim import AI_MODEL_SLOT_PAYLOAD_KEY
 from app.modules.storage.repository import ManagedStorageRepository
 
 
@@ -100,6 +102,7 @@ class AiAnalysisService:
         reservation_finalized = False
         provider_name = str(getattr(self.ai_provider, "provider_name", "gemini"))
         provider_model = str(getattr(self.ai_provider, "model", self.settings.GEMINI_MODEL))
+        model_start_reserved = False
         estimated_cost_micros = 0
         profile_name = profile_version = prompt_version = asset_id = None
         try:
@@ -195,6 +198,23 @@ class AiAnalysisService:
                 schema = profile.optional_json_schema
                 search_config = profile.search_config_json
                 attempt_count = claimed.attempt_count
+                if job_id:
+                    job = session.get(ProcessingJobModel, job_id)
+                    marker = (
+                        (job.payload_json or {}).get(AI_MODEL_SLOT_PAYLOAD_KEY)
+                        if job is not None and job.tenant_id == tenant_id
+                        else None
+                    )
+                    if (
+                        isinstance(marker, dict)
+                        and marker.get("provider") == provider_name
+                        and isinstance(marker.get("model"), str)
+                        and marker.get("model")
+                        and marker.get("worker_id") == worker_id
+                        and marker.get("attempt_count") == job.attempt_count
+                    ):
+                        provider_model = marker["model"]
+                        model_start_reserved = True
                 session.commit()
 
             if is_cancelled is not None and is_cancelled():
@@ -225,7 +245,7 @@ class AiAnalysisService:
                 repository.set_stage(analysis_id, "analyzing")
                 session.commit()
 
-            deferred = self._check_model_start(
+            deferred = None if model_start_reserved else self._check_model_start(
                 tenant_id=tenant_id,
                 provider=provider_name,
                 model=provider_model,
@@ -286,7 +306,7 @@ class AiAnalysisService:
                     AiMetadataRepository(session, self.validator).mark_budget_blocked(analysis_id, code=exc.code, reason=exc.reason)
                     session.commit()
                     return AiAnalysisOutcome("budget_blocked", exc.code, exc.reason)
-            deferred = self._reserve_model_start(
+            deferred = None if model_start_reserved else self._reserve_model_start(
                 tenant_id=tenant_id,
                 provider=provider_name,
                 model=provider_model,
@@ -319,6 +339,7 @@ class AiAnalysisService:
                     is_cancelled=is_cancelled,
                     analysis_id=analysis_id,
                     pipeline_id=pipeline_id,
+                    preferred_model=provider_model if model_start_reserved else None,
                 )
             )
             provider_latency_ms = int((time.monotonic() - provider_started) * 1000)
@@ -568,6 +589,7 @@ class AiAnalysisService:
             )
         if decision.allowed:
             return None
+        retry_at = self._safe_rate_limit_retry_at(decision.next_eligible_at)
         self._log_rate_limit(
             tenant_id=tenant_id,
             provider=provider,
@@ -575,7 +597,7 @@ class AiAnalysisService:
             rpm=rpm,
             delay_seconds=decision.delay_seconds,
             retry_count=retry_count,
-            next_execution_at=decision.next_eligible_at,
+            next_execution_at=retry_at,
             event="ai_model_start_deferred",
             reason="local_interval",
             state_was_mutated=False,
@@ -584,7 +606,7 @@ class AiAnalysisService:
             "deferred",
             "ai_model_rate_limited",
             "AI model start is scheduled for the next local rate-limit slot.",
-            retry_at=decision.next_eligible_at,
+            retry_at=retry_at,
             metadata={"provider": provider, "model": model, "rpm": rpm,
                       "effective_interval_seconds": decision.delay_seconds,
                       "reason": "local_interval"},
@@ -624,6 +646,7 @@ class AiAnalysisService:
                 state_was_mutated=True,
             )
             return None
+        retry_at = self._safe_rate_limit_retry_at(decision.next_eligible_at)
         self._log_rate_limit(
             tenant_id=tenant_id,
             provider=provider,
@@ -631,7 +654,7 @@ class AiAnalysisService:
             rpm=rpm,
             delay_seconds=decision.delay_seconds,
             retry_count=retry_count,
-            next_execution_at=decision.next_eligible_at,
+            next_execution_at=retry_at,
             event="ai_model_start_deferred",
             reason="local_interval",
             state_was_mutated=False,
@@ -640,9 +663,17 @@ class AiAnalysisService:
             "deferred",
             "ai_model_rate_limited",
             "AI model start rate limit deferred this job.",
-            retry_at=decision.next_eligible_at,
+            retry_at=retry_at,
             metadata={"provider": provider, "model": model, "rpm": rpm},
         )
+
+    def _safe_rate_limit_retry_at(self, retry_at: datetime) -> datetime:
+        safety = timedelta(seconds=self.settings.AI_JOB_RATE_LIMIT_SAFETY_SECONDS)
+        if retry_at.tzinfo is None or retry_at.utcoffset() is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        else:
+            retry_at = retry_at.astimezone(timezone.utc)
+        return max(retry_at + safety, datetime.now(timezone.utc) + safety)
 
     def _defer_model_until(
         self,

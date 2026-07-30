@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import and_, case, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -9,6 +10,23 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.modules.ai_governance.model import AiModelRateLimitStateModel
+
+
+def configured_model_rates(
+    settings: Any, provider: str, requested_model: str
+) -> tuple[tuple[str, int], ...]:
+    """Return the ordered shared start gates for a provider request."""
+    if provider == "gemini":
+        limits = settings.gemini_model_limits
+        return tuple(
+            (
+                model,
+                settings.ai_model_rpm(provider, model) or limits[model].rpm,
+            )
+            for model in settings.gemini_model_pool
+        )
+    rpm = settings.ai_model_rpm(provider, requested_model)
+    return ((requested_model, rpm),) if rpm is not None else ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -51,9 +51,11 @@ class FakeAi:
         self.metadata = metadata
         self.on_call = on_call
         self.calls = 0
+        self.last_input = None
 
     async def analyze_single(self, _input):
         self.calls += 1
+        self.last_input = _input
         if self.on_call is not None:
             self.on_call()
         return AiMetadataAnalysisResult(
@@ -214,6 +216,89 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
                         session.scalar(select(func.count()).select_from(ProcessingJobModel)),
                         0,
                     )
+
+    async def test_claim_reserved_model_slot_is_reused_without_second_reservation(self):
+        from app.modules.processing_policy.claim import AI_MODEL_SLOT_PAYLOAD_KEY
+
+        reserved_at = datetime.now(timezone.utc)
+        preferred_model = self.settings.gemini_model_pool[1]
+        next_eligible_at = reserved_at + timedelta(seconds=10)
+        with self.factory() as session:
+            session.add(
+                AiCostRateModel(
+                    provider="gemini",
+                    model=preferred_model,
+                    processing_mode="single",
+                    effective_at=reserved_at - timedelta(days=1),
+                    input_unit_cost=0,
+                    output_unit_cost=0,
+                    media_unit_cost=0,
+                )
+            )
+            session.add(
+                AiModelRateLimitStateModel(
+                    tenant_id="tenant-a",
+                    provider="gemini",
+                    model=preferred_model,
+                    last_started_at=reserved_at,
+                    next_eligible_at=next_eligible_at,
+                    blocked_until=None,
+                )
+            )
+            job = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="asset_analyze",
+                entity_type="asset_ai_analysis",
+                entity_id=self.analysis_id,
+                idempotency_key="claimed-slot",
+                status="processing",
+                attempt_count=1,
+                claimed_by="worker-a",
+                claimed_at=reserved_at,
+                lease_expires_at=reserved_at + timedelta(minutes=1),
+                payload_json={
+                    AI_MODEL_SLOT_PAYLOAD_KEY: {
+                        "provider": "gemini",
+                        "model": preferred_model,
+                        "reserved_at": reserved_at.isoformat(),
+                        "next_eligible_at": next_eligible_at.isoformat(),
+                        "attempt_count": 1,
+                        "worker_id": "worker-a",
+                    }
+                },
+            )
+            session.add(job)
+            session.commit()
+            job_id = job.id
+
+        ai = FakeAi({"subject": "cat"})
+        outcome = await AiAnalysisService(
+            session_factory=self.factory,
+            storage_provider=self.storage,
+            ai_provider=ai,
+            settings=self.settings,
+        ).analyze(
+            tenant_id="tenant-a",
+            analysis_id=self.analysis_id,
+            worker_id="worker-a",
+            job_id=job_id,
+        )
+
+        self.assertEqual(outcome.status, "completed")
+        self.assertEqual(ai.calls, 1)
+        self.assertEqual(ai.last_input.preferred_model, preferred_model)
+        with self.factory() as session:
+            state = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant-a",
+                    "provider": "gemini",
+                    "model": preferred_model,
+                },
+            )
+            self.assertEqual(
+                state.next_eligible_at.replace(tzinfo=timezone.utc), next_eligible_at
+            )
 
     async def test_local_model_delay_does_not_reserve_budget_or_project_quota(self):
         from app.modules.ai_governance.model import AiUsageRecordModel

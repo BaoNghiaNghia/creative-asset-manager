@@ -6,13 +6,14 @@ from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import Settings
 from app.core.database import Base
 from app.modules.ai_governance.model import AiModelRateLimitStateModel
-from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
+from app.modules.processing_policy.claim import AI_MODEL_SLOT_PAYLOAD_KEY
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 
 
@@ -29,6 +30,7 @@ class RateLimitedClaimTest(unittest.TestCase):
         )
         Base.metadata.create_all(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
+        self.settings = Settings()
         with self.sessions.begin() as session:
             session.add(
                 TenantProcessingPolicyModel(
@@ -40,8 +42,8 @@ class RateLimitedClaimTest(unittest.TestCase):
                     ai_analysis_enabled=True,
                     search_v2_enabled=True,
                     sidecar_enabled=True,
-                    total_active_jobs_limit=10,
-                    ai_active_jobs_limit=10,
+                    total_active_jobs_limit=20,
+                    ai_active_jobs_limit=20,
                 )
             )
 
@@ -49,7 +51,7 @@ class RateLimitedClaimTest(unittest.TestCase):
         self.engine.dispose()
         self.directory.cleanup()
 
-    def _analysis_job(self, key: str, model: str, *, priority: int = 0) -> str:
+    def _analysis_job(self, key: str, *, priority: int = 0) -> str:
         with self.sessions.begin() as session:
             analysis = AssetAiAnalysisModel(
                 id=f"analysis-{key}",
@@ -62,7 +64,7 @@ class RateLimitedClaimTest(unittest.TestCase):
                 prompt_version="prompt-v1",
                 pipeline_version="pipeline-v1",
                 ai_provider="gemini",
-                ai_model=model,
+                ai_model=self.settings.gemini_model_pool[0],
             )
             session.add(analysis)
             session.flush()
@@ -79,14 +81,33 @@ class RateLimitedClaimTest(unittest.TestCase):
                 provider_scope="ai",
             ).id
 
-    def _claim(self, worker: str, now: datetime = NOW):
+    def _storage_job(self) -> str:
+        with self.sessions.begin() as session:
+            return ProcessingRepository(session).create_job(
+                tenant_id="tenant",
+                job_type="asset_store",
+                entity_type="asset_pipeline",
+                entity_id="pipeline",
+                idempotency_key="store:pipeline",
+                payload={"pipeline_id": "pipeline"},
+                next_attempt_at=NOW,
+                provider_key="google_drive_managed",
+                provider_scope="storage",
+            ).id
+
+    def _claim(
+        self,
+        worker: str,
+        now: datetime = NOW,
+        allowed_job_types: tuple[str, ...] = ("asset_analyze",),
+    ):
         with self.sessions() as session:
             return ProcessingJobService(ProcessingRepository(session)).claim_next(
                 worker_id=worker,
                 lease_seconds=60,
                 now=now,
                 enforce_tenant_policy=True,
-                allowed_job_types=("asset_analyze",),
+                allowed_job_types=allowed_job_types,
             )
 
     def _block_model(self, model: str, retry_at: datetime) -> None:
@@ -103,56 +124,85 @@ class RateLimitedClaimTest(unittest.TestCase):
                 )
             )
 
-    def test_all_delayed_jobs_are_filtered_before_claim(self):
-        first = self._analysis_job("a", "model-a")
-        second = self._analysis_job("b", "model-a")
-        retry_at = NOW + timedelta(seconds=10)
-        self._block_model("model-a", retry_at)
+    def _block_all_models(self) -> None:
+        for model in self.settings.gemini_model_pool:
+            self._block_model(model, NOW + timedelta(seconds=30))
 
-        self.assertIsNone(self._claim("worker-1"))
-        self.assertIsNone(self._claim("worker-2"))
+    def test_all_delayed_jobs_are_left_untouched_before_claim(self):
+        job_ids = [self._analysis_job(str(index)) for index in range(100)]
+        self._block_all_models()
+
+        for index in range(10):
+            self.assertIsNone(self._claim(f"worker-{index}"))
         with self.sessions() as session:
             jobs = list(
                 session.scalars(
+                    select(ProcessingJobModel).where(ProcessingJobModel.id.in_(job_ids))
+                )
+            )
+            self.assertEqual(sum(job.attempt_count for job in jobs), 0)
+            self.assertTrue(all(job.status == "pending" for job in jobs))
+            self.assertTrue(all(job.claimed_by is None for job in jobs))
+            self.assertTrue(all(job.last_error_code is None for job in jobs))
+
+    def test_claim_reserves_one_job_per_available_model_slot(self):
+        job_ids = [self._analysis_job(str(index)) for index in range(100)]
+
+        claimed = [
+            self._claim(f"worker-{index}")
+            for index in range(len(self.settings.gemini_model_pool))
+        ]
+        self.assertTrue(all(job is not None for job in claimed))
+        reserved_models = {
+            job.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]["model"] for job in claimed
+        }
+        self.assertEqual(reserved_models, set(self.settings.gemini_model_pool))
+        self.assertIsNone(self._claim("worker-extra"))
+
+        claimed_ids = {job.id for job in claimed}
+        with self.sessions() as session:
+            untouched = list(
+                session.scalars(
                     select(ProcessingJobModel).where(
-                        ProcessingJobModel.id.in_((first, second))
+                        ProcessingJobModel.id.in_(set(job_ids) - claimed_ids)
                     )
                 )
             )
-            self.assertEqual([job.attempt_count for job in jobs], [0, 0])
-            self.assertTrue(all(job.claimed_by is None for job in jobs))
+            self.assertEqual(len(untouched), 100 - len(claimed_ids))
+            self.assertTrue(all(job.attempt_count == 0 for job in untouched))
+            self.assertTrue(all(job.claimed_by is None for job in untouched))
 
-    def test_independently_eligible_model_can_be_claimed(self):
-        self._analysis_job("blocked", "model-a", priority=10)
-        eligible = self._analysis_job("eligible", "model-b")
-        self._block_model("model-a", NOW + timedelta(seconds=10))
+    def test_blocked_primary_uses_next_pool_model(self):
+        job_id = self._analysis_job("fallback")
+        primary, fallback = self.settings.gemini_model_pool[:2]
+        self._block_model(primary, NOW + timedelta(seconds=30))
 
         claimed = self._claim("worker")
-        self.assertIsNotNone(claimed)
-        self.assertEqual(claimed.id, eligible)
-
-    def test_accepted_start_prevents_same_model_queue_churn(self):
-        first = self._analysis_job("first", "model-a")
-        second = self._analysis_job("second", "model-a")
-        claimed = self._claim("worker-1")
-        self.assertEqual(claimed.id, first)
-
-        with self.sessions.begin() as session:
-            decision = AiModelRateLimitRepository(session).reserve_start(
-                tenant_id="tenant",
-                provider="gemini",
-                model="model-a",
-                rpm=12,
-                minimum_interval_seconds=10,
-                now=NOW,
-            )
-            self.assertTrue(decision.allowed)
-
-        self.assertIsNone(self._claim("worker-2"))
+        self.assertEqual(claimed.id, job_id)
+        marker = claimed.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
+        self.assertEqual(marker["model"], fallback)
         with self.sessions() as session:
-            remaining = session.get(ProcessingJobModel, second)
-            self.assertEqual(remaining.attempt_count, 0)
-            self.assertIsNone(remaining.claimed_by)
+            primary_state = session.scalar(
+                select(AiModelRateLimitStateModel).where(
+                    AiModelRateLimitStateModel.tenant_id == "tenant",
+                    AiModelRateLimitStateModel.model == primary,
+                )
+            )
+            self.assertEqual(
+                primary_state.next_eligible_at.replace(tzinfo=timezone.utc),
+                NOW + timedelta(seconds=30),
+            )
+
+    def test_unrelated_job_is_claimed_when_ai_pool_is_blocked(self):
+        self._analysis_job("blocked", priority=10)
+        storage_job_id = self._storage_job()
+        self._block_all_models()
+
+        claimed = self._claim(
+            "worker", allowed_job_types=("asset_analyze", "asset_store")
+        )
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, storage_job_id)
 
 
 if __name__ == "__main__":
