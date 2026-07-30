@@ -13,7 +13,7 @@ from app.modules.ai_governance.model import AiModelRateLimitStateModel
 
 
 def configured_model_rates(
-    settings: Any, provider: str, requested_model: str
+    settings: Any, provider: str, requested_model: str | None
 ) -> tuple[tuple[str, int], ...]:
     """Return the ordered shared start gates for a provider request."""
     if provider == "gemini":
@@ -25,8 +25,11 @@ def configured_model_rates(
             )
             for model in settings.gemini_model_pool
         )
-    rpm = settings.ai_model_rpm(provider, requested_model)
-    return ((requested_model, rpm),) if rpm is not None else ()
+    model = requested_model.strip() if isinstance(requested_model, str) else ""
+    if not model:
+        return ()
+    rpm = settings.ai_model_rpm(provider, model)
+    return ((model, rpm),) if rpm is not None else ()
 
 
 @dataclass(frozen=True, slots=True)

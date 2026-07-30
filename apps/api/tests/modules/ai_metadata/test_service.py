@@ -248,8 +248,8 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
             job = ProcessingJobModel(
                 tenant_id="tenant-a",
                 job_type="asset_analyze",
-                entity_type="asset_ai_analysis",
-                entity_id=self.analysis_id,
+                entity_type="asset_pipeline",
+                entity_id="pipeline-claimed-slot",
                 idempotency_key="claimed-slot",
                 status="processing",
                 attempt_count=1,
@@ -257,6 +257,7 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
                 claimed_at=reserved_at,
                 lease_expires_at=reserved_at + timedelta(minutes=1),
                 payload_json={
+                    "analysis_id": self.analysis_id,
                     AI_MODEL_SLOT_PAYLOAD_KEY: {
                         "provider": "gemini",
                         "model": preferred_model,
@@ -285,6 +286,7 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(outcome.status, "completed")
+        self.assertNotEqual(outcome.error_code, "gemini_model_pool_exhausted")
         self.assertEqual(ai.calls, 1)
         self.assertEqual(ai.last_input.preferred_model, preferred_model)
         with self.factory() as session:

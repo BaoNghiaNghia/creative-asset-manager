@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.core.database import SessionLocal
 from app.modules.ai_governance.model import (
@@ -34,10 +34,15 @@ def parser() -> argparse.ArgumentParser:
             "budget:repair-stale-reservations",
             "rate-limit:repair",
             "rate-limit:validate",
+            "model-gate:repair",
         ],
     )
     value.add_argument("--tenant-id", required=True)
     value.add_argument("--older-than-minutes", type=int, default=60)
+    value.add_argument(
+        "--deployed-after",
+        help="ISO-8601 deployment timestamp; required by model-gate:repair",
+    )
     value.add_argument("--apply", action="store_true")
     value.add_argument("--dry-run", action="store_true")
     value.add_argument("--output-json", action="store_true")
@@ -204,6 +209,61 @@ def repair_rate_limit_backlog(
         "active_jobs_skipped": skipped_active,
         "jobs_would_be_made_normally_claimable": len(candidates),
         "jobs_made_normally_claimable": repaired,
+    }
+
+
+def repair_model_gate_regression(
+    *,
+    tenant_id: str,
+    deployed_after: datetime,
+    apply: bool = False,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return only confirmed d2fad87 model-gate regressions to the queue."""
+    deployed_after = _as_utc(deployed_after)
+    now = now or datetime.now(timezone.utc)
+    repaired = 0
+    with SessionLocal() as session:
+        jobs = list(
+            session.scalars(
+                select(ProcessingJobModel)
+                .where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == "asset_analyze",
+                    ProcessingJobModel.status == "retry",
+                    ProcessingJobModel.last_error_code
+                    == "gemini_model_pool_exhausted",
+                    ProcessingJobModel.last_error_message
+                    == "No Gemini model is currently available.",
+                    or_(
+                        ProcessingJobModel.created_at >= deployed_after,
+                        ProcessingJobModel.updated_at >= deployed_after,
+                    ),
+                )
+                .order_by(ProcessingJobModel.created_at, ProcessingJobModel.id)
+            )
+        )
+        if apply:
+            for job in jobs:
+                job.status = "pending"
+                job.next_attempt_at = now
+                job.claimed_by = None
+                job.claimed_at = None
+                job.lease_expires_at = None
+                job.last_error_code = None
+                job.last_error_message = None
+                job.updated_at = now
+                repaired += 1
+            session.commit()
+        else:
+            session.rollback()
+    return {
+        "tenant_id": tenant_id,
+        "dry_run": not apply,
+        "deployed_after": deployed_after,
+        "matching_jobs": len(jobs),
+        "repaired": repaired,
+        "jobs_would_return_to_queue": len(jobs),
     }
 
 
@@ -404,6 +464,16 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _parse_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("--deployed-after must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("--deployed-after must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
 def _settings_for_cli():
     # Imported lazily so command argument parsing does not trigger app startup.
     from app.core.config import get_settings
@@ -427,6 +497,16 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         )
     if args.command == "rate-limit:validate":
         return validate_rate_limits(tenant_id=args.tenant_id)
+    if args.command == "model-gate:repair":
+        if args.apply and args.dry_run:
+            raise ValueError("--apply and --dry-run cannot be used together")
+        if not args.deployed_after:
+            raise ValueError("--deployed-after is required for model-gate:repair")
+        return repair_model_gate_regression(
+            tenant_id=args.tenant_id,
+            deployed_after=_parse_datetime(args.deployed_after),
+            apply=args.apply,
+        )
     raise ValueError(f"Unsupported command: {args.command}")
 
 

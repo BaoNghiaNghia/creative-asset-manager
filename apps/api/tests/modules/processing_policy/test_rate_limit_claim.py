@@ -9,11 +9,15 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import Settings
 from app.core.database import Base
 from app.modules.ai_governance.model import AiModelRateLimitStateModel
+from app.modules.ai_governance.rate_limit import configured_model_rates
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
-from app.modules.processing_policy.claim import AI_MODEL_SLOT_PAYLOAD_KEY
+from app.modules.processing_policy.claim import (
+    AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE,
+    AI_MODEL_SLOT_PAYLOAD_KEY,
+)
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 
 
@@ -64,15 +68,15 @@ class RateLimitedClaimTest(unittest.TestCase):
                 prompt_version="prompt-v1",
                 pipeline_version="pipeline-v1",
                 ai_provider="gemini",
-                ai_model=self.settings.gemini_model_pool[0],
+                ai_model=None,
             )
             session.add(analysis)
             session.flush()
             return ProcessingRepository(session).create_job(
                 tenant_id="tenant",
                 job_type="asset_analyze",
-                entity_type="asset_ai_analysis",
-                entity_id=analysis.id,
+                entity_type="asset_pipeline",
+                entity_id=f"pipeline-{key}",
                 idempotency_key=f"analyze:{key}",
                 payload={"analysis_id": analysis.id},
                 priority=priority,
@@ -127,6 +131,134 @@ class RateLimitedClaimTest(unittest.TestCase):
     def _block_all_models(self) -> None:
         for model in self.settings.gemini_model_pool:
             self._block_model(model, NOW + timedelta(seconds=30))
+
+
+    def test_production_shaped_job_uses_payload_analysis_and_persists_marker(self):
+        job_id = self._analysis_job("production")
+
+        claimed = self._claim("worker-production")
+
+        self.assertEqual(claimed.id, job_id)
+        self.assertEqual(claimed.entity_type, "asset_pipeline")
+        self.assertNotEqual(claimed.entity_id, claimed.payload_json["analysis_id"])
+        marker = claimed.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
+        self.assertEqual(marker["provider"], "gemini")
+        self.assertTrue(marker["model"])
+        self.assertEqual(marker["worker_id"], "worker-production")
+        self.assertEqual(marker["attempt_count"], claimed.attempt_count)
+        with self.sessions() as session:
+            reloaded = session.get(ProcessingJobModel, job_id)
+            persisted = reloaded.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
+            self.assertEqual(persisted, marker)
+            state = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant",
+                    "provider": "gemini",
+                    "model": marker["model"],
+                },
+            )
+            self.assertIsNotNone(state)
+
+    def test_null_gemini_model_resolves_configured_pool(self):
+        rates = configured_model_rates(self.settings, "gemini", None)
+
+        self.assertEqual(
+            tuple(model for model, _rpm in rates), self.settings.gemini_model_pool
+        )
+        self.assertTrue(all(rpm > 0 for _model, rpm in rates))
+        self.assertEqual(configured_model_rates(self.settings, "openai", None), ())
+
+
+    def test_legacy_analysis_entity_falls_back_to_entity_id(self):
+        with self.sessions.begin() as session:
+            analysis = AssetAiAnalysisModel(
+                id="analysis-legacy", tenant_id="tenant", asset_id="asset-legacy",
+                content_hash="e" * 64, metadata_profile_id="profile",
+                metadata_profile="creative-assets", metadata_profile_version="v1",
+                prompt_version="prompt-v1", pipeline_version="pipeline-v1",
+                ai_provider="gemini", ai_model=None,
+            )
+            session.add(analysis)
+            session.flush()
+            job = ProcessingRepository(session).create_job(
+                tenant_id="tenant", job_type="asset_analyze",
+                entity_type="asset_ai_analysis", entity_id=analysis.id,
+                idempotency_key="legacy-analysis", payload={},
+                next_attempt_at=NOW, provider_key="gemini", provider_scope="ai",
+            )
+            job_id = job.id
+
+        claimed = self._claim("worker-legacy")
+        self.assertEqual(claimed.id, job_id)
+        self.assertTrue(
+            claimed.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]["model"]
+        )
+
+    def test_asset_pipeline_missing_analysis_id_is_terminalized_once(self):
+        with self.sessions.begin() as session:
+            job = ProcessingRepository(session).create_job(
+                tenant_id="tenant",
+                job_type="asset_analyze",
+                entity_type="asset_pipeline",
+                entity_id="pipeline-malformed",
+                idempotency_key="malformed",
+                payload={"pipeline_id": "pipeline-malformed"},
+                next_attempt_at=NOW,
+                provider_key="gemini",
+                provider_scope="ai",
+            )
+            job_id = job.id
+
+        self.assertIsNone(self._claim("worker-malformed"))
+        self.assertIsNone(self._claim("worker-malformed-again"))
+        with self.sessions() as session:
+            job = session.get(ProcessingJobModel, job_id)
+            self.assertEqual(job.status, "failed")
+            self.assertEqual(job.attempt_count, 0)
+            self.assertEqual(
+                job.last_error_code, AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE
+            )
+            self.assertIsNone(job.claimed_by)
+            self.assertIsNone(job.lease_expires_at)
+
+    def test_cross_tenant_analysis_id_is_terminalized(self):
+        with self.sessions.begin() as session:
+            other = AssetAiAnalysisModel(
+                id="analysis-other-tenant",
+                tenant_id="tenant-other",
+                asset_id="asset-other",
+                content_hash="f" * 64,
+                metadata_profile_id="profile",
+                metadata_profile="creative-assets",
+                metadata_profile_version="v1",
+                prompt_version="prompt-v1",
+                pipeline_version="pipeline-v1",
+                ai_provider="gemini",
+                ai_model=None,
+            )
+            session.add(other)
+            session.flush()
+            job = ProcessingRepository(session).create_job(
+                tenant_id="tenant",
+                job_type="asset_analyze",
+                entity_type="asset_pipeline",
+                entity_id="pipeline-cross-tenant",
+                idempotency_key="cross-tenant",
+                payload={"analysis_id": other.id},
+                next_attempt_at=NOW,
+                provider_key="gemini",
+                provider_scope="ai",
+            )
+            job_id = job.id
+
+        self.assertIsNone(self._claim("worker-cross-tenant"))
+        with self.sessions() as session:
+            job = session.get(ProcessingJobModel, job_id)
+            self.assertEqual(job.status, "failed")
+            self.assertEqual(
+                job.last_error_code, AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE
+            )
 
     def test_all_delayed_jobs_are_left_untouched_before_claim(self):
         job_ids = [self._analysis_job(str(index)) for index in range(100)]

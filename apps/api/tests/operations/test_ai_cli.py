@@ -204,6 +204,93 @@ class AiCliTest(unittest.TestCase):
         with self.factory() as session:
             self.assertEqual(session.get(ProcessingJobModel, active_id).status, "processing")
 
+
+    def test_model_gate_regression_repair_is_exact_and_idempotent(self):
+        deployed_after = self.now - timedelta(hours=1)
+        with self.factory() as session:
+            target = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="asset_analyze",
+                entity_type="asset_pipeline",
+                entity_id="pipeline-regression",
+                idempotency_key="model-gate-regression",
+                status="retry",
+                attempt_count=2,
+                next_attempt_at=self.now + timedelta(minutes=5),
+                last_error_code="gemini_model_pool_exhausted",
+                last_error_message="No Gemini model is currently available.",
+                payload_json={"analysis_id": "analysis-regression", "keep": True},
+                created_at=self.now,
+                updated_at=self.now,
+            )
+            historical = ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_pipeline", entity_id="pipeline-old",
+                idempotency_key="model-gate-old", status="retry",
+                last_error_code="gemini_model_pool_exhausted",
+                last_error_message="No Gemini model is currently available.",
+                created_at=self.now - timedelta(days=2),
+                updated_at=self.now - timedelta(days=2),
+            )
+            legitimate = ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_pipeline", entity_id="pipeline-legitimate",
+                idempotency_key="model-gate-legitimate", status="retry",
+                last_error_code="gemini_model_pool_exhausted",
+                last_error_message="Different provider failure.",
+                created_at=self.now, updated_at=self.now,
+            )
+            terminal = ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_pipeline", entity_id="pipeline-terminal",
+                idempotency_key="model-gate-terminal", status="failed",
+                last_error_code="gemini_model_pool_exhausted",
+                last_error_message="No Gemini model is currently available.",
+                created_at=self.now, updated_at=self.now,
+            )
+            session.add_all((target, historical, legitimate, terminal))
+            session.commit()
+            target_id = target.id
+            untouched_ids = (historical.id, legitimate.id, terminal.id)
+
+        with patch.object(ai_cli, "SessionLocal", self.factory):
+            dry_run = ai_cli.repair_model_gate_regression(
+                tenant_id="tenant-a", deployed_after=deployed_after, now=self.now
+            )
+            self.assertEqual(dry_run["matching_jobs"], 1)
+            self.assertEqual(dry_run["repaired"], 0)
+            applied = ai_cli.repair_model_gate_regression(
+                tenant_id="tenant-a", deployed_after=deployed_after,
+                now=self.now, apply=True,
+            )
+            self.assertEqual(applied["repaired"], 1)
+            repeated = ai_cli.repair_model_gate_regression(
+                tenant_id="tenant-a", deployed_after=deployed_after,
+                now=self.now, apply=True,
+            )
+            self.assertEqual(repeated["repaired"], 0)
+
+        with self.factory() as session:
+            repaired = session.get(ProcessingJobModel, target_id)
+            self.assertEqual(repaired.status, "pending")
+            self.assertEqual(repaired.attempt_count, 2)
+            self.assertEqual(
+                repaired.payload_json,
+                {"analysis_id": "analysis-regression", "keep": True},
+            )
+            self.assertIsNone(repaired.last_error_code)
+            self.assertTrue(
+                all(
+                    session.get(ProcessingJobModel, job_id).last_error_code
+                    == "gemini_model_pool_exhausted"
+                    for job_id in untouched_ids
+                )
+            )
+
+    def test_model_gate_repair_requires_timezone_aware_cutoff(self):
+        with self.assertRaisesRegex(ValueError, "include a timezone"):
+            ai_cli._parse_datetime("2026-07-30T10:00:00")
+
     def test_rate_limit_validation_is_read_only_and_reports_eligible_defer(self):
         with self.factory() as session:
             session.add(AiModelRateLimitStateModel(

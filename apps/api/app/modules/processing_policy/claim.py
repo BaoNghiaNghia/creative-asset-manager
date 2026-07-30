@@ -18,7 +18,8 @@ AI_JOB_TYPES = ("asset_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batc
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download")
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export")
 AI_MODEL_SLOT_PAYLOAD_KEY = "_ai_model_start_slot"
-_ANALYSIS_MODEL_GATE_NOT_APPLICABLE = object()
+AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE = "ai_analysis_model_gate_unresolvable"
+_ANALYSIS_MODEL_GATE_UNRESOLVABLE = object()
 
 STAGE_POLICY = {
     "source_sync": "source_sync_enabled",
@@ -74,6 +75,11 @@ class TenantAwareJobClaimer:
             model_slot = None
             if candidate.job_type == "asset_analyze":
                 model_slot = self._reserve_analysis_model(candidate, now)
+                if model_slot is _ANALYSIS_MODEL_GATE_UNRESOLVABLE:
+                    if candidate.concurrency_accounted:
+                        self.release(candidate)
+                    self._terminalize_unresolvable_analysis(candidate, now)
+                    continue
                 if model_slot is None:
                     if not already_accounted:
                         self.release(candidate)
@@ -81,8 +87,6 @@ class TenantAwareJobClaimer:
                         (candidate.tenant_id, candidate.provider_key)
                     )
                     continue
-                if model_slot is _ANALYSIS_MODEL_GATE_NOT_APPLICABLE:
-                    model_slot = None
 
             lease_expires_at = now + timedelta(seconds=lease_seconds)
             values = {
@@ -364,30 +368,45 @@ class TenantAwareJobClaimer:
     def _reserve_analysis_model(
         self, job: ProcessingJobModel, now: datetime
     ) -> dict[str, object] | object | None:
+        analysis_id = self._analysis_id_for_model_gate(job)
+        if analysis_id is None:
+            return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
         analysis = self.session.scalar(
             select(AssetAiAnalysisModel).where(
-                AssetAiAnalysisModel.id == job.entity_id,
+                AssetAiAnalysisModel.id == analysis_id,
                 AssetAiAnalysisModel.tenant_id == job.tenant_id,
             )
         )
         if analysis is None:
-            # Legacy/malformed jobs must remain claimable so their handler can
-            # terminalize them; only a resolved provider/model can be gated.
-            return _ANALYSIS_MODEL_GATE_NOT_APPLICABLE
+            return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
+        provider = (
+            analysis.ai_provider.strip()
+            if isinstance(analysis.ai_provider, str)
+            else ""
+        )
+        if not provider:
+            return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
         model_rates = configured_model_rates(
-            self.settings, analysis.ai_provider, analysis.ai_model
+            self.settings, provider, analysis.ai_model
         )
         if not model_rates:
+            model = (
+                analysis.ai_model.strip()
+                if isinstance(analysis.ai_model, str)
+                else ""
+            )
+            if not model:
+                return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
             return {
-                "provider": analysis.ai_provider,
-                "model": analysis.ai_model,
+                "provider": provider,
+                "model": model,
                 "next_eligible_at": now,
             }
         limiter = AiModelRateLimitRepository(self.session)
         for model, rpm in model_rates:
             decision = limiter.reserve_start(
                 tenant_id=job.tenant_id,
-                provider=analysis.ai_provider,
+                provider=provider,
                 model=model,
                 rpm=rpm,
                 minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
@@ -395,8 +414,35 @@ class TenantAwareJobClaimer:
             )
             if decision.allowed:
                 return {
-                    "provider": analysis.ai_provider,
+                    "provider": provider,
                     "model": model,
                     "next_eligible_at": decision.next_eligible_at,
                 }
         return None
+
+    @staticmethod
+    def _analysis_id_for_model_gate(job: ProcessingJobModel) -> str | None:
+        payload_analysis_id = (job.payload_json or {}).get("analysis_id")
+        if isinstance(payload_analysis_id, str) and payload_analysis_id.strip():
+            return payload_analysis_id.strip()
+        if job.entity_type in {"asset_ai_analysis", "ai_analysis"}:
+            entity_id = job.entity_id
+            if isinstance(entity_id, str) and entity_id.strip():
+                return entity_id.strip()
+        return None
+
+    def _terminalize_unresolvable_analysis(
+        self, job: ProcessingJobModel, now: datetime
+    ) -> None:
+        job.status = JobStatus.FAILED.value
+        job.claimed_by = None
+        job.claimed_at = None
+        job.lease_expires_at = None
+        job.next_attempt_at = now
+        job.completed_at = now
+        job.last_error_code = AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE
+        job.last_error_message = (
+            "AI analysis reference could not be resolved for this tenant."
+        )
+        job.updated_at = now
+        self.session.flush()
