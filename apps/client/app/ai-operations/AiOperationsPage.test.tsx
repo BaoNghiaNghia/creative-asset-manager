@@ -56,6 +56,11 @@ const summary = {
   budget_blocked: 1,
   deferred: 0,
   next_deferred_retry_at: null,
+  local_rate_limited: 0,
+  quota_deferred: 0,
+  provider_cooldown_deferred: 0,
+  next_local_rate_limit_retry_at: null,
+  next_quota_retry_at: null,
   success_rate: 0.8,
   input_units: 1_000,
   output_units: 200,
@@ -215,10 +220,10 @@ describe("AI Operations dashboard", () => {
   });
 
   it("explains deferred Gemini work with its next retry time", () => {
-    const markup = render("overview", { data: { ...data, summary: { ...summary, deferred: 3, next_deferred_retry_at: "2026-07-22T10:30:00Z" } } });
-    expect(markup).toContain("Gemini quota is temporarily busy");
+    const markup = render("overview", { data: { ...data, summary: { ...summary, deferred: 3, quota_deferred: 3, next_deferred_retry_at: "2026-07-22T10:30:00Z", next_quota_retry_at: "2026-07-22T10:30:00Z" } } });
+    expect(markup).toContain("Gemini quota or provider cooldown is active");
     expect(markup).toContain("3 analyses will retry automatically");
-    expect(markup).toContain("Next retry");
+    expect(markup).toContain("Next provider retry");
   });
 
   it("formats only accumulated worker execution time for completed jobs", () => {

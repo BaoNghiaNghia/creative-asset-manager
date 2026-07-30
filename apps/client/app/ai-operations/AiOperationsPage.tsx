@@ -340,20 +340,28 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
     { label: "Completed", value: summary?.completed || 0, detail: "Finished successfully", tone: "success" },
     { label: "Failed", value: summary?.failed || 0, detail: "Needs attention", tone: "danger" },
     { label: "Budget blocked", value: summary?.budget_blocked || 0, detail: "Stopped by budget policy", tone: "danger" },
-    { label: "Waiting for quota", value: summary?.deferred || 0, detail: "Will retry automatically", tone: "warning" },
+    { label: "Rate-limit scheduling delay", value: summary?.local_rate_limited || 0, detail: "Locally scheduled model starts", tone: "warning" },
+    { label: "Waiting for quota", value: (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0), detail: "Provider quota or cooldown", tone: "warning" },
     { label: "Running", value: summary?.running || 0, detail: "Currently processing", tone: "info" },
     { label: "Queued", value: summary?.queued || 0, detail: "Waiting to start", tone: "neutral" },
     { label: "Success rate", value: `${((summary?.success_rate || 0) * 100).toFixed(1)}%`, detail: "Completed out of terminal jobs", tone: "success" },
     { label: "Estimated cost today", value: formatCost(data.today?.cost?.estimated_cost_micros, data.today?.cost?.currency), detail: "Projected usage for today", tone: "neutral" },
     { label: "Estimated cost this month", value: formatCost(data.month?.cost?.estimated_cost_micros, data.month?.cost?.currency), detail: "Projected monthly usage", tone: "neutral" },
   ];
-  const nextQuotaRetry = summary?.next_deferred_retry_at;
+  const nextQuotaRetry = summary?.next_provider_retry_at ?? summary?.next_quota_retry_at;
+  const nextLocalRetry = summary?.next_local_rate_limit_retry_at;
+  const localScheduled = summary?.local_rate_limited || 0;
+  const quotaScheduled = (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0);
   return <div className="ops-content">
     <p className="ops-ai-scope-note">These metrics cover AI analysis only. Download, storage, projection, and indexing are shown in Pipeline Overview.</p>
     <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
-    {nextQuotaRetry && <section className="ops-quota-notice" role="status" aria-label="Gemini quota retry status">
-      <div><span className="ops-quota-badge">Quota</span><div><strong>Gemini quota is temporarily busy</strong><p>{summary?.deferred || 0} {summary?.deferred === 1 ? "analysis" : "analyses"} will retry automatically. No action is needed unless this keeps recurring.</p></div></div>
-      <time dateTime={nextQuotaRetry}><span>Next retry</span>{new Date(nextQuotaRetry).toLocaleString()}</time>
+    {localScheduled > 0 && nextLocalRetry && <section className="ops-quota-notice" role="status" aria-label="AI model scheduling retry status">
+      <div><span className="ops-quota-badge">Schedule</span><div><strong>Rate-limit scheduling delay</strong><p>{localScheduled} {localScheduled === 1 ? "analysis is" : "analyses are"} waiting for the next local model-start slot. No provider request was sent.</p></div></div>
+      <time dateTime={nextLocalRetry}><span>Next local slot</span>{new Date(nextLocalRetry).toLocaleString()}</time>
+    </section>}
+    {quotaScheduled > 0 && nextQuotaRetry && <section className="ops-quota-notice" role="status" aria-label="Gemini quota retry status">
+      <div><span className="ops-quota-badge">Quota</span><div><strong>Gemini quota or provider cooldown is active</strong><p>{quotaScheduled} {quotaScheduled === 1 ? "analysis" : "analyses"} will retry automatically after the provider allows another request.</p></div></div>
+      <time dateTime={nextQuotaRetry}><span>Next provider retry</span>{new Date(nextQuotaRetry).toLocaleString()}</time>
     </section>}
     <section className="ops-kpis" aria-label="AI processing summary">{cards.map(card => <article key={card.label} className={`ops-kpi ops-kpi-${card.tone}`}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
     <section className="ops-charts">

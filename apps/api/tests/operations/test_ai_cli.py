@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.core.database import Base
-from app.modules.ai_governance.model import AiBudgetReservationModel
+from app.modules.ai_governance.model import AiBudgetReservationModel, AiModelRateLimitStateModel
 from app.modules.ai_governance.service import AiBudgetService
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
@@ -93,6 +93,41 @@ class AiCliTest(unittest.TestCase):
             )
         self.assertEqual(result["repaired"], 0)
         self.assertEqual(result["repair_reasons"]["active_job_skipped"], 1)
+
+    def test_rate_limit_validation_is_read_only_and_reports_eligible_defer(self):
+        with self.factory() as session:
+            session.add(AiModelRateLimitStateModel(
+                tenant_id="tenant-a", provider="gemini", model="gemini-2.5-flash",
+                last_started_at=self.now - timedelta(seconds=20),
+                next_eligible_at=self.now - timedelta(seconds=1),
+            ))
+            session.add(ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_ai_analysis", entity_id="deferred-a",
+                idempotency_key="deferred-a", status="pending",
+                last_error_code="ai_model_rate_limited",
+                next_attempt_at=self.now - timedelta(seconds=1),
+            ))
+            session.commit()
+        settings = Settings(
+            AI_MODEL_RPM_LIMITS='{"gemini":{"gemini-2.5-flash":4}}',
+            AI_JOB_MIN_INTERVAL_SECONDS=10,
+        )
+        with patch.object(ai_cli, "SessionLocal", self.factory), patch.object(
+            ai_cli, "_settings_for_cli", return_value=settings
+        ):
+            result = ai_cli.validate_rate_limits(tenant_id="tenant-a", now=self.now)
+        self.assertEqual(result["local_rate_deferred_jobs"], 1)
+        self.assertEqual(result["improperly_eligible_local_deferred_jobs"], 1)
+        self.assertEqual(result["models"][0]["effective_interval_seconds"], 15)
+        with self.factory() as session:
+            self.assertEqual(
+                session.scalar(select(ProcessingJobModel.status).where(
+                    ProcessingJobModel.idempotency_key == "deferred-a"
+                )),
+                "pending",
+            )
+
 
 
 if __name__ == "__main__":

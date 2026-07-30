@@ -294,7 +294,7 @@ class GeminiDeferredWorkerE2ETest(unittest.TestCase):
         self.assertEqual(deferred.status, "pending")
         self.assertEqual(deferred.attempt_count, 0)
         self.assertGreater(deferred.next_attempt_at.replace(tzinfo=timezone.utc), self.clock.now)
-        self.assertEqual(deferred.last_error_code, "gemini_quota_deferred")
+        self.assertEqual(deferred.last_error_code, "gemini_model_pool_temporarily_unavailable")
         with self.sessions() as session:
             analysis = session.get(AssetAiAnalysisModel, self.analysis_id)
             self.assertEqual(analysis.status, "pending")

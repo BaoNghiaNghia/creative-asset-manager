@@ -33,6 +33,12 @@ export type AiOpsSummary = {
   budget_blocked: number;
   deferred: number;
   next_deferred_retry_at: string | null;
+  local_rate_limited: number;
+  quota_deferred: number;
+  provider_cooldown_deferred: number;
+  next_local_rate_limit_retry_at: string | null;
+  next_quota_retry_at: string | null;
+  next_provider_retry_at?: string | null;
   success_rate: number;
   input_units: number;
   output_units: number;

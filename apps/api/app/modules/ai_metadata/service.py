@@ -225,6 +225,22 @@ class AiAnalysisService:
                 repository.set_stage(analysis_id, "analyzing")
                 session.commit()
 
+            deferred = self._check_model_start(
+                tenant_id=tenant_id,
+                provider=provider_name,
+                model=provider_model,
+                retry_count=max(0, attempt_count - 1),
+            )
+            if deferred is not None:
+                await self._record_deferred(
+                    analysis_id,
+                    code=deferred.error_code or "ai_model_rate_limited",
+                    message=deferred.error_message or "AI model start is scheduled for later.",
+                    provider_metadata=deferred.metadata,
+                    decrement_attempt=True,
+                )
+                return deferred
+
             operation_key = f"analysis:{analysis_id}:provider:{provider_name}:model:{provider_model}:mode:single:attempt:{attempt_count}"
             estimated_input_units = max(1, (len(prompt) + 3) // 4)
             with self.session_factory() as session:
@@ -281,11 +297,12 @@ class AiAnalysisService:
                     reservation_id, reason=deferred.error_code or "ai_model_rate_limited"
                 )
                 reservation_finalized = reservation_id is not None
-                await self._record_failure(
+                await self._record_deferred(
                     analysis_id,
                     code=deferred.error_code or "ai_model_rate_limited",
-                    message=deferred.error_message or "AI model rate limit deferred.",
-                    retryable=True,
+                    message=deferred.error_message or "AI model start is scheduled for later.",
+                    provider_metadata=deferred.metadata,
+                    decrement_attempt=True,
                 )
                 return deferred
             provider_started = time.monotonic()
@@ -390,34 +407,47 @@ class AiAnalysisService:
                 str(exc),
             )
         except GeminiPoolTemporarilyUnavailable as exc:
-            self._defer_model_until(
-                tenant_id=tenant_id,
-                provider=provider_name,
-                model=provider_model,
-                retry_at=exc.earliest_retry_at,
-                retry_count=max(0, attempt_count - 1),
-                reason_code="gemini_quota_deferred",
+            # A pool with no provider attempt is a local scheduling delay.  It must
+            # not create a durable provider cooldown or be presented as quota use.
+            provider_attempted = bool(exc.attempted_models)
+            reason_code = (
+                "gemini_model_pool_temporarily_unavailable"
+                if provider_attempted
+                else "ai_model_rate_limited"
             )
-            self._release_budget_reservation(
-                reservation_id, reason="gemini_quota_deferred"
-            )
+            if provider_attempted:
+                self._defer_model_until(
+                    tenant_id=tenant_id,
+                    provider=provider_name,
+                    model=exc.attempted_models[-1],
+                    retry_at=exc.earliest_retry_at,
+                    retry_count=max(0, attempt_count - 1),
+                    reason_code=reason_code,
+                )
+            self._release_budget_reservation(reservation_id, reason=reason_code)
             reservation_finalized = reservation_id is not None
-            await self._record_failure(
+            message = (
+                "Gemini model capacity is temporarily unavailable."
+                if provider_attempted
+                else "AI model start is scheduled for the next local rate-limit slot."
+            )
+            await self._record_deferred(
                 analysis_id,
-                code="gemini_quota_deferred",
-                message="Gemini model capacity is temporarily unavailable.",
-                retryable=True,
+                code=reason_code,
+                message=message,
                 provider_metadata=exc.details,
+                decrement_attempt=not provider_attempted,
             )
             return AiAnalysisOutcome(
                 "deferred",
-                "gemini_quota_deferred",
-                "Gemini model capacity is temporarily unavailable.",
+                reason_code,
+                message,
                 retry_at=exc.earliest_retry_at,
                 metadata={
                     "attempted_models": list(exc.attempted_models),
                     "reasons_by_model": exc.details["reasons_by_model"],
                     "provider": exc.provider,
+                    "reason": "provider_cooldown" if provider_attempted else "local_interval",
                 },
             )
         except AiProviderError as exc:
@@ -434,6 +464,12 @@ class AiAnalysisService:
                     retry_at=retry_at,
                     retry_count=max(0, attempt_count - 1),
                     reason_code="ai_provider_rate_limited",
+                    provider_http_status=exc.status_code,
+                    retry_after_seconds=exc.details.get("retry_after_seconds"),
+                    provider_request_id=(
+                        exc.details.get("provider_request_id")
+                        or exc.details.get("request_id")
+                    ),
                 )
                 await self._record_failure(
                     analysis_id,
@@ -511,6 +547,49 @@ class AiAnalysisService:
             ).release(reservation_id, reason=reason)
             session.commit()
 
+    def _check_model_start(
+        self,
+        *,
+        tenant_id: str,
+        provider: str,
+        model: str,
+        retry_count: int,
+    ) -> AiAnalysisOutcome | None:
+        rpm = self.settings.ai_model_rpm(provider, model)
+        if rpm is None:
+            return None
+        with self.session_factory() as session:
+            decision = AiModelRateLimitRepository(session).next_start(
+                tenant_id=tenant_id,
+                provider=provider,
+                model=model,
+                rpm=rpm,
+                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+            )
+        if decision.allowed:
+            return None
+        self._log_rate_limit(
+            tenant_id=tenant_id,
+            provider=provider,
+            model=model,
+            rpm=rpm,
+            delay_seconds=decision.delay_seconds,
+            retry_count=retry_count,
+            next_execution_at=decision.next_eligible_at,
+            event="ai_model_start_deferred",
+            reason="local_interval",
+            state_was_mutated=False,
+        )
+        return AiAnalysisOutcome(
+            "deferred",
+            "ai_model_rate_limited",
+            "AI model start is scheduled for the next local rate-limit slot.",
+            retry_at=decision.next_eligible_at,
+            metadata={"provider": provider, "model": model, "rpm": rpm,
+                      "effective_interval_seconds": decision.delay_seconds,
+                      "reason": "local_interval"},
+        )
+
     def _reserve_model_start(
         self,
         *,
@@ -533,23 +612,29 @@ class AiAnalysisService:
             session.commit()
         if decision.allowed:
             self._log_rate_limit(
+                tenant_id=tenant_id,
                 provider=provider,
                 model=model,
                 rpm=rpm,
                 delay_seconds=decision.delay_seconds,
                 retry_count=retry_count,
                 next_execution_at=decision.next_eligible_at,
-                event="ai_model_rate_limit_reserved",
+                event="ai_model_start_reserved",
+                reason="accepted_start",
+                state_was_mutated=True,
             )
             return None
         self._log_rate_limit(
+            tenant_id=tenant_id,
             provider=provider,
             model=model,
             rpm=rpm,
             delay_seconds=decision.delay_seconds,
             retry_count=retry_count,
             next_execution_at=decision.next_eligible_at,
-            event="ai_model_rate_limit_deferred",
+            event="ai_model_start_deferred",
+            reason="local_interval",
+            state_was_mutated=False,
         )
         return AiAnalysisOutcome(
             "deferred",
@@ -568,12 +653,15 @@ class AiAnalysisService:
         retry_at: datetime,
         retry_count: int,
         reason_code: str,
+        provider_http_status: int | None = None,
+        retry_after_seconds: object | None = None,
+        provider_request_id: object | None = None,
     ) -> None:
         rpm = self.settings.ai_model_rpm(provider, model)
         if rpm is None:
             return
         with self.session_factory() as session:
-            AiModelRateLimitRepository(session).defer_until(
+            AiModelRateLimitRepository(session).block_until(
                 tenant_id=tenant_id,
                 provider=provider,
                 model=model,
@@ -581,6 +669,7 @@ class AiAnalysisService:
             )
             session.commit()
         self._log_rate_limit(
+            tenant_id=tenant_id,
             provider=provider,
             model=model,
             rpm=rpm,
@@ -589,7 +678,16 @@ class AiAnalysisService:
             ),
             retry_count=retry_count,
             next_execution_at=retry_at,
-            event=reason_code,
+            event=(
+                "provider_rate_limited"
+                if reason_code == "ai_provider_rate_limited"
+                else "gemini_model_pool_temporarily_unavailable"
+            ),
+            reason="provider_response",
+            provider_http_status=provider_http_status,
+            retry_after_seconds=retry_after_seconds,
+            provider_request_id=provider_request_id,
+            state_was_mutated=True,
         )
 
     def _retry_at_after_429(
@@ -616,6 +714,7 @@ class AiAnalysisService:
     def _log_rate_limit(
         self,
         *,
+        tenant_id: str,
         provider: str,
         model: str,
         rpm: int,
@@ -623,16 +722,27 @@ class AiAnalysisService:
         retry_count: int,
         next_execution_at: datetime,
         event: str,
+        reason: str,
+        provider_http_status: int | None = None,
+        retry_after_seconds: object | None = None,
+        provider_request_id: object | None = None,
+        state_was_mutated: bool,
     ) -> None:
         self.logger.info(
             event,
             extra={
+                "tenant_id": tenant_id,
                 "provider": provider,
                 "model": model,
                 "configured_rpm": rpm,
                 "calculated_delay_seconds": delay_seconds,
                 "retry_count": retry_count,
                 "next_execution_at": next_execution_at.isoformat(),
+                "reason": reason,
+                "provider_http_status": provider_http_status,
+                "retry_after_seconds": retry_after_seconds,
+                "provider_request_id": provider_request_id,
+                "state_was_mutated": state_was_mutated,
             },
         )
 
@@ -644,6 +754,25 @@ class AiAnalysisService:
             retryable=True,
         )
         return AiAnalysisOutcome("cancelled", "analysis_cancelled", "Analysis was cancelled.")
+
+    async def _record_deferred(
+        self,
+        analysis_id: str,
+        *,
+        code: str,
+        message: str,
+        provider_metadata: Mapping[str, object] | None = None,
+        decrement_attempt: bool = False,
+    ) -> None:
+        with self.session_factory() as session:
+            AiMetadataRepository(session, self.validator).defer_analysis(
+                analysis_id,
+                error_code=code,
+                error_message=message,
+                provider_metadata=provider_metadata,
+                decrement_attempt=decrement_attempt,
+            )
+            session.commit()
 
     async def _record_failure(
         self,

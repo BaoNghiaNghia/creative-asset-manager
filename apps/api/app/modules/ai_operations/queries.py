@@ -19,7 +19,16 @@ from app.modules.processing.model import (
 )
 
 
-DEFERRED_AI_REASON_CODES = frozenset({"gemini_quota_deferred"})
+LOCAL_RATE_LIMIT_DEFERRED_CODES = frozenset({"ai_model_rate_limited"})
+QUOTA_DEFERRED_CODES = frozenset({"gemini_quota_deferred"})
+PROVIDER_COOLDOWN_DEFERRED_CODES = frozenset({
+    "gemini_model_pool_temporarily_unavailable", "ai_provider_rate_limited",
+})
+DEFERRED_AI_REASON_CODES = (
+    LOCAL_RATE_LIMIT_DEFERRED_CODES
+    | QUOTA_DEFERRED_CODES
+    | PROVIDER_COOLDOWN_DEFERRED_CODES
+)
 
 
 class AiOperationsRepository(BaseRepository):
@@ -256,17 +265,52 @@ class AiOperationsRepository(BaseRepository):
                 & (latest.c.status == JobStatus.FAILED.value), 1
             ), else_=0)), 0),
             func.coalesce(func.sum(case((visible_status & deferred, 1), else_=0)), 0),
-            func.min(case((visible_status & deferred, latest.c.next_attempt_at), else_=None)),
+            func.coalesce(func.sum(case((
+                visible_status & deferred
+                & latest.c.last_error_code.in_(LOCAL_RATE_LIMIT_DEFERRED_CODES), 1
+            ), else_=0)), 0),
+            func.coalesce(func.sum(case((
+                visible_status & deferred
+                & latest.c.last_error_code.in_(QUOTA_DEFERRED_CODES), 1
+            ), else_=0)), 0),
+            func.coalesce(func.sum(case((
+                visible_status & deferred
+                & latest.c.last_error_code.in_(PROVIDER_COOLDOWN_DEFERRED_CODES), 1
+            ), else_=0)), 0),
+            func.min(case((
+                visible_status & deferred
+                & latest.c.last_error_code.in_(LOCAL_RATE_LIMIT_DEFERRED_CODES),
+                latest.c.next_attempt_at,
+            ), else_=None)),
+            func.min(case((
+                visible_status & deferred
+                & latest.c.last_error_code.in_(QUOTA_DEFERRED_CODES),
+                latest.c.next_attempt_at,
+            ), else_=None)),
+            func.min(case((
+                visible_status & deferred
+                & latest.c.last_error_code.in_(
+                    QUOTA_DEFERRED_CODES | PROVIDER_COOLDOWN_DEFERRED_CODES
+                ),
+                latest.c.next_attempt_at,
+            ), else_=None)),
             func.coalesce(blocked, 0),
             func.coalesce(cancelled, 0),
         ).select_from(latest)).one()
-        requested, queued_count, running, completed, failed, deferred_count, next_retry, blocked_count, cancelled_count = row
+        (
+            requested, queued_count, running, completed, failed, deferred_count,
+            local_rate_limited_count, quota_deferred_count, provider_cooldown_count,
+            next_local_retry, next_quota_retry, next_provider_retry, blocked_count, cancelled_count,
+        ) = row
         requested = int(requested or 0)
         queued_count = int(queued_count or 0)
         running = int(running or 0)
         completed = int(completed or 0)
         failed = int(failed or 0)
         deferred_count = int(deferred_count or 0)
+        local_rate_limited_count = int(local_rate_limited_count or 0)
+        quota_deferred_count = int(quota_deferred_count or 0)
+        provider_cooldown_count = int(provider_cooldown_count or 0)
         blocked_count = int(blocked_count or 0)
         cancelled_count = int(cancelled_count or 0)
         usage = self.session.execute(self._usage_select(
@@ -284,7 +328,16 @@ class AiOperationsRepository(BaseRepository):
             "requested": requested, "queued": queued_count, "running": running,
             "completed": completed, "failed": failed, "cancelled": cancelled_count,
             "budget_blocked": blocked_count, "deferred": deferred_count,
-            "next_deferred_retry_at": next_retry,
+            "local_rate_limited": local_rate_limited_count,
+            "quota_deferred": quota_deferred_count,
+            "provider_cooldown_deferred": provider_cooldown_count,
+            "next_deferred_retry_at": min(
+                (value for value in (next_local_retry, next_quota_retry) if value is not None),
+                default=None,
+            ),
+            "next_local_rate_limit_retry_at": next_local_retry,
+            "next_quota_retry_at": next_quota_retry,
+            "next_provider_retry_at": next_provider_retry,
             "success_rate": (completed / denominator) if denominator else 0.0,
             "input_units": input_units, "output_units": output_units,
             "cost": {

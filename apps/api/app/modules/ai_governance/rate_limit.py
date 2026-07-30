@@ -84,7 +84,39 @@ class AiModelRateLimitRepository:
         )
         return ModelRateLimitDecision(False, retry_at, delay_seconds)
 
-    def defer_until(
+    def next_start(
+        self,
+        *,
+        tenant_id: str,
+        provider: str,
+        model: str,
+        rpm: int,
+        minimum_interval_seconds: float,
+        now: datetime | None = None,
+    ) -> ModelRateLimitDecision:
+        """Read the current start slot without extending or blocking it."""
+        if rpm <= 0:
+            raise ValueError("rpm must be positive")
+        if minimum_interval_seconds <= 0:
+            raise ValueError("minimum_interval_seconds must be positive")
+        now = self._utc(now)
+        delay_seconds = max(float(minimum_interval_seconds), 60.0 / rpm)
+        state = self.session.scalar(
+            select(AiModelRateLimitStateModel).where(
+                AiModelRateLimitStateModel.tenant_id == tenant_id,
+                AiModelRateLimitStateModel.provider == provider,
+                AiModelRateLimitStateModel.model == model,
+            )
+        )
+        if state is None:
+            return ModelRateLimitDecision(True, now, delay_seconds)
+        retry_at = max(
+            self._utc(state.next_eligible_at),
+            self._utc(state.blocked_until) if state.blocked_until else now,
+        )
+        return ModelRateLimitDecision(retry_at <= now, retry_at, delay_seconds)
+
+    def block_until(
         self,
         *,
         tenant_id: str,
@@ -93,6 +125,7 @@ class AiModelRateLimitRepository:
         retry_at: datetime,
         now: datetime | None = None,
     ) -> None:
+        """Persist only provider-confirmed cooldown/quota availability."""
         retry_at = self._utc(retry_at)
         now = self._utc(now)
         table = AiModelRateLimitStateModel.__table__

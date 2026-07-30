@@ -6,6 +6,8 @@ from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.domain.processing.types import JobStatus
+from app.modules.ai_governance.model import AiModelRateLimitStateModel
+from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
@@ -209,6 +211,7 @@ class TenantAwareJobClaimer:
             self._base_eligibility(now),
             ProcessingJobModel.job_type.in_(allowed_job_types),
             self._runtime_control_available(),
+            self._model_start_available(now),
             exists(select(TenantProcessingPolicyModel.tenant_id).where(*policy_conditions)),
             or_(ProcessingJobModel.provider_key.is_(None), ~provider_blocked),
         )
@@ -298,3 +301,33 @@ class TenantAwareJobClaimer:
             ),
         ))
         return or_(~ProcessingJobModel.job_type.in_(AI_JOB_TYPES), ~stopped)
+
+    @staticmethod
+    def _model_start_available(now: datetime):
+        """Exclude locally delayed single-analysis jobs before lease acquisition."""
+        unavailable = exists(
+            select(AiModelRateLimitStateModel.tenant_id)
+            .select_from(AiModelRateLimitStateModel)
+            .join(
+                AssetAiAnalysisModel,
+                and_(
+                    AssetAiAnalysisModel.tenant_id
+                    == AiModelRateLimitStateModel.tenant_id,
+                    AssetAiAnalysisModel.ai_provider
+                    == AiModelRateLimitStateModel.provider,
+                    AssetAiAnalysisModel.ai_model
+                    == AiModelRateLimitStateModel.model,
+                ),
+            )
+            .where(
+                ProcessingJobModel.job_type == "asset_analyze",
+                ProcessingJobModel.entity_type == "asset_ai_analysis",
+                AssetAiAnalysisModel.id == ProcessingJobModel.entity_id,
+                AssetAiAnalysisModel.tenant_id == ProcessingJobModel.tenant_id,
+                or_(
+                    AiModelRateLimitStateModel.next_eligible_at > now,
+                    AiModelRateLimitStateModel.blocked_until > now,
+                ),
+            )
+        )
+        return or_(ProcessingJobModel.job_type != "asset_analyze", ~unavailable)

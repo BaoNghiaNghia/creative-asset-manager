@@ -22,7 +22,7 @@ from app.modules.ai_metadata.service import AiAnalysisService
 from app.modules.assets.model import AssetModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.storage.model import AssetStorageObjectModel
-from app.modules.ai_governance.model import AiCostRateModel
+from app.modules.ai_governance.model import AiCostRateModel, AiBudgetReservationModel, AiModelRateLimitStateModel, GeminiProjectQuotaStateModel
 from datetime import datetime, timedelta, timezone
 
 
@@ -196,7 +196,7 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
                     worker_id="worker-a",
                 )
                 self.assertEqual(outcome.status, "deferred")
-                self.assertEqual(outcome.error_code, "gemini_quota_deferred")
+                self.assertEqual(outcome.error_code, "gemini_model_pool_temporarily_unavailable")
                 self.assertIsNotNone(outcome.retry_at)
                 self.assertEqual(
                     outcome.metadata["reasons_by_model"]["gemini-first"]["reason"],
@@ -214,6 +214,65 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
                         session.scalar(select(func.count()).select_from(ProcessingJobModel)),
                         0,
                     )
+
+    async def test_local_model_delay_does_not_reserve_budget_or_project_quota(self):
+        from app.modules.ai_governance.model import AiUsageRecordModel
+        from app.modules.ai_metadata.model import AssetAiAnalysisModel
+
+        now = datetime.now(timezone.utc)
+        with self.factory() as session:
+            session.add(AiModelRateLimitStateModel(
+                tenant_id="tenant-a",
+                provider="gemini",
+                model=FakeAi.model,
+                last_started_at=now,
+                next_eligible_at=now + timedelta(minutes=2),
+                blocked_until=None,
+            ))
+            session.commit()
+
+        settings = self.settings.model_copy(update={
+            "AI_MODEL_RPM_LIMITS": '{"gemini":{"gemini-2.5-flash":4}}',
+        })
+        ai = FakeAi({"subject": "cat"})
+        outcome = await AiAnalysisService(
+            session_factory=self.factory,
+            storage_provider=self.storage,
+            ai_provider=ai,
+            settings=settings,
+        ).analyze(
+            tenant_id="tenant-a",
+            analysis_id=self.analysis_id,
+            worker_id="worker-a",
+            job_id="job-local-delay",
+        )
+
+        self.assertEqual(outcome.status, "deferred")
+        self.assertEqual(outcome.error_code, "ai_model_rate_limited")
+        self.assertIsNotNone(outcome.retry_at)
+        self.assertEqual(ai.calls, 0)
+        with self.factory() as session:
+            analysis = session.get(AssetAiAnalysisModel, self.analysis_id)
+            state = session.get(
+                AiModelRateLimitStateModel,
+                {"tenant_id": "tenant-a", "provider": "gemini", "model": FakeAi.model},
+            )
+            self.assertEqual(analysis.status, "pending")
+            self.assertEqual(analysis.attempt_count, 0)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(AiBudgetReservationModel)),
+                0,
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(AiUsageRecordModel)),
+                0,
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(GeminiProjectQuotaStateModel)),
+                0,
+            )
+            self.assertIsNone(state.blocked_until)
+            self.assertGreater(state.next_eligible_at.replace(tzinfo=timezone.utc), now)
 
     async def test_provider_error_releases_budget_reservation(self):
         from app.modules.ai_governance.model import AiBudgetReservationModel

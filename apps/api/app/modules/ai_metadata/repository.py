@@ -219,6 +219,31 @@ class AiMetadataRepository:
         self.session.flush()
         return analysis
 
+    def defer_analysis(
+        self, analysis_id: str, *, error_code: str, error_message: str,
+        provider_metadata: Mapping[str, Any] | None = None,
+        decrement_attempt: bool = False,
+    ) -> AssetAiAnalysisModel:
+        """Return an analysis to pending without recording a failed attempt."""
+        analysis = self._analysis(analysis_id)
+        if analysis.status == "completed":
+            return analysis
+        analysis.status = "pending"
+        analysis.processing_stage = "waiting_rate_limit"
+        analysis.last_error_code = error_code[:100]
+        analysis.last_error_message = redact_url_queries(error_message)
+        analysis.failure_retryable = True
+        if provider_metadata is not None:
+            analysis.provider_metadata_json = dict(provider_metadata)
+        if decrement_attempt:
+            analysis.attempt_count = max(0, analysis.attempt_count - 1)
+        analysis.claimed_by = None
+        analysis.lease_expires_at = None
+        analysis.completed_at = None
+        analysis.updated_at = utcnow()
+        self.session.flush()
+        return analysis
+
     def fail_analysis(
         self, analysis_id: str, *, error_code: str, error_message: str,
         retryable: bool | None = None,

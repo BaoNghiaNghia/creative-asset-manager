@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import Base
+from app.modules.ai_governance.model import AiModelRateLimitStateModel
 from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 
 
@@ -82,6 +83,36 @@ class AiModelRateLimitRepositoryTest(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(sum(allowed for _, allowed in decisions), 1)
         self.assertEqual(sum(not allowed for _, allowed in decisions), 1)
+
+    def test_denied_check_does_not_mutate_the_existing_slot(self) -> None:
+        self.assertTrue(self.reserve("gemini-3.5-flash-lite", 12).allowed)
+        with self.sessions() as session:
+            limiter = AiModelRateLimitRepository(session)
+            first = limiter.next_start(
+                tenant_id="tenant-a", provider="gemini",
+                model="gemini-3.5-flash-lite", rpm=12,
+                minimum_interval_seconds=10, now=self.now,
+            )
+            second = limiter.next_start(
+                tenant_id="tenant-a", provider="gemini",
+                model="gemini-3.5-flash-lite", rpm=12,
+                minimum_interval_seconds=10, now=self.now,
+            )
+            state = session.get(
+                AiModelRateLimitStateModel,
+                {"tenant_id": "tenant-a", "provider": "gemini", "model": "gemini-3.5-flash-lite"},
+            )
+        self.assertFalse(first.allowed)
+        self.assertFalse(second.allowed)
+        self.assertEqual(first.next_eligible_at, second.next_eligible_at)
+        self.assertEqual(state.next_eligible_at.replace(tzinfo=timezone.utc), first.next_eligible_at)
+        self.assertIsNone(state.blocked_until)
+
+    def test_effective_intervals_follow_rpm_with_ten_second_floor(self) -> None:
+        self.assertEqual(self.reserve("rpm-12", 12).delay_seconds, 10)
+        self.assertEqual(self.reserve("rpm-8", 8).delay_seconds, 10)
+        self.assertEqual(self.reserve("rpm-4", 4).delay_seconds, 15)
+
 
 
 if __name__ == "__main__":
