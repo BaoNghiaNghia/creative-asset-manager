@@ -308,16 +308,23 @@ export function useDriveExplorer() {
       return;
     }
     try {
-      const restoredPath: Asset[] = [];
+      // A legacy saved path can begin at the selected folder. Always hydrate the
+      // provider root first so the sidebar has its top-level folders to render.
+      const sourceRootId = rootId(source);
+      const sourceRoot = await fetchFolder(sourceRootId, source);
+      const restoredPath: Asset[] = [sourceRoot.parent];
+      cacheFolders(sourceRootId, sourceRoot.children, source);
+
       for (const item of saved.path) {
+        if (item.id === sourceRootId) continue;
         const folder = await fetchFolder(item.id, source);
-        restoredPath.push(folder.parent);
+        if (restoredPath.at(-1)?.id !== folder.parent.id) restoredPath.push(folder.parent);
         // Populate every branch on the way down so the sidebar can render the restored route.
         cacheFolders(item.id, folder.children, source);
       }
       const current = restoredPath.at(-1);
       if (!current) throw Error("Saved folder is unavailable");
-      setExpanded(new Set(restoredPath.map(folder => folder.id)));
+      setExpanded(new Set(restoredPath.slice(0, -1).map(folder => folder.id)));
       await open(current.id, restoredPath.slice(0, -1), source);
     } catch {
       window.localStorage.removeItem(explorerLocationKey(source));
