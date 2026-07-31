@@ -40,24 +40,44 @@ const emptyIndexStatus: DriveIndexStatus = {
 
 const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : "root";
 const explorerLocationKey = (provider: Provider) => "creative-asset-manager:explorer-location:" + provider;
+export const EXPLORER_LOCATION_MAX_AGE_MS = 15 * 60 * 1000;
 
-type SavedExplorerLocation = { version: 1; path: Array<Pick<Asset, "id" | "name" | "kind" | "mime_type" | "provider">> };
+type SavedExplorerLocation = {
+  version: 1;
+  saved_at: number;
+  path: Array<Pick<Asset, "id" | "name" | "kind" | "mime_type" | "provider">>;
+};
 
-export function parseSavedExplorerLocation(value: string | null, provider: Provider): SavedExplorerLocation | null {
+export function parseSavedExplorerLocation(
+  value: string | null,
+  provider: Provider,
+  now = Date.now(),
+): SavedExplorerLocation | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as Partial<SavedExplorerLocation>;
-    if (parsed.version !== 1 || !Array.isArray(parsed.path) || !parsed.path.length) return null;
+    if (
+      parsed.version !== 1
+      || typeof parsed.saved_at !== "number"
+      || !Number.isFinite(parsed.saved_at)
+      || now - parsed.saved_at >= EXPLORER_LOCATION_MAX_AGE_MS
+      || !Array.isArray(parsed.path)
+      || !parsed.path.length
+    ) return null;
     const path = parsed.path.filter((item): item is SavedExplorerLocation["path"][number] => Boolean(
       item && item.provider === provider && item.kind === "folder"
       && typeof item.id === "string" && item.id.trim() && typeof item.name === "string",
     ));
-    return path.length === parsed.path.length ? { version: 1, path } : null;
+    return path.length === parsed.path.length ? { version: 1, saved_at: parsed.saved_at, path } : null;
   } catch { return null; }
 }
 
 function savedLocation(path: Asset[]): SavedExplorerLocation {
-  return { version: 1, path: path.map(({ id, name, kind, mime_type, provider }) => ({ id, name, kind, mime_type, provider })) };
+  return {
+    version: 1,
+    saved_at: Date.now(),
+    path: path.map(({ id, name, kind, mime_type, provider }) => ({ id, name, kind, mime_type, provider })),
+  };
 }
 
 export type UploadState = "queued" | "uploading" | "completed" | "failed";
@@ -282,15 +302,22 @@ export function useDriveExplorer() {
 
   async function restoreSavedLocation(source: Provider) {
     const saved = parseSavedExplorerLocation(window.localStorage.getItem(explorerLocationKey(source)), source);
-    if (!saved) { await open(rootId(source), [], source); return; }
+    if (!saved) {
+      window.localStorage.removeItem(explorerLocationKey(source));
+      await open(rootId(source), [], source);
+      return;
+    }
     try {
       const restoredPath: Asset[] = [];
       for (const item of saved.path) {
         const folder = await fetchFolder(item.id, source);
         restoredPath.push(folder.parent);
+        // Populate every branch on the way down so the sidebar can render the restored route.
+        cacheFolders(item.id, folder.children, source);
       }
       const current = restoredPath.at(-1);
       if (!current) throw Error("Saved folder is unavailable");
+      setExpanded(new Set(restoredPath.map(folder => folder.id)));
       await open(current.id, restoredPath.slice(0, -1), source);
     } catch {
       window.localStorage.removeItem(explorerLocationKey(source));

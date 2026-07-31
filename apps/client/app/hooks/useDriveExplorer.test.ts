@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { oauthMessageFor, parseSavedExplorerLocation, uploadErrorMessage } from "./useDriveExplorer";
+import {
+  EXPLORER_LOCATION_MAX_AGE_MS,
+  oauthMessageFor,
+  parseSavedExplorerLocation,
+  uploadErrorMessage,
+} from "./useDriveExplorer";
 
 describe("oauthMessageFor", () => {
   it("explains local bootstrap admission failures", () => {
@@ -30,15 +35,25 @@ describe("uploadErrorMessage", () => {
 
 describe("parseSavedExplorerLocation", () => {
   it("restores only a valid same-provider folder path", () => {
-    expect(parseSavedExplorerLocation(JSON.stringify({ version: 1, path: [{
+    expect(parseSavedExplorerLocation(JSON.stringify({ version: 1, saved_at: 1_000, path: [{
       id: "folder-1", name: "Campaign", kind: "folder", mime_type: "application/vnd.google-apps.folder", provider: "google-drive",
-    }] }), "google-drive")?.path[0].id).toBe("folder-1");
+    }] }), "google-drive", 1_000 + EXPLORER_LOCATION_MAX_AGE_MS - 1)?.path[0].id).toBe("folder-1");
   });
 
   it("rejects stale or malformed saved positions", () => {
     expect(parseSavedExplorerLocation("not json", "google-drive")).toBeNull();
-    expect(parseSavedExplorerLocation(JSON.stringify({ version: 1, path: [{
+    expect(parseSavedExplorerLocation(JSON.stringify({ version: 1, saved_at: 1_000, path: [{
       id: "folder-1", name: "Campaign", kind: "folder", mime_type: "", provider: "sharepoint",
-    }] }), "google-drive")).toBeNull();
+    }] }), "google-drive", 1_001)).toBeNull();
+  });
+
+  it("expires saved positions after fifteen minutes and rejects legacy entries without an expiry", () => {
+    const path = [{
+      id: "folder-1", name: "Campaign", kind: "folder", mime_type: "application/vnd.google-apps.folder", provider: "google-drive",
+    }];
+    expect(parseSavedExplorerLocation(JSON.stringify({
+      version: 1, saved_at: 1_000, path,
+    }), "google-drive", 1_000 + EXPLORER_LOCATION_MAX_AGE_MS)).toBeNull();
+    expect(parseSavedExplorerLocation(JSON.stringify({ version: 1, path }), "google-drive", 1_001)).toBeNull();
   });
 });
