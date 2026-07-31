@@ -62,3 +62,35 @@
 .viewer-folder-error{color:#b42318;background:#fff3f2;border:1px solid #f4c7c3;border-radius:8px;padding:9px 11px}
 .viewer-folder-scope-dialog>footer{display:flex;justify-content:flex-end;gap:9px;margin-top:20px;padding-top:16px;border-top:1px solid #eef2f6}
 @media(max-width:650px){.viewer-folder-scope-dialog{padding:18px}.viewer-folder-list{grid-template-columns:1fr}.viewer-folder-actions{align-items:stretch;flex-direction:column}.viewer-folder-actions label{min-width:0}.viewer-folder-spacer{display:none}}
+
+
+/* Member actions and folder scope editor use compact, aligned control groups. */
+.member-action-stack{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:300px}
+.member-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.member-role-assignment,.member-status-actions{display:flex;align-items:center;gap:7px;min-height:38px}
+.member-role-assignment select{width:154px;max-width:100%}
+.member-status-actions{padding-left:10px;border-left:1px solid #e2e8f0}
+.member-action-stack>.secondary{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border-color:#b9ccef;background:#f8faff;color:#294fb0;font-size:12px}
+.member-action-stack>.secondary::before{content:"▣";font-size:12px;color:#4169e1}
+.member-action-stack>.secondary:hover{background:#eef4ff}
+.viewer-folder-scope-dialog{padding:0;overflow:hidden}
+.viewer-folder-scope-dialog>header{padding:22px 24px 16px}
+.viewer-folder-scope-dialog>.viewer-folder-help,.viewer-folder-scope-dialog>.viewer-folder-summary,.viewer-folder-scope-dialog>.viewer-folder-list,.viewer-folder-scope-dialog>.viewer-folder-loading,.viewer-folder-scope-dialog>.viewer-folder-actions,.viewer-folder-scope-dialog>.viewer-folder-error{margin-left:24px;margin-right:24px}
+.viewer-folder-help{margin-top:18px;margin-bottom:14px}
+.viewer-folder-summary{padding:13px 15px}
+.viewer-folder-summary strong{font-size:15px}
+.viewer-folder-list{padding:12px;gap:9px}
+.viewer-folder-list label{position:relative;min-height:68px;align-items:center;padding:12px 13px;background:#fff;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}
+.viewer-folder-list label.selected{border-color:#8aa9ef;background:#f4f7ff;box-shadow:0 0 0 1px #d7e4ff inset}
+.viewer-folder-list label.selected strong{color:#244da7}
+.viewer-folder-list input{width:16px;height:16px;margin:0;accent-color:#315ce8}
+.viewer-folder-actions{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:end;margin-top:18px}
+.viewer-folder-actions .viewer-folder-clear{min-height:40px;padding-inline:14px;color:#475467}
+.viewer-folder-actions label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;font-weight:700;color:#475467}
+.viewer-folder-actions label>span{color:#d92d20}
+.viewer-folder-actions input{margin:0;min-height:40px}
+.viewer-folder-scope-dialog>footer{margin-top:20px;padding:16px 24px 20px;background:#fafcff}
+.viewer-folder-scope-dialog>footer button{min-height:40px}
+.viewer-folder-scope-dialog>footer .primary{min-width:168px}
+@media(max-width:850px){.member-action-stack{min-width:260px}.member-status-actions{padding-left:0;border-left:0}.viewer-folder-scope-dialog{max-height:calc(100vh - 20px)}}
+@media(max-width:650px){.member-action-stack{min-width:220px}.member-actions,.member-role-assignment,.member-status-actions{width:100%;align-items:stretch}.member-role-assignment select{flex:1}.member-status-actions{justify-content:flex-start}.viewer-folder-scope-dialog>header{padding:18px}.viewer-folder-scope-dialog>.viewer-folder-help,.viewer-folder-scope-dialog>.viewer-folder-summary,.viewer-folder-scope-dialog>.viewer-folder-list,.viewer-folder-scope-dialog>.viewer-folder-loading,.viewer-folder-scope-dialog>.viewer-folder-actions,.viewer-folder-scope-dialog>.viewer-folder-error{margin-left:18px;margin-right:18px}.viewer-folder-actions{grid-template-columns:1fr;gap:10px}.viewer-folder-actions .viewer-folder-clear{width:100%}.viewer-folder-scope-dialog>footer{padding:14px 18px 18px}.viewer-folder-scope-dialog>footer button{flex:1}.viewer-folder-scope-dialog>footer .primary{min-width:0}}
