@@ -34,6 +34,15 @@ class GoogleDriveSourceAdapter(BaseSourceAdapter):
         self, input: ListSourceChangesInput
     ) -> SourceChangePage:
         return await self._changes_lister(self._access_token, input)
+    async def upload_file(self, parent_id: str, filename: str, mime_type: str, content: bytes):
+        return await self.client.upload_file(parent_id, filename, mime_type, content)
+
+    async def delete_file(self, item_id: str):
+        await self.client.delete_file(item_id)
+
+    async def move_file(self, item_id: str, destination_parent_id: str):
+        return await self.client.move_file(item_id, destination_parent_id)
+
     async def open_download_stream(
         self, input: OpenSourceAssetInput
     ) -> AssetDownloadStream:

@@ -35,6 +35,16 @@ class GoogleDriveClient:
         response.raise_for_status()
         return response.json()
 
+    async def upload_file(self, parent_id: str, filename: str, mime_type: str, content: bytes):
+        import json
+        response = await self.client.post("https://www.googleapis.com/upload/drive/v3/files", params={"uploadType": "multipart", "supportsAllDrives": "true", "fields": FIELDS}, files={"metadata": (None, json.dumps({"name": filename, "parents": [parent_id]}), "application/json"), "file": (filename, content, mime_type or "application/octet-stream")}); response.raise_for_status(); return map_drive_file(response.json())
+
+    async def delete_file(self, item_id: str):
+        response = await self.client.delete(f"/files/{item_id}", params={"supportsAllDrives": "true"}); response.raise_for_status()
+
+    async def move_file(self, item_id: str, destination_parent_id: str):
+        current = await self.client.get(f"/files/{item_id}", params={"fields": "id,parents", "supportsAllDrives": "true"}); current.raise_for_status(); old=",".join(current.json().get("parents", [])); response=await self.client.patch(f"/files/{item_id}", params={"addParents": destination_parent_id, "removeParents": old, "supportsAllDrives": "true", "fields": FIELDS}); response.raise_for_status(); return map_drive_file(response.json())
+
     async def get(self, item_id: str):
         data = await self._get(
             f"/files/{item_id}",

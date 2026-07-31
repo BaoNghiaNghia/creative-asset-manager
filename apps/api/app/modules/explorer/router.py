@@ -30,6 +30,7 @@ from app.modules.explorer.schema import (
     SearchResponse,
 )
 from app.modules.explorer.service import ExplorerService
+from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
@@ -218,6 +219,58 @@ async def viewer_folder_options(
     }
 
 
+@router.post("/upload")
+async def upload_file(
+    request: Request,
+    parent_id: str = Query("root"),
+    filename: str = Query("upload"),
+    mime_type: str = Query("application/octet-stream"),
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    external_source_id: str | None = Query(None),
+):
+    if provider != "google-drive":
+        raise HTTPException(status_code=501, detail="Upload is not supported for this provider yet.")
+    token, _account, _tenant, _source = await _source_context(request, provider, session, principal, external_source_id)
+    if not token: raise HTTPException(status_code=401, detail="Connect Google Drive before uploading.")
+    async with create_source_provider(provider, token) as client:
+        parent = await client.get_node(parent_id)
+        if parent.kind != "folder": raise HTTPException(status_code=422, detail="Destination must be a folder.")
+        content = await request.body()
+        if len(content) > 100 * 1024 * 1024: raise HTTPException(status_code=413, detail="File is too large.")
+        node = await client.upload_file(parent_id, filename, mime_type, content)
+    return {"id": node.id, "name": node.name, "kind": node.kind}
+
+@router.delete("/items/{item_id}")
+async def delete_item(
+    request: Request, item_id: str, provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    external_source_id: str | None = Query(None),
+):
+    if provider != "google-drive": raise HTTPException(status_code=501, detail="Delete is not supported for this provider yet.")
+    token, _account, _tenant, _source = await _source_context(request, provider, session, principal, external_source_id)
+    if not token: raise HTTPException(status_code=401, detail="Connect Google Drive before deleting files.")
+    async with create_source_provider(provider, token) as client:
+        await client.get_node(item_id)
+        await client.delete_file(item_id)
+    return {"deleted": True, "id": item_id}
+
+@router.post("/items/{item_id}/move")
+async def move_item(
+    request: Request, item_id: str, destination_parent_id: str = Query(...), provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    external_source_id: str | None = Query(None),
+):
+    if provider != "google-drive": raise HTTPException(status_code=501, detail="Move is not supported for this provider yet.")
+    token, _account, _tenant, _source = await _source_context(request, provider, session, principal, external_source_id)
+    if not token: raise HTTPException(status_code=401, detail="Connect Google Drive before moving files.")
+    async with create_source_provider(provider, token) as client:
+        destination = await client.get_node(destination_parent_id)
+        if destination.kind != "folder": raise HTTPException(status_code=422, detail="Destination must be a folder.")
+        node = await client.move_file(item_id, destination_parent_id)
+    return {"id": node.id, "parent_id": node.parent_id}
+
 @router.post("/search", response_model=SearchResponse)
 async def search(
     request: Request,
@@ -355,26 +408,26 @@ async def media(
             tenant_id=tenant_id, membership_id=principal.membership_id,
             roles=principal.effective_roles, external_source_id=resolved_source_id,
         )
-        if access.restricted:
-            source_asset = session.scalar(select(SourceAssetModel).where(
-                SourceAssetModel.tenant_id == tenant_id,
-                SourceAssetModel.external_source_id == resolved_source_id,
-                SourceAssetModel.external_asset_id == item_id,
-                SourceAssetModel.deleted_at.is_(None),
-            ))
-            metadata = source_asset.source_metadata if source_asset else {}
-            parents = metadata.get("parents") if isinstance(metadata, dict) else []
-            if not isinstance(parents, list):
-                parent = metadata.get("parent_id") if isinstance(metadata, dict) else None
-                parents = [parent] if parent else []
-            if source_asset is None or not any(str(parent) in access.folder_ids for parent in parents if parent):
-                raise HTTPException(status_code=403, detail={"code": "viewer_folder_scope_denied", "message": "File is outside the viewer folder scope."})
+        if access.restricted and not ViewerFolderScopeService(session).allows_external_asset(
+            tenant_id=tenant_id, access=access, external_asset_id=item_id,
+        ):
+            raise HTTPException(status_code=403, detail={"code": "viewer_folder_scope_denied", "message": "File is outside the viewer folder scope."})
         if not token:
             raise HTTPException(status_code=401, detail=f"Connect {provider} to preview files.")
 
         opener = open_sharepoint_media if provider == "sharepoint" else open_google_media
         closer = close_sharepoint_media if provider == "sharepoint" else close_google_media
         client, upstream = await opener(token, item_id, request.headers.get("range"))
+        source_row = session.execute(
+            select(SourceAssetModel.filename, SourceAssetModel.mime_type).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id == resolved_source_id,
+                SourceAssetModel.external_asset_id == item_id,
+                SourceAssetModel.deleted_at.is_(None),
+            )
+        ).first()
+        filename, declared_mime = source_row if source_row else (None, None)
+        media_type = infer_media_type(filename, declared_mime, upstream.headers.get("content-type"))
         passthrough_headers = {
             name: value
             for name in ("content-length", "content-range", "accept-ranges", "etag", "last-modified")
@@ -385,7 +438,7 @@ async def media(
         return StreamingResponse(
             upstream.aiter_raw(),
             status_code=upstream.status_code,
-            media_type=upstream.headers.get("content-type", "application/octet-stream"),
+            media_type=media_type,
             headers=passthrough_headers,
             background=BackgroundTask(closer, client, upstream),
         )

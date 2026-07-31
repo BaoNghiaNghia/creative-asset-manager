@@ -17,6 +17,7 @@ from app.modules.authorization.principal import (
 )
 from app.modules.asset_details.schema import AcceptedAssetAction, AssetActionRequest, AssetDetailsResponse
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.explorer.media_types import infer_media_type, is_previewable_media
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.pipeline.state import FAILURE_STATES
@@ -51,8 +52,8 @@ def source_preview_url(
     asset_mime_type: str | None,
 ) -> str | None:
     """Return a source-media proxy URL only for previewable, active files."""
-    mime_type = source.mime_type or asset_mime_type or ""
-    if source.deleted_at is not None or not mime_type.startswith(("image/", "video/")):
+    mime_type = infer_media_type(source.filename, source.mime_type or asset_mime_type)
+    if source.deleted_at is not None or not is_previewable_media(source.filename, mime_type):
         return None
     provider = "sharepoint" if "sharepoint" in (external_source.source_type or "").lower() else "google-drive"
     return f"/api/explorer/media/{quote(source.external_asset_id, safe='')}?provider={provider}"

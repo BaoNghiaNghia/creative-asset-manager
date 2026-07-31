@@ -85,6 +85,22 @@ class ViewerFolderScopeService:
         """Resolve selected external folders to internal assets for index search."""
         if not access.restricted or not access.source_id:
             return set()
+        # Resolve ancestry within this tenant/source so a selected folder
+        # includes every descendant, not only direct children.
+        parent_rows = self.session.execute(
+            select(SourceAssetModel.external_asset_id, SourceAssetModel.source_metadata).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id == access.source_id,
+                SourceAssetModel.deleted_at.is_(None),
+            )
+        ).all()
+        parents_by_external_id: dict[str, list[str]] = {}
+        for external_id, metadata in parent_rows:
+            raw = (metadata or {}).get("parents")
+            if not isinstance(raw, list):
+                parent = (metadata or {}).get("parent_id")
+                raw = [parent] if parent else []
+            parents_by_external_id[str(external_id)] = [str(value) for value in raw if value]
         rows = self.session.execute(
             select(AssetSourceLinkModel.asset_id, SourceAssetModel)
             .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
@@ -97,14 +113,59 @@ class ViewerFolderScopeService:
         ).all()
         allowed: set[str] = set()
         for asset_id, source in rows:
-            metadata = source.source_metadata or {}
-            parents = metadata.get("parents")
-            if not isinstance(parents, list):
-                parent = metadata.get("parent_id")
-                parents = [parent] if parent else []
-            if any(str(parent) in access.folder_ids for parent in parents if parent):
+            pending = list(parents_by_external_id.get(str(source.external_asset_id), []))
+            visited: set[str] = set()
+            matched = False
+            while pending:
+                parent = pending.pop()
+                if parent in visited:
+                    continue
+                visited.add(parent)
+                if parent in access.folder_ids:
+                    matched = True
+                    break
+                pending.extend(parents_by_external_id.get(parent, []))
+            if matched:
                 allowed.add(str(asset_id))
         return allowed
+
+    def allows_external_asset(self, *, tenant_id: str, access: ViewerFolderAccess, external_asset_id: str) -> bool:
+        """Check a provider item against the selected folder ancestry."""
+        if not access.restricted or not access.source_id:
+            return True
+        source = self.session.scalar(select(SourceAssetModel).where(
+            SourceAssetModel.tenant_id == tenant_id,
+            SourceAssetModel.external_source_id == access.source_id,
+            SourceAssetModel.external_asset_id == external_asset_id,
+            SourceAssetModel.deleted_at.is_(None),
+        ))
+        if source is None:
+            return False
+        parent_rows = self.session.execute(
+            select(SourceAssetModel.external_asset_id, SourceAssetModel.source_metadata).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id == access.source_id,
+                SourceAssetModel.deleted_at.is_(None),
+            )
+        ).all()
+        parent_map: dict[str, list[str]] = {}
+        for item_id, metadata in parent_rows:
+            raw = (metadata or {}).get("parents")
+            if not isinstance(raw, list):
+                parent = (metadata or {}).get("parent_id")
+                raw = [parent] if parent else []
+            parent_map[str(item_id)] = [str(value) for value in raw if value]
+        pending = list(parent_map.get(str(external_asset_id), []))
+        visited: set[str] = set()
+        while pending:
+            parent = pending.pop()
+            if parent in visited:
+                continue
+            visited.add(parent)
+            if parent in access.folder_ids:
+                return True
+            pending.extend(parent_map.get(parent, []))
+        return str(external_asset_id) in access.folder_ids
 
     def allowed_internal_asset_ids_for_membership(self, *, tenant_id: str, membership_id: str) -> set[str]:
         """Resolve every selected source folder for a viewer membership."""

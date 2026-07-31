@@ -12,6 +12,7 @@ from app.modules.assets.status_service import AssetProcessingStatusService
 
 from app.modules.explorer.provider_contract import SourceProviderFactory
 from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
+from app.modules.explorer.media_types import infer_media_type
 from app.modules.metadata.service import MetadataService, schedule_metadata_index
 from app.modules.authorization.folder_scope import ViewerFolderAccess
 
@@ -217,7 +218,7 @@ class ExplorerService:
             if not query_tokens or not query_tokens.issubset(searchable_tokens):
                 continue
             seen_assets.add(analysis.asset_id)
-            mime_type = source.mime_type or "application/octet-stream"
+            mime_type = infer_media_type(source.filename, source.mime_type)
             kind = (
                 "image" if mime_type.startswith("image/") else
                 "video" if mime_type.startswith("video/") else

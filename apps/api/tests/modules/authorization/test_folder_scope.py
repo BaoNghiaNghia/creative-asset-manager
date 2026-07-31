@@ -75,6 +75,27 @@ class ViewerFolderScopeTest(unittest.TestCase):
         source_asset.deleted_at = source_asset.updated_at
         self.assertEqual(self.service.allowed_internal_asset_ids(tenant_id="tenant-1", access=access), set())
 
+    def test_selected_root_folder_allows_nested_descendants(self):
+        root = SourceAssetModel(
+            id="folder-source", tenant_id="tenant-1", external_source_id="source-1",
+            external_asset_id="folder-a", source_metadata={"parents": []},
+        )
+        child = SourceAssetModel(
+            id="child-folder-source", tenant_id="tenant-1", external_source_id="source-1",
+            external_asset_id="folder-b", source_metadata={"parent_id": "folder-a"},
+        )
+        asset = AssetModel(id="nested-asset", tenant_id="tenant-1", content_hash="nested", mime_type="image/jpeg")
+        source_asset = SourceAssetModel(
+            id="nested-source", tenant_id="tenant-1", external_source_id="source-1",
+            external_asset_id="file-1", source_metadata={"parent_id": "folder-b"},
+        )
+        self.session.add_all([root, child, asset, source_asset])
+        self.session.flush()
+        self.session.add(AssetSourceLinkModel(tenant_id="tenant-1", asset_id="nested-asset", source_asset_id="nested-source"))
+        self.session.flush()
+        access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
+        self.assertEqual(self.service.allowed_internal_asset_ids(tenant_id="tenant-1", access=access), {"nested-asset"})
+
 
 if __name__ == "__main__":
     unittest.main()

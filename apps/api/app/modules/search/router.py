@@ -10,6 +10,7 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, El
 from app.modules.explorer.router import _access_token, _account_id
 from app.modules.explorer.schema import SearchRequest
 from app.modules.explorer.service import ExplorerService
+from app.modules.explorer.media_types import infer_media_type
 from app.providers.source_factory import create_source_provider
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
@@ -283,7 +284,7 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
                 continue
             source, external = pair
             provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
-            mime = source.mime_type or "application/octet-stream"
+            mime = infer_media_type(source.filename or doc.get("filename"), source.mime_type)
             kind = "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "pdf" if mime == "application/pdf" else "document"
             items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": f"/api/explorer/media/{quote(source.external_asset_id, safe='')}?provider={provider}" if kind in {"image", "video"} else None, "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
         total_value = response.get("hits", {}).get("total", 0)
