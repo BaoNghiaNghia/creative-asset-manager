@@ -77,3 +77,8 @@ class AiConfigurationUpdate(_Mutation):
 
 class AiJobMutation(_Mutation):
     force: bool = False
+
+
+class AiBulkJobRetry(_Mutation):
+    error_code: str = Field(min_length=1, max_length=100)
+    limit: int = Field(default=100, ge=1, le=1000)

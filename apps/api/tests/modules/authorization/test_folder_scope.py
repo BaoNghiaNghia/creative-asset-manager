@@ -1,4 +1,7 @@
+import asyncio
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -8,7 +11,7 @@ from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.authorization.folder_scope import ViewerFolderAccess, ViewerFolderScopeModel, ViewerFolderScopeService
-from app.modules.explorer.router import _require_viewer_folder_scope
+from app.modules.explorer.router import _require_viewer_folder_scope, _viewer_media_scope_allowed
 
 
 class ViewerFolderScopeTest(unittest.TestCase):
@@ -97,6 +100,30 @@ class ViewerFolderScopeTest(unittest.TestCase):
         self.session.flush()
         access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
         self.assertEqual(self.service.allowed_internal_asset_ids(tenant_id="tenant-1", access=access), {"nested-asset"})
+
+    def test_new_upload_uses_remote_parent_for_media_scope(self):
+        access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
+
+        class ScopeService:
+            def allows_external_asset(self, *, external_asset_id, **_kwargs):
+                return False
+
+        class Provider:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def get_node(self, _item_id):
+                return SimpleNamespace(parent_id="folder-a")
+
+        with patch("app.modules.explorer.router.create_source_provider", return_value=Provider()):
+            allowed = asyncio.run(_viewer_media_scope_allowed(
+                ScopeService(), tenant_id="tenant-1", access=access,
+                provider="google-drive", token="test-token", item_id="new-file",
+            ))
+        self.assertTrue(allowed)
 
     def test_viewer_upload_scope_denies_drive_root_but_allows_assigned_folder(self):
         access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))

@@ -114,6 +114,37 @@ def _require_viewer_folder_scope(
         )
 
 
+async def _viewer_media_scope_allowed(
+    scope_service: ViewerFolderScopeService,
+    *,
+    tenant_id: str,
+    access: ViewerFolderAccess,
+    provider: Provider,
+    token: str,
+    item_id: str,
+) -> bool:
+    if not access.restricted or scope_service.allows_external_asset(
+        tenant_id=tenant_id, access=access, external_asset_id=item_id,
+    ):
+        return True
+    if provider != "google-drive":
+        return False
+    # A newly uploaded file may not have a SourceAsset row yet. Resolve its
+    # authoritative remote parent before applying the existing scope rules.
+    async with create_source_provider(provider, token) as source_client:
+        remote_item = await source_client.get_node(item_id)
+    parent_id = remote_item.parent_id
+    return bool(
+        parent_id
+        and (
+            parent_id in access.folder_ids
+            or scope_service.allows_external_asset(
+                tenant_id=tenant_id, access=access, external_asset_id=parent_id,
+            )
+        )
+    )
+
+
 async def _source_context(
     request: Request,
     provider: Provider,
@@ -526,12 +557,15 @@ async def media(
             tenant_id=tenant_id, membership_id=principal.membership_id,
             roles=principal.effective_roles, external_source_id=resolved_source_id,
         )
-        if access.restricted and not ViewerFolderScopeService(session).allows_external_asset(
-            tenant_id=tenant_id, access=access, external_asset_id=item_id,
-        ):
-            raise HTTPException(status_code=403, detail={"code": "viewer_folder_scope_denied", "message": "File is outside the viewer folder scope."})
         if not token:
             raise HTTPException(status_code=401, detail=f"Connect {provider} to preview files.")
+
+        scope_service = ViewerFolderScopeService(session)
+        if not await _viewer_media_scope_allowed(
+            scope_service, tenant_id=tenant_id, access=access, provider=provider,
+            token=token, item_id=item_id,
+        ):
+            raise HTTPException(status_code=403, detail={"code": "viewer_folder_scope_denied", "message": "File is outside the viewer folder scope."})
 
         opener = open_sharepoint_media if provider == "sharepoint" else open_google_media
         closer = close_sharepoint_media if provider == "sharepoint" else close_google_media

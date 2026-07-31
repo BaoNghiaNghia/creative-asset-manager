@@ -131,6 +131,15 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [active, authenticated, provider, query, facetKey, capabilities.debug_allowed]);
 
+  function clearSearchFilters() {
+    setSelectedFacets({});
+    setSuggestions([]);
+    setFacets({});
+    setParsed(null);
+    setTotal(0);
+    setDurationMs(null);
+  }
+
   function toggleFacet(name: string, value: string) {
     setSelectedFacets(current => {
       const values = new Set(current[name] || []);
@@ -139,5 +148,5 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     });
   }
 
-  return useMemo(() => ({ active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, suggestions, suggestionsLoading, error, toggleFacet }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, suggestions, suggestionsLoading, error]);
+  return useMemo(() => ({ active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, suggestions, suggestionsLoading, error, toggleFacet, clearSearchFilters }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, suggestions, suggestionsLoading, error]);
 }

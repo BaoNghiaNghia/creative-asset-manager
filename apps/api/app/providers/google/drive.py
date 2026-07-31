@@ -5,6 +5,8 @@ from app.providers.google.mapper import map_drive_file
 
 FIELDS = "id,name,mimeType,parents,size,modifiedTime,thumbnailLink,webViewLink"
 FOLDER_MIME = "application/vnd.google-apps.folder"
+_MEDIA_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_MEDIA_MAX_ATTEMPTS = 3
 
 
 class GoogleDriveClient:
@@ -117,26 +119,51 @@ class GoogleDriveClient:
 
 
 async def open_media_stream(access_token: str, item_id: str, range_header: str | None):
-    """Open an authenticated Drive media stream without buffering it in the API."""
-    client = httpx.AsyncClient(timeout=httpx.Timeout(20, read=None))
+    """Open an authenticated Drive media stream without buffering it in the API.
+
+    Transient Google errors and redirects are resolved before the response is
+    handed to StreamingResponse, which keeps the actual media body unbuffered.
+    """
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(20, read=None),
+        follow_redirects=True,
+    )
     headers = {"Authorization": f"Bearer {access_token}"}
     if range_header:
         headers["Range"] = range_header
 
-    request = client.build_request(
-        "GET",
-        f"https://www.googleapis.com/drive/v3/files/{item_id}",
-        params={"alt": "media", "supportsAllDrives": "true"},
-        headers=headers,
-    )
-    response = await client.send(request, stream=True)
+    response = None
     try:
-        response.raise_for_status()
+        for attempt in range(_MEDIA_MAX_ATTEMPTS):
+            request = client.build_request(
+                "GET",
+                "https://www.googleapis.com/drive/v3/files/{item_id}".format(
+                    item_id=item_id
+                ),
+                params={"alt": "media", "supportsAllDrives": "true"},
+                headers=headers,
+            )
+            response = await client.send(request, stream=True)
+            if (
+                response.status_code not in _MEDIA_RETRYABLE_STATUS_CODES
+                or attempt == _MEDIA_MAX_ATTEMPTS - 1
+            ):
+                response.raise_for_status()
+                return client, response
+
+            retry_after = response.headers.get("retry-after")
+            try:
+                delay = float(retry_after) if retry_after is not None else 0.5 * (2**attempt)
+            except ValueError:
+                delay = 0.5 * (2**attempt)
+            await response.aclose()
+            response = None
+            await asyncio.sleep(max(delay, 0.0))
     except Exception:
-        await response.aclose()
+        if response is not None:
+            await response.aclose()
         await client.aclose()
         raise
-    return client, response
 
 
 async def close_media_stream(client: httpx.AsyncClient, response: httpx.Response):

@@ -300,6 +300,19 @@ export function useDriveExplorer() {
     }
   }
 
+  /** Navigate from an explicit folder selection and leave search mode behind. */
+  async function openFolder(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider) {
+    setQuery("");
+    resetSearch();
+    searchV2.clearSearchFilters();
+    const params = new URLSearchParams(window.location.search);
+    params.delete("q");
+    [...params.keys()].filter(key => key.startsWith("facet.")).forEach(key => params.delete(key));
+    const cleanQuery = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (cleanQuery ? "?" + cleanQuery : ""));
+    await open(id, ancestors, source);
+  }
+
   async function restoreSavedLocation(source: Provider) {
     const saved = parseSavedExplorerLocation(window.localStorage.getItem(explorerLocationKey(source)), source);
     if (!saved) {
@@ -846,6 +859,7 @@ export function useDriveExplorer() {
     refreshCurrentFolder,
     selectProvider,
     open,
+    openFolder,
     toggleTree,
     scheduleFolderPrefetch,
     cancelFolderPrefetch,

@@ -268,7 +268,7 @@ export default function App() {
       expanded={explorer.expanded}
       loadingNodes={explorer.loadingTreeIds}
       onSelectProvider={explorer.selectProvider}
-      onOpen={explorer.open}
+      onOpen={explorer.openFolder}
       onToggle={explorer.toggleTree}
       onPrefetch={explorer.scheduleFolderPrefetch}
       onCancelPrefetch={explorer.cancelFolderPrefetch}
