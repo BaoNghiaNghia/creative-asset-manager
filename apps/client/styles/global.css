@@ -975,3 +975,20 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 @media(prefers-reduced-motion:reduce){.asset-card-skeleton-preview,.asset-card-skeleton-details i{animation:none}}
 
 .upload-panel{position:fixed;right:24px;bottom:24px;width:min(380px,calc(100vw - 32px));z-index:70;background:#fff;border:1px solid #dbe1ea;border-radius:12px;box-shadow:0 12px 35px #0f172a26;padding:12px}.upload-panel header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.upload-panel header button{border:0;background:none;font-size:20px}.upload-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid #eef1f5}.upload-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.upload-row small{text-transform:capitalize;color:#64748b}.confirm-toast{position:fixed;right:24px;bottom:24px;z-index:80;display:flex;gap:10px;align-items:center;background:#1e293b;color:white;padding:12px 14px;border-radius:10px;box-shadow:0 12px 35px #0f172a40}.confirm-toast button{border:1px solid #cbd5e1;border-radius:6px;background:white;color:#1e293b;padding:5px 9px}.upload{cursor:pointer;display:inline-flex;align-items:center}
+.asset-file-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:8px;font-size:14px;font-weight:850;letter-spacing:.02em;line-height:1}
+.asset-file-icon--folder{background:#fff3cf;color:#9b6a0a}
+.asset-file-icon--spreadsheet{background:#e4f4e8;color:#188038}
+.asset-file-icon--document{background:#e7efff;color:#4285f4}
+.asset-file-icon--presentation{background:#fff0e8;color:#d24726}
+.asset-file-icon--form{background:#f4e8ff;color:#673ab7}
+.asset-file-icon--drawing{background:#e9f7f5;color:#008577}
+.asset-file-icon--pdf{background:#ffe7e5;color:#b42318}
+.asset-file-icon--image{background:#ffeae7;color:#c64032}
+.asset-file-icon--video{background:#e9e8ff;color:#5147bd}
+.asset-file-icon--file{background:#eef2f7;color:#56657a}
+.preview-fallback.asset-file-icon{width:auto;height:auto;padding:12px 10px;border-radius:10px}
+.asset-kind-mark.asset-file-icon--spreadsheet{background:#e4f4e8;color:#188038}
+.asset-kind-mark.asset-file-icon--document{background:#e7efff;color:#4285f4}
+.asset-kind-mark.asset-file-icon--presentation{background:#fff0e8;color:#d24726}
+.asset-kind-mark.asset-file-icon--form{background:#f4e8ff;color:#673ab7}
+.asset-kind-mark.asset-file-icon--drawing{background:#e9f7f5;color:#008577}

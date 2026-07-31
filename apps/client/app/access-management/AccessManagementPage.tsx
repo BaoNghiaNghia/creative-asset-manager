@@ -200,10 +200,30 @@ export function handleAccessTabKeyDown(event: React.KeyboardEvent<HTMLElement>, 
 }
 
 
+export type ViewerFolderChoice = { id: string; name: string; stale?: boolean; renamedFrom?: string };
+type StoredViewerFolder = { folder_id: string; folder_name?: string | null };
+export function mergeViewerFolderOptions(
+  options: Array<{ id: string; name: string }>,
+  stored: StoredViewerFolder[],
+): ViewerFolderChoice[] {
+  const byId = new Map(stored.map(item => [item.folder_id, item.folder_name || ""]));
+  const live = options.map(folder => {
+    const previous = byId.get(folder.id);
+    return { id: folder.id, name: folder.name, ...(previous && previous !== folder.name ? { renamedFrom: previous } : {}) };
+  });
+  const liveIds = new Set(options.map(folder => folder.id));
+  const stale = stored.filter(item => !liveIds.has(item.folder_id)).map(item => ({
+    id: item.folder_id,
+    name: item.folder_name || "Deleted folder",
+    stale: true,
+  }));
+  return [...live, ...stale];
+}
+
 function ViewerFolderScopeEditor({ tenantId, membershipId, onMessage }: { tenantId: string; membershipId: string; onMessage: (value: string) => void }) {
   const [open, setOpen] = useState(false);
   const [sourceId, setSourceId] = useState("");
-  const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([]);
+  const [folders, setFolders] = useState<ViewerFolderChoice[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
@@ -211,18 +231,24 @@ function ViewerFolderScopeEditor({ tenantId, membershipId, onMessage }: { tenant
   async function openEditor() {
     setOpen(true); setLoading(true); setError("");
     try {
-      const options = await fetchViewerFolderOptions(); setSourceId(options.external_source_id); setFolders(options.folders);
+      const options = await fetchViewerFolderOptions();
+      setSourceId(options.external_source_id);
       const current = await fetchViewerFolderScopes(tenantId, membershipId, options.external_source_id);
+      setFolders(mergeViewerFolderOptions(options.folders, current.items));
       setSelected(new Set(current.items.map(item => item.folder_id)));
     } catch (next) { setError(next instanceof Error ? next.message : "Could not load folders."); } finally { setLoading(false); }
   }
   if (!open) return <button type="button" className="secondary" onClick={openEditor}>Limit viewer folders</button>;
-  return <div className="viewer-folder-scope-editor" role="group" aria-label="Viewer folder access">
-    <strong>Viewer folder access</strong><small>Select folders; descendants are included. Empty selection means no Drive folders.</small>
-    {loading ? <span>Loading folders…</span> : <fieldset>{folders.length ? folders.map(folder => <label key={folder.id}><input type="checkbox" checked={selected.has(folder.id)} onChange={() => setSelected(current => { const next = new Set(current); next.has(folder.id) ? next.delete(folder.id) : next.add(folder.id); return next; })} /> {folder.name}</label>) : <span>No root folders found.</span>}</fieldset>}
-    <label>Reason<input value={reason} minLength={3} onChange={event => setReason(event.target.value)} placeholder="Why is access being limited?" /></label>
-    {error && <span role="alert">{error}</span>}
-    <button type="button" className="primary" disabled={loading || !sourceId || reason.trim().length < 3} onClick={async () => { try { await replaceViewerFolderScopes(tenantId, membershipId, { external_source_id: sourceId, folders: folders.filter(folder => selected.has(folder.id)).map(folder => ({ folder_id: folder.id, folder_name: folder.name })), reason: reason.trim() }); onMessage("Viewer folder access updated."); setOpen(false); } catch (next) { setError(next instanceof Error ? next.message : "Could not save folder access."); } }}>Save folder access</button>
-    <button type="button" onClick={() => setOpen(false)}>Cancel</button>
+  const selectedLive = folders.filter(folder => selected.has(folder.id) && !folder.stale);
+  return <div className="viewer-folder-scope-backdrop">
+    <div className="viewer-folder-scope-dialog" role="dialog" aria-modal="true" aria-labelledby="viewer-folder-title">
+      <header><div><small>VIEWER ACCESS</small><h2 id="viewer-folder-title">Choose accessible folders</h2></div><button type="button" className="viewer-folder-close" aria-label="Close folder access dialog" onClick={() => setOpen(false)}>x</button></header>
+      <p className="viewer-folder-help">Select one or more Drive folders. The viewer can see every file and nested folder inside the selected folders. Nothing outside them is visible.</p>
+      {selectedLive.length ? <div className="viewer-folder-summary"><strong>{selectedLive.length} folder{selectedLive.length === 1 ? "" : "s"} selected</strong><span>{selectedLive.map(folder => folder.name).join(" - ")}</span></div> : <div className="viewer-folder-summary empty"><strong>No folders selected</strong><span>The viewer will not see Drive items until a folder is selected.</span></div>}
+      {loading ? <div className="viewer-folder-loading" aria-busy="true">Loading current Drive folders...</div> : <fieldset className="viewer-folder-list"><legend>Available root folders</legend>{folders.length ? folders.map(folder => <label key={folder.id} className={folder.stale ? "stale" : ""}><input type="checkbox" checked={selected.has(folder.id)} disabled={folder.stale} onChange={() => setSelected(current => { const next = new Set(current); next.has(folder.id) ? next.delete(folder.id) : next.add(folder.id); return next; })} /><span><strong>{folder.name}</strong>{folder.renamedFrom && <small>Renamed from "{folder.renamedFrom}"</small>}{folder.stale && <small className="folder-warning">No longer available - remove this access when saving</small>}</span></label>) : <p>No root folders found for the connected Google Drive.</p>}</fieldset>}
+      <div className="viewer-folder-actions"><button type="button" onClick={() => setSelected(new Set())}>Clear selection</button><span className="viewer-folder-spacer" /><label>Reason<input value={reason} minLength={3} onChange={event => setReason(event.target.value)} placeholder="Explain this access change" /></label></div>
+      {error && <p role="alert" className="viewer-folder-error">{error}</p>}
+      <footer><button type="button" onClick={() => setOpen(false)}>Cancel</button><button type="button" className="primary" disabled={loading || !sourceId || reason.trim().length < 3} onClick={async () => { try { await replaceViewerFolderScopes(tenantId, membershipId, { external_source_id: sourceId, folders: selectedLive.map(folder => ({ folder_id: folder.id, folder_name: folder.name })), reason: reason.trim() }); onMessage("Viewer folder access updated."); setOpen(false); } catch (next) { setError(next instanceof Error ? next.message : "Could not save folder access."); } }}>Save folder access</button></footer>
+    </div>
   </div>;
 }

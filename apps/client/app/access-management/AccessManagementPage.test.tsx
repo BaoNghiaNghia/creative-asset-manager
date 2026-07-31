@@ -111,6 +111,17 @@ describe("Access Management route and presentation", () => {
     expect(accessStateForError(new AccessApiError("stale", 403, "tenant_membership_required"))).toBe("stale-membership");
     expect(accessStateForError(new AccessApiError("denied", 403, "permission_required"))).toBe("permission-denied");
   });
+  it("preserves renamed folders and flags deleted folder scopes", async () => {
+    const { mergeViewerFolderOptions } = await import("./AccessManagementPage");
+    expect(mergeViewerFolderOptions(
+      [{ id: "folder-1", name: "New name" }],
+      [{ folder_id: "folder-1", folder_name: "Old name" }, { folder_id: "gone", folder_name: "Old folder" }],
+    )).toEqual([
+      { id: "folder-1", name: "New name", renamedFrom: "Old name" },
+      { id: "gone", name: "Old folder", stale: true },
+    ]);
+  });
+
 });
 
 describe("Access Management API client", () => {

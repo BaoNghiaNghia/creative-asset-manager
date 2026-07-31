@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
+import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType } from "../utils/fileType";
 
-const icons = { folder: "📁", image: "▧", video: "▶", pdf: "PDF", document: "DOC", other: "◇" };
 
 export function shouldLoadAssetThumbnail(inViewport: boolean, thumbnailUrl?: string | null): boolean {
   return inViewport && Boolean(thumbnailUrl);
@@ -41,7 +41,8 @@ function AssetPreview({ item }: { item: Asset }) {
   }, [canShowThumbnail]);
 
   if (!canShowThumbnail) {
-    return <span className="preview-fallback">{icons[item.kind]}</span>;
+    const type = getFileType(item.mime_type, item.kind);
+    return <span className={"preview-fallback asset-file-icon " + fileTypeTone(type)} aria-label={fileTypeLabel(type)}>{fileTypeGlyph(type)}</span>;
   }
 
   const shouldLoad = shouldLoadAssetThumbnail(inViewport, item.thumbnail_url);
@@ -169,7 +170,7 @@ export function AssetGrid({
       </button>
       <div>
         <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>
-        <small>{item.kind === "folder" ? "Folder" : item.modified_at ? new Date(item.modified_at).toLocaleDateString() : item.mime_type}</small>
+        <small>{fileTypeLabel(getFileType(item.mime_type, item.kind))}{item.modified_at && item.kind !== "folder" ? " - " + new Date(item.modified_at).toLocaleDateString() : ""}</small>
         <AssetMetadataBar item={item} metadata={metadataByItem[item.id]} onRate={onRate} />
       </div>
     </article>)}

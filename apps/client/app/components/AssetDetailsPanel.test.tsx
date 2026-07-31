@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset, AssetMetadata } from "../types";
-import { AssetDetailsPanel, buildActivity, formatBytes, readableKind, resolvePreviewUrl } from "./AssetDetailsPanel";
+import { AssetDetailsPanel, buildActivity, formatBytes, inferKind, readableKind, resolvePreviewUrl } from "./AssetDetailsPanel";
 
 const item: Asset = {
   provider: "google-drive",
@@ -32,6 +32,13 @@ describe("Asset details inspector", () => {
       expect(markup).toContain(value);
     }
     expect(markup).not.toContain("Operator actions");
+  });
+
+  it("previews AVIF files when the provider reports octet-stream", () => {
+    const avif = { ...item, name: "photo.avif", mime_type: "application/octet-stream", thumbnail_url: "/api/explorer/media/avif-1?provider=google-drive" };
+    const markup = renderToStaticMarkup(<AssetDetailsPanel item={avif} metadata={metadata} onClose={noop} onPreview={noop} />);
+    expect(markup).toContain('<img src="/api/explorer/media/avif-1?provider=google-drive"');
+    expect(markup).toContain("image/avif");
   });
 
   it("turns technical processing states into an understandable activity timeline", () => {
@@ -68,5 +75,7 @@ describe("Asset details inspector", () => {
     expect(formatBytes(1024)).toBe("1.0 KB");
     expect(formatBytes(undefined)).toBe("Not available");
     expect(readableKind("video")).toBe("Video");
+    expect(inferKind("application/octet-stream", "photo.avif")).toBe("image");
+    expect(inferKind(undefined, "photo.webp")).toBe("image");
   });
 });

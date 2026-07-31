@@ -4,6 +4,7 @@ import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
 import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { SafeJsonTree } from "./SafeJsonTree";
+import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType } from "../utils/fileType";
 
 type Props = {
   item: Asset | null;
@@ -73,13 +74,14 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
   const displayName = item?.name || stringValue(source.filename) || stringValue(assetRecord.filename) || (loading ? "Loading..." : "Select a file");
   const provider = item?.provider || (String(source.source_type || "").includes("sharepoint") ? "sharepoint" : "google-drive");
   const sourceProvider = provider === "sharepoint" ? "sharepoint" : "google-drive";
-  const kind = item?.kind || inferKind(stringValue(source.mime_type) || stringValue(assetRecord.mime_type));
+  const kind = item?.kind === "folder" ? "folder" : inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), displayName);
+  const fileType = getFileType(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), kind);
   const tabs: Section[] = data ? ["details", "activity", "metadata", "history", "jobs"] : ["details", "activity"];
   const activity = useMemo(() => buildActivity(item, data), [item, data]);
 
   return <><aside className="asset-details asset-inspector" aria-label="File information">
     <header className="asset-inspector-header">
-      <span className={"asset-kind-mark " + kind} aria-hidden="true">{kindMark(kind)}</span>
+      <span className={"asset-kind-mark " + kind + " " + fileTypeTone(fileType)} aria-hidden="true">{fileTypeGlyph(fileType)}</span>
       <div><small>{provider === "sharepoint" ? "SharePoint" : "Google Drive"}</small><h2 title={displayName}>{displayName}</h2></div>
       <button onClick={onClose} aria-label="Close file information" title="Close">×</button>
     </header>
@@ -134,8 +136,11 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
 function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void }) {
   const source = data?.sources[0] || {};
   const assetRecord = data?.asset || {};
-  const kind = item?.kind || inferKind(stringValue(source.mime_type) || stringValue(assetRecord.mime_type));
-  const mimeType = item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type) || "Unknown";
+  const inferredKind = inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), item?.name || stringValue(source.filename));
+  const kind = inferredKind === "other" && item?.kind ? item.kind : inferredKind;
+  const declaredMime = item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type);
+  const fileType = getFileType(declaredMime, kind);
+  const mimeType = (declaredMime && declaredMime !== "application/octet-stream" ? declaredMime : inferImageMime(item?.name || stringValue(source.filename)) || declaredMime) || "Unknown";
   const size = item?.size ?? numberValue(source.size_bytes) ?? numberValue(assetRecord.size_bytes);
   const modified = item?.modified_at || stringValue(source.source_modified_at) || stringValue(assetRecord.updated_at);
   const created = stringValue(source.source_created_at) || stringValue(assetRecord.created_at);
@@ -149,14 +154,14 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
       {previewUrl && (kind === "image" || kind === "video") ? <>
         <img src={previewUrl} alt={`Preview of ${previewName}`} referrerPolicy="no-referrer" />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
-      </> : <span className={"asset-kind-mark large " + kind}>{kindMark(kind)}</span>}
+      </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}
       {item && onPreview && (kind === "image" || kind === "video") && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
     </div>
 
     <section className="inspector-section" aria-labelledby="file-properties-heading">
       <h3 id="file-properties-heading">File details</h3>
       <dl className="inspector-properties">
-        <Info label="Type" value={`${readableKind(kind)} · ${mimeType}`} />
+        <Info label="Type" value={`${fileTypeLabel(fileType)} · ${mimeType}`} />
         <Info label="Size" value={formatBytes(size)} />
         <Info label="Location" value={location} />
         <Info label="Provider" value={provider === "sharepoint" ? "Microsoft SharePoint" : "Google Drive"} />
@@ -274,7 +279,9 @@ export function resolvePreviewUrl(item: Asset | null, source: Record<string, unk
 
 function stringValue(value: unknown): string | undefined { return typeof value === "string" && value ? value : undefined; }
 function numberValue(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
-function inferKind(mimeType?: string): Asset["kind"] { if (!mimeType) return "other"; if (mimeType.startsWith("image/")) return "image"; if (mimeType.startsWith("video/")) return "video"; if (mimeType === "application/pdf") return "pdf"; return "document"; }
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = { avif: "image/avif", bmp: "image/bmp", gif: "image/gif", jpeg: "image/jpeg", jpg: "image/jpeg", png: "image/png", webp: "image/webp" };
+function inferImageMime(filename?: string): string | undefined { const extension = filename?.split(".").pop()?.toLowerCase(); return extension ? IMAGE_MIME_BY_EXTENSION[extension] : undefined; }
+export function inferKind(mimeType?: string, filename?: string): Asset["kind"] { const normalized = (mimeType || "").toLowerCase(); const extensionMime = inferImageMime(filename); if (normalized.startsWith("image/")) return "image"; if ((normalized === "" || normalized === "application/octet-stream") && extensionMime) return "image"; if (normalized.startsWith("video/")) return "video"; if (normalized === "application/pdf") return "pdf"; return normalized ? "document" : "other"; }
 function kindMark(kind: Asset["kind"]): string { return ({ folder: "DIR", image: "IMG", video: "VID", pdf: "PDF", document: "DOC", other: "FILE" })[kind]; }
 export function readableKind(kind: Asset["kind"]): string { return ({ folder: "Folder", image: "Image", video: "Video", pdf: "PDF document", document: "Document", other: "File" })[kind]; }
 export function formatBytes(value?: number): string { if (value === undefined || value === null || value < 0) return "Not available"; if (value === 0) return "0 B"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1); const amount = value / 1024 ** index; return `${amount >= 10 || index === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[index]}`; }
