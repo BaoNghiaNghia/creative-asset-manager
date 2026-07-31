@@ -31,6 +31,24 @@ class TenantSourceResolverTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(access.provider_account_id, "admin-google-subject")
         token.assert_awaited_once_with("connection-admin")
 
+    async def test_write_operation_requires_write_scoped_connection(self):
+        source = SimpleNamespace(
+            id="source-a",
+            source_metadata={"oauth_connection_id": "connection-admin"},
+        )
+        with patch(
+            "app.modules.explorer.tenant_source.get_connection_access_token",
+            new=AsyncMock(return_value="tenant-drive-token"),
+        ) as token:
+            await TenantSourceResolver(self._session([source])).google_drive(
+                tenant_id="tenant-a",
+                require_drive_write_scope=True,
+            )
+        token.assert_awaited_once_with(
+            "connection-admin",
+            require_drive_write_scope=True,
+        )
+
     async def test_uses_the_single_default_when_multiple_tenant_sources_exist(self):
         sources = [
             SimpleNamespace(id="older", source_metadata={"oauth_connection_id": "older"}),

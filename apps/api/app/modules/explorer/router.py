@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import json
+import logging
 import time
 
 import httpx
@@ -45,6 +46,7 @@ from app.providers.microsoft.sharepoint import close_media_stream as close_share
 from app.providers.microsoft.sharepoint import open_media_stream as open_sharepoint_media
 
 router = APIRouter(prefix="/explorer", tags=["explorer"])
+logger = logging.getLogger(__name__)
 
 
 def _account_id(request: Request, provider: Provider) -> str:
@@ -114,12 +116,14 @@ async def _source_context(
     session: Session,
     principal: CurrentPrincipal,
     external_source_id: str | None = None,
+    require_drive_write_scope: bool = False,
 ) -> tuple[str | None, str, str, str | None]:
     """Return the configured tenant source for Google, never the viewer token."""
     if provider == "google-drive":
         source = await TenantSourceResolver(session).google_drive(
             tenant_id=principal.active_tenant_id,
             external_source_id=external_source_id,
+            require_drive_write_scope=require_drive_write_scope,
         )
         return source.access_token, source.provider_account_id, principal.active_tenant_id, source.external_source_id
     token = await _access_token(request, provider)
@@ -271,14 +275,49 @@ async def upload_file(
 ):
     if provider != "google-drive":
         raise HTTPException(status_code=501, detail="Upload is not supported for this provider yet.")
-    token, _account, _tenant, _source = await _source_context(request, provider, session, principal, external_source_id)
-    if not token: raise HTTPException(status_code=401, detail="Connect Google Drive before uploading.")
-    async with create_source_provider(provider, token) as client:
-        parent = await client.get_node(parent_id)
-        if parent.kind != "folder": raise HTTPException(status_code=422, detail="Destination must be a folder.")
-        content = await request.body()
-        if len(content) > 100 * 1024 * 1024: raise HTTPException(status_code=413, detail="File is too large.")
-        node = await client.upload_file(parent_id, filename, mime_type, content)
+    if not filename.strip():
+        raise HTTPException(status_code=422, detail="A file name is required.")
+    content = await request.body()
+    if not content:
+        raise HTTPException(status_code=422, detail="The selected file is empty.")
+    if len(content) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Files larger than 100 MB cannot be uploaded.")
+    try:
+        token, _account, _tenant, _source = await _source_context(
+            request,
+            provider,
+            session,
+            principal,
+            external_source_id,
+            require_drive_write_scope=True,
+        )
+        if not token:
+            raise HTTPException(status_code=401, detail="Connect Google Drive before uploading.")
+        async with create_source_provider(provider, token) as client:
+            parent = await client.get_node(parent_id)
+            if parent.kind != "folder":
+                raise HTTPException(status_code=422, detail="Destination must be a folder.")
+            node = await client.upload_file(parent_id, filename, mime_type, content)
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Google Drive denied creating a file in this folder. Reconnect the Drive source "
+                    "with read/write access, then confirm that the connected Google account can edit this folder."
+                ),
+            ) from exc
+        raise _provider_error(exc, "Google Drive could not upload this file.") from exc
+    except httpx.HTTPError as exc:
+        raise _provider_error(exc, "Google Drive could not upload this file.") from exc
+    except Exception as exc:
+        logger.exception("explorer_upload_failed", extra={"provider": provider})
+        raise HTTPException(
+            status_code=502,
+            detail="Google Drive could not upload this file. Please try again or reconnect the Drive source.",
+        ) from exc
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 @router.delete("/items/{item_id}")
@@ -333,6 +372,7 @@ async def search(
                 create_source_provider, AssetProcessingStatusService(session), access,
             ).search_subtree(
                 body, token, account_id, tenant_id=tenant_id,
+                external_source_id=resolved_source_id,
             )
             return result.model_dump(mode="json")
 
@@ -381,6 +421,7 @@ async def search_stream(
                     account_id,
                     progress=progress,
                     tenant_id=tenant_id,
+                    external_source_id=resolved_source_id,
                 )
                 primary_document = jsonable_encoder(result)
                 settings = get_settings()

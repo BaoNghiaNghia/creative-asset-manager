@@ -64,7 +64,7 @@ async def connect_drive(
     request: Request,
     principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
 ):
-    """Privileged workspace setup: requests Google Drive read-only access."""
+    """Privileged workspace setup: requests Google Drive read/write access."""
     return _authorization_response(
         oauth_flow(require_drive_scope=True),
         redirect_intent=f"drive_connect:{principal.active_tenant_id}",

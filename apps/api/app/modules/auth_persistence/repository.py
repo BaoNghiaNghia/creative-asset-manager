@@ -48,6 +48,7 @@ class PersistentOAuthConnection:
     access_token: str
     refresh_token: str | None
     expires_at: float
+    scopes: tuple[str, ...] = ()
 
 class AuthPersistenceRepository:
     def __init__(self, session: Session, cipher: TokenCipher):
@@ -255,6 +256,7 @@ class AuthPersistenceRepository:
             connection.provider_account_id, access, refresh,
             aware(connection.access_token_expires_at).timestamp()
             if connection.access_token_expires_at else 0,
+            tuple(connection.scopes_json or ()),
         )
 
 

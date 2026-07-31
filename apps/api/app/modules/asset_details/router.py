@@ -11,6 +11,7 @@ from app.core.database import SessionLocal
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.ai_governance.repository import AiGovernanceRepository
+from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.authorization.principal import (
     CurrentPrincipal, require_authenticated_principal, require_permission,
     require_principal_permission,
@@ -56,7 +57,10 @@ def source_preview_url(
     if source.deleted_at is not None or not is_previewable_media(source.filename, mime_type):
         return None
     provider = "sharepoint" if "sharepoint" in (external_source.source_type or "").lower() else "google-drive"
-    return f"/api/explorer/media/{quote(source.external_asset_id, safe='')}?provider={provider}"
+    return (
+        f"/api/explorer/media/{quote(source.external_asset_id, safe='')}"
+        f"?provider={provider}&external_source_id={quote(source.external_source_id, safe='')}"
+    )
 
 def bounded(value: Any, depth=0, budget=None):
     budget = budget or [MAX_JSON_NODES]
@@ -105,6 +109,27 @@ def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit
         if asset is None:
             raise HTTPException(404, "Asset not found")
         source_rows = session.execute(select(SourceAssetModel, ExternalSourceModel).join(AssetSourceLinkModel, AssetSourceLinkModel.source_asset_id == SourceAssetModel.id).join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id).where(AssetSourceLinkModel.tenant_id == tenant, AssetSourceLinkModel.asset_id == asset_id, SourceAssetModel.tenant_id == tenant, ExternalSourceModel.tenant_id == tenant).order_by(SourceAssetModel.created_at)).all()
+        scope_service = ViewerFolderScopeService(session)
+        visible_source_rows = []
+        for source, external_source in source_rows:
+            access = scope_service.access(
+                tenant_id=tenant,
+                membership_id=principal.membership_id,
+                roles=principal.effective_roles,
+                external_source_id=external_source.id,
+            )
+            if not access.restricted or scope_service.allows_external_asset(
+                tenant_id=tenant,
+                access=access,
+                external_asset_id=source.external_asset_id,
+            ):
+                visible_source_rows.append((source, external_source))
+        if source_rows and not visible_source_rows:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "viewer_folder_scope_denied", "message": "Asset is outside the viewer folder scope."},
+            )
+        source_rows = visible_source_rows
         sources = [{"source_asset_id": s.id, "external_source_id": s.external_source_id, "external_asset_id": s.external_asset_id, "source_type": e.source_type, "source_key": e.source_key, "display_name": e.display_name, "filename": s.filename, "mime_type": s.mime_type or asset.mime_type, "size_bytes": s.size_bytes, "provider_checksum": s.provider_checksum, "provider_version": s.provider_version, "preview_url": source_preview_url(s, e, asset.mime_type), "deleted": s.deleted_at is not None, "created_at": iso(s.source_created_at), "modified_at": iso(s.source_modified_at)} for s, e in source_rows]
         storage = [{"id": row.id, "provider": row.storage_provider, "status": row.status, "remote_file_id": row.remote_file_id, "remote_folder_id": row.remote_folder_id, "web_url": safe_url(row.web_url), "verified": row.status == "stored" and bool(row.remote_file_id), "attempt_count": row.attempt_count, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "stored_at": iso(row.stored_at)} for row in session.scalars(select(AssetStorageObjectModel).where(AssetStorageObjectModel.tenant_id == tenant, AssetStorageObjectModel.asset_id == asset_id).order_by(AssetStorageObjectModel.updated_at.desc()))]
         base_analysis = select(AssetAiAnalysisModel).where(AssetAiAnalysisModel.tenant_id == tenant, AssetAiAnalysisModel.asset_id == asset_id)

@@ -462,6 +462,8 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 }
 .provider-login:hover{border-color:#7d9ee8;background:#f3f7ff;color:#2457b8}
 .provider-login small{margin-left:auto;color:#7b8796;font-size:10px}
+.drive-reconnect{margin:5px 8px 0;width:calc(100% - 16px);border:1px dashed #b9c9ed;background:#f7f9ff;color:#2457b8;font-size:12px}
+.drive-reconnect:hover{border-color:#6e93ef;background:#eef3ff}
 .source-connected{flex:0 0 auto;width:7px;height:7px;margin-left:auto;border-radius:50%;background:#26a269;box-shadow:0 0 0 3px #26a2691f}
 .sharepoint-icon rect{fill:#1677d2;stroke:#0f5fae}
 .sharepoint-icon path{stroke:#fff}

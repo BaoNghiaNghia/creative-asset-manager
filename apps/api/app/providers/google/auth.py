@@ -21,12 +21,14 @@ from app.modules.auth_persistence.service import AUTH_METRICS, auth_repository
 
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+# Read/write source management is required for Explorer uploads, moves, and deletes.
+DRIVE_WRITE_SCOPE = "https://www.googleapis.com/auth/drive"
 IDENTITY_SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
-DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_READONLY_SCOPE]
+DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_WRITE_SCOPE]
 SCOPES = DRIVE_SCOPES
 SESSION_COOKIE = "cam_google_session"
 OAUTH_BINDING_COOKIE = "cam_oauth_binding"
@@ -69,8 +71,8 @@ def consume_state_details(state, session_binding=None) -> tuple[str | None, str]
 
 def validate_granted_scopes(credentials):
     granted=set(credentials.granted_scopes or credentials.scopes or [])
-    if DRIVE_READONLY_SCOPE not in granted:
-        raise PermissionError("The required Google Drive read-only scope was not granted.")
+    if DRIVE_WRITE_SCOPE not in granted:
+        raise PermissionError("Google Drive read/write permission was not granted. Reconnect Google Drive and approve access.")
 
 async def create_session(credentials, *, require_drive_scope: bool = True, connection_tenant_id: str | None = None):
     if require_drive_scope:
@@ -116,7 +118,11 @@ async def create_session(credentials, *, require_drive_scope: bool = True, conne
     return session_id,get_session_by_id(session_id)
 
 
-async def get_connection_access_token(connection_id: str) -> str:
+async def get_connection_access_token(
+    connection_id: str,
+    *,
+    require_drive_write_scope: bool = False,
+) -> str:
     settings = get_settings()
     with auth_repository() as repository:
         connection = repository.load_connection(
@@ -124,6 +130,11 @@ async def get_connection_access_token(connection_id: str) -> str:
         )
     if connection is None:
         raise HTTPException(401, "Google connection is unavailable.")
+    if require_drive_write_scope and DRIVE_WRITE_SCOPE not in set(connection.scopes):
+        raise HTTPException(
+            403,
+            "Google Drive write access is required. Reconnect the Drive source and approve read/write access.",
+        )
     if connection.expires_at > time.time() + 60:
         return connection.access_token
     if not connection.refresh_token:

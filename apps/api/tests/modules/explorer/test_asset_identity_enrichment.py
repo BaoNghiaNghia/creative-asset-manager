@@ -154,6 +154,7 @@ class ExplorerAssetIdentityEnrichmentTest(unittest.IsolatedAsyncioTestCase):
                 "connected-google-account",
                 "google-drive",
                 TENANT_ID,
+                source.id,
             )
 
         linked = listing.children[0]
@@ -161,10 +162,18 @@ class ExplorerAssetIdentityEnrichmentTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(linked.source_asset_id, source_asset.id)
         self.assertEqual(linked.internal_asset_id, asset.id)
         self.assertEqual(linked.external_source_id, source.id)
+        self.assertEqual(
+            linked.thumbnail_url,
+            f"/api/explorer/media/{DRIVE_ITEM_ID}?provider=google-drive&external_source_id={source.id}",
+        )
         source_only = listing.children[2]
         self.assertEqual(source_only.source_asset_id, source_only_asset.id)
         self.assertIsNone(source_only.internal_asset_id)
         self.assertEqual(source_only.external_source_id, source.id)
+        self.assertEqual(
+            source_only.thumbnail_url,
+            f"/api/explorer/media/source-only?provider=google-drive&external_source_id={source.id}",
+        )
         for child in (
             listing.children[1],
             listing.children[3],
@@ -214,6 +223,7 @@ class ExplorerAssetIdentityEnrichmentTest(unittest.IsolatedAsyncioTestCase):
             None,
             "search-account",
             tenant_id=TENANT_ID,
+            external_source_id=source.id,
         )
 
         self.assertEqual(len(result.items), 1)
@@ -222,6 +232,10 @@ class ExplorerAssetIdentityEnrichmentTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(matched.source_asset_id, source_asset.id)
         self.assertEqual(matched.external_source_id, source.id)
         self.assertEqual(matched.internal_asset_id, asset.id)
+        self.assertEqual(
+            matched.thumbnail_url,
+            f"/api/explorer/media/hero?provider=google-drive&external_source_id={source.id}",
+        )
     async def test_search_subtree_finds_completed_ai_projection(self) -> None:
         registry = AssetRegistryRepository(self.session)
         source = registry.upsert_external_source(

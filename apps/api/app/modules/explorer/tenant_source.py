@@ -28,6 +28,7 @@ class TenantSourceResolver:
         *,
         tenant_id: str,
         external_source_id: str | None = None,
+        require_drive_write_scope: bool = False,
     ) -> TenantSourceAccess:
         statement = select(ExternalSourceModel).where(
             ExternalSourceModel.tenant_id == tenant_id,
@@ -79,7 +80,14 @@ class TenantSourceResolver:
         metadata = source.source_metadata or {}
         connection_id = str(metadata["oauth_connection_id"])
         account_id = str(metadata.get("provider_account_id") or connection_id)
-        token = await get_connection_access_token(connection_id)
+        token = (
+            await get_connection_access_token(
+                connection_id,
+                require_drive_write_scope=True,
+            )
+            if require_drive_write_scope
+            else await get_connection_access_token(connection_id)
+        )
         return TenantSourceAccess(
             external_source_id=source.id,
             provider_account_id=account_id,

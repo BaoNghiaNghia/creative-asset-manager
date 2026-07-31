@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Awaitable, Callable
+from urllib.parse import quote
 
 from sqlalchemy import select
 
@@ -50,6 +51,7 @@ class ExplorerService:
         items: list[AssetNode],
         tenant_id: str,
         provider: str,
+        external_source_id: str | None = None,
     ) -> list[AssetNode]:
         if self.asset_status_service is None:
             return items
@@ -57,6 +59,7 @@ class ExplorerService:
             tenant_id,
             provider,
             [item.id for item in items if item.kind != "folder"],
+            external_source_id=external_source_id,
         )
         for item in items:
             matches = identities.get(item.id, [])
@@ -66,6 +69,25 @@ class ExplorerService:
             item.source_asset_id = identity.source_asset_id
             item.external_source_id = identity.external_source_id
             item.internal_asset_id = identity.internal_asset_id
+        return items
+
+    @staticmethod
+    def _assign_media_proxy_urls(
+        items: list[AssetNode],
+        *,
+        provider: str,
+        external_source_id: str | None,
+    ) -> list[AssetNode]:
+        """Use the tenant-scoped media proxy instead of provider browser URLs."""
+        if not external_source_id:
+            return items
+        for item in items:
+            if item.kind in {"image", "video"}:
+                item.thumbnail_url = (
+                    f"/api/explorer/media/{quote(item.id, safe='')}"
+                    f"?provider={quote(provider, safe='')}"
+                    f"&external_source_id={quote(external_source_id, safe='')}"
+                )
         return items
 
     async def list_folder(
@@ -94,7 +116,12 @@ class ExplorerService:
         else:
             raise PermissionError("Connect SharePoint to browse files.")
 
-        self._enrich_asset_identities(children, tenant_id or account_id, provider)
+        self._enrich_asset_identities(
+            children,
+            tenant_id or account_id,
+            provider,
+            external_source_id,
+        )
         if self.viewer_access is not None and self.viewer_access.restricted and not viewer_parent_authorized:
             # Root exposes only the explicitly assigned folders. A verified
             # descendant folder passes viewer_parent_authorized=True so every
@@ -102,6 +129,11 @@ class ExplorerService:
             children = [item for item in children if self.viewer_access.allows(
                 item_id=item.id, parent_id=parent_id, ancestor_ids=item.ancestor_ids
             )]
+        self._assign_media_proxy_urls(
+            children,
+            provider=provider,
+            external_source_id=external_source_id,
+        )
 
         metadata = MetadataService(account_id, provider)
         schedule_metadata_index(metadata.index_listing(parent, children))
@@ -298,6 +330,7 @@ class ExplorerService:
         account_id: str,
         progress: ProgressCallback | None = None,
         tenant_id: str | None = None,
+        external_source_id: str | None = None,
     ) -> SearchResponse:
         metadata = MetadataService(account_id, body.provider)
         await _report(progress, status="Reading metadata index", progress=3, processed_folders=0, pending_folders=0)
@@ -512,11 +545,21 @@ class ExplorerService:
             legacy_ids = {item.id for item in projected_items}
             items = [*projected_items, *(item for item in items if item.id not in legacy_ids)][:body.limit]
         indexed_count = max(0, len(indexed_rows) - 1, len(projected_items))
-        self._enrich_asset_identities(items, tenant_id or account_id, body.provider)
+        self._enrich_asset_identities(
+            items,
+            tenant_id or account_id,
+            body.provider,
+            external_source_id,
+        )
         if self.viewer_access is not None and self.viewer_access.restricted:
             items = [item for item in items if self.viewer_access.allows(
                 item_id=item.id, parent_id=item.parent_id, ancestor_ids=item.ancestor_ids
             )]
+        self._assign_media_proxy_urls(
+            items,
+            provider=body.provider,
+            external_source_id=external_source_id,
+        )
         return SearchResponse(
             items=items,
             indexed_count=indexed_count,
