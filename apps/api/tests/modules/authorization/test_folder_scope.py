@@ -1,4 +1,5 @@
 import unittest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -7,6 +8,7 @@ from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.authorization.folder_scope import ViewerFolderAccess, ViewerFolderScopeModel, ViewerFolderScopeService
+from app.modules.explorer.router import _require_viewer_folder_scope
 
 
 class ViewerFolderScopeTest(unittest.TestCase):
@@ -95,6 +97,22 @@ class ViewerFolderScopeTest(unittest.TestCase):
         self.session.flush()
         access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
         self.assertEqual(self.service.allowed_internal_asset_ids(tenant_id="tenant-1", access=access), {"nested-asset"})
+
+    def test_viewer_upload_scope_denies_drive_root_but_allows_assigned_folder(self):
+        access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
+
+        class ScopeService:
+            def allows_external_asset(self, *, external_asset_id, **_kwargs):
+                return external_asset_id == "folder-a"
+
+        _require_viewer_folder_scope(
+            ScopeService(), tenant_id="tenant-1", access=access, folder_id="folder-a", allow_root=False,
+        )
+        with self.assertRaises(HTTPException) as raised:
+            _require_viewer_folder_scope(
+                ScopeService(), tenant_id="tenant-1", access=access, folder_id="root", allow_root=False,
+            )
+        self.assertEqual(raised.exception.status_code, 403)
 
 
 if __name__ == "__main__":

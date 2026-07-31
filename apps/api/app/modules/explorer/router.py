@@ -90,15 +90,19 @@ def _require_viewer_folder_scope(
     tenant_id: str,
     access: ViewerFolderAccess,
     folder_id: str,
+    allow_root: bool = True,
 ) -> None:
-    """Require an assigned folder or one of its descendants for Viewer browsing."""
+    """Require an assigned folder or one of its descendants for Viewer access."""
     if (
         access.restricted
-        and folder_id != "root"
-        and not scope_service.allows_external_asset(
-            tenant_id=tenant_id,
-            access=access,
-            external_asset_id=folder_id,
+        and (folder_id != "root" or not allow_root)
+        and (
+            folder_id == "root"
+            or not scope_service.allows_external_asset(
+                tenant_id=tenant_id,
+                access=access,
+                external_asset_id=folder_id,
+            )
         )
     ):
         raise HTTPException(
@@ -270,7 +274,7 @@ async def upload_file(
     mime_type: str = Query("application/octet-stream"),
     provider: Provider = Query("google-drive"),
     session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
     external_source_id: str | None = Query(None),
 ):
     if provider != "google-drive":
@@ -283,13 +287,27 @@ async def upload_file(
     if len(content) > 100 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Files larger than 100 MB cannot be uploaded.")
     try:
-        token, _account, _tenant, _source = await _source_context(
+        token, _account, tenant_id, resolved_source_id = await _source_context(
             request,
             provider,
             session,
             principal,
             external_source_id,
             require_drive_write_scope=True,
+        )
+        scope_service = ViewerFolderScopeService(session)
+        access = scope_service.access(
+            tenant_id=tenant_id,
+            membership_id=principal.membership_id,
+            roles=principal.effective_roles,
+            external_source_id=resolved_source_id,
+        )
+        _require_viewer_folder_scope(
+            scope_service,
+            tenant_id=tenant_id,
+            access=access,
+            folder_id=parent_id,
+            allow_root=False,
         )
         if not token:
             raise HTTPException(status_code=401, detail="Connect Google Drive before uploading.")
