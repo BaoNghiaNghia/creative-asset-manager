@@ -3,7 +3,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
-from app.providers.google.drive import open_media_stream
+from app.providers.google.drive import (
+    GoogleDriveThumbnailUnavailable,
+    close_thumbnail_stream,
+    open_media_stream,
+    open_thumbnail_stream,
+)
 
 
 class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):
@@ -53,4 +58,57 @@ class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):
                 await open_media_stream("token", "file-id", None)
 
         response.aclose.assert_awaited_once()
+        client.aclose.assert_awaited_once()
+
+    async def test_thumbnail_resolves_fresh_provider_link_without_alt_media(self):
+        metadata = MagicMock(status_code=200, headers={})
+        metadata.raise_for_status = MagicMock()
+        metadata.json.return_value = {
+            "thumbnailLink": "https://lh3.googleusercontent.test/fresh-thumbnail"
+        }
+        thumbnail = MagicMock(status_code=200, headers={"content-type": "image/jpeg"})
+        thumbnail.raise_for_status = MagicMock()
+        thumbnail.aclose = AsyncMock()
+        request = MagicMock()
+        client = MagicMock()
+        client.get = AsyncMock(return_value=metadata)
+        client.build_request.return_value = request
+        client.send = AsyncMock(return_value=thumbnail)
+        client.aclose = AsyncMock()
+
+        with patch("app.providers.google.drive.httpx.AsyncClient", return_value=client):
+            returned_client, returned_response = await open_thumbnail_stream(
+                "secret-token", "file-id"
+            )
+
+        self.assertIs(returned_client, client)
+        self.assertIs(returned_response, thumbnail)
+        metadata_params = client.get.await_args.kwargs["params"]
+        self.assertEqual(metadata_params["fields"], "thumbnailLink")
+        self.assertNotIn("alt", metadata_params)
+        client.build_request.assert_called_once_with(
+            "GET",
+            "https://lh3.googleusercontent.test/fresh-thumbnail",
+            headers={"Authorization": "Bearer secret-token"},
+        )
+        client.send.assert_awaited_once_with(request, stream=True)
+
+        await close_thumbnail_stream(client, thumbnail)
+        thumbnail.aclose.assert_awaited_once()
+        client.aclose.assert_awaited_once()
+
+    async def test_missing_provider_thumbnail_closes_client(self):
+        metadata = MagicMock(status_code=200, headers={})
+        metadata.raise_for_status = MagicMock()
+        metadata.json.return_value = {}
+        client = MagicMock()
+        client.get = AsyncMock(return_value=metadata)
+        client.send = AsyncMock()
+        client.aclose = AsyncMock()
+
+        with patch("app.providers.google.drive.httpx.AsyncClient", return_value=client):
+            with self.assertRaises(GoogleDriveThumbnailUnavailable):
+                await open_thumbnail_stream("secret-token", "file-id")
+
+        client.send.assert_not_awaited()
         client.aclose.assert_awaited_once()

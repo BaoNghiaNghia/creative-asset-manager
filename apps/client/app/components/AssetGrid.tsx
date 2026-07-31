@@ -128,6 +128,7 @@ function AssetPreview({ item }: { item: Asset }) {
       alt=""
       loading="eager"
       decoding="async"
+      fetchPriority="low"
       referrerPolicy="no-referrer"
       onLoad={() => {
         finishThumbnail();

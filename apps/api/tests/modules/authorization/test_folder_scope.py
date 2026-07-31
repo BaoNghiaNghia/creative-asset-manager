@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -11,7 +11,7 @@ from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.authorization.folder_scope import ViewerFolderAccess, ViewerFolderScopeModel, ViewerFolderScopeService
-from app.modules.explorer.router import _require_viewer_folder_scope, _viewer_media_scope_allowed
+from app.modules.explorer.router import _require_viewer_folder_scope, _viewer_media_scope_allowed, thumbnail
 
 
 class ViewerFolderScopeTest(unittest.TestCase):
@@ -213,6 +213,43 @@ class ViewerFolderScopeTest(unittest.TestCase):
                 ScopeService(), tenant_id="tenant-1", access=access, folder_id="root", allow_root=False,
             )
         self.assertEqual(raised.exception.status_code, 403)
+
+    def test_thumbnail_proxy_checks_viewer_scope_before_google(self):
+        request = SimpleNamespace(headers={})
+        principal = SimpleNamespace(
+            active_tenant_id="tenant-1",
+            membership_id="member-1",
+            effective_roles=frozenset({"viewer"}),
+        )
+        denied = HTTPException(
+            status_code=403,
+            detail={
+                "code": "viewer_folder_scope_denied",
+                "message": "File is outside the viewer folder scope.",
+            },
+        )
+
+        with patch(
+            "app.modules.explorer.router._authorized_file_context",
+            new=AsyncMock(side_effect=denied),
+        ), patch(
+            "app.modules.explorer.router.open_google_thumbnail",
+            new=AsyncMock(),
+        ) as open_thumbnail:
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(
+                    thumbnail(
+                        request=request,
+                        item_id="file-outside-scope",
+                        provider="google-drive",
+                        session=self.session,
+                        principal=principal,
+                        external_source_id="source-1",
+                    )
+                )
+
+        self.assertEqual(raised.exception.status_code, 403)
+        open_thumbnail.assert_not_awaited()
 
 
 if __name__ == "__main__":

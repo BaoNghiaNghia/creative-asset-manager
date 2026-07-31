@@ -39,7 +39,10 @@ from app.providers.source_factory import create_source_provider
 from app.providers.google.auth import get_access_token as get_google_token
 from app.providers.google.auth import get_session as get_google_session
 from app.providers.google.drive import close_media_stream as close_google_media
+from app.providers.google.drive import close_thumbnail_stream as close_google_thumbnail
+from app.providers.google.drive import GoogleDriveThumbnailUnavailable
 from app.providers.google.drive import open_media_stream as open_google_media
+from app.providers.google.drive import open_thumbnail_stream as open_google_thumbnail
 from app.providers.microsoft.auth import get_access_token as get_microsoft_token
 from app.providers.microsoft.auth import get_session as get_microsoft_session
 from app.providers.microsoft.sharepoint import close_media_stream as close_sharepoint_media
@@ -171,6 +174,46 @@ async def _source_context(
         return source.access_token, source.provider_account_id, principal.active_tenant_id, source.external_source_id
     token = await _access_token(request, provider)
     return token, _account_id(request, provider), principal.active_tenant_id, external_source_id
+
+
+async def _authorized_file_context(
+    request: Request,
+    item_id: str,
+    provider: Provider,
+    session: Session,
+    principal: CurrentPrincipal,
+    external_source_id: str | None,
+) -> tuple[str, str, str | None]:
+    """Resolve a tenant source and enforce the same file scope for all proxies."""
+    token, _account_id_value, tenant_id, resolved_source_id = await _source_context(
+        request, provider, session, principal, external_source_id
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail=f"Connect {provider} to preview files.")
+
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(
+        tenant_id=tenant_id,
+        membership_id=principal.membership_id,
+        roles=principal.effective_roles,
+        external_source_id=resolved_source_id,
+    )
+    if not await _viewer_media_scope_allowed(
+        scope_service,
+        tenant_id=tenant_id,
+        access=access,
+        provider=provider,
+        token=token,
+        item_id=item_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "viewer_folder_scope_denied",
+                "message": "File is outside the viewer folder scope.",
+            },
+        )
+    return token, tenant_id, resolved_source_id
 
 
 def _provider_error(exc: Exception, detail: str) -> HTTPException:
@@ -548,6 +591,48 @@ async def search_stream(
     )
 
 
+@router.get("/thumbnail/{item_id}")
+async def thumbnail(
+    request: Request,
+    item_id: str,
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
+):
+    if provider != "google-drive":
+        raise HTTPException(status_code=404, detail="Thumbnail proxy is unavailable for this provider.")
+    try:
+        token, _tenant_id_value, _resolved_source_id = await _authorized_file_context(
+            request, item_id, provider, session, principal, external_source_id
+        )
+        client, upstream = await open_google_thumbnail(token, item_id)
+        passthrough_headers = {
+            name: value
+            for name in ("content-length", "etag", "last-modified")
+            if (value := upstream.headers.get(name))
+        }
+        passthrough_headers.update(
+            {
+                "cache-control": "private, max-age=3600, stale-while-revalidate=300",
+                "vary": "Cookie",
+            }
+        )
+        return StreamingResponse(
+            upstream.aiter_raw(),
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type") or "image/jpeg",
+            headers=passthrough_headers,
+            background=BackgroundTask(close_google_thumbnail, client, upstream),
+        )
+    except GoogleDriveThumbnailUnavailable as exc:
+        raise HTTPException(status_code=404, detail="Thumbnail is unavailable.") from exc
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, PermissionError, ValueError) as exc:
+        raise _provider_error(exc, "Unable to stream google-drive thumbnail") from exc
+
+
 @router.get("/media/{item_id}")
 async def media(
     request: Request,
@@ -558,23 +643,9 @@ async def media(
     external_source_id: str | None = Query(None),
 ):
     try:
-        token, _account_id_value, tenant_id, resolved_source_id = await _source_context(
-            request, provider, session, principal, external_source_id
+        token, tenant_id, resolved_source_id = await _authorized_file_context(
+            request, item_id, provider, session, principal, external_source_id
         )
-        access = ViewerFolderScopeService(session).access(
-            tenant_id=tenant_id, membership_id=principal.membership_id,
-            roles=principal.effective_roles, external_source_id=resolved_source_id,
-        )
-        if not token:
-            raise HTTPException(status_code=401, detail=f"Connect {provider} to preview files.")
-
-        scope_service = ViewerFolderScopeService(session)
-        if not await _viewer_media_scope_allowed(
-            scope_service, tenant_id=tenant_id, access=access, provider=provider,
-            token=token, item_id=item_id,
-        ):
-            raise HTTPException(status_code=403, detail={"code": "viewer_folder_scope_denied", "message": "File is outside the viewer folder scope."})
-
         opener = open_sharepoint_media if provider == "sharepoint" else open_google_media
         closer = close_sharepoint_media if provider == "sharepoint" else close_google_media
         client, upstream = await opener(token, item_id, request.headers.get("range"))

@@ -9,6 +9,10 @@ _MEDIA_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _MEDIA_MAX_ATTEMPTS = 3
 
 
+class GoogleDriveThumbnailUnavailable(Exception):
+    """The Drive item has no provider-generated thumbnail."""
+
+
 class GoogleDriveClient:
     def __init__(self, access_token: str):
         self.client = httpx.AsyncClient(
@@ -167,5 +171,43 @@ async def open_media_stream(access_token: str, item_id: str, range_header: str |
 
 
 async def close_media_stream(client: httpx.AsyncClient, response: httpx.Response):
+    await response.aclose()
+    await client.aclose()
+
+
+async def open_thumbnail_stream(access_token: str, item_id: str):
+    """Resolve a fresh Drive thumbnail URL and stream the thumbnail, not the original."""
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(20, read=None),
+        follow_redirects=True,
+    )
+    response = None
+    try:
+        metadata = await client.get(
+            f"https://www.googleapis.com/drive/v3/files/{item_id}",
+            params={"fields": "thumbnailLink", "supportsAllDrives": "true"},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        metadata.raise_for_status()
+        thumbnail_url = str(metadata.json().get("thumbnailLink") or "").strip()
+        if not thumbnail_url:
+            raise GoogleDriveThumbnailUnavailable(item_id)
+
+        request = client.build_request(
+            "GET",
+            thumbnail_url,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        response = await client.send(request, stream=True)
+        response.raise_for_status()
+        return client, response
+    except Exception:
+        if response is not None:
+            await response.aclose()
+        await client.aclose()
+        raise
+
+
+async def close_thumbnail_stream(client: httpx.AsyncClient, response: httpx.Response):
     await response.aclose()
     await client.aclose()

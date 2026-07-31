@@ -78,15 +78,22 @@ class ExplorerService:
         provider: str,
         external_source_id: str | None,
     ) -> list[AssetNode]:
-        """Use the tenant-scoped media proxy instead of provider browser URLs."""
+        """Use tenant-scoped thumbnail/media proxies instead of provider URLs."""
         if not external_source_id:
             return items
         for item in items:
             if item.kind in {"image", "video"}:
+                endpoint = "thumbnail" if provider == "google-drive" else "media"
+                cache_version = (
+                    f"&v={quote(item.modified_at.isoformat(), safe='')}"
+                    if item.modified_at
+                    else ""
+                )
                 item.thumbnail_url = (
-                    f"/api/explorer/media/{quote(item.id, safe='')}"
+                    f"/api/explorer/{endpoint}/{quote(item.id, safe='')}"
                     f"?provider={quote(provider, safe='')}"
                     f"&external_source_id={quote(external_source_id, safe='')}"
+                    f"{cache_version}"
                 )
         return items
 
