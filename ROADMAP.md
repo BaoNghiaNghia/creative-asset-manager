@@ -129,3 +129,7 @@
 - [x] UX Search cleared-query loading-state reset
 - [x] UX Search-result thumbnail viewport lazy loading with loading skeletons
 - [x] UX Search-result grid skeleton while a modern search request is pending
+
+
+- [x] Viewer folder scopes: tenant administrators can select external Drive
+  folders for viewer memberships; Explorer and search enforce the scope.

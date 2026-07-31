@@ -2508,3 +2508,13 @@ Validation was run in the requested order:
 - Grouped the five actionable overview metrics into one responsive row on desktop and moved scan/current-worker context into a single paired row.
 - Removed the duplicated skipped/excluded summary card; permanent exclusions remain in the detailed diagnostic section. Scan items/jobs are summarized once, while empty worker item names no longer display the placeholder “Pipeline item”.
 - Tests: focused PipelineOverview test (25 passed); full frontend suite (94 passed); npm run typecheck; npm run build.
+
+
+## Viewer folder scope implementation
+
+Added tenant-scoped viewer_folder_scopes with migration 0032, server-side
+enforcement across Explorer and Search V3, and Access Management folder
+selection for viewer memberships. Focused tests:
+.venv/bin/python -m unittest tests.modules.authorization.test_folder_scope -v
+(4 passed). Frontend typecheck:
+npm run typecheck -- --pretty false (passed).

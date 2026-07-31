@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
@@ -19,6 +20,9 @@ from app.modules.authorization.principal import (
 )
 
 from app.modules.authorization.service import AuthorizationError
+from app.modules.authorization.folder_scope import ViewerFolderScopeService
+from app.modules.assets.model import ExternalSourceModel
+from app.modules.auth_persistence.model import TenantMembershipModel
 
 router = APIRouter(prefix="/api/v1/tenants/{tenant_id}", tags=["access-management"])
 MEMBERSHIP_STATUSES = {"invited", "active", "suspended", "removed"}
@@ -64,6 +68,12 @@ class CustomRoleUpdateRequest(BaseModel):
 
 
 class MutationReason(BaseModel):
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class ViewerFolderScopesRequest(BaseModel):
+    external_source_id: str = Field(min_length=1, max_length=36)
+    folders: list[dict[str, str]] = Field(default_factory=list, max_length=500)
     reason: str = Field(min_length=3, max_length=1000)
 
 
@@ -322,3 +332,56 @@ def delete_role(
         )
     )
     return {"deleted": True, "role_id": role_id}
+
+
+@router.get("/members/{membership_id}/folder-scopes")
+def list_viewer_folder_scopes(
+    tenant_id: str, membership_id: str, external_source_id: str = Query(..., min_length=1),
+    principal: CurrentPrincipal = Depends(require_permission("tenant_members.manage")),
+):
+    _scope(principal, tenant_id)
+    with SessionLocal() as session:
+        membership = session.scalar(select(TenantMembershipModel).where(
+            TenantMembershipModel.id == membership_id, TenantMembershipModel.tenant_id == tenant_id
+        ))
+        if membership is None:
+            raise HTTPException(404, detail={"code": "not_found", "message": "Membership was not found"})
+        source = session.scalar(select(ExternalSourceModel).where(
+            ExternalSourceModel.id == external_source_id, ExternalSourceModel.tenant_id == tenant_id,
+        ))
+        if source is None:
+            raise HTTPException(404, detail={"code": "not_found", "message": "Source was not found"})
+        rows = ViewerFolderScopeService(session).list(
+            tenant_id=tenant_id, membership_id=membership_id, external_source_id=external_source_id
+        )
+        return {"items": [{"id": row.id, "folder_id": row.folder_external_id, "folder_name": row.folder_name, "external_source_id": row.external_source_id} for row in rows]}
+
+
+@router.put("/members/{membership_id}/folder-scopes")
+def replace_viewer_folder_scopes(
+    tenant_id: str, membership_id: str, body: ViewerFolderScopesRequest,
+    principal: CurrentPrincipal = Depends(require_permission("tenant_members.manage")),
+):
+    _scope(principal, tenant_id)
+    def operation(service: TenantAccessAdminService):
+        session = service.session
+        membership = session.scalar(select(TenantMembershipModel).where(
+            TenantMembershipModel.id == membership_id, TenantMembershipModel.tenant_id == tenant_id
+        ))
+        if membership is None:
+            raise LookupError("membership")
+        source = session.scalar(select(ExternalSourceModel).where(
+            ExternalSourceModel.id == body.external_source_id, ExternalSourceModel.tenant_id == tenant_id,
+        ))
+        if source is None:
+            raise LookupError("source")
+        result = ViewerFolderScopeService(session).replace(
+            tenant_id=tenant_id, membership_id=membership_id,
+            external_source_id=body.external_source_id, folders=body.folders,
+        )
+        service._audit("viewer_folder_scopes_replaced", tenant_id, principal.user_id, body.reason, {
+            "membership_id": membership_id, "external_source_id": body.external_source_id,
+            "folder_count": len(result),
+        })
+        return {"items": [{"id": row.id, "folder_id": row.folder_external_id, "folder_name": row.folder_name, "external_source_id": row.external_source_id} for row in result]}
+    return _write(operation)

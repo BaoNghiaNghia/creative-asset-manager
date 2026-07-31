@@ -13,6 +13,7 @@ from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.explorer.provider_contract import SourceProviderFactory
 from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
 from app.modules.metadata.service import MetadataService, schedule_metadata_index
+from app.modules.authorization.folder_scope import ViewerFolderAccess
 
 logger = logging.getLogger(__name__)
 FOLDER = "application/vnd.google-apps.folder"
@@ -37,9 +38,11 @@ class ExplorerService:
         self,
         provider_factory: SourceProviderFactory,
         asset_status_service: AssetProcessingStatusService | None = None,
+        viewer_access: ViewerFolderAccess | None = None,
     ):
         self.provider_factory = provider_factory
         self.asset_status_service = asset_status_service
+        self.viewer_access = viewer_access
 
     def _enrich_asset_identities(
         self,
@@ -71,6 +74,7 @@ class ExplorerService:
         account_id: str = "developer",
         provider: str = "google-drive",
         tenant_id: str | None = None,
+        external_source_id: str | None = None,
     ) -> FolderListing:
         if access_token:
             async with self.provider_factory(provider, access_token) as client:
@@ -89,6 +93,13 @@ class ExplorerService:
             raise PermissionError("Connect SharePoint to browse files.")
 
         self._enrich_asset_identities(children, tenant_id or account_id, provider)
+        if self.viewer_access is not None and self.viewer_access.restricted:
+            # A scope with no selected folders intentionally returns an empty
+            # root. Descendants remain visible only below selected folders.
+            if parent_id not in self.viewer_access.folder_ids:
+                children = [item for item in children if self.viewer_access.allows(
+                    item_id=item.id, parent_id=parent_id, ancestor_ids=item.ancestor_ids
+                )]
 
         metadata = MetadataService(account_id, provider)
         schedule_metadata_index(metadata.index_listing(parent, children))
@@ -102,10 +113,20 @@ class ExplorerService:
     ) -> list[AssetNode]:
         if access_token:
             async with self.provider_factory(provider, access_token) as client:
-                return await client.list_children(parent_id, folders_only=True)
+                folders = await client.list_children(parent_id, folders_only=True)
+                if self.viewer_access and self.viewer_access.restricted and parent_id not in self.viewer_access.folder_ids:
+                    folders = [folder for folder in folders if self.viewer_access.allows(
+                        item_id=folder.id, parent_id=parent_id, ancestor_ids=folder.ancestor_ids,
+                    )]
+                return folders
         if provider == "sharepoint":
             raise PermissionError("Connect SharePoint to browse folders.")
-        return [item for item in MOCK if item.parent_id == parent_id and item.kind == "folder"]
+        folders = [item for item in MOCK if item.parent_id == parent_id and item.kind == "folder"]
+        if self.viewer_access and self.viewer_access.restricted and parent_id not in self.viewer_access.folder_ids:
+            folders = [folder for folder in folders if self.viewer_access.allows(
+                item_id=folder.id, parent_id=parent_id, ancestor_ids=folder.ancestor_ids,
+            )]
+        return folders
 
     def _search_analyzed_assets(
         self,
@@ -215,6 +236,7 @@ class ExplorerService:
                 kind=kind,
                 mime_type=mime_type,
                 parent_id=parent_ids[0] if parent_ids else None,
+                ancestor_ids=parent_ids,
                 size=source.size_bytes,
                 modified_at=source.source_modified_at,
                 has_children=False,
@@ -487,11 +509,11 @@ class ExplorerService:
             legacy_ids = {item.id for item in projected_items}
             items = [*projected_items, *(item for item in items if item.id not in legacy_ids)][:body.limit]
         indexed_count = max(0, len(indexed_rows) - 1, len(projected_items))
-        self._enrich_asset_identities(
-            items,
-            tenant_id or account_id,
-            body.provider,
-        )
+        self._enrich_asset_identities(items, tenant_id or account_id, body.provider)
+        if self.viewer_access is not None and self.viewer_access.restricted:
+            items = [item for item in items if self.viewer_access.allows(
+                item_id=item.id, parent_id=item.parent_id, ancestor_ids=item.ancestor_ids
+            )]
         return SearchResponse(
             items=items,
             indexed_count=indexed_count,

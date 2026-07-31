@@ -1,6 +1,6 @@
 import type {
   AccessApiErrorCode, AccessFilters, AccessIdentity, AccessMember, AccessPermission,
-  AccessRole, MembershipStatus, Page,
+  AccessRole, MembershipStatus, Page, ViewerFolderOption, ViewerFolderScope,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -70,3 +70,13 @@ export const createCustomRole = (tenantId: string, body: { role_key: string; nam
 
 export const updateCustomRole = (tenantId: string, roleId: string, body: { name: string; description?: string; permission_keys: string[]; reason: string }, fetcher: Fetcher = fetch) =>
   request(`${tenantBase(tenantId)}/roles/${encodeURIComponent(roleId)}`, { method: "PATCH", body: JSON.stringify(body) }, fetcher);
+
+
+export const fetchViewerFolderOptions = (fetcher: Fetcher = fetch) =>
+  request<{ external_source_id: string; folders: ViewerFolderOption[] }>("/api/explorer/viewer-folder-options?provider=google-drive", {}, fetcher);
+
+export const fetchViewerFolderScopes = (tenantId: string, membershipId: string, sourceId: string, fetcher: Fetcher = fetch) =>
+  request<{ items: ViewerFolderScope[] }>(`${tenantBase(tenantId)}/members/${encodeURIComponent(membershipId)}/folder-scopes?external_source_id=${encodeURIComponent(sourceId)}`, {}, fetcher);
+
+export const replaceViewerFolderScopes = (tenantId: string, membershipId: string, body: { external_source_id: string; folders: Array<{ folder_id: string; folder_name: string }>; reason: string }, fetcher: Fetcher = fetch) =>
+  request<{ items: ViewerFolderScope[] }>(`${tenantBase(tenantId)}/members/${encodeURIComponent(membershipId)}/folder-scopes`, { method: "PUT", body: JSON.stringify(body) }, fetcher);

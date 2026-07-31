@@ -63,6 +63,12 @@ describe("Access Management route and presentation", () => {
     expect(html).toContain("Member filters"); expect(html).toContain('aria-haspopup="dialog"');
   });
 
+  it("offers folder scoping only for viewer memberships", () => {
+    const viewer = { ...member, roles: [{ id: "viewer-role", key: "viewer", name: "Viewer", system: true }] };
+    expect(markup("members", { members: { items: [viewer], page: 1, page_size: 25, total: 1 } })).toContain("Limit viewer folders");
+    expect(markup("members", { members: { items: [member], page: 1, page_size: 25, total: 1 } })).not.toContain("Limit viewer folders");
+  });
+
   it("uses permission-based visibility while leaving backend enforcement authoritative", () => {
     const readOnly = { ...identity, roles: ["viewer"], permissions: ["tenant_members.read"] };
     const html = markup("members", { identity: readOnly });

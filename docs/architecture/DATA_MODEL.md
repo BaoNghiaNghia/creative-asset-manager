@@ -475,3 +475,13 @@ existing memberships.
 Downgrading `0027` removes RBAC assignments/catalog rows and the supporting
 composite membership unique key. Users, tenants, membership history, OAuth
 connections and application sessions remain authoritative and unchanged.
+
+
+### Viewer folder scopes
+
+viewer_folder_scopes stores the tenant administrator's selected external folder
+IDs for a viewer membership. IDs are provider folder IDs and are never used as
+internal asset IDs. Scope rows are tenant- and membership-scoped and are
+replaced idempotently by the access-management API. A viewer with configured
+scopes can browse/search only selected folders and their descendants; operators
+and tenant administrators are not restricted by viewer scopes.

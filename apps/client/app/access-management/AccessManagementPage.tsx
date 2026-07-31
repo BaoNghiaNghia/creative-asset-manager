@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  AccessApiError, addMember, assignMemberRole, createCustomRole, fetchAccessIdentity,
+  AccessApiError, addMember, assignMemberRole, createCustomRole, fetchAccessIdentity, fetchViewerFolderOptions, fetchViewerFolderScopes, replaceViewerFolderScopes,
   fetchMembers, fetchPermissions, fetchRoles, removeMemberRole, switchActiveTenant,
   updateCustomRole, updateMemberStatus,
   type AccessFilters, type AccessIdentity, type AccessMember, type AccessPermission,
@@ -134,7 +134,7 @@ function MembersTab(props: ContentProps) {
     {!members.items.length ? <div className="access-empty"><h2>No members found</h2><p>Adjust the filters or invite an existing application user.</p></div> : <div className="access-table-wrap"><table className="access-table"><caption>Tenant members</caption><thead><tr><th>Member</th><th>Status</th><th>Roles</th><th>Joined</th><th>Actions</th></tr></thead><tbody>{members.items.map(member => <tr key={member.membership_id}>
       <td><strong>{member.display_name || "Unnamed user"}</strong><small>{member.email || member.user_id}</small></td><td><StatusBadge status={member.status} /></td>
       <td><div className="role-chips">{member.roles.length ? member.roles.map(role => <span key={role.id}>{role.name}{canManageRoles && <DangerousAction label="Remove" title="Remove role" description={`Remove ${role.name} from this member?`} onConfirm={reason => removeMemberRole(identity!.active_tenant_id, member.membership_id, role.id, reason).then(() => { onMessage("Role removed."); onMutation(); })} />}</span>) : <em>No roles</em>}</div></td>
-      <td>{formatDate(member.joined_at)}</td><td><MemberActions member={member} roles={roles} tenantId={identity!.active_tenant_id} canManageMembers={canManageMembers} canManageRoles={canManageRoles} onDone={onMutation} onMessage={onMessage} /></td>
+      <td>{formatDate(member.joined_at)}</td><td><MemberActions member={member} roles={roles} tenantId={identity!.active_tenant_id} canManageMembers={canManageMembers} canManageRoles={canManageRoles} onDone={onMutation} onMessage={onMessage} />{canManageMembers && member.roles.some(role => role.key === "viewer") && <ViewerFolderScopeEditor tenantId={identity!.active_tenant_id} membershipId={member.membership_id} onMessage={onMessage} />}</td>
     </tr>)}</tbody></table></div>}
     <div className="access-pagination" aria-label="Member pagination"><button disabled={filters.page <= 1} onClick={() => onFilters({ ...filters, page: filters.page - 1 })}>Previous</button><span>Page {filters.page} of {pages}</span><button disabled={filters.page >= pages} onClick={() => onFilters({ ...filters, page: filters.page + 1 })}>Next</button></div>
   </div>;
@@ -197,4 +197,32 @@ export function handleAccessTabKeyDown(event: React.KeyboardEvent<HTMLElement>, 
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return; event.preventDefault(); const current = tabs.findIndex(item => item.id === active);
   const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : event.key === "ArrowRight" ? (current + 1) % tabs.length : (current - 1 + tabs.length) % tabs.length;
   onTab(tabs[next].id); event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+}
+
+
+function ViewerFolderScopeEditor({ tenantId, membershipId, onMessage }: { tenantId: string; membershipId: string; onMessage: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [sourceId, setSourceId] = useState("");
+  const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [reason, setReason] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  async function openEditor() {
+    setOpen(true); setLoading(true); setError("");
+    try {
+      const options = await fetchViewerFolderOptions(); setSourceId(options.external_source_id); setFolders(options.folders);
+      const current = await fetchViewerFolderScopes(tenantId, membershipId, options.external_source_id);
+      setSelected(new Set(current.items.map(item => item.folder_id)));
+    } catch (next) { setError(next instanceof Error ? next.message : "Could not load folders."); } finally { setLoading(false); }
+  }
+  if (!open) return <button type="button" className="secondary" onClick={openEditor}>Limit viewer folders</button>;
+  return <div className="viewer-folder-scope-editor" role="group" aria-label="Viewer folder access">
+    <strong>Viewer folder access</strong><small>Select folders; descendants are included. Empty selection means no Drive folders.</small>
+    {loading ? <span>Loading folders…</span> : <fieldset>{folders.length ? folders.map(folder => <label key={folder.id}><input type="checkbox" checked={selected.has(folder.id)} onChange={() => setSelected(current => { const next = new Set(current); next.has(folder.id) ? next.delete(folder.id) : next.add(folder.id); return next; })} /> {folder.name}</label>) : <span>No root folders found.</span>}</fieldset>}
+    <label>Reason<input value={reason} minLength={3} onChange={event => setReason(event.target.value)} placeholder="Why is access being limited?" /></label>
+    {error && <span role="alert">{error}</span>}
+    <button type="button" className="primary" disabled={loading || !sourceId || reason.trim().length < 3} onClick={async () => { try { await replaceViewerFolderScopes(tenantId, membershipId, { external_source_id: sourceId, folders: folders.filter(folder => selected.has(folder.id)).map(folder => ({ folder_id: folder.id, folder_name: folder.name })), reason: reason.trim() }); onMessage("Viewer folder access updated."); setOpen(false); } catch (next) { setError(next instanceof Error ? next.message : "Could not save folder access."); } }}>Save folder access</button>
+    <button type="button" onClick={() => setOpen(false)}>Cancel</button>
+  </div>;
 }

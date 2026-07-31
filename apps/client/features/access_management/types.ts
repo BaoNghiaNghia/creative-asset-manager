@@ -59,3 +59,7 @@ export type AccessApiErrorCode =
   | "membership_exists"
   | "invitation_conflict"
   | string;
+
+
+export type ViewerFolderOption = { id: string; name: string };
+export type ViewerFolderScope = { id: string; folder_id: string; folder_name: string | null; external_source_id: string };

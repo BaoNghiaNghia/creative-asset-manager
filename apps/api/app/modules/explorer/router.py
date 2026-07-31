@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -14,6 +15,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
 from app.modules.assets.status_service import AssetProcessingStatusService
+from app.modules.assets.model import SourceAssetModel
 from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
 from app.modules.search.query_parser import SearchQueryParser
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
@@ -30,6 +32,7 @@ from app.modules.explorer.schema import (
 from app.modules.explorer.service import ExplorerService
 from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.providers.source_factory import create_source_provider
 from app.providers.google.auth import get_access_token as get_google_token
 from app.providers.google.auth import get_session as get_google_session
@@ -84,16 +87,16 @@ async def _source_context(
     session: Session,
     principal: CurrentPrincipal,
     external_source_id: str | None = None,
-) -> tuple[str | None, str, str]:
+) -> tuple[str | None, str, str, str | None]:
     """Return the configured tenant source for Google, never the viewer token."""
     if provider == "google-drive":
         source = await TenantSourceResolver(session).google_drive(
             tenant_id=principal.active_tenant_id,
             external_source_id=external_source_id,
         )
-        return source.access_token, source.provider_account_id, principal.active_tenant_id
+        return source.access_token, source.provider_account_id, principal.active_tenant_id, source.external_source_id
     token = await _access_token(request, provider)
-    return token, _account_id(request, provider), principal.active_tenant_id
+    return token, _account_id(request, provider), principal.active_tenant_id, external_source_id
 
 
 def _provider_error(exc: Exception, detail: str) -> HTTPException:
@@ -116,19 +119,16 @@ async def children(
     external_source_id: str | None = Query(None),
 ):
     try:
-        token, account_id, tenant_id = await _source_context(
+        token, account_id, tenant_id, resolved_source_id = await _source_context(
             request, provider, session, principal, external_source_id
         )
-        return await ExplorerService(
-            create_source_provider,
-            AssetProcessingStatusService(session),
-        ).list_folder(
-            parent_id,
-            token,
-            account_id,
-            provider,
-            tenant_id,
+        access = ViewerFolderScopeService(session).access(
+            tenant_id=tenant_id, membership_id=principal.membership_id,
+            roles=principal.effective_roles, external_source_id=resolved_source_id,
         )
+        return await ExplorerService(
+            create_source_provider, AssetProcessingStatusService(session), access,
+        ).list_folder(parent_id, token, account_id, provider, tenant_id, resolved_source_id)
     except HTTPException:
         raise
     except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:
@@ -145,10 +145,14 @@ async def folders(
     external_source_id: str | None = Query(None),
 ):
     try:
-        token, _account_id_value, _tenant_id_value = await _source_context(
+        token, _account_id_value, tenant_id, resolved_source_id = await _source_context(
             request, provider, session, principal, external_source_id
         )
-        return await ExplorerService(create_source_provider).list_folders(parent_id, token, provider)
+        access = ViewerFolderScopeService(session).access(
+            tenant_id=tenant_id, membership_id=principal.membership_id,
+            roles=principal.effective_roles, external_source_id=resolved_source_id,
+        )
+        return await ExplorerService(create_source_provider, viewer_access=access).list_folders(parent_id, token, provider)
     except HTTPException:
         raise
     except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:
@@ -162,7 +166,7 @@ async def start_index(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(ASSETS_READ),
 ):
-    token, account_id, _tenant_id_value = await _source_context(
+    token, account_id, _tenant_id_value, _resolved_source_id = await _source_context(
         request, body.provider, session, principal
     )
     return start_index_job(account_id, token, body)
@@ -193,6 +197,27 @@ async def _v2_shadow(body: SearchRequest, tenant: str, settings):
     }
 
 
+@router.get("/viewer-folder-options")
+async def viewer_folder_options(
+    request: Request,
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_permission("tenant_members.manage")),
+    external_source_id: str | None = Query(None),
+):
+    token, _account_id_value, _tenant_id_value, resolved_source_id = await _source_context(
+        request, provider, session, principal, external_source_id
+    )
+    if provider != "google-drive":
+        return {"external_source_id": resolved_source_id, "folders": []}
+    async with create_source_provider(provider, token) as client:
+        folders = await client.list_children("root", folders_only=True)
+    return {
+        "external_source_id": resolved_source_id,
+        "folders": [{"id": item.id, "name": item.name} for item in folders],
+    }
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search(
     request: Request,
@@ -202,15 +227,18 @@ async def search(
     external_source_id: str | None = Query(None),
 ):
     try:
-        token, account_id, tenant_id = await _source_context(
+        token, account_id, tenant_id, resolved_source_id = await _source_context(
             request, body.provider, session, principal, external_source_id
         )
         settings = get_settings()
+        access = ViewerFolderScopeService(session).access(
+            tenant_id=tenant_id, membership_id=principal.membership_id,
+            roles=principal.effective_roles, external_source_id=resolved_source_id,
+        )
 
         async def primary():
             result = await ExplorerService(
-                create_source_provider,
-                AssetProcessingStatusService(session),
+                create_source_provider, AssetProcessingStatusService(session), access,
             ).search_subtree(
                 body, token, account_id, tenant_id=tenant_id,
             )
@@ -236,8 +264,12 @@ async def search_stream(
     principal: CurrentPrincipal = Depends(ASSETS_READ),
     external_source_id: str | None = Query(None),
 ):
-    token, account_id, tenant_id = await _source_context(
+    token, account_id, tenant_id, resolved_source_id = await _source_context(
         request, body.provider, session, principal, external_source_id
+    )
+    access = ViewerFolderScopeService(session).access(
+        tenant_id=tenant_id, membership_id=principal.membership_id,
+        roles=principal.effective_roles, external_source_id=resolved_source_id,
     )
 
     async def events():
@@ -250,8 +282,7 @@ async def search_stream(
             try:
                 started = time.perf_counter()
                 result = await ExplorerService(
-                    create_source_provider,
-                    AssetProcessingStatusService(session),
+                    create_source_provider, AssetProcessingStatusService(session), access,
                 ).search_subtree(
                     body,
                     token,
@@ -317,9 +348,27 @@ async def media(
     external_source_id: str | None = Query(None),
 ):
     try:
-        token, _account_id_value, _tenant_id_value = await _source_context(
+        token, _account_id_value, tenant_id, resolved_source_id = await _source_context(
             request, provider, session, principal, external_source_id
         )
+        access = ViewerFolderScopeService(session).access(
+            tenant_id=tenant_id, membership_id=principal.membership_id,
+            roles=principal.effective_roles, external_source_id=resolved_source_id,
+        )
+        if access.restricted:
+            source_asset = session.scalar(select(SourceAssetModel).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id == resolved_source_id,
+                SourceAssetModel.external_asset_id == item_id,
+                SourceAssetModel.deleted_at.is_(None),
+            ))
+            metadata = source_asset.source_metadata if source_asset else {}
+            parents = metadata.get("parents") if isinstance(metadata, dict) else []
+            if not isinstance(parents, list):
+                parent = metadata.get("parent_id") if isinstance(metadata, dict) else None
+                parents = [parent] if parent else []
+            if source_asset is None or not any(str(parent) in access.folder_ids for parent in parents if parent):
+                raise HTTPException(status_code=403, detail={"code": "viewer_folder_scope_denied", "message": "File is outside the viewer folder scope."})
         if not token:
             raise HTTPException(status_code=401, detail=f"Connect {provider} to preview files.")
 

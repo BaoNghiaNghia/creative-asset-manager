@@ -15,6 +15,7 @@ from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService
@@ -164,6 +165,11 @@ async def suggestions(
         source_filter = _source_provider_filter(session, tenant, source_provider, generation=generation)
         if source_filter:
             filters.append(source_filter)
+        if "viewer" in principal.effective_roles and not principal.effective_roles.intersection({"operator", "tenant_admin", "billing_admin"}):
+            allowed_ids = ViewerFolderScopeService(session).allowed_internal_asset_ids_for_membership(
+                tenant_id=tenant, membership_id=principal.membership_id,
+            )
+            filters.append({"terms": {"asset_id": sorted(allowed_ids) or ["__none__"]}})
         session.commit()
     value = q.strip()
     cache_key = (tenant, source_provider or "", generation, value.casefold(), limit)
@@ -243,6 +249,11 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             source_asset_ids = select(AssetSourceLinkModel.asset_id).join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id).join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id).where(AssetSourceLinkModel.tenant_id == tenant, ExternalSourceModel.source_type == source_type)
             asset_ids = list(session.scalars(source_asset_ids))
             filters.append({"terms": {"asset_id": asset_ids or ["__none__"]}})
+        if "viewer" in principal.effective_roles and not principal.effective_roles.intersection({"operator", "tenant_admin", "billing_admin"}):
+            allowed_ids = ViewerFolderScopeService(session).allowed_internal_asset_ids_for_membership(
+                tenant_id=tenant, membership_id=principal.membership_id,
+            )
+            filters.append({"terms": {"asset_id": sorted(allowed_ids) or ["__none__"]}})
         query["aggs"] = {name: {"terms": {"field": f"facets.{name}", "size": 50}} for name in allowed_facets}
         debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
         primary_started = time.perf_counter()

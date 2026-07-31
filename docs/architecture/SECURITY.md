@@ -183,3 +183,13 @@ audit events with actor and reason.
 AI Operations reads require ai_operations.read; analysis, force, retry, cancel, provider configuration, budget read/update and emergency controls each require their dedicated permission. Provider and tenant pause/resume operations require ai_emergency_stop, separately from ordinary provider configuration. Search reads, rebuilds and active-analysis activation retain their specific search permissions. Physical Elasticsearch lifecycle, global runtime stops, cost-rate changes and global process metrics require a durable platform administrator.
 
 All tenant routes derive the default scope from CurrentPrincipal.active_tenant_id and validate any explicit tenant argument. Audit actor identity is the durable application user_id; it is never reused as tenant identity. Repositories keep explicit tenant predicates. Frontend visibility follows the safe identity permission summary, while API authorization remains authoritative.
+
+
+### Viewer folder restrictions
+
+Viewer folder access is enforced server-side on Explorer children/folders,
+legacy search, Search V3, suggestions, and media metadata lookups. The
+viewer_folder_scopes table is always filtered by tenant, membership, and
+external source. The UI is only an administration convenience; it is not an
+authorization boundary. Folder/provider IDs are never accepted as internal
+asset IDs.

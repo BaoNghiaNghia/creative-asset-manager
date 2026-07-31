@@ -18,6 +18,7 @@ from app.modules.authorization import model as authorization_models  # noqa: F40
 from app.modules.tag import model as tag_models  # noqa: F401
 from app.modules.source_sync import model as source_sync_models  # noqa: F401
 from app.modules.retention import model as retention_models  # noqa: F401
+from app.modules.authorization import folder_scope as folder_scope_models  # noqa: F401
 
 config = context.config
 if (
