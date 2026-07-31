@@ -73,7 +73,7 @@
 .member-action-stack>.secondary{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border-color:#b9ccef;background:#f8faff;color:#294fb0;font-size:12px}
 .member-action-stack>.secondary::before{content:"▣";font-size:12px;color:#4169e1}
 .member-action-stack>.secondary:hover{background:#eef4ff}
-.viewer-folder-scope-dialog{padding:0;overflow:hidden}
+.viewer-folder-scope-dialog{padding:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
 .viewer-folder-scope-dialog>header{padding:22px 24px 16px}
 .viewer-folder-scope-dialog>.viewer-folder-help,.viewer-folder-scope-dialog>.viewer-folder-summary,.viewer-folder-scope-dialog>.viewer-folder-list,.viewer-folder-scope-dialog>.viewer-folder-loading,.viewer-folder-scope-dialog>.viewer-folder-actions,.viewer-folder-scope-dialog>.viewer-folder-error{margin-left:24px;margin-right:24px}
 .viewer-folder-help{margin-top:18px;margin-bottom:14px}
@@ -87,7 +87,8 @@
 .viewer-folder-actions{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:end;margin-top:18px}
 .viewer-folder-actions .viewer-folder-clear{min-height:40px;padding-inline:14px;color:#475467}
 .viewer-folder-actions label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;font-weight:700;color:#475467}
-.viewer-folder-actions label>span{color:#d92d20}
+.viewer-folder-reason-label{display:flex;align-items:center;gap:7px;color:#344054}
+.viewer-folder-reason-label b{border-radius:999px;background:#fff0ef;color:#b42318;font-size:10px;line-height:1;padding:4px 6px;text-transform:uppercase;letter-spacing:.04em}
 .viewer-folder-actions input{margin:0;min-height:40px}
 .viewer-folder-scope-dialog>footer{margin-top:20px;padding:16px 24px 20px;background:#fafcff}
 .viewer-folder-scope-dialog>footer button{min-height:40px}

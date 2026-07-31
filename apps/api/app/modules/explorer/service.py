@@ -76,6 +76,7 @@ class ExplorerService:
         provider: str = "google-drive",
         tenant_id: str | None = None,
         external_source_id: str | None = None,
+        viewer_parent_authorized: bool = False,
     ) -> FolderListing:
         if access_token:
             async with self.provider_factory(provider, access_token) as client:
@@ -94,13 +95,13 @@ class ExplorerService:
             raise PermissionError("Connect SharePoint to browse files.")
 
         self._enrich_asset_identities(children, tenant_id or account_id, provider)
-        if self.viewer_access is not None and self.viewer_access.restricted:
-            # A scope with no selected folders intentionally returns an empty
-            # root. Descendants remain visible only below selected folders.
-            if parent_id not in self.viewer_access.folder_ids:
-                children = [item for item in children if self.viewer_access.allows(
-                    item_id=item.id, parent_id=parent_id, ancestor_ids=item.ancestor_ids
-                )]
+        if self.viewer_access is not None and self.viewer_access.restricted and not viewer_parent_authorized:
+            # Root exposes only the explicitly assigned folders. A verified
+            # descendant folder passes viewer_parent_authorized=True so every
+            # direct child remains visible.
+            children = [item for item in children if self.viewer_access.allows(
+                item_id=item.id, parent_id=parent_id, ancestor_ids=item.ancestor_ids
+            )]
 
         metadata = MetadataService(account_id, provider)
         schedule_metadata_index(metadata.index_listing(parent, children))
@@ -111,11 +112,12 @@ class ExplorerService:
         parent_id: str,
         access_token: str | None,
         provider: str = "google-drive",
+        viewer_parent_authorized: bool = False,
     ) -> list[AssetNode]:
         if access_token:
             async with self.provider_factory(provider, access_token) as client:
                 folders = await client.list_children(parent_id, folders_only=True)
-                if self.viewer_access and self.viewer_access.restricted and parent_id not in self.viewer_access.folder_ids:
+                if self.viewer_access and self.viewer_access.restricted and not viewer_parent_authorized:
                     folders = [folder for folder in folders if self.viewer_access.allows(
                         item_id=folder.id, parent_id=parent_id, ancestor_ids=folder.ancestor_ids,
                     )]
@@ -123,7 +125,7 @@ class ExplorerService:
         if provider == "sharepoint":
             raise PermissionError("Connect SharePoint to browse folders.")
         folders = [item for item in MOCK if item.parent_id == parent_id and item.kind == "folder"]
-        if self.viewer_access and self.viewer_access.restricted and parent_id not in self.viewer_access.folder_ids:
+        if self.viewer_access and self.viewer_access.restricted and not viewer_parent_authorized:
             folders = [folder for folder in folders if self.viewer_access.allows(
                 item_id=folder.id, parent_id=parent_id, ancestor_ids=folder.ancestor_ids,
             )]

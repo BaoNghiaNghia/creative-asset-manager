@@ -33,7 +33,7 @@ from app.modules.explorer.service import ExplorerService
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
-from app.modules.authorization.folder_scope import ViewerFolderScopeService
+from app.modules.authorization.folder_scope import ViewerFolderAccess, ViewerFolderScopeService
 from app.providers.source_factory import create_source_provider
 from app.providers.google.auth import get_access_token as get_google_token
 from app.providers.google.auth import get_session as get_google_session
@@ -82,6 +82,32 @@ async def _access_token(request: Request, provider: Provider) -> str | None:
 ASSETS_READ = require_permission("assets.read")
 
 
+def _require_viewer_folder_scope(
+    scope_service: ViewerFolderScopeService,
+    *,
+    tenant_id: str,
+    access: ViewerFolderAccess,
+    folder_id: str,
+) -> None:
+    """Require an assigned folder or one of its descendants for Viewer browsing."""
+    if (
+        access.restricted
+        and folder_id != "root"
+        and not scope_service.allows_external_asset(
+            tenant_id=tenant_id,
+            access=access,
+            external_asset_id=folder_id,
+        )
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "viewer_folder_scope_denied",
+                "message": "Folder is outside the viewer folder scope.",
+            },
+        )
+
+
 async def _source_context(
     request: Request,
     provider: Provider,
@@ -123,13 +149,20 @@ async def children(
         token, account_id, tenant_id, resolved_source_id = await _source_context(
             request, provider, session, principal, external_source_id
         )
-        access = ViewerFolderScopeService(session).access(
+        scope_service = ViewerFolderScopeService(session)
+        access = scope_service.access(
             tenant_id=tenant_id, membership_id=principal.membership_id,
             roles=principal.effective_roles, external_source_id=resolved_source_id,
         )
+        _require_viewer_folder_scope(
+            scope_service, tenant_id=tenant_id, access=access, folder_id=parent_id,
+        )
         return await ExplorerService(
             create_source_provider, AssetProcessingStatusService(session), access,
-        ).list_folder(parent_id, token, account_id, provider, tenant_id, resolved_source_id)
+        ).list_folder(
+            parent_id, token, account_id, provider, tenant_id, resolved_source_id,
+            viewer_parent_authorized=parent_id != "root",
+        )
     except HTTPException:
         raise
     except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:
@@ -149,11 +182,17 @@ async def folders(
         token, _account_id_value, tenant_id, resolved_source_id = await _source_context(
             request, provider, session, principal, external_source_id
         )
-        access = ViewerFolderScopeService(session).access(
+        scope_service = ViewerFolderScopeService(session)
+        access = scope_service.access(
             tenant_id=tenant_id, membership_id=principal.membership_id,
             roles=principal.effective_roles, external_source_id=resolved_source_id,
         )
-        return await ExplorerService(create_source_provider, viewer_access=access).list_folders(parent_id, token, provider)
+        _require_viewer_folder_scope(
+            scope_service, tenant_id=tenant_id, access=access, folder_id=parent_id,
+        )
+        return await ExplorerService(create_source_provider, viewer_access=access).list_folders(
+            parent_id, token, provider, viewer_parent_authorized=parent_id != "root",
+        )
     except HTTPException:
         raise
     except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:

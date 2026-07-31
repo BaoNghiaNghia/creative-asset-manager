@@ -3,6 +3,7 @@ import inspect
 import unittest
 from unittest.mock import patch
 
+from app.modules.authorization.folder_scope import ViewerFolderAccess
 from app.modules.explorer.schema import AssetNode
 from app.modules.explorer.service import ExplorerService
 
@@ -70,4 +71,48 @@ class ExplorerProviderBoundaryTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(listing.parent, parent)
         self.assertEqual(listing.children, [child])
+        schedule_index.assert_called_once()
+
+    async def test_verified_descendant_listing_keeps_all_children_in_viewer_scope(self) -> None:
+        parent = AssetNode(
+            id="nested-folder",
+            name="Nested",
+            kind="folder",
+            mime_type="application/vnd.google-apps.folder",
+            parent_id="selected-folder",
+            has_children=True,
+        )
+        children = [
+            AssetNode(
+                id="nested-file",
+                name="visible.png",
+                kind="image",
+                mime_type="image/png",
+                parent_id="nested-folder",
+            ),
+            AssetNode(
+                id="deeper-folder",
+                name="Deeper",
+                kind="folder",
+                mime_type="application/vnd.google-apps.folder",
+                parent_id="nested-folder",
+            ),
+        ]
+        provider = FakeExplorerProvider(parent, children)
+        service = ExplorerService(
+            lambda _provider, _token: provider,
+            viewer_access=ViewerFolderAccess(True, "source-1", frozenset({"selected-folder"})),
+        )
+
+        with patch("app.modules.explorer.service.schedule_metadata_index") as schedule_index:
+            schedule_index.side_effect = lambda coroutine: coroutine.close()
+            listing = await service.list_folder(
+                "nested-folder",
+                "token",
+                "account-1",
+                "google-drive",
+                viewer_parent_authorized=True,
+            )
+
+        self.assertEqual(listing.children, children)
         schedule_index.assert_called_once()
