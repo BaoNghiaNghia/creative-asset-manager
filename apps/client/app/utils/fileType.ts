@@ -49,7 +49,7 @@ export function fileTypeLabel(type: FileType): string {
 
 export function fileTypeGlyph(type: FileType): string {
   return ({
-    folder: "\U0001F4C1",
+    folder: "📁",
     spreadsheet: "▦",
     document: "▤",
     presentation: "▶",
