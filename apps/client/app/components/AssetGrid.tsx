@@ -4,7 +4,12 @@ import { AssetStatusBadge } from "./AssetStatusBadge";
 import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType } from "../utils/fileType";
 
 
-export const THUMBNAIL_CONCURRENCY_LIMIT = 4;
+export const THUMBNAIL_CONCURRENCY_LIMIT = 8;
+export const INITIAL_HIGH_PRIORITY_THUMBNAILS = 8;
+
+export function thumbnailFetchPriority(index: number): "high" | "auto" {
+  return index < INITIAL_HIGH_PRIORITY_THUMBNAILS ? "high" : "auto";
+}
 
 type ThumbnailQueueTicket = {
   cancel: () => void;
@@ -63,7 +68,7 @@ export function shouldLoadAssetThumbnail(inViewport: boolean, thumbnailUrl?: str
   return inViewport && Boolean(thumbnailUrl);
 }
 
-function AssetPreview({ item }: { item: Asset }) {
+function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "high" | "auto" }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
   const [inViewport, setInViewport] = useState(false);
@@ -128,7 +133,7 @@ function AssetPreview({ item }: { item: Asset }) {
       alt=""
       loading="eager"
       decoding="async"
-      fetchPriority="low"
+      fetchPriority={fetchPriority}
       referrerPolicy="no-referrer"
       onLoad={() => {
         finishThumbnail();
@@ -237,7 +242,7 @@ export function AssetGrid({
   }
 
   return <div className="grid">
-    {items.map(item => <article
+    {items.map((item, index) => <article
       className={selected.has(item.id) ? "selected" : ""}
       key={item.id}
       onClick={() => onFocus(item)}
@@ -247,7 +252,7 @@ export function AssetGrid({
       <button className="asset-info" onClick={event => { event.stopPropagation(); onDetails(item); }} aria-label={"View details for " + item.name}>i</button>
       <button className="check" onClick={() => onToggle(item.id)}>{selected.has(item.id) ? "✓" : ""}</button>
       <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
-        <AssetPreview item={item} />
+        <AssetPreview item={item} fetchPriority={thumbnailFetchPriority(index)} />
       </button>
       <div>
         <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>

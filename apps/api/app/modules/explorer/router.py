@@ -603,10 +603,14 @@ async def thumbnail(
     if provider != "google-drive":
         raise HTTPException(status_code=404, detail="Thumbnail proxy is unavailable for this provider.")
     try:
-        token, _tenant_id_value, _resolved_source_id = await _authorized_file_context(
+        token, tenant_id_value, resolved_source_id = await _authorized_file_context(
             request, item_id, provider, session, principal, external_source_id
         )
-        client, upstream = await open_google_thumbnail(token, item_id)
+        client, upstream = await open_google_thumbnail(
+            token,
+            item_id,
+            cache_key=(str(tenant_id_value), str(resolved_source_id), item_id),
+        )
         passthrough_headers = {
             name: value
             for name in ("content-length", "etag", "last-modified")

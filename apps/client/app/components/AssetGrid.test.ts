@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 import {
   AssetGridSkeleton,
   createThumbnailLoadQueue,
+  INITIAL_HIGH_PRIORITY_THUMBNAILS,
   SEARCH_RESULT_SKELETON_COUNT,
   shouldLoadAssetThumbnail,
+  thumbnailFetchPriority,
+  THUMBNAIL_CONCURRENCY_LIMIT,
 } from "./AssetGrid";
 
 describe("AssetGrid thumbnail loading", () => {
@@ -22,6 +25,17 @@ describe("AssetGrid thumbnail loading", () => {
 
 
 describe("AssetGrid thumbnail queue", () => {
+  it("loads at most eight thumbnails concurrently by default", () => {
+    expect(THUMBNAIL_CONCURRENCY_LIMIT).toBe(8);
+  });
+
+  it("prioritizes only the first visible thumbnail batch", () => {
+    expect(INITIAL_HIGH_PRIORITY_THUMBNAILS).toBe(8);
+    expect(thumbnailFetchPriority(0)).toBe("high");
+    expect(thumbnailFetchPriority(7)).toBe("high");
+    expect(thumbnailFetchPriority(8)).toBe("auto");
+  });
+
   it("limits concurrent thumbnail requests and starts the next queued image after release", () => {
     const queue = createThumbnailLoadQueue(2);
     const started: string[] = [];

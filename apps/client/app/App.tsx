@@ -24,6 +24,32 @@ type ShortcutNotice = {
   message: string;
 };
 
+function SearchLoadMoreSentinel({ enabled, loading, onLoadMore }: {
+  enabled: boolean;
+  loading: boolean;
+  onLoadMore: () => void;
+}) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !enabled) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) onLoadMore();
+    }, { rootMargin: "480px 0px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [enabled, onLoadMore]);
+
+  if (!enabled && !loading) return null;
+  return <div
+    ref={sentinelRef}
+    className="search-load-more"
+    aria-live="polite"
+    aria-busy={loading}
+  >{loading ? "Loading more results…" : "Scroll to load more"}</div>;
+}
+
 export function isEligibleAnalysisItem(item: Asset): boolean {
   return item.kind === "image" && Boolean(item.internal_asset_id?.trim());
 }
@@ -488,6 +514,12 @@ export default function App() {
             onRate={explorer.rateAsset}
             onDetails={openDetails}
             onFocus={item => detailsOpen && openDetails(item)}
+          />}
+
+          {explorer.searchV2.active && <SearchLoadMoreSentinel
+            enabled={explorer.searchV2.hasMore}
+            loading={explorer.searchV2.loadingMore}
+            onLoadMore={explorer.searchV2.loadMore}
           />}
 
           {!explorer.loading && !explorer.searching && !explorer.visibilityFilterReady && !explorer.visibleItems.length &&

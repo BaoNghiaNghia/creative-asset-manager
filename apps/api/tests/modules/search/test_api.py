@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -13,7 +14,8 @@ from app.core.database import Base
 from app.main import app
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
-from app.modules.search.router import _source_pair_rank, _suggestion_values
+from app.modules.assets.model import ExternalSourceModel
+from app.modules.search.router import _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 
 
@@ -39,6 +41,25 @@ class SearchV2ApiTest(unittest.TestCase):
         app.dependency_overrides.clear(); self.client.close(); self.engine.dispose()
         API_SEARCH_INDEX_POOL.clear()
         SEARCH_SUGGESTION_CACHE.clear()
+
+    def test_v3_source_provider_filter_uses_source_ids(self):
+        with self.factory() as session:
+            session.add_all([
+                ExternalSourceModel(
+                    tenant_id="tenant-a", source_type="google_drive", source_key="drive-a"
+                ),
+                ExternalSourceModel(
+                    tenant_id="tenant-b", source_type="google_drive", source_key="drive-b"
+                ),
+            ])
+            session.commit()
+            source_ids = [str(value) for value in session.scalars(
+                select(ExternalSourceModel.id).where(ExternalSourceModel.tenant_id == "tenant-a")
+            )]
+            result = _source_provider_filter(
+                session, "tenant-a", "google-drive", generation="v3"
+            )
+        self.assertEqual(result, {"terms": {"source_id": source_ids}})
 
     def test_capabilities_preserve_v1_when_rollout_is_disabled(self):
         with patch("app.modules.search.router.SessionLocal", self.factory), patch("app.modules.search.router.get_settings", return_value=Settings()):
@@ -149,10 +170,43 @@ class SearchV2ApiTest(unittest.TestCase):
         ranked = sorted(
             [(old, old_external), (current, current_external)],
             key=lambda pair: _source_pair_rank(*pair),
+
             reverse=True,
         )
-
         self.assertIs(ranked[0][0], current)
+
+    def test_search_image_uses_thumbnail_proxy_instead_of_original_media(self):
+        thumbnail_url = _search_thumbnail_url(
+            provider="google-drive",
+            external_asset_id="drive/file id",
+            external_source_id="source-id",
+            kind="image",
+        )
+
+        self.assertEqual(
+            thumbnail_url,
+            "/api/explorer/thumbnail/drive%2Ffile%20id"
+            "?provider=google-drive&external_source_id=source-id",
+        )
+        self.assertNotIn("/api/explorer/media/", thumbnail_url)
+
+    def test_search_thumbnail_is_not_emitted_for_unsupported_items(self):
+        self.assertIsNone(
+            _search_thumbnail_url(
+                provider="google-drive",
+                external_asset_id="document-id",
+                external_source_id="source-id",
+                kind="document",
+            )
+        )
+        self.assertIsNone(
+            _search_thumbnail_url(
+                provider="sharepoint",
+                external_asset_id="image-id",
+                external_source_id="source-id",
+                kind="image",
+            )
+        )
 
     def test_suggestion_values_prefer_exact_and_compact_completions(self):
         values = _suggestion_values({

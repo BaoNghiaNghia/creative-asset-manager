@@ -5,9 +5,11 @@ import httpx
 
 from app.providers.google.drive import (
     GoogleDriveThumbnailUnavailable,
+    ThumbnailLinkCache,
     close_thumbnail_stream,
     open_media_stream,
     open_thumbnail_stream,
+    thumbnail_link_cache,
 )
 
 
@@ -112,3 +114,61 @@ class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):
 
         client.send.assert_not_awaited()
         client.aclose.assert_awaited_once()
+
+    async def test_thumbnail_link_is_cached_by_tenant_source_and_file(self):
+        thumbnail_link_cache.clear()
+        metadata = MagicMock(status_code=200, headers={})
+        metadata.raise_for_status = MagicMock()
+        metadata.json.return_value = {"thumbnailLink": "https://images.test/thumb"}
+        thumbnail = MagicMock(status_code=200, headers={})
+        thumbnail.raise_for_status = MagicMock()
+        thumbnail.aclose = AsyncMock()
+        client = MagicMock()
+        client.get = AsyncMock(return_value=metadata)
+        client.build_request.return_value = MagicMock()
+        client.send = AsyncMock(return_value=thumbnail)
+        client.aclose = AsyncMock()
+
+        with patch("app.providers.google.drive.httpx.AsyncClient", return_value=client):
+            await open_thumbnail_stream("token", "file", cache_key=("tenant", "source", "file"))
+            await open_thumbnail_stream("token", "file", cache_key=("tenant", "source", "file"))
+
+        self.assertEqual(client.get.await_count, 1)
+        self.assertEqual(client.send.await_count, 2)
+        thumbnail_link_cache.clear()
+
+    async def test_expired_cached_thumbnail_is_refreshed_once(self):
+        thumbnail_link_cache.clear()
+        key = ("tenant", "source", "file")
+        thumbnail_link_cache.put(key, "https://images.test/stale")
+        metadata = MagicMock(status_code=200, headers={})
+        metadata.raise_for_status = MagicMock()
+        metadata.json.return_value = {"thumbnailLink": "https://images.test/fresh"}
+        stale = MagicMock(status_code=403, headers={})
+        stale.aclose = AsyncMock()
+        fresh = MagicMock(status_code=200, headers={})
+        fresh.raise_for_status = MagicMock()
+        fresh.aclose = AsyncMock()
+        client = MagicMock()
+        client.get = AsyncMock(return_value=metadata)
+        client.build_request.return_value = MagicMock()
+        client.send = AsyncMock(side_effect=(stale, fresh))
+        client.aclose = AsyncMock()
+
+        with patch("app.providers.google.drive.httpx.AsyncClient", return_value=client):
+            _, response = await open_thumbnail_stream("token", "file", cache_key=key)
+
+        self.assertIs(response, fresh)
+        self.assertEqual(client.get.await_count, 1)
+        self.assertEqual(client.send.await_count, 2)
+        stale.aclose.assert_awaited_once()
+        thumbnail_link_cache.clear()
+
+    def test_thumbnail_cache_is_bounded_and_tenant_scoped(self):
+        cache = ThumbnailLinkCache(max_entries=2, ttl_seconds=1800)
+        cache.put(("tenant-a", "source", "one"), "one")
+        cache.put(("tenant-b", "source", "one"), "other")
+        cache.put(("tenant-a", "source", "two"), "two")
+        self.assertEqual(len(cache), 2)
+        self.assertIsNone(cache.get(("tenant-a", "source", "one")))
+        self.assertEqual(cache.get(("tenant-b", "source", "one")), "other")

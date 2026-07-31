@@ -1,4 +1,7 @@
 import asyncio
+import time
+from collections import OrderedDict
+from threading import Lock
 
 import httpx
 from app.providers.google.mapper import map_drive_file
@@ -7,6 +10,57 @@ FIELDS = "id,name,mimeType,parents,size,modifiedTime,thumbnailLink,webViewLink"
 FOLDER_MIME = "application/vnd.google-apps.folder"
 _MEDIA_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _MEDIA_MAX_ATTEMPTS = 3
+_THUMBNAIL_LINK_TTL_SECONDS = 30 * 60
+_THUMBNAIL_LINK_CACHE_MAX_ENTRIES = 2048
+_THUMBNAIL_LINK_REFRESH_STATUS_CODES = frozenset({401, 403, 404})
+
+
+class ThumbnailLinkCache:
+    """Small tenant/source-scoped TTL cache for temporary Drive thumbnail links."""
+
+    def __init__(self, max_entries: int, ttl_seconds: float):
+        self.max_entries = max_entries
+        self.ttl_seconds = ttl_seconds
+        self._entries: OrderedDict[tuple[str, str, str], tuple[float, str]] = OrderedDict()
+        self._lock = Lock()
+
+    def get(self, key: tuple[str, str, str]) -> str | None:
+        now = time.monotonic()
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            expires_at, value = entry
+            if expires_at <= now:
+                self._entries.pop(key, None)
+                return None
+            self._entries.move_to_end(key)
+            return value
+
+    def put(self, key: tuple[str, str, str], value: str) -> None:
+        with self._lock:
+            self._entries[key] = (time.monotonic() + self.ttl_seconds, value)
+            self._entries.move_to_end(key)
+            while len(self._entries) > self.max_entries:
+                self._entries.popitem(last=False)
+
+    def invalidate(self, key: tuple[str, str, str]) -> None:
+        with self._lock:
+            self._entries.pop(key, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+
+thumbnail_link_cache = ThumbnailLinkCache(
+    max_entries=_THUMBNAIL_LINK_CACHE_MAX_ENTRIES,
+    ttl_seconds=_THUMBNAIL_LINK_TTL_SECONDS,
+)
 
 
 class GoogleDriveThumbnailUnavailable(Exception):
@@ -175,32 +229,56 @@ async def close_media_stream(client: httpx.AsyncClient, response: httpx.Response
     await client.aclose()
 
 
-async def open_thumbnail_stream(access_token: str, item_id: str):
-    """Resolve a fresh Drive thumbnail URL and stream the thumbnail, not the original."""
+async def open_thumbnail_stream(
+    access_token: str,
+    item_id: str,
+    *,
+    cache_key: tuple[str, str, str] | None = None,
+):
+    """Resolve and stream a Drive thumbnail without repeatedly fetching metadata."""
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(20, read=None),
         follow_redirects=True,
     )
     response = None
     try:
-        metadata = await client.get(
-            f"https://www.googleapis.com/drive/v3/files/{item_id}",
-            params={"fields": "thumbnailLink", "supportsAllDrives": "true"},
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        metadata.raise_for_status()
-        thumbnail_url = str(metadata.json().get("thumbnailLink") or "").strip()
-        if not thumbnail_url:
-            raise GoogleDriveThumbnailUnavailable(item_id)
+        thumbnail_url = thumbnail_link_cache.get(cache_key) if cache_key else None
+        used_cached_url = thumbnail_url is not None
+        for attempt in range(2):
+            if thumbnail_url is None:
+                metadata = await client.get(
+                    f"https://www.googleapis.com/drive/v3/files/{item_id}",
+                    params={"fields": "thumbnailLink", "supportsAllDrives": "true"},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                metadata.raise_for_status()
+                thumbnail_url = str(metadata.json().get("thumbnailLink") or "").strip()
+                if not thumbnail_url:
+                    raise GoogleDriveThumbnailUnavailable(item_id)
+                if cache_key:
+                    thumbnail_link_cache.put(cache_key, thumbnail_url)
 
-        request = client.build_request(
-            "GET",
-            thumbnail_url,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        response = await client.send(request, stream=True)
-        response.raise_for_status()
-        return client, response
+            request = client.build_request(
+                "GET",
+                thumbnail_url,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            response = await client.send(request, stream=True)
+            if (
+                attempt == 0
+                and used_cached_url
+                and response.status_code in _THUMBNAIL_LINK_REFRESH_STATUS_CODES
+            ):
+                await response.aclose()
+                response = None
+                if cache_key:
+                    thumbnail_link_cache.invalidate(cache_key)
+                thumbnail_url = None
+                used_cached_url = False
+                continue
+            response.raise_for_status()
+            return client, response
+        raise GoogleDriveThumbnailUnavailable(item_id)
     except Exception:
         if response is not None:
             await response.aclose()

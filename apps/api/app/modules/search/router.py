@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -107,6 +107,18 @@ def _source_pair_rank(source: SourceAssetModel, external: ExternalSourceModel) -
         _source_timestamp(source.updated_at),
         str(source.id),
     )
+
+def _search_thumbnail_url(*, provider: str, external_asset_id: str, external_source_id: str, kind: str) -> str | None:
+    if provider != "google-drive" or kind not in {"image", "video"}:
+        return None
+    query = urlencode(
+        {
+            "provider": provider,
+            "external_source_id": str(external_source_id),
+        }
+    )
+    return f"/api/explorer/thumbnail/{quote(str(external_asset_id), safe='')}?{query}"
+
 
 
 def _completion_value(value: object, query: str) -> str | None:
@@ -264,11 +276,12 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
         for name, values in sorted(body.facets.items()):
             if values:
                 filters.append({"terms": {f"facets.{name}": values}})
-        if body.source_provider:
-            source_type = "google_drive" if body.source_provider == "google-drive" else "sharepoint"
-            source_asset_ids = select(AssetSourceLinkModel.asset_id).join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id).join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id).where(AssetSourceLinkModel.tenant_id == tenant, ExternalSourceModel.source_type == source_type)
-            asset_ids = list(session.scalars(source_asset_ids))
-            filters.append({"terms": {"asset_id": asset_ids or ["__none__"]}})
+        generation = "v3" if settings.SEARCH_V3_ENABLED else "v2"
+        source_filter = _source_provider_filter(
+            session, tenant, body.source_provider, generation=generation,
+        )
+        if source_filter:
+            filters.append(source_filter)
         viewer_source_pairs: set[tuple[str, str]] | None = None
         if "viewer" in principal.effective_roles and not principal.effective_roles.intersection({"operator", "tenant_admin", "billing_admin"}):
             viewer_source_pairs = ViewerFolderScopeService(session).allowed_asset_source_pairs_for_membership(
@@ -284,7 +297,7 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
                 ElasticsearchV2Config(
                     settings.ELASTICSEARCH_URL,
                     settings.ELASTICSEARCH_INDEX_PREFIX,
-                    index_generation="v3" if settings.SEARCH_V3_ENABLED else "v2",
+                    index_generation=generation,
                 )
             )
             response = await index.search(query)
@@ -322,7 +335,7 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
             mime = infer_media_type(source.filename or doc.get("filename"), source.mime_type)
             kind = "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "pdf" if mime == "application/pdf" else "document"
-            items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": (f"/api/explorer/media/{quote(source.external_asset_id, safe='')}?provider={provider}&external_source_id={quote(source.external_source_id, safe='')}" if kind in {"image", "video"} else None), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
+            items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": _search_thumbnail_url(provider=provider, external_asset_id=source.external_asset_id, external_source_id=source.external_source_id, kind=kind), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
         total_value = response.get("hits", {}).get("total", 0)
         total = int(total_value.get("value", 0) if isinstance(total_value, dict) else total_value)
         facet_output = {name: [{"value": bucket.get("key"), "count": bucket.get("doc_count", 0)} for bucket in response.get("aggregations", {}).get(name, {}).get("buckets", [])] for name in allowed_facets}

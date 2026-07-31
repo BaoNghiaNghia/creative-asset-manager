@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, ParsedQueryDebug, Provider, SearchCapabilities, SearchFacetBucket, SearchSuggestion } from "../types";
 
 const emptyCapabilities: SearchCapabilities = {
@@ -7,6 +7,7 @@ const emptyCapabilities: SearchCapabilities = {
 };
 const SUGGESTION_DEBOUNCE_MS = 60;
 const SUGGESTION_CACHE_TTL_MS = 20_000;
+export const SEARCH_PAGE_SIZE = 60;
 
 export function shouldFetchSearchSuggestions(active: boolean, authenticated: boolean, query: string): boolean {
   return active && authenticated && query.trim().length >= 2;
@@ -14,6 +15,23 @@ export function shouldFetchSearchSuggestions(active: boolean, authenticated: boo
 
 export function isSearchRequestInFlight(query: string, loading: boolean): boolean {
   return query.trim().length > 0 && loading;
+}
+
+export function mergeSearchResults(current: Asset[], incoming: Asset[]): Asset[] {
+  const merged = [...current];
+  const seen = new Set(current.map(item => `${item.external_source_id || item.provider}:${item.internal_asset_id || item.id}`));
+  incoming.forEach(item => {
+    const key = `${item.external_source_id || item.provider}:${item.internal_asset_id || item.id}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(item);
+    }
+  });
+  return merged;
+}
+
+export function isCurrentSearchResponse(requestEpoch: number, currentEpoch: number): boolean {
+  return requestEpoch === currentEpoch;
 }
 
 export function useSearchV2(authenticated: boolean, provider: Provider, query: string) {
@@ -24,12 +42,18 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   const [parsed, setParsed] = useState<ParsedQueryDebug | null>(null);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [error, setError] = useState("");
   const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
   const suggestionCache = useRef(new Map<string, { expiresAt: number; values: SearchSuggestion[] }>());
+  const searchEpoch = useRef(0);
+  const nextOffset = useRef(0);
+  const pageInFlight = useRef(false);
+  const appendController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!authenticated) {
@@ -103,33 +127,80 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     window.history.replaceState({}, "", window.location.pathname + (next ? "?" + next : ""));
   }, [query, facetKey]);
 
+  const fetchPage = useCallback(async (
+    offset: number,
+    append: boolean,
+    epoch: number,
+    signal: AbortSignal,
+  ) => {
+    const startedAt = performance.now();
+    try {
+      const response = await fetch("/api/v1/search", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal,
+        body: JSON.stringify({
+          query: query.trim(), source_provider: provider, facets: selectedFacets,
+          limit: SEARCH_PAGE_SIZE, offset, debug: capabilities.debug_allowed,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw Error(payload.detail || "Search is unavailable");
+      if (!isCurrentSearchResponse(epoch, searchEpoch.current)) return;
+      const pageItems: Asset[] = Array.isArray(payload.items) ? payload.items : [];
+      const resultTotal = Number(payload.total || 0);
+      setItems(current => append ? mergeSearchResults(current, pageItems) : pageItems);
+      setTotal(resultTotal);
+      if (!append) {
+        setFacets(payload.facets || {});
+        setParsed(payload.parsed_query || null);
+        setDurationMs(Math.max(0, Math.round(performance.now() - startedAt)));
+      }
+      nextOffset.current = offset + pageItems.length;
+      setHasMore(pageItems.length > 0 && nextOffset.current < resultTotal);
+    } catch (reason) {
+      if (!signal.aborted && isCurrentSearchResponse(epoch, searchEpoch.current)) {
+        setError(reason instanceof Error ? reason.message : "Search failed");
+      }
+    } finally {
+      if (isCurrentSearchResponse(epoch, searchEpoch.current)) {
+        if (append) setLoadingMore(false); else setLoading(false);
+      }
+      if (append) pageInFlight.current = false;
+    }
+  }, [capabilities.debug_allowed, provider, query, selectedFacets]);
+
   useEffect(() => {
+    const epoch = ++searchEpoch.current;
+    appendController.current?.abort();
+    appendController.current = null;
+    pageInFlight.current = false;
+    nextOffset.current = 0;
+    setHasMore(false);
+    setLoadingMore(false);
+    setItems([]);
     if (!active || !authenticated || query.trim().length < 1) {
-      setItems([]); setTotal(0); setParsed(null); setDurationMs(null); setError(""); setLoading(false); return;
+      setTotal(0); setParsed(null); setDurationMs(null); setError(""); setLoading(false); return;
     }
     setDurationMs(null);
+    setLoading(true);
+    setError("");
     const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setLoading(true); setError("");
-      const startedAt = performance.now();
-      try {
-        const response = await fetch("/api/v1/search", {
-          method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
-          body: JSON.stringify({ query: query.trim(), source_provider: provider, facets: selectedFacets, limit: 200, debug: capabilities.debug_allowed }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw Error(payload.detail || "Search is unavailable");
-        setItems(payload.items || []); setTotal(payload.total || 0);
-        setFacets(payload.facets || {}); setParsed(payload.parsed_query || null);
-        setDurationMs(Math.max(0, Math.round(performance.now() - startedAt)));
-      } catch (reason) {
-        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Search failed");
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
+    const timer = window.setTimeout(() => {
+      void fetchPage(0, false, epoch, controller.signal);
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [active, authenticated, provider, query, facetKey, capabilities.debug_allowed]);
+  }, [active, authenticated, query, facetKey, fetchPage]);
+
+  const loadMore = useCallback(() => {
+    if (!active || !authenticated || !query.trim() || !hasMore || loading || loadingMore || pageInFlight.current) return;
+    pageInFlight.current = true;
+    setLoadingMore(true);
+    const controller = new AbortController();
+    appendController.current?.abort();
+    appendController.current = controller;
+    void fetchPage(nextOffset.current, true, searchEpoch.current, controller.signal);
+  }, [active, authenticated, query, hasMore, loading, loadingMore, fetchPage]);
+
+  useEffect(() => () => appendController.current?.abort(), []);
 
   function clearSearchFilters() {
     setSelectedFacets({});
@@ -148,5 +219,9 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     });
   }
 
-  return useMemo(() => ({ active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, suggestions, suggestionsLoading, error, toggleFacet, clearSearchFilters }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, durationMs, suggestions, suggestionsLoading, error]);
+  return useMemo(() => ({
+    active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed,
+    total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions,
+    suggestionsLoading, error, toggleFacet, clearSearchFilters,
+  }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions, suggestionsLoading, error]);
 }
