@@ -6,10 +6,15 @@ type Props = {
   onClose: () => void;
 };
 
+export function mediaPreviewUrl(item: Pick<Asset, "id" | "provider" | "external_source_id">): string {
+  const parameters = new URLSearchParams({ provider: item.provider });
+  if (item.external_source_id) parameters.set("external_source_id", item.external_source_id);
+  return "/api/explorer/media/" + encodeURIComponent(item.id) + "?" + parameters.toString();
+}
+
 export function MediaViewer({ item, onClose }: Props) {
   const [failed, setFailed] = useState(false);
-  const mediaUrl = "/api/explorer/media/" + encodeURIComponent(item.id)
-    + "?provider=" + encodeURIComponent(item.provider);
+  const mediaUrl = mediaPreviewUrl(item);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
