@@ -4,6 +4,61 @@ import { AssetStatusBadge } from "./AssetStatusBadge";
 import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType } from "../utils/fileType";
 
 
+export const THUMBNAIL_CONCURRENCY_LIMIT = 4;
+
+type ThumbnailQueueTicket = {
+  cancel: () => void;
+  release: () => void;
+};
+
+type ThumbnailQueueTask = {
+  active: boolean;
+  done: boolean;
+  start: () => void;
+};
+
+export function createThumbnailLoadQueue(limit = THUMBNAIL_CONCURRENCY_LIMIT) {
+  let active = 0;
+  const pending: ThumbnailQueueTask[] = [];
+
+  function drain() {
+    while (active < limit && pending.length) {
+      const task = pending.shift();
+      if (!task || task.done) continue;
+      task.active = true;
+      active += 1;
+      task.start();
+    }
+  }
+
+  function finish(task: ThumbnailQueueTask) {
+    if (task.done) return;
+    task.done = true;
+    if (task.active) active -= 1;
+    else {
+      const index = pending.indexOf(task);
+      if (index >= 0) pending.splice(index, 1);
+    }
+    drain();
+  }
+
+  return {
+    acquire(start: () => void): ThumbnailQueueTicket {
+      const task: ThumbnailQueueTask = { active: false, done: false, start };
+      pending.push(task);
+      drain();
+      return {
+        cancel: () => finish(task),
+        release: () => finish(task),
+      };
+    },
+    activeCount: () => active,
+    pendingCount: () => pending.filter(task => !task.done).length,
+  };
+}
+
+const thumbnailLoadQueue = createThumbnailLoadQueue();
+
 export function shouldLoadAssetThumbnail(inViewport: boolean, thumbnailUrl?: string | null): boolean {
   return inViewport && Boolean(thumbnailUrl);
 }
@@ -12,7 +67,9 @@ function AssetPreview({ item }: { item: Asset }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
   const [inViewport, setInViewport] = useState(false);
+  const [grantedThumbnailUrl, setGrantedThumbnailUrl] = useState<string | null>(null);
   const previewRef = useRef<HTMLSpanElement>(null);
+  const queueTicket = useRef<ThumbnailQueueTicket | null>(null);
   const canShowThumbnail = (item.kind === "image" || item.kind === "video")
     && Boolean(item.thumbnail_url)
     && !thumbnailFailed;
@@ -20,6 +77,7 @@ function AssetPreview({ item }: { item: Asset }) {
   useEffect(() => {
     setThumbnailFailed(false);
     setThumbnailLoaded(false);
+    setGrantedThumbnailUrl(null);
   }, [item.id, item.thumbnail_url]);
 
   useEffect(() => {
@@ -35,28 +93,50 @@ function AssetPreview({ item }: { item: Asset }) {
       if (!entries.some(entry => entry.isIntersecting)) return;
       setInViewport(true);
       observer.disconnect();
-    }, { rootMargin: "480px 0px" });
+    }, { rootMargin: "240px 0px" });
     observer.observe(target);
     return () => observer.disconnect();
   }, [canShowThumbnail]);
+
+  useEffect(() => {
+    if (!shouldLoadAssetThumbnail(inViewport, item.thumbnail_url) || !item.thumbnail_url) return;
+    const url = item.thumbnail_url;
+    const ticket = thumbnailLoadQueue.acquire(() => setGrantedThumbnailUrl(url));
+    queueTicket.current = ticket;
+    return () => {
+      ticket.cancel();
+      if (queueTicket.current === ticket) queueTicket.current = null;
+    };
+  }, [inViewport, item.id, item.thumbnail_url]);
+
+  function finishThumbnail() {
+    queueTicket.current?.release();
+    queueTicket.current = null;
+  }
 
   if (!canShowThumbnail) {
     const type = getFileType(item.mime_type, item.kind);
     return <span className={"preview-fallback asset-file-icon " + fileTypeTone(type)} aria-label={fileTypeLabel(type)}>{fileTypeGlyph(type)}</span>;
   }
 
-  const shouldLoad = shouldLoadAssetThumbnail(inViewport, item.thumbnail_url);
+  const shouldLoad = grantedThumbnailUrl === item.thumbnail_url;
   return <span ref={previewRef} className="thumbnail-frame">
     {!thumbnailLoaded && <span className="thumbnail-skeleton" aria-hidden="true" />}
     {shouldLoad && <img
       className={"preview-thumbnail" + (thumbnailLoaded ? " is-loaded" : "")}
       src={item.thumbnail_url}
       alt=""
-      loading="lazy"
+      loading="eager"
       decoding="async"
       referrerPolicy="no-referrer"
-      onLoad={() => setThumbnailLoaded(true)}
-      onError={() => setThumbnailFailed(true)}
+      onLoad={() => {
+        finishThumbnail();
+        setThumbnailLoaded(true);
+      }}
+      onError={() => {
+        finishThumbnail();
+        setThumbnailFailed(true);
+      }}
     />}
     {item.kind === "video" && thumbnailLoaded && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
   </span>;
