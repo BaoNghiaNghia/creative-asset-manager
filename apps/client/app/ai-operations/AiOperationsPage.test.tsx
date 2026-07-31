@@ -9,6 +9,7 @@ import {
   filtersFromSearch,
   normalizePipelineSnapshot,
   retryAiOperationsJob,
+  retryAiOperationsJobsByError,
   searchFromFilters,
   type AiOpsDashboardData,
   type AiOpsFilters,
@@ -418,6 +419,28 @@ describe("AI Operations interactions", () => {
     expect(renderToStaticMarkup(<ProcessingJobAction job={failed} permissions={["ai_jobs.retry"]} onAccepted={noop} />)).toContain("Retry failed job");
     expect(mayViewAiOperations(["ai_operations.read"])).toBe(true);
     expect(mayViewAiOperations(["assets.read"])).toBe(false);
+  });
+
+  it("renders an error-group selector and bulk retry action for authorized operators", () => {
+    const markup = render("processing", { permissions: ["ai_jobs.retry"] });
+    expect(markup).toContain("Failed error group");
+    expect(markup).toContain("provider_timeout (2)");
+    expect(markup).toContain("Retry failed group");
+    expect(markup).toContain("maximum 1,000 per action");
+  });
+
+  it("posts a bounded audited bulk retry request", async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => new Response(JSON.stringify({
+      tenant_id: "tenant-a", error_code: "analysis_image_dimensions",
+      matched: 2, retried: 2, skipped: 0, items: [],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    await retryAiOperationsJobsByError("analysis_image_dimensions", "operator requested retry", 1000, fetcher);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/admin/ai-operations/jobs/retry-by-error",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({
+        error_code: "analysis_image_dimensions", reason: "operator requested retry", limit: 1000,
+      }) }),
+    );
   });
 
   it("sends audited retry and cancellation reasons to the supported endpoints", async () => {

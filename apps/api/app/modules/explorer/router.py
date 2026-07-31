@@ -114,6 +114,9 @@ def _require_viewer_folder_scope(
         )
 
 
+_VIEWER_MEDIA_MAX_ANCESTOR_DEPTH = 64
+
+
 async def _viewer_media_scope_allowed(
     scope_service: ViewerFolderScopeService,
     *,
@@ -129,20 +132,25 @@ async def _viewer_media_scope_allowed(
         return True
     if provider != "google-drive":
         return False
-    # A newly uploaded file may not have a SourceAsset row yet. Resolve its
-    # authoritative remote parent before applying the existing scope rules.
+    # A newly uploaded or incompletely synced file may not have local ancestry.
+    # Walk authoritative Drive parents with a strict bound and cycle guard.
     async with create_source_provider(provider, token) as source_client:
-        remote_item = await source_client.get_node(item_id)
-    parent_id = remote_item.parent_id
-    return bool(
-        parent_id
-        and (
-            parent_id in access.folder_ids
-            or scope_service.allows_external_asset(
+        current_id = item_id
+        visited: set[str] = set()
+        for _depth in range(_VIEWER_MEDIA_MAX_ANCESTOR_DEPTH):
+            if current_id in visited:
+                return False
+            visited.add(current_id)
+            remote_item = await source_client.get_node(current_id)
+            parent_id = remote_item.parent_id
+            if not parent_id:
+                return False
+            if parent_id in access.folder_ids or scope_service.allows_external_asset(
                 tenant_id=tenant_id, access=access, external_asset_id=parent_id,
-            )
-        )
-    )
+            ):
+                return True
+            current_id = parent_id
+    return False
 
 
 async def _source_context(

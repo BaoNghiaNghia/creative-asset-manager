@@ -81,8 +81,13 @@ class ViewerFolderScopeService:
             ViewerFolderScopeModel.external_source_id == external_source_id,
         ).order_by(ViewerFolderScopeModel.folder_name, ViewerFolderScopeModel.folder_external_id)))
 
-    def allowed_internal_asset_ids(self, *, tenant_id: str, access: ViewerFolderAccess) -> set[str]:
-        """Resolve selected external folders to internal assets for index search."""
+    def allowed_asset_source_pairs(self, *, tenant_id: str, access: ViewerFolderAccess) -> set[tuple[str, str]]:
+        """Resolve selected folders to the exact internal asset/source pairs.
+
+        An internal asset can be linked to more than one connected Drive source.
+        Keeping the source asset identity prevents search hydration from choosing
+        an older, unassigned source for an otherwise allowed asset.
+        """
         if not access.restricted or not access.source_id:
             return set()
         # Resolve ancestry within this tenant/source so a selected folder
@@ -111,7 +116,7 @@ class ViewerFolderScopeService:
                 SourceAssetModel.deleted_at.is_(None),
             )
         ).all()
-        allowed: set[str] = set()
+        allowed: set[tuple[str, str]] = set()
         for asset_id, source in rows:
             pending = list(parents_by_external_id.get(str(source.external_asset_id), []))
             visited: set[str] = set()
@@ -126,8 +131,17 @@ class ViewerFolderScopeService:
                     break
                 pending.extend(parents_by_external_id.get(parent, []))
             if matched:
-                allowed.add(str(asset_id))
+                allowed.add((str(asset_id), str(source.id)))
         return allowed
+
+    def allowed_internal_asset_ids(self, *, tenant_id: str, access: ViewerFolderAccess) -> set[str]:
+        """Resolve selected external folders to internal assets for index search."""
+        return {
+            asset_id
+            for asset_id, _source_asset_id in self.allowed_asset_source_pairs(
+                tenant_id=tenant_id, access=access,
+            )
+        }
 
     def allows_external_asset(self, *, tenant_id: str, access: ViewerFolderAccess, external_asset_id: str) -> bool:
         """Check a provider item against the selected folder ancestry."""
@@ -167,16 +181,27 @@ class ViewerFolderScopeService:
             pending.extend(parent_map.get(parent, []))
         return str(external_asset_id) in access.folder_ids
 
-    def allowed_internal_asset_ids_for_membership(self, *, tenant_id: str, membership_id: str) -> set[str]:
-        """Resolve every selected source folder for a viewer membership."""
+    def allowed_asset_source_pairs_for_membership(
+        self, *, tenant_id: str, membership_id: str,
+    ) -> set[tuple[str, str]]:
+        """Resolve every selected source folder to exact asset/source pairs."""
         scopes = self.list_membership_scopes(tenant_id=tenant_id, membership_id=membership_id)
-        allowed: set[str] = set()
+        allowed: set[tuple[str, str]] = set()
         for source_id, folder_ids in scopes.items():
-            allowed.update(self.allowed_internal_asset_ids(
+            allowed.update(self.allowed_asset_source_pairs(
                 tenant_id=tenant_id,
                 access=ViewerFolderAccess(True, source_id, frozenset(folder_ids)),
             ))
         return allowed
+
+    def allowed_internal_asset_ids_for_membership(self, *, tenant_id: str, membership_id: str) -> set[str]:
+        """Resolve every selected source folder for a viewer membership."""
+        return {
+            asset_id
+            for asset_id, _source_asset_id in self.allowed_asset_source_pairs_for_membership(
+                tenant_id=tenant_id, membership_id=membership_id,
+            )
+        }
 
     def list_membership_scopes(self, *, tenant_id: str, membership_id: str) -> dict[str, set[str]]:
         rows = self.session.scalars(select(ViewerFolderScopeModel).where(

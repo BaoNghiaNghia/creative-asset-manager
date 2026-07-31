@@ -334,6 +334,40 @@ class AiOperationsControlService:
         self._audit_job(tenant_id, actor_id, reason, "ai_job_retry_requested", before, after, job)
         return after, "retry_requested"
 
+    def retry_jobs_by_error_code(
+        self, tenant_id: str, error_code: str, *, actor_id: str, reason: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        """Retry a bounded group of terminal AI jobs sharing an error code."""
+        job_ids = list(self.session.scalars(
+            select(ProcessingJobModel.id).where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.job_type.in_(AI_JOB_TYPES),
+                ProcessingJobModel.status == "failed",
+                ProcessingJobModel.last_error_code == error_code,
+            ).order_by(ProcessingJobModel.updated_at, ProcessingJobModel.id).limit(limit)
+        ))
+        retried = 0
+        skipped = 0
+        items: list[dict[str, Any]] = []
+        for job_id in job_ids:
+            try:
+                document, outcome = self.retry_job(
+                    tenant_id, job_id, actor_id=actor_id, reason=reason,
+                )
+                retried += 1
+                items.append({"job_id": job_id, "outcome": outcome, "job": document})
+            except AiOperationsControlError as exc:
+                skipped += 1
+                items.append({"job_id": job_id, "outcome": "skipped", "code": exc.code})
+        return {
+            "error_code": error_code,
+            "matched": len(job_ids),
+            "retried": retried,
+            "skipped": skipped,
+            "items": items,
+        }
+
     def cancel_job(
         self, tenant_id: str, job_id: str, *, actor_id: str, reason: str,
     ) -> tuple[dict, str]:

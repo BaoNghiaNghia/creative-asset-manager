@@ -207,6 +207,23 @@ export const retryAiOperationsJob = (jobId: string, reason: string, force = fals
     `/api/v1/admin/ai-operations/jobs/${encodeURIComponent(jobId)}/retry`, "POST", { reason, force }, fetcher,
   );
 
+export type AiBulkRetryResult = {
+  tenant_id: string;
+  error_code: string;
+  matched: number;
+  retried: number;
+  skipped: number;
+  items?: Array<{ job_id: string; outcome: string }>;
+  audit?: import("./types").AiOpsAudit;
+};
+
+export const retryAiOperationsJobsByError = (
+  errorCode: string, reason: string, limit = 1000, fetcher: Fetcher = fetch,
+) => mutate<AiBulkRetryResult>(
+  "/api/v1/admin/ai-operations/jobs/retry-by-error", "POST",
+  { error_code: errorCode, reason, limit }, fetcher,
+);
+
 export const cancelAiOperationsJob = (jobId: string, reason: string, fetcher: Fetcher = fetch) =>
   mutate<AiJobMutationResult>(
     `/api/v1/admin/ai-operations/jobs/${encodeURIComponent(jobId)}/cancel`, "POST", { reason }, fetcher,

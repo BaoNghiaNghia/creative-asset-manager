@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
-  retryAiOperationsJob, searchFromFilters,
+  retryAiOperationsJob, retryAiOperationsJobsByError, searchFromFilters,
   type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage, type PipelineSnapshot,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
@@ -389,6 +389,60 @@ export function visiblePages(currentPage: number, totalPages: number): Array<num
   return [1, "ellipsis", currentPage - 1, currentPage, currentPage + 1, "ellipsis", totalPages];
 }
 
+function ProcessingFailureGroupRetry({
+  failures, permissions, onAccepted,
+}: {
+  failures: AiOpsDashboardData["failures"];
+  permissions: string[];
+  onAccepted: () => void;
+}) {
+  const groups = useMemo(
+    () => [...new Map(failures.filter(item => item.error_code).map(item => [item.error_code, item])).values()]
+      .sort((a, b) => b.count - a.count || a.error_code.localeCompare(b.error_code)),
+    [failures],
+  );
+  const [errorCode, setErrorCode] = useState(groups[0]?.error_code || "");
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    if (!groups.some(group => group.error_code === errorCode)) setErrorCode(groups[0]?.error_code || "");
+  }, [groups, errorCode]);
+  if (!permissions.includes("ai_jobs.retry") || !groups.length) return null;
+  const selected = groups.find(group => group.error_code === errorCode);
+  async function submit() {
+    if (!errorCode || !reason.trim()) return;
+    setBusy(true); setMessage("");
+    try {
+      const result = await retryAiOperationsJobsByError(errorCode, reason.trim(), 1000);
+      setMessage(result.retried + " job" + (result.retried === 1 ? "" : "s") + " queued" + (result.skipped ? "; " + result.skipped + " skipped" : "") + ".");
+      setConfirming(false);
+      setReason("");
+      onAccepted();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Group retry failed");
+    } finally { setBusy(false); }
+  }
+  return <section className="ops-bulk-retry" aria-label="Retry failed jobs by error group">
+    <div>
+      <label htmlFor="failed-error-group">Failed error group</label>
+      <select id="failed-error-group" value={errorCode} onChange={event => setErrorCode(event.target.value)}>
+        {groups.map(group => <option key={group.error_code} value={group.error_code}>{group.error_code} ({group.count})</option>)}
+      </select>
+      <small>{selected ? selected.count + " matching failed jobs" : ""} - maximum 1,000 per action</small>
+    </div>
+    <button type="button" disabled={!errorCode} onClick={() => { setConfirming(true); setReason(""); setMessage(""); }}>Retry failed group</button>
+    {confirming && <div className="ops-confirm" role="dialog" aria-modal="true" aria-label="Confirm group retry">
+      <strong>Retry {selected?.error_code || "failed jobs"}?</strong>
+      <p>Only terminal failed AI jobs in this error group will be requeued. This action is audited.</p>
+      <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} placeholder="Explain why these jobs should be retried" /></label>
+      <div><button type="button" onClick={() => setConfirming(false)}>Cancel</button><button type="button" className="danger" disabled={busy || !reason.trim()} onClick={submit}>{busy ? "Retrying..." : "Confirm retry"}</button></div>
+    </div>}
+    {message && <span className="ops-action-message" aria-live="polite">{message}</span>}
+  </section>;
+}
+
 function Processing({ data, filters, permissions, onFilters, onActionAccepted }: { data: AiOpsDashboardData; filters: AiOpsFilters; permissions: string[]; onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void }) {
   const usageByJob = new Map(data.usage.items.filter(item => item.job_id).map(item => [item.job_id!, item]));
   if (!data.jobs.items.length) return <DashboardState kind="empty" label="No processing jobs in this period" />;
@@ -408,6 +462,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted }:
         </nav>
       </div>
     </div>
+    <ProcessingFailureGroupRetry failures={data.failures} permissions={permissions} onAccepted={onActionAccepted} />
     <div className="ops-table-scroll"><table className="ops-data-table">
       <caption className="sr-only">AI processing jobs</caption>
       <thead><tr>{["Status", "Asset", "Provider", "Model", "Mode", "Profile", "Attempts", "Duration", "Cost", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>

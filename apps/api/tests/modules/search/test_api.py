@@ -1,4 +1,6 @@
 import unittest
+from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -11,7 +13,7 @@ from app.core.database import Base
 from app.main import app
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
-from app.modules.search.router import _suggestion_values
+from app.modules.search.router import _source_pair_rank, _suggestion_values
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 
 
@@ -123,6 +125,34 @@ class SearchV2ApiTest(unittest.TestCase):
             self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive").status_code, 200)
             self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=sharepoint").status_code, 200)
         self.assertEqual(FakeIndex.calls, 2)
+
+    def test_source_pair_rank_prefers_default_recent_live_source(self):
+        old = SimpleNamespace(
+            id="old-source-asset",
+            last_seen_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        current = SimpleNamespace(
+            id="current-source-asset",
+            last_seen_at=datetime(2026, 7, 31, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 7, 31, tzinfo=timezone.utc),
+        )
+        old_external = SimpleNamespace(
+            source_metadata={},
+            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        current_external = SimpleNamespace(
+            source_metadata={"is_default": True},
+            updated_at=datetime(2026, 7, 31, tzinfo=timezone.utc),
+        )
+
+        ranked = sorted(
+            [(old, old_external), (current, current_external)],
+            key=lambda pair: _source_pair_rank(*pair),
+            reverse=True,
+        )
+
+        self.assertIs(ranked[0][0], current)
 
     def test_suggestion_values_prefer_exact_and_compact_completions(self):
         values = _suggestion_values({

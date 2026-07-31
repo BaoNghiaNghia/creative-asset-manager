@@ -261,6 +261,46 @@ class AiOperationsControlsTest(unittest.TestCase):
         self.assertNotIn("never-return", serialized)
         self.assertNotIn("api_key", serialized)
 
+    def test_retry_jobs_by_error_code_requeues_only_matching_failed_jobs(self):
+        with self.factory() as session:
+            grouped = []
+            for index in range(3):
+                grouped.append(ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="asset_analyze",
+                    entity_type="asset_ai_analysis", entity_id=f"analysis-group-{index}",
+                    idempotency_key=f"grouped-{index}", provider_key="gemini", provider_scope="ai",
+                    status="failed", attempt_count=5, max_attempts=5,
+                    last_error_code="analysis_image_dimensions", payload_json={},
+                ))
+            unrelated = ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_ai_analysis", entity_id="analysis-other",
+                idempotency_key="other-failure", provider_key="gemini", provider_scope="ai",
+                status="failed", attempt_count=5, max_attempts=5,
+                last_error_code="analysis_storage_read_failed", payload_json={},
+            )
+            session.add_all([*grouped, unrelated])
+            session.commit()
+            grouped_ids = [job.id for job in grouped]
+            unrelated_id = unrelated.id
+        response = self.request("POST", "/api/v1/admin/ai-operations/jobs/retry-by-error", {
+            "error_code": "analysis_image_dimensions", "reason": "image preparation fixed", "limit": 1000,
+        })
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["matched"], 3)
+        self.assertEqual(payload["retried"], 3)
+        self.assertEqual(payload["skipped"], 0)
+        with self.factory() as session:
+            jobs = [session.get(ProcessingJobModel, job_id) for job_id in grouped_ids]
+            self.assertTrue(all(job.status == "retry" for job in jobs))
+            self.assertEqual(session.get(ProcessingJobModel, unrelated_id).status, "failed")
+        second = self.request("POST", "/api/v1/admin/ai-operations/jobs/retry-by-error", {
+            "error_code": "analysis_image_dimensions", "reason": "duplicate request", "limit": 1000,
+        })
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["matched"], 0)
+
     def test_deferred_job_requires_explicit_force_retry(self):
         with self.factory() as session:
             job = ProcessingJobModel(

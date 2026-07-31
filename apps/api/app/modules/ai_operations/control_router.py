@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.ai_operations.control_schema import (
-    AiBudgetUpdate, AiConfigurationUpdate, AiDefaultsUpdate, AiJobMutation, AiPauseRequest,
+    AiBudgetUpdate, AiBulkJobRetry, AiConfigurationUpdate, AiDefaultsUpdate, AiJobMutation, AiPauseRequest,
     AiProviderControlUpdate,
 )
 from app.modules.ai_operations.controls import (
@@ -247,6 +247,27 @@ async def update_ai_budget(
         ),
     )
     return {"tenant_id": target, "budget": budget, "audit": _audit(principal, "ai_budget_updated", body.reason)}
+
+
+@router.post("/jobs/retry-by-error")
+async def retry_ai_jobs_by_error(
+    body: AiBulkJobRetry,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_JOBS_RETRY),
+):
+    target = _tenant(principal, tenant_id)
+    result = await _mutate(
+        target,
+        lambda service: service.retry_jobs_by_error_code(
+            target, body.error_code, actor_id=principal.user_id,
+            reason=body.reason, limit=body.limit,
+        ),
+    )
+    return {
+        "tenant_id": target,
+        **result,
+        "audit": _audit(principal, "ai_jobs_group_retry_requested", body.reason),
+    }
 
 
 @router.post("/jobs/{job_id}/retry")

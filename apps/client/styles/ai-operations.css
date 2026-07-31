@@ -258,3 +258,15 @@
 .pipeline-exclusions li b{color:#42536a;font-size:12px;text-transform:capitalize}
 .pipeline-exclusions li span{color:#758399;font-size:11px;white-space:nowrap}
 @media(max-width:760px){.pipeline-exclusions summary{align-items:flex-start}.pipeline-exclusions summary>span{grid-template-columns:22px minmax(0,1fr)}.pipeline-exclusions ul{grid-template-columns:1fr}.pipeline-queue-table{min-width:760px}}
+
+/* Grouped retry controls for terminal AI failures. */
+.ops-bulk-retry{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin:0 0 16px;padding:12px 14px;border:1px solid #e0e7f1;border-radius:10px;background:#f8faff}
+.ops-bulk-retry>div:first-child{display:flex;flex-direction:column;gap:5px;min-width:min(360px,100%)}
+.ops-bulk-retry label{color:#526277;font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.03em}
+.ops-bulk-retry select{min-height:34px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#263446;font:inherit;font-size:12px}
+.ops-bulk-retry small{color:#718096;font-size:11px;text-transform:none;letter-spacing:normal}
+.ops-bulk-retry>button{min-height:34px;padding:7px 12px;border:1px solid #315fe9;border-radius:7px;background:#315fe9;color:#fff;font-size:12px;font-weight:700;cursor:pointer}
+.ops-bulk-retry>button:disabled{opacity:.5;cursor:not-allowed}
+.ops-bulk-retry .ops-confirm{position:fixed;inset:auto 24px 24px auto;width:min(420px,calc(100vw - 48px));z-index:30}
+.ops-bulk-retry .ops-action-message{flex-basis:100%}
+@media(max-width:560px){.ops-bulk-retry{align-items:stretch;flex-direction:column}.ops-bulk-retry>button{width:100%}}

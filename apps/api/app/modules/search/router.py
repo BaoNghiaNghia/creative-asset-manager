@@ -90,6 +90,25 @@ def _source_provider_filter(session, tenant: str, source_provider: str | None, *
     return {"terms": {"asset_id": asset_ids or ["__none__"]}}
 
 
+def _source_timestamp(value) -> float:
+    try:
+        return value.timestamp()
+    except (AttributeError, OSError, OverflowError, ValueError):
+        return 0.0
+
+
+def _source_pair_rank(source: SourceAssetModel, external: ExternalSourceModel) -> tuple:
+    """Prefer the current/default live source when an asset has duplicate links."""
+    metadata = external.source_metadata or {}
+    return (
+        bool(metadata.get("is_default")),
+        _source_timestamp(external.updated_at),
+        _source_timestamp(source.last_seen_at or source.updated_at),
+        _source_timestamp(source.updated_at),
+        str(source.id),
+    )
+
+
 def _completion_value(value: object, query: str) -> str | None:
     text = " ".join(str(value or "").split())
     needle = " ".join(query.split()).casefold()
@@ -250,10 +269,12 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             source_asset_ids = select(AssetSourceLinkModel.asset_id).join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id).join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id).where(AssetSourceLinkModel.tenant_id == tenant, ExternalSourceModel.source_type == source_type)
             asset_ids = list(session.scalars(source_asset_ids))
             filters.append({"terms": {"asset_id": asset_ids or ["__none__"]}})
+        viewer_source_pairs: set[tuple[str, str]] | None = None
         if "viewer" in principal.effective_roles and not principal.effective_roles.intersection({"operator", "tenant_admin", "billing_admin"}):
-            allowed_ids = ViewerFolderScopeService(session).allowed_internal_asset_ids_for_membership(
+            viewer_source_pairs = ViewerFolderScopeService(session).allowed_asset_source_pairs_for_membership(
                 tenant_id=tenant, membership_id=principal.membership_id,
             )
+            allowed_ids = {asset_id for asset_id, _source_asset_id in viewer_source_pairs}
             filters.append({"terms": {"asset_id": sorted(allowed_ids) or ["__none__"]}})
         query["aggs"] = {name: {"terms": {"field": f"facets.{name}", "size": 50}} for name in allowed_facets}
         debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
@@ -271,9 +292,24 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             raise HTTPException(503, "Search service is temporarily unavailable") from exc
         hits = response.get("hits", {}).get("hits", [])
         asset_ids = [str(hit.get("_source", {}).get("asset_id") or hit.get("_id")) for hit in hits]
-        rows = session.execute(select(AssetSourceLinkModel.asset_id, SourceAssetModel, ExternalSourceModel).join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id).join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id).where(AssetSourceLinkModel.tenant_id == tenant, AssetSourceLinkModel.asset_id.in_(asset_ids)).order_by(AssetSourceLinkModel.created_at)).all()
+        rows = session.execute(
+            select(AssetSourceLinkModel.asset_id, SourceAssetModel, ExternalSourceModel)
+            .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
+            .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
+            .where(
+                AssetSourceLinkModel.tenant_id == tenant,
+                AssetSourceLinkModel.asset_id.in_(asset_ids),
+                SourceAssetModel.deleted_at.is_(None),
+            )
+        ).all()
         sources = {}
-        for aid, source, external in rows:
+        for aid, source, external in sorted(
+            rows,
+            key=lambda row: _source_pair_rank(row[1], row[2]),
+            reverse=True,
+        ):
+            if viewer_source_pairs is not None and (str(aid), str(source.id)) not in viewer_source_pairs:
+                continue
             sources.setdefault(aid, (source, external))
         items = []
         for hit in hits:
