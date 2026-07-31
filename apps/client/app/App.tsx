@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
@@ -80,6 +80,8 @@ export default function App() {
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const dragDepthRef = useRef(0);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const suggestions = curateSearchSuggestions(explorer.query, explorer.searchV2.suggestions);
   const showSuggestions = !suggestionsDismissed
@@ -137,6 +139,32 @@ export default function App() {
   const analysisAssetIds = analysisSelection.assetIds;
   const completeAnalysisSelection = analysisSelection.complete;
   const analysisTooltip = analysisSelection.tooltip;
+  const activeUploadCount = explorer.uploads.filter(upload => upload.status === "queued" || upload.status === "uploading").length;
+  const failedUploadCount = explorer.uploads.filter(upload => upload.status === "failed").length;
+
+  function dragContainsFiles(event: { dataTransfer: DataTransfer }) {
+    return Array.from(event.dataTransfer.types).includes("Files");
+  }
+  function handleFileDragEnter(event: DragEvent<HTMLElement>) {
+    if (!dragContainsFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDraggingFiles(true);
+  }
+  function handleFileDragLeave(event: DragEvent<HTMLElement>) {
+    if (!dragContainsFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFiles(false);
+  }
+  function handleFileDrop(event: DragEvent<HTMLElement>) {
+    if (!dragContainsFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length && explorer.auth.authenticated) void explorer.uploadFiles(files);
+  }
 
   return <main
     className={["shell", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
@@ -171,7 +199,16 @@ export default function App() {
       <SidebarIcon open={false} />
     </button>}
 
-    <section>
+    <section
+      className={isDraggingFiles ? "explorer-content explorer-drop-active" : "explorer-content"}
+      onDragEnter={handleFileDragEnter}
+      onDragOver={event => { if (dragContainsFiles(event)) event.preventDefault(); }}
+      onDragLeave={handleFileDragLeave}
+      onDrop={handleFileDrop}
+    >
+      {isDraggingFiles && explorer.auth.authenticated && <div className="explorer-drop-overlay" role="status" aria-live="polite">
+        <div><b>Drop files to upload</b><span>Files will be added to {explorer.path.at(-1)?.name || "My Drive"}.</span></div>
+      </div>}
       <header>
         <div className="search-area">
           <div className="search-tools">
@@ -255,7 +292,19 @@ export default function App() {
         >
           {folder.name}
         </button>)}</div>
-        <label className="upload">＋ Upload<input hidden type="file" multiple accept="image/*,video/*" onChange={event => { const files = Array.from(event.target.files || []); if (files.length) void explorer.uploadFiles(files); event.currentTarget.value = ""; }} /></label>
+        <label className="upload" title="Upload files to the current folder">
+          <span aria-hidden="true">＋</span> Upload
+          <input
+            hidden
+            type="file"
+            multiple
+            onChange={event => {
+              const files = Array.from(event.target.files || []);
+              if (files.length) void explorer.uploadFiles(files);
+              event.currentTarget.value = "";
+            }}
+          />
+        </label>
       </nav>}
 
       {explorer.auth.checking ? <div className="state">Checking Google connection…</div>
@@ -408,7 +457,16 @@ export default function App() {
       onDelete={() => setConfirm({ message: "Delete this file from Google Drive?", run: () => { setConfirm(null); void explorer.deleteItem(detailsItem?.id || "").catch(reason => console.error(reason)); } })}
       onMove={() => { const destination = window.prompt("Enter destination folder ID"); if (destination && detailsItem) setConfirm({ message: "Move this file to the selected folder?", run: () => { setConfirm(null); void explorer.moveItem(detailsItem.id, destination).catch(() => undefined); } }); }}
     />}
-    {explorer.uploads.length > 0 && <aside className="upload-panel" aria-label="Upload progress"><header><b>Uploading {explorer.uploads.length} file(s)</b><button onClick={() => explorer.clearUploads?.()} aria-label="Close upload progress">×</button></header>{explorer.uploads.map(upload => <div className="upload-row" key={upload.id}><span>{upload.name}</span><small>{upload.status}</small></div>)}</aside>}
+    {explorer.uploads.length > 0 && <aside className="upload-panel" aria-label="Upload progress" aria-live="polite">
+      <header>
+        <div><b>{activeUploadCount ? `Uploading ${activeUploadCount} file${activeUploadCount === 1 ? "" : "s"}` : failedUploadCount ? "Uploads need attention" : "Uploads complete"}</b><small>{explorer.uploads.length} file{explorer.uploads.length === 1 ? "" : "s"} in this upload</small></div>
+        <button onClick={() => explorer.clearUploads?.()} aria-label="Close upload progress">×</button>
+      </header>
+      {explorer.uploads.map(upload => <div className={"upload-row upload-" + upload.status} key={upload.id}>
+        <span title={upload.name}>{upload.name}</span>
+        <small>{upload.status === "failed" ? upload.error || "Upload failed." : upload.status}</small>
+      </div>)}
+    </aside>}
     {confirm && <div className="confirm-toast" role="alertdialog"><span>{confirm.message}</span><button onClick={confirm.run}>Confirm</button><button onClick={() => setConfirm(null)}>Cancel</button></div>}
     <AnalyzeMetadataDialog
       open={analyzeOpen}

@@ -40,6 +40,19 @@ const emptyIndexStatus: DriveIndexStatus = {
 
 const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : "root";
 
+export type UploadState = "queued" | "uploading" | "completed" | "failed";
+export type UploadItem = { id: string; name: string; status: UploadState; error?: string };
+
+export function uploadErrorMessage(payload: unknown, fallback = "Upload failed. Try again."): string {
+  if (!payload || typeof payload !== "object") return fallback;
+  const detail = (payload as { detail?: unknown }).detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (detail && typeof detail === "object" && typeof (detail as { message?: unknown }).message === "string") {
+    return (detail as { message: string }).message;
+  }
+  return fallback;
+}
+
 export function pruneSelectedIds(selected: ReadonlySet<string>, visibleItems: Asset[]): Set<string> {
   const visibleIds = new Set(visibleItems.map(item => item.id));
   const next = new Set([...selected].filter(id => visibleIds.has(id)));
@@ -51,7 +64,7 @@ const oauthMessages: Record<string, string> = {
   incomplete: "Google returned an incomplete authorization response.",
   state: "The sign-in request expired. Please start again.",
   token_exchange: "Google could not complete the secure token exchange.",
-  scope: "The required read-only permission was not granted.",
+  scope: "Google Drive read/write permission was not granted. Reconnect the Drive source and approve access.",
   profile: "The cloud account connected, but its profile could not be loaded.",
   self_signup_disabled: "New application users are not enabled. Ask an administrator to provision your account.",
   email_domain_not_allowed: "This email domain is not allowed to access the application.",
@@ -92,7 +105,7 @@ export function useDriveExplorer() {
   const [searchTruncated, setSearchTruncated] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [uploads, setUploads] = useState<Array<{ id: string; name: string; status: "queued" | "uploading" | "completed" | "failed" }>>([]);
+  const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [error, setError] = useState("");
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
@@ -292,16 +305,39 @@ export function useDriveExplorer() {
 
   async function uploadFiles(files: File[]) {
     const parentId = path.at(-1)?.id || rootId(provider);
-    const queued = files.map((file, index) => ({ id: String(Date.now()) + "-" + index, name: file.name, status: "queued" as const }));
+    const queued: UploadItem[] = files.map((file, index) => ({
+      id: String(Date.now()) + "-" + index,
+      name: file.name,
+      status: "queued",
+    }));
     setUploads(current => [...current, ...queued]);
     for (let index = 0; index < queued.length; index += 1) {
-      const entry = queued[index]; const file = files[index];
-      setUploads(current => current.map(item => item.id === entry.id ? { ...item, status: "uploading" } : item));
+      const entry = queued[index];
+      const file = files[index];
+      setUploads(current => current.map(item => item.id === entry.id
+        ? { ...item, status: "uploading", error: undefined }
+        : item));
       try {
-        const response = await fetch("/api/explorer/upload?parent_id=" + encodeURIComponent(parentId) + "&provider=" + encodeURIComponent(provider) + "&filename=" + encodeURIComponent(file.name) + "&mime_type=" + encodeURIComponent(file.type || "application/octet-stream"), { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
-        if (!response.ok) throw Error("Upload failed");
-        setUploads(current => current.map(item => item.id === entry.id ? { ...item, status: "completed" } : item));
-      } catch { setUploads(current => current.map(item => item.id === entry.id ? { ...item, status: "failed" } : item)); }
+        const response = await fetch(
+          "/api/explorer/upload?parent_id=" + encodeURIComponent(parentId)
+            + "&provider=" + encodeURIComponent(provider)
+            + "&filename=" + encodeURIComponent(file.name)
+            + "&mime_type=" + encodeURIComponent(file.type || "application/octet-stream"),
+          { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
+        );
+        if (!response.ok) {
+          const payload: unknown = await response.json().catch(() => null);
+          throw Error(uploadErrorMessage(payload));
+        }
+        setUploads(current => current.map(item => item.id === entry.id
+          ? { ...item, status: "completed" }
+          : item));
+      } catch (reason) {
+        const error = reason instanceof Error ? reason.message : "Upload failed. Try again.";
+        setUploads(current => current.map(item => item.id === entry.id
+          ? { ...item, status: "failed", error }
+          : item));
+      }
     }
     await refreshCurrentFolder();
   }

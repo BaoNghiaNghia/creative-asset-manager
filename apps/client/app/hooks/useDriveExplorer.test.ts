@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { oauthMessageFor } from "./useDriveExplorer";
+import { oauthMessageFor, uploadErrorMessage } from "./useDriveExplorer";
 
 describe("oauthMessageFor", () => {
   it("explains local bootstrap admission failures", () => {
@@ -12,5 +12,17 @@ describe("oauthMessageFor", () => {
     expect(oauthMessageFor("unexpected_internal_code")).toBe(
       "Cloud sign-in could not be completed.",
     );
+  });
+});
+
+
+describe("uploadErrorMessage", () => {
+  it("keeps the safe API upload failure detail", () => {
+    expect(uploadErrorMessage({ detail: "Google Drive write access is required." }))
+      .toBe("Google Drive write access is required.");
+  });
+
+  it("uses a safe fallback for malformed upload failures", () => {
+    expect(uploadErrorMessage(null)).toBe("Upload failed. Try again.");
   });
 });
