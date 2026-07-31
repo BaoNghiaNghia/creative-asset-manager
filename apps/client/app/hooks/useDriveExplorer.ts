@@ -92,6 +92,7 @@ export function useDriveExplorer() {
   const [searchTruncated, setSearchTruncated] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [uploads, setUploads] = useState<Array<{ id: string; name: string; status: "queued" | "uploading" | "completed" | "failed" }>>([]);
   const [error, setError] = useState("");
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
@@ -288,6 +289,24 @@ export function useDriveExplorer() {
       });
     }
   }
+
+  async function uploadFiles(files: File[]) {
+    const parentId = path.at(-1)?.id || rootId(provider);
+    const queued = files.map((file, index) => ({ id: String(Date.now()) + "-" + index, name: file.name, status: "queued" as const }));
+    setUploads(current => [...current, ...queued]);
+    for (let index = 0; index < queued.length; index += 1) {
+      const entry = queued[index]; const file = files[index];
+      setUploads(current => current.map(item => item.id === entry.id ? { ...item, status: "uploading" } : item));
+      try {
+        const response = await fetch("/api/explorer/upload?parent_id=" + encodeURIComponent(parentId) + "&provider=" + encodeURIComponent(provider) + "&filename=" + encodeURIComponent(file.name) + "&mime_type=" + encodeURIComponent(file.type || "application/octet-stream"), { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+        if (!response.ok) throw Error("Upload failed");
+        setUploads(current => current.map(item => item.id === entry.id ? { ...item, status: "completed" } : item));
+      } catch { setUploads(current => current.map(item => item.id === entry.id ? { ...item, status: "failed" } : item)); }
+    }
+    await refreshCurrentFolder();
+  }
+  async function deleteItem(itemId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "?provider=" + encodeURIComponent(provider), { method: "DELETE" }); if (!response.ok) throw Error("Unable to delete file"); await refreshCurrentFolder(); }
+  async function moveItem(itemId: string, destinationParentId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/move?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId), { method: "POST" }); if (!response.ok) throw Error("Unable to move file"); await refreshCurrentFolder(); }
 
   function clearExplorer(source: Provider = provider) {
     setPath([]);
@@ -716,5 +735,6 @@ export function useDriveExplorer() {
     rateAsset,
     applyRating,
     clearSelection: () => setSelected(new Set()),
+    uploads, uploadFiles, deleteItem, moveItem, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
   };
 }

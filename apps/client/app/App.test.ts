@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem } from "./App";
+import { formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, shouldFetchSearchSuggestions } from "./hooks/useSearchV2";
 import type { Asset } from "./types";
@@ -83,5 +83,18 @@ describe("Search loading state", () => {
     expect(isSearchRequestInFlight("", true)).toBe(false);
     expect(isSearchRequestInFlight("   ", true)).toBe(false);
     expect(isSearchRequestInFlight("nurse", true)).toBe(true);
+  });
+});
+
+describe("Search suggestion curation", () => {
+  it("keeps short continuations, sorts them and removes long metadata sentences", () => {
+    const make = (text: string) => ({ text, prefix: text, completion: "", kind: "search_text" as const });
+    expect(curateSearchSuggestions("horse", [
+      make("horse personalized product photo with a stethoscope sweatshirt"),
+      make("horses needlework personalized gift"),
+      make("horse"),
+      make("horses needlework"),
+      make("unrelated"),
+    ]).map(item => item.text)).toEqual(["horse", "horses needlework", "horses needlework personalized gift"]);
   });
 });

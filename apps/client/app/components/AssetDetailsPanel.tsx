@@ -11,6 +11,8 @@ type Props = {
   metadata?: AssetMetadata;
   onClose: () => void;
   onPreview?: (item: Asset) => void;
+  onDelete?: () => void;
+  onMove?: () => void;
 };
 
 type Section = "details" | "activity" | "metadata" | "history" | "jobs";
@@ -18,7 +20,7 @@ type Section = "details" | "activity" | "metadata" | "history" | "jobs";
 type ActivityTone = "success" | "warning" | "danger" | "neutral";
 type ActivityEntry = { id: string; title: string; detail: string; category: string; tone: ActivityTone; at?: string };
 
-export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview }: Props) {
+export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview, onDelete, onMove }: Props) {
   const [data, setData] = useState<AssetDetails | null>(null);
   const [section, setSection] = useState<Section>("details");
   const [error, setError] = useState("");
@@ -102,6 +104,8 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview 
       {data?.can_administer && <div className="asset-operations">
         <div className="asset-actions-label"><span>Operator tools</span><b>Asset actions</b></div>
         <button className="asset-action-primary" disabled={Boolean(busy)} onClick={() => { setForceAnalysis(false); setAnalysisOpen(true); }}>Analyze metadata</button>
+        {onMove && <button disabled={Boolean(busy)} onClick={onMove}>Move</button>}
+        {onDelete && <button disabled={Boolean(busy)} onClick={onDelete}>Delete</button>}
         <details className="asset-action-menu">
           <summary>More actions</summary>
           <div>

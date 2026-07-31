@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
@@ -10,7 +10,7 @@ import { MediaViewer } from "./components/MediaViewer";
 import { Sidebar } from "./components/Sidebar";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
-import type { Asset } from "./types";
+import type { Asset, SearchSuggestion } from "./types";
 
 const visibilityFilters = ["all", "public", "draft"] as const;
 
@@ -54,6 +54,20 @@ export function getSearchSuggestionKeyAction(
   return null;
 }
 
+/** Keep autocomplete concise and avoid clipped metadata sentences. */
+export function curateSearchSuggestions(query: string, values: SearchSuggestion[]): SearchSuggestion[] {
+  const seen = new Set<string>();
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return values.filter(value => {
+    const text = value.text.trim();
+    const key = text.toLocaleLowerCase();
+    if (!text || seen.has(key) || (normalizedQuery && !key.startsWith(normalizedQuery))) return false;
+    if (text.trim().split(" ").filter(Boolean).length > 6) return false;
+    seen.add(key);
+    return true;
+  }).sort((left, right) => left.text.length - right.text.length || left.text.localeCompare(right.text)).slice(0, 5);
+}
+
 export default function App() {
   const explorer = useDriveExplorer();
   const sidebar = useResizableSidebar();
@@ -65,11 +79,21 @@ export default function App() {
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
-  const suggestions = explorer.searchV2.suggestions;
+  const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
+  const searchBoxRef = useRef<HTMLDivElement | null>(null);
+  const suggestions = curateSearchSuggestions(explorer.query, explorer.searchV2.suggestions);
   const showSuggestions = !suggestionsDismissed
     && explorer.searchV2.active
     && explorer.query.trim().length >= 2
     && (explorer.searchV2.suggestionsLoading || suggestions.length > 0);
+  useEffect(() => {
+    if (!showSuggestions) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!searchBoxRef.current?.contains(event.target as Node)) { setSuggestionIndex(-1); setSuggestionsDismissed(true); }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [showSuggestions]);
   function applySuggestion(value: string) {
     setSuggestionIndex(-1);
     setSuggestionsDismissed(true);
@@ -152,6 +176,7 @@ export default function App() {
         <div className="search-area">
           <div className="search-tools">
             <div
+              ref={searchBoxRef}
               className={[
                 "search-box",
                 explorer.searching ? "searching" : "",
@@ -230,7 +255,7 @@ export default function App() {
         >
           {folder.name}
         </button>)}</div>
-        <button className="upload">＋ Upload</button>
+        <label className="upload">＋ Upload<input hidden type="file" multiple accept="image/*,video/*" onChange={event => { const files = Array.from(event.target.files || []); if (files.length) void explorer.uploadFiles(files); event.currentTarget.value = ""; }} /></label>
       </nav>}
 
       {explorer.auth.checking ? <div className="state">Checking Google connection…</div>
@@ -380,7 +405,11 @@ export default function App() {
       metadata={detailsItem ? explorer.metadataByItem[detailsItem.id] : undefined}
       onPreview={setPreviewItem}
       onClose={closeDetails}
+      onDelete={() => setConfirm({ message: "Delete this file from Google Drive?", run: () => { setConfirm(null); void explorer.deleteItem(detailsItem?.id || "").catch(reason => console.error(reason)); } })}
+      onMove={() => { const destination = window.prompt("Enter destination folder ID"); if (destination && detailsItem) setConfirm({ message: "Move this file to the selected folder?", run: () => { setConfirm(null); void explorer.moveItem(detailsItem.id, destination).catch(() => undefined); } }); }}
     />}
+    {explorer.uploads.length > 0 && <aside className="upload-panel" aria-label="Upload progress"><header><b>Uploading {explorer.uploads.length} file(s)</b><button onClick={() => explorer.clearUploads?.()} aria-label="Close upload progress">×</button></header>{explorer.uploads.map(upload => <div className="upload-row" key={upload.id}><span>{upload.name}</span><small>{upload.status}</small></div>)}</aside>}
+    {confirm && <div className="confirm-toast" role="alertdialog"><span>{confirm.message}</span><button onClick={confirm.run}>Confirm</button><button onClick={() => setConfirm(null)}>Cancel</button></div>}
     <AnalyzeMetadataDialog
       open={analyzeOpen}
       assetIds={analysisAssetIds}
