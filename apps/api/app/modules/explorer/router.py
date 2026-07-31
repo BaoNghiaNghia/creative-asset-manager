@@ -334,6 +334,26 @@ async def delete_item(
         await client.delete_file(item_id)
     return {"deleted": True, "id": item_id}
 
+@router.post("/items/{item_id}/copy")
+async def copy_item(
+    request: Request, item_id: str, destination_parent_id: str = Query(...), provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    external_source_id: str | None = Query(None),
+):
+    if provider != "google-drive":
+        raise HTTPException(status_code=501, detail="Copy is not supported for this provider yet.")
+    token, _account, _tenant, _source = await _source_context(
+        request, provider, session, principal, external_source_id, require_drive_write_scope=True,
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail="Connect Google Drive before copying files.")
+    async with create_source_provider(provider, token) as client:
+        destination = await client.get_node(destination_parent_id)
+        if destination.kind != "folder":
+            raise HTTPException(status_code=422, detail="Destination must be a folder.")
+        node = await client.copy_file(item_id, destination_parent_id)
+    return {"id": node.id, "parent_id": node.parent_id, "name": node.name}
+
 @router.post("/items/{item_id}/move")
 async def move_item(
     request: Request, item_id: str, destination_parent_id: str = Query(...), provider: Provider = Query("google-drive"),

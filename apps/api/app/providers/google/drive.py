@@ -45,6 +45,45 @@ class GoogleDriveClient:
     async def move_file(self, item_id: str, destination_parent_id: str):
         current = await self.client.get(f"/files/{item_id}", params={"fields": "id,parents", "supportsAllDrives": "true"}); current.raise_for_status(); old=",".join(current.json().get("parents", [])); response=await self.client.patch(f"/files/{item_id}", params={"addParents": destination_parent_id, "removeParents": old, "supportsAllDrives": "true", "fields": FIELDS}); response.raise_for_status(); return map_drive_file(response.json())
 
+    async def copy_file(self, item_id: str, destination_parent_id: str):
+        source = await self.get(item_id)
+        if source.kind == "folder":
+            if await self._is_same_or_descendant(destination_parent_id, item_id):
+                raise ValueError("A folder cannot be copied into itself or one of its descendants.")
+            return await self._copy_folder(item_id, destination_parent_id, source.name)
+        response = await self.client.post(
+            f"/files/{item_id}/copy",
+            params={"supportsAllDrives": "true", "fields": FIELDS},
+            json={"name": source.name, "parents": [destination_parent_id]},
+        )
+        response.raise_for_status()
+        return map_drive_file(response.json())
+
+    async def _is_same_or_descendant(self, folder_id: str, possible_ancestor_id: str) -> bool:
+        current_id = folder_id
+        seen: set[str] = set()
+        while current_id not in seen and current_id != "root":
+            if current_id == possible_ancestor_id:
+                return True
+            seen.add(current_id)
+            parents = (await self.get(current_id)).parent_id
+            if not parents:
+                break
+            current_id = parents
+        return current_id == possible_ancestor_id
+
+    async def _copy_folder(self, source_id: str, destination_parent_id: str, name: str):
+        response = await self.client.post(
+            "/files",
+            params={"supportsAllDrives": "true", "fields": FIELDS},
+            json={"name": name, "mimeType": FOLDER_MIME, "parents": [destination_parent_id]},
+        )
+        response.raise_for_status()
+        copied = map_drive_file(response.json())
+        for child in await self.children(source_id):
+            await self.copy_file(child.id, copied.id)
+        return copied
+
     async def get(self, item_id: str):
         data = await self._get(
             f"/files/{item_id}",

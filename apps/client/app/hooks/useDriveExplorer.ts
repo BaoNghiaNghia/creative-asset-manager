@@ -39,6 +39,26 @@ const emptyIndexStatus: DriveIndexStatus = {
 };
 
 const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : "root";
+const explorerLocationKey = (provider: Provider) => "creative-asset-manager:explorer-location:" + provider;
+
+type SavedExplorerLocation = { version: 1; path: Array<Pick<Asset, "id" | "name" | "kind" | "mime_type" | "provider">> };
+
+export function parseSavedExplorerLocation(value: string | null, provider: Provider): SavedExplorerLocation | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<SavedExplorerLocation>;
+    if (parsed.version !== 1 || !Array.isArray(parsed.path) || !parsed.path.length) return null;
+    const path = parsed.path.filter((item): item is SavedExplorerLocation["path"][number] => Boolean(
+      item && item.provider === provider && item.kind === "folder"
+      && typeof item.id === "string" && item.id.trim() && typeof item.name === "string",
+    ));
+    return path.length === parsed.path.length ? { version: 1, path } : null;
+  } catch { return null; }
+}
+
+function savedLocation(path: Asset[]): SavedExplorerLocation {
+  return { version: 1, path: path.map(({ id, name, kind, mime_type, provider }) => ({ id, name, kind, mime_type, provider })) };
+}
 
 export type UploadState = "queued" | "uploading" | "completed" | "failed";
 export type UploadItem = { id: string; name: string; status: UploadState; error?: string };
@@ -260,6 +280,24 @@ export function useDriveExplorer() {
     }
   }
 
+  async function restoreSavedLocation(source: Provider) {
+    const saved = parseSavedExplorerLocation(window.localStorage.getItem(explorerLocationKey(source)), source);
+    if (!saved) { await open(rootId(source), [], source); return; }
+    try {
+      const restoredPath: Asset[] = [];
+      for (const item of saved.path) {
+        const folder = await fetchFolder(item.id, source);
+        restoredPath.push(folder.parent);
+      }
+      const current = restoredPath.at(-1);
+      if (!current) throw Error("Saved folder is unavailable");
+      await open(current.id, restoredPath.slice(0, -1), source);
+    } catch {
+      window.localStorage.removeItem(explorerLocationKey(source));
+      await open(rootId(source), [], source);
+    }
+  }
+
   async function refreshCurrentFolder() {
     const currentFolder = path.at(-1);
     if (!currentFolder) return;
@@ -343,6 +381,13 @@ export function useDriveExplorer() {
   }
   async function deleteItem(itemId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "?provider=" + encodeURIComponent(provider), { method: "DELETE" }); if (!response.ok) throw Error("Unable to delete file"); await refreshCurrentFolder(); }
   async function moveItem(itemId: string, destinationParentId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/move?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId), { method: "POST" }); if (!response.ok) throw Error("Unable to move file"); await refreshCurrentFolder(); }
+  async function copyItems(itemIds: string[], destinationParentId: string) {
+    for (const itemId of itemIds) {
+      const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/copy?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId), { method: "POST" });
+      if (!response.ok) throw Error("Unable to copy item");
+    }
+    await refreshCurrentFolder();
+  }
 
   function clearExplorer(source: Provider = provider) {
     setPath([]);
@@ -363,6 +408,11 @@ export function useDriveExplorer() {
     openSequence.current += 1;
     cancelFolderPrefetch();
   }
+
+  useEffect(() => {
+    if (!auth.authenticated || !path.length) return;
+    try { window.localStorage.setItem(explorerLocationKey(provider), JSON.stringify(savedLocation(path))); } catch { /* browser storage is optional */ }
+  }, [auth.authenticated, path, provider]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -388,7 +438,7 @@ export function useDriveExplorer() {
       const selected: Provider = preferred === "sharepoint" && sharepoint.authenticated ? "sharepoint"
         : google.authenticated ? "google-drive" : sharepoint.authenticated ? "sharepoint" : preferred;
       setAuthByProvider(sessions); setProvider(selected);
-      if (sessions[selected].authenticated) await open(rootId(selected), [], selected);
+      if (sessions[selected].authenticated) await restoreSavedLocation(selected);
       else clearExplorer(selected);
     }
     void initialize();
@@ -771,6 +821,6 @@ export function useDriveExplorer() {
     rateAsset,
     applyRating,
     clearSelection: () => setSelected(new Set()),
-    uploads, uploadFiles, deleteItem, moveItem, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
+    uploads, uploadFiles, deleteItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
   };
 }

@@ -28,10 +28,6 @@ export function mayViewAiOperations(permissions: readonly string[]): boolean {
   return permissions.includes("ai_operations.read");
 }
 
-export function mayManageAssets(permissions: readonly string[]): boolean {
-  return permissions.includes("assets.manage");
-}
-
 const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "google-drive", label: "Google Drive", login: "/api/auth/google/login" },
   { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/login" },
@@ -46,15 +42,13 @@ export function Sidebar({
   const rootAncestors = path.length > 0 && path[0].id === currentRoot ? [path[0]] : [];
   const activePathIds = new Set(path.map(folder => folder.id));
   const [canViewAiOperations, setCanViewAiOperations] = useState(false);
-  const [canManageAssets, setCanManageAssets] = useState(false);
 
   useEffect(() => {
     let alive = true;
     fetchAccessIdentity().then(identity => {
       if (!alive) return;
       setCanViewAiOperations(mayViewAiOperations(identity.permissions));
-      setCanManageAssets(mayManageAssets(identity.permissions));
-    }).catch(() => { if (alive) { setCanViewAiOperations(false); setCanManageAssets(false); } });
+    }).catch(() => { if (alive) setCanViewAiOperations(false); });
     return () => { alive = false; };
   }, []);
 
@@ -94,14 +88,6 @@ export function Sidebar({
               onToggle={onToggle} onPrefetch={onPrefetch} onCancelPrefetch={onCancelPrefetch}
             />)}
           </div>}
-          {source.provider === "google-drive" && session.authenticated && canManageAssets && (
-            <button
-              className="source drive-reconnect"
-              onClick={() => window.location.assign("/api/auth/google/connect-drive")}
-            >
-              <DriveIcon /><span>Reconnect Drive for uploads</span>
-            </button>
-          )}
         </Fragment>;
       })}
     <p>TAGS</p>

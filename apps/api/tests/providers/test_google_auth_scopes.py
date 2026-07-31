@@ -43,3 +43,31 @@ class GoogleOAuthConnectionScopeTest(unittest.IsolatedAsyncioTestCase):
                     require_drive_write_scope=True,
                 )
         self.assertEqual(raised.exception.status_code, 403)
+
+    async def test_refresh_waiter_reuses_token_refreshed_by_another_request(self):
+        expired = SimpleNamespace(
+            tenant_id="tenant-id",
+            connection_id="connection-id",
+            access_token="expired-token",
+            refresh_token="refresh-token",
+            scopes=(DRIVE_WRITE_SCOPE,),
+            expires_at=0,
+        )
+        refreshed = SimpleNamespace(
+            access_token="fresh-token",
+            expires_at=9_999_999_999,
+        )
+        repository = MagicMock()
+        repository.load_connection.side_effect = (expired, refreshed)
+        repository.claim_refresh.return_value = False
+        context = MagicMock()
+        context.__enter__.return_value = repository
+
+        with patch("app.providers.google.auth.auth_repository", return_value=context), patch(
+            "app.providers.google.auth.asyncio.sleep",
+            return_value=None,
+        ):
+            token = await get_connection_access_token("connection-id")
+
+        self.assertEqual(token, "fresh-token")
+        self.assertEqual(repository.claim_refresh.call_count, 1)

@@ -34,6 +34,8 @@ SESSION_COOKIE = "cam_google_session"
 OAUTH_BINDING_COOKIE = "cam_oauth_binding"
 
 GoogleSession = PersistentCloudSession
+_REFRESH_WAIT_SECONDS = 3.0
+_REFRESH_POLL_SECONDS = 0.1
 
 def _settings():
     client_id=os.getenv("GOOGLE_CLIENT_ID"); client_secret=os.getenv("GOOGLE_CLIENT_SECRET")
@@ -149,7 +151,20 @@ async def get_connection_access_token(
             lease_seconds=settings.AUTH_REFRESH_LEASE_SECONDS,
         )
     if not claimed:
-        raise HTTPException(503, "Google token refresh is already in progress.")
+        # The Drive source is shared by the tenant. Several Explorer media
+        # requests can discover an expired token at once; let the requests
+        # which lost the lease reuse the winner's refreshed token instead of
+        # treating that normal race as a Viewer-specific connection failure.
+        deadline = time.monotonic() + _REFRESH_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            await asyncio.sleep(_REFRESH_POLL_SECONDS)
+            with auth_repository() as repository:
+                refreshed = repository.load_connection(
+                    provider="google", connection_id=connection_id
+                )
+            if refreshed and refreshed.expires_at > time.time() + 60:
+                return refreshed.access_token
+        raise HTTPException(503, "Google Drive source is being refreshed. Please retry shortly.")
 
     client_id, client_secret, _ = _settings()
     credentials = Credentials(
@@ -158,7 +173,7 @@ async def get_connection_access_token(
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
-        scopes=SCOPES,
+        scopes=list(connection.scopes) or SCOPES,
     )
     try:
         await run_in_threadpool(credentials.refresh, GoogleAuthRequest())
@@ -173,7 +188,7 @@ async def get_connection_access_token(
                 access_token=credentials.token,
                 refresh_token=credentials.refresh_token,
                 expires_at=expiry,
-                scopes=list(credentials.granted_scopes or credentials.scopes or SCOPES),
+                scopes=list(credentials.granted_scopes or credentials.scopes or connection.scopes or SCOPES),
                 token_type="Bearer",
             )
         AUTH_METRICS.increment("connection_refreshed", "google")
@@ -190,7 +205,7 @@ async def get_connection_access_token(
             )
         raise HTTPException(
             401 if permanent else 503,
-            "Google connection requires reconnection."
+            "The workspace Google Drive source requires reconnection by an administrator."
             if permanent else "Google connection could not be refreshed.",
         ) from exc
 

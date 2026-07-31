@@ -43,6 +43,9 @@ class GoogleDriveSourceAdapter(BaseSourceAdapter):
     async def move_file(self, item_id: str, destination_parent_id: str):
         return await self.client.move_file(item_id, destination_parent_id)
 
+    async def copy_file(self, item_id: str, destination_parent_id: str):
+        return await self.client.copy_file(item_id, destination_parent_id)
+
     async def open_download_stream(
         self, input: OpenSourceAssetInput
     ) -> AssetDownloadStream:

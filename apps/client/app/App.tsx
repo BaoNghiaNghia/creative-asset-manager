@@ -14,6 +14,16 @@ import type { Asset, SearchSuggestion } from "./types";
 
 const visibilityFilters = ["all", "public", "draft"] as const;
 
+type ExplorerClipboard = {
+  items: Asset[];
+  operation: "copy" | "cut";
+};
+
+type ShortcutNotice = {
+  tone: "copy" | "cut" | "success" | "error";
+  message: string;
+};
+
 export function isEligibleAnalysisItem(item: Asset): boolean {
   return item.kind === "image" && Boolean(item.internal_asset_id?.trim());
 }
@@ -80,6 +90,8 @@ export default function App() {
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
+  const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
+  const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragDepthRef = useRef(0);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
@@ -109,6 +121,80 @@ export default function App() {
     if (action === "select") { event.preventDefault(); applySuggestion(suggestions[suggestionIndex].text); return; }
     if (action === "submit") { event.preventDefault(); setSuggestionIndex(-1); setSuggestionsDismissed(true); }
   }
+  useEffect(() => {
+    if (!shortcutNotice) return;
+    const timer = window.setTimeout(() => setShortcutNotice(null), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [shortcutNotice]);
+
+  useEffect(() => {
+    function targetAcceptsTextInput(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) return false;
+      return target.matches("input, textarea, select, [contenteditable='true']") || Boolean(target.closest("[contenteditable='true']"));
+    }
+    function selectedVisibleItems() { return explorer.visibleItems.filter(item => explorer.selected.has(item.id)); }
+    function storeClipboard(operation: ExplorerClipboard["operation"]) {
+      const selectedItems = selectedVisibleItems();
+      if (!selectedItems.length) return;
+      setClipboard({ items: selectedItems, operation });
+      const itemLabel = selectedItems.length + " item" + (selectedItems.length === 1 ? "" : "s");
+      setShortcutNotice({ tone: operation, message: operation === "copy"
+        ? "Copied " + itemLabel + ". Open a destination folder and press Ctrl+V."
+        : "Cut " + itemLabel + ". Open a destination folder and press Ctrl+V to move." });
+    }
+    function handleExplorerShortcuts(event: globalThis.KeyboardEvent) {
+      if (targetAcceptsTextInput(event.target) || confirm) return;
+      const command = event.ctrlKey || event.metaKey;
+      if (command && event.key.toLowerCase() === "c") {
+        if (!selectedVisibleItems().length) return;
+        event.preventDefault(); storeClipboard("copy"); return;
+      }
+      if (command && event.key.toLowerCase() === "x") {
+        if (!selectedVisibleItems().length) return;
+        event.preventDefault(); storeClipboard("cut"); return;
+      }
+      if (command && event.key.toLowerCase() === "v") {
+        if (!clipboard?.items.length) return;
+        event.preventDefault();
+        if (explorer.provider !== "google-drive") {
+          setShortcutNotice({ tone: "error", message: "Copy, cut and paste are currently available for Google Drive only." }); return;
+        }
+        const destination = explorer.currentFolderId;
+        const count = clipboard.items.length;
+        const action = clipboard.operation === "cut"
+          ? Promise.all(clipboard.items.map(item => explorer.moveItem(item.id, destination)))
+          : explorer.copyItems(clipboard.items.map(item => item.id), destination);
+        void action.then(() => {
+          explorer.clearSelection();
+          if (clipboard.operation === "cut") setClipboard(null);
+          const itemLabel = count + " item" + (count === 1 ? "" : "s");
+          setShortcutNotice({ tone: "success", message: (clipboard.operation === "cut" ? "Moved " : "Copied ") + itemLabel + " to this folder." });
+        }).catch(() => setShortcutNotice({
+          tone: "error",
+          message: clipboard.operation === "cut" ? "Could not move all cut items. Check that you can edit this folder." : "Could not paste the copied items. Check that you can edit this folder.",
+        }));
+        return;
+      }
+      if (event.key === "Delete") {
+        const selectedItems = selectedVisibleItems();
+        if (!selectedItems.length) return;
+        event.preventDefault();
+        setConfirm({
+          message: "Delete " + selectedItems.length + " selected item" + (selectedItems.length === 1 ? "" : "s") + " from Google Drive?",
+          run: () => {
+            setConfirm(null);
+            void Promise.all(selectedItems.map(item => explorer.deleteItem(item.id))).then(() => {
+              explorer.clearSelection();
+              setShortcutNotice({ tone: "success", message: "Deleted " + selectedItems.length + " item" + (selectedItems.length === 1 ? "" : "s") + "." });
+            }).catch(() => setShortcutNotice({ tone: "error", message: "Could not delete all selected items. Check your Drive permissions." }));
+          },
+        });
+      }
+    }
+    window.addEventListener("keydown", handleExplorerShortcuts);
+    return () => window.removeEventListener("keydown", handleExplorerShortcuts);
+  }, [clipboard, confirm, explorer]);
+
   function openDetails(item: Asset) {
     setDetailsOpen(true);
     setDetailsItem(item);
@@ -316,6 +402,10 @@ export default function App() {
         />
         : <>
           {explorer.error && <div className="error">{explorer.error}</div>}
+          {shortcutNotice && <div className={`shortcut-toast shortcut-toast--${shortcutNotice.tone}`} role="status" aria-live="polite">
+            <span className="shortcut-toast__icon" aria-hidden="true">{shortcutNotice.tone === "cut" ? "✂" : shortcutNotice.tone === "copy" ? "⧉" : shortcutNotice.tone === "success" ? "✓" : "!"}</span>
+            <span>{shortcutNotice.message}</span><button type="button" onClick={() => setShortcutNotice(null)} aria-label="Dismiss shortcut notification">×</button>
+          </div>}
           <div className="title">
             <span className="search-summary">
               <h1>{explorer.path.at(-1)?.name || "My Drive"}</h1>
