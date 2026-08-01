@@ -39,6 +39,20 @@ class FakeExplorerProvider:
             return [item for item in self.children if item.kind == "folder"]
         return self.children
 
+    async def list_children_page(
+        self,
+        parent_id: str,
+        *,
+        folders_only: bool = False,
+        page_token: str | None = None,
+        page_size: int = 100,
+    ) -> tuple[list[AssetNode], str | None]:
+        children = await self.list_children(parent_id, folders_only=folders_only)
+        offset = int(page_token or "0")
+        page = children[offset:offset + page_size]
+        next_token = str(offset + page_size) if offset + page_size < len(children) else None
+        return page, next_token
+
 
 class ExplorerAssetIdentityEnrichmentTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:

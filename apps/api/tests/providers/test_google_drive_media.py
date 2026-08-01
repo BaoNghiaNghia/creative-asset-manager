@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 
 from app.providers.google.drive import (
+    GoogleDriveClient,
     GoogleDriveThumbnailUnavailable,
     ThumbnailLinkCache,
     close_media_stream,
@@ -12,6 +13,30 @@ from app.providers.google.drive import (
     open_thumbnail_stream,
     thumbnail_link_cache,
 )
+
+
+
+class GoogleDriveUploadMimeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_upload_infers_avif_mime_from_filename(self):
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {
+            "id": "uploaded-id",
+            "name": "PHOTO.AVIF",
+            "mimeType": "application/octet-stream",
+        }
+        http_client = MagicMock()
+        http_client.post = AsyncMock(return_value=response)
+        drive_client = object.__new__(GoogleDriveClient)
+        drive_client.client = http_client
+
+        uploaded = await drive_client.upload_file(
+            "parent-id", "PHOTO.AVIF", "application/octet-stream", b"avif"
+        )
+
+        self.assertEqual(uploaded.mime_type, "image/avif")
+        uploaded_file = http_client.post.await_args.kwargs["files"]["file"]
+        self.assertEqual(uploaded_file[2], "image/avif")
 
 
 class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):

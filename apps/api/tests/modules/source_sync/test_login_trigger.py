@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
@@ -112,6 +113,20 @@ class GoogleLoginSyncSchedulerTest(unittest.TestCase):
         source = self.session.get(ExternalSourceModel, first.external_source_id)
         self.assertEqual(source.source_metadata["oauth_connection_id"], "connection-new")
         self.assertEqual(source.source_metadata["provider_account_id"], "google-a")
+
+    def test_reconnection_invalidates_existing_viewer_hierarchy_cache(self) -> None:
+        first = self.scheduler.enqueue(self.cloud("google-a", "connection-old"))
+        self.session.commit()
+
+        with patch(
+            "app.modules.source_sync.login_trigger.viewer_folder_hierarchy_cache.invalidate"
+        ) as invalidate:
+            second = self.scheduler.enqueue(self.cloud("google-a", "connection-new"))
+
+        self.assertEqual(second.external_source_id, first.external_source_id)
+        invalidate.assert_called_once_with(
+            tenant_id="tenant-a", external_source_id=first.external_source_id
+        )
 
     def test_reuses_populated_legacy_source_for_the_same_google_account(self) -> None:
         legacy = ExternalSourceModel(

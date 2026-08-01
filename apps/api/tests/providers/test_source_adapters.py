@@ -84,6 +84,29 @@ class SourceAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(candidate.external_asset_id, node.id)
         self.assertEqual(candidate.mime_type, "video/mp4")
 
+    async def test_legacy_adapter_page_compatibility_keeps_existing_browse_working(
+        self,
+    ) -> None:
+        node = AssetNode(
+            provider="sharepoint",
+            id="sp:item:opaque",
+            name="creative.mp4",
+            kind="video",
+            mime_type="video/mp4",
+            size=456,
+        )
+        fake = FakeCloudClient("token", node)
+        adapter = SharePointSourceAdapter("token", client_factory=lambda _: fake)
+
+        async with adapter:
+            page, next_page_token = await adapter.list_children_page(
+                "root", page_size=100
+            )
+
+        self.assertEqual(page, [node])
+        self.assertIsNone(next_page_token)
+        self.assertEqual(fake.children_calls, [("root", False)])
+
     async def test_incremental_changes_use_provider_lister(self) -> None:
         async def lister(_token, input):
             self.assertEqual(input.cursor, "cursor-1")

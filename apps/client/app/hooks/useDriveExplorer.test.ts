@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EXPLORER_LOCATION_MAX_AGE_MS,
+  appendUniqueFolderPage,
   oauthMessageFor,
   parseSavedExplorerLocation,
   uploadErrorMessage,
@@ -55,5 +56,16 @@ describe("parseSavedExplorerLocation", () => {
       version: 1, saved_at: 1_000, path,
     }), "google-drive", 1_000 + EXPLORER_LOCATION_MAX_AGE_MS)).toBeNull();
     expect(parseSavedExplorerLocation(JSON.stringify({ version: 1, path }), "google-drive", 1_001)).toBeNull();
+  });
+});
+
+
+describe("appendUniqueFolderPage", () => {
+  it("appends the next normal-browse page without duplicating assets", () => {
+    const existing = [{ id: "one" }, { id: "two" }] as never[];
+    const incoming = [{ id: "two" }, { id: "three" }] as never[];
+
+    expect(appendUniqueFolderPage(existing, incoming).map(item => item.id))
+      .toEqual(["one", "two", "three"]);
   });
 });

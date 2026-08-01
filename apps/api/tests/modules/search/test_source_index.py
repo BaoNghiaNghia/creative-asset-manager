@@ -10,8 +10,14 @@ class SearchSourceIndexResolverTest(unittest.TestCase):
         resolver._parent_maps[("tenant-a", "source-a")] = parent_map
         return resolver
 
-    def _source(self, external_id, metadata=None):
-        return SimpleNamespace(tenant_id="tenant-a", external_source_id="source-a", external_asset_id=external_id, source_metadata=metadata or {}, filename="asset.jpg")
+    def _source(self, external_id, metadata=None, *, tenant_id="tenant-a", source_id="source-a"):
+        return SimpleNamespace(
+            tenant_id=tenant_id,
+            external_source_id=source_id,
+            external_asset_id=external_id,
+            source_metadata=metadata or {},
+            filename="asset.jpg",
+        )
 
     def test_ancestor_ids_include_self_and_every_parent(self):
         resolver = self._resolver({"file-a": ("folder-a",), "folder-a": ("root-a",), "root-a": ()})
@@ -42,6 +48,20 @@ class SearchSourceIndexResolverTest(unittest.TestCase):
     def test_cycles_are_bounded_and_cannot_escape_source(self):
         resolver = self._resolver({"file-a": ("folder-a",), "folder-a": ("file-a",)})
         self.assertEqual(resolver.for_source(self._source("file-a")).ancestor_ids, ("file-a", "folder-a"))
+
+    def test_missing_parent_is_retained_without_an_unbounded_lookup(self):
+        resolver = self._resolver({"file-a": ("missing-parent",)})
+        details = resolver.for_source(self._source("file-a"))
+        self.assertEqual(details.ancestor_ids, ("file-a", "missing-parent"))
+
+    def test_parent_maps_are_isolated_by_tenant_and_external_source(self):
+        resolver = SearchSourceIndexResolver(session=None)
+        resolver._parent_maps[("tenant-a", "source-a")] = {"file-a": ("tenant-a-root",)}
+        resolver._parent_maps[("tenant-b", "source-a")] = {"file-a": ("tenant-b-root",)}
+        details = resolver.for_source(
+            self._source("file-a", tenant_id="tenant-b", source_id="source-a")
+        )
+        self.assertEqual(details.ancestor_ids, ("file-a", "tenant-b-root"))
 
 
 if __name__ == "__main__":

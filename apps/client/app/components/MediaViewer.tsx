@@ -12,9 +12,21 @@ export function mediaPreviewUrl(item: Pick<Asset, "id" | "provider" | "external_
   return "/api/explorer/media/" + encodeURIComponent(item.id) + "?" + parameters.toString();
 }
 
+export function previewUnavailableMessage(mimeType: string): string {
+  return mimeType === "image/avif"
+    ? "This AVIF image could not be previewed by this browser or the connected cloud provider."
+    : "The connected cloud provider could not stream this file.";
+}
+
 export function MediaViewer({ item, onClose }: Props) {
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
   const mediaUrl = mediaPreviewUrl(item);
+
+  useEffect(() => {
+    setFailed(false);
+    setLoading(true);
+  }, [item.id, mediaUrl]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -51,7 +63,7 @@ export function MediaViewer({ item, onClose }: Props) {
       <div className="media-viewer-stage">
         {failed ? <div className="media-viewer-error">
           <strong>Preview unavailable</strong>
-          <span>The connected cloud provider could not stream this file.</span>
+          <span>{previewUnavailableMessage(item.mime_type)}</span>
         </div> : item.kind === "video" ? <video
           src={mediaUrl}
           poster={item.thumbnail_url}
@@ -59,13 +71,16 @@ export function MediaViewer({ item, onClose }: Props) {
           autoPlay
           playsInline
           preload="metadata"
-          onError={() => setFailed(true)}
+          onCanPlay={() => setLoading(false)}
+          onError={() => { setLoading(false); setFailed(true); }}
         /> : <img
           src={mediaUrl}
           alt={item.name}
           draggable={false}
-          onError={() => setFailed(true)}
+          onLoad={() => setLoading(false)}
+          onError={() => { setLoading(false); setFailed(true); }}
         />}
+        {loading && !failed && <span className="media-viewer-loading" role="status">Loading preview…</span>}
       </div>
     </div>
   </div>;

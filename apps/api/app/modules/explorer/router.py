@@ -34,7 +34,11 @@ from app.modules.explorer.service import ExplorerService
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
-from app.modules.authorization.folder_scope import ViewerFolderAccess, ViewerFolderScopeService
+from app.modules.authorization.folder_scope import (
+    ViewerFolderAccess,
+    ViewerFolderScopeService,
+    viewer_folder_hierarchy_cache,
+)
 from app.providers.source_factory import create_source_provider
 from app.providers.google.auth import get_access_token as get_google_token
 from app.providers.google.auth import get_session as get_google_session
@@ -234,6 +238,8 @@ async def children(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(ASSETS_READ),
     external_source_id: str | None = Query(None),
+    page_token: str | None = Query(None),
+    page_size: int = Query(100, ge=1, le=200),
 ):
     try:
         token, account_id, tenant_id, resolved_source_id = await _source_context(
@@ -252,6 +258,8 @@ async def children(
         ).list_folder(
             parent_id, token, account_id, provider, tenant_id, resolved_source_id,
             viewer_parent_authorized=parent_id != "root",
+            page_token=page_token,
+            page_size=page_size,
         )
     except HTTPException:
         raise
@@ -418,6 +426,9 @@ async def upload_file(
             status_code=502,
             detail="Google Drive could not upload this file. Please try again or reconnect the Drive source.",
         ) from exc
+    viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 @router.delete("/items/{item_id}")
@@ -427,11 +438,14 @@ async def delete_item(
     external_source_id: str | None = Query(None),
 ):
     if provider != "google-drive": raise HTTPException(status_code=501, detail="Delete is not supported for this provider yet.")
-    token, _account, _tenant, _source = await _source_context(request, provider, session, principal, external_source_id)
+    token, _account, tenant_id, resolved_source_id = await _source_context(request, provider, session, principal, external_source_id)
     if not token: raise HTTPException(status_code=401, detail="Connect Google Drive before deleting files.")
     async with create_source_provider(provider, token) as client:
         await client.get_node(item_id)
         await client.delete_file(item_id)
+    viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
     return {"deleted": True, "id": item_id}
 
 @router.post("/items/{item_id}/copy")
@@ -442,7 +456,7 @@ async def copy_item(
 ):
     if provider != "google-drive":
         raise HTTPException(status_code=501, detail="Copy is not supported for this provider yet.")
-    token, _account, _tenant, _source = await _source_context(
+    token, _account, tenant_id, resolved_source_id = await _source_context(
         request, provider, session, principal, external_source_id, require_drive_write_scope=True,
     )
     if not token:
@@ -452,6 +466,9 @@ async def copy_item(
         if destination.kind != "folder":
             raise HTTPException(status_code=422, detail="Destination must be a folder.")
         node = await client.copy_file(item_id, destination_parent_id)
+    viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
     return {"id": node.id, "parent_id": node.parent_id, "name": node.name}
 
 @router.post("/items/{item_id}/move")
@@ -461,12 +478,15 @@ async def move_item(
     external_source_id: str | None = Query(None),
 ):
     if provider != "google-drive": raise HTTPException(status_code=501, detail="Move is not supported for this provider yet.")
-    token, _account, _tenant, _source = await _source_context(request, provider, session, principal, external_source_id)
+    token, _account, tenant_id, resolved_source_id = await _source_context(request, provider, session, principal, external_source_id)
     if not token: raise HTTPException(status_code=401, detail="Connect Google Drive before moving files.")
     async with create_source_provider(provider, token) as client:
         destination = await client.get_node(destination_parent_id)
         if destination.kind != "folder": raise HTTPException(status_code=422, detail="Destination must be a folder.")
         node = await client.move_file(item_id, destination_parent_id)
+    viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
     return {"id": node.id, "parent_id": node.parent_id}
 
 @router.post("/search", response_model=SearchResponse)

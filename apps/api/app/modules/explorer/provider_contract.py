@@ -16,5 +16,14 @@ class ExplorerSourceProvider(AssetSourceProvider, Protocol):
         self, parent_id: str, *, folders_only: bool = False
     ) -> list[AssetNode]: ...
 
+    async def list_children_page(
+        self,
+        parent_id: str,
+        *,
+        folders_only: bool = False,
+        page_token: str | None = None,
+        page_size: int = 100,
+    ) -> tuple[list[AssetNode], str | None]: ...
+
 
 SourceProviderFactory = Callable[[str, str], ExplorerSourceProvider]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -24,34 +25,77 @@ class SearchSourceIndexResolver:
     def __init__(self, session: Session):
         self.session = session
         self._parent_maps: dict[tuple[str, str], dict[str, tuple[str, ...]]] = {}
+        self._sources_by_asset: dict[tuple[str, str], SourceAssetModel | None] = {}
+        self._details_by_source: dict[tuple[str, str, str], SearchSourceIndexDetails] = {}
 
-    def for_asset(self, *, tenant_id: str, asset_id: str) -> SearchSourceIndexDetails:
-        source = self.session.scalar(
-            select(SourceAssetModel)
-            .join(AssetSourceLinkModel, AssetSourceLinkModel.source_asset_id == SourceAssetModel.id)
+    def preload_assets(self, *, tenant_id: str, asset_ids: Iterable[str]) -> None:
+        """Load a bounded operation page of asset/source links in one query."""
+        requested = tuple(dict.fromkeys(asset_id for asset_id in asset_ids if asset_id))
+        uncached = tuple(
+            asset_id
+            for asset_id in requested
+            if (tenant_id, asset_id) not in self._sources_by_asset
+        )
+        if not uncached:
+            return
+        for asset_id in uncached:
+            self._sources_by_asset[(tenant_id, asset_id)] = None
+        rows = self.session.execute(
+            select(AssetSourceLinkModel.asset_id, SourceAssetModel)
+            .join(SourceAssetModel, AssetSourceLinkModel.source_asset_id == SourceAssetModel.id)
             .where(
                 AssetSourceLinkModel.tenant_id == tenant_id,
-                AssetSourceLinkModel.asset_id == asset_id,
+                AssetSourceLinkModel.asset_id.in_(uncached),
                 SourceAssetModel.tenant_id == tenant_id,
                 SourceAssetModel.deleted_at.is_(None),
             )
-            .order_by(SourceAssetModel.id)
-            .limit(1)
-        )
+            .order_by(AssetSourceLinkModel.asset_id, SourceAssetModel.id)
+        ).all()
+        # Keep the existing deterministic first-source behavior for an asset
+        # that has more than one linked source record.
+        for asset_id, source in rows:
+            key = (tenant_id, str(asset_id))
+            if self._sources_by_asset[key] is None:
+                self._sources_by_asset[key] = source
+
+    def for_asset(self, *, tenant_id: str, asset_id: str) -> SearchSourceIndexDetails:
+        key = (tenant_id, asset_id)
+        if key not in self._sources_by_asset:
+            self.preload_assets(tenant_id=tenant_id, asset_ids=(asset_id,))
+        source = self._sources_by_asset.get(key)
         return self.for_source(source) if source is not None else SearchSourceIndexDetails()
 
     def for_source(self, source: SourceAssetModel) -> SearchSourceIndexDetails:
+        cache_key = (
+            str(source.tenant_id),
+            str(source.external_source_id),
+            str(source.external_asset_id),
+        )
+        cached = self._details_by_source.get(cache_key)
+        if cached is not None:
+            return cached
         metadata = source.source_metadata if isinstance(source.source_metadata, Mapping) else {}
         parent_ids = self._parent_ids(metadata)
         ancestors = self._ancestor_ids(source)
         path = metadata.get("path") or metadata.get("folder_path") or ""
-        return SearchSourceIndexDetails(
+        details = SearchSourceIndexDetails(
             source_id=str(source.external_source_id),
             filename=str(source.filename or ""),
             folder_path=path if isinstance(path, str) else "",
             parent_id=parent_ids[0] if parent_ids else "",
             ancestor_ids=ancestors,
         )
+        self._details_by_source[cache_key] = details
+        return details
+
+    def clear_page_cache(self) -> None:
+        """Release per-page source metadata while retaining parent maps for this run."""
+        self._sources_by_asset.clear()
+        self._details_by_source.clear()
+
+    def clear(self) -> None:
+        self._parent_maps.clear()
+        self.clear_page_cache()
 
     def _ancestor_ids(self, source: SourceAssetModel) -> tuple[str, ...]:
         own_id = str(source.external_asset_id or "").strip()

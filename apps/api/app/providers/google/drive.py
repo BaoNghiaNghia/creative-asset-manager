@@ -4,6 +4,8 @@ from collections import OrderedDict
 from threading import Lock
 
 import httpx
+from app.modules.explorer.media_types import infer_media_type
+from app.modules.explorer.schema import AssetNode
 from app.providers.google.mapper import map_drive_file
 
 FIELDS = "id,name,mimeType,parents,size,modifiedTime,thumbnailLink,webViewLink"
@@ -97,7 +99,8 @@ class GoogleDriveClient:
 
     async def upload_file(self, parent_id: str, filename: str, mime_type: str, content: bytes):
         import json
-        response = await self.client.post("https://www.googleapis.com/upload/drive/v3/files", params={"uploadType": "multipart", "supportsAllDrives": "true", "fields": FIELDS}, files={"metadata": (None, json.dumps({"name": filename, "parents": [parent_id]}), "application/json"), "file": (filename, content, mime_type or "application/octet-stream")}); response.raise_for_status(); return map_drive_file(response.json())
+        effective_mime_type = infer_media_type(filename, mime_type)
+        response = await self.client.post("https://www.googleapis.com/upload/drive/v3/files", params={"uploadType": "multipart", "supportsAllDrives": "true", "fields": FIELDS}, files={"metadata": (None, json.dumps({"name": filename, "parents": [parent_id]}), "application/json"), "file": (filename, content, effective_mime_type)}); response.raise_for_status(); return map_drive_file(response.json())
 
     async def delete_file(self, item_id: str):
         response = await self.client.delete(f"/files/{item_id}", params={"supportsAllDrives": "true"}); response.raise_for_status()
@@ -151,27 +154,46 @@ class GoogleDriveClient:
         )
         return map_drive_file(data)
 
-    async def children(self, parent_id: str, folders_only: bool = False):
-        files = []
-        page_token = None
+    async def children_page(
+        self,
+        parent_id: str,
+        *,
+        folders_only: bool = False,
+        page_token: str | None = None,
+        page_size: int = 100,
+    ) -> tuple[list[AssetNode], str | None]:
+        """Return one stable Drive page ordered by folder then name."""
         query = f"'{parent_id}' in parents and trashed = false"
         if folders_only:
             query += f" and mimeType = '{FOLDER_MIME}'"
+        params = {
+            "q": query,
+            "fields": f"nextPageToken,files({FIELDS})",
+            "pageSize": max(1, min(page_size, 200)),
+            "orderBy": "folder,name",
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        data = await self._get("/files", params)
+        return (
+            [map_drive_file(item) for item in data.get("files", [])],
+            data.get("nextPageToken"),
+        )
 
+    async def children(self, parent_id: str, folders_only: bool = False):
+        """Iterate every Drive page for background and tree callers."""
+        files = []
+        page_token = None
         while True:
-            params = {
-                "q": query,
-                "fields": f"nextPageToken,files({FIELDS})",
-                "pageSize": 1000,
-                "orderBy": "folder,name",
-                "supportsAllDrives": "true",
-                "includeItemsFromAllDrives": "true",
-            }
-            if page_token:
-                params["pageToken"] = page_token
-            data = await self._get("/files", params)
-            files.extend(map_drive_file(item) for item in data.get("files", []))
-            page_token = data.get("nextPageToken")
+            page, page_token = await self.children_page(
+                parent_id,
+                folders_only=folders_only,
+                page_token=page_token,
+                page_size=200,
+            )
+            files.extend(page)
             if not page_token:
                 return files
 

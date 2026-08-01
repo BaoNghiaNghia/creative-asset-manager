@@ -24,10 +24,18 @@ type ShortcutNotice = {
   message: string;
 };
 
-function SearchLoadMoreSentinel({ enabled, loading, onLoadMore }: {
+function LoadMoreSentinel({
+  enabled,
+  loading,
+  onLoadMore,
+  loadingLabel = "Loading more results…",
+  readyLabel = "Scroll to load more",
+}: {
   enabled: boolean;
   loading: boolean;
   onLoadMore: () => void;
+  loadingLabel?: string;
+  readyLabel?: string;
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -47,7 +55,7 @@ function SearchLoadMoreSentinel({ enabled, loading, onLoadMore }: {
     className="search-load-more"
     aria-live="polite"
     aria-busy={loading}
-  >{loading ? "Loading more results…" : "Scroll to load more"}</div>;
+  >{loading ? loadingLabel : readyLabel}</div>;
 }
 
 export function isEligibleAnalysisItem(item: Asset): boolean {
@@ -516,11 +524,21 @@ export default function App() {
             onFocus={item => detailsOpen && openDetails(item)}
           />}
 
-          {explorer.searchV2.active && <SearchLoadMoreSentinel
+          {explorer.searchV2.active && <LoadMoreSentinel
             enabled={explorer.searchV2.hasMore}
             loading={explorer.searchV2.loadingMore}
             onLoadMore={explorer.searchV2.loadMore}
           />}
+          {!explorer.query.trim() && !explorer.searchV2.active && <LoadMoreSentinel
+            enabled={explorer.hasMoreFolderItems}
+            loading={explorer.loadingMoreFolderItems}
+            onLoadMore={explorer.loadMoreFolderItems}
+            loadingLabel="Loading more items…"
+            readyLabel="Scroll to load more items"
+          />}
+          {!explorer.query.trim() && explorer.loadMoreFolderError && <div className="search-warning">
+            Could not load more items. <button type="button" onClick={explorer.loadMoreFolderItems}>Retry</button>
+          </div>}
 
           {!explorer.loading && !explorer.searching && !explorer.visibilityFilterReady && !explorer.visibleItems.length &&
             <div className="state">Loading asset labels…</div>}

@@ -59,7 +59,12 @@ export type AssetMetadataMap = Record<string, AssetMetadata>;
 export type CloudUser = { id: string; name?: string; email?: string; picture?: string };
 export type AuthState = { authenticated: boolean; user: CloudUser | null; checking: boolean };
 export type OAuthErrorState = { message: string; requestId?: string } | null;
-export type Folder = { parent: Asset; children: Asset[] };
+export type Folder = {
+  parent: Asset;
+  children: Asset[];
+  next_page_token?: string | null;
+  has_more?: boolean;
+};
 export type TreeCache = Record<string, Asset[]>;
 
 

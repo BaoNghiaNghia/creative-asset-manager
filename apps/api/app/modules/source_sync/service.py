@@ -6,9 +6,17 @@ from typing import Callable
 
 from app.core.redaction import sanitize_sensitive_urls
 from app.domain.providers.contracts import AssetSourceProvider, ListSourceChangesInput
+from app.modules.authorization.folder_scope_cache import viewer_folder_hierarchy_cache
 from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.source_sync.repository import SourceSyncRepository
+
+
+def _invalidate_viewer_folder_hierarchy(*, tenant_id: str, external_source_id: str) -> None:
+    """Drop a source hierarchy snapshot after a committed source mutation."""
+    viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=external_source_id
+    )
 
 
 def _datetime(value: str | None) -> datetime | None:
@@ -146,6 +154,10 @@ class SourceSyncService:
                         cursor_key="changes", cursor_value=page.next_cursor,
                     )
                 self.repository.session.commit()
+                if page_changes:
+                    _invalidate_viewer_folder_hierarchy(
+                        tenant_id=tenant_id, external_source_id=source_id,
+                    )
             except Exception as exc:
                 self.repository.session.rollback()
                 if run is not None:
@@ -171,6 +183,11 @@ class SourceSyncService:
             try:
                 missing_marked = self.repository.complete_full_run(run)
                 self.repository.session.commit()
+                if missing_marked:
+                    _invalidate_viewer_folder_hierarchy(
+                        tenant_id=tenant_id,
+                        external_source_id=source.id,
+                    )
             except Exception as exc:
                 self.repository.session.rollback()
                 self.repository.fail_run(run.id, type(exc).__name__)

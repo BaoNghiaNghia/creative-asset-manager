@@ -65,6 +65,36 @@ class BaseSourceAdapter:
     ) -> list[AssetNode]:
         return await self.client.children(parent_id, folders_only=folders_only)
 
+    async def list_children_page(
+        self,
+        parent_id: str,
+        *,
+        folders_only: bool = False,
+        page_token: str | None = None,
+        page_size: int = 100,
+    ) -> tuple[list[AssetNode], str | None]:
+        page_reader = getattr(self.client, "children_page", None)
+        if page_reader is not None:
+            return await page_reader(
+                parent_id,
+                folders_only=folders_only,
+                page_token=page_token,
+                page_size=page_size,
+            )
+
+        # Keep existing source adapters working while they adopt native page
+        # tokens. Google Drive supplies the native cursor above; this fallback
+        # preserves the former full-list behavior for legacy adapters.
+        children = await self.client.children(parent_id, folders_only=folders_only)
+        try:
+            start = int(page_token or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Invalid legacy source page token") from exc
+        page = children[start : start + page_size]
+        next_start = start + len(page)
+        next_page_token = str(next_start) if next_start < len(children) else None
+        return page, next_page_token
+
     async def get_asset(self, input: GetSourceAssetInput) -> ExternalAssetCandidate:
         node = await self.get_node(input.external_asset_id)
         return candidate_from_node(

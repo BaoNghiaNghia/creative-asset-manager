@@ -68,6 +68,9 @@ class SearchMaintenanceService:
 
         self.repository.mark_running(run)
         self.repository.session.commit()
+        source_index_resolver = (
+            SearchSourceIndexResolver(self.repository.session) if reindex else None
+        )
         try:
             while True:
                 self.repository.refresh(run)
@@ -80,6 +83,11 @@ class SearchMaintenanceService:
                 )
                 if not page:
                     break
+                if source_index_resolver is not None:
+                    source_index_resolver.preload_assets(
+                        tenant_id=run.tenant_id,
+                        asset_ids=(analysis.asset_id for analysis in page),
+                    )
                 page_succeeded = 0
                 page_failed = 0
                 page_skipped = 0
@@ -99,7 +107,7 @@ class SearchMaintenanceService:
                             ).rebuild(analysis.id)
                         if reindex:
                             index_documents.append(
-                                (analysis, self._index_document(run, analysis))
+                                (analysis, self._index_document(run, analysis, source_index_resolver))
                             )
                         else:
                             self.repository.mark_item(run, analysis, status="completed")
@@ -144,6 +152,8 @@ class SearchMaintenanceService:
                     skipped=page_skipped,
                 )
                 self.repository.session.commit()
+                if source_index_resolver is not None:
+                    source_index_resolver.clear_page_cache()
 
             if reindex and not run.dry_run:
                 if run.failed_count:
@@ -182,9 +192,17 @@ class SearchMaintenanceService:
             self.repository.mark_terminal(run, "failed", exc)
             self.repository.session.commit()
             raise
+        finally:
+            if source_index_resolver is not None:
+                source_index_resolver.clear()
 
-    def _index_document(self, run, analysis) -> SearchIndexDocument:
-        source = SearchSourceIndexResolver(self.repository.session).for_asset(
+    def _index_document(
+        self,
+        run,
+        analysis,
+        source_index_resolver: SearchSourceIndexResolver,
+    ) -> SearchIndexDocument:
+        source = source_index_resolver.for_asset(
             tenant_id=run.tenant_id,
             asset_id=analysis.asset_id,
         )

@@ -30,6 +30,20 @@ class FakeExplorerProvider:
             return [item for item in self.children if item.kind == "folder"]
         return self.children
 
+    async def list_children_page(
+        self,
+        parent_id: str,
+        *,
+        folders_only: bool = False,
+        page_token: str | None = None,
+        page_size: int = 100,
+    ) -> tuple[list[AssetNode], str | None]:
+        children = await self.list_children(parent_id, folders_only=folders_only)
+        offset = int(page_token or "0")
+        page = children[offset:offset + page_size]
+        next_token = str(offset + page_size) if offset + page_size < len(children) else None
+        return page, next_token
+
 
 class ExplorerProviderBoundaryTest(unittest.IsolatedAsyncioTestCase):
     def test_explorer_service_has_no_concrete_cloud_provider_import(self) -> None:
@@ -72,6 +86,41 @@ class ExplorerProviderBoundaryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing.parent, parent)
         self.assertEqual(listing.children, [child])
         schedule_index.assert_called_once()
+
+    async def test_interactive_listing_returns_only_requested_page(self) -> None:
+        parent = AssetNode(id="root", name="My Drive", kind="folder", mime_type="application/vnd.google-apps.folder")
+        children = [
+            AssetNode(id=f"file-{index}", name=f"asset-{index}.png", kind="image", mime_type="image/png", parent_id="root")
+            for index in range(3)
+        ]
+        provider = FakeExplorerProvider(parent, children)
+        service = ExplorerService(lambda _provider, _token: provider)
+
+        with patch("app.modules.explorer.service.schedule_metadata_index") as schedule_index:
+            schedule_index.side_effect = lambda coroutine: coroutine.close()
+            listing = await service.list_folder("root", "token", "account-1", "google-drive", page_size=1)
+
+        self.assertEqual([item.id for item in listing.children], ["file-0"])
+        self.assertEqual(listing.next_page_token, "1")
+        self.assertTrue(listing.has_more)
+        schedule_index.assert_called_once()
+
+    async def test_interactive_listing_forwards_page_token(self) -> None:
+        parent = AssetNode(id="root", name="My Drive", kind="folder", mime_type="application/vnd.google-apps.folder")
+        children = [
+            AssetNode(id=f"file-{index}", name=f"asset-{index}.png", kind="image", mime_type="image/png", parent_id="root")
+            for index in range(3)
+        ]
+        provider = FakeExplorerProvider(parent, children)
+        service = ExplorerService(lambda _provider, _token: provider)
+
+        with patch("app.modules.explorer.service.schedule_metadata_index") as schedule_index:
+            schedule_index.side_effect = lambda coroutine: coroutine.close()
+            listing = await service.list_folder("root", "token", "account-1", "google-drive", page_token="1", page_size=1)
+
+        self.assertEqual([item.id for item in listing.children], ["file-1"])
+        self.assertEqual(listing.next_page_token, "2")
+        self.assertTrue(listing.has_more)
 
     async def test_verified_descendant_listing_keeps_all_children_in_viewer_scope(self) -> None:
         parent = AssetNode(

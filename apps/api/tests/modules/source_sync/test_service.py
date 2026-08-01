@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
@@ -178,6 +179,27 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(asset.source_metadata["parents"], ["folder-b"])
         self.assertEqual(result.jobs_created, 0)
         self.assertEqual(self.processing.count_jobs(), 1)
+
+    async def test_source_change_invalidates_viewer_hierarchy_cache(self) -> None:
+        with patch(
+            "app.modules.source_sync.service._invalidate_viewer_folder_hierarchy"
+        ) as invalidate:
+            await self.service.sync_source(
+                tenant_id="tenant-a",
+                source_id=self.source.id,
+                provider=FakeProvider(
+                    [
+                        SourceChangePage(
+                            (SourceChange("updated", "file-1", candidate("file-1")),),
+                            "c1",
+                        )
+                    ]
+                ),
+            )
+
+        invalidate.assert_called_once_with(
+            tenant_id="tenant-a", external_source_id=self.source.id
+        )
 
     async def test_overwrite_creates_new_version_job(self) -> None:
         await self.service.sync_source(

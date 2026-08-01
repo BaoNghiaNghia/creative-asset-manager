@@ -106,20 +106,30 @@ class ExplorerService:
         tenant_id: str | None = None,
         external_source_id: str | None = None,
         viewer_parent_authorized: bool = False,
+        page_token: str | None = None,
+        page_size: int = 100,
     ) -> FolderListing:
         if access_token:
             async with self.provider_factory(provider, access_token) as client:
-                parent, children = await asyncio.gather(
+                parent, page = await asyncio.gather(
                     client.get_node(parent_id),
-                    client.list_children(parent_id),
+                    client.list_children_page(
+                        parent_id,
+                        page_token=page_token,
+                        page_size=page_size,
+                    ),
                 )
+                children, next_page_token = page
         elif provider == "google-drive":
             parent = (
                 AssetNode(id="root", name="My Drive", kind="folder", mime_type=FOLDER, has_children=True)
                 if parent_id == "root"
                 else next(item for item in MOCK if item.id == parent_id)
             )
-            children = [item for item in MOCK if item.parent_id == parent_id]
+            all_children = [item for item in MOCK if item.parent_id == parent_id]
+            start = int(page_token or 0)
+            children = all_children[start : start + page_size]
+            next_page_token = str(start + page_size) if start + page_size < len(all_children) else None
         else:
             raise PermissionError("Connect SharePoint to browse files.")
 
@@ -144,7 +154,12 @@ class ExplorerService:
 
         metadata = MetadataService(account_id, provider)
         schedule_metadata_index(metadata.index_listing(parent, children))
-        return FolderListing(parent=parent, children=children)
+        return FolderListing(
+            parent=parent,
+            children=children,
+            next_page_token=next_page_token,
+            has_more=bool(next_page_token),
+        )
 
     async def list_folders(
         self,

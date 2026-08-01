@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.modules.search.index_types import AliasSwitchResult
 from app.modules.search.operations_model import SearchOperationItemModel
 from app.modules.search.operations_repository import SearchOperationRepository
 from app.modules.search.operations_service import SearchMaintenanceService
+from app.modules.search.source_index import SearchSourceIndexResolver
 
 
 class FakeSearchIndex:
@@ -241,6 +243,94 @@ class SearchMaintenanceServiceTest(unittest.IsolatedAsyncioTestCase):
             4,
         )
 
+    async def test_reindex_reuses_resolver_and_parent_map_per_source(self) -> None:
+        assets = AssetRegistryRepository(self.session)
+        source_a = assets.upsert_external_source(
+            tenant_id="tenant-a", source_key="source-a", source_type="google-drive"
+        )
+        source_b = assets.upsert_external_source(
+            tenant_id="tenant-a", source_key="source-b", source_type="google-drive"
+        )
+        for source, root_id in ((source_a, "root-a"), (source_b, "root-b")):
+            assets.upsert_source_asset(
+                tenant_id="tenant-a",
+                external_source_id=source.id,
+                external_asset_id=root_id,
+                filename=root_id,
+                source_metadata={"parents": []},
+            )
+        for number, analysis in enumerate(self.analyses):
+            source = source_a if number < 3 else source_b
+            root_id = "root-a" if source is source_a else "root-b"
+            source_asset = assets.upsert_source_asset(
+                tenant_id="tenant-a",
+                external_source_id=source.id,
+                external_asset_id=f"file-{number}",
+                filename=f"file-{number}.jpg",
+                source_metadata={"parents": [root_id]},
+            )
+            assets.link_source_asset(
+                tenant_id="tenant-a",
+                asset_id=analysis.asset_id,
+                source_asset_id=source_asset.id,
+            )
+        self.session.commit()
+
+        class CountingResolver(SearchSourceIndexResolver):
+            instances = []
+            parent_map_loads = []
+            preloaded_pages = []
+            page_cache_clears = []
+
+            def __init__(self, session):
+                super().__init__(session)
+                self.__class__.instances.append(self)
+
+            def preload_assets(self, *, tenant_id, asset_ids):
+                asset_ids = tuple(asset_ids)
+                self.__class__.preloaded_pages.append(asset_ids)
+                return super().preload_assets(tenant_id=tenant_id, asset_ids=asset_ids)
+
+            def clear_page_cache(self):
+                self.__class__.page_cache_clears.append(
+                    (len(self._sources_by_asset), len(self._details_by_source))
+                )
+                return super().clear_page_cache()
+
+            def _parent_map(self, tenant_id, external_source_id):
+                key = (tenant_id, external_source_id)
+                if key not in self._parent_maps:
+                    self.__class__.parent_map_loads.append(key)
+                return super()._parent_map(tenant_id, external_source_id)
+
+        index = FakeSearchIndex()
+        run = self.create_run("rebuild_and_reindex", page_size=2)
+        with patch(
+            "app.modules.search.operations_service.SearchSourceIndexResolver",
+            CountingResolver,
+        ):
+            result = await SearchMaintenanceService(
+                self.operations,
+                SearchProjectionBuilder(projection_version="projection-v2"),
+                index_provider=index,
+                projection_enabled=True,
+                index_enabled=True,
+            ).run(tenant_id="tenant-a", run_id=run.id, index_version="000021")
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(len(CountingResolver.instances), 1)
+        self.assertEqual([len(page) for page in CountingResolver.preloaded_pages], [2, 2])
+        self.assertEqual(CountingResolver.page_cache_clears[:2], [(2, 2), (2, 2)])
+        self.assertEqual(
+            set(CountingResolver.parent_map_loads),
+            {("tenant-a", source_a.id), ("tenant-a", source_b.id)},
+        )
+        self.assertEqual(len(CountingResolver.parent_map_loads), 2)
+        documents = [document for _, batch in index.batches for document in batch]
+        self.assertEqual(len(documents), 4)
+        self.assertEqual({document.source_id for document in documents}, {source_a.id, source_b.id})
+        self.assertTrue(all(document.ancestor_ids[0].startswith("file-") for document in documents))
+        self.assertTrue(all(len(batch) <= 2 for _, batch in index.batches))
     async def test_current_version_and_only_missing_filters(self) -> None:
         self.analyses[0].search_projection = {"search_text": "old"}
         self.analyses[0].search_projection_version = "projection-v1"

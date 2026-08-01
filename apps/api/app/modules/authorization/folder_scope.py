@@ -4,13 +4,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, select
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.database import Base
 from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
-from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from app.modules.authorization.folder_scope_cache import (
+    ParentMap,
+    ViewerFolderHierarchyCache,
+    viewer_folder_hierarchy_cache,
+)
 
 
 def utcnow() -> datetime:
@@ -81,6 +84,36 @@ class ViewerFolderScopeService:
             ViewerFolderScopeModel.external_source_id == external_source_id,
         ).order_by(ViewerFolderScopeModel.folder_name, ViewerFolderScopeModel.folder_external_id)))
 
+    @staticmethod
+    def _parents_from_metadata(metadata: object) -> tuple[str, ...]:
+        values = metadata if isinstance(metadata, dict) else {}
+        raw = values.get("parents")
+        if not isinstance(raw, list):
+            parent = values.get("parent_id")
+            raw = [parent] if parent else []
+        return tuple(str(value) for value in raw if value)
+
+    def _load_parent_map(self, *, tenant_id: str, external_source_id: str) -> ParentMap:
+        rows = self.session.execute(
+            select(SourceAssetModel.external_asset_id, SourceAssetModel.source_metadata).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id == external_source_id,
+                SourceAssetModel.deleted_at.is_(None),
+            )
+        ).all()
+        return {
+            str(external_asset_id): self._parents_from_metadata(metadata)
+            for external_asset_id, metadata in rows
+        }
+
+    def _parent_map(self, *, tenant_id: str, external_source_id: str) -> ParentMap | None:
+        return viewer_folder_hierarchy_cache.get_or_load(
+            tenant_id=tenant_id,
+            external_source_id=external_source_id,
+            loader=lambda: self._load_parent_map(
+                tenant_id=tenant_id, external_source_id=external_source_id,
+            ),
+        )
     def allowed_asset_source_pairs(self, *, tenant_id: str, access: ViewerFolderAccess) -> set[tuple[str, str]]:
         """Resolve selected folders to the exact internal asset/source pairs.
 
@@ -91,21 +124,13 @@ class ViewerFolderScopeService:
         if not access.restricted or not access.source_id:
             return set()
         # Resolve ancestry within this tenant/source so a selected folder
-        # includes every descendant, not only direct children.
-        parent_rows = self.session.execute(
-            select(SourceAssetModel.external_asset_id, SourceAssetModel.source_metadata).where(
-                SourceAssetModel.tenant_id == tenant_id,
-                SourceAssetModel.external_source_id == access.source_id,
-                SourceAssetModel.deleted_at.is_(None),
-            )
-        ).all()
-        parents_by_external_id: dict[str, list[str]] = {}
-        for external_id, metadata in parent_rows:
-            raw = (metadata or {}).get("parents")
-            if not isinstance(raw, list):
-                parent = (metadata or {}).get("parent_id")
-                raw = [parent] if parent else []
-            parents_by_external_id[str(external_id)] = [str(value) for value in raw if value]
+        # includes every descendant, not only direct children.  The map is
+        # shared by viewer media and thumbnail checks for this tenant/source.
+        parents_by_external_id = self._parent_map(
+            tenant_id=tenant_id, external_source_id=access.source_id,
+        )
+        if parents_by_external_id is None:
+            return set()
         rows = self.session.execute(
             select(AssetSourceLinkModel.asset_id, SourceAssetModel)
             .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
@@ -147,29 +172,17 @@ class ViewerFolderScopeService:
         """Check a provider item against the selected folder ancestry."""
         if not access.restricted or not access.source_id:
             return True
-        source = self.session.scalar(select(SourceAssetModel).where(
-            SourceAssetModel.tenant_id == tenant_id,
-            SourceAssetModel.external_source_id == access.source_id,
-            SourceAssetModel.external_asset_id == external_asset_id,
-            SourceAssetModel.deleted_at.is_(None),
-        ))
-        if source is None:
+        parent_map = self._parent_map(
+            tenant_id=tenant_id, external_source_id=access.source_id,
+        )
+        item_id = str(external_asset_id)
+        # Missing data and a failed map load are both denied. This keeps the
+        # cache an optimization, never an authorization bypass.
+        if parent_map is None or item_id not in parent_map:
             return False
-        parent_rows = self.session.execute(
-            select(SourceAssetModel.external_asset_id, SourceAssetModel.source_metadata).where(
-                SourceAssetModel.tenant_id == tenant_id,
-                SourceAssetModel.external_source_id == access.source_id,
-                SourceAssetModel.deleted_at.is_(None),
-            )
-        ).all()
-        parent_map: dict[str, list[str]] = {}
-        for item_id, metadata in parent_rows:
-            raw = (metadata or {}).get("parents")
-            if not isinstance(raw, list):
-                parent = (metadata or {}).get("parent_id")
-                raw = [parent] if parent else []
-            parent_map[str(item_id)] = [str(value) for value in raw if value]
-        pending = list(parent_map.get(str(external_asset_id), []))
+        if item_id in access.folder_ids:
+            return True
+        pending = list(parent_map.get(item_id, ()))
         visited: set[str] = set()
         while pending:
             parent = pending.pop()

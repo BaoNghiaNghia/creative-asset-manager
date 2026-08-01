@@ -29,6 +29,8 @@ class AssetNode(BaseModel):
 class FolderListing(BaseModel):
     parent: AssetNode
     children: list[AssetNode]
+    next_page_token: str | None = None
+    has_more: bool = False
 
 
 class SearchRequest(BaseModel):

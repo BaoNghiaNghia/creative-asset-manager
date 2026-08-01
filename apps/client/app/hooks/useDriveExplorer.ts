@@ -99,6 +99,12 @@ export function pruneSelectedIds(selected: ReadonlySet<string>, visibleItems: As
   return next.size === selected.size ? selected as Set<string> : next;
 }
 
+export function appendUniqueFolderPage(current: Asset[], incoming: Asset[]): Asset[] {
+  const existingIds = new Set(current.map(item => item.id));
+  const appended = incoming.filter(item => !existingIds.has(item.id));
+  return appended.length ? [...current, ...appended] : current;
+}
+
 const oauthMessages: Record<string, string> = {
   denied: "Google access was cancelled or denied.",
   incomplete: "Google returned an incomplete authorization response.",
@@ -158,6 +164,14 @@ export function useDriveExplorer() {
   const treeFolderRequests = useRef(new Map<string, Promise<Asset[]>>());
   const prefetchTimer = useRef<number | undefined>(undefined);
   const openSequence = useRef(0);
+  const paginationSequence = useRef(0);
+  const loadedPageTokens = useRef(new Set<string>());
+  const loadMoreRequest = useRef<Promise<void> | null>(null);
+  const loadMoreAbortController = useRef<AbortController | null>(null);
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState("");
 
   function resetSearch() {
     setSearchResults(null);
@@ -172,8 +186,33 @@ export function useDriveExplorer() {
     setSearchError("");
   }
 
-  async function fetchFolder(id: string, source: Provider = provider): Promise<Folder> {
-    const key = source + ":" + id;
+  function resetFolderPagination() {
+    paginationSequence.current += 1;
+    loadedPageTokens.current.clear();
+    loadMoreAbortController.current?.abort();
+    loadMoreAbortController.current = null;
+    loadMoreRequest.current = null;
+    setNextPageToken(null);
+    setHasMore(false);
+    setLoadingMore(false);
+    setLoadMoreError("");
+  }
+
+  function invalidateFolderPages(id: string, source: Provider = provider) {
+    const prefix = source + ":" + id;
+    for (const key of folderCache.current.keys()) {
+      if (key === prefix || key.startsWith(prefix + ":page:")) folderCache.current.delete(key);
+    }
+  }
+
+  async function fetchFolder(
+    id: string,
+    source: Provider = provider,
+    pageToken?: string,
+    signal?: AbortSignal,
+  ): Promise<Folder> {
+    const baseKey = source + ":" + id;
+    const key = pageToken ? baseKey + ":page:" + pageToken : baseKey;
     const cached = folderCache.current.get(key);
     if (cached) return cached;
 
@@ -181,8 +220,17 @@ export function useDriveExplorer() {
     if (pending) return pending;
 
     const request = (async () => {
-      const response = await fetch("/api/explorer/children?parent_id=" + encodeURIComponent(id) + "&provider=" + encodeURIComponent(source));
-      if (!response.ok) throw Error((await response.json()).detail);
+      const params = new URLSearchParams({
+        parent_id: id,
+        provider: source,
+        page_size: "100",
+      });
+      if (pageToken) params.set("page_token", pageToken);
+      const response = await fetch("/api/explorer/children?" + params.toString(), { signal });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { detail?: string }));
+        throw Error(typeof body.detail === "string" ? body.detail : "Unable to load folder");
+      }
       const folder = await response.json() as Folder;
       folderCache.current.set(key, folder);
       return folder;
@@ -231,15 +279,6 @@ export function useDriveExplorer() {
     const cached = treeFolderCache.current.get(key);
     if (cached) return cached;
 
-    const fullFolder = folderCache.current.get(key);
-    if (fullFolder) return fullFolder.children.filter(item => item.kind === "folder");
-
-    const fullRequest = folderRequests.current.get(key);
-    if (fullRequest) {
-      const folder = await fullRequest;
-      return folder.children.filter(item => item.kind === "folder");
-    }
-
     const pending = treeFolderRequests.current.get(key);
     if (pending) return pending;
 
@@ -275,6 +314,7 @@ export function useDriveExplorer() {
 
   async function open(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider, preserveSelection = false) {
     const requestSequence = ++openSequence.current;
+    resetFolderPagination();
     const cached = folderCache.current.has(source + ":" + id);
     setLoading(!cached);
     setError("");
@@ -288,8 +328,13 @@ export function useDriveExplorer() {
       const nextPath = [...ancestors, folder.parent];
       setItems(folder.children);
       setPath(nextPath);
+      setNextPageToken(folder.next_page_token || null);
+      setHasMore(Boolean(folder.has_more && folder.next_page_token));
       hydrateTreePath(nextPath, source);
-      cacheFolders(id, folder.children, source);
+      // Tree expansion needs a complete folder listing. Never put an interactive
+      // first page into the tree cache, otherwise folders after page one disappear.
+      if (!folder.has_more) cacheFolders(id, folder.children, source);
+      else treeFolderCache.current.delete(source + ":" + id);
       setExpanded(current => new Set(current).add(id));
     } catch (reason) {
       if (requestSequence === openSequence.current) {
@@ -297,6 +342,56 @@ export function useDriveExplorer() {
       }
     } finally {
       if (requestSequence === openSequence.current) setLoading(false);
+    }
+  }
+
+  async function loadMoreFolderItems() {
+    const currentFolder = path.at(-1);
+    const token = nextPageToken;
+    if (
+      !currentFolder
+      || !token
+      || !hasMore
+      || loadingMore
+      || loadMoreRequest.current
+      || loadedPageTokens.current.has(token)
+    ) return;
+
+    const requestSequence = openSequence.current;
+    const pageSequence = paginationSequence.current;
+    const controller = new AbortController();
+    loadMoreAbortController.current = controller;
+    loadedPageTokens.current.add(token);
+    setLoadingMore(true);
+    setLoadMoreError("");
+
+    const request = (async () => {
+      try {
+        const page = await fetchFolder(currentFolder.id, provider, token, controller.signal);
+        if (
+          controller.signal.aborted
+          || requestSequence !== openSequence.current
+          || pageSequence !== paginationSequence.current
+        ) return;
+
+        setItems(current => appendUniqueFolderPage(current, page.children));
+        setNextPageToken(page.next_page_token || null);
+        setHasMore(Boolean(page.has_more && page.next_page_token));
+      } catch (reason) {
+        if (!controller.signal.aborted && pageSequence === paginationSequence.current) {
+          loadedPageTokens.current.delete(token);
+          setLoadMoreError(reason instanceof Error ? reason.message : "Unable to load more items");
+        }
+      } finally {
+        if (loadMoreAbortController.current === controller) loadMoreAbortController.current = null;
+        if (pageSequence === paginationSequence.current) setLoadingMore(false);
+      }
+    })();
+    loadMoreRequest.current = request;
+    try {
+      await request;
+    } finally {
+      if (loadMoreRequest.current === request) loadMoreRequest.current = null;
     }
   }
 
@@ -326,14 +421,15 @@ export function useDriveExplorer() {
       const sourceRootId = rootId(source);
       const sourceRoot = await fetchFolder(sourceRootId, source);
       const restoredPath: Asset[] = [sourceRoot.parent];
-      cacheFolders(sourceRootId, sourceRoot.children, source);
+      if (!sourceRoot.has_more) cacheFolders(sourceRootId, sourceRoot.children, source);
 
       for (const item of saved.path) {
         if (item.id === sourceRootId) continue;
         const folder = await fetchFolder(item.id, source);
         if (restoredPath.at(-1)?.id !== folder.parent.id) restoredPath.push(folder.parent);
-        // Populate every branch on the way down so the sidebar can render the restored route.
-        cacheFolders(item.id, folder.children, source);
+        // Populate only complete listings. Expanded branches otherwise load their
+        // complete folder-only tree from /api/explorer/folders on demand.
+        if (!folder.has_more) cacheFolders(item.id, folder.children, source);
       }
       const current = restoredPath.at(-1);
       if (!current) throw Error("Saved folder is unavailable");
@@ -349,9 +445,8 @@ export function useDriveExplorer() {
     const currentFolder = path.at(-1);
     if (!currentFolder) return;
 
-    const key = provider + ":" + currentFolder.id;
-    folderCache.current.delete(key);
-    treeFolderCache.current.delete(key);
+    invalidateFolderPages(currentFolder.id, provider);
+    treeFolderCache.current.delete(provider + ":" + currentFolder.id);
     await open(currentFolder.id, path.slice(0, -1), provider, true);
   }
   async function toggleTree(node: Asset) {
@@ -448,6 +543,7 @@ export function useDriveExplorer() {
     setError("");
     setLoading(false);
     setLoadingTreeIds(new Set());
+    resetFolderPagination();
     folderCache.current.clear();
     folderRequests.current.clear();
     treeFolderCache.current.clear();
@@ -847,6 +943,10 @@ export function useDriveExplorer() {
     searchError: searchV2.active ? searchV2.error : searchError,
     searchDurationMs: searchV2.active ? searchV2.durationMs : null,
     loading,
+    hasMoreFolderItems: hasMore,
+    loadingMoreFolderItems: loadingMore,
+    loadMoreFolderError: loadMoreError,
+    loadMoreFolderItems,
     error,
     provider,
     auth,

@@ -1,5 +1,7 @@
 import asyncio
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
@@ -10,18 +12,26 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.auth_persistence.model import TenantModel
-from app.modules.authorization.folder_scope import ViewerFolderAccess, ViewerFolderScopeModel, ViewerFolderScopeService
-from app.modules.explorer.router import _require_viewer_folder_scope, _viewer_media_scope_allowed, thumbnail
+from app.modules.authorization.folder_scope import (
+    ViewerFolderAccess,
+    ViewerFolderHierarchyCache,
+    ViewerFolderScopeModel,
+    ViewerFolderScopeService,
+    viewer_folder_hierarchy_cache,
+)
+from app.modules.explorer.router import _require_viewer_folder_scope, _viewer_media_scope_allowed, media, thumbnail
 
 
 class ViewerFolderScopeTest(unittest.TestCase):
     def setUp(self):
+        viewer_folder_hierarchy_cache.clear()
         self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         Base.metadata.create_all(self.engine)
         self.session = sessionmaker(self.engine, class_=Session, expire_on_commit=False)()
         self.service = ViewerFolderScopeService(self.session)
 
     def tearDown(self):
+        viewer_folder_hierarchy_cache.clear()
         self.session.close()
         self.engine.dispose()
 
@@ -78,6 +88,7 @@ class ViewerFolderScopeTest(unittest.TestCase):
         access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
         self.assertEqual(self.service.allowed_internal_asset_ids(tenant_id="tenant-1", access=access), {"asset-1"})
         source_asset.deleted_at = source_asset.updated_at
+        viewer_folder_hierarchy_cache.invalidate(tenant_id="tenant-1", external_source_id="source-1")
         self.assertEqual(self.service.allowed_internal_asset_ids(tenant_id="tenant-1", access=access), set())
 
     def test_exact_accessible_source_pair_excludes_duplicate_unassigned_source(self):
@@ -250,6 +261,108 @@ class ViewerFolderScopeTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 403)
         open_thumbnail.assert_not_awaited()
+    def test_media_proxy_checks_viewer_scope_before_google(self):
+        request = SimpleNamespace(headers={})
+        principal = SimpleNamespace(
+            active_tenant_id="tenant-1",
+            membership_id="member-1",
+            effective_roles=frozenset({"viewer"}),
+        )
+        denied = HTTPException(status_code=403, detail={"code": "viewer_folder_scope_denied"})
+
+        with patch(
+            "app.modules.explorer.router._authorized_file_context",
+            new=AsyncMock(side_effect=denied),
+        ), patch(
+            "app.modules.explorer.router.open_google_media",
+            new=AsyncMock(),
+        ) as open_media:
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(
+                    media(
+                        request=request,
+                        item_id="file-outside-scope",
+                        provider="google-drive",
+                        session=self.session,
+                        principal=principal,
+                        external_source_id="source-1",
+                    )
+                )
+
+        self.assertEqual(raised.exception.status_code, 403)
+        open_media.assert_not_awaited()
+
+
+
+    def test_cached_parent_map_allows_descendant_and_denies_sibling(self):
+        source = ExternalSourceModel(id="source-1", tenant_id="tenant-1", source_key="g", source_type="google_drive", source_metadata={})
+        self.session.add_all([
+            source,
+            SourceAssetModel(id="allowed-folder", tenant_id="tenant-1", external_source_id="source-1", external_asset_id="folder-a", source_metadata={"parents": []}),
+            SourceAssetModel(id="allowed-file", tenant_id="tenant-1", external_source_id="source-1", external_asset_id="file-allowed", source_metadata={"parents": ["folder-a"]}),
+            SourceAssetModel(id="sibling-file", tenant_id="tenant-1", external_source_id="source-1", external_asset_id="file-sibling", source_metadata={"parents": ["folder-b"]}),
+        ])
+        self.session.commit()
+        access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
+        self.assertTrue(self.service.allows_external_asset(tenant_id="tenant-1", access=access, external_asset_id="file-allowed"))
+        self.assertFalse(self.service.allows_external_asset(tenant_id="tenant-1", access=access, external_asset_id="file-sibling"))
+
+
+class ViewerFolderHierarchyCacheTest(unittest.TestCase):
+    def test_reuses_entries_by_tenant_and_source_then_reloads_after_expiry_and_invalidation(self):
+        now = [0.0]
+        cache = ViewerFolderHierarchyCache(max_entries=2, ttl_seconds=60, clock=lambda: now[0])
+        calls: list[str] = []
+
+        def loader(label: str):
+            def load():
+                calls.append(label)
+                return {"file": (f"{label}-parent",)}
+            return load
+
+        self.assertEqual(cache.get_or_load(tenant_id="tenant-1", external_source_id="source-1", loader=loader("first"))["file"], ("first-parent",))
+        self.assertEqual(cache.get_or_load(tenant_id="tenant-1", external_source_id="source-1", loader=loader("reused"))["file"], ("first-parent",))
+        cache.get_or_load(tenant_id="tenant-2", external_source_id="source-1", loader=loader("other-tenant"))
+        cache.get_or_load(tenant_id="tenant-1", external_source_id="source-2", loader=loader("other-source"))
+        self.assertEqual(calls, ["first", "other-tenant", "other-source"])
+
+        now[0] = 61.0
+        cache.get_or_load(tenant_id="tenant-1", external_source_id="source-1", loader=loader("expired"))
+        cache.invalidate(tenant_id="tenant-1", external_source_id="source-1")
+        cache.get_or_load(tenant_id="tenant-1", external_source_id="source-1", loader=loader("invalidated"))
+        self.assertEqual(calls, ["first", "other-tenant", "other-source", "expired", "invalidated"])
+
+    def test_concurrent_requests_coalesce_one_hierarchy_load(self):
+        cache = ViewerFolderHierarchyCache(max_entries=4, ttl_seconds=60)
+        loader_started = threading.Event()
+        release_loader = threading.Event()
+        calls = [0]
+        calls_lock = threading.Lock()
+
+        def loader():
+            with calls_lock:
+                calls[0] += 1
+            loader_started.set()
+            self.assertTrue(release_loader.wait(timeout=2))
+            return {"file": ("folder-a",)}
+
+        def load():
+            return cache.get_or_load(tenant_id="tenant-1", external_source_id="source-1", loader=loader)
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            first = executor.submit(load)
+            self.assertTrue(loader_started.wait(timeout=2))
+            waiting = [executor.submit(load) for _ in range(7)]
+            release_loader.set()
+            results = [first.result(timeout=2), *(future.result(timeout=2) for future in waiting)]
+
+        self.assertEqual(calls[0], 1)
+        self.assertTrue(all(result and result["file"] == ("folder-a",) for result in results))
+
+    def test_loader_failure_fails_closed(self):
+        cache = ViewerFolderHierarchyCache(max_entries=2, ttl_seconds=60)
+        self.assertIsNone(cache.get_or_load(tenant_id="tenant-1", external_source_id="source-1", loader=lambda: (_ for _ in ()).throw(RuntimeError("database unavailable"))))
+        self.assertIsNone(cache.get_or_load(tenant_id="tenant-1", external_source_id="source-2", loader=lambda: None))
 
 
 if __name__ == "__main__":
