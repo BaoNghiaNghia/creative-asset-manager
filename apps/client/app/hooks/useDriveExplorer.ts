@@ -83,14 +83,22 @@ function savedLocation(path: Asset[]): SavedExplorerLocation {
 export type UploadState = "queued" | "uploading" | "completed" | "failed";
 export type UploadItem = { id: string; name: string; status: UploadState; error?: string };
 
-export function uploadErrorMessage(payload: unknown, fallback = "Upload failed. Try again."): string {
+export function apiErrorMessage(payload: unknown, fallback: string): string {
+  if (typeof payload === "string" && payload.trim()) return payload;
   if (!payload || typeof payload !== "object") return fallback;
-  const detail = (payload as { detail?: unknown }).detail;
-  if (typeof detail === "string" && detail.trim()) return detail;
-  if (detail && typeof detail === "object" && typeof (detail as { message?: unknown }).message === "string") {
-    return (detail as { message: string }).message;
+
+  const record = payload as { detail?: unknown; message?: unknown };
+  if (typeof record.message === "string" && record.message.trim()) return record.message;
+  if (typeof record.detail === "string" && record.detail.trim()) return record.detail;
+  if (record.detail && typeof record.detail === "object") {
+    const detail = record.detail as { message?: unknown };
+    if (typeof detail.message === "string" && detail.message.trim()) return detail.message;
   }
   return fallback;
+}
+
+export function uploadErrorMessage(payload: unknown, fallback = "Upload failed. Try again."): string {
+  return apiErrorMessage(payload, fallback);
 }
 
 export function pruneSelectedIds(selected: ReadonlySet<string>, visibleItems: Asset[]): Set<string> {
@@ -228,8 +236,8 @@ export function useDriveExplorer() {
       if (pageToken) params.set("page_token", pageToken);
       const response = await fetch("/api/explorer/children?" + params.toString(), { signal });
       if (!response.ok) {
-        const body = await response.json().catch(() => ({} as { detail?: string }));
-        throw Error(typeof body.detail === "string" ? body.detail : "Unable to load folder");
+        const body: unknown = await response.json().catch(() => null);
+        throw Error(apiErrorMessage(body, "Unable to load folder"));
       }
       const folder = await response.json() as Folder;
       folderCache.current.set(key, folder);
@@ -284,7 +292,10 @@ export function useDriveExplorer() {
 
     const request = (async () => {
       const response = await fetch("/api/explorer/folders?parent_id=" + encodeURIComponent(id) + "&provider=" + encodeURIComponent(source));
-      if (!response.ok) throw Error((await response.json()).detail);
+      if (!response.ok) {
+        const body: unknown = await response.json().catch(() => null);
+        throw Error(apiErrorMessage(body, "Unable to load folders"));
+      }
       const folders = await response.json() as Asset[];
       treeFolderCache.current.set(key, folders);
       return folders;
@@ -637,8 +648,8 @@ export function useDriveExplorer() {
           body: JSON.stringify({ provider, root_id: rootId(provider) }),
         });
         if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
-          throw Error(body.detail || "Unable to start metadata indexing");
+          const body: unknown = await response.json().catch(() => null);
+          throw Error(apiErrorMessage(body, "Unable to start metadata indexing"));
         }
         const status = await response.json() as DriveIndexStatus;
         if (applyStatus(status) === "running") {
@@ -708,8 +719,8 @@ export function useDriveExplorer() {
           }),
         });
         if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
-          throw Error(body.detail || "Unable to search Drive metadata");
+          const body: unknown = await response.json().catch(() => null);
+          throw Error(apiErrorMessage(body, "Unable to search Drive metadata"));
         }
         if (!response.body) throw Error("Search progress stream is unavailable");
 

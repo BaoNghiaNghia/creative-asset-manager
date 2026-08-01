@@ -124,7 +124,7 @@ def _require_viewer_folder_scope(
 _VIEWER_MEDIA_MAX_ANCESTOR_DEPTH = 64
 
 
-async def _viewer_media_scope_allowed(
+async def _viewer_folder_scope_allowed(
     scope_service: ViewerFolderScopeService,
     *,
     tenant_id: str,
@@ -133,13 +133,14 @@ async def _viewer_media_scope_allowed(
     token: str,
     item_id: str,
 ) -> bool:
+    """Allow a scoped Drive item through local or authoritative parent ancestry."""
     if not access.restricted or scope_service.allows_external_asset(
         tenant_id=tenant_id, access=access, external_asset_id=item_id,
     ):
         return True
     if provider != "google-drive":
         return False
-    # A newly uploaded or incompletely synced file may not have local ancestry.
+    # New or incompletely synced files/folders may not have local ancestry.
     # Walk authoritative Drive parents with a strict bound and cycle guard.
     async with create_source_provider(provider, token) as source_client:
         current_id = item_id
@@ -158,6 +159,56 @@ async def _viewer_media_scope_allowed(
                 return True
             current_id = parent_id
     return False
+
+
+async def _viewer_media_scope_allowed(
+    scope_service: ViewerFolderScopeService,
+    *,
+    tenant_id: str,
+    access: ViewerFolderAccess,
+    provider: Provider,
+    token: str,
+    item_id: str,
+) -> bool:
+    """Compatibility wrapper for source-media proxy authorization."""
+    return await _viewer_folder_scope_allowed(
+        scope_service,
+        tenant_id=tenant_id,
+        access=access,
+        provider=provider,
+        token=token,
+        item_id=item_id,
+    )
+
+
+async def _require_viewer_folder_scope_from_provider(
+    scope_service: ViewerFolderScopeService,
+    *,
+    tenant_id: str,
+    access: ViewerFolderAccess,
+    provider: Provider,
+    token: str,
+    folder_id: str,
+    allow_root: bool = True,
+) -> None:
+    if not access.restricted or (folder_id == "root" and allow_root):
+        return
+    if await _viewer_folder_scope_allowed(
+        scope_service,
+        tenant_id=tenant_id,
+        access=access,
+        provider=provider,
+        token=token,
+        item_id=folder_id,
+    ):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "code": "viewer_folder_scope_denied",
+            "message": "Folder is outside the viewer folder scope.",
+        },
+    )
 
 
 async def _source_context(
@@ -250,8 +301,13 @@ async def children(
             tenant_id=tenant_id, membership_id=principal.membership_id,
             roles=principal.effective_roles, external_source_id=resolved_source_id,
         )
-        _require_viewer_folder_scope(
-            scope_service, tenant_id=tenant_id, access=access, folder_id=parent_id,
+        await _require_viewer_folder_scope_from_provider(
+            scope_service,
+            tenant_id=tenant_id,
+            access=access,
+            provider=provider,
+            token=token,
+            folder_id=parent_id,
         )
         return await ExplorerService(
             create_source_provider, AssetProcessingStatusService(session), access,
@@ -285,8 +341,13 @@ async def folders(
             tenant_id=tenant_id, membership_id=principal.membership_id,
             roles=principal.effective_roles, external_source_id=resolved_source_id,
         )
-        _require_viewer_folder_scope(
-            scope_service, tenant_id=tenant_id, access=access, folder_id=parent_id,
+        await _require_viewer_folder_scope_from_provider(
+            scope_service,
+            tenant_id=tenant_id,
+            access=access,
+            provider=provider,
+            token=token,
+            folder_id=parent_id,
         )
         return await ExplorerService(create_source_provider, viewer_access=access).list_folders(
             parent_id, token, provider, viewer_parent_authorized=parent_id != "root",

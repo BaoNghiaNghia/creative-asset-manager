@@ -19,7 +19,13 @@ from app.modules.authorization.folder_scope import (
     ViewerFolderScopeService,
     viewer_folder_hierarchy_cache,
 )
-from app.modules.explorer.router import _require_viewer_folder_scope, _viewer_media_scope_allowed, media, thumbnail
+from app.modules.explorer.router import (
+    _require_viewer_folder_scope,
+    _require_viewer_folder_scope_from_provider,
+    _viewer_media_scope_allowed,
+    media,
+    thumbnail,
+)
 
 
 class ViewerFolderScopeTest(unittest.TestCase):
@@ -62,6 +68,36 @@ class ViewerFolderScopeTest(unittest.TestCase):
             ).folder_ids,
             frozenset(),
         )
+
+    def test_multiple_selected_folders_persist_and_are_directly_accessible(self):
+        rows = self.service.replace(
+            tenant_id="tenant-1", membership_id="member-1", external_source_id="source-1",
+            folders=[
+                {"folder_id": "folder-a", "folder_name": "First allowed folder"},
+                {"folder_id": "folder-b", "folder_name": "Second allowed folder"},
+            ],
+        )
+
+        self.assertEqual(
+            {(row.folder_external_id, row.folder_name) for row in rows},
+            {
+                ("folder-a", "First allowed folder"),
+                ("folder-b", "Second allowed folder"),
+            },
+        )
+        access = self.service.access(
+            tenant_id="tenant-1", membership_id="member-1",
+            roles=frozenset({"viewer"}), external_source_id="source-1",
+        )
+        self.assertEqual(access.folder_ids, frozenset({"folder-a", "folder-b"}))
+        # Neither folder has a synchronized SourceAssetModel. Direct access
+        # must not require a parent-map entry.
+        self.assertTrue(self.service.allows_external_asset(
+            tenant_id="tenant-1", access=access, external_asset_id="folder-a",
+        ))
+        self.assertTrue(self.service.allows_external_asset(
+            tenant_id="tenant-1", access=access, external_asset_id="folder-b",
+        ))
 
     def test_operator_is_not_restricted(self):
         access = self.service.access(
@@ -208,6 +244,52 @@ class ViewerFolderScopeTest(unittest.TestCase):
             ))
 
         self.assertTrue(allowed)
+
+    def test_remote_scope_allows_nested_folders_and_files_under_each_selected_root(self):
+        access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a", "folder-b"}))
+
+        class ScopeService:
+            def allows_external_asset(self, **_kwargs):
+                return False
+
+        class Provider:
+            parents = {
+                "folder-a1": "folder-a",
+                "file-a": "folder-a1",
+                "folder-b1": "folder-b",
+                "file-b": "folder-b1",
+                "outside-folder": "unselected-root",
+            }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def get_node(self, item_id):
+                return SimpleNamespace(parent_id=self.parents.get(item_id))
+
+        async def require(item_id):
+            await _require_viewer_folder_scope_from_provider(
+                ScopeService(),
+                tenant_id="tenant-1",
+                access=access,
+                provider="google-drive",
+                token="test-token",
+                folder_id=item_id,
+            )
+
+        with patch("app.modules.explorer.router.create_source_provider", return_value=Provider()):
+            asyncio.run(require("folder-a1"))
+            asyncio.run(require("file-a"))
+            asyncio.run(require("folder-b1"))
+            asyncio.run(require("file-b"))
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(require("outside-folder"))
+
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(raised.exception.detail["code"], "viewer_folder_scope_denied")
 
     def test_viewer_upload_scope_denies_drive_root_but_allows_assigned_folder(self):
         access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))

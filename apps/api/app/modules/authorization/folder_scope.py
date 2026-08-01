@@ -172,16 +172,19 @@ class ViewerFolderScopeService:
         """Check a provider item against the selected folder ancestry."""
         if not access.restricted or not access.source_id:
             return True
+        item_id = str(external_asset_id)
+        # A directly selected folder is always accessible. Its source record
+        # may not have been synchronized yet, so it cannot depend on the
+        # locally cached parent map used for descendant authorization.
+        if item_id in access.folder_ids:
+            return True
         parent_map = self._parent_map(
             tenant_id=tenant_id, external_source_id=access.source_id,
         )
-        item_id = str(external_asset_id)
         # Missing data and a failed map load are both denied. This keeps the
         # cache an optimization, never an authorization bypass.
         if parent_map is None or item_id not in parent_map:
             return False
-        if item_id in access.folder_ids:
-            return True
         pending = list(parent_map.get(item_id, ()))
         visited: set[str] = set()
         while pending:

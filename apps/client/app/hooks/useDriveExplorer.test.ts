@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EXPLORER_LOCATION_MAX_AGE_MS,
+  apiErrorMessage,
   appendUniqueFolderPage,
   oauthMessageFor,
   parseSavedExplorerLocation,
@@ -30,6 +31,20 @@ describe("uploadErrorMessage", () => {
 
   it("uses a safe fallback for malformed upload failures", () => {
     expect(uploadErrorMessage(null)).toBe("Upload failed. Try again.");
+  });
+});
+
+
+describe("apiErrorMessage", () => {
+  it("uses a structured API detail message without stringifying the object", () => {
+    expect(apiErrorMessage({
+      detail: { code: "viewer_folder_scope_denied", message: "Folder is outside the viewer folder scope." },
+    }, "Unable to load folder")).toBe("Folder is outside the viewer folder scope.");
+  });
+
+  it("uses the safe fallback when a structured API detail has no message", () => {
+    expect(apiErrorMessage({ detail: { code: "unexpected" } }, "Unable to load folder"))
+      .toBe("Unable to load folder");
   });
 });
 
