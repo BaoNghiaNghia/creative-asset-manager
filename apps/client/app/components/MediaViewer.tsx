@@ -50,7 +50,7 @@ export function MediaViewer({ item, onClose }: Props) {
     aria-label={"Preview " + item.name}
     onMouseDown={event => event.target === event.currentTarget && onClose()}
   >
-    <div className={"media-viewer-panel " + item.kind}>
+    <div className={"media-viewer-panel " + item.kind + (loading && !failed ? " is-loading" : "")}>
       <div className="media-viewer-toolbar">
         <div>
           <strong title={item.name}>{item.name}</strong>
@@ -80,7 +80,15 @@ export function MediaViewer({ item, onClose }: Props) {
           onLoad={() => setLoading(false)}
           onError={() => { setLoading(false); setFailed(true); }}
         />}
-        {loading && !failed && <span className="media-viewer-loading" role="status">Loading preview…</span>}
+        {loading && !failed && <div className="media-viewer-loading" role="status" aria-live="polite">
+          <div className="media-viewer-loading-card">
+            <span className="media-viewer-loading-spinner" aria-hidden="true" />
+            <div>
+              <strong>Preparing preview</strong>
+              <span>Loading securely from the connected source…</span>
+            </div>
+          </div>
+        </div>}
       </div>
     </div>
   </div>;

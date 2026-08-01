@@ -9,7 +9,10 @@ from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
-from app.modules.authorization.folder_scope_cache import viewer_folder_hierarchy_cache
+from app.modules.authorization.folder_scope_cache import (
+    viewer_folder_hierarchy_cache,
+    viewer_folder_remote_parent_cache,
+)
 from app.modules.auth_persistence.repository import PersistentCloudSession
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -122,6 +125,9 @@ class GoogleLoginSyncScheduler:
         # stable source. Drop its hierarchy snapshot so viewer checks never
         # authorize against a stale tree after the callback completes.
         viewer_folder_hierarchy_cache.invalidate(
+            tenant_id=tenant_id, external_source_id=source.id
+        )
+        viewer_folder_remote_parent_cache.invalidate(
             tenant_id=tenant_id, external_source_id=source.id
         )
 

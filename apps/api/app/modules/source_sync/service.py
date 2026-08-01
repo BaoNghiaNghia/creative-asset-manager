@@ -6,7 +6,10 @@ from typing import Callable
 
 from app.core.redaction import sanitize_sensitive_urls
 from app.domain.providers.contracts import AssetSourceProvider, ListSourceChangesInput
-from app.modules.authorization.folder_scope_cache import viewer_folder_hierarchy_cache
+from app.modules.authorization.folder_scope_cache import (
+    viewer_folder_hierarchy_cache,
+    viewer_folder_remote_parent_cache,
+)
 from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.source_sync.repository import SourceSyncRepository
@@ -15,6 +18,9 @@ from app.modules.source_sync.repository import SourceSyncRepository
 def _invalidate_viewer_folder_hierarchy(*, tenant_id: str, external_source_id: str) -> None:
     """Drop a source hierarchy snapshot after a committed source mutation."""
     viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=external_source_id
+    )
+    viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=external_source_id
     )
 

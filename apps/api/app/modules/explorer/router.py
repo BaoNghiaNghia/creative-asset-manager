@@ -39,6 +39,7 @@ from app.modules.authorization.folder_scope import (
     ViewerFolderScopeService,
     viewer_folder_hierarchy_cache,
 )
+from app.modules.authorization.folder_scope_cache import viewer_folder_remote_parent_cache
 from app.providers.source_factory import create_source_provider
 from app.providers.google.auth import get_access_token as get_google_token
 from app.providers.google.auth import get_session as get_google_session
@@ -138,19 +139,36 @@ async def _viewer_folder_scope_allowed(
         tenant_id=tenant_id, access=access, external_asset_id=item_id,
     ):
         return True
-    if provider != "google-drive":
+    if provider != "google-drive" or not access.source_id:
         return False
+
     # New or incompletely synced files/folders may not have local ancestry.
-    # Walk authoritative Drive parents with a strict bound and cycle guard.
-    async with create_source_provider(provider, token) as source_client:
+    # Cache only immediate parent IDs; caller-specific scope evaluation remains
+    # uncached. A lazy client keeps cached/follower requests from creating a
+    # provider client, while the first deep lookup still reuses one client.
+    async with contextlib.AsyncExitStack() as stack:
+        source_client = None
+
+        async def load_parent(current_id: str) -> str | None:
+            nonlocal source_client
+            if source_client is None:
+                source_client = await stack.enter_async_context(
+                    create_source_provider(provider, token)
+                )
+            return (await source_client.get_node(current_id)).parent_id
+
         current_id = item_id
         visited: set[str] = set()
         for _depth in range(_VIEWER_MEDIA_MAX_ANCESTOR_DEPTH):
             if current_id in visited:
                 return False
             visited.add(current_id)
-            remote_item = await source_client.get_node(current_id)
-            parent_id = remote_item.parent_id
+            parent_id = await viewer_folder_remote_parent_cache.get_or_load(
+                tenant_id=tenant_id,
+                external_source_id=access.source_id,
+                item_id=current_id,
+                loader=lambda current_id=current_id: load_parent(current_id),
+            )
             if not parent_id:
                 return False
             if parent_id in access.folder_ids or scope_service.allows_external_asset(
@@ -490,6 +508,9 @@ async def upload_file(
     viewer_folder_hierarchy_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    viewer_folder_remote_parent_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 @router.delete("/items/{item_id}")
@@ -505,6 +526,9 @@ async def delete_item(
         await client.get_node(item_id)
         await client.delete_file(item_id)
     viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
+    viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
     return {"deleted": True, "id": item_id}
@@ -530,6 +554,9 @@ async def copy_item(
     viewer_folder_hierarchy_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    viewer_folder_remote_parent_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
     return {"id": node.id, "parent_id": node.parent_id, "name": node.name}
 
 @router.post("/items/{item_id}/move")
@@ -546,6 +573,9 @@ async def move_item(
         if destination.kind != "folder": raise HTTPException(status_code=422, detail="Destination must be a folder.")
         node = await client.move_file(item_id, destination_parent_id)
     viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
+    viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
     return {"id": node.id, "parent_id": node.parent_id}

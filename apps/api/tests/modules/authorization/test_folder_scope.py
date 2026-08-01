@@ -19,6 +19,10 @@ from app.modules.authorization.folder_scope import (
     ViewerFolderScopeService,
     viewer_folder_hierarchy_cache,
 )
+from app.modules.authorization.folder_scope_cache import (
+    ViewerFolderRemoteParentCache,
+    viewer_folder_remote_parent_cache,
+)
 from app.modules.explorer.router import (
     _require_viewer_folder_scope,
     _require_viewer_folder_scope_from_provider,
@@ -31,6 +35,7 @@ from app.modules.explorer.router import (
 class ViewerFolderScopeTest(unittest.TestCase):
     def setUp(self):
         viewer_folder_hierarchy_cache.clear()
+        asyncio.run(viewer_folder_remote_parent_cache.clear())
         self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         Base.metadata.create_all(self.engine)
         self.session = sessionmaker(self.engine, class_=Session, expire_on_commit=False)()
@@ -38,6 +43,7 @@ class ViewerFolderScopeTest(unittest.TestCase):
 
     def tearDown(self):
         viewer_folder_hierarchy_cache.clear()
+        asyncio.run(viewer_folder_remote_parent_cache.clear())
         self.session.close()
         self.engine.dispose()
 
@@ -245,6 +251,48 @@ class ViewerFolderScopeTest(unittest.TestCase):
 
         self.assertTrue(allowed)
 
+    def test_concurrent_remote_media_scope_requests_share_parent_lookups(self):
+        access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
+
+        class ScopeService:
+            def allows_external_asset(self, **_kwargs):
+                return False
+
+        class Provider:
+            parents = {"file-1": "nested-folder", "nested-folder": "folder-a"}
+
+            def __init__(self):
+                self.get_node_calls = 0
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def get_node(self, item_id):
+                self.get_node_calls += 1
+                await asyncio.sleep(0)
+                return SimpleNamespace(parent_id=self.parents.get(item_id))
+
+        provider = Provider()
+
+        async def request_scope():
+            return await _viewer_media_scope_allowed(
+                ScopeService(), tenant_id="tenant-1", access=access,
+                provider="google-drive", token="test-token", item_id="file-1",
+            )
+
+        async def concurrent_requests():
+            return await asyncio.gather(*(request_scope() for _ in range(8)))
+
+        with patch("app.modules.explorer.router.create_source_provider", return_value=provider) as create_provider:
+            results = asyncio.run(concurrent_requests())
+
+        self.assertEqual(results, [True] * 8)
+        self.assertEqual(provider.get_node_calls, 2)
+        self.assertEqual(create_provider.call_count, 1)
+
     def test_remote_scope_allows_nested_folders_and_files_under_each_selected_root(self):
         access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a", "folder-b"}))
 
@@ -445,6 +493,37 @@ class ViewerFolderHierarchyCacheTest(unittest.TestCase):
         cache = ViewerFolderHierarchyCache(max_entries=2, ttl_seconds=60)
         self.assertIsNone(cache.get_or_load(tenant_id="tenant-1", external_source_id="source-1", loader=lambda: (_ for _ in ()).throw(RuntimeError("database unavailable"))))
         self.assertIsNone(cache.get_or_load(tenant_id="tenant-1", external_source_id="source-2", loader=lambda: None))
+
+
+class ViewerFolderRemoteParentCacheTest(unittest.TestCase):
+    def test_reuses_parent_and_invalidates_by_tenant_and_source(self):
+        now = [0.0]
+        cache = ViewerFolderRemoteParentCache(max_entries=2, ttl_seconds=60, clock=lambda: now[0])
+        calls = [0]
+
+        async def load(parent_id):
+            calls[0] += 1
+            return parent_id
+
+        async def exercise():
+            first = await cache.get_or_load(
+                tenant_id="tenant-1", external_source_id="source-1", item_id="file-1",
+                loader=lambda: load("folder-a"),
+            )
+            reused = await cache.get_or_load(
+                tenant_id="tenant-1", external_source_id="source-1", item_id="file-1",
+                loader=lambda: load("wrong-parent"),
+            )
+            cache.invalidate(tenant_id="tenant-1", external_source_id="source-1")
+            refreshed = await cache.get_or_load(
+                tenant_id="tenant-1", external_source_id="source-1", item_id="file-1",
+                loader=lambda: load("folder-b"),
+            )
+            await cache.clear()
+            return first, reused, refreshed
+
+        self.assertEqual(asyncio.run(exercise()), ("folder-a", "folder-a", "folder-b"))
+        self.assertEqual(calls[0], 2)
 
 
 if __name__ == "__main__":
