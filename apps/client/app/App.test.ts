@@ -97,4 +97,11 @@ describe("Search suggestion curation", () => {
       make("unrelated"),
     ]).map(item => item.text)).toEqual(["horse", "horses needlework", "horses needlework personalized gift"]);
   });
+
+  it("shows at most ten concise suggestions", () => {
+    const make = (text: string) => ({ text, prefix: text, completion: "", kind: "search_text" as const });
+    const values = Array.from({ length: 12 }, (_, index) => make(`nurse ${index + 1}`));
+
+    expect(curateSearchSuggestions("nurse", values)).toHaveLength(10);
+  });
 });

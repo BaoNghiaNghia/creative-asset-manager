@@ -121,7 +121,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     const timer = window.setTimeout(async () => {
       setSuggestionsLoading(true);
       try {
-        const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, limit: "7" });
+        const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, limit: "10" });
         const response = await fetch("/api/v1/search/suggestions?" + params, { signal: controller.signal });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw Error(payload.detail || "Suggestions are unavailable");

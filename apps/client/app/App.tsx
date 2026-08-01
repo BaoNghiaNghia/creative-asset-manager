@@ -109,7 +109,7 @@ export function curateSearchSuggestions(query: string, values: SearchSuggestion[
     if (text.trim().split(" ").filter(Boolean).length > 6) return false;
     seen.add(key);
     return true;
-  }).sort((left, right) => left.text.length - right.text.length || left.text.localeCompare(right.text)).slice(0, 5);
+  }).sort((left, right) => left.text.length - right.text.length || left.text.localeCompare(right.text)).slice(0, 10);
 }
 
 export default function App() {
