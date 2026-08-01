@@ -6,6 +6,7 @@ import httpx
 from app.providers.google.drive import (
     GoogleDriveThumbnailUnavailable,
     ThumbnailLinkCache,
+    close_media_stream,
     close_thumbnail_stream,
     open_media_stream,
     open_thumbnail_stream,
@@ -27,6 +28,27 @@ class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(returned_client, client)
         self.assertIs(returned_response, response)
         self.assertTrue(build.call_args.kwargs["follow_redirects"])
+
+    async def test_shared_media_client_stays_open_after_stream_close(self):
+        response = MagicMock(status_code=200, headers={})
+        response.raise_for_status = MagicMock()
+        response.aclose = AsyncMock()
+        client = MagicMock()
+        client.build_request.return_value = MagicMock()
+        client.send = AsyncMock(return_value=response)
+        client.aclose = AsyncMock()
+
+        with patch("app.providers.google.drive.httpx.AsyncClient") as build:
+            returned_client, returned_response = await open_media_stream(
+                "token", "file-id", None, http_client=client
+            )
+
+        self.assertIs(returned_client, client)
+        self.assertIs(returned_response, response)
+        build.assert_not_called()
+        await close_media_stream(client, response, close_client=False)
+        response.aclose.assert_awaited_once()
+        client.aclose.assert_not_awaited()
 
     async def test_retries_transient_google_failure_before_streaming(self):
         transient = MagicMock(status_code=503, headers={"retry-after": "0"})
@@ -98,6 +120,31 @@ class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):
         await close_thumbnail_stream(client, thumbnail)
         thumbnail.aclose.assert_awaited_once()
         client.aclose.assert_awaited_once()
+
+    async def test_shared_thumbnail_client_stays_open_after_stream_close(self):
+        metadata = MagicMock(status_code=200, headers={})
+        metadata.raise_for_status = MagicMock()
+        metadata.json.return_value = {"thumbnailLink": "https://images.test/thumb"}
+        thumbnail = MagicMock(status_code=200, headers={})
+        thumbnail.raise_for_status = MagicMock()
+        thumbnail.aclose = AsyncMock()
+        client = MagicMock()
+        client.get = AsyncMock(return_value=metadata)
+        client.build_request.return_value = MagicMock()
+        client.send = AsyncMock(return_value=thumbnail)
+        client.aclose = AsyncMock()
+
+        with patch("app.providers.google.drive.httpx.AsyncClient") as build:
+            returned_client, returned_response = await open_thumbnail_stream(
+                "token", "file", http_client=client
+            )
+
+        self.assertIs(returned_client, client)
+        self.assertIs(returned_response, thumbnail)
+        build.assert_not_called()
+        await close_thumbnail_stream(client, thumbnail, close_client=False)
+        thumbnail.aclose.assert_awaited_once()
+        client.aclose.assert_not_awaited()
 
     async def test_missing_provider_thumbnail_closes_client(self):
         metadata = MagicMock(status_code=200, headers={})

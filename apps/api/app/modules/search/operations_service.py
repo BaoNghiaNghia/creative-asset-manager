@@ -6,6 +6,7 @@ from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.ai_metadata.projection_service import SearchProjectionService
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider, build_search_index_document
+from app.modules.search.source_index import SearchSourceIndexResolver
 from app.modules.search.index_lifecycle import SearchIndexLifecycleService
 from app.modules.search.operations_model import SearchOperationRunModel
 from app.modules.search.operations_repository import SearchOperationRepository
@@ -183,16 +184,19 @@ class SearchMaintenanceService:
             raise
 
     def _index_document(self, run, analysis) -> SearchIndexDocument:
-        source_id, filename, folder_path = self.repository.source_index_details(
-            run.tenant_id,
-            analysis.asset_id,
+        source = SearchSourceIndexResolver(self.repository.session).for_asset(
+            tenant_id=run.tenant_id,
+            asset_id=analysis.asset_id,
         )
         return build_search_index_document(
             analysis,
-            source_id=source_id,
-            filename=filename,
-            folder_path=folder_path,
+            source_id=source.source_id,
+            parent_id=source.parent_id,
+            ancestor_ids=source.ancestor_ids,
+            filename=source.filename,
+            folder_path=source.folder_path,
         )
+
     @staticmethod
     def _index_prefix(target_index: str) -> str:
         for generation in ("v2", "v3"):

@@ -153,14 +153,16 @@ class ElasticsearchV2Index:
             return definition
         analysis = definition["settings"]["analysis"]
         analysis["normalizer"] = {
-            "cam_keyword": {"type": "custom", "filter": ["lowercase", "asciifolding"]}
+            "cam_normalized": {"type": "custom", "filter": ["lowercase", "asciifolding"]}
         }
         properties = definition["mappings"]["properties"]
         properties["source_id"] = {"type": "keyword"}
+        properties["parent_id"] = {"type": "keyword"}
+        properties["ancestor_ids"] = {"type": "keyword"}
         properties["filename"] = {
             "type": "text",
             "analyzer": "cam_text_v2",
-            "fields": {"normalized": {"type": "keyword", "normalizer": "cam_keyword"}},
+            "fields": {"normalized": {"type": "keyword", "normalizer": "cam_normalized"}},
         }
         properties["visible_text"] = {"type": "text", "analyzer": "cam_text_v2"}
         properties["search_suggest"] = {
@@ -233,7 +235,7 @@ class ElasticsearchV2Index:
     def _document_body(self, document: SearchIndexDocument) -> dict[str, Any]:
         body = document.to_document()
         if self.config.index_generation == "v2":
-            for field in ("source_id", "visible_text", "search_suggest"):
+            for field in ("source_id", "parent_id", "ancestor_ids", "visible_text", "search_suggest"):
                 body.pop(field, None)
         return body
     async def switch_aliases(self, target_index: str) -> AliasSwitchResult:

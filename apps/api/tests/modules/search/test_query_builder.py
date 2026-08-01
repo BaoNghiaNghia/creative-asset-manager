@@ -1,6 +1,11 @@
 import unittest
 
-from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
+from app.modules.search.query_builder import (
+    ElasticsearchQueryBuilder,
+    SearchQueryConfig,
+    decode_search_cursor,
+    encode_search_cursor,
+)
 from app.modules.search.query_parser import SearchQueryParser
 
 
@@ -63,6 +68,37 @@ class ElasticsearchQueryBuilderTest(unittest.TestCase):
     def test_pagination_is_bounded(self) -> None:
         with self.assertRaises(ValueError):
             self.builder.build(self.parser.parse("cat"), tenant_id="tenant-a", size=1001)
+
+    def test_search_after_uses_deterministic_sort_without_offset(self) -> None:
+        cursor = [1.25, "asset-2"]
+        body = self.builder.build(
+            self.parser.parse("cat"),
+            tenant_id="tenant-a",
+            size=60,
+            search_after=cursor,
+        )
+        self.assertEqual(body["sort"], [{"_score": "desc"}, {"asset_id": "asc"}])
+        self.assertEqual(body["search_after"], cursor)
+        self.assertNotIn("from", body)
+        with self.assertRaises(ValueError):
+            self.builder.build(
+                self.parser.parse("cat"),
+                tenant_id="tenant-a",
+                offset=60,
+                search_after=cursor,
+            )
+
+    def test_cursor_round_trip_and_rejects_malformed_values(self) -> None:
+        cursor = encode_search_cursor([1.25, "asset-2"])
+        self.assertEqual(decode_search_cursor(cursor), [1.25, "asset-2"])
+        for value in ("not-a-cursor", "e30", "a" * 513):
+            with self.assertRaises(ValueError):
+                decode_search_cursor(value)
+
+    def test_result_source_is_minimal_and_highlighting_is_not_requested(self) -> None:
+        body = self.build("cat")
+        self.assertEqual(body["_source"], ["asset_id", "source_id", "filename", "folder_path"])
+        self.assertNotIn("highlight", body)
 
 
 if __name__ == "__main__":

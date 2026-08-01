@@ -6,7 +6,9 @@ class SearchV2Request(BaseModel):
     source_provider: Literal["google-drive", "sharepoint"] | None = None
     facets: dict[str, list[str]] = Field(default_factory=dict)
     offset: int = Field(0, ge=0)
+    cursor: str | None = Field(default=None, max_length=512)
     limit: int = Field(50, ge=1, le=200)
+    include_facets: bool = True
     debug: bool = False
 
 class SearchV2Response(BaseModel):
@@ -16,6 +18,8 @@ class SearchV2Response(BaseModel):
     facets: dict[str, list[dict[str, Any]]]
     parsed_query: dict[str, Any] | None = None
     took_ms: int | None = None
+    next_cursor: str | None = None
+    has_more: bool = False
 
 class SearchCapabilities(BaseModel):
     selected_version: Literal["v1", "v2", "v3"]

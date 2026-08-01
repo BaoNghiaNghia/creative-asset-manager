@@ -1,4 +1,5 @@
 import unittest
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -112,6 +113,48 @@ class ElasticsearchLifecycleRemediationTest(unittest.IsolatedAsyncioTestCase):
             await self.service.verify(row.id, VerificationSpec("projection-v2"), actor_id="admin")
         self.assertEqual(row.lifecycle_state, "failed")
 
+    async def test_v3_verification_requires_scope_mapping_and_normalized_filename(self):
+        definition = deepcopy(ElasticsearchV2Index.index_definition())
+        analysis = definition["settings"]["analysis"]
+        analysis["normalizer"] = {
+            "cam_normalized": {"type": "custom", "filter": ["lowercase", "asciifolding"]}
+        }
+        properties = definition["mappings"]["properties"]
+        properties.update({
+            "source_id": {"type": "keyword"},
+            "parent_id": {"type": "keyword"},
+            "ancestor_ids": {"type": "keyword"},
+            "visible_text": {"type": "text", "analyzer": "cam_text_v2"},
+            "search_suggest": {"type": "search_as_you_type", "analyzer": "cam_text_v2"},
+            "filename": {
+                "type": "text", "analyzer": "cam_text_v2",
+                "fields": {"normalized": {"type": "keyword", "normalizer": "cam_normalized"}},
+            },
+        })
+        self.provider.definition = definition
+        row = self.service.register(
+            physical_index_name="cam-v3-verified", index_prefix="cam-v3",
+            index_version="verified", projection_version="projection-v3",
+        )
+        await self.service.verify(
+            row.id, VerificationSpec("projection-v3", tenant_ids=("tenant-a",)),
+            actor_id="admin",
+        )
+        self.assertTrue(row.verification_json["mapping_fields"]["source_id"])
+        self.assertTrue(row.verification_json["mapping_fields"]["ancestor_ids"])
+        self.assertTrue(row.verification_json["mapping_fields"]["filename.normalized"])
+
+        self.provider.definition["mappings"]["properties"].pop("ancestor_ids")
+        rejected = self.service.register(
+            physical_index_name="cam-v3-incomplete", index_prefix="cam-v3",
+            index_version="incomplete", projection_version="projection-v3",
+        )
+        with self.assertRaises(IndexVerificationError):
+            await self.service.verify(
+                rejected.id, VerificationSpec("projection-v3", tenant_ids=("tenant-a",)),
+                actor_id="admin",
+            )
+        self.assertFalse(rejected.verification_json["mapping_fields"]["ancestor_ids"])
     async def test_interrupted_activation_reconciles_and_previous_rolls_back(self):
         old = self.service.register(
             physical_index_name="cam-v2-old", index_prefix="cam",

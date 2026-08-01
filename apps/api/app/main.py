@@ -32,11 +32,14 @@ from app.modules.search.router import router as search_router
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.tag.router import router as tag_router
+from app.providers.google.drive import create_stream_client
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = get_settings()
+    google_drive_stream_client = create_stream_client()
+    _app.state.google_drive_stream_client = google_drive_stream_client
     shadow_started = False
     try:
         init_database(settings)
@@ -51,9 +54,11 @@ async def lifespan(_app: FastAPI):
                 )
         finally:
             try:
+                await google_drive_stream_client.aclose()
                 await API_SEARCH_INDEX_POOL.aclose_current_loop()
                 SEARCH_SUGGESTION_CACHE.clear()
             finally:
+                _app.state.google_drive_stream_client = None
                 dispose_database()
 
 

@@ -210,7 +210,10 @@ class ViewerFolderScopeService:
         ))
         result: dict[str, set[str]] = {}
         for row in rows:
-            result.setdefault(row.external_source_id, set()).add(row.folder_external_id)
+            source_id = str(row.external_source_id or "").strip()
+            folder_id = str(row.folder_external_id or "").strip()
+            if source_id and folder_id:
+                result.setdefault(source_id, set()).add(folder_id)
         return result
 
     def replace(self, *, tenant_id: str, membership_id: str, external_source_id: str, folders: list[dict]) -> list[ViewerFolderScopeModel]:

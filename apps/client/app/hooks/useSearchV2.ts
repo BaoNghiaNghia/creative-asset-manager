@@ -34,6 +34,25 @@ export function isCurrentSearchResponse(requestEpoch: number, currentEpoch: numb
   return requestEpoch === currentEpoch;
 }
 
+export function buildSearchRequestBody(
+  query: string,
+  provider: Provider,
+  facets: Record<string, string[]>,
+  cursor: string | null,
+  append: boolean,
+  debug: boolean,
+) {
+  return {
+    query: query.trim(),
+    source_provider: provider,
+    facets,
+    limit: SEARCH_PAGE_SIZE,
+    ...(cursor ? { cursor } : {}),
+    include_facets: !append,
+    debug,
+  };
+}
+
 export function useSearchV2(authenticated: boolean, provider: Provider, query: string) {
   const [capabilities, setCapabilities] = useState(emptyCapabilities);
   const [items, setItems] = useState<Asset[]>([]);
@@ -51,7 +70,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
   const suggestionCache = useRef(new Map<string, { expiresAt: number; values: SearchSuggestion[] }>());
   const searchEpoch = useRef(0);
-  const nextOffset = useRef(0);
+  const nextCursor = useRef<string | null>(null);
   const pageInFlight = useRef(false);
   const appendController = useRef<AbortController | null>(null);
 
@@ -128,7 +147,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   }, [query, facetKey]);
 
   const fetchPage = useCallback(async (
-    offset: number,
+    cursor: string | null,
     append: boolean,
     epoch: number,
     signal: AbortSignal,
@@ -137,10 +156,9 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     try {
       const response = await fetch("/api/v1/search", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal,
-        body: JSON.stringify({
-          query: query.trim(), source_provider: provider, facets: selectedFacets,
-          limit: SEARCH_PAGE_SIZE, offset, debug: capabilities.debug_allowed,
-        }),
+        body: JSON.stringify(buildSearchRequestBody(
+          query, provider, selectedFacets, cursor, append, capabilities.debug_allowed,
+        )),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw Error(payload.detail || "Search is unavailable");
@@ -154,8 +172,10 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
         setParsed(payload.parsed_query || null);
         setDurationMs(Math.max(0, Math.round(performance.now() - startedAt)));
       }
-      nextOffset.current = offset + pageItems.length;
-      setHasMore(pageItems.length > 0 && nextOffset.current < resultTotal);
+      nextCursor.current = typeof payload.next_cursor === "string" && payload.next_cursor
+        ? payload.next_cursor
+        : null;
+      setHasMore(nextCursor.current !== null);
     } catch (reason) {
       if (!signal.aborted && isCurrentSearchResponse(epoch, searchEpoch.current)) {
         setError(reason instanceof Error ? reason.message : "Search failed");
@@ -173,7 +193,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     appendController.current?.abort();
     appendController.current = null;
     pageInFlight.current = false;
-    nextOffset.current = 0;
+    nextCursor.current = null;
     setHasMore(false);
     setLoadingMore(false);
     setItems([]);
@@ -185,7 +205,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     setError("");
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void fetchPage(0, false, epoch, controller.signal);
+      void fetchPage(null, false, epoch, controller.signal);
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [active, authenticated, query, facetKey, fetchPage]);
@@ -197,7 +217,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     const controller = new AbortController();
     appendController.current?.abort();
     appendController.current = controller;
-    void fetchPage(nextOffset.current, true, searchEpoch.current, controller.signal);
+    void fetchPage(nextCursor.current, true, searchEpoch.current, controller.signal);
   }, [active, authenticated, query, hasMore, loading, loadingMore, fetchPage]);
 
   useEffect(() => () => appendController.current?.abort(), []);

@@ -20,7 +20,12 @@ from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService
-from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
+from app.modules.search.query_builder import (
+    ElasticsearchQueryBuilder,
+    SearchQueryConfig,
+    decode_search_cursor,
+    encode_search_cursor,
+)
 from app.modules.search.query_parser import SearchQueryParser
 from app.modules.search.schema import SearchCapabilities, SearchSuggestionsResponse, SearchV2Request, SearchV2Response
 
@@ -90,6 +95,51 @@ def _source_provider_filter(session, tenant: str, source_provider: str | None, *
     return {"terms": {"asset_id": asset_ids or ["__none__"]}}
 
 
+def _viewer_scope_filter(
+    session,
+    principal: CurrentPrincipal,
+    *,
+    generation: str,
+) -> tuple[dict | None, tuple[tuple[str, tuple[str, ...]], ...] | None]:
+    """Return an indexed source/folder filter for pure viewers."""
+    privileged_roles = {"operator", "tenant_admin", "billing_admin"}
+    if "viewer" not in principal.effective_roles or principal.effective_roles.intersection(privileged_roles):
+        return None, None
+    if generation != "v3" or not principal.membership_id:
+        # Older documents and an incomplete principal cannot prove folder ancestry.
+        # Both must fail closed until the durable membership/index data is available.
+        return {"match_none": {}}, ()
+    scopes = ViewerFolderScopeService(session).list_membership_scopes(
+        tenant_id=principal.active_tenant_id,
+        membership_id=principal.membership_id,
+    )
+    normalized = tuple(
+        sorted(
+            (str(source_id), tuple(sorted(str(folder_id) for folder_id in folder_ids if str(folder_id).strip())))
+            for source_id, folder_ids in scopes.items()
+            if folder_ids
+        )
+    )
+    if not normalized:
+        return {"match_none": {}}, normalized
+    return {
+        "bool": {
+            "should": [
+                {
+                    "bool": {
+                        "filter": [
+                            {"term": {"source_id": source_id}},
+                            {"terms": {"ancestor_ids": list(folder_ids)}},
+                        ]
+                    }
+                }
+                for source_id, folder_ids in normalized
+            ],
+            "minimum_should_match": 1,
+        }
+    }, normalized
+
+
 def _source_timestamp(value) -> float:
     try:
         return value.timestamp()
@@ -118,6 +168,15 @@ def _search_thumbnail_url(*, provider: str, external_asset_id: str, external_sou
         }
     )
     return f"/api/explorer/thumbnail/{quote(str(external_asset_id), safe='')}?{query}"
+
+
+def _facet_aggregations(allowed_facets: list[str], include_facets: bool) -> dict[str, dict]:
+    if not include_facets:
+        return {}
+    return {
+        name: {"terms": {"field": f"facets.{name}", "size": 50}}
+        for name in allowed_facets
+    }
 
 
 
@@ -197,14 +256,14 @@ async def suggestions(
         source_filter = _source_provider_filter(session, tenant, source_provider, generation=generation)
         if source_filter:
             filters.append(source_filter)
-        if "viewer" in principal.effective_roles and not principal.effective_roles.intersection({"operator", "tenant_admin", "billing_admin"}):
-            allowed_ids = ViewerFolderScopeService(session).allowed_internal_asset_ids_for_membership(
-                tenant_id=tenant, membership_id=principal.membership_id,
-            )
-            filters.append({"terms": {"asset_id": sorted(allowed_ids) or ["__none__"]}})
+        viewer_filter, viewer_scope_key = _viewer_scope_filter(
+            session, principal, generation=generation,
+        )
+        if viewer_filter:
+            filters.append(viewer_filter)
         session.commit()
     value = q.strip()
-    cache_key = (tenant, source_provider or "", generation, value.casefold(), limit)
+    cache_key = (tenant, source_provider or "", generation, viewer_scope_key, value.casefold(), limit)
     cached = SEARCH_SUGGESTION_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -271,7 +330,20 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
         if unknown:
             raise HTTPException(422, f"Unsupported search facets: {sorted(unknown)}")
         parsed = SearchQueryParser().parse(body.query)
-        query = ElasticsearchQueryBuilder().build(parsed, tenant_id=tenant, config=config, size=body.limit, offset=body.offset)
+        if body.cursor and body.offset:
+            raise HTTPException(422, "Offset and cursor pagination cannot be combined")
+        try:
+            search_after = decode_search_cursor(body.cursor) if body.cursor else None
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid search cursor") from exc
+        query = ElasticsearchQueryBuilder().build(
+            parsed,
+            tenant_id=tenant,
+            config=config,
+            size=body.limit,
+            offset=body.offset,
+            search_after=search_after,
+        )
         filters = query["query"]["bool"]["filter"]
         for name, values in sorted(body.facets.items()):
             if values:
@@ -282,14 +354,15 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
         )
         if source_filter:
             filters.append(source_filter)
-        viewer_source_pairs: set[tuple[str, str]] | None = None
-        if "viewer" in principal.effective_roles and not principal.effective_roles.intersection({"operator", "tenant_admin", "billing_admin"}):
-            viewer_source_pairs = ViewerFolderScopeService(session).allowed_asset_source_pairs_for_membership(
-                tenant_id=tenant, membership_id=principal.membership_id,
-            )
-            allowed_ids = {asset_id for asset_id, _source_asset_id in viewer_source_pairs}
-            filters.append({"terms": {"asset_id": sorted(allowed_ids) or ["__none__"]}})
-        query["aggs"] = {name: {"terms": {"field": f"facets.{name}", "size": 50}} for name in allowed_facets}
+        viewer_filter, _viewer_scope_key = _viewer_scope_filter(
+            session, principal, generation=generation,
+        )
+        viewer_restricted = viewer_filter is not None
+        if viewer_filter:
+            filters.append(viewer_filter)
+        aggregations = _facet_aggregations(allowed_facets, body.include_facets)
+        if aggregations:
+            query["aggs"] = aggregations
         debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
         primary_started = time.perf_counter()
         try:
@@ -305,7 +378,12 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             raise HTTPException(503, "Search service is temporarily unavailable") from exc
         hits = response.get("hits", {}).get("hits", [])
         asset_ids = [str(hit.get("_source", {}).get("asset_id") or hit.get("_id")) for hit in hits]
-        rows = session.execute(
+        document_source_ids = {
+            str(hit.get("_source", {}).get("source_id") or "").strip()
+            for hit in hits
+            if str(hit.get("_source", {}).get("source_id") or "").strip()
+        }
+        rows_query = (
             select(AssetSourceLinkModel.asset_id, SourceAssetModel, ExternalSourceModel)
             .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
             .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
@@ -314,21 +392,27 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
                 AssetSourceLinkModel.asset_id.in_(asset_ids),
                 SourceAssetModel.deleted_at.is_(None),
             )
-        ).all()
-        sources = {}
+        )
+        if viewer_restricted:
+            rows_query = rows_query.where(
+                ExternalSourceModel.id.in_(document_source_ids or ["__none__"])
+            )
+        rows = session.execute(rows_query).all()
+        sources: dict[tuple[str, str], tuple[SourceAssetModel, ExternalSourceModel]] = {}
         for aid, source, external in sorted(
             rows,
             key=lambda row: _source_pair_rank(row[1], row[2]),
             reverse=True,
         ):
-            if viewer_source_pairs is not None and (str(aid), str(source.id)) not in viewer_source_pairs:
-                continue
-            sources.setdefault(aid, (source, external))
+            sources.setdefault((str(aid), str(external.id)), (source, external))
         items = []
         for hit in hits:
             doc = hit.get("_source", {})
             aid = str(doc.get("asset_id") or hit.get("_id"))
-            pair = sources.get(aid)
+            document_source_id = str(doc.get("source_id") or "").strip()
+            pair = sources.get((aid, document_source_id))
+            if pair is None and not viewer_restricted:
+                pair = next((value for (candidate, _), value in sources.items() if candidate == aid), None)
             if not pair:
                 continue
             source, external = pair
@@ -338,9 +422,19 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": _search_thumbnail_url(provider=provider, external_asset_id=source.external_asset_id, external_source_id=source.external_source_id, kind=kind), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
         total_value = response.get("hits", {}).get("total", 0)
         total = int(total_value.get("value", 0) if isinstance(total_value, dict) else total_value)
-        facet_output = {name: [{"value": bucket.get("key"), "count": bucket.get("doc_count", 0)} for bucket in response.get("aggregations", {}).get(name, {}).get("buckets", [])] for name in allowed_facets}
+        facet_output = (
+            {name: [{"value": bucket.get("key"), "count": bucket.get("doc_count", 0)} for bucket in response.get("aggregations", {}).get(name, {}).get("buckets", [])] for name in allowed_facets}
+            if body.include_facets
+            else {}
+        )
         parsed_doc = {"mode": parsed.mode.value, "clauses": [{"kind": clause.kind.value, "field": clause.field, "value": clause.value} for clause in parsed.clauses]} if debug else None
-        primary_result = {"search_version": "v3" if settings.SEARCH_V3_ENABLED else "v2", "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took")}
+        next_cursor = None
+        if len(hits) == body.limit and hits and isinstance(hits[-1].get("sort"), list):
+            try:
+                next_cursor = encode_search_cursor(hits[-1]["sort"])
+            except ValueError:
+                next_cursor = None
+        primary_result = {"search_version": "v3" if settings.SEARCH_V3_ENABLED else "v2", "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took"), "next_cursor": next_cursor, "has_more": next_cursor is not None}
         provider = body.source_provider or "google-drive"
 
         async def legacy_shadow():

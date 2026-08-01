@@ -15,6 +15,9 @@ class SearchIndexDocument:
     folder_path: str
     search_text: str
     source_id: str = ""
+    parent_id: str = ""
+    # Includes this item. A scope folder therefore matches both itself and all descendants.
+    ancestor_ids: tuple[str, ...] = ()
     visible_text: tuple[str, ...] = ()
     search_suggest: str = ""
     search_terms: tuple[str, ...] = ()
@@ -32,6 +35,8 @@ class SearchIndexDocument:
             "asset_id": self.asset_id,
             "tenant_id": self.tenant_id,
             "source_id": self.source_id,
+            "parent_id": self.parent_id,
+            "ancestor_ids": list(self.ancestor_ids),
             "filename": self.filename,
             "folder_path": self.folder_path,
             "visible_text": list(self.visible_text),
@@ -69,6 +74,8 @@ def build_search_index_document(
     analysis: Any,
     *,
     source_id: str = "",
+    parent_id: str = "",
+    ancestor_ids: Sequence[str] = (),
     filename: str = "",
     folder_path: str = "",
 ) -> SearchIndexDocument:
@@ -88,6 +95,8 @@ def build_search_index_document(
         asset_id=analysis.asset_id,
         tenant_id=analysis.tenant_id,
         source_id=source_id,
+        parent_id=parent_id,
+        ancestor_ids=_unique_nonempty(ancestor_ids),
         filename=filename,
         folder_path=folder_path,
         visible_text=visible,

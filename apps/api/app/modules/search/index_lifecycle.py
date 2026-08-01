@@ -50,6 +50,13 @@ _REQUIRED_MAPPING = {
     "metadata_profile_version": ("keyword", None),
     "search_projection_version": ("keyword", None),
 }
+_V3_REQUIRED_MAPPING = {
+    "source_id": ("keyword", None),
+    "parent_id": ("keyword", None),
+    "ancestor_ids": ("keyword", None),
+    "visible_text": ("text", "cam_text_v2"),
+    "search_suggest": ("search_as_you_type", "cam_text_v2"),
+}
 
 class SearchIndexLifecycleService:
     def __init__(self, session: Session, provider: SearchIndexAdminProvider):
@@ -84,7 +91,7 @@ class SearchIndexLifecycleService:
             mapping = await self.provider.index_mapping(row.physical_index_name)
             settings = await self.provider.index_settings(row.physical_index_name)
             count = await self.provider.index_count(row.physical_index_name)
-            checks = self._definition_checks(mapping, settings, row.physical_index_name)
+            checks = self._definition_checks(mapping, settings, row.physical_index_name, row.index_prefix)
             checks.update({
                 "document_count": count,
                 "document_count_within_tolerance": self._count_valid(count, spec),
@@ -287,13 +294,17 @@ class SearchIndexLifecycleService:
         return {"name": str(fixture.get("_name", "fixture"))[:100], "passed": bool(expected) and passed, "expected_asset_ids": expected, "actual_asset_ids": actual[:max(10, len(expected))]}
 
     @staticmethod
-    def _definition_checks(mapping, settings, index_name):
+    def _definition_checks(mapping, settings, index_name, index_prefix=""):
         mapping_body = mapping.get(index_name, mapping)
         mappings = mapping_body.get("mappings", {}) if isinstance(mapping_body, dict) else {}
         properties = mappings.get("properties", {})
         fields = {}
         mapping_matches = True
-        for name, (expected_type, expected_analyzer) in _REQUIRED_MAPPING.items():
+        is_v3 = str(index_prefix).rstrip("-").endswith("v3") or "-v3-" in str(index_name)
+        required_mapping = dict(_REQUIRED_MAPPING)
+        if is_v3:
+            required_mapping.update(_V3_REQUIRED_MAPPING)
+        for name, (expected_type, expected_analyzer) in required_mapping.items():
             actual = properties.get(name, {})
             passed = actual.get("type") == expected_type and (expected_analyzer is None or actual.get("analyzer") == expected_analyzer)
             fields[name] = passed
@@ -306,6 +317,16 @@ class SearchIndexLifecycleService:
         fields["path_values.path"] = path_value_fields_match
         fields["path_values.value"] = path_value_fields_match
         mapping_matches = mapping_matches and path_value_fields_match
+        filename_normalized = properties.get("filename", {}).get("fields", {}).get("normalized", {})
+        normalized_matches = (
+            not is_v3
+            or (
+                filename_normalized.get("type") == "keyword"
+                and filename_normalized.get("normalizer") == "cam_normalized"
+            )
+        )
+        fields["filename.normalized"] = normalized_matches
+        mapping_matches = mapping_matches and normalized_matches
         settings_body = settings.get(index_name, settings)
         analysis = settings_body.get("settings", {}).get("index", {}).get("analysis", {}) if isinstance(settings_body, dict) else {}
         analyzer = analysis.get("analyzer", {}).get("cam_text_v2", {})

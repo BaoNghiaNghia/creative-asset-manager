@@ -606,10 +606,12 @@ async def thumbnail(
         token, tenant_id_value, resolved_source_id = await _authorized_file_context(
             request, item_id, provider, session, principal, external_source_id
         )
+        shared_client = getattr(request.app.state, "google_drive_stream_client", None)
         client, upstream = await open_google_thumbnail(
             token,
             item_id,
             cache_key=(str(tenant_id_value), str(resolved_source_id), item_id),
+            http_client=shared_client,
         )
         passthrough_headers = {
             name: value
@@ -627,7 +629,12 @@ async def thumbnail(
             status_code=upstream.status_code,
             media_type=upstream.headers.get("content-type") or "image/jpeg",
             headers=passthrough_headers,
-            background=BackgroundTask(close_google_thumbnail, client, upstream),
+            background=BackgroundTask(
+                close_google_thumbnail,
+                client,
+                upstream,
+                client is not shared_client,
+            ),
         )
     except GoogleDriveThumbnailUnavailable as exc:
         raise HTTPException(status_code=404, detail="Thumbnail is unavailable.") from exc
@@ -650,9 +657,25 @@ async def media(
         token, tenant_id, resolved_source_id = await _authorized_file_context(
             request, item_id, provider, session, principal, external_source_id
         )
-        opener = open_sharepoint_media if provider == "sharepoint" else open_google_media
-        closer = close_sharepoint_media if provider == "sharepoint" else close_google_media
-        client, upstream = await opener(token, item_id, request.headers.get("range"))
+        if provider == "sharepoint":
+            client, upstream = await open_sharepoint_media(
+                token, item_id, request.headers.get("range")
+            )
+            close_stream = BackgroundTask(close_sharepoint_media, client, upstream)
+        else:
+            shared_client = getattr(request.app.state, "google_drive_stream_client", None)
+            client, upstream = await open_google_media(
+                token,
+                item_id,
+                request.headers.get("range"),
+                http_client=shared_client,
+            )
+            close_stream = BackgroundTask(
+                close_google_media,
+                client,
+                upstream,
+                client is not shared_client,
+            )
         source_row = session.execute(
             select(SourceAssetModel.filename, SourceAssetModel.mime_type).where(
                 SourceAssetModel.tenant_id == tenant_id,
@@ -675,7 +698,7 @@ async def media(
             status_code=upstream.status_code,
             media_type=media_type,
             headers=passthrough_headers,
-            background=BackgroundTask(closer, client, upstream),
+            background=close_stream,
         )
     except HTTPException:
         raise

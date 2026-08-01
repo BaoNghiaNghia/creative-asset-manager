@@ -53,6 +53,19 @@ class SearchIndexDocumentBuilderTest(unittest.TestCase):
         self.assertEqual(payload["visible_text"], ["BSN, RN", "bsn rn"])
         self.assertIn("search_suggest", payload)
 
+    def test_v3_document_carries_compact_source_ancestry(self):
+        document = build_search_index_document(
+            self._analysis(),
+            source_id="source-a",
+            parent_id="folder-a",
+            ancestor_ids=("file-a", "folder-a", "root-a", "folder-a"),
+        )
+        payload = document.to_document()
+
+        self.assertEqual(payload["source_id"], "source-a")
+        self.assertEqual(payload["parent_id"], "folder-a")
+        self.assertEqual(payload["ancestor_ids"], ["file-a", "folder-a", "root-a"])
+
 
 if __name__ == "__main__":
     unittest.main()

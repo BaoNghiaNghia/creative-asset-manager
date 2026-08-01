@@ -133,3 +133,33 @@ Rollback migration note: stop lifecycle operations, reconcile all `activating`
 records and either activate or re-verify all `verified` records before
 downgrading Alembic from 0017 to 0016. The downgrade changes only the PostgreSQL
 state constraint; it does not switch aliases or delete indices.
+
+## Viewer folder scopes with Search V3
+
+Search V3 authorizes a restricted viewer inside Elasticsearch. Each indexed
+document contains the connected source ID and ancestor_ids; the array includes
+the item itself and every known parent folder. A selected folder therefore
+matches the folder and all of its descendants without expanding every internal
+asset ID into the search request.
+
+Viewer queries always retain the tenant filter and add a source-specific
+source_id plus ancestor_ids filter. A document from a different source or
+tenant never qualifies. Operator, tenant-admin, and billing-admin roles keep
+their existing unrestricted tenant search behavior.
+
+V2 and older documents do not contain this ancestry data. Restricted viewers
+fail closed against those documents. Before enabling folder-restricted viewer
+search, create and activate a current V3 index:
+
+    python -m app.operations.search_cli search:reindex-assets \
+      --tenant-id TENANT_ID \
+      --current-projection-version search-projection-v1 \
+      --index-version viewer-scope-YYYYMMDD \
+      --index-generation v3 \
+      --elasticsearch-url "$ELASTICSEARCH_URL"
+
+When a Drive folder or any of its descendants is moved, rerun the same
+tenant-scoped V3 reindex operation after the source reconciliation records the
+new parent metadata. This is the controlled full-source fallback that replaces
+stale ancestry for every affected document; do not grant or remove a viewer
+folder scope until that reindex has completed and the alias is active.

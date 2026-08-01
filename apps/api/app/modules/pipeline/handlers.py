@@ -26,6 +26,7 @@ from app.modules.pipeline.service import AssetPipelineService
 from app.modules.pipeline.state import PipelineState
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider, build_search_index_document
+from app.modules.search.source_index import SearchSourceIndexResolver
 from app.modules.search.governance_model import ActiveAssetAnalysisModel
 from app.modules.storage.sidecar_document import MetadataSidecarDocumentBuilder
 from app.modules.storage.sidecar_repository import MetadataSidecarRepository
@@ -579,20 +580,17 @@ class AssetIndexJobHandler(_PipelineHandler):
 
     @staticmethod
     def _document(session, analysis: AssetAiAnalysisModel) -> SearchIndexDocument:
-        source = session.scalar(select(SourceAssetModel).join(
-            AssetSourceLinkModel, AssetSourceLinkModel.source_asset_id == SourceAssetModel.id
-        ).where(
-            AssetSourceLinkModel.asset_id == analysis.asset_id,
-            AssetSourceLinkModel.tenant_id == analysis.tenant_id,
-            SourceAssetModel.tenant_id == analysis.tenant_id,
-            SourceAssetModel.deleted_at.is_(None),
-        ).order_by(SourceAssetModel.created_at).limit(1))
-        metadata = source.source_metadata if source else {}
+        source = SearchSourceIndexResolver(session).for_asset(
+            tenant_id=analysis.tenant_id,
+            asset_id=analysis.asset_id,
+        )
         return build_search_index_document(
             analysis,
-            source_id=source.external_source_id if source else "",
-            filename=source.filename if source and source.filename else "",
-            folder_path=str(metadata.get("path") or metadata.get("folder_path") or ""),
+            source_id=source.source_id,
+            parent_id=source.parent_id,
+            ancestor_ids=source.ancestor_ids,
+            filename=source.filename,
+            folder_path=source.folder_path,
         )
 
     @staticmethod

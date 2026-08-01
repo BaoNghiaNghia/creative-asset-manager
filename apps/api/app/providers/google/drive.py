@@ -176,16 +176,29 @@ class GoogleDriveClient:
                 return files
 
 
-async def open_media_stream(access_token: str, item_id: str, range_header: str | None):
+def create_stream_client() -> httpx.AsyncClient:
+    """Create the bounded, application-owned client used for Drive streaming."""
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(20, read=None),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        follow_redirects=True,
+    )
+
+
+async def open_media_stream(
+    access_token: str,
+    item_id: str,
+    range_header: str | None,
+    *,
+    http_client: httpx.AsyncClient | None = None,
+):
     """Open an authenticated Drive media stream without buffering it in the API.
 
     Transient Google errors and redirects are resolved before the response is
     handed to StreamingResponse, which keeps the actual media body unbuffered.
     """
-    client = httpx.AsyncClient(
-        timeout=httpx.Timeout(20, read=None),
-        follow_redirects=True,
-    )
+    client = http_client or create_stream_client()
+    owns_client = http_client is None
     headers = {"Authorization": f"Bearer {access_token}"}
     if range_header:
         headers["Range"] = range_header
@@ -220,13 +233,19 @@ async def open_media_stream(access_token: str, item_id: str, range_header: str |
     except Exception:
         if response is not None:
             await response.aclose()
-        await client.aclose()
+        if owns_client:
+            await client.aclose()
         raise
 
 
-async def close_media_stream(client: httpx.AsyncClient, response: httpx.Response):
+async def close_media_stream(
+    client: httpx.AsyncClient,
+    response: httpx.Response,
+    close_client: bool = True,
+):
     await response.aclose()
-    await client.aclose()
+    if close_client:
+        await client.aclose()
 
 
 async def open_thumbnail_stream(
@@ -234,12 +253,11 @@ async def open_thumbnail_stream(
     item_id: str,
     *,
     cache_key: tuple[str, str, str] | None = None,
+    http_client: httpx.AsyncClient | None = None,
 ):
     """Resolve and stream a Drive thumbnail without repeatedly fetching metadata."""
-    client = httpx.AsyncClient(
-        timeout=httpx.Timeout(20, read=None),
-        follow_redirects=True,
-    )
+    client = http_client or create_stream_client()
+    owns_client = http_client is None
     response = None
     try:
         thumbnail_url = thumbnail_link_cache.get(cache_key) if cache_key else None
@@ -282,10 +300,16 @@ async def open_thumbnail_stream(
     except Exception:
         if response is not None:
             await response.aclose()
-        await client.aclose()
+        if owns_client:
+            await client.aclose()
         raise
 
 
-async def close_thumbnail_stream(client: httpx.AsyncClient, response: httpx.Response):
+async def close_thumbnail_stream(
+    client: httpx.AsyncClient,
+    response: httpx.Response,
+    close_client: bool = True,
+):
     await response.aclose()
-    await client.aclose()
+    if close_client:
+        await client.aclose()
