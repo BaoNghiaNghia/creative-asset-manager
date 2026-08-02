@@ -392,15 +392,37 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
 
     @staticmethod
     def _raise_for_status(response: httpx.Response) -> None:
-        if response.status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+        status_code = response.status_code
+        error_by_status = {
+            401: ("managed_storage_unauthorized", False),
+            403: ("managed_storage_forbidden", False),
+            404: ("managed_storage_object_missing", False),
+        }
+        if status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+            error_by_status[status_code] = (
+                "managed_storage_temporarily_unavailable",
+                True,
+            )
+        mapped = error_by_status.get(status_code)
+        if mapped is not None:
+            code, retryable = mapped
             raise StorageProviderError(
-                f"Google Drive storage request failed with {response.status_code}",
-                retryable=True,
+                f"Google Drive storage request failed with HTTP {status_code}.",
+                code=code,
+                status_code=status_code,
+                retryable=retryable,
+                details={"provider": GoogleDriveAssetStorage.provider_name},
             )
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise StorageProviderError(str(exc), retryable=False) from exc
+            raise StorageProviderError(
+                f"Google Drive storage request failed with HTTP {status_code}.",
+                code="managed_storage_http_error",
+                status_code=status_code,
+                retryable=False,
+                details={"provider": GoogleDriveAssetStorage.provider_name},
+            ) from exc
 
     @staticmethod
     def _validate_upload_url(value: str | None) -> None:

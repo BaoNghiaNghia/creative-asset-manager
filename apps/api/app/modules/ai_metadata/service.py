@@ -228,6 +228,7 @@ class AiAnalysisService:
                     max_width=self.settings.AI_ANALYSIS_MAX_WIDTH,
                     max_height=self.settings.AI_ANALYSIS_MAX_HEIGHT,
                     max_pixels=self.settings.AI_ANALYSIS_MAX_PIXELS,
+                    max_decode_pixels=self.settings.AI_ANALYSIS_MAX_DECODE_PIXELS,
                     jpeg_quality=self.settings.AI_ANALYSIS_JPEG_QUALITY,
                 ),
             )

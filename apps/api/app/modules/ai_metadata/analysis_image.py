@@ -28,6 +28,7 @@ class AnalysisImageLimits:
     max_width: int = 4096
     max_height: int = 4096
     max_pixels: int = 24_000_000
+    max_decode_pixels: int = 120_000_000
     jpeg_quality: int = 88
 
 
@@ -83,7 +84,7 @@ class AnalysisImagePreparer:
                     or height <= 0
                     or width > self.limits.max_width * 8
                     or height > self.limits.max_height * 8
-                    or width * height > self.limits.max_pixels
+                    or width * height > self.limits.max_decode_pixels
                 ):
                     raise AnalysisImageError(
                         "Analysis source exceeds image dimension limits.",
@@ -107,6 +108,18 @@ class AnalysisImagePreparer:
                     Image.Resampling.LANCZOS,
                 )
                 width, height = image.size
+                if (
+                    width <= 0
+                    or height <= 0
+                    or width > self.limits.max_width
+                    or height > self.limits.max_height
+                    or width * height > self.limits.max_pixels
+                ):
+                    raise AnalysisImageError(
+                        "Prepared image exceeds image dimension limits.",
+                        code="analysis_image_dimensions",
+                        retryable=False,
+                    )
                 with tempfile.NamedTemporaryFile(
                     prefix="cam-analysis-ready-",
                     suffix=".jpg",
@@ -139,10 +152,27 @@ class AnalysisImagePreparer:
         except AnalysisImageError:
             raise
         except StorageProviderError as exc:
+            error_map = {
+                "managed_storage_object_missing": "analysis_storage_object_missing",
+                "managed_storage_unauthorized": "analysis_storage_access_denied",
+                "managed_storage_forbidden": "analysis_storage_access_denied",
+                "managed_storage_temporarily_unavailable": (
+                    "analysis_storage_temporarily_unavailable"
+                ),
+                "managed_storage_network_error": (
+                    "analysis_storage_temporarily_unavailable"
+                ),
+            }
             raise AnalysisImageError(
                 "Managed asset could not be read.",
-                code="analysis_storage_read_failed",
+                code=error_map.get(exc.code, "analysis_storage_read_failed"),
                 retryable=exc.retryable,
+            ) from exc
+        except Image.DecompressionBombError as exc:
+            raise AnalysisImageError(
+                "Analysis source exceeds the safe decode limit.",
+                code="analysis_image_dimensions",
+                retryable=False,
             ) from exc
         except (UnidentifiedImageError, OSError, ValueError) as exc:
             raise AnalysisImageError(

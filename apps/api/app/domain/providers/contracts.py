@@ -144,9 +144,20 @@ class AiMetadataAnalysisInput:
 
 
 class StorageProviderError(RuntimeError):
-    def __init__(self, message: str, *, retryable: bool):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool,
+        code: str = "storage_provider_error",
+        status_code: int | None = None,
+        details: Mapping[str, Any] | None = None,
+    ):
         super().__init__(message)
+        self.code = code
         self.retryable = retryable
+        self.status_code = status_code
+        self.details = dict(details or {})
 
 
 class AiProviderError(RuntimeError):

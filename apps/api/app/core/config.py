@@ -141,6 +141,7 @@ class Settings(BaseSettings):
     AI_ANALYSIS_MAX_WIDTH: int = 4096
     AI_ANALYSIS_MAX_HEIGHT: int = 4096
     AI_ANALYSIS_MAX_PIXELS: int = 24_000_000
+    AI_ANALYSIS_MAX_DECODE_PIXELS: int = 120_000_000
     AI_ANALYSIS_JPEG_QUALITY: int = 88
     AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS: int = 2
     AI_ESTIMATED_OUTPUT_UNITS: int = 4096
@@ -751,6 +752,7 @@ class Settings(BaseSettings):
             self.AI_ANALYSIS_MAX_WIDTH,
             self.AI_ANALYSIS_MAX_HEIGHT,
             self.AI_ANALYSIS_MAX_PIXELS,
+            self.AI_ANALYSIS_MAX_DECODE_PIXELS,
             self.AI_ANALYSIS_MAX_VALIDATION_ATTEMPTS,
             self.AI_ESTIMATED_OUTPUT_UNITS,
             self.AI_BATCH_MAX_ITEMS,
