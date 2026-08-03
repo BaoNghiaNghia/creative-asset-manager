@@ -243,7 +243,7 @@ export function AssetGrid({
 
   return <div className="grid">
     {items.map((item, index) => <article
-      className={selected.has(item.id) ? "selected" : ""}
+      className={(selected.has(item.id) ? "selected" : "") + ((item.kind === "image" || item.kind === "video") ? " media-card" : "")}
       key={item.id}
       onClick={() => onFocus(item)}
       onPointerEnter={() => item.kind === "folder" && onPrefetch(item.id)}
