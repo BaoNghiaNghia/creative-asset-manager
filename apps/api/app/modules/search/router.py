@@ -18,6 +18,7 @@ from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.assets.source_url import resolve_source_web_url
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService
 from app.modules.search.query_builder import (
@@ -434,7 +435,7 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
             mime = infer_media_type(source.filename or doc.get("filename"), source.mime_type)
             kind = "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "pdf" if mime == "application/pdf" else "document"
-            items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": _search_thumbnail_url(provider=provider, external_asset_id=source.external_asset_id, external_source_id=source.external_source_id, kind=kind), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
+            items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": _search_thumbnail_url(provider=provider, external_asset_id=source.external_asset_id, external_source_id=source.external_source_id, kind=kind), "web_url": resolve_source_web_url(provider=provider, external_asset_id=source.external_asset_id, source_metadata=source.source_metadata), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
         total_value = response.get("hits", {}).get("total", 0)
         total = int(total_value.get("value", 0) if isinstance(total_value, dict) else total_value)
         facet_output = (

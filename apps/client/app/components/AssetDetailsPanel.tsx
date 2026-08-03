@@ -145,7 +145,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
   const modified = item?.modified_at || stringValue(source.source_modified_at) || stringValue(assetRecord.updated_at);
   const created = stringValue(source.source_created_at) || stringValue(assetRecord.created_at);
   const location = item?.folder_path || item?.ancestor_names?.join(" / ") || sourcePath(source) || "Current folder";
-  const webUrl = item?.web_url || stringValue(source.web_url);
+  const webUrl = resolveProviderWebUrl(item, source, provider);
   const previewUrl = resolvePreviewUrl(item, source);
   const previewName = item?.name || stringValue(source.filename) || "asset";
 
@@ -168,7 +168,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
         <Info label="Modified" value={humanDate(modified)} />
         {created && <Info label="Created" value={humanDate(created)} />}
       </dl>
-      {webUrl && <a className="open-provider-link" href={webUrl} target="_blank" rel="noreferrer">Open in {provider === "sharepoint" ? "SharePoint" : "Google Drive"}</a>}
+      {webUrl && <a className="open-provider-link" href={webUrl} target="_blank" rel="noopener noreferrer">Open in {provider === "sharepoint" ? "SharePoint" : "Google Drive"}</a>}
     </section>
 
     <section className="inspector-section" aria-labelledby="asset-state-heading">
@@ -275,6 +275,25 @@ function sourcePath(source: Record<string, unknown>): string | undefined {
 
 export function resolvePreviewUrl(item: Asset | null, source: Record<string, unknown>): string | undefined {
   return item?.thumbnail_url || stringValue(source.preview_url);
+}
+
+export function resolveProviderWebUrl(item: Asset | null, source: Record<string, unknown>, provider?: string): string | undefined {
+  const sourceMetadata = source.source_metadata && typeof source.source_metadata === "object" ? source.source_metadata as Record<string, unknown> : {};
+  const nestedMetadata = source.metadata && typeof source.metadata === "object" ? source.metadata as Record<string, unknown> : {};
+  const selectedProvider = String(provider || item?.provider || source.source_type || "").toLowerCase().replaceAll("_", "-");
+  const candidates = [item?.web_url, source.web_url, sourceMetadata.web_url, sourceMetadata.webViewLink, sourceMetadata.webUrl, nestedMetadata.web_url, nestedMetadata.webViewLink, nestedMetadata.webUrl];
+  for (const value of candidates) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) continue;
+      const host = url.hostname.toLowerCase().replace(/\.$/, "");
+      const google = ["google-drive", "google"].includes(selectedProvider) && ["drive.google.com", "docs.google.com"].includes(host);
+      const sharepoint = ["sharepoint", "microsoft", "microsoft-sharepoint"].includes(selectedProvider) && (host.endsWith(".sharepoint.com") || host.endsWith(".sharepoint-df.com") || host === "office.com" || host.endsWith(".office.com") || host === "microsoft365.com" || host.endsWith(".microsoft365.com"));
+      if (google || sharepoint) { url.hash = ""; return url.toString(); }
+    } catch { /* ignore malformed provider links */ }
+  }
+  return undefined;
 }
 
 function stringValue(value: unknown): string | undefined { return typeof value === "string" && value ? value : undefined; }

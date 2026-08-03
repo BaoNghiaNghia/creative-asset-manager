@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset, AssetMetadata } from "../types";
-import { AssetDetailsPanel, buildActivity, formatBytes, inferKind, readableKind, resolvePreviewUrl } from "./AssetDetailsPanel";
+import { AssetDetailsPanel, buildActivity, formatBytes, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl } from "./AssetDetailsPanel";
 
 const item: Asset = {
   provider: "google-drive",
@@ -70,6 +70,11 @@ describe("Asset details inspector", () => {
     expect(resolvePreviewUrl(item, { preview_url: "/api/explorer/media/other" })).toBe(item.thumbnail_url);
   });
 
+  it("resolves a trusted provider link and rejects untrusted links", () => {
+    expect(resolveProviderWebUrl(item, {}, "google-drive")).toBe("https://drive.google.com/file/d/drive-image-1/view");
+    expect(resolveProviderWebUrl({ ...item, web_url: "https://evil.example/file" }, { source_metadata: { webViewLink: "https://docs.google.com/document/d/drive-image-1/edit" } }, "google-drive")).toBe("https://docs.google.com/document/d/drive-image-1/edit");
+    expect(resolveProviderWebUrl({ ...item, web_url: undefined }, { source_metadata: { web_url: "https://evil.example/file" } }, "sharepoint")).toBeUndefined();
+  });
   it("formats provider sizes and kinds deterministically", () => {
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(1024)).toBe("1.0 KB");

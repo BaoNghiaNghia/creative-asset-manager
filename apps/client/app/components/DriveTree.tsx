@@ -1,5 +1,5 @@
 import type { Asset, TreeCache } from "../types";
-import { ChevronIcon, FolderTreeIcon } from "./Icons";
+import { ChevronIcon, SourceFolderIcon } from "./Icons";
 
 type Props = {
   node: Asset;
@@ -52,7 +52,7 @@ export function DriveTreeNode({
         {isLoading ? <span className="tree-loading" /> : <ChevronIcon expanded={isExpanded} />}
       </button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
       <button className="tree-label" title={node.name} onClick={() => onOpen(node.id, ancestors)}>
-        <FolderTreeIcon />
+        <SourceFolderIcon name={node.name} />
         <span>{node.name}</span>
       </button>
     </div>

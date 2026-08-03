@@ -25,6 +25,26 @@ export function FolderTreeIcon() {
   </svg>;
 }
 
+export type SourceFolderBrand = "etsy" | "amazon" | null;
+
+export function sourceFolderBrand(name: string): SourceFolderBrand {
+  const normalized = name.trim().toLowerCase();
+  return (normalized.match(/^(etsy|amazon)(?:\s|[-]|$)/)?.[1] as Exclude<SourceFolderBrand, null> | undefined) ?? null;
+}
+
+/** Uses a provider mark for marketplace folders and the folder glyph otherwise. */
+export function SourceFolderIcon({ name }: { name: string }) {
+  const brand = sourceFolderBrand(name);
+
+  if (brand === "etsy") {
+    return <span className="source-folder-brand source-folder-brand-etsy" aria-hidden="true">e</span>;
+  }
+  if (brand === "amazon") {
+    return <span className="source-folder-brand source-folder-brand-amazon" aria-hidden="true">a</span>;
+  }
+  return <FolderTreeIcon />;
+}
+
 export function SidebarIcon({ open }: { open: boolean }) {
   return <svg viewBox="0 0 18 18" aria-hidden="true">
     <rect x="2.25" y="3" width="13.5" height="12" rx="1.5" />

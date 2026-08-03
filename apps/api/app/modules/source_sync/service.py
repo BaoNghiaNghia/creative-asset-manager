@@ -109,6 +109,13 @@ class SourceSyncService:
                     was_deleted = existing is not None and existing.deleted_at is not None
                     old_marker = None if existing is None else (existing.provider_checksum or existing.provider_version)
                     new_marker = candidate.provider_checksum or candidate.provider_version
+                    candidate_metadata = dict(candidate.source_metadata or {})
+                    if not candidate_metadata.get("web_url") and existing is not None:
+                        previous_metadata = dict(existing.source_metadata or {})
+                        for key in ("web_url", "webViewLink", "webUrl", "source_web_url"):
+                            if previous_metadata.get(key):
+                                candidate_metadata["web_url"] = previous_metadata[key]
+                                break
                     source_asset = self.repository.assets.upsert_source_asset(
                         tenant_id=tenant_id,
                         external_source_id=source_id,
@@ -120,7 +127,7 @@ class SourceSyncService:
                         source_modified_at=_datetime(candidate.source_modified_at),
                         provider_checksum=candidate.provider_checksum,
                         provider_version=candidate.provider_version,
-                        source_metadata=sanitize_sensitive_urls(candidate.source_metadata),
+                        source_metadata=sanitize_sensitive_urls(candidate_metadata),
                     )
                     # Incremental discoveries during a full traversal join its generation,
                     # preventing a later successful sweep from deleting the new item.
