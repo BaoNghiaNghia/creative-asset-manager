@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.database import Base
 from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
+from app.modules.authorization.principal import is_pure_viewer
 from app.modules.authorization.folder_scope_cache import (
     ParentMap,
     ViewerFolderHierarchyCache,
@@ -65,7 +66,7 @@ class ViewerFolderScopeService:
         self.session = session
 
     def access(self, *, tenant_id: str, membership_id: str, roles: frozenset[str], external_source_id: str | None) -> ViewerFolderAccess:
-        restricted = "viewer" in roles and not roles.intersection({"operator", "tenant_admin", "billing_admin"})
+        restricted = is_pure_viewer(type("_Principal", (), {"effective_roles": roles})())
         if not restricted or not external_source_id:
             return ViewerFolderAccess(False, external_source_id, frozenset())
         ids = self.session.scalars(

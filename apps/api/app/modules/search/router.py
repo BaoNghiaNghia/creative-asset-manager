@@ -15,7 +15,7 @@ from app.providers.source_factory import create_source_provider
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.ai_metadata.model import MetadataProfileModel
-from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
@@ -46,6 +46,14 @@ def search_config(session, tenant):
         boosts.update({str(k): float(v) for k, v in (config.get("boost_paths") or {}).items() if isinstance(v, (int, float))})
     return SearchQueryConfig(facet_names=frozenset(facets), path_aliases=aliases, boost_paths=boosts), sorted(facets)
 
+def resolve_search_version(*, principal: CurrentPrincipal, search_enabled: bool, search_v3_enabled: bool) -> str:
+    if not search_enabled:
+        return "v1"
+    if is_pure_viewer(principal):
+        return "v3" if search_v3_enabled else "v1"
+    return "v3" if search_v3_enabled else "v2"
+
+
 def enabled(session, tenant):
     settings = get_settings()
     effective = ProcessingPolicyService(ProcessingPolicyRepository(session), settings).effective(tenant)
@@ -63,7 +71,9 @@ def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
         config, facets = search_config(session, tenant)
         available = enabled(session, tenant)
         session.commit()
-    return {"selected_version": "v3" if available and get_settings().SEARCH_V3_ENABLED else "v2" if available else "v1", "v2_available": available, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES}
+    selected = resolve_search_version(principal=principal, search_enabled=available, search_v3_enabled=get_settings().SEARCH_V3_ENABLED)
+    restricted = is_pure_viewer(principal)
+    return {"selected_version": selected, "v2_available": available and not restricted, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES, "viewer_scoped": restricted and selected == "v3", "fallback_reason": "viewer_search_requires_v3" if restricted and selected == "v1" else None, "viewer_search_supported": selected in {"v1", "v3"}}
 
 def _source_provider_filter(session, tenant: str, source_provider: str | None, *, generation: str) -> dict | None:
     if not source_provider:
@@ -102,8 +112,7 @@ def _viewer_scope_filter(
     generation: str,
 ) -> tuple[dict | None, tuple[tuple[str, tuple[str, ...]], ...] | None]:
     """Return an indexed source/folder filter for pure viewers."""
-    privileged_roles = {"operator", "tenant_admin", "billing_admin"}
-    if "viewer" not in principal.effective_roles or principal.effective_roles.intersection(privileged_roles):
+    if not is_pure_viewer(principal):
         return None, None
     if generation != "v3" or not principal.membership_id:
         # Older documents and an incomplete principal cannot prove folder ancestry.
@@ -248,10 +257,13 @@ async def suggestions(
 ):
     tenant = principal.active_tenant_id
     settings = get_settings()
-    generation = "v3" if settings.SEARCH_V3_ENABLED else "v2"
     with SessionLocal() as session:
-        if not enabled(session, tenant):
-            raise HTTPException(409, "Search is not enabled for this tenant")
+        available = enabled(session, tenant)
+        generation = resolve_search_version(principal=principal, search_enabled=available, search_v3_enabled=settings.SEARCH_V3_ENABLED)
+        if generation == "v1":
+            if is_pure_viewer(principal):
+                raise HTTPException(409, detail={"code": "viewer_search_requires_v3", "message": "Scoped Viewer search requires Search V3.", "fallback_version": "v1"})
+            raise HTTPException(409, detail={"code": "search_disabled", "message": "Search is not enabled for this tenant", "fallback_version": "v1"})
         filters = [{"term": {"tenant_id": tenant}}]
         source_filter = _source_provider_filter(session, tenant, source_provider, generation=generation)
         if source_filter:
@@ -323,8 +335,12 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
     tenant = principal.active_tenant_id
     settings = get_settings()
     with SessionLocal() as session:
-        if not enabled(session, tenant):
-            raise HTTPException(409, "Search v2 is not enabled for this tenant")
+        available = enabled(session, tenant)
+        generation = resolve_search_version(principal=principal, search_enabled=available, search_v3_enabled=settings.SEARCH_V3_ENABLED)
+        if generation == "v1":
+            if is_pure_viewer(principal):
+                raise HTTPException(409, detail={"code": "viewer_search_requires_v3", "message": "Scoped Viewer search requires Search V3.", "fallback_version": "v1"})
+            raise HTTPException(409, detail={"code": "search_disabled", "message": "Search is not enabled for this tenant", "fallback_version": "v1"})
         config, allowed_facets = search_config(session, tenant)
         unknown = set(body.facets) - set(allowed_facets)
         if unknown:
@@ -348,7 +364,6 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
         for name, values in sorted(body.facets.items()):
             if values:
                 filters.append({"terms": {f"facets.{name}": values}})
-        generation = "v3" if settings.SEARCH_V3_ENABLED else "v2"
         source_filter = _source_provider_filter(
             session, tenant, body.source_provider, generation=generation,
         )
@@ -434,7 +449,7 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
                 next_cursor = encode_search_cursor(hits[-1]["sort"])
             except ValueError:
                 next_cursor = None
-        primary_result = {"search_version": "v3" if settings.SEARCH_V3_ENABLED else "v2", "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took"), "next_cursor": next_cursor, "has_more": next_cursor is not None}
+        primary_result = {"search_version": generation, "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took"), "next_cursor": next_cursor, "has_more": next_cursor is not None}
         provider = body.source_provider or "google-drive"
 
         async def legacy_shadow():

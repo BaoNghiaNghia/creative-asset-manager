@@ -28,6 +28,9 @@ class SearchCapabilities(BaseModel):
     debug_allowed: bool
     facet_names: list[str]
     examples: list[str]
+    viewer_scoped: bool = False
+    fallback_reason: str | None = None
+    viewer_search_supported: bool = True
 
 
 class SearchSuggestion(BaseModel):

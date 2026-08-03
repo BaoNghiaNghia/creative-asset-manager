@@ -605,6 +605,10 @@ export function useDriveExplorer() {
       setMetadataIndex({ ...emptyIndexStatus });
       return;
     }
+    // Modern Search V2/V3 does not depend on the legacy Drive metadata index.
+    // Avoid polling (or starting) that index while capabilities are unresolved
+    // or a modern generation is active.
+    if (!searchV2.capabilitiesResolved || searchV2.active) return;
 
     let cancelled = false;
     let pollTimer: number | undefined;
@@ -687,11 +691,10 @@ export function useDriveExplorer() {
     setSearchPendingFolders(0);
     setSearchError("");
 
-    if (searchV2.active) return;
+    if (!searchV2.capabilitiesResolved || searchV2.active) return;
 
     if (
       !auth.authenticated
-      || metadataIndex.state !== "completed"
       || !currentFolder
       || normalizedQuery.length < 2
     ) {
@@ -705,7 +708,8 @@ export function useDriveExplorer() {
     const timer = window.setTimeout(async () => {
       setSearching(true);
       try {
-        const response = await fetch("/api/explorer/search/stream", {
+        const searchUrl = "/api/explorer/search/stream?external_source_id=" + encodeURIComponent(currentFolder.external_source_id || "");
+        const response = await fetch(searchUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -713,6 +717,7 @@ export function useDriveExplorer() {
             provider,
             query: normalizedQuery,
             root_id: currentFolder.id,
+            external_source_id: currentFolder.external_source_id,
             ancestor_ids: path.slice(0, -1).map(folder => folder.id),
             ancestor_names: path.slice(0, -1).map(folder => folder.name),
             limit: 300,
@@ -782,7 +787,7 @@ export function useDriveExplorer() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [auth.authenticated, metadataIndex.state, path, provider, query, searchV2.active]);
+  }, [auth.authenticated, path, provider, query, searchV2.active, searchV2.capabilitiesResolved]);
 
   async function selectProvider(source: Provider) {
     setProvider(source); setOauthError(null); clearExplorer(source);
@@ -964,7 +969,7 @@ export function useDriveExplorer() {
     authByProvider,
     oauthError,
     metadataIndex,
-    searchReady: searchV2.active || metadataIndex.state === "completed",
+    searchReady: searchV2.capabilitiesResolved && (searchV2.active || metadataIndex.state === "completed"),
     searchV2,
     retryMetadataIndex: () => setIndexRetryKey(current => current + 1),
     refreshCurrentFolder,

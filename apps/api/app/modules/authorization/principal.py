@@ -56,6 +56,16 @@ class CurrentPrincipal:
         return self.user_id
 
 
+def is_pure_viewer(principal: CurrentPrincipal | object) -> bool:
+    privileged = {"operator", "tenant_admin", "billing_admin"}
+    roles = frozenset(getattr(principal, "effective_roles", frozenset()))
+    return (
+        not bool(getattr(principal, "platform_admin", False))
+        and "viewer" in roles
+        and not roles.intersection(privileged)
+    )
+
+
 def authorization_error(
     status_code: int,
     code: str,

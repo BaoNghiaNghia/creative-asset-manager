@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, ParsedQueryDebug, Provider, SearchCapabilities, SearchFacetBucket, SearchSuggestion } from "../types";
 
+
+export function searchApiErrorMessage(payload: unknown, fallback: string): string {
+  if (typeof payload === "string" && payload.trim()) return payload;
+  if (!payload || typeof payload !== "object") return fallback;
+  const record = payload as { detail?: unknown; message?: unknown };
+  if (typeof record.message === "string" && record.message.trim()) return record.message;
+  if (typeof record.detail === "string" && record.detail.trim()) return record.detail;
+  if (record.detail && typeof record.detail === "object") {
+    const detail = record.detail as { message?: unknown };
+    if (typeof detail.message === "string" && detail.message.trim()) return detail.message;
+  }
+  return fallback;
+}
+
 const emptyCapabilities: SearchCapabilities = {
   selected_version: "v1", v2_available: false, parser_available: false,
   debug_allowed: false, facet_names: [], examples: [],
@@ -85,7 +99,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     const controller = new AbortController();
     fetch("/api/v1/search/capabilities", { signal: controller.signal })
       .then(async response => {
-        if (!response.ok) throw Error("Unable to read search capabilities");
+        if (!response.ok) { const payload = await response.json().catch(() => null); throw Error(searchApiErrorMessage(payload, "Search is unavailable")); }
         setCapabilities(await response.json());
       })
       .catch(reason => !controller.signal.aborted && setError(reason.message))
@@ -124,7 +138,14 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
         const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, limit: "10" });
         const response = await fetch("/api/v1/search/suggestions?" + params, { signal: controller.signal });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw Error(payload.detail || "Suggestions are unavailable");
+        if (!response.ok) {
+          const detail = payload?.detail;
+          const code = detail && typeof detail === "object" ? detail.code : undefined;
+          if (response.status === 409 && (code === "viewer_search_requires_v3" || code === "search_disabled")) {
+            setCapabilities(current => ({ ...current, selected_version: "v1", v2_available: false }));
+          }
+          throw Error(searchApiErrorMessage(payload, "Suggestions are unavailable"));
+        }
         const values = Array.isArray(payload.suggestions) ? payload.suggestions : [];
         suggestionCache.current.set(cacheKey, { values, expiresAt: Date.now() + SUGGESTION_CACHE_TTL_MS });
         setSuggestions(values);
@@ -161,7 +182,16 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
         )),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw Error(payload.detail || "Search is unavailable");
+      if (!response.ok) {
+        const detail = payload?.detail;
+        const code = detail && typeof detail === "object" ? detail.code : undefined;
+        if (response.status === 409 && (code === "viewer_search_requires_v3" || code === "search_disabled")) {
+          setCapabilities(current => ({ ...current, selected_version: "v1", v2_available: false }));
+          setItems([]); setTotal(0); setError("");
+          return;
+        }
+        throw Error(searchApiErrorMessage(payload, "Search is unavailable"));
+      }
       if (!isCurrentSearchResponse(epoch, searchEpoch.current)) return;
       const pageItems: Asset[] = Array.isArray(payload.items) ? payload.items : [];
       const resultTotal = Number(payload.total || 0);
