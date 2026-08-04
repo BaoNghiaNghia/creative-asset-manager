@@ -67,8 +67,10 @@ class ViewerFolderScopeService:
 
     def access(self, *, tenant_id: str, membership_id: str, roles: frozenset[str], external_source_id: str | None) -> ViewerFolderAccess:
         restricted = is_pure_viewer(type("_Principal", (), {"effective_roles": roles})())
-        if not restricted or not external_source_id:
+        if not restricted:
             return ViewerFolderAccess(False, external_source_id, frozenset())
+        if not external_source_id:
+            return ViewerFolderAccess(True, None, frozenset())
         ids = self.session.scalars(
             select(ViewerFolderScopeModel.folder_external_id).where(
                 ViewerFolderScopeModel.tenant_id == tenant_id,
@@ -171,8 +173,10 @@ class ViewerFolderScopeService:
 
     def allows_external_asset(self, *, tenant_id: str, access: ViewerFolderAccess, external_asset_id: str) -> bool:
         """Check a provider item against the selected folder ancestry."""
-        if not access.restricted or not access.source_id:
+        if not access.restricted:
             return True
+        if not access.source_id:
+            return False
         item_id = str(external_asset_id)
         # A directly selected folder is always accessible. Its source record
         # may not have been synchronized yet, so it cannot depend on the

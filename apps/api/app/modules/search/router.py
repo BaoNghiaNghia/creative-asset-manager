@@ -29,6 +29,7 @@ from app.modules.search.query_builder import (
 )
 from app.modules.search.query_parser import SearchQueryParser
 from app.modules.search.schema import SearchCapabilities, SearchSuggestionsResponse, SearchV2Request, SearchV2Response
+from app.modules.search.governance_model import SearchIndexRecordModel
 
 router = APIRouter(prefix="/api/v1/search", tags=["search-v2"])
 SEARCH_READ = require_permission("search.read")
@@ -65,27 +66,83 @@ def enabled(session, tenant):
         and settings.ELASTICSEARCH_URL
     )
 
+
+def _v3_ready(session, settings) -> bool:
+    """Return true only for an activated, verified V3 index we can safely query.
+
+    Capabilities must not advertise V3 merely because an environment flag is set:
+    an index may still be rebuilding, have an incompatible mapping, or be missing
+    the tenant/source fields required for scoped viewers.
+    """
+    if not settings.SEARCH_V3_ENABLED or not settings.ELASTICSEARCH_URL:
+        return False
+    row = session.scalar(
+        select(SearchIndexRecordModel)
+        .where(
+            SearchIndexRecordModel.index_prefix == settings.ELASTICSEARCH_INDEX_PREFIX,
+            SearchIndexRecordModel.lifecycle_state == "active",
+        )
+        .order_by(
+            SearchIndexRecordModel.activated_at.desc().nullslast(),
+            SearchIndexRecordModel.created_at.desc(),
+        )
+    )
+    if row is None:
+        return False
+    verification = row.verification_json or {}
+    if not verification.get("passed"):
+        return False
+    required_fields = {"tenant_id", "source_id", "ancestor_ids", "visible_text", "search_suggest", "filename.normalized"}
+    mapping_fields = set(verification.get("mapping_fields") or [])
+    if not required_fields.issubset(mapping_fields):
+        return False
+    if verification.get("projection_version_documents_match") is False:
+        return False
+    if verification.get("analyzer_matches") is False:
+        return False
+    return bool(verification.get("mapping_matches", True))
+
+
+def _search_generation(session, principal: CurrentPrincipal, tenant: str, settings) -> str:
+    if not enabled(session, tenant):
+        return "v1"
+    v3_ready = _v3_ready(session, settings)
+    if settings.SEARCH_V3_ENABLED and v3_ready:
+        return "v3"
+    if settings.ELASTICSEARCH_V2_ENABLED:
+        return resolve_search_version(
+            principal=principal,
+            search_enabled=True,
+            search_v3_enabled=False,
+        )
+    return "v1"
+
 @router.get("/capabilities", response_model=SearchCapabilities)
 def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
     tenant = principal.active_tenant_id
     with SessionLocal() as session:
         config, facets = search_config(session, tenant)
-        available = enabled(session, tenant)
+        settings = get_settings()
+        selected = _search_generation(session, principal, tenant, settings)
+        available = selected != "v1"
         session.commit()
-    selected = resolve_search_version(principal=principal, search_enabled=available, search_v3_enabled=get_settings().SEARCH_V3_ENABLED)
     restricted = is_pure_viewer(principal)
     return {"selected_version": selected, "v2_available": available and not restricted, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES, "viewer_scoped": restricted and selected == "v3", "fallback_reason": "viewer_search_requires_v3" if restricted and selected == "v1" else None, "viewer_search_supported": selected in {"v1", "v3"}}
 
-def _source_provider_filter(session, tenant: str, source_provider: str | None, *, generation: str) -> dict | None:
-    if not source_provider:
+def _source_provider_filter(session, tenant: str, source_provider: str | None, *, generation: str, external_source_id: str | None = None) -> dict | None:
+    if not source_provider and not external_source_id:
         return None
-    source_type = "google_drive" if source_provider == "google-drive" else "sharepoint"
+    source_type = "google_drive" if source_provider == "google-drive" else "sharepoint" if source_provider == "sharepoint" else None
+    source_where = [ExternalSourceModel.tenant_id == tenant]
+    if source_type:
+        source_where.append(ExternalSourceModel.source_type == source_type)
+    if external_source_id:
+        source_where.append(ExternalSourceModel.id == external_source_id)
     source_ids = [
         str(source_id)
         for source_id in session.scalars(
             select(ExternalSourceModel.id).where(
-                ExternalSourceModel.tenant_id == tenant,
-                ExternalSourceModel.source_type == source_type,
+                *source_where,
             )
         )
     ]
@@ -99,7 +156,16 @@ def _source_provider_filter(session, tenant: str, source_provider: str | None, *
             .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
             .where(
                 AssetSourceLinkModel.tenant_id == tenant,
-                ExternalSourceModel.source_type == source_type,
+                *(
+                    [ExternalSourceModel.source_type == source_type]
+                    if source_type is not None
+                    else []
+                ),
+                *(
+                    [SourceAssetModel.external_source_id == external_source_id]
+                    if external_source_id is not None
+                    else []
+                ),
             )
         )
     ]
@@ -253,20 +319,21 @@ def _suggestion_values(document: dict, query: str) -> list[tuple[str, str, str]]
 async def suggestions(
     q: str = Query(min_length=2, max_length=160),
     source_provider: str | None = Query(default=None, pattern="^(google-drive|sharepoint)$"),
+    external_source_id: str | None = Query(default=None, max_length=128),
     limit: int = Query(default=7, ge=1, le=10),
     principal: CurrentPrincipal = Depends(SEARCH_READ),
 ):
     tenant = principal.active_tenant_id
     settings = get_settings()
     with SessionLocal() as session:
-        available = enabled(session, tenant)
-        generation = resolve_search_version(principal=principal, search_enabled=available, search_v3_enabled=settings.SEARCH_V3_ENABLED)
+        generation = _search_generation(session, principal, tenant, settings)
+        available = generation != "v1"
         if generation == "v1":
             if is_pure_viewer(principal):
                 raise HTTPException(409, detail={"code": "viewer_search_requires_v3", "message": "Scoped Viewer search requires Search V3.", "fallback_version": "v1"})
             raise HTTPException(409, detail={"code": "search_disabled", "message": "Search is not enabled for this tenant", "fallback_version": "v1"})
         filters = [{"term": {"tenant_id": tenant}}]
-        source_filter = _source_provider_filter(session, tenant, source_provider, generation=generation)
+        source_filter = _source_provider_filter(session, tenant, source_provider, generation=generation, external_source_id=external_source_id)
         if source_filter:
             filters.append(source_filter)
         viewer_filter, viewer_scope_key = _viewer_scope_filter(
@@ -276,7 +343,7 @@ async def suggestions(
             filters.append(viewer_filter)
         session.commit()
     value = q.strip()
-    cache_key = (tenant, source_provider or "", generation, viewer_scope_key, value.casefold(), limit)
+    cache_key = (tenant, source_provider or "", external_source_id or "", generation, viewer_scope_key, value.casefold(), limit)
     cached = SEARCH_SUGGESTION_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -336,8 +403,8 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
     tenant = principal.active_tenant_id
     settings = get_settings()
     with SessionLocal() as session:
-        available = enabled(session, tenant)
-        generation = resolve_search_version(principal=principal, search_enabled=available, search_v3_enabled=settings.SEARCH_V3_ENABLED)
+        generation = _search_generation(session, principal, tenant, settings)
+        available = generation != "v1"
         if generation == "v1":
             if is_pure_viewer(principal):
                 raise HTTPException(409, detail={"code": "viewer_search_requires_v3", "message": "Scoped Viewer search requires Search V3.", "fallback_version": "v1"})
@@ -366,7 +433,7 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             if values:
                 filters.append({"terms": {f"facets.{name}": values}})
         source_filter = _source_provider_filter(
-            session, tenant, body.source_provider, generation=generation,
+            session, tenant, body.source_provider, generation=generation, external_source_id=body.external_source_id,
         )
         if source_filter:
             filters.append(source_filter)

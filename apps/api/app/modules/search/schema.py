@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class SearchV2Request(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     source_provider: Literal["google-drive", "sharepoint"] | None = None
+    external_source_id: str | None = Field(default=None, max_length=128)
     facets: dict[str, list[str]] = Field(default_factory=dict)
     offset: int = Field(0, ge=0)
     cursor: str | None = Field(default=None, max_length=512)

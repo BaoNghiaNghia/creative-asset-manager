@@ -33,7 +33,7 @@ from app.modules.explorer.schema import (
 from app.modules.explorer.service import ExplorerService
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.tenant_source import TenantSourceResolver
-from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.authorization.folder_scope import (
     ViewerFolderAccess,
     ViewerFolderScopeService,
@@ -239,6 +239,14 @@ async def _source_context(
 ) -> tuple[str | None, str, str, str | None]:
     """Return the configured tenant source for Google, never the viewer token."""
     if provider == "google-drive":
+        if is_pure_viewer(principal) and not external_source_id:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "viewer_source_context_required",
+                    "message": "Select a Google Drive source before browsing as a viewer.",
+                },
+            )
         source = await TenantSourceResolver(session).google_drive(
             tenant_id=principal.active_tenant_id,
             external_source_id=external_source_id,
@@ -367,8 +375,15 @@ async def folders(
             token=token,
             folder_id=parent_id,
         )
-        return await ExplorerService(create_source_provider, viewer_access=access).list_folders(
-            parent_id, token, provider, viewer_parent_authorized=parent_id != "root",
+        return await ExplorerService(
+            create_source_provider, viewer_access=access,
+        ).list_folders(
+            parent_id,
+            token,
+            provider,
+            viewer_parent_authorized=parent_id != "root",
+            tenant_id=tenant_id,
+            external_source_id=resolved_source_id,
         )
     except HTTPException:
         raise

@@ -43,9 +43,9 @@ const explorerLocationKey = (provider: Provider) => "creative-asset-manager:expl
 export const EXPLORER_LOCATION_MAX_AGE_MS = 15 * 60 * 1000;
 
 type SavedExplorerLocation = {
-  version: 1;
+  version: 1 | 2;
   saved_at: number;
-  path: Array<Pick<Asset, "id" | "name" | "kind" | "mime_type" | "provider">>;
+  path: Array<Pick<Asset, "id" | "name" | "kind" | "mime_type" | "provider" | "external_source_id">>;
 };
 
 export function parseSavedExplorerLocation(
@@ -57,7 +57,7 @@ export function parseSavedExplorerLocation(
   try {
     const parsed = JSON.parse(value) as Partial<SavedExplorerLocation>;
     if (
-      parsed.version !== 1
+      (parsed.version !== 1 && parsed.version !== 2)
       || typeof parsed.saved_at !== "number"
       || !Number.isFinite(parsed.saved_at)
       || now - parsed.saved_at >= EXPLORER_LOCATION_MAX_AGE_MS
@@ -68,15 +68,15 @@ export function parseSavedExplorerLocation(
       item && item.provider === provider && item.kind === "folder"
       && typeof item.id === "string" && item.id.trim() && typeof item.name === "string",
     ));
-    return path.length === parsed.path.length ? { version: 1, saved_at: parsed.saved_at, path } : null;
+    return path.length === parsed.path.length ? { version: parsed.version, saved_at: parsed.saved_at, path } : null;
   } catch { return null; }
 }
 
 function savedLocation(path: Asset[]): SavedExplorerLocation {
   return {
-    version: 1,
+    version: 2,
     saved_at: Date.now(),
-    path: path.map(({ id, name, kind, mime_type, provider }) => ({ id, name, kind, mime_type, provider })),
+    path: path.map(({ id, name, kind, mime_type, provider, external_source_id }) => ({ id, name, kind, mime_type, provider, external_source_id })),
   };
 }
 
@@ -133,6 +133,7 @@ export function oauthMessageFor(errorCode: string): string {
 
 export function useDriveExplorer() {
   const [provider, setProvider] = useState<Provider>("google-drive");
+  const [activeExternalSourceId, setActiveExternalSourceId] = useState<string | null>(null);
   const [authByProvider, setAuthByProvider] = useState<ProviderSessions>({
     "google-drive": { authenticated: false, user: null, checking: true },
     sharepoint: { authenticated: false, user: null, checking: true },
@@ -164,7 +165,7 @@ export function useDriveExplorer() {
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
   const [indexRetryKey, setIndexRetryKey] = useState(0);
-  const searchV2 = useSearchV2(auth.authenticated, provider, query);
+  const searchV2 = useSearchV2(auth.authenticated, provider, query, activeExternalSourceId);
 
   const folderCache = useRef(new Map<string, Folder>());
   const folderRequests = useRef(new Map<string, Promise<Folder>>());
@@ -206,8 +207,10 @@ export function useDriveExplorer() {
     setLoadMoreError("");
   }
 
-  function invalidateFolderPages(id: string, source: Provider = provider) {
-    const prefix = source + ":" + id;
+  const folderCacheKey = (source: Provider, id: string, sourceId: string | null = activeExternalSourceId) => source + ":" + (sourceId || "") + ":" + id;
+
+  function invalidateFolderPages(id: string, source: Provider = provider, sourceId: string | null = activeExternalSourceId) {
+    const prefix = folderCacheKey(source, id, sourceId);
     for (const key of folderCache.current.keys()) {
       if (key === prefix || key.startsWith(prefix + ":page:")) folderCache.current.delete(key);
     }
@@ -218,8 +221,9 @@ export function useDriveExplorer() {
     source: Provider = provider,
     pageToken?: string,
     signal?: AbortSignal,
+    externalSourceId: string | null = activeExternalSourceId,
   ): Promise<Folder> {
-    const baseKey = source + ":" + id;
+    const baseKey = folderCacheKey(source, id, externalSourceId);
     const key = pageToken ? baseKey + ":page:" + pageToken : baseKey;
     const cached = folderCache.current.get(key);
     if (cached) return cached;
@@ -234,6 +238,7 @@ export function useDriveExplorer() {
         page_size: "100",
       });
       if (pageToken) params.set("page_token", pageToken);
+      if (externalSourceId) params.set("external_source_id", externalSourceId);
       const response = await fetch("/api/explorer/children?" + params.toString(), { signal });
       if (!response.ok) {
         const body: unknown = await response.json().catch(() => null);
@@ -252,9 +257,9 @@ export function useDriveExplorer() {
     }
   }
 
-  function cacheFolders(id: string, children: Asset[], source: Provider = provider) {
+  function cacheFolders(id: string, children: Asset[], source: Provider = provider, sourceId: string | null = activeExternalSourceId) {
     const folders = children.filter(item => item.kind === "folder");
-    treeFolderCache.current.set(source + ":" + id, folders);
+    treeFolderCache.current.set(folderCacheKey(source, id, sourceId), folders);
     setChildrenByParent(current => ({ ...current, [id]: folders }));
   }
 
@@ -271,7 +276,7 @@ export function useDriveExplorer() {
           ? children
           : [...children, child];
         next[parent.id] = merged;
-        treeFolderCache.current.set(source + ":" + parent.id, merged);
+        treeFolderCache.current.set(folderCacheKey(source, parent.id), merged);
       }
       return next;
     });
@@ -282,8 +287,8 @@ export function useDriveExplorer() {
     });
   }
 
-  async function fetchTreeFolders(id: string, source: Provider = provider): Promise<Asset[]> {
-    const key = source + ":" + id;
+  async function fetchTreeFolders(id: string, source: Provider = provider, sourceId: string | null = activeExternalSourceId): Promise<Asset[]> {
+    const key = folderCacheKey(source, id, sourceId);
     const cached = treeFolderCache.current.get(key);
     if (cached) return cached;
 
@@ -291,7 +296,9 @@ export function useDriveExplorer() {
     if (pending) return pending;
 
     const request = (async () => {
-      const response = await fetch("/api/explorer/folders?parent_id=" + encodeURIComponent(id) + "&provider=" + encodeURIComponent(source));
+      const params = new URLSearchParams({ parent_id: id, provider: source });
+      if (sourceId) params.set("external_source_id", sourceId);
+      const response = await fetch("/api/explorer/folders?" + params.toString());
       if (!response.ok) {
         const body: unknown = await response.json().catch(() => null);
         throw Error(apiErrorMessage(body, "Unable to load folders"));
@@ -315,7 +322,7 @@ export function useDriveExplorer() {
   }
 
   function scheduleFolderPrefetch(id: string) {
-    const key = provider + ":" + id;
+    const key = folderCacheKey(provider, id);
     if (folderCache.current.has(key) || folderRequests.current.has(key)) return;
     cancelFolderPrefetch();
     prefetchTimer.current = window.setTimeout(() => {
@@ -323,10 +330,10 @@ export function useDriveExplorer() {
     }, 180);
   }
 
-  async function open(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider, preserveSelection = false) {
+  async function open(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider, preserveSelection = false, sourceId: string | null = activeExternalSourceId) {
     const requestSequence = ++openSequence.current;
     resetFolderPagination();
-    const cached = folderCache.current.has(source + ":" + id);
+    const cached = folderCache.current.has(folderCacheKey(source, id, sourceId));
     setLoading(!cached);
     setError("");
     if (!preserveSelection) setSelected(new Set());
@@ -334,18 +341,19 @@ export function useDriveExplorer() {
     cancelFolderPrefetch();
 
     try {
-      const folder = await fetchFolder(id, source);
+      const folder = await fetchFolder(id, source, undefined, undefined, sourceId);
       if (requestSequence !== openSequence.current) return;
       const nextPath = [...ancestors, folder.parent];
       setItems(folder.children);
+      setActiveExternalSourceId(folder.parent.external_source_id ?? sourceId ?? null);
       setPath(nextPath);
       setNextPageToken(folder.next_page_token || null);
       setHasMore(Boolean(folder.has_more && folder.next_page_token));
       hydrateTreePath(nextPath, source);
       // Tree expansion needs a complete folder listing. Never put an interactive
       // first page into the tree cache, otherwise folders after page one disappear.
-      if (!folder.has_more) cacheFolders(id, folder.children, source);
-      else treeFolderCache.current.delete(source + ":" + id);
+      if (!folder.has_more) cacheFolders(id, folder.children, source, sourceId);
+      else treeFolderCache.current.delete(folderCacheKey(source, id, sourceId));
       setExpanded(current => new Set(current).add(id));
     } catch (reason) {
       if (requestSequence === openSequence.current) {
@@ -378,7 +386,7 @@ export function useDriveExplorer() {
 
     const request = (async () => {
       try {
-        const page = await fetchFolder(currentFolder.id, provider, token, controller.signal);
+        const page = await fetchFolder(currentFolder.id, provider, token, controller.signal, currentFolder.external_source_id || activeExternalSourceId);
         if (
           controller.signal.aborted
           || requestSequence !== openSequence.current
@@ -427,25 +435,28 @@ export function useDriveExplorer() {
       return;
     }
     try {
+      const savedSourceId = saved.path[0]?.external_source_id || null;
+      if (source === "google-drive" && saved.path.some(item => !item.external_source_id)) throw Error("Saved source is unavailable");
+      setActiveExternalSourceId(savedSourceId);
       // A legacy saved path can begin at the selected folder. Always hydrate the
       // provider root first so the sidebar has its top-level folders to render.
       const sourceRootId = rootId(source);
-      const sourceRoot = await fetchFolder(sourceRootId, source);
+      const sourceRoot = await fetchFolder(sourceRootId, source, undefined, undefined, saved.path[0]?.external_source_id || null);
       const restoredPath: Asset[] = [sourceRoot.parent];
-      if (!sourceRoot.has_more) cacheFolders(sourceRootId, sourceRoot.children, source);
+      if (!sourceRoot.has_more) cacheFolders(sourceRootId, sourceRoot.children, source, savedSourceId);
 
       for (const item of saved.path) {
         if (item.id === sourceRootId) continue;
-        const folder = await fetchFolder(item.id, source);
+        const folder = await fetchFolder(item.id, source, undefined, undefined, item.external_source_id || savedSourceId);
         if (restoredPath.at(-1)?.id !== folder.parent.id) restoredPath.push(folder.parent);
         // Populate only complete listings. Expanded branches otherwise load their
         // complete folder-only tree from /api/explorer/folders on demand.
-        if (!folder.has_more) cacheFolders(item.id, folder.children, source);
+        if (!folder.has_more) cacheFolders(item.id, folder.children, source, item.external_source_id || savedSourceId);
       }
       const current = restoredPath.at(-1);
       if (!current) throw Error("Saved folder is unavailable");
       setExpanded(new Set(restoredPath.slice(0, -1).map(folder => folder.id)));
-      await open(current.id, restoredPath.slice(0, -1), source);
+      await open(current.id, restoredPath.slice(0, -1), source, false, current.external_source_id || savedSourceId);
     } catch {
       window.localStorage.removeItem(explorerLocationKey(source));
       await open(rootId(source), [], source);
@@ -456,9 +467,10 @@ export function useDriveExplorer() {
     const currentFolder = path.at(-1);
     if (!currentFolder) return;
 
-    invalidateFolderPages(currentFolder.id, provider);
-    treeFolderCache.current.delete(provider + ":" + currentFolder.id);
-    await open(currentFolder.id, path.slice(0, -1), provider, true);
+    const sourceId = currentFolder.external_source_id || activeExternalSourceId;
+    invalidateFolderPages(currentFolder.id, provider, sourceId);
+    treeFolderCache.current.delete(folderCacheKey(provider, currentFolder.id, sourceId));
+    await open(currentFolder.id, path.slice(0, -1), provider, true, sourceId);
   }
   async function toggleTree(node: Asset) {
     if (expanded.has(node.id)) {
@@ -470,9 +482,10 @@ export function useDriveExplorer() {
       return;
     }
 
-    const cached = treeFolderCache.current.get(provider + ":" + node.id);
+    const nodeSourceId = node.external_source_id || activeExternalSourceId
+    const cached = treeFolderCache.current.get(folderCacheKey(provider, node.id, nodeSourceId));
     if (cached) {
-      cacheFolders(node.id, cached, provider);
+      cacheFolders(node.id, cached, provider, nodeSourceId);
       setExpanded(current => new Set(current).add(node.id));
       return;
     }
@@ -480,8 +493,8 @@ export function useDriveExplorer() {
     setLoadingTreeIds(current => new Set(current).add(node.id));
     setError("");
     try {
-      const folders = await fetchTreeFolders(node.id, provider);
-      cacheFolders(node.id, folders, provider);
+      const folders = await fetchTreeFolders(node.id, provider, activeExternalSourceId);
+      cacheFolders(node.id, folders, provider, nodeSourceId);
       setExpanded(current => new Set(current).add(node.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to expand folder");
@@ -512,6 +525,7 @@ export function useDriveExplorer() {
         const response = await fetch(
           "/api/explorer/upload?parent_id=" + encodeURIComponent(parentId)
             + "&provider=" + encodeURIComponent(provider)
+            + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : "")
             + "&filename=" + encodeURIComponent(file.name)
             + "&mime_type=" + encodeURIComponent(file.type || "application/octet-stream"),
           { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
@@ -532,11 +546,11 @@ export function useDriveExplorer() {
     }
     await refreshCurrentFolder();
   }
-  async function deleteItem(itemId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "?provider=" + encodeURIComponent(provider), { method: "DELETE" }); if (!response.ok) throw Error("Unable to delete file"); await refreshCurrentFolder(); }
-  async function moveItem(itemId: string, destinationParentId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/move?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId), { method: "POST" }); if (!response.ok) throw Error("Unable to move file"); await refreshCurrentFolder(); }
+  async function deleteItem(itemId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "?provider=" + encodeURIComponent(provider) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "DELETE" }); if (!response.ok) throw Error("Unable to delete file"); await refreshCurrentFolder(); }
+  async function moveItem(itemId: string, destinationParentId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/move?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "POST" }); if (!response.ok) throw Error("Unable to move file"); await refreshCurrentFolder(); }
   async function copyItems(itemIds: string[], destinationParentId: string) {
     for (const itemId of itemIds) {
-      const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/copy?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId), { method: "POST" });
+      const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/copy?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "POST" });
       if (!response.ok) throw Error("Unable to copy item");
     }
     await refreshCurrentFolder();
@@ -544,6 +558,7 @@ export function useDriveExplorer() {
 
   function clearExplorer(source: Provider = provider) {
     setPath([]);
+    setActiveExternalSourceId(null);
     setItems([]);
     setChildrenByParent({});
     setExpanded(new Set([rootId(source)]));
@@ -708,7 +723,9 @@ export function useDriveExplorer() {
     const timer = window.setTimeout(async () => {
       setSearching(true);
       try {
-        const searchUrl = "/api/explorer/search/stream?external_source_id=" + encodeURIComponent(currentFolder.external_source_id || "");
+        const searchParams = new URLSearchParams();
+        if (currentFolder.external_source_id) searchParams.set("external_source_id", currentFolder.external_source_id);
+        const searchUrl = "/api/explorer/search/stream" + (searchParams.toString() ? "?" + searchParams.toString() : "");
         const response = await fetch(searchUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -717,7 +734,7 @@ export function useDriveExplorer() {
             provider,
             query: normalizedQuery,
             root_id: currentFolder.id,
-            external_source_id: currentFolder.external_source_id,
+            ...(currentFolder.external_source_id ? { external_source_id: currentFolder.external_source_id } : {}),
             ancestor_ids: path.slice(0, -1).map(folder => folder.id),
             ancestor_names: path.slice(0, -1).map(folder => folder.name),
             limit: 300,
@@ -787,10 +804,10 @@ export function useDriveExplorer() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [auth.authenticated, path, provider, query, searchV2.active, searchV2.capabilitiesResolved]);
+  }, [auth.authenticated, path, provider, activeExternalSourceId, query, searchV2.active, searchV2.capabilitiesResolved]);
 
   async function selectProvider(source: Provider) {
-    setProvider(source); setOauthError(null); clearExplorer(source);
+    setProvider(source); setActiveExternalSourceId(null); setOauthError(null); clearExplorer(source);
     if (authByProvider[source].authenticated) await open(rootId(source), [], source);
   }
 
@@ -978,6 +995,7 @@ export function useDriveExplorer() {
     openFolder,
     toggleTree,
     scheduleFolderPrefetch,
+    activeExternalSourceId,
     cancelFolderPrefetch,
     logout,
     toggleSelection,

@@ -55,10 +55,12 @@ export function buildSearchRequestBody(
   cursor: string | null,
   append: boolean,
   debug: boolean,
+  externalSourceId?: string | null,
 ) {
   return {
     query: query.trim(),
     source_provider: provider,
+    ...(externalSourceId ? { external_source_id: externalSourceId } : {}),
     facets,
     limit: SEARCH_PAGE_SIZE,
     ...(cursor ? { cursor } : {}),
@@ -67,7 +69,7 @@ export function buildSearchRequestBody(
   };
 }
 
-export function useSearchV2(authenticated: boolean, provider: Provider, query: string) {
+export function useSearchV2(authenticated: boolean, provider: Provider, query: string, externalSourceId?: string | null) {
   const [capabilities, setCapabilities] = useState(emptyCapabilities);
   const [items, setItems] = useState<Asset[]>([]);
   const [facets, setFacets] = useState<Record<string, SearchFacetBucket[]>>({});
@@ -124,7 +126,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       setSuggestions([]); setSuggestionsLoading(false); return;
     }
     const normalizedQuery = query.trim();
-    const cacheKey = provider + ":" + normalizedQuery.toLocaleLowerCase();
+    const cacheKey = provider + ":" + (externalSourceId || "") + ":" + normalizedQuery.toLocaleLowerCase();
     const cached = suggestionCache.current.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       setSuggestions(cached.values);
@@ -135,7 +137,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     const timer = window.setTimeout(async () => {
       setSuggestionsLoading(true);
       try {
-        const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, limit: "10" });
+        const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, ...(externalSourceId ? { external_source_id: externalSourceId } : {}), limit: "10" });
         const response = await fetch("/api/v1/search/suggestions?" + params, { signal: controller.signal });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
@@ -156,7 +158,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       }
     }, SUGGESTION_DEBOUNCE_MS);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [active, authenticated, provider, query]);
+  }, [active, authenticated, provider, query, externalSourceId]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -178,7 +180,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       const response = await fetch("/api/v1/search", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal,
         body: JSON.stringify(buildSearchRequestBody(
-          query, provider, selectedFacets, cursor, append, capabilities.debug_allowed,
+          query, provider, selectedFacets, cursor, append, capabilities.debug_allowed, externalSourceId,
         )),
       });
       const payload = await response.json().catch(() => ({}));
@@ -216,7 +218,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       }
       if (append) pageInFlight.current = false;
     }
-  }, [capabilities.debug_allowed, provider, query, selectedFacets]);
+  }, [capabilities.debug_allowed, provider, query, selectedFacets, externalSourceId]);
 
   useEffect(() => {
     const epoch = ++searchEpoch.current;

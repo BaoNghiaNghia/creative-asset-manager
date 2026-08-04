@@ -46,6 +46,13 @@ class ExplorerService:
         self.asset_status_service = asset_status_service
         self.viewer_access = viewer_access
 
+    @staticmethod
+    def _assign_external_source(items: list[AssetNode], external_source_id: str | None) -> list[AssetNode]:
+        if external_source_id:
+            for item in items:
+                item.external_source_id = external_source_id
+        return items
+
     def _enrich_asset_identities(
         self,
         items: list[AssetNode],
@@ -133,6 +140,8 @@ class ExplorerService:
         else:
             raise PermissionError("Connect SharePoint to browse files.")
 
+        self._assign_external_source([parent], external_source_id)
+        self._assign_external_source(children, external_source_id)
         self._enrich_asset_identities(
             children,
             tenant_id or account_id,
@@ -166,6 +175,8 @@ class ExplorerService:
         parent_id: str,
         access_token: str | None,
         provider: str = "google-drive",
+        tenant_id: str | None = None,
+        external_source_id: str | None = None,
         viewer_parent_authorized: bool = False,
     ) -> list[AssetNode]:
         if access_token:
@@ -175,6 +186,7 @@ class ExplorerService:
                     folders = [folder for folder in folders if self.viewer_access.allows(
                         item_id=folder.id, parent_id=parent_id, ancestor_ids=folder.ancestor_ids,
                     )]
+                self._assign_external_source(folders, external_source_id)
                 return folders
         if provider == "sharepoint":
             raise PermissionError("Connect SharePoint to browse folders.")
@@ -183,6 +195,7 @@ class ExplorerService:
             folders = [folder for folder in folders if self.viewer_access.allows(
                 item_id=folder.id, parent_id=parent_id, ancestor_ids=folder.ancestor_ids,
             )]
+        self._assign_external_source(folders, external_source_id)
         return folders
 
     def _search_analyzed_assets(
