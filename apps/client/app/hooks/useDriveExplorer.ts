@@ -14,7 +14,6 @@ import type {
   TreeCache,
   VisibilityFilter,
 } from "../types";
-import { searchAssets } from "../utils/searchAssets";
 import { isSearchRequestInFlight, useSearchV2 } from "./useSearchV2";
 
 type SearchStreamEvent = {
@@ -708,9 +707,11 @@ export function useDriveExplorer() {
 
     if (!searchV2.capabilitiesResolved || searchV2.active) return;
 
+    const searchSourceId = currentFolder?.external_source_id || activeExternalSourceId;
     if (
       !auth.authenticated
       || !currentFolder
+      || !searchSourceId?.trim()
       || normalizedQuery.length < 2
     ) {
       setSearchIndexedCount(0);
@@ -724,7 +725,7 @@ export function useDriveExplorer() {
       setSearching(true);
       try {
         const searchParams = new URLSearchParams();
-        if (currentFolder.external_source_id) searchParams.set("external_source_id", currentFolder.external_source_id);
+        searchParams.set("external_source_id", searchSourceId);
         const searchUrl = "/api/explorer/search/stream" + (searchParams.toString() ? "?" + searchParams.toString() : "");
         const response = await fetch(searchUrl, {
           method: "POST",
@@ -734,10 +735,10 @@ export function useDriveExplorer() {
             provider,
             query: normalizedQuery,
             root_id: currentFolder.id,
-            ...(currentFolder.external_source_id ? { external_source_id: currentFolder.external_source_id } : {}),
+            external_source_id: searchSourceId,
             ancestor_ids: path.slice(0, -1).map(folder => folder.id),
             ancestor_names: path.slice(0, -1).map(folder => folder.name),
-            limit: 300,
+            limit: 60,
           }),
         });
         if (!response.ok) {
@@ -798,7 +799,7 @@ export function useDriveExplorer() {
       } finally {
         if (!controller.signal.aborted) setSearching(false);
       }
-    }, 320);
+    }, 250);
 
     return () => {
       window.clearTimeout(timer);
@@ -880,17 +881,13 @@ export function useDriveExplorer() {
     setSelected(new Set());
   }
 
-  const localResults = useMemo(
-    () => searchAssets(items, query),
-    [items, query],
-  );
   const matchedItems = useMemo(
     () => searchV2.active && query.trim().length >= 1
       ? searchV2.items
       : query.trim().length >= 2 && searchResults !== null
         ? searchResults
-        : localResults,
-    [localResults, query, searchResults, searchV2.active, searchV2.items],
+        : items,
+    [items, query, searchResults, searchV2.active, searchV2.items],
   );
 
   const visibleItems = useMemo(

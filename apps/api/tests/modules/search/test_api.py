@@ -16,6 +16,7 @@ from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.search.router import _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
+from app.modules.search.governance_model import SearchIndexRecordModel
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 
 
@@ -28,6 +29,23 @@ class SearchV2ApiTest(unittest.TestCase):
         self.factory = sessionmaker(self.engine, class_=Session, expire_on_commit=False)
         with self.factory() as session:
             session.add(MetadataProfileModel(tenant_id="tenant-a", profile_name="general", profile_version="1", prompt_template="Analyze", search_config_json={"facet_paths": ["subject"]}))
+            session.add(SearchIndexRecordModel(
+                physical_index_name="creative-assets-v3-1",
+                index_prefix="creative-assets",
+                index_version="1",
+                projection_version="search-projection-v3",
+                lifecycle_state="active",
+                verification_json={
+                    "passed": True,
+                    "mapping_fields": [
+                        "tenant_id", "source_id", "ancestor_ids", "visible_text",
+                        "search_suggest", "filename.normalized",
+                    ],
+                    "mapping_matches": True,
+                    "analyzer_matches": True,
+                },
+                activated_at=datetime.now(timezone.utc),
+            ))
             session.commit()
         self.client = TestClient(app)
         app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
@@ -102,7 +120,7 @@ class SearchV2ApiTest(unittest.TestCase):
             patch("app.modules.search.router.enabled", return_value=True),
             patch("app.modules.search.runtime.ElasticsearchV2Index", FakeIndex),
         ):
-            response = self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive")
+            response = self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive&external_source_id=source-a")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["search_version"], "v3")
         self.assertEqual(response.json()["suggestions"], [
@@ -142,9 +160,9 @@ class SearchV2ApiTest(unittest.TestCase):
             patch("app.modules.search.router.enabled", return_value=True),
             patch("app.modules.search.runtime.ElasticsearchV2Index", FakeIndex),
         ):
-            self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive").status_code, 200)
-            self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive").status_code, 200)
-            self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=sharepoint").status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive&external_source_id=source-a").status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive&external_source_id=source-a").status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=sharepoint&external_source_id=source-b").status_code, 200)
         self.assertEqual(FakeIndex.calls, 2)
 
     def test_source_pair_rank_prefers_default_recent_live_source(self):

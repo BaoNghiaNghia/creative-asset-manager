@@ -91,6 +91,8 @@ export type SearchCapabilities = {
   debug_allowed: boolean;
   facet_names: string[];
   examples: string[];
+  viewer_scoped?: boolean;
+  viewer_search_supported?: boolean;
 };
 export type SearchFacetBucket = { value: string; count: number };
 export type SearchSuggestion = {

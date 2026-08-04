@@ -107,6 +107,8 @@ def _search_generation(session, principal: CurrentPrincipal, tenant: str, settin
     if not enabled(session, tenant):
         return "v1"
     v3_ready = _v3_ready(session, settings)
+    if is_pure_viewer(principal):
+        return "v3" if settings.SEARCH_V3_ENABLED and v3_ready else "v1"
     if settings.SEARCH_V3_ENABLED and v3_ready:
         return "v3"
     if settings.ELASTICSEARCH_V2_ENABLED:
@@ -325,6 +327,8 @@ async def suggestions(
 ):
     tenant = principal.active_tenant_id
     settings = get_settings()
+    if is_pure_viewer(principal) and not (external_source_id or '').strip():
+        raise HTTPException(422, detail={'code': 'viewer_source_required', 'message': 'A source is required for scoped Viewer search.'})
     with SessionLocal() as session:
         generation = _search_generation(session, principal, tenant, settings)
         available = generation != "v1"
@@ -405,6 +409,8 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
     with SessionLocal() as session:
         generation = _search_generation(session, principal, tenant, settings)
         available = generation != "v1"
+        if is_pure_viewer(principal) and not (body.external_source_id or "").strip():
+            raise HTTPException(status_code=422, detail={"code": "viewer_source_required", "message": "A search source is required."})
         if generation == "v1":
             if is_pure_viewer(principal):
                 raise HTTPException(409, detail={"code": "viewer_search_requires_v3", "message": "Scoped Viewer search requires Search V3.", "fallback_version": "v1"})

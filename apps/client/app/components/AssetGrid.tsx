@@ -4,8 +4,8 @@ import { AssetStatusBadge } from "./AssetStatusBadge";
 import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType } from "../utils/fileType";
 
 
-export const THUMBNAIL_CONCURRENCY_LIMIT = 8;
-export const INITIAL_HIGH_PRIORITY_THUMBNAILS = 8;
+export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
+export const INITIAL_HIGH_PRIORITY_THUMBNAILS = 6;
 
 export function thumbnailFetchPriority(index: number): "high" | "auto" {
   return index < INITIAL_HIGH_PRIORITY_THUMBNAILS ? "high" : "auto";
@@ -131,7 +131,7 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
       className={"preview-thumbnail" + (thumbnailLoaded ? " is-loaded" : "")}
       src={item.thumbnail_url}
       alt=""
-      loading="eager"
+      loading={fetchPriority === "high" ? "eager" : "lazy"}
       decoding="async"
       fetchPriority={fetchPriority}
       referrerPolicy="no-referrer"
