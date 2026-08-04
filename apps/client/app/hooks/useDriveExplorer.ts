@@ -888,7 +888,7 @@ export function useDriveExplorer() {
     () => searchV2.active && query.trim().length >= 1
       ? searchV2.items
       : query.trim().length >= 2 && searchResults !== null
-        ? searchAssets(searchResults, query)
+        ? searchResults
         : localResults,
     [localResults, query, searchResults, searchV2.active, searchV2.items],
   );
