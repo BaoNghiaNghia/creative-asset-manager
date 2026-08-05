@@ -118,7 +118,16 @@ function AccessState({ state, message, onRetry }: { state: AccessPageState; mess
     "stale-membership": ["Membership changed", "Your active tenant membership is no longer valid. Refresh your session or choose another tenant."],
     error: ["Access settings unavailable", message || "The server could not load access settings."],
   }[state as Exclude<AccessPageState, "loading" | "ready">];
-  return <div className="access-state" role={state === "error" ? "alert" : "status"}><span aria-hidden="true">⚿</span><h1>{copy[0]}</h1><p>{copy[1]}</p>{state === "unauthenticated" ? <a href="/">Return to sign in</a> : <button type="button" onClick={onRetry}>Retry</button>}</div>;
+  return <div className={`access-state access-state--${state}`} role={state === "error" ? "alert" : "status"}>
+    <div className="access-state-card">
+      <div className="access-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 20 6v5c0 5.1-3.4 8.7-8 10-4.6-1.3-8-4.9-8-10V6l8-3Z"/><path d="M12 8v5m0 3h.01"/></svg></div>
+      <span className="access-state-eyebrow">Workspace access</span>
+      <h1>{copy[0]}</h1>
+      <p>{copy[1]}</p>
+      <div className="access-state-actions">{state === "unauthenticated" ? <a className="access-primary-action" href="/">Return to sign in</a> : <button className="access-primary-action" type="button" onClick={onRetry}>Try again</button>}</div>
+      {state === "permission-denied" && <small className="access-state-hint">If you believe this is a mistake, contact your workspace administrator.</small>}
+    </div>
+  </div>;
 }
 
 function MembersTab(props: ContentProps) {

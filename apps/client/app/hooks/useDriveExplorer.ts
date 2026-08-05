@@ -371,7 +371,17 @@ export function useDriveExplorer() {
       if (requestSequence !== openSequence.current || controller.signal.aborted) return false;
       const nextPath = [...ancestors, folder.parent];
       setItems(folder.children);
-      setActiveExternalSourceId(folder.parent.external_source_id ?? sourceId ?? null);
+      const treeSourceId = folder.parent.external_source_id ?? sourceId ?? null;
+      setActiveExternalSourceId(treeSourceId);
+      // The first content page can be paginated, so it is not a complete
+      // source tree. Rehydrate folder-only children whenever Explorer mounts.
+      void fetchTreeFolders(id, source, treeSourceId, controller.signal)
+        .then(folders => {
+          if (!controller.signal.aborted && requestSequence === openSequence.current) {
+            cacheFolders(id, folders, source, treeSourceId);
+          }
+        })
+        .catch(() => undefined);
       if (pureViewer && sourceId) {
         const assignedRoot = viewerBootstrap?.sources
           .find(item => item.external_source_id === sourceId)
