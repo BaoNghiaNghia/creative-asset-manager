@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from app.core.database import Base
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Index
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Index
 from app.modules.search.governance_model import SearchIndexRecordModel
 from app.modules.search.index_lifecycle import IndexVerificationError, SearchIndexLifecycleService, VerificationSpec
 from app.modules.search.index_types import AliasSwitchResult
@@ -12,7 +12,7 @@ from app.modules.search.index_types import AliasSwitchResult
 
 class FakeLifecycleProvider:
     def __init__(self):
-        self.definition = ElasticsearchV2Index.index_definition()
+        self.definition = ElasticsearchV3Index.index_definition()
         self.aliases = {"read": set(), "write": set()}
         self.count = 10
         self.mismatched_projection_count = 0
@@ -114,7 +114,7 @@ class ElasticsearchLifecycleRemediationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row.lifecycle_state, "failed")
 
     async def test_v3_verification_requires_scope_mapping_and_normalized_filename(self):
-        definition = deepcopy(ElasticsearchV2Index.index_definition())
+        definition = deepcopy(ElasticsearchV3Index.index_definition())
         analysis = definition["settings"]["analysis"]
         analysis["normalizer"] = {
             "cam_normalized": {"type": "custom", "filter": ["lowercase", "asciifolding"]}

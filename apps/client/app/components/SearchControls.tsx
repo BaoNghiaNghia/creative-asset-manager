@@ -31,7 +31,7 @@ export function SearchGuide({ capabilities }: Pick<Props, "capabilities">) {
   </div>;
 }
 
-export function SearchV2Controls({ facets, selected, parsed, onToggle }: Props) {
+export function SearchControls({ facets, selected, parsed, onToggle }: Props) {
   return <div className="search-v2-controls">
     <div className="search-facet-groups" aria-label="Search filters">
       {Object.entries(facets).filter(([, buckets]) => buckets.length).map(([name, buckets]) => <fieldset className="search-facets" key={name}><legend>{name}</legend>{buckets.map(bucket => <label key={bucket.value}><input type="checkbox" checked={(selected[name] || []).includes(bucket.value)} onChange={() => onToggle(name, bucket.value)} />{bucket.value}<small>{bucket.count}</small></label>)}</fieldset>)}

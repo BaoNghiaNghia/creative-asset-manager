@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.redaction import redact_url_queries, sanitize_log_value
 from app.core.database import SessionLocal, engine
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
@@ -165,8 +165,8 @@ def build_worker_runtime(
             session_factory, resolver, storage_provider
         )
     if settings.ELASTICSEARCH_URL:
-        default_resources["search_index_provider"] = ElasticsearchV2Index(
-            ElasticsearchV2Config(
+        default_resources["search_index_provider"] = ElasticsearchV3Index(
+            ElasticsearchV3Config(
                 settings.ELASTICSEARCH_URL,
                 settings.ELASTICSEARCH_INDEX_PREFIX,
                 index_generation="v3" if settings.SEARCH_V3_ENABLED else "v2",

@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import Base
 from app.infrastructure.search.elasticsearch_v2 import (
-    ElasticsearchV2Config,
-    ElasticsearchV2Index,
+    ElasticsearchV3Config,
+    ElasticsearchV3Index,
 )
 from app.modules.search.index_types import SearchIndexDocument
 from app.modules.search.index_lifecycle import SearchIndexLifecycleService, VerificationSpec
@@ -27,8 +27,8 @@ ELASTICSEARCH_URL = os.getenv("INTEGRATION_ELASTICSEARCH_URL") or os.getenv(
 class ElasticsearchRealIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.prefix = f"cam-ci-{uuid4().hex[:12]}"
-        self.index = ElasticsearchV2Index(
-            ElasticsearchV2Config(
+        self.index = ElasticsearchV3Index(
+            ElasticsearchV3Config(
                 ELASTICSEARCH_URL,
                 index_prefix=self.prefix,
                 bulk_batch_size=2,
@@ -91,8 +91,8 @@ class ElasticsearchRealIntegrationTest(unittest.IsolatedAsyncioTestCase):
         return {hit["_id"] for hit in payload["hits"]["hits"]}
 
     async def test_v3_visible_text_matches_short_case_insensitive_terms(self) -> None:
-        index = ElasticsearchV2Index(
-            ElasticsearchV2Config(
+        index = ElasticsearchV3Index(
+            ElasticsearchV3Config(
                 ELASTICSEARCH_URL,
                 index_prefix=f"{self.prefix}-v3",
                 index_generation="v3",

@@ -3,13 +3,13 @@ import unittest
 
 import httpx
 
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.modules.search.index_types import SearchIndexDocument
 
 
-class ElasticsearchV2MappingTest(unittest.TestCase):
+class ElasticsearchV3MappingTest(unittest.TestCase):
     def test_mapping_is_strict_and_stable(self) -> None:
-        definition = ElasticsearchV2Index.index_definition()
+        definition = ElasticsearchV3Index.index_definition()
         properties = definition["mappings"]["properties"]
         self.assertEqual(definition["mappings"]["dynamic"], "strict")
         self.assertEqual(properties["facets"]["type"], "flattened")
@@ -21,13 +21,13 @@ class ElasticsearchV2MappingTest(unittest.TestCase):
         )
 
     def test_analyzer_normalizes_case_unicode_and_punctuation(self) -> None:
-        analysis = ElasticsearchV2Index.index_definition()["settings"]["analysis"]
+        analysis = ElasticsearchV3Index.index_definition()["settings"]["analysis"]
         analyzer = analysis["analyzer"]["cam_text_v2"]
         self.assertEqual(analyzer["char_filter"], ["cam_punctuation"])
         self.assertEqual(analyzer["filter"], ["lowercase", "asciifolding"])
     def test_v3_mapping_includes_searchable_visible_text_without_short_token_filter(self) -> None:
-        definition = ElasticsearchV2Index(
-            ElasticsearchV2Config("http://elastic.test", index_generation="v3")
+        definition = ElasticsearchV3Index(
+            ElasticsearchV3Config("http://elastic.test", index_generation="v3")
         )._index_definition()
         properties = definition["mappings"]["properties"]
         self.assertEqual(properties["source_id"]["type"], "keyword")
@@ -37,7 +37,7 @@ class ElasticsearchV2MappingTest(unittest.TestCase):
         self.assertNotIn("length", definition["settings"]["analysis"].get("filter", {}))
 
 
-class ElasticsearchV2HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
+class ElasticsearchV3HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.requests: list[httpx.Request] = []
 
@@ -60,8 +60,8 @@ class ElasticsearchV2HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"acknowledged": True})
 
         self.client = httpx.AsyncClient(base_url="http://elastic.test", transport=httpx.MockTransport(handler))
-        self.index = ElasticsearchV2Index(
-            ElasticsearchV2Config("http://elastic.test", bulk_batch_size=1), client=self.client
+        self.index = ElasticsearchV3Index(
+            ElasticsearchV3Config("http://elastic.test", bulk_batch_size=1), client=self.client
         )
 
     async def asyncTearDown(self) -> None:
@@ -106,8 +106,8 @@ class ElasticsearchV2HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_v3_bulk_includes_v3_document_fields(self) -> None:
-        index = ElasticsearchV2Index(
-            ElasticsearchV2Config(
+        index = ElasticsearchV3Index(
+            ElasticsearchV3Config(
                 "http://elastic.test", index_generation="v3", bulk_batch_size=1
             ),
             client=self.client,

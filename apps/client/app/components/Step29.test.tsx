@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SafeJsonTree } from "./SafeJsonTree";
-import { SearchGuide, SearchV2Controls } from "./SearchV2Controls";
+import { SearchGuide, SearchControls } from "./SearchControls";
 
 describe("Step 29 operator UI", () => {
   it("renders bounded nested metadata without mutating it", () => {
@@ -14,7 +14,7 @@ describe("Step 29 operator UI", () => {
   });
 
   it("shows syntax examples, facets and privileged parsed debug", () => {
-    const markup = renderToStaticMarkup(<SearchV2Controls
+    const markup = renderToStaticMarkup(<SearchControls
       capabilities={{ selected_version: "v3", readiness: "ready", search_available: true, viewer_scoped: false, failure_code: null, facet_names: ["subject"], examples: ["cat OR dog"] }}
       facets={{ subject: [{ value: "cat", count: 3 }] }}
       selected={{ subject: ["cat"] }}

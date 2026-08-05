@@ -8,8 +8,8 @@ from datetime import datetime
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.infrastructure.search.elasticsearch_v2 import (
-    ElasticsearchV2Config,
-    ElasticsearchV2Index,
+    ElasticsearchV3Config,
+    ElasticsearchV3Index,
 )
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.search.coverage_audit import SearchV3CoverageAudit, SearchV3CoverageRepair
@@ -104,8 +104,8 @@ async def execute(args: argparse.Namespace) -> dict:
         if reindex and not run.dry_run:
             if not args.elasticsearch_url:
                 raise ValueError("--elasticsearch-url is required for reindexing")
-            provider = ElasticsearchV2Index(
-                ElasticsearchV2Config(
+            provider = ElasticsearchV3Index(
+                ElasticsearchV3Config(
                     args.elasticsearch_url,
                     index_prefix=args.index_prefix,
                     index_generation=index_generation,
@@ -149,8 +149,8 @@ async def _audit_coverage(args: argparse.Namespace, settings) -> dict:
             raise ValueError(
                 "--verify-elasticsearch requires --elasticsearch-url or ELASTICSEARCH_URL"
             )
-        provider = ElasticsearchV2Index(
-            ElasticsearchV2Config(
+        provider = ElasticsearchV3Index(
+            ElasticsearchV3Config(
                 base_url,
                 index_prefix=args.index_prefix,
                 index_generation="v3",
@@ -193,7 +193,7 @@ async def _repair_coverage(args: argparse.Namespace, settings) -> dict:
         base_url = args.elasticsearch_url or settings.ELASTICSEARCH_URL
         if not base_url:
             raise ValueError("--verify-elasticsearch requires --elasticsearch-url or ELASTICSEARCH_URL")
-        provider = ElasticsearchV2Index(ElasticsearchV2Config(base_url, index_prefix=args.index_prefix, index_generation="v3"))
+        provider = ElasticsearchV3Index(ElasticsearchV3Config(base_url, index_prefix=args.index_prefix, index_generation="v3"))
     try:
         with SessionLocal() as session:
             result = await SearchV3CoverageRepair(session, projection_version=projection_version, index=provider).repair(

@@ -34,14 +34,6 @@ export type Asset = {
   has_children?: boolean;
 };
 
-export type SearchResponse = {
-  items: Asset[];
-  indexed_count: number;
-  index_source: "directus" | "memory";
-  truncated: boolean;
-  skipped_folders: number;
-};
-
 export type Tag = {
   id: string;
   name: string;
@@ -83,6 +75,22 @@ export type DriveIndexStatus = {
 
 
 export type ProviderSessions = Record<Provider, AuthState>;
+
+export type ViewerBootstrapFolder = {
+  id: string;
+  name: string;
+  external_source_id: string;
+};
+export type ViewerBootstrapSource = {
+  external_source_id: string;
+  display_name: string;
+  folders: ViewerBootstrapFolder[];
+};
+export type ViewerBootstrap = {
+  sources: ViewerBootstrapSource[];
+  auto_selected_source_id: string | null;
+  auto_selected_folder_id: string | null;
+};
 
 export type SearchCapabilities = {
   selected_version: "v3";

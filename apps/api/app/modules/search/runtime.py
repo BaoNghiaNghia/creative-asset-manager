@@ -7,7 +7,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,9 +21,9 @@ class SearchSuggestionCache:
 
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
-        self._entries: OrderedDict[tuple[str, str, str, str, int], _SuggestionCacheEntry] = OrderedDict()
+        self._entries: OrderedDict[tuple[Any, ...], _SuggestionCacheEntry] = OrderedDict()
 
-    def get(self, key: tuple[str, str, str, str, int]) -> dict[str, Any] | None:
+    def get(self, key: tuple[Any, ...]) -> dict[str, Any] | None:
         entry = self._entries.get(key)
         if entry is None or entry.expires_at <= self._clock():
             self._entries.pop(key, None)
@@ -31,7 +31,7 @@ class SearchSuggestionCache:
         self._entries.move_to_end(key)
         return entry.response.copy()
 
-    def put(self, key: tuple[str, str, str, str, int], response: dict[str, Any], *, ttl_seconds: int, max_entries: int) -> None:
+    def put(self, key: tuple[Any, ...], response: dict[str, Any], *, ttl_seconds: int, max_entries: int) -> None:
         self._entries[key] = _SuggestionCacheEntry(self._clock() + ttl_seconds, response.copy())
         self._entries.move_to_end(key)
         while len(self._entries) > max_entries:
@@ -45,10 +45,10 @@ class ApiSearchIndexPool:
     """Keeps HTTP connection pools alive for the lifetime of each API event loop."""
 
     def __init__(self) -> None:
-        self._indexes: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[ElasticsearchV2Config, ElasticsearchV2Index]] = weakref.WeakKeyDictionary()
+        self._indexes: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[ElasticsearchV3Config, ElasticsearchV3Index]] = weakref.WeakKeyDictionary()
         self._locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
 
-    async def get(self, config: ElasticsearchV2Config) -> ElasticsearchV2Index:
+    async def get(self, config: ElasticsearchV3Config) -> ElasticsearchV3Index:
         loop = asyncio.get_running_loop()
         indexes = self._indexes.setdefault(loop, {})
         current = indexes.get(config)
@@ -56,7 +56,7 @@ class ApiSearchIndexPool:
             return current
         lock = self._locks.setdefault(loop, asyncio.Lock())
         async with lock:
-            return indexes.setdefault(config, ElasticsearchV2Index(config))
+            return indexes.setdefault(config, ElasticsearchV3Index(config))
 
     async def aclose_current_loop(self) -> None:
         loop = asyncio.get_running_loop()

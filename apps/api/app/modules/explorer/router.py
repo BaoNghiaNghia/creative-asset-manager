@@ -2,24 +2,19 @@ import asyncio
 import contextlib
 import json
 import logging
-import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.modules.assets.status_service import AssetProcessingStatusService
-from app.modules.assets.model import SourceAssetModel
-from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQueryConfig
-from app.modules.search.query_parser import SearchQueryParser
-from app.modules.search.shadow_runtime import SHADOW_SEARCH
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.indexing import get_index_status, start_index_job
 from app.modules.explorer.schema import (
     AssetNode,
@@ -27,8 +22,7 @@ from app.modules.explorer.schema import (
     IndexRequest,
     IndexStatus,
     Provider,
-    SearchRequest,
-    SearchResponse,
+    ViewerBootstrapResponse,
 )
 from app.modules.explorer.service import ExplorerService
 from app.modules.explorer.media_types import infer_media_type
@@ -36,6 +30,7 @@ from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.authorization.folder_scope import (
     ViewerFolderAccess,
+    ViewerFolderScopeModel,
     ViewerFolderScopeService,
     viewer_folder_hierarchy_cache,
 )
@@ -64,15 +59,6 @@ def _require_legacy_admin(principal: CurrentPrincipal) -> None:
         "code": "permission_required",
         "message": "Legacy Explorer diagnostics require search.rebuild.",
     })
-
-
-def _require_legacy_search(principal: CurrentPrincipal) -> None:
-    if not get_settings().LEGACY_EXPLORER_SEARCH_ENABLED:
-        raise HTTPException(status_code=410, detail={
-            "code": "legacy_explorer_search_disabled",
-            "message": "Legacy Explorer search is disabled.",
-        })
-    _require_legacy_admin(principal)
 
 
 def _account_id(request: Request, provider: Provider) -> str:
@@ -325,6 +311,77 @@ def _provider_error(exc: Exception, detail: str) -> HTTPException:
     return HTTPException(status_code=502, detail=detail)
 
 
+@router.get("/viewer/bootstrap", response_model=ViewerBootstrapResponse)
+def viewer_bootstrap(
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+):
+    if not is_pure_viewer(principal):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "viewer_bootstrap_not_applicable",
+                "message": "Viewer bootstrap is available only to folder-scoped viewers.",
+            },
+        )
+    source_type = "google_drive" if provider == "google-drive" else "sharepoint"
+    rows = session.execute(
+        select(ExternalSourceModel, ViewerFolderScopeModel)
+        .join(
+            ViewerFolderScopeModel,
+            and_(
+                ViewerFolderScopeModel.tenant_id == ExternalSourceModel.tenant_id,
+                ViewerFolderScopeModel.external_source_id == ExternalSourceModel.id,
+            ),
+        )
+        .where(
+            ExternalSourceModel.tenant_id == principal.active_tenant_id,
+            ExternalSourceModel.source_type == source_type,
+            ViewerFolderScopeModel.tenant_id == principal.active_tenant_id,
+            ViewerFolderScopeModel.tenant_membership_id == principal.membership_id,
+        )
+        .order_by(
+            ExternalSourceModel.display_name,
+            ExternalSourceModel.id,
+            ViewerFolderScopeModel.folder_name,
+            ViewerFolderScopeModel.folder_external_id,
+        )
+    ).all()
+    if not rows:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "viewer_folder_scope_required",
+                "message": "No folders are assigned to this viewer.",
+            },
+        )
+    sources: dict[str, dict] = {}
+    for source, scope in rows:
+        entry = sources.setdefault(source.id, {
+            "external_source_id": source.id,
+            "display_name": source.display_name or ("Google Drive" if provider == "google-drive" else "SharePoint"),
+            "folders": [],
+        })
+        entry["folders"].append({
+            "id": scope.folder_external_id,
+            "name": scope.folder_name or scope.folder_external_id,
+            "external_source_id": source.id,
+        })
+    values = list(sources.values())
+    selected_source = values[0] if len(values) == 1 else None
+    selected_folder = (
+        selected_source["folders"][0]
+        if selected_source is not None and len(selected_source["folders"]) == 1
+        else None
+    )
+    return {
+        "sources": values,
+        "auto_selected_source_id": selected_source["external_source_id"] if selected_source else None,
+        "auto_selected_folder_id": selected_folder["id"] if selected_folder else None,
+    }
+
+
 @router.get("/children", response_model=FolderListing)
 async def children(
     request: Request,
@@ -431,22 +488,6 @@ async def index_status(
 ):
     _require_legacy_admin(principal)
     return get_index_status(principal.active_tenant_id, provider)
-
-
-async def _v2_shadow(body: SearchRequest, tenant: str, settings):
-    parsed = SearchQueryParser().parse(body.query)
-    query = ElasticsearchQueryBuilder().build(
-        parsed, tenant_id=tenant, config=SearchQueryConfig(),
-        size=min(body.limit, 200), offset=0,
-    )
-    async with ElasticsearchV2Index(ElasticsearchV2Config(
-        settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX,
-    )) as index:
-        response = await index.search(query)
-    return {
-        "items": response.get("hits", {}).get("hits", []),
-        "total": response.get("hits", {}).get("total", 0),
-    }
 
 
 @router.get("/viewer-folder-options")
@@ -614,130 +655,6 @@ async def move_item(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
     return {"id": node.id, "parent_id": node.parent_id}
-
-@router.post("/search", response_model=SearchResponse)
-async def search(
-    request: Request,
-    body: SearchRequest,
-    session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(ASSETS_READ),
-    external_source_id: str | None = Query(None),
-):
-    _require_legacy_search(principal)
-    try:
-        token, account_id, tenant_id, resolved_source_id = await _source_context(
-            request, body.provider, session, principal, external_source_id
-        )
-        settings = get_settings()
-        access = ViewerFolderScopeService(session).access(
-            tenant_id=tenant_id, membership_id=principal.membership_id,
-            roles=principal.effective_roles, external_source_id=resolved_source_id,
-        )
-
-        async def primary():
-            result = await ExplorerService(
-                create_source_provider, AssetProcessingStatusService(session), access,
-            ).search_subtree(
-                body, token, account_id, tenant_id=tenant_id,
-                external_source_id=resolved_source_id,
-            )
-            return result.model_dump(mode="json")
-
-        return await SHADOW_SEARCH.execute(
-            tenant_id=tenant_id, query=body.query, primary=primary,
-            shadow=lambda: _v2_shadow(body, tenant_id, settings),
-            primary_version="v1", shadow_version="v2",
-            surface="explorer_search",
-        )
-    except HTTPException:
-        raise
-    except (httpx.HTTPError, StopIteration, PermissionError, ValueError) as exc:
-        raise _provider_error(exc, f"Unable to search {body.provider} metadata") from exc
-
-
-@router.post("/search/stream")
-async def search_stream(
-    request: Request,
-    body: SearchRequest,
-    session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(ASSETS_READ),
-    external_source_id: str | None = Query(None),
-):
-    _require_legacy_search(principal)
-    token, account_id, tenant_id, resolved_source_id = await _source_context(
-        request, body.provider, session, principal, external_source_id
-    )
-    access = ViewerFolderScopeService(session).access(
-        tenant_id=tenant_id, membership_id=principal.membership_id,
-        roles=principal.effective_roles, external_source_id=resolved_source_id,
-    )
-
-    async def events():
-        queue: asyncio.Queue[dict] = asyncio.Queue()
-
-        async def progress(event: dict):
-            await queue.put({"type": "progress", **event})
-
-        async def execute():
-            try:
-                started = time.perf_counter()
-                result = await ExplorerService(
-                    create_source_provider, AssetProcessingStatusService(session), access,
-                ).search_subtree(
-                    body,
-                    token,
-                    account_id,
-                    progress=progress,
-                    tenant_id=tenant_id,
-                    external_source_id=resolved_source_id,
-                )
-                primary_document = jsonable_encoder(result)
-                settings = get_settings()
-                await SHADOW_SEARCH.observe(
-                    tenant_id=tenant_id, query=body.query,
-                    primary_result=primary_document,
-                    primary_ms=int((time.perf_counter() - started) * 1000),
-                    shadow=lambda: _v2_shadow(body, tenant_id, settings),
-                    primary_version="v1", shadow_version="v2",
-                    surface="explorer_search_stream",
-                )
-                await queue.put({
-                    "type": "result",
-                    "status": "Search complete",
-                    "progress": 100,
-                    "data": primary_document,
-                })
-            except Exception as exc:
-                error = _provider_error(exc, f"Unable to search {body.provider} metadata")
-                await queue.put({
-                    "type": "error",
-                    "status": "Search failed",
-                    "progress": 100,
-                    "detail": error.detail,
-                })
-
-        task = asyncio.create_task(execute())
-        try:
-            while True:
-                event = await queue.get()
-                yield json.dumps(event, ensure_ascii=False) + "\n"
-                if event["type"] in {"result", "error"}:
-                    break
-        finally:
-            if not task.done():
-                task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-    return StreamingResponse(
-        events(),
-        media_type="application/x-ndjson",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
 
 @router.get("/thumbnail/{item_id}")
 async def thumbnail(

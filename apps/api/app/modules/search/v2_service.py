@@ -8,11 +8,11 @@ from app.modules.search.query_builder import ElasticsearchQueryBuilder, SearchQu
 from app.modules.search.query_parser import SearchQueryParser
 
 
-class ElasticsearchV2DisabledError(RuntimeError):
+class ElasticsearchV3DisabledError(RuntimeError):
     pass
 
 
-class ElasticsearchV2Service:
+class ElasticsearchV3Service:
     def __init__(
         self,
         provider: SearchIndexProvider,
@@ -43,7 +43,7 @@ class ElasticsearchV2Service:
     ) -> Mapping[str, Any]:
         self._require_index()
         if not self.parser_enabled:
-            raise ElasticsearchV2DisabledError("SEARCH_QUERY_PARSER_V2_ENABLED is false")
+            raise ElasticsearchV3DisabledError("SEARCH_QUERY_PARSER_V2_ENABLED is false")
         parsed = self.parser.parse(raw_query)
         body = self.query_builder.build(
             parsed, tenant_id=tenant_id, config=config, size=size, offset=offset
@@ -52,4 +52,4 @@ class ElasticsearchV2Service:
 
     def _require_index(self) -> None:
         if not self.index_enabled:
-            raise ElasticsearchV2DisabledError("ELASTICSEARCH_V2_ENABLED is false")
+            raise ElasticsearchV3DisabledError("ELASTICSEARCH_V2_ENABLED is false")

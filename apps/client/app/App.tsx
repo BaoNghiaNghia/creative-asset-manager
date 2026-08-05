@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type K
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
-import { SearchGuide, SearchV2Controls } from "./components/SearchV2Controls";
+import { SearchGuide, SearchControls } from "./components/SearchControls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
 import { SidebarIcon } from "./components/Icons";
@@ -28,12 +28,16 @@ function LoadMoreSentinel({
   enabled,
   loading,
   onLoadMore,
+  root,
+  resetKey,
   loadingLabel = "Loading more results…",
   readyLabel = "Scroll to load more",
 }: {
   enabled: boolean;
   loading: boolean;
   onLoadMore: () => void;
+  root: Element | null;
+  resetKey?: string;
   loadingLabel?: string;
   readyLabel?: string;
 }) {
@@ -41,13 +45,13 @@ function LoadMoreSentinel({
 
   useEffect(() => {
     const node = sentinelRef.current;
-    if (!node || !enabled) return;
+    if (!node || !enabled || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) onLoadMore();
-    }, { rootMargin: "480px 0px" });
+    }, { root, rootMargin: "480px 0px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [enabled, onLoadMore]);
+  }, [enabled, onLoadMore, root, resetKey]);
 
   if (!enabled && !loading) return null;
   return <div
@@ -98,18 +102,21 @@ export function getSearchSuggestionKeyAction(
   return null;
 }
 
-/** Keep autocomplete concise and avoid clipped metadata sentences. */
-export function curateSearchSuggestions(query: string, values: SearchSuggestion[]): SearchSuggestion[] {
+export const SEARCH_SUGGESTION_DISPLAY_MAX_LENGTH = 160;
+
+/** Trust backend relevance while enforcing only display-safety constraints. */
+export function curateSearchSuggestions(_query: string, values: SearchSuggestion[]): SearchSuggestion[] {
   const seen = new Set<string>();
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  return values.filter(value => {
-    const text = value.text.trim();
+  const result: SearchSuggestion[] = [];
+  for (const value of values) {
+    const text = value.text.trim().slice(0, SEARCH_SUGGESTION_DISPLAY_MAX_LENGTH);
     const key = text.toLocaleLowerCase();
-    if (!text || seen.has(key) || (normalizedQuery && !key.startsWith(normalizedQuery))) return false;
-    if (text.trim().split(" ").filter(Boolean).length > 6) return false;
+    if (!text || seen.has(key)) continue;
     seen.add(key);
-    return true;
-  }).sort((left, right) => left.text.length - right.text.length || left.text.localeCompare(right.text)).slice(0, 10);
+    result.push({ ...value, text, prefix: text, completion: "" });
+    if (result.length === 10) break;
+  }
+  return result;
 }
 
 export default function App() {
@@ -129,11 +136,14 @@ export default function App() {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragDepthRef = useRef(0);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
-  const suggestions = curateSearchSuggestions(explorer.query, explorer.searchV2.suggestions);
+  const resultContainerRef = useRef<HTMLElement | null>(null);
+  const autoAppendAttemptsRef = useRef(0);
+  const autoAppendKeyRef = useRef("");
+  const suggestions = curateSearchSuggestions(explorer.query, explorer.searchV3.suggestions);
   const showSuggestions = !suggestionsDismissed
-    && explorer.searchV2.active
+    && explorer.searchV3.active
     && explorer.query.trim().length >= 2
-    && (explorer.searchV2.suggestionsLoading || suggestions.length > 0);
+    && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
   useEffect(() => {
     if (!showSuggestions) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -259,6 +269,20 @@ export default function App() {
   const analysisAssetIds = analysisSelection.assetIds;
   const completeAnalysisSelection = analysisSelection.complete;
   const analysisTooltip = analysisSelection.tooltip;
+  const paginationResetKey = [explorer.query, explorer.provider, explorer.activeExternalSourceId || "", explorer.activeAssignedRootId || "", explorer.visibilityFilter, detailsOpen ? "details" : "no-details"].join("\u001f");
+  useEffect(() => {
+    if (autoAppendKeyRef.current !== paginationResetKey) {
+      autoAppendKeyRef.current = paginationResetKey;
+      autoAppendAttemptsRef.current = 0;
+    }
+  }, [paginationResetKey]);
+  useEffect(() => {
+    const container = resultContainerRef.current;
+    if (!container || !explorer.searchV3.active || !explorer.searchV3.hasMore || explorer.searchV3.loading || explorer.searchV3.loadingMore) return;
+    if (container.scrollHeight > container.clientHeight + 1 || autoAppendAttemptsRef.current >= 3) return;
+    autoAppendAttemptsRef.current += 1;
+    explorer.searchV3.loadMore();
+  }, [explorer.searchV3.active, explorer.searchV3.hasMore, explorer.searchV3.loading, explorer.searchV3.loadingMore, explorer.searchV3.items.length, paginationResetKey, explorer.searchV3.loadMore]);
   const activeUploadCount = explorer.uploads.filter(upload => upload.status === "queued" || upload.status === "uploading").length;
   const failedUploadCount = explorer.uploads.filter(upload => upload.status === "failed").length;
 
@@ -320,6 +344,7 @@ export default function App() {
     </button>}
 
     <section
+      ref={resultContainerRef}
       className={isDraggingFiles ? "explorer-content explorer-drop-active" : "explorer-content"}
       onDragEnter={handleFileDragEnter}
       onDragOver={event => { if (dragContainsFiles(event)) event.preventDefault(); }}
@@ -343,7 +368,7 @@ export default function App() {
               <span aria-hidden="true">⌕</span>
               <input
                 value={explorer.query}
-                disabled={!explorer.auth.authenticated || explorer.auth.checking}
+                disabled={!explorer.auth.authenticated || explorer.auth.checking || !explorer.explorerReady}
                 onChange={event => { setSuggestionIndex(-1); setSuggestionsDismissed(false); explorer.setQuery(event.target.value); }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={!explorer.auth.authenticated
@@ -364,7 +389,11 @@ export default function App() {
               >{"\u00d7"}</button>}
               {showSuggestions && <div id="asset-search-suggestions" className="search-suggestions" role="listbox" aria-label="Search suggestions">
                 <div className="search-suggestions-header"><strong>Suggestions</strong><span>Use ↑ ↓ then Enter</span></div>
-                {explorer.searchV2.suggestionsLoading && !suggestions.length
+                {explorer.searchV3.suggestionsError && <div className="search-suggestions-error" role="alert">
+                  <span>{explorer.searchV3.suggestionsError}</span>
+                  <button type="button" onClick={explorer.searchV3.retrySuggestions}>Retry suggestions</button>
+                </div>}
+                {explorer.searchV3.suggestionsLoading && !suggestions.length
                   ? <span className="search-suggestions-loading">Finding suggestions...</span>
                   : suggestions.map((suggestion, index) => <button
                     key={suggestion.kind + ":" + suggestion.text}
@@ -379,7 +408,7 @@ export default function App() {
                   ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
               </div>}
             </div>
-            {explorer.searchV2.active && <SearchGuide capabilities={explorer.searchV2.capabilities} />}
+            {explorer.searchV3.active && <SearchGuide capabilities={explorer.searchV3.capabilities} />}
           </div>
           {explorer.searching && <small className="search-waiting" role="status" aria-live="polite">
             Đang tìm kiếm…
@@ -389,6 +418,16 @@ export default function App() {
           </small>}
         </div>
         {explorer.auth.authenticated ? <div className="account">
+          {explorer.pureViewer && explorer.viewerSources.length > 1 && explorer.activeExternalSourceId && <label>
+            <span className="sr-only">Assigned source</span>
+            <select
+              aria-label="Assigned Google Drive source"
+              value={explorer.activeExternalSourceId || ""}
+              onChange={event => void explorer.selectViewerSource(event.target.value)}
+            >
+              {explorer.viewerSources.map(source => <option key={source.external_source_id} value={source.external_source_id}>{source.display_name}</option>)}
+            </select>
+          </label>}
           {explorer.auth.user?.picture
             ? <img className="avatar" src={explorer.auth.user.picture} alt="" referrerPolicy="no-referrer" />
             : <div className="avatar">{explorer.auth.user?.name?.slice(0, 2) || (explorer.provider === "sharepoint" ? "S" : "G")}</div>}
@@ -405,7 +444,7 @@ export default function App() {
         <span>{explorer.metadataIndex.error || "Check the API terminal for the detailed traceback."}</span>
       </div>}
 
-      {explorer.auth.authenticated && <nav>
+      {explorer.auth.authenticated && explorer.explorerReady && <nav>
         <div>{explorer.path.map((folder, index) => <button
           key={folder.id}
           onClick={() => explorer.open(folder.id, explorer.path.slice(0, index))}
@@ -434,6 +473,23 @@ export default function App() {
           authByProvider={explorer.authByProvider}
           onSelectProvider={explorer.selectProvider}
         />
+        : explorer.pureViewer && explorer.viewerBootstrapState === "loading"
+          ? <div className="state">Loading assigned Google Drive folders…</div>
+        : explorer.pureViewer && explorer.viewerBootstrapState === "permission"
+          ? <div className="state" role="alert"><strong>Folder access required</strong><p>{explorer.error || "No folders are assigned to this account."}</p></div>
+        : explorer.pureViewer && explorer.viewerSources.length > 1 && !explorer.activeExternalSourceId
+          ? <div className="state viewer-source-picker">
+            <strong>Select an assigned source</strong>
+            <p>Your account can access folders in more than one Google Drive source.</p>
+            <div role="list" aria-label="Assigned Google Drive sources">
+              {explorer.viewerSources.map(source => <button
+                type="button"
+                role="listitem"
+                key={source.external_source_id}
+                onClick={() => void explorer.selectViewerSource(source.external_source_id)}
+              >{source.display_name}</button>)}
+            </div>
+          </div>
         : <>
           {explorer.error && <div className="error">{explorer.error}</div>}
           {shortcutNotice && <div className={`shortcut-toast shortcut-toast--${shortcutNotice.tone}`} role="status" aria-live="polite">
@@ -444,9 +500,9 @@ export default function App() {
             <span className="search-summary">
               <h1>{explorer.path.at(-1)?.name || "My Drive"}</h1>
               <small>{explorer.searching
-                ? `${explorer.searchStatus} · ${explorer.searchProgress}%`
+                ? "Searching with Search V3…"
                 : explorer.searchComplete
-                  ? `Completed · 100% · ${explorer.visibleItems.length} results (${explorer.searchIndexedCount} indexed)`
+                  ? `Completed · ${explorer.visibleItems.length} results`
                   : explorer.query
                     ? `${explorer.visibleItems.length} results in this folder and subfolders`
                     : !explorer.visibilityFilterReady
@@ -454,27 +510,6 @@ export default function App() {
                       : explorer.visibilityFilter === "all"
                         ? `${explorer.items.length} items`
                         : `${explorer.visibleItems.length} items shown`}</small>
-              {(explorer.searching || explorer.searchComplete) && <>
-                <div
-                  className={"search-progress " + (explorer.searchComplete ? "complete" : "")}
-                  role="progressbar"
-                  aria-label="Folder metadata indexing progress"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={explorer.searchProgress}
-                >
-                  <i style={{ width: explorer.searchProgress + "%" }} />
-                </div>
-                {explorer.searching && <em>
-                  {explorer.searchProcessedFolders} folders processed
-                  {explorer.searchPendingFolders > 0
-                    ? ` · at least ${explorer.searchPendingFolders} remaining`
-                    : ""}
-                  {explorer.searchIndexedCount > 0
-                    ? ` · ${explorer.searchIndexedCount} items indexed`
-                    : ""}
-                </em>}
-              </>}
             </span>
             <div className="title-actions">
               <div className="visibility-filter" role="group" aria-label="Filter assets by visibility">
@@ -500,16 +535,12 @@ export default function App() {
             </div>
           </div>
 
-          {explorer.searchV2.active && <SearchV2Controls capabilities={explorer.searchV2.capabilities} facets={explorer.searchV2.facets} selected={explorer.searchV2.selectedFacets} parsed={explorer.searchV2.parsed} onToggle={explorer.searchV2.toggleFacet} />}
+          {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
 
           {explorer.searchError && <div className="search-warning" role="alert">
             <span>{explorer.searchError} Showing the current folder contents.</span>
             <button type="button" onClick={explorer.retrySearch}>Retry Search V3</button>
           </div>}
-          {explorer.searchTruncated && <div className="search-warning">
-            Search reached the metadata indexing limit; refine the query for more precise results.
-          </div>}
-
           {explorer.loading || explorer.searching ? <AssetGridSkeleton /> : <AssetGrid
             items={explorer.visibleItems}
             path={explorer.path}
@@ -525,15 +556,20 @@ export default function App() {
             onFocus={item => detailsOpen && openDetails(item)}
           />}
 
-          {explorer.searchV2.active && <LoadMoreSentinel
-            enabled={explorer.searchV2.hasMore}
-            loading={explorer.searchV2.loadingMore}
-            onLoadMore={explorer.searchV2.loadMore}
+          {explorer.searchV3.active && <LoadMoreSentinel
+            enabled={explorer.searchV3.hasMore}
+            loading={explorer.searchV3.loadingMore}
+            onLoadMore={explorer.searchV3.loadMore}
+            root={resultContainerRef.current}
+            resetKey={`${paginationResetKey}:${explorer.searchV3.items.length}`}
           />}
-          {!explorer.query.trim() && !explorer.searchV2.active && <LoadMoreSentinel
+          {explorer.searchV3.active && explorer.searchV3.hasMore && <button type="button" className="search-load-more-button" onClick={explorer.searchV3.loadMore} disabled={explorer.searchV3.loadingMore}>Load more results</button>}
+          {!explorer.query.trim() && !explorer.searchV3.active && <LoadMoreSentinel
             enabled={explorer.hasMoreFolderItems}
             loading={explorer.loadingMoreFolderItems}
             onLoadMore={explorer.loadMoreFolderItems}
+            root={resultContainerRef.current}
+            resetKey={`${explorer.provider}:${explorer.currentFolderId}:${explorer.items.length}`}
             loadingLabel="Loading more items…"
             readyLabel="Scroll to load more items"
           />}

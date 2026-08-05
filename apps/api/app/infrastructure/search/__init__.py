@@ -1,11 +1,11 @@
 from app.infrastructure.search.elasticsearch_v2 import (
-    ElasticsearchV2Config,
-    ElasticsearchV2Index,
-    ElasticsearchV2RequestError,
+    ElasticsearchV3Config,
+    ElasticsearchV3Index,
+    ElasticsearchV3RequestError,
 )
 
 __all__ = [
-    "ElasticsearchV2Config",
-    "ElasticsearchV2Index",
-    "ElasticsearchV2RequestError",
+    "ElasticsearchV3Config",
+    "ElasticsearchV3Index",
+    "ElasticsearchV3RequestError",
 ]

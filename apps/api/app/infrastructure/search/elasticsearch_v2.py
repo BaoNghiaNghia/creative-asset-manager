@@ -14,12 +14,12 @@ from app.modules.search.index_types import AliasSwitchResult, SearchIndexDocumen
 _VERSION_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 
-class ElasticsearchV2RequestError(RuntimeError):
+class ElasticsearchV3RequestError(RuntimeError):
     pass
 
 
 @dataclass(frozen=True, slots=True)
-class ElasticsearchV2Config:
+class ElasticsearchV3Config:
     base_url: str
     index_prefix: str = "creative-assets"
     request_timeout_seconds: float = 10.0
@@ -37,10 +37,10 @@ class ElasticsearchV2Config:
             raise ValueError("index_generation must be v2 or v3")
 
 
-class ElasticsearchV2Index:
+class ElasticsearchV3Index:
     def __init__(
         self,
-        config: ElasticsearchV2Config,
+        config: ElasticsearchV3Config,
         *,
         client: httpx.AsyncClient | None = None,
     ):
@@ -84,7 +84,7 @@ class ElasticsearchV2Index:
         if self._owns_client and client is not None:
             await client.aclose()
 
-    async def __aenter__(self) -> "ElasticsearchV2Index":
+    async def __aenter__(self) -> "ElasticsearchV3Index":
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -226,7 +226,7 @@ class ElasticsearchV2Index:
                     for item in response.get("items", [])
                     if next(iter(item.values())).get("error")
                 ]
-                raise ElasticsearchV2RequestError(
+                raise ElasticsearchV3RequestError(
                     f"bulk indexing failed for {len(failures)} item(s)"
                 )
             count += len(batch)
@@ -322,7 +322,7 @@ class ElasticsearchV2Index:
                 method, path, json=json_body, content=content, headers=headers
             )
         except httpx.RequestError as exc:
-            raise ElasticsearchV2RequestError(
+            raise ElasticsearchV3RequestError(
                 f"Elasticsearch {method} {path} request failed"
             ) from exc
         if allow_not_found and response.status_code == 404:
@@ -332,12 +332,12 @@ class ElasticsearchV2Index:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise ElasticsearchV2RequestError(
+            raise ElasticsearchV3RequestError(
                 f"Elasticsearch {method} {path} returned {response.status_code}"
             ) from exc
         if not response.content:
             return {}
         payload = response.json()
         if not isinstance(payload, dict):
-            raise ElasticsearchV2RequestError("Elasticsearch returned a non-object response")
+            raise ElasticsearchV3RequestError("Elasticsearch returned a non-object response")
         return payload

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
-import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV2";
+import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
 import type { Asset } from "./types";
 
 function asset(overrides: Partial<Asset>): Asset {
@@ -95,15 +95,21 @@ describe("Search loading state", () => {
 });
 
 describe("Search suggestion curation", () => {
-  it("keeps short continuations, sorts them and removes long metadata sentences", () => {
+  it("keeps long semantic and non-prefix suggestions returned by the backend", () => {
     const make = (text: string) => ({ text, prefix: text, completion: "", kind: "search_text" as const });
     expect(curateSearchSuggestions("horse", [
       make("horse personalized product photo with a stethoscope sweatshirt"),
-      make("horses needlework personalized gift"),
-      make("horse"),
-      make("horses needlework"),
-      make("unrelated"),
-    ]).map(item => item.text)).toEqual(["horse", "horses needlework", "horses needlework personalized gift"]);
+      make("equine veterinary apparel for winter campaigns"),
+    ]).map(item => item.text)).toEqual([
+      "horse personalized product photo with a stethoscope sweatshirt",
+      "equine veterinary apparel for winter campaigns",
+    ]);
+  });
+
+  it("trims and deduplicates without applying another prefix filter", () => {
+    const make = (text: string) => ({ text, prefix: text, completion: "", kind: "search_text" as const });
+    expect(curateSearchSuggestions("horse", [make("  Semantic result  "), make("semantic result")]).map(item => item.text))
+      .toEqual(["Semantic result"]);
   });
 
   it("shows at most ten concise suggestions", () => {

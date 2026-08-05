@@ -13,14 +13,15 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.main import app
 from app.modules.ai_metadata.model import MetadataProfileModel
+from app.modules.authorization.folder_scope import ViewerFolderScopeModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.assets.model import ExternalSourceModel
-from app.modules.search.router import _search_generation, _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
+from app.modules.search.router import _live_suggestion_hits, _search_generation, _search_scope_filters, _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
 from app.modules.search.governance_model import SearchIndexRecordModel
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 
 
-class SearchV2ApiTest(unittest.TestCase):
+class SearchV3ApiTest(unittest.TestCase):
     def setUp(self):
         API_SEARCH_INDEX_POOL.clear()
         SEARCH_SUGGESTION_CACHE.clear()
@@ -78,6 +79,76 @@ class SearchV2ApiTest(unittest.TestCase):
                 session, "tenant-a", "google-drive", generation="v3"
             )
         self.assertEqual(result, {"terms": {"source_id": source_ids}})
+
+    def test_viewer_suggestion_filters_are_source_and_folder_scoped(self):
+        with self.factory() as session:
+            session.add_all([
+                ExternalSourceModel(
+                    id="source-a", tenant_id="tenant-a", source_type="google_drive",
+                    source_key="drive-a", source_metadata={},
+                ),
+                ExternalSourceModel(
+                    id="source-b", tenant_id="tenant-a", source_type="google_drive",
+                    source_key="drive-b", source_metadata={},
+                ),
+                ViewerFolderScopeModel(
+                    tenant_id="tenant-a", tenant_membership_id="membership-a",
+                    external_source_id="source-a", folder_external_id="assigned-a",
+                    folder_name="Assigned A",
+                ),
+            ])
+            session.commit()
+            principal = CurrentPrincipal(
+                user_id="viewer-a", active_tenant_id="tenant-a", membership_id="membership-a",
+                external_identity=None, effective_roles=frozenset({"viewer"}),
+                effective_permissions=frozenset({"search.read"}), platform_admin=False,
+                session_id=None, authorization_source="tenant_rbac",
+            )
+            filters, _scope_key, restricted = _search_scope_filters(
+                session, principal, source_provider="google-drive",
+                external_source_id="source-a",
+            )
+
+        self.assertTrue(restricted)
+        self.assertIn({"term": {"tenant_id": "tenant-a"}}, filters)
+        self.assertIn({"terms": {"source_id": ["source-a"]}}, filters)
+        self.assertIn("assigned-a", str(filters))
+        self.assertNotIn("sibling-folder", str(filters))
+        self.assertNotIn("source-b", str(filters))
+
+    def test_operator_suggestion_filters_keep_v3_without_viewer_scope(self):
+        with self.factory() as session:
+            session.add(ExternalSourceModel(
+                id="source-a", tenant_id="tenant-a", source_type="google_drive",
+                source_key="drive-a", source_metadata={},
+            ))
+            session.commit()
+            principal = CurrentPrincipal(
+                user_id="operator-a", active_tenant_id="tenant-a", membership_id="membership-op",
+                external_identity=None, effective_roles=frozenset({"operator"}),
+                effective_permissions=frozenset({"search.read"}), platform_admin=False,
+                session_id=None, authorization_source="tenant_rbac",
+            )
+            filters, scope_key, restricted = _search_scope_filters(
+                session, principal, source_provider="google-drive",
+                external_source_id="source-a",
+            )
+
+        self.assertFalse(restricted)
+        self.assertIsNone(scope_key)
+        self.assertEqual(filters, [
+            {"term": {"tenant_id": "tenant-a"}},
+            {"terms": {"source_id": ["source-a"]}},
+        ])
+
+    def test_suggestions_drop_index_hits_without_a_live_source_asset(self):
+        hits = [{"_id": "asset-deleted", "_source": {
+            "asset_id": "asset-deleted",
+            "source_id": "source-a",
+            "visible_text": "must not leak",
+        }}]
+        with self.factory() as session:
+            self.assertEqual(_live_suggestion_hits(session, "tenant-a", hits), [])
 
     def test_capabilities_never_advertise_a_legacy_generation(self):
         with patch("app.modules.search.router.SessionLocal", self.factory), patch("app.modules.search.router.get_settings", return_value=Settings()):
@@ -181,7 +252,7 @@ class SearchV2ApiTest(unittest.TestCase):
             patch("app.modules.search.router.SessionLocal", self.factory),
             patch("app.modules.search.router.get_settings", return_value=settings),
             patch("app.modules.search.router.enabled", return_value=True),
-            patch("app.modules.search.runtime.ElasticsearchV2Index", FakeIndex),
+            patch("app.modules.search.runtime.ElasticsearchV3Index", FakeIndex),
         ):
             response = self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive&external_source_id=source-a")
         self.assertEqual(response.status_code, 200)
@@ -221,7 +292,7 @@ class SearchV2ApiTest(unittest.TestCase):
             patch("app.modules.search.router.SessionLocal", self.factory),
             patch("app.modules.search.router.get_settings", return_value=settings),
             patch("app.modules.search.router.enabled", return_value=True),
-            patch("app.modules.search.runtime.ElasticsearchV2Index", FakeIndex),
+            patch("app.modules.search.runtime.ElasticsearchV3Index", FakeIndex),
         ):
             self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive&external_source_id=source-a").status_code, 200)
             self.assertEqual(self.client.get("/api/v1/search/suggestions?q=milo&source_provider=google-drive&external_source_id=source-a").status_code, 200)
@@ -316,7 +387,7 @@ class ApiSearchIndexPoolTest(unittest.IsolatedAsyncioTestCase):
         await API_SEARCH_INDEX_POOL.aclose_current_loop()
 
     async def test_reuses_one_index_and_closes_it_on_shutdown(self):
-        from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config
+        from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config
 
         class FakeIndex:
             instances = 0
@@ -328,8 +399,8 @@ class ApiSearchIndexPoolTest(unittest.IsolatedAsyncioTestCase):
             async def aclose(self):
                 type(self).closes += 1
 
-        with patch("app.modules.search.runtime.ElasticsearchV2Index", FakeIndex):
-            config = ElasticsearchV2Config("http://search.test:9200", index_generation="v3")
+        with patch("app.modules.search.runtime.ElasticsearchV3Index", FakeIndex):
+            config = ElasticsearchV3Config("http://search.test:9200", index_generation="v3")
             first = await API_SEARCH_INDEX_POOL.get(config)
             second = await API_SEARCH_INDEX_POOL.get(config)
             self.assertIs(first, second)

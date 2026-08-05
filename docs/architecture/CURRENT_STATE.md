@@ -114,7 +114,7 @@ Both provider clients return the shared `AssetNode`, which is useful normalizati
 2. `start_index_job` stores status in process dictionaries and creates an `asyncio` task.
 3. `ExplorerService.search_subtree` loads the existing Directus/process-memory subtree, breadth-first crawls missing/stale folders with configurable concurrency, and upserts rows.
 4. Search normalizes names, applies token substring/fuzzy matching in Python, sorts scores, and returns `AssetNode` results.
-5. Interactive search may use `/api/explorer/search/stream`, which streams NDJSON progress/results while repeating or extending indexing.
+5. Interactive search uses Search V3; legacy Explorer search and search-triggered indexing routes are removed.
 
 Directus is therefore being used as a semi-authoritative search cache, while process memory is the fallback. There is no Elasticsearch flow, mapping, alias, bulk indexer, or rebuild operation.
 

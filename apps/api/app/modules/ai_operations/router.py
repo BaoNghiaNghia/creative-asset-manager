@@ -115,8 +115,8 @@ def _v3_index():
     settings = get_settings()
     if not settings.ELASTICSEARCH_URL:
         raise HTTPException(status_code=503, detail={"code": "search_unavailable", "message": "Elasticsearch is not configured"})
-    from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
-    return ElasticsearchV2Index(ElasticsearchV2Config(
+    from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
+    return ElasticsearchV3Index(ElasticsearchV3Config(
         base_url=settings.ELASTICSEARCH_URL,
         index_prefix=settings.ELASTICSEARCH_INDEX_PREFIX,
         index_generation="v3",

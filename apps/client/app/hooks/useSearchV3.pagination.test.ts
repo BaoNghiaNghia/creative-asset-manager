@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset } from "../types";
-import { buildSearchRequestBody, isCurrentSearchResponse, mergeSearchResults, SEARCH_PAGE_SIZE } from "./useSearchV2";
+import { buildSearchRequestBody, isCurrentSearchResponse, mergeSearchResults, SEARCH_PAGE_SIZE } from "./useSearchV3";
 
 function asset(id: string, source = "source-a"): Asset {
   return {

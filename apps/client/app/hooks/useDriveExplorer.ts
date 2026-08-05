@@ -12,8 +12,10 @@ import type {
   Tag,
   TreeCache,
   VisibilityFilter,
+  ViewerBootstrap,
+  ViewerBootstrapSource,
 } from "../types";
-import { isSearchRequestInFlight, useSearchV2 } from "./useSearchV2";
+import { isSearchRequestInFlight, useSearchV3 } from "./useSearchV3";
 
 const emptyIndexStatus: DriveIndexStatus = {
   state: "idle",
@@ -30,7 +32,10 @@ const explorerLocationKey = (provider: Provider) => "creative-asset-manager:expl
 export const EXPLORER_LOCATION_MAX_AGE_MS = 15 * 60 * 1000;
 
 type SavedExplorerLocation = {
-  version: 1 | 2;
+  version: 3;
+  provider: Provider;
+  external_source_id: string;
+  assigned_root_id: string;
   saved_at: number;
   path: Array<Pick<Asset, "id" | "name" | "kind" | "mime_type" | "provider" | "external_source_id">>;
 };
@@ -44,7 +49,10 @@ export function parseSavedExplorerLocation(
   try {
     const parsed = JSON.parse(value) as Partial<SavedExplorerLocation>;
     if (
-      (parsed.version !== 1 && parsed.version !== 2)
+      parsed.version !== 3
+      || parsed.provider !== provider
+      || typeof parsed.external_source_id !== "string" || !parsed.external_source_id.trim()
+      || typeof parsed.assigned_root_id !== "string" || !parsed.assigned_root_id.trim()
       || typeof parsed.saved_at !== "number"
       || !Number.isFinite(parsed.saved_at)
       || now - parsed.saved_at >= EXPLORER_LOCATION_MAX_AGE_MS
@@ -55,13 +63,31 @@ export function parseSavedExplorerLocation(
       item && item.provider === provider && item.kind === "folder"
       && typeof item.id === "string" && item.id.trim() && typeof item.name === "string",
     ));
-    return path.length === parsed.path.length ? { version: parsed.version, saved_at: parsed.saved_at, path } : null;
+    if (
+      path.length !== parsed.path.length
+      || path.some(item => item.external_source_id !== parsed.external_source_id)
+      || !path.some(item => item.id === parsed.assigned_root_id)
+    ) return null;
+    return parsed as SavedExplorerLocation;
   } catch { return null; }
 }
 
-function savedLocation(path: Asset[]): SavedExplorerLocation {
+export function savedLocationIsAuthorized(saved: SavedExplorerLocation, bootstrap: ViewerBootstrap): boolean {
+  const source = bootstrap.sources.find(item => item.external_source_id === saved.external_source_id);
+  return Boolean(source?.folders.some(folder => folder.id === saved.assigned_root_id));
+}
+
+function savedLocation(
+  path: Asset[],
+  provider: Provider,
+  externalSourceId: string,
+  assignedRootId: string,
+): SavedExplorerLocation {
   return {
-    version: 2,
+    version: 3,
+    provider,
+    external_source_id: externalSourceId,
+    assigned_root_id: assignedRootId,
     saved_at: Date.now(),
     path: path.map(({ id, name, kind, mime_type, provider, external_source_id }) => ({ id, name, kind, mime_type, provider, external_source_id })),
   };
@@ -86,6 +112,13 @@ export function apiErrorMessage(payload: unknown, fallback: string): string {
 
 export function uploadErrorMessage(payload: unknown, fallback = "Upload failed. Try again."): string {
   return apiErrorMessage(payload, fallback);
+}
+
+export function isPureViewerIdentity(identity: { roles?: string[]; is_processing_admin?: boolean }): boolean {
+  const roles = new Set(identity.roles || []);
+  return roles.has("viewer")
+    && !identity.is_processing_admin
+    && !["operator", "tenant_admin", "billing_admin"].some(role => roles.has(role));
 }
 
 export function pruneSelectedIds(selected: ReadonlySet<string>, visibleItems: Asset[]): Set<string> {
@@ -121,6 +154,11 @@ export function oauthMessageFor(errorCode: string): string {
 export function useDriveExplorer() {
   const [provider, setProvider] = useState<Provider>("google-drive");
   const [activeExternalSourceId, setActiveExternalSourceId] = useState<string | null>(null);
+  const [activeAssignedRootId, setActiveAssignedRootId] = useState<string | null>(null);
+  const [viewerBootstrap, setViewerBootstrap] = useState<ViewerBootstrap | null>(null);
+  const [viewerBootstrapState, setViewerBootstrapState] = useState<"idle" | "loading" | "ready" | "permission" | "error">("idle");
+  const [pureViewer, setPureViewer] = useState<boolean | null>(null);
+  const [explorerReady, setExplorerReady] = useState(false);
   const [authByProvider, setAuthByProvider] = useState<ProviderSessions>({
     "google-drive": { authenticated: false, user: null, checking: true },
     sharepoint: { authenticated: false, user: null, checking: true },
@@ -136,22 +174,12 @@ export function useDriveExplorer() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["root"]));
   const [loadingTreeIds, setLoadingTreeIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
-  const [searchResults, setSearchResults] = useState<Asset[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [searchProgress, setSearchProgress] = useState(0);
-  const [searchStatus, setSearchStatus] = useState("Preparing search");
-  const [searchProcessedFolders, setSearchProcessedFolders] = useState(0);
-  const [searchPendingFolders, setSearchPendingFolders] = useState(0);
-  const [searchIndexedCount, setSearchIndexedCount] = useState(0);
-  const [searchIndexSource, setSearchIndexSource] = useState<"directus" | "memory" | null>(null);
-  const [searchTruncated, setSearchTruncated] = useState(false);
-  const [searchError, setSearchError] = useState("");
   const [loading, setLoading] = useState(true);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [error, setError] = useState("");
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
-  const searchV2 = useSearchV2(auth.authenticated, provider, query, activeExternalSourceId);
+  const searchV3 = useSearchV3(auth.authenticated && explorerReady, provider, query, activeExternalSourceId, `${activeAssignedRootId || ""}:${visibilityFilter}`);
 
   const folderCache = useRef(new Map<string, Folder>());
   const folderRequests = useRef(new Map<string, Promise<Folder>>());
@@ -163,23 +191,11 @@ export function useDriveExplorer() {
   const loadedPageTokens = useRef(new Set<string>());
   const loadMoreRequest = useRef<Promise<void> | null>(null);
   const loadMoreAbortController = useRef<AbortController | null>(null);
+  const browseControllers = useRef(new Set<AbortController>());
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState("");
-
-  function resetSearch() {
-    setSearchResults(null);
-    setSearching(false);
-    setSearchProgress(0);
-    setSearchStatus("Preparing search");
-    setSearchProcessedFolders(0);
-    setSearchPendingFolders(0);
-    setSearchIndexedCount(0);
-    setSearchIndexSource(null);
-    setSearchTruncated(false);
-    setSearchError("");
-  }
 
   function resetFolderPagination() {
     paginationSequence.current += 1;
@@ -191,6 +207,21 @@ export function useDriveExplorer() {
     setHasMore(false);
     setLoadingMore(false);
     setLoadMoreError("");
+  }
+
+  function newBrowseController() {
+    const controller = new AbortController();
+    browseControllers.current.add(controller);
+    return controller;
+  }
+
+  function releaseBrowseController(controller: AbortController) {
+    browseControllers.current.delete(controller);
+  }
+
+  function abortPendingBrowse() {
+    browseControllers.current.forEach(controller => controller.abort());
+    browseControllers.current.clear();
   }
 
   const folderCacheKey = (source: Provider, id: string, sourceId: string | null = activeExternalSourceId) => source + ":" + (sourceId || "") + ":" + id;
@@ -209,6 +240,9 @@ export function useDriveExplorer() {
     signal?: AbortSignal,
     externalSourceId: string | null = activeExternalSourceId,
   ): Promise<Folder> {
+    if (pureViewer && !externalSourceId) {
+      throw Error("Select an assigned source before browsing");
+    }
     const baseKey = folderCacheKey(source, id, externalSourceId);
     const key = pageToken ? baseKey + ":page:" + pageToken : baseKey;
     const cached = folderCache.current.get(key);
@@ -273,7 +307,10 @@ export function useDriveExplorer() {
     });
   }
 
-  async function fetchTreeFolders(id: string, source: Provider = provider, sourceId: string | null = activeExternalSourceId): Promise<Asset[]> {
+  async function fetchTreeFolders(id: string, source: Provider = provider, sourceId: string | null = activeExternalSourceId, signal?: AbortSignal): Promise<Asset[]> {
+    if (pureViewer && !sourceId) {
+      throw Error("Select an assigned source before browsing");
+    }
     const key = folderCacheKey(source, id, sourceId);
     const cached = treeFolderCache.current.get(key);
     if (cached) return cached;
@@ -284,7 +321,7 @@ export function useDriveExplorer() {
     const request = (async () => {
       const params = new URLSearchParams({ parent_id: id, provider: source });
       if (sourceId) params.set("external_source_id", sourceId);
-      const response = await fetch("/api/explorer/folders?" + params.toString());
+      const response = await fetch("/api/explorer/folders?" + params.toString(), { signal });
       if (!response.ok) {
         const body: unknown = await response.json().catch(() => null);
         throw Error(apiErrorMessage(body, "Unable to load folders"));
@@ -312,26 +349,35 @@ export function useDriveExplorer() {
     if (folderCache.current.has(key) || folderRequests.current.has(key)) return;
     cancelFolderPrefetch();
     prefetchTimer.current = window.setTimeout(() => {
-      void fetchFolder(id, provider).catch(() => undefined);
+      const controller = newBrowseController();
+      void fetchFolder(id, provider, undefined, controller.signal)
+        .catch(() => undefined)
+        .finally(() => releaseBrowseController(controller));
     }, 180);
   }
 
   async function open(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider, preserveSelection = false, sourceId: string | null = activeExternalSourceId) {
     const requestSequence = ++openSequence.current;
+    const controller = newBrowseController();
     resetFolderPagination();
     const cached = folderCache.current.has(folderCacheKey(source, id, sourceId));
     setLoading(!cached);
     setError("");
     if (!preserveSelection) setSelected(new Set());
-    resetSearch();
     cancelFolderPrefetch();
 
     try {
-      const folder = await fetchFolder(id, source, undefined, undefined, sourceId);
-      if (requestSequence !== openSequence.current) return;
+      const folder = await fetchFolder(id, source, undefined, controller.signal, sourceId);
+      if (requestSequence !== openSequence.current || controller.signal.aborted) return false;
       const nextPath = [...ancestors, folder.parent];
       setItems(folder.children);
       setActiveExternalSourceId(folder.parent.external_source_id ?? sourceId ?? null);
+      if (pureViewer && sourceId) {
+        const assignedRoot = viewerBootstrap?.sources
+          .find(item => item.external_source_id === sourceId)
+          ?.folders.find(item => item.id === id);
+        if (assignedRoot) setActiveAssignedRootId(assignedRoot.id);
+      }
       setPath(nextPath);
       setNextPageToken(folder.next_page_token || null);
       setHasMore(Boolean(folder.has_more && folder.next_page_token));
@@ -341,11 +387,14 @@ export function useDriveExplorer() {
       if (!folder.has_more) cacheFolders(id, folder.children, source, sourceId);
       else treeFolderCache.current.delete(folderCacheKey(source, id, sourceId));
       setExpanded(current => new Set(current).add(id));
+      return true;
     } catch (reason) {
-      if (requestSequence === openSequence.current) {
+      if (requestSequence === openSequence.current && !controller.signal.aborted) {
         setError(reason instanceof Error ? reason.message : "Unable to load folder");
       }
+      return false;
     } finally {
+      releaseBrowseController(controller);
       if (requestSequence === openSequence.current) setLoading(false);
     }
   }
@@ -403,8 +452,7 @@ export function useDriveExplorer() {
   /** Navigate from an explicit folder selection and leave search mode behind. */
   async function openFolder(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider) {
     setQuery("");
-    resetSearch();
-    searchV2.clearSearchFilters();
+    searchV3.clearSearchFilters();
     const params = new URLSearchParams(window.location.search);
     params.delete("q");
     [...params.keys()].filter(key => key.startsWith("facet.")).forEach(key => params.delete(key));
@@ -413,39 +461,113 @@ export function useDriveExplorer() {
     await open(id, ancestors, source);
   }
 
-  async function restoreSavedLocation(source: Provider) {
+  async function restoreSavedLocation(source: Provider, bootstrap?: ViewerBootstrap) {
     const saved = parseSavedExplorerLocation(window.localStorage.getItem(explorerLocationKey(source)), source);
-    if (!saved) {
+    if (!saved || (bootstrap && !savedLocationIsAuthorized(saved, bootstrap))) {
       window.localStorage.removeItem(explorerLocationKey(source));
-      await open(rootId(source), [], source);
-      return;
+      return false;
     }
+    const controller = newBrowseController();
     try {
-      const savedSourceId = saved.path[0]?.external_source_id || null;
-      if (source === "google-drive" && saved.path.some(item => !item.external_source_id)) throw Error("Saved source is unavailable");
+      const savedSourceId = saved.external_source_id;
       setActiveExternalSourceId(savedSourceId);
-      // A legacy saved path can begin at the selected folder. Always hydrate the
-      // provider root first so the sidebar has its top-level folders to render.
-      const sourceRootId = rootId(source);
-      const sourceRoot = await fetchFolder(sourceRootId, source, undefined, undefined, saved.path[0]?.external_source_id || null);
-      const restoredPath: Asset[] = [sourceRoot.parent];
-      if (!sourceRoot.has_more) cacheFolders(sourceRootId, sourceRoot.children, source, savedSourceId);
-
+      setActiveAssignedRootId(saved.assigned_root_id);
+      const restoredPath: Asset[] = [];
       for (const item of saved.path) {
-        if (item.id === sourceRootId) continue;
-        const folder = await fetchFolder(item.id, source, undefined, undefined, item.external_source_id || savedSourceId);
+        const folder = await fetchFolder(item.id, source, undefined, controller.signal, savedSourceId);
         if (restoredPath.at(-1)?.id !== folder.parent.id) restoredPath.push(folder.parent);
-        // Populate only complete listings. Expanded branches otherwise load their
-        // complete folder-only tree from /api/explorer/folders on demand.
-        if (!folder.has_more) cacheFolders(item.id, folder.children, source, item.external_source_id || savedSourceId);
+        if (!folder.has_more) cacheFolders(item.id, folder.children, source, savedSourceId);
       }
       const current = restoredPath.at(-1);
       if (!current) throw Error("Saved folder is unavailable");
       setExpanded(new Set(restoredPath.slice(0, -1).map(folder => folder.id)));
-      await open(current.id, restoredPath.slice(0, -1), source, false, current.external_source_id || savedSourceId);
+      return await open(current.id, restoredPath.slice(0, -1), source, false, savedSourceId);
     } catch {
       window.localStorage.removeItem(explorerLocationKey(source));
-      await open(rootId(source), [], source);
+      return false;
+    } finally {
+      releaseBrowseController(controller);
+    }
+  }
+
+  function showAssignedRoots(source: Provider, selectedSource: ViewerBootstrapSource) {
+    const sourceId = selectedSource.external_source_id;
+    const folders: Asset[] = selectedSource.folders.map(folder => ({
+      provider: source,
+      id: folder.id,
+      name: folder.name,
+      kind: "folder",
+      mime_type: "application/vnd.google-apps.folder",
+      external_source_id: sourceId,
+      has_children: true,
+    }));
+    const virtualRoot: Asset = {
+      provider: source,
+      id: rootId(source),
+      name: selectedSource.display_name,
+      kind: "folder",
+      mime_type: "application/vnd.google-apps.folder",
+      external_source_id: sourceId,
+      has_children: true,
+    };
+    setPath([virtualRoot]);
+    setItems(folders);
+    setChildrenByParent({ [virtualRoot.id]: folders });
+    setExpanded(new Set([virtualRoot.id]));
+    setLoading(false);
+  }
+
+  async function activateViewerSource(bootstrap: ViewerBootstrap, sourceId: string, source: Provider) {
+    const selectedSource = bootstrap.sources.find(item => item.external_source_id === sourceId);
+    if (!selectedSource) return;
+    clearExplorer(source);
+    setViewerBootstrap(bootstrap);
+    setViewerBootstrapState("ready");
+    setActiveExternalSourceId(sourceId);
+    const saved = parseSavedExplorerLocation(window.localStorage.getItem(explorerLocationKey(source)), source);
+    if (saved && saved.external_source_id === sourceId && savedLocationIsAuthorized(saved, bootstrap)) {
+      if (await restoreSavedLocation(source, bootstrap)) {
+        setExplorerReady(true);
+        return;
+      }
+    }
+    window.localStorage.removeItem(explorerLocationKey(source));
+    if (selectedSource.folders.length === 1) {
+      const assignedRoot = selectedSource.folders[0];
+      setActiveAssignedRootId(assignedRoot.id);
+      if (await open(assignedRoot.id, [], source, false, sourceId)) setExplorerReady(true);
+      return;
+    }
+    setActiveAssignedRootId(null);
+    showAssignedRoots(source, selectedSource);
+    setExplorerReady(true);
+  }
+
+  async function loadViewerBootstrap(source: Provider) {
+    setExplorerReady(false);
+    setViewerBootstrapState("loading");
+    setLoading(true);
+    try {
+      const response = await fetch("/api/explorer/viewer/bootstrap?provider=" + encodeURIComponent(source));
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw Object.assign(Error(apiErrorMessage(payload, "Unable to load assigned folders")), { status: response.status, payload });
+      const bootstrap = payload as ViewerBootstrap;
+      setViewerBootstrap(bootstrap);
+      setViewerBootstrapState("ready");
+      if (bootstrap.auto_selected_source_id) {
+        await activateViewerSource(bootstrap, bootstrap.auto_selected_source_id, source);
+      } else {
+        clearExplorer(source);
+        setViewerBootstrap(bootstrap);
+        setViewerBootstrapState("ready");
+      }
+    } catch (reason) {
+      const failure = reason as { status?: number; payload?: unknown; message?: string };
+      clearExplorer(source);
+      setViewerBootstrapState(failure.status === 403 ? "permission" : "error");
+      setError(failure.message || "Unable to load assigned folders");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -478,13 +600,16 @@ export function useDriveExplorer() {
 
     setLoadingTreeIds(current => new Set(current).add(node.id));
     setError("");
+    const controller = newBrowseController();
     try {
-      const folders = await fetchTreeFolders(node.id, provider, activeExternalSourceId);
+      const folders = await fetchTreeFolders(node.id, provider, activeExternalSourceId, controller.signal);
+      if (controller.signal.aborted) return;
       cacheFolders(node.id, folders, provider, nodeSourceId);
       setExpanded(current => new Set(current).add(node.id));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to expand folder");
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to expand folder");
     } finally {
+      releaseBrowseController(controller);
       setLoadingTreeIds(current => {
         const next = new Set(current);
         next.delete(node.id);
@@ -543,15 +668,17 @@ export function useDriveExplorer() {
   }
 
   function clearExplorer(source: Provider = provider) {
+    abortPendingBrowse();
+    setExplorerReady(false);
     setPath([]);
     setActiveExternalSourceId(null);
+    setActiveAssignedRootId(null);
     setItems([]);
     setChildrenByParent({});
     setExpanded(new Set([rootId(source)]));
     setSelected(new Set());
     setMetadataByItem({});
     setQuery("");
-    resetSearch();
     setError("");
     setLoading(false);
     setLoadingTreeIds(new Set());
@@ -565,9 +692,13 @@ export function useDriveExplorer() {
   }
 
   useEffect(() => {
-    if (!auth.authenticated || !path.length) return;
-    try { window.localStorage.setItem(explorerLocationKey(provider), JSON.stringify(savedLocation(path))); } catch { /* browser storage is optional */ }
-  }, [auth.authenticated, path, provider]);
+    if (!auth.authenticated || !explorerReady || !path.length || !activeExternalSourceId || !activeAssignedRootId) return;
+    try {
+      window.localStorage.setItem(explorerLocationKey(provider), JSON.stringify(
+        savedLocation(path, provider, activeExternalSourceId, activeAssignedRootId),
+      ));
+    } catch { /* browser storage is optional */ }
+  }, [auth.authenticated, explorerReady, path, provider, activeExternalSourceId, activeAssignedRootId]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -584,6 +715,11 @@ export function useDriveExplorer() {
       try { const response = await fetch(url); if (!response.ok) throw Error(); return await response.json(); }
       catch { return { authenticated: false, user: null }; }
     }
+    async function readIdentity(): Promise<{ roles: string[]; is_processing_admin: boolean }> {
+      const response = await fetch("/api/v1/auth/identity");
+      if (!response.ok) throw Error("Unable to verify workspace access");
+      return await response.json();
+    }
     async function initialize() {
       const [google, sharepoint] = await Promise.all([readSession("/api/auth/google/session"), readSession("/api/auth/microsoft/session")]);
       const sessions: ProviderSessions = {
@@ -593,12 +729,33 @@ export function useDriveExplorer() {
       const selected: Provider = preferred === "sharepoint" && sharepoint.authenticated ? "sharepoint"
         : google.authenticated ? "google-drive" : sharepoint.authenticated ? "sharepoint" : preferred;
       setAuthByProvider(sessions); setProvider(selected);
-      if (sessions[selected].authenticated) await restoreSavedLocation(selected);
-      else clearExplorer(selected);
+      if (!sessions[selected].authenticated) {
+        setPureViewer(null);
+        clearExplorer(selected);
+        return;
+      }
+      try {
+        const identity = await readIdentity();
+        const viewer = isPureViewerIdentity(identity);
+        setPureViewer(viewer);
+        if (viewer) {
+          await loadViewerBootstrap(selected);
+          return;
+        }
+        const restored = await restoreSavedLocation(selected);
+        if (!restored) {
+          setActiveAssignedRootId(rootId(selected));
+          await open(rootId(selected), [], selected);
+        }
+        setExplorerReady(true);
+      } catch (reason) {
+        clearExplorer(selected);
+        setError(reason instanceof Error ? reason.message : "Unable to initialize workspace");
+      }
     }
     void initialize();
     fetch("/api/tags").then(response => response.json()).then(setTags).catch(() => setTags([]));
-    return () => { openSequence.current += 1; cancelFolderPrefetch(); };
+    return () => { abortPendingBrowse(); openSequence.current += 1; cancelFolderPrefetch(); };
   }, []);
 
   useEffect(() => {
@@ -606,29 +763,33 @@ export function useDriveExplorer() {
     setMetadataIndex({ ...emptyIndexStatus });
   }, [auth.authenticated, provider]);
 
-  useEffect(() => {
-    // Legacy explorer search is disabled for the normal UI.
-    setSearchResults(null);
-    setSearching(false);
-    setSearchProgress(0);
-    setSearchStatus("Search ready");
-    setSearchProcessedFolders(0);
-    setSearchPendingFolders(0);
-    setSearchError("");
-    setSearchIndexedCount(0);
-    setSearchIndexSource(null);
-    setSearchTruncated(false);
-  }, [query, provider, activeExternalSourceId]);
-
   async function selectProvider(source: Provider) {
-    setProvider(source); setActiveExternalSourceId(null); setOauthError(null); clearExplorer(source);
-    if (authByProvider[source].authenticated) await open(rootId(source), [], source);
+    setProvider(source); setOauthError(null); clearExplorer(source);
+    if (!authByProvider[source].authenticated) return;
+    if (pureViewer) {
+      await loadViewerBootstrap(source);
+      return;
+    }
+    const restored = await restoreSavedLocation(source);
+    if (!restored) {
+      setActiveAssignedRootId(rootId(source));
+      await open(rootId(source), [], source);
+    }
+    setExplorerReady(true);
+  }
+
+  async function selectViewerSource(sourceId: string) {
+    if (!viewerBootstrap || !viewerBootstrap.sources.some(source => source.external_source_id === sourceId)) return;
+    await activateViewerSource(viewerBootstrap, sourceId, provider);
   }
 
   async function logout() {
     await fetch(provider === "sharepoint" ? "/api/auth/microsoft/logout" : "/api/auth/google/logout", { method: "POST" });
     setAuthByProvider(current => ({ ...current, [provider]: { authenticated: false, user: null, checking: false } }));
     clearExplorer(provider);
+    setViewerBootstrap(null);
+    setViewerBootstrapState("idle");
+    setPureViewer(null);
   }
 
   function toggleSelection(id: string) {
@@ -695,8 +856,8 @@ export function useDriveExplorer() {
   }
 
   const matchedItems = useMemo(
-    () => searchV2.active && query.trim().length >= 1 ? searchV2.items : items,
-    [items, query, searchV2.active, searchV2.items],
+    () => searchV3.active && query.trim().length >= 1 ? searchV3.items : items,
+    [items, query, searchV3.active, searchV3.items],
   );
 
   const visibleItems = useMemo(
@@ -768,19 +929,10 @@ export function useDriveExplorer() {
     loadingTreeIds,
     query,
     setQuery,
-    searching: searchV2.active
-      ? isSearchRequestInFlight(query, searchV2.loading)
-      : searching,
-    searchProgress,
-    searchStatus,
-    searchProcessedFolders,
-    searchPendingFolders,
-    searchComplete: searchV2.active && query.trim().length >= 1 && !searchV2.loading && !searchV2.error,
-    searchIndexedCount,
-    searchIndexSource,
-    searchTruncated,
-    searchError: searchV2.error,
-    searchDurationMs: searchV2.active ? searchV2.durationMs : null,
+    searching: isSearchRequestInFlight(query, searchV3.loading),
+    searchComplete: searchV3.active && query.trim().length >= 1 && !searchV3.loading && !searchV3.error,
+    searchError: searchV3.error,
+    searchDurationMs: searchV3.active ? searchV3.durationMs : null,
     loading,
     hasMoreFolderItems: hasMore,
     loadingMoreFolderItems: loadingMore,
@@ -792,9 +944,15 @@ export function useDriveExplorer() {
     authByProvider,
     oauthError,
     metadataIndex,
-    searchReady: searchV2.capabilitiesResolved && searchV2.active,
-    searchV2,
-    retrySearch: searchV2.retry,
+    explorerReady,
+    pureViewer,
+    viewerBootstrap,
+    viewerBootstrapState,
+    viewerSources: viewerBootstrap?.sources || [],
+    selectViewerSource,
+    searchReady: searchV3.capabilitiesResolved && searchV3.active,
+    searchV3,
+    retrySearch: searchV3.retry,
     refreshCurrentFolder,
     selectProvider,
     open,
@@ -802,6 +960,7 @@ export function useDriveExplorer() {
     toggleTree,
     scheduleFolderPrefetch,
     activeExternalSourceId,
+    activeAssignedRootId,
     cancelFolderPrefetch,
     logout,
     toggleSelection,

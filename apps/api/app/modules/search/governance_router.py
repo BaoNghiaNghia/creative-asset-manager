@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.modules.authorization.principal import (
     CurrentPrincipal, require_permission, require_platform_admin, require_tenant_scope,
 )
@@ -193,7 +193,7 @@ async def verify_index(record_id: str, body: VerifyIndexRequest, principal: Curr
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
-    async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
+    async with ElasticsearchV3Index(ElasticsearchV3Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             try:
                 row = await SearchIndexLifecycleService(session, provider).verify(
@@ -216,7 +216,7 @@ async def activate_index(record_id: str, principal: CurrentPrincipal = Depends(r
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
-    async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
+    async with ElasticsearchV3Index(ElasticsearchV3Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             try:
                 row = await SearchIndexLifecycleService(session, provider).activate(record_id, actor_id=principal.user_id)
@@ -232,7 +232,7 @@ async def rollback_index(record_id: str, principal: CurrentPrincipal = Depends(r
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
-    async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
+    async with ElasticsearchV3Index(ElasticsearchV3Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             try:
                 row = await SearchIndexLifecycleService(session, provider).rollback(record_id, actor_id=principal.user_id)
@@ -246,7 +246,7 @@ async def reconcile_indices(index_prefix: str, principal: CurrentPrincipal = Dep
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
-    async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
+    async with ElasticsearchV3Index(ElasticsearchV3Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             try:
                 row = await SearchIndexLifecycleService(session, provider).reconcile_aliases(index_prefix, actor_id=principal.user_id)
@@ -260,7 +260,7 @@ async def cleanup_indices(body: CleanupIndexRequest, principal: CurrentPrincipal
     settings = get_settings()
     if not settings.ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED or not settings.ELASTICSEARCH_URL:
         raise HTTPException(409, "Index lifecycle operations are disabled")
-    async with ElasticsearchV2Index(ElasticsearchV2Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
+    async with ElasticsearchV3Index(ElasticsearchV3Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX)) as provider:
         with SessionLocal() as session:
             deleted = await SearchIndexLifecycleService(session, provider).cleanup(
                 index_prefix=settings.ELASTICSEARCH_INDEX_PREFIX, actor_id=principal.user_id,

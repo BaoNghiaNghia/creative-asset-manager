@@ -14,7 +14,7 @@ from app.core.database import get_db
 from app.domain.processing.handlers import WorkerDependencies
 from app.domain.providers.registry import AiProviderRegistry
 from app.domain.providers.contracts import AiMetadataAnalysisResult, AssetDownloadStream, StoredAsset, StoredAssetReadStream
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
 from app.modules.ai_governance.model import AiCostRateModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
@@ -93,20 +93,20 @@ class FakeGemini:
 
 class LoopSafeSearchProvider:
     def __init__(self,base_url,prefix,failures=0):
-        self.config=ElasticsearchV2Config(base_url,index_prefix=prefix); self.failures=failures; self._lock=threading.Lock()
+        self.config=ElasticsearchV3Config(base_url,index_prefix=prefix); self.failures=failures; self._lock=threading.Lock()
     async def initialize(self):
-        async with ElasticsearchV2Index(self.config) as index:
+        async with ElasticsearchV3Index(self.config) as index:
             physical=await index.create_index("000001"); await index.switch_aliases(physical)
     async def bulk_upsert(self,documents):
         with self._lock:
             if self.failures:
                 self.failures-=1; raise RuntimeError("temporary fake Elasticsearch transport failure")
-        async with ElasticsearchV2Index(self.config) as index: return await index.bulk_upsert(documents)
+        async with ElasticsearchV3Index(self.config) as index: return await index.bulk_upsert(documents)
     async def search(self,body):
-        async with ElasticsearchV2Index(self.config) as index:
+        async with ElasticsearchV3Index(self.config) as index:
             await index._request("POST",f"/{index.write_alias}/_refresh"); return await index.search(body)
     async def cleanup(self):
-        async with ElasticsearchV2Index(self.config) as index:
+        async with ElasticsearchV3Index(self.config) as index:
             await index.client.delete(f"/{self.config.index_prefix}-v2-*",params={"expand_wildcards":"all"})
 
 def fake_pipeline_settings():

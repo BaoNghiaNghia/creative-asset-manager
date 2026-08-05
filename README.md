@@ -100,3 +100,8 @@ The SharePoint adapter discovers sites, then lists each site's document librarie
 Both cloud sessions are independent. Switching sources clears only the active explorer view and reloads the selected provider. Directus metadata and tag assignments are separated by `provider + account_id + item_id`.
 
 Microsoft access and refresh tokens are currently held in API process memory, matching the Google Drive MVP. Restarting the API requires signing in again.
+
+
+## Search V3-only rollout
+
+As of this release, user-facing search and suggestions use Search V3 exclusively. The legacy Explorer search and search-triggered metadata indexing paths were removed; administrators should use the Search V3 governance and rebuild operations for controlled recovery.

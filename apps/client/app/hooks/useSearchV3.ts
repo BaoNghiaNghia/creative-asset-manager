@@ -31,6 +31,26 @@ export function shouldFetchSearchSuggestions(active: boolean, authenticated: boo
   return active && authenticated && query.trim().length >= 2;
 }
 
+export function suggestionQueriesMatch(previousQuery: string, currentQuery: string): boolean {
+  const previous = previousQuery.trim().toLocaleLowerCase();
+  const current = currentQuery.trim().toLocaleLowerCase();
+  return Boolean(previous && current) && (previous.startsWith(current) || current.startsWith(previous));
+}
+
+export function isSuggestionAuthorizationDenial(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
+export function shouldPreserveSuggestionsAfterFailure(status: number, currentQueryMatches: boolean): boolean {
+  return currentQueryMatches && !isSuggestionAuthorizationDenial(status);
+}
+
+export function isCurrentSuggestionResponse(
+  requestEpoch: number, currentEpoch: number, requestScope: string, currentScope: string,
+): boolean {
+  return requestEpoch === currentEpoch && requestScope === currentScope;
+}
+
 export function isSearchRequestInFlight(query: string, loading: boolean): boolean {
   return query.trim().length > 0 && loading;
 }
@@ -73,7 +93,7 @@ export function buildSearchRequestBody(
   };
 }
 
-export function useSearchV2(authenticated: boolean, provider: Provider, query: string, externalSourceId?: string | null) {
+export function useSearchV3(authenticated: boolean, provider: Provider, query: string, externalSourceId?: string | null, paginationResetKey?: string | null) {
   const [capabilities, setCapabilities] = useState(emptyCapabilities);
   const [items, setItems] = useState<Asset[]>([]);
   const [facets, setFacets] = useState<Record<string, SearchFacetBucket[]>>({});
@@ -87,12 +107,17 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState("");
+  const [suggestionsLastUpdated, setSuggestionsLastUpdated] = useState<number | null>(null);
+  const [suggestionsRetry, setSuggestionsRetry] = useState(0);
   const [error, setError] = useState("");
   const [capabilitiesError, setCapabilitiesError] = useState("");
   const [capabilitiesRetry, setCapabilitiesRetry] = useState(0);
   const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
-  const suggestionCache = useRef(new Map<string, { expiresAt: number; values: SearchSuggestion[] }>());
+  const suggestionCache = useRef(new Map<string, { expiresAt: number; updatedAt: number; values: SearchSuggestion[] }>());
   const suggestionEpoch = useRef(0);
+  const suggestionController = useRef<AbortController | null>(null);
+  const suggestionRequestScope = useRef("");
+  const lastSuccessfulSuggestions = useRef<{ scope: string; query: string } | null>(null);
   const searchEpoch = useRef(0);
   const nextCursor = useRef<string | null>(null);
   const pageInFlight = useRef(false);
@@ -100,7 +125,14 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
 
   useEffect(() => {
     if (!authenticated) {
+      suggestionController.current?.abort();
+      suggestionController.current = null;
+      suggestionEpoch.current += 1;
+      suggestionRequestScope.current = "";
+      lastSuccessfulSuggestions.current = null;
       suggestionCache.current.clear();
+      setSuggestions([]); setSuggestionsLoading(false); setSuggestionsError("");
+      setSuggestionsLastUpdated(null);
       setCapabilities(emptyCapabilities);
       setCapabilitiesResolved(false);
       return;
@@ -134,43 +166,86 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
 
   useEffect(() => {
     const epoch = ++suggestionEpoch.current;
-    if (viewerSourceMissing || !shouldFetchSearchSuggestions(active, authenticated, query)) {
-      setSuggestions([]); setSuggestionsLoading(false); setSuggestionsError(""); return;
-    }
+    suggestionController.current?.abort();
+    suggestionController.current = null;
     const normalizedQuery = query.trim();
-    const cacheKey = provider + ":" + (externalSourceId || "") + ":" + normalizedQuery.toLocaleLowerCase();
+    const sourceId = externalSourceId?.trim() || "";
+    const scope = provider + ":" + sourceId;
+    const requestScope = scope + ":" + normalizedQuery.toLocaleLowerCase();
+    suggestionRequestScope.current = requestScope;
+    const previous = lastSuccessfulSuggestions.current;
+    const canPreserve = Boolean(
+      previous && previous.scope === scope
+      && suggestionQueriesMatch(previous.query, normalizedQuery),
+    );
+    const clearSuggestionState = () => {
+      setSuggestions([]);
+      setSuggestionsLastUpdated(null);
+      lastSuccessfulSuggestions.current = null;
+    };
+    if (!authenticated || !normalizedQuery) {
+      clearSuggestionState();
+      setSuggestionsLoading(false); setSuggestionsError("");
+      return;
+    }
+    if (previous && previous.scope !== scope) clearSuggestionState();
+    if (!canPreserve && previous?.scope === scope) clearSuggestionState();
+    if (viewerSourceMissing || !shouldFetchSearchSuggestions(active, authenticated, normalizedQuery)) {
+      setSuggestionsLoading(false); setSuggestionsError("");
+      return;
+    }
+    const cacheKey = scope + ":" + normalizedQuery.toLocaleLowerCase();
     const cached = suggestionCache.current.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       setSuggestions(cached.values);
+      setSuggestionsLastUpdated(cached.updatedAt);
+      lastSuccessfulSuggestions.current = { scope, query: normalizedQuery };
       setSuggestionsLoading(false);
+      setSuggestionsError("");
       return;
     }
     const controller = new AbortController();
+    suggestionController.current = controller;
     const timer = window.setTimeout(async () => {
       setSuggestionsLoading(true);
       setSuggestionsError("");
       try {
-        const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, ...(externalSourceId ? { external_source_id: externalSourceId } : {}), limit: "10" });
+        const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, ...(sourceId ? { external_source_id: sourceId } : {}), limit: "10" });
         const response = await fetch("/api/v1/search/suggestions?" + params, { signal: controller.signal });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw Error(searchApiErrorMessage(payload, "Suggestions are unavailable"));
+          throw Object.assign(Error(searchApiErrorMessage(payload, "Suggestions are unavailable")), { status: response.status });
         }
-        const values = Array.isArray(payload.suggestions) ? payload.suggestions : [];
-        if (controller.signal.aborted || epoch !== suggestionEpoch.current) return;
-        suggestionCache.current.set(cacheKey, { values, expiresAt: Date.now() + SUGGESTION_CACHE_TTL_MS });
+        const values: SearchSuggestion[] = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+        if (controller.signal.aborted || !isCurrentSuggestionResponse(epoch, suggestionEpoch.current, requestScope, suggestionRequestScope.current)) return;
+        const updatedAt = Date.now();
+        suggestionCache.current.set(cacheKey, { values, updatedAt, expiresAt: updatedAt + SUGGESTION_CACHE_TTL_MS });
+        lastSuccessfulSuggestions.current = { scope, query: normalizedQuery };
         setSuggestions(values);
+        setSuggestionsLastUpdated(updatedAt);
+        setSuggestionsError("");
       } catch (reason) {
-        if (!controller.signal.aborted && epoch === suggestionEpoch.current) {
-          setSuggestions([]);
-          setSuggestionsError(reason instanceof Error ? reason.message : "Suggestions are unavailable");
+        if (controller.signal.aborted || !isCurrentSuggestionResponse(epoch, suggestionEpoch.current, requestScope, suggestionRequestScope.current)) return;
+        const failure = reason as Error & { status?: number };
+        if (isSuggestionAuthorizationDenial(failure.status || 0)) {
+          suggestionCache.current.clear();
         }
+        if (!shouldPreserveSuggestionsAfterFailure(failure.status || 0, canPreserve)) {
+          clearSuggestionState();
+        }
+        setSuggestionsError(failure.message || "Suggestions are unavailable");
       } finally {
-        if (!controller.signal.aborted) setSuggestionsLoading(false);
+        if (!controller.signal.aborted && isCurrentSuggestionResponse(epoch, suggestionEpoch.current, requestScope, suggestionRequestScope.current)) {
+          setSuggestionsLoading(false);
+        }
       }
     }, SUGGESTION_DEBOUNCE_MS);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [active, authenticated, provider, query, externalSourceId, viewerSourceMissing]);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      if (suggestionController.current === controller) suggestionController.current = null;
+    };
+  }, [active, authenticated, provider, query, externalSourceId, viewerSourceMissing, suggestionsRetry]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -250,10 +325,10 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       void fetchPage(null, false, epoch, controller.signal);
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [active, authenticated, query, facetKey, fetchPage, viewerSourceMissing]);
+  }, [active, authenticated, query, facetKey, fetchPage, viewerSourceMissing, paginationResetKey]);
 
   const loadMore = useCallback(() => {
-    if (viewerSourceMissing || !active || !authenticated || !query.trim() || !hasMore || loading || loadingMore || pageInFlight.current) return;
+    if (viewerSourceMissing || !active || !authenticated || !query.trim() || !hasMore || !nextCursor.current || loading || loadingMore || pageInFlight.current) return;
     pageInFlight.current = true;
     setLoadingMore(true);
     const controller = new AbortController();
@@ -267,6 +342,9 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   function clearSearchFilters() {
     setSelectedFacets({});
     setSuggestions([]);
+    setSuggestionsError("");
+    setSuggestionsLastUpdated(null);
+    lastSuccessfulSuggestions.current = null;
     setFacets({});
     setParsed(null);
     setTotal(0);
@@ -286,10 +364,12 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     : "";
   const displayedError = error || (query.trim() ? capabilitiesError || availabilityError : "");
   const retry = useCallback(() => setCapabilitiesRetry(current => current + 1), []);
+  const retrySuggestions = useCallback(() => setSuggestionsRetry(current => current + 1), []);
 
   return useMemo(() => ({
     active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed,
     total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions,
-    suggestionsLoading, suggestionsError, error: displayedError, retry, toggleFacet, clearSearchFilters,
-  }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions, suggestionsLoading, suggestionsError, displayedError, retry]);
+    suggestionsLoading, suggestionsError, suggestionsLastUpdated, retrySuggestions,
+    error: displayedError, retry, toggleFacet, clearSearchFilters,
+  }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions, suggestionsLoading, suggestionsError, suggestionsLastUpdated, displayedError, retry, retrySuggestions]);
 }

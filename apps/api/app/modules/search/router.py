@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2RequestError
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.ai_metadata.model import MetadataProfileModel
@@ -23,10 +23,10 @@ from app.modules.search.query_builder import (
     encode_search_cursor,
 )
 from app.modules.search.query_parser import SearchQueryParser
-from app.modules.search.schema import SearchCapabilities, SearchSuggestionsResponse, SearchV2Request, SearchV2Response
+from app.modules.search.schema import SearchCapabilities, SearchSuggestionsResponse, SearchV3Request, SearchV3Response
 from app.modules.search.governance_model import SearchIndexRecordModel
 
-router = APIRouter(prefix="/api/v1/search", tags=["search-v2"])
+router = APIRouter(prefix="/api/v1/search", tags=["search-v3"])
 logger = logging.getLogger(__name__)
 SEARCH_READ = require_permission("search.read")
 EXAMPLES = ["cat", "cat mama", "cat, est, 2015", "\"est 2015\"", "cat OR dog", "subject:cat", "text:\"mama\""]
@@ -44,20 +44,9 @@ def search_config(session, tenant):
         boosts.update({str(k): float(v) for k, v in (config.get("boost_paths") or {}).items() if isinstance(v, (int, float))})
     return SearchQueryConfig(facet_names=frozenset(facets), path_aliases=aliases, boost_paths=boosts), sorted(facets)
 
-def enabled(session, tenant):
-    settings = get_settings()
-    effective = ProcessingPolicyService(ProcessingPolicyRepository(session), settings).effective(tenant)
-    return bool(
-        effective.effective.get("search_v2_enabled")
-        and settings.SEARCH_QUERY_PARSER_V2_ENABLED
-        and (settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED)
-        and settings.ELASTICSEARCH_URL
-    )
-
-
 def _search_generation(session, tenant: str, settings) -> str:
     """Resolve V3 readiness without ever selecting a legacy generation."""
-    if not settings.SEARCH_V3_ENABLED or not settings.ELASTICSEARCH_URL or not enabled(session, tenant):
+    if not settings.SEARCH_V3_ENABLED or not settings.ELASTICSEARCH_URL:
         return "unavailable"
     row = session.scalar(
         select(SearchIndexRecordModel)
@@ -127,7 +116,7 @@ def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
     }
 
 
-def _source_provider_filter(session, tenant: str, source_provider: str | None, *, generation: str, external_source_id: str | None = None) -> dict | None:
+def _source_provider_filter(session, tenant: str, source_provider: str | None, *, external_source_id: str | None = None) -> dict | None:
     if not source_provider and not external_source_id:
         return None
     source_type = "google_drive" if source_provider == "google-drive" else "sharepoint" if source_provider == "sharepoint" else None
@@ -144,74 +133,79 @@ def _source_provider_filter(session, tenant: str, source_provider: str | None, *
             )
         )
     ]
-    if generation == "v3":
-        return {"terms": {"source_id": source_ids or ["__none__"]}}
-    asset_ids = [
-        str(asset_id)
-        for asset_id in session.scalars(
-            select(AssetSourceLinkModel.asset_id)
-            .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
-            .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
-            .where(
-                AssetSourceLinkModel.tenant_id == tenant,
-                *(
-                    [ExternalSourceModel.source_type == source_type]
-                    if source_type is not None
-                    else []
-                ),
-                *(
-                    [SourceAssetModel.external_source_id == external_source_id]
-                    if external_source_id is not None
-                    else []
-                ),
-            )
-        )
-    ]
-    return {"terms": {"asset_id": asset_ids or ["__none__"]}}
-
-
+    return {"terms": {"source_id": source_ids or ["__none__"]}}
 def _viewer_scope_filter(
     session,
     principal: CurrentPrincipal,
-    *,
-    generation: str,
 ) -> tuple[dict | None, tuple[tuple[str, tuple[str, ...]], ...] | None]:
-    """Return an indexed source/folder filter for pure viewers."""
-    if not is_pure_viewer(principal):
-        return None, None
-    if generation != "v3" or not principal.membership_id:
-        # Older documents and an incomplete principal cannot prove folder ancestry.
-        # Both must fail closed until the durable membership/index data is available.
-        return {"match_none": {}}, ()
+    if not is_pure_viewer(principal) or not principal.membership_id:
+        return ({"match_none": {}}, ()) if is_pure_viewer(principal) else (None, None)
     scopes = ViewerFolderScopeService(session).list_membership_scopes(
         tenant_id=principal.active_tenant_id,
         membership_id=principal.membership_id,
     )
-    normalized = tuple(
-        sorted(
-            (str(source_id), tuple(sorted(str(folder_id) for folder_id in folder_ids if str(folder_id).strip())))
-            for source_id, folder_ids in scopes.items()
-            if folder_ids
-        )
-    )
+    normalized = tuple(sorted(
+        (str(source_id), tuple(sorted(str(folder_id) for folder_id in folder_ids if str(folder_id).strip())))
+        for source_id, folder_ids in scopes.items() if folder_ids
+    ))
     if not normalized:
         return {"match_none": {}}, normalized
-    return {
-        "bool": {
-            "should": [
-                {
-                    "bool": {
-                        "filter": [
-                            {"term": {"source_id": source_id}},
-                            {"terms": {"ancestor_ids": list(folder_ids)}},
-                        ]
-                    }
-                }
-                for source_id, folder_ids in normalized
-            ],
-            "minimum_should_match": 1,
-        }
-    }, normalized
+    return {"bool": {"should": [
+        {"bool": {"filter": [{"term": {"source_id": source_id}}, {"terms": {"ancestor_ids": list(folder_ids)}}]}}
+        for source_id, folder_ids in normalized
+    ], "minimum_should_match": 1}}, normalized
+
+
+def _search_scope_filters(
+    session,
+    principal: CurrentPrincipal,
+    *,
+    source_provider: str | None,
+    external_source_id: str | None,
+) -> tuple[list[dict], tuple[tuple[str, tuple[str, ...]], ...] | None, bool]:
+    filters: list[dict] = [{"term": {"tenant_id": principal.active_tenant_id}}]
+    source_filter = _source_provider_filter(
+        session,
+        principal.active_tenant_id,
+        source_provider,
+        external_source_id=external_source_id,
+    )
+    if source_filter:
+        filters.append(source_filter)
+    viewer_filter, viewer_scope_key = _viewer_scope_filter(
+        session, principal,
+    )
+    if viewer_filter:
+        filters.append(viewer_filter)
+    return filters, viewer_scope_key, viewer_filter is not None
+
+
+def _live_suggestion_hits(session, tenant: str, hits: list[dict]) -> list[dict]:
+    identities = {
+        (str(hit.get("_source", {}).get("asset_id") or hit.get("_id") or ""),
+         str(hit.get("_source", {}).get("source_id") or ""))
+        for hit in hits
+        if str(hit.get("_source", {}).get("asset_id") or hit.get("_id") or "")
+        and str(hit.get("_source", {}).get("source_id") or "")
+    }
+    if not identities:
+        return hits
+    asset_ids = {asset_id for asset_id, _source_id in identities}
+    rows = session.execute(
+        select(AssetSourceLinkModel.asset_id, SourceAssetModel.external_source_id)
+        .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
+        .where(
+            AssetSourceLinkModel.tenant_id == tenant,
+            AssetSourceLinkModel.asset_id.in_(asset_ids),
+            SourceAssetModel.deleted_at.is_(None),
+        )
+    ).all()
+    live = {(str(asset_id), str(source_id)) for asset_id, source_id in rows}
+    return [
+        hit for hit in hits
+        if not hit.get("_source", {}).get("source_id")
+        or (str(hit.get("_source", {}).get("asset_id") or hit.get("_id")), str(hit["_source"]["source_id"])) in live
+    ]
 
 
 def _source_timestamp(value) -> float:
@@ -329,15 +323,11 @@ async def suggestions(
         readiness = _search_generation(session, tenant, settings)
         _require_v3(readiness, settings)
         generation = "v3"
-        filters = [{"term": {"tenant_id": tenant}}]
-        source_filter = _source_provider_filter(session, tenant, source_provider, generation=generation, external_source_id=external_source_id)
-        if source_filter:
-            filters.append(source_filter)
-        viewer_filter, viewer_scope_key = _viewer_scope_filter(
-            session, principal, generation=generation,
-        )
-        if viewer_filter:
-            filters.append(viewer_filter)
+        filters, viewer_scope_key, _viewer_restricted = _search_scope_filters(
+            session, principal,
+            source_provider=source_provider,
+            external_source_id=external_source_id,
+            )
         session.commit()
     value = q.strip()
     cache_key = (tenant, source_provider or "", external_source_id or "", generation, viewer_scope_key, value.casefold(), limit)
@@ -345,7 +335,7 @@ async def suggestions(
     if cached is not None:
         return cached
     query = {
-        "_source": ["filename", "visible_text", "search_suggest", "search_terms", "normalized_terms"],
+        "_source": ["asset_id", "source_id", "filename", "visible_text", "search_suggest", "search_terms", "normalized_terms"],
         "size": min(limit * 2, 16),
         "terminate_after": 100,
         "timeout": f"{settings.SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS}ms",
@@ -364,7 +354,7 @@ async def suggestions(
     }
     try:
         index = await API_SEARCH_INDEX_POOL.get(
-            ElasticsearchV2Config(
+            ElasticsearchV3Config(
                 settings.ELASTICSEARCH_URL,
                 settings.ELASTICSEARCH_INDEX_PREFIX,
                 request_timeout_seconds=settings.SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS,
@@ -372,7 +362,7 @@ async def suggestions(
             )
         )
         response = await index.search(query)
-    except ElasticsearchV2RequestError as exc:
+    except ElasticsearchV3RequestError as exc:
         raise HTTPException(503, detail={
             "code": "search_v3_unavailable",
             "message": "Search V3 is temporarily unavailable.",
@@ -380,7 +370,10 @@ async def suggestions(
         }) from exc
     seen: set[str] = set()
     candidates = []
-    for hit in response.get("hits", {}).get("hits", []):
+    raw_hits = response.get("hits", {}).get("hits", [])
+    with SessionLocal() as session:
+        live_hits = _live_suggestion_hits(session, tenant, raw_hits)
+    for hit in live_hits:
         for kind, text, completion in _suggestion_values(hit.get("_source", {}), value):
             key = text.casefold()
             if key in seen:
@@ -399,8 +392,42 @@ async def suggestions(
         )
     return payload
 
-@router.post("", response_model=SearchV2Response)
-async def search(body: SearchV2Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
+def _hydrate_search_hits(session, tenant: str, hits: list[dict], *, viewer_restricted: bool, limit: int) -> list[dict]:
+    asset_ids = [str(hit.get("_source", {}).get("asset_id") or hit.get("_id")) for hit in hits]
+    document_source_ids = {str(hit.get("_source", {}).get("source_id") or "").strip() for hit in hits if str(hit.get("_source", {}).get("source_id") or "").strip()}
+    if not asset_ids:
+        return []
+    rows_query = (select(AssetSourceLinkModel.asset_id, SourceAssetModel, ExternalSourceModel)
+        .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
+        .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
+        .where(AssetSourceLinkModel.tenant_id == tenant, AssetSourceLinkModel.asset_id.in_(asset_ids), SourceAssetModel.deleted_at.is_(None)))
+    if viewer_restricted:
+        rows_query = rows_query.where(ExternalSourceModel.id.in_(document_source_ids or ["__none__"]))
+    rows = session.execute(rows_query).all()
+    sources: dict[tuple[str, str], tuple[SourceAssetModel, ExternalSourceModel]] = {}
+    for aid, source, external in sorted(rows, key=lambda row: _source_pair_rank(row[1], row[2]), reverse=True):
+        sources.setdefault((str(aid), str(external.id)), (source, external))
+    items = []
+    for hit in hits:
+        doc = hit.get("_source", {})
+        aid = str(doc.get("asset_id") or hit.get("_id"))
+        document_source_id = str(doc.get("source_id") or "").strip()
+        pair = sources.get((aid, document_source_id))
+        if pair is None and not viewer_restricted:
+            pair = next((value for (candidate, _), value in sources.items() if candidate == aid), None)
+        if not pair:
+            continue
+        source, external = pair
+        provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
+        mime = infer_media_type(source.filename or doc.get("filename"), source.mime_type)
+        kind = "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "pdf" if mime == "application/pdf" else "document"
+        items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": _search_thumbnail_url(provider=provider, external_asset_id=source.external_asset_id, external_source_id=source.external_source_id, kind=kind), "web_url": resolve_source_web_url(provider=provider, external_asset_id=source.external_asset_id, source_metadata=source.source_metadata), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
+        if len(items) >= limit:
+            break
+    return items
+
+@router.post("", response_model=SearchV3Response)
+async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
     tenant = principal.active_tenant_id
     settings = get_settings()
     with SessionLocal() as session:
@@ -428,84 +455,72 @@ async def search(body: SearchV2Request, principal: CurrentPrincipal = Depends(SE
             offset=body.offset,
             search_after=search_after,
         )
-        filters = query["query"]["bool"]["filter"]
+        filters, _viewer_scope_key, viewer_restricted = _search_scope_filters(
+            session, principal,
+            source_provider=body.source_provider,
+            external_source_id=body.external_source_id,
+            )
+        query["query"]["bool"]["filter"] = filters
         for name, values in sorted(body.facets.items()):
             if values:
                 filters.append({"terms": {f"facets.{name}": values}})
-        source_filter = _source_provider_filter(
-            session, tenant, body.source_provider, generation=generation, external_source_id=body.external_source_id,
-        )
-        if source_filter:
-            filters.append(source_filter)
-        viewer_filter, _viewer_scope_key = _viewer_scope_filter(
-            session, principal, generation=generation,
-        )
-        viewer_restricted = viewer_filter is not None
-        if viewer_filter:
-            filters.append(viewer_filter)
         aggregations = _facet_aggregations(allowed_facets, body.include_facets)
         if aggregations:
             query["aggs"] = aggregations
         debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
+        candidate_limit = min(max(body.limit + 30, body.limit), 180)
+        chunk_size = min(body.limit + 30, 90)
+        query["size"] = chunk_size
         try:
             index = await API_SEARCH_INDEX_POOL.get(
-                ElasticsearchV2Config(
+                ElasticsearchV3Config(
                     settings.ELASTICSEARCH_URL,
                     settings.ELASTICSEARCH_INDEX_PREFIX,
                     index_generation="v3",
                 )
             )
             response = await index.search(query)
-        except ElasticsearchV2RequestError as exc:
+        except ElasticsearchV3RequestError as exc:
             raise HTTPException(503, detail={
                 "code": "search_v3_unavailable",
                 "message": "Search V3 is temporarily unavailable.",
                 "retryable": True,
             }) from exc
-        hits = response.get("hits", {}).get("hits", [])
-        asset_ids = [str(hit.get("_source", {}).get("asset_id") or hit.get("_id")) for hit in hits]
-        document_source_ids = {
-            str(hit.get("_source", {}).get("source_id") or "").strip()
-            for hit in hits
-            if str(hit.get("_source", {}).get("source_id") or "").strip()
-        }
-        rows_query = (
-            select(AssetSourceLinkModel.asset_id, SourceAssetModel, ExternalSourceModel)
-            .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
-            .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
-            .where(
-                AssetSourceLinkModel.tenant_id == tenant,
-                AssetSourceLinkModel.asset_id.in_(asset_ids),
-                SourceAssetModel.deleted_at.is_(None),
-            )
-        )
-        if viewer_restricted:
-            rows_query = rows_query.where(
-                ExternalSourceModel.id.in_(document_source_ids or ["__none__"])
-            )
-        rows = session.execute(rows_query).all()
-        sources: dict[tuple[str, str], tuple[SourceAssetModel, ExternalSourceModel]] = {}
-        for aid, source, external in sorted(
-            rows,
-            key=lambda row: _source_pair_rank(row[1], row[2]),
-            reverse=True,
-        ):
-            sources.setdefault((str(aid), str(external.id)), (source, external))
-        items = []
-        for hit in hits:
-            doc = hit.get("_source", {})
-            aid = str(doc.get("asset_id") or hit.get("_id"))
-            document_source_id = str(doc.get("source_id") or "").strip()
-            pair = sources.get((aid, document_source_id))
-            if pair is None and not viewer_restricted:
-                pair = next((value for (candidate, _), value in sources.items() if candidate == aid), None)
-            if not pair:
-                continue
-            source, external = pair
-            provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
-            mime = infer_media_type(source.filename or doc.get("filename"), source.mime_type)
-            kind = "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "pdf" if mime == "application/pdf" else "document"
-            items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": _search_thumbnail_url(provider=provider, external_asset_id=source.external_asset_id, external_source_id=source.external_source_id, kind=kind), "web_url": resolve_source_web_url(provider=provider, external_asset_id=source.external_asset_id, source_metadata=source.source_metadata), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
+        first_response = response
+        hits = list(response.get("hits", {}).get("hits", []))
+        consumed = len(hits)
+        last_sort = hits[-1].get("sort") if hits else None
+        items = _hydrate_search_hits(session, tenant, hits, viewer_restricted=viewer_restricted, limit=body.limit)
+        can_continue = bool(len(hits) == chunk_size and isinstance(last_sort, list))
+        while len(items) < body.limit and can_continue and consumed < candidate_limit:
+            next_size = min(chunk_size, candidate_limit - consumed)
+            if next_size < 1:
+                break
+            query["search_after"] = last_sort
+            query.pop("from", None)
+            query["size"] = next_size
+            try:
+                next_response = await index.search(query)
+            except ElasticsearchV3RequestError as exc:
+                raise HTTPException(503, detail={
+                    "code": "search_v3_unavailable",
+                    "message": "Search V3 is temporarily unavailable.",
+                    "retryable": True,
+                }) from exc
+            batch = list(next_response.get("hits", {}).get("hits", []))
+            if not batch:
+                can_continue = False
+                break
+            next_sort = batch[-1].get("sort")
+            if next_sort == last_sort or not isinstance(next_sort, list):
+                can_continue = False
+                break
+            hits.extend(batch)
+            consumed += len(batch)
+            last_sort = next_sort
+            items = _hydrate_search_hits(session, tenant, hits, viewer_restricted=viewer_restricted, limit=body.limit)
+            can_continue = len(batch) == next_size
+        response = first_response
         total_value = response.get("hits", {}).get("total", 0)
         total = int(total_value.get("value", 0) if isinstance(total_value, dict) else total_value)
         facet_output = (
@@ -515,9 +530,9 @@ async def search(body: SearchV2Request, principal: CurrentPrincipal = Depends(SE
         )
         parsed_doc = {"mode": parsed.mode.value, "clauses": [{"kind": clause.kind.value, "field": clause.field, "value": clause.value} for clause in parsed.clauses]} if debug else None
         next_cursor = None
-        if len(hits) == body.limit and hits and isinstance(hits[-1].get("sort"), list):
+        if can_continue and last_sort:
             try:
-                next_cursor = encode_search_cursor(hits[-1]["sort"])
+                next_cursor = encode_search_cursor(last_sort)
             except ValueError:
                 next_cursor = None
         primary_result = {"search_version": generation, "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took"), "next_cursor": next_cursor, "has_more": next_cursor is not None}

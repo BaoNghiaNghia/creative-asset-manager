@@ -33,6 +33,24 @@ class FolderListing(BaseModel):
     has_more: bool = False
 
 
+class ViewerBootstrapFolder(BaseModel):
+    id: str
+    name: str
+    external_source_id: str
+
+
+class ViewerBootstrapSource(BaseModel):
+    external_source_id: str
+    display_name: str
+    folders: list[ViewerBootstrapFolder]
+
+
+class ViewerBootstrapResponse(BaseModel):
+    sources: list[ViewerBootstrapSource]
+    auto_selected_source_id: str | None = None
+    auto_selected_folder_id: str | None = None
+
+
 class SearchRequest(BaseModel):
     provider: Provider = "google-drive"
     query: str = Field(min_length=1, max_length=200)

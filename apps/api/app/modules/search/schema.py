@@ -1,7 +1,7 @@
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
-class SearchV2Request(BaseModel):
+class SearchV3Request(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     source_provider: Literal["google-drive", "sharepoint"] | None = None
     external_source_id: str | None = Field(default=None, max_length=128)
@@ -12,7 +12,7 @@ class SearchV2Request(BaseModel):
     include_facets: bool = True
     debug: bool = False
 
-class SearchV2Response(BaseModel):
+class SearchV3Response(BaseModel):
     search_version: Literal["v3"]
     items: list[dict[str, Any]]
     total: int
