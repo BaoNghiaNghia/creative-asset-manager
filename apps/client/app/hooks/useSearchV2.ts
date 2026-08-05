@@ -16,12 +16,16 @@ export function searchApiErrorMessage(payload: unknown, fallback: string): strin
 }
 
 const emptyCapabilities: SearchCapabilities = {
-  selected_version: "v1", v2_available: false, parser_available: false,
-  debug_allowed: false, facet_names: [], examples: [],
+  selected_version: "v3", readiness: "unavailable", search_available: false,
+  viewer_scoped: false, failure_code: "search_v3_unavailable", facet_names: [], examples: [],
 };
 const SUGGESTION_DEBOUNCE_MS = 60;
 const SUGGESTION_CACHE_TTL_MS = 20_000;
 export const SEARCH_PAGE_SIZE = 60;
+
+export function isSearchV3Active(capabilitiesResolved: boolean, capabilities: SearchCapabilities): boolean {
+  return capabilitiesResolved && capabilities.selected_version === "v3" && capabilities.search_available;
+}
 
 export function shouldFetchSearchSuggestions(active: boolean, authenticated: boolean, query: string): boolean {
   return active && authenticated && query.trim().length >= 2;
@@ -82,9 +86,13 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState("");
   const [error, setError] = useState("");
+  const [capabilitiesError, setCapabilitiesError] = useState("");
+  const [capabilitiesRetry, setCapabilitiesRetry] = useState(0);
   const [capabilitiesResolved, setCapabilitiesResolved] = useState(false);
   const suggestionCache = useRef(new Map<string, { expiresAt: number; values: SearchSuggestion[] }>());
+  const suggestionEpoch = useRef(0);
   const searchEpoch = useRef(0);
   const nextCursor = useRef<string | null>(null);
   const pageInFlight = useRef(false);
@@ -98,16 +106,18 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       return;
     }
     setCapabilitiesResolved(false);
+    setCapabilities(emptyCapabilities);
+    setCapabilitiesError("");
     const controller = new AbortController();
     fetch("/api/v1/search/capabilities", { signal: controller.signal })
       .then(async response => {
         if (!response.ok) { const payload = await response.json().catch(() => null); throw Error(searchApiErrorMessage(payload, "Search is unavailable")); }
         setCapabilities(await response.json());
       })
-      .catch(reason => !controller.signal.aborted && setError(reason.message))
+      .catch(reason => !controller.signal.aborted && setCapabilitiesError(reason.message))
       .finally(() => !controller.signal.aborted && setCapabilitiesResolved(true));
     return () => controller.abort();
-  }, [authenticated, provider]);
+  }, [authenticated, provider, capabilitiesRetry]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -118,15 +128,14 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     setSelectedFacets(initial);
   }, []);
 
-  const active =
-    capabilities.selected_version === "v3" ||
-    (capabilities.selected_version === "v2" && !capabilities.viewer_scoped);
+  const active = isSearchV3Active(capabilitiesResolved, capabilities);
   const facetKey = JSON.stringify(selectedFacets);
   const viewerSourceMissing = Boolean(capabilities.viewer_scoped) && !externalSourceId?.trim();
 
   useEffect(() => {
+    const epoch = ++suggestionEpoch.current;
     if (viewerSourceMissing || !shouldFetchSearchSuggestions(active, authenticated, query)) {
-      setSuggestions([]); setSuggestionsLoading(false); return;
+      setSuggestions([]); setSuggestionsLoading(false); setSuggestionsError(""); return;
     }
     const normalizedQuery = query.trim();
     const cacheKey = provider + ":" + (externalSourceId || "") + ":" + normalizedQuery.toLocaleLowerCase();
@@ -139,23 +148,23 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setSuggestionsLoading(true);
+      setSuggestionsError("");
       try {
         const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, ...(externalSourceId ? { external_source_id: externalSourceId } : {}), limit: "10" });
         const response = await fetch("/api/v1/search/suggestions?" + params, { signal: controller.signal });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-          const detail = payload?.detail;
-          const code = detail && typeof detail === "object" ? detail.code : undefined;
-          if (response.status === 409 && (code === "viewer_search_requires_v3" || code === "search_disabled")) {
-            setCapabilities(current => ({ ...current, selected_version: "v1", v2_available: false }));
-          }
           throw Error(searchApiErrorMessage(payload, "Suggestions are unavailable"));
         }
         const values = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+        if (controller.signal.aborted || epoch !== suggestionEpoch.current) return;
         suggestionCache.current.set(cacheKey, { values, expiresAt: Date.now() + SUGGESTION_CACHE_TTL_MS });
         setSuggestions(values);
-      } catch {
-        if (!controller.signal.aborted) setSuggestions([]);
+      } catch (reason) {
+        if (!controller.signal.aborted && epoch === suggestionEpoch.current) {
+          setSuggestions([]);
+          setSuggestionsError(reason instanceof Error ? reason.message : "Suggestions are unavailable");
+        }
       } finally {
         if (!controller.signal.aborted) setSuggestionsLoading(false);
       }
@@ -188,24 +197,17 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       const response = await fetch("/api/v1/search", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal,
         body: JSON.stringify(buildSearchRequestBody(
-          query, provider, selectedFacets, cursor, append, capabilities.debug_allowed, externalSourceId,
+          query, provider, selectedFacets, cursor, append, false, externalSourceId,
         )),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const detail = payload?.detail;
-        const code = detail && typeof detail === "object" ? detail.code : undefined;
-        if (response.status === 409 && (code === "viewer_search_requires_v3" || code === "search_disabled")) {
-          setCapabilities(current => ({ ...current, selected_version: "v1", v2_available: false }));
-          setItems([]); setTotal(0); setError("");
-          return;
-        }
         throw Error(searchApiErrorMessage(payload, "Search is unavailable"));
       }
       if (!isCurrentSearchResponse(epoch, searchEpoch.current)) return;
       const pageItems: Asset[] = Array.isArray(payload.items) ? payload.items : [];
       const resultTotal = Number(payload.total || 0);
-      setItems(current => append ? mergeSearchResults(current, pageItems) : pageItems);
+      setItems(current => append ? mergeSearchResults(current, pageItems) : mergeSearchResults([], pageItems));
       setTotal(resultTotal);
       if (!append) {
         setFacets(payload.facets || {});
@@ -215,7 +217,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       nextCursor.current = typeof payload.next_cursor === "string" && payload.next_cursor
         ? payload.next_cursor
         : null;
-      setHasMore(nextCursor.current !== null);
+      setHasMore(Boolean(payload.has_more && nextCursor.current));
     } catch (reason) {
       if (!signal.aborted && isCurrentSearchResponse(epoch, searchEpoch.current)) {
         setError(reason instanceof Error ? reason.message : "Search failed");
@@ -226,7 +228,7 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
       }
       if (append) pageInFlight.current = false;
     }
-  }, [capabilities.debug_allowed, provider, query, selectedFacets, externalSourceId, viewerSourceMissing]);
+  }, [provider, query, selectedFacets, externalSourceId, viewerSourceMissing]);
 
   useEffect(() => {
     const epoch = ++searchEpoch.current;
@@ -279,9 +281,15 @@ export function useSearchV2(authenticated: boolean, provider: Provider, query: s
     });
   }
 
+  const availabilityError = capabilitiesResolved && !capabilities.search_available
+    ? "Search V3 is unavailable. Retry when the search index is ready."
+    : "";
+  const displayedError = error || (query.trim() ? capabilitiesError || availabilityError : "");
+  const retry = useCallback(() => setCapabilitiesRetry(current => current + 1), []);
+
   return useMemo(() => ({
     active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed,
     total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions,
-    suggestionsLoading, error, toggleFacet, clearSearchFilters,
-  }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions, suggestionsLoading, error]);
+    suggestionsLoading, suggestionsError, error: displayedError, retry, toggleFacet, clearSearchFilters,
+  }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions, suggestionsLoading, suggestionsError, displayedError, retry]);
 }

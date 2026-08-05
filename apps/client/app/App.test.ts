@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
-import { isSearchRequestInFlight, shouldFetchSearchSuggestions } from "./hooks/useSearchV2";
+import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV2";
 import type { Asset } from "./types";
 
 function asset(overrides: Partial<Asset>): Asset {
@@ -53,6 +53,14 @@ describe("formatSearchDuration", () => {
   });
 });
 
+
+describe("Search V3 capabilities", () => {
+  it("keeps compatibility-mode V3 active and never activates unavailable search", () => {
+    const base = { selected_version: "v3" as const, viewer_scoped: false, failure_code: null, facet_names: [], examples: [] };
+    expect(isSearchV3Active(true, { ...base, readiness: "verification_unknown", search_available: true })).toBe(true);
+    expect(isSearchV3Active(true, { ...base, readiness: "unavailable", search_available: false })).toBe(false);
+  });
+});
 
 describe("Search suggestions eligibility", () => {
   it("loads suggestions only for authenticated modern search with two or more characters", () => {

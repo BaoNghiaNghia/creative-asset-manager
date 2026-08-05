@@ -22,6 +22,7 @@ FEATURE_FLAGS = (
     "OPENAI_AI_ENABLED",
     "SEARCH_PROJECTION_ENABLED",
     "ELASTICSEARCH_V2_ENABLED",
+    "LEGACY_EXPLORER_SEARCH_ENABLED",
     "SEARCH_QUERY_PARSER_V2_ENABLED",
     "EXTERNAL_INGESTION_API_ENABLED",
     "DRIVE_METADATA_SIDECAR_ENABLED",
@@ -42,6 +43,12 @@ class SettingsTest(unittest.TestCase):
         for name in FEATURE_FLAGS:
             with self.subTest(flag=name):
                 self.assertIs(getattr(settings, name), False)
+
+    def test_search_v3_safety_defaults_are_conservative(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings()
+        self.assertIs(settings.SEARCH_V3_REQUIRED, True)
+        self.assertIs(settings.LEGACY_EXPLORER_SEARCH_ENABLED, False)
 
     def test_explicit_true_and_false_values_are_accepted(self) -> None:
         with patch.dict(

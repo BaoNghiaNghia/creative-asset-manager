@@ -1,18 +1,13 @@
 from __future__ import annotations
-import time
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Query
 from urllib.parse import quote, urlencode
 from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2Index, ElasticsearchV2RequestError
-from app.modules.explorer.router import _access_token, _account_id
-from app.modules.explorer.schema import SearchRequest
-from app.modules.explorer.service import ExplorerService
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV2Config, ElasticsearchV2RequestError
 from app.modules.explorer.media_types import infer_media_type
-from app.providers.source_factory import create_source_provider
-from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
@@ -32,6 +27,7 @@ from app.modules.search.schema import SearchCapabilities, SearchSuggestionsRespo
 from app.modules.search.governance_model import SearchIndexRecordModel
 
 router = APIRouter(prefix="/api/v1/search", tags=["search-v2"])
+logger = logging.getLogger(__name__)
 SEARCH_READ = require_permission("search.read")
 EXAMPLES = ["cat", "cat mama", "cat, est, 2015", "\"est 2015\"", "cat OR dog", "subject:cat", "text:\"mama\""]
 
@@ -48,14 +44,6 @@ def search_config(session, tenant):
         boosts.update({str(k): float(v) for k, v in (config.get("boost_paths") or {}).items() if isinstance(v, (int, float))})
     return SearchQueryConfig(facet_names=frozenset(facets), path_aliases=aliases, boost_paths=boosts), sorted(facets)
 
-def resolve_search_version(*, principal: CurrentPrincipal, search_enabled: bool, search_v3_enabled: bool) -> str:
-    if not search_enabled:
-        return "v1"
-    if is_pure_viewer(principal):
-        return "v3" if search_v3_enabled else "v1"
-    return "v3" if search_v3_enabled else "v2"
-
-
 def enabled(session, tenant):
     settings = get_settings()
     effective = ProcessingPolicyService(ProcessingPolicyRepository(session), settings).effective(tenant)
@@ -67,15 +55,10 @@ def enabled(session, tenant):
     )
 
 
-def _v3_ready(session, settings) -> bool:
-    """Return true only for an activated, verified V3 index we can safely query.
-
-    Capabilities must not advertise V3 merely because an environment flag is set:
-    an index may still be rebuilding, have an incompatible mapping, or be missing
-    the tenant/source fields required for scoped viewers.
-    """
-    if not settings.SEARCH_V3_ENABLED or not settings.ELASTICSEARCH_URL:
-        return False
+def _search_generation(session, tenant: str, settings) -> str:
+    """Resolve V3 readiness without ever selecting a legacy generation."""
+    if not settings.SEARCH_V3_ENABLED or not settings.ELASTICSEARCH_URL or not enabled(session, tenant):
+        return "unavailable"
     row = session.scalar(
         select(SearchIndexRecordModel)
         .where(
@@ -88,48 +71,61 @@ def _v3_ready(session, settings) -> bool:
         )
     )
     if row is None:
-        return False
+        return "verification_unknown"
     verification = row.verification_json or {}
-    if not verification.get("passed"):
-        return False
+    if verification.get("passed") is False:
+        return "incompatible"
     required_fields = {"tenant_id", "source_id", "ancestor_ids", "visible_text", "search_suggest", "filename.normalized"}
-    mapping_fields = set(verification.get("mapping_fields") or [])
-    if not required_fields.issubset(mapping_fields):
-        return False
-    if verification.get("projection_version_documents_match") is False:
-        return False
-    if verification.get("analyzer_matches") is False:
-        return False
-    return bool(verification.get("mapping_matches", True))
+    raw_mapping_fields = verification.get("mapping_fields")
+    if not raw_mapping_fields:
+        return "verification_unknown"
+    if not required_fields.issubset(set(raw_mapping_fields)):
+        return "incompatible"
+    verification_checks = ("mapping_matches", "analyzer_matches", "projection_version_documents_match")
+    if any(verification.get(name) is False for name in verification_checks):
+        return "incompatible"
+    if verification.get("passed") is not True or any(name not in verification for name in verification_checks):
+        return "verification_unknown"
+    return "ready"
 
 
-def _search_generation(session, principal: CurrentPrincipal, tenant: str, settings) -> str:
-    if not enabled(session, tenant):
-        return "v1"
-    v3_ready = _v3_ready(session, settings)
-    if is_pure_viewer(principal):
-        return "v3" if settings.SEARCH_V3_ENABLED and v3_ready else "v1"
-    if settings.SEARCH_V3_ENABLED and v3_ready:
-        return "v3"
-    if settings.ELASTICSEARCH_V2_ENABLED:
-        return resolve_search_version(
-            principal=principal,
-            search_enabled=True,
-            search_v3_enabled=False,
-        )
-    return "v1"
+def _require_v3(readiness: str, settings) -> None:
+    if readiness == "ready":
+        return
+    if readiness == "verification_unknown":
+        if settings.SEARCH_V3_REQUIRED:
+            logger.warning("Search V3 governance verification is unknown; using compatibility mode")
+        return
+    message = (
+        "Search V3 index verification is incompatible with this application version."
+        if readiness == "incompatible"
+        else "Search V3 is unavailable."
+    )
+    raise HTTPException(
+        status_code=503,
+        detail={"code": "search_v3_unavailable", "message": message, "retryable": True},
+    )
+
 
 @router.get("/capabilities", response_model=SearchCapabilities)
 def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
     tenant = principal.active_tenant_id
+    settings = get_settings()
     with SessionLocal() as session:
-        config, facets = search_config(session, tenant)
-        settings = get_settings()
-        selected = _search_generation(session, principal, tenant, settings)
-        available = selected != "v1"
+        _, facets = search_config(session, tenant)
+        readiness = _search_generation(session, tenant, settings)
         session.commit()
-    restricted = is_pure_viewer(principal)
-    return {"selected_version": selected, "v2_available": available and not restricted, "parser_available": get_settings().SEARCH_QUERY_PARSER_V2_ENABLED, "debug_allowed": principal.platform_admin or "search.rebuild" in principal.effective_permissions, "facet_names": facets, "examples": EXAMPLES, "viewer_scoped": restricted and selected == "v3", "fallback_reason": "viewer_search_requires_v3" if restricted and selected == "v1" else None, "viewer_search_supported": selected in {"v1", "v3"}}
+    search_available = readiness in {"ready", "verification_unknown"}
+    return {
+        "selected_version": "v3",
+        "readiness": readiness,
+        "search_available": search_available,
+        "viewer_scoped": is_pure_viewer(principal),
+        "failure_code": None if search_available else "search_v3_unavailable",
+        "facet_names": facets,
+        "examples": EXAMPLES,
+    }
+
 
 def _source_provider_filter(session, tenant: str, source_provider: str | None, *, generation: str, external_source_id: str | None = None) -> dict | None:
     if not source_provider and not external_source_id:
@@ -330,12 +326,9 @@ async def suggestions(
     if is_pure_viewer(principal) and not (external_source_id or '').strip():
         raise HTTPException(422, detail={'code': 'viewer_source_required', 'message': 'A source is required for scoped Viewer search.'})
     with SessionLocal() as session:
-        generation = _search_generation(session, principal, tenant, settings)
-        available = generation != "v1"
-        if generation == "v1":
-            if is_pure_viewer(principal):
-                raise HTTPException(409, detail={"code": "viewer_search_requires_v3", "message": "Scoped Viewer search requires Search V3.", "fallback_version": "v1"})
-            raise HTTPException(409, detail={"code": "search_disabled", "message": "Search is not enabled for this tenant", "fallback_version": "v1"})
+        readiness = _search_generation(session, tenant, settings)
+        _require_v3(readiness, settings)
+        generation = "v3"
         filters = [{"term": {"tenant_id": tenant}}]
         source_filter = _source_provider_filter(session, tenant, source_provider, generation=generation, external_source_id=external_source_id)
         if source_filter:
@@ -375,12 +368,16 @@ async def suggestions(
                 settings.ELASTICSEARCH_URL,
                 settings.ELASTICSEARCH_INDEX_PREFIX,
                 request_timeout_seconds=settings.SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS,
-                index_generation=generation,
+                index_generation="v3",
             )
         )
         response = await index.search(query)
     except ElasticsearchV2RequestError as exc:
-        raise HTTPException(503, "Search service is temporarily unavailable") from exc
+        raise HTTPException(503, detail={
+            "code": "search_v3_unavailable",
+            "message": "Search V3 is temporarily unavailable.",
+            "retryable": True,
+        }) from exc
     seen: set[str] = set()
     candidates = []
     for hit in response.get("hits", {}).get("hits", []):
@@ -403,18 +400,15 @@ async def suggestions(
     return payload
 
 @router.post("", response_model=SearchV2Response)
-async def search(body: SearchV2Request, request: Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
+async def search(body: SearchV2Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
     tenant = principal.active_tenant_id
     settings = get_settings()
     with SessionLocal() as session:
-        generation = _search_generation(session, principal, tenant, settings)
-        available = generation != "v1"
+        readiness = _search_generation(session, tenant, settings)
         if is_pure_viewer(principal) and not (body.external_source_id or "").strip():
             raise HTTPException(status_code=422, detail={"code": "viewer_source_required", "message": "A search source is required."})
-        if generation == "v1":
-            if is_pure_viewer(principal):
-                raise HTTPException(409, detail={"code": "viewer_search_requires_v3", "message": "Scoped Viewer search requires Search V3.", "fallback_version": "v1"})
-            raise HTTPException(409, detail={"code": "search_disabled", "message": "Search is not enabled for this tenant", "fallback_version": "v1"})
+        _require_v3(readiness, settings)
+        generation = "v3"
         config, allowed_facets = search_config(session, tenant)
         unknown = set(body.facets) - set(allowed_facets)
         if unknown:
@@ -453,18 +447,21 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
         if aggregations:
             query["aggs"] = aggregations
         debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
-        primary_started = time.perf_counter()
         try:
             index = await API_SEARCH_INDEX_POOL.get(
                 ElasticsearchV2Config(
                     settings.ELASTICSEARCH_URL,
                     settings.ELASTICSEARCH_INDEX_PREFIX,
-                    index_generation=generation,
+                    index_generation="v3",
                 )
             )
             response = await index.search(query)
         except ElasticsearchV2RequestError as exc:
-            raise HTTPException(503, "Search service is temporarily unavailable") from exc
+            raise HTTPException(503, detail={
+                "code": "search_v3_unavailable",
+                "message": "Search V3 is temporarily unavailable.",
+                "retryable": True,
+            }) from exc
         hits = response.get("hits", {}).get("hits", [])
         asset_ids = [str(hit.get("_source", {}).get("asset_id") or hit.get("_id")) for hit in hits]
         document_source_ids = {
@@ -524,27 +521,4 @@ async def search(body: SearchV2Request, request: Request, principal: CurrentPrin
             except ValueError:
                 next_cursor = None
         primary_result = {"search_version": generation, "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took"), "next_cursor": next_cursor, "has_more": next_cursor is not None}
-        provider = body.source_provider or "google-drive"
-
-        async def legacy_shadow():
-            token = await _access_token(request, provider)
-            result = await ExplorerService(create_source_provider).search_subtree(
-                SearchRequest(
-                    provider=provider, query=body.query, root_id="root",
-                    limit=min(body.limit, 200),
-                ),
-                token, _account_id(request, provider),
-            )
-            document = result.model_dump(mode="json")
-            document["total"] = len(document["items"])
-            return document
-
-        # Aggregate v2 results are not comparable to one provider-specific legacy tree.
-        if body.source_provider:
-            await SHADOW_SEARCH.observe(
-                tenant_id=tenant, query=body.query, primary_result=primary_result,
-                primary_ms=int((time.perf_counter() - primary_started) * 1000),
-                shadow=legacy_shadow, primary_version="v2", shadow_version="v1",
-                surface="search_v2",
-            )
         return primary_result

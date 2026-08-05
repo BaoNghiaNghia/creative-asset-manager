@@ -57,6 +57,24 @@ router = APIRouter(prefix="/explorer", tags=["explorer"])
 logger = logging.getLogger(__name__)
 
 
+def _require_legacy_admin(principal: CurrentPrincipal) -> None:
+    if principal.platform_admin or "search.rebuild" in principal.effective_permissions:
+        return
+    raise HTTPException(status_code=403, detail={
+        "code": "permission_required",
+        "message": "Legacy Explorer diagnostics require search.rebuild.",
+    })
+
+
+def _require_legacy_search(principal: CurrentPrincipal) -> None:
+    if not get_settings().LEGACY_EXPLORER_SEARCH_ENABLED:
+        raise HTTPException(status_code=410, detail={
+            "code": "legacy_explorer_search_disabled",
+            "message": "Legacy Explorer search is disabled.",
+        })
+    _require_legacy_admin(principal)
+
+
 def _account_id(request: Request, provider: Provider) -> str:
     session = (
         get_microsoft_session(request)
@@ -398,6 +416,7 @@ async def start_index(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(ASSETS_READ),
 ):
+    _require_legacy_admin(principal)
     token, account_id, _tenant_id_value, _resolved_source_id = await _source_context(
         request, body.provider, session, principal
     )
@@ -410,6 +429,7 @@ async def index_status(
     provider: Provider = Query("google-drive"),
     principal: CurrentPrincipal = Depends(ASSETS_READ),
 ):
+    _require_legacy_admin(principal)
     return get_index_status(principal.active_tenant_id, provider)
 
 
@@ -603,6 +623,7 @@ async def search(
     principal: CurrentPrincipal = Depends(ASSETS_READ),
     external_source_id: str | None = Query(None),
 ):
+    _require_legacy_search(principal)
     try:
         token, account_id, tenant_id, resolved_source_id = await _source_context(
             request, body.provider, session, principal, external_source_id
@@ -642,6 +663,7 @@ async def search_stream(
     principal: CurrentPrincipal = Depends(ASSETS_READ),
     external_source_id: str | None = Query(None),
 ):
+    _require_legacy_search(principal)
     token, account_id, tenant_id, resolved_source_id = await _source_context(
         request, body.provider, session, principal, external_source_id
     )

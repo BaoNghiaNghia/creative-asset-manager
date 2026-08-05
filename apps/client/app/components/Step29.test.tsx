@@ -15,13 +15,13 @@ describe("Step 29 operator UI", () => {
 
   it("shows syntax examples, facets and privileged parsed debug", () => {
     const markup = renderToStaticMarkup(<SearchV2Controls
-      capabilities={{ selected_version: "v2", v2_available: true, parser_available: true, debug_allowed: true, facet_names: ["subject"], examples: ["cat OR dog"] }}
+      capabilities={{ selected_version: "v3", readiness: "ready", search_available: true, viewer_scoped: false, failure_code: null, facet_names: ["subject"], examples: ["cat OR dog"] }}
       facets={{ subject: [{ value: "cat", count: 3 }] }}
       selected={{ subject: ["cat"] }}
       parsed={{ mode: "or", clauses: [{ kind: "term", value: "cat" }] }}
       onToggle={() => undefined}
     />);
-    const guide = renderToStaticMarkup(<SearchGuide capabilities={{ selected_version: "v2", v2_available: true, parser_available: true, debug_allowed: true, facet_names: ["subject"], examples: ["cat OR dog"] }} />);
+    const guide = renderToStaticMarkup(<SearchGuide capabilities={{ selected_version: "v3", readiness: "ready", search_available: true, viewer_scoped: false, failure_code: null, facet_names: ["subject"], examples: ["cat OR dog"] }} />);
     expect(guide).toContain("Search guide");
     expect(guide).toContain("Requires every term");
     expect(markup).toContain("subject");

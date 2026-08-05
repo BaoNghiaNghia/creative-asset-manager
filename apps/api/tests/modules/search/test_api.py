@@ -15,7 +15,7 @@ from app.main import app
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.assets.model import ExternalSourceModel
-from app.modules.search.router import _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
+from app.modules.search.router import _search_generation, _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
 from app.modules.search.governance_model import SearchIndexRecordModel
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 
@@ -79,13 +79,76 @@ class SearchV2ApiTest(unittest.TestCase):
             )
         self.assertEqual(result, {"terms": {"source_id": source_ids}})
 
-    def test_capabilities_preserve_v1_when_rollout_is_disabled(self):
+    def test_capabilities_never_advertise_a_legacy_generation(self):
         with patch("app.modules.search.router.SessionLocal", self.factory), patch("app.modules.search.router.get_settings", return_value=Settings()):
             response = self.client.get("/api/v1/search/capabilities")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["selected_version"], "v1")
+        self.assertEqual(response.json()["selected_version"], "v3")
+        self.assertEqual(response.json()["readiness"], "unavailable")
+        self.assertFalse(response.json()["search_available"])
+        self.assertEqual(response.json()["failure_code"], "search_v3_unavailable")
         self.assertEqual(response.json()["facet_names"], ["subject"])
-        self.assertFalse(response.json()["debug_allowed"])
+
+    def test_all_roles_select_v3(self):
+        settings = Settings(
+            SEARCH_V3_ENABLED=True,
+            SEARCH_QUERY_PARSER_V2_ENABLED=True,
+            ELASTICSEARCH_URL="http://search.test:9200",
+        )
+        roles = ("viewer", "operator", "tenant_admin")
+        with (
+            patch("app.modules.search.router.SessionLocal", self.factory),
+            patch("app.modules.search.router.get_settings", return_value=settings),
+            patch("app.modules.search.router.enabled", return_value=True),
+        ):
+            for role in roles:
+                app.dependency_overrides[require_authenticated_principal] = lambda role=role: CurrentPrincipal(
+                    user_id=f"user-{role}", active_tenant_id="tenant-a", membership_id="membership-a",
+                    external_identity=None, effective_roles=frozenset({role}),
+                    effective_permissions=frozenset({"search.read"}), platform_admin=False,
+                    session_id=None, authorization_source="tenant_rbac",
+                )
+                payload = self.client.get("/api/v1/search/capabilities").json()
+                self.assertEqual(payload["selected_version"], "v3")
+            app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+                user_id="platform-admin", active_tenant_id="tenant-a", membership_id="membership-a",
+                external_identity=None, effective_roles=frozenset(),
+                effective_permissions=frozenset({"search.read"}), platform_admin=True,
+                session_id=None, authorization_source="durable_platform_admin",
+            )
+            self.assertEqual(self.client.get("/api/v1/search/capabilities").json()["selected_version"], "v3")
+
+    def test_missing_governance_row_uses_v3_compatibility_mode(self):
+        with self.factory() as session:
+            session.query(SearchIndexRecordModel).delete()
+            session.commit()
+            settings = Settings(
+                SEARCH_V3_ENABLED=True,
+                SEARCH_QUERY_PARSER_V2_ENABLED=True,
+                ELASTICSEARCH_URL="http://search.test:9200",
+            )
+            with patch("app.modules.search.router.enabled", return_value=True):
+                self.assertEqual(_search_generation(session, "tenant-a", settings), "verification_unknown")
+
+    def test_v3_unavailable_returns_structured_503_without_fallback(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="operator-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id=None, authorization_source="tenant_rbac",
+        )
+        with (
+            patch("app.modules.search.router.SessionLocal", self.factory),
+            patch("app.modules.search.router.get_settings", return_value=Settings()),
+        ):
+            response = self.client.post("/api/v1/search", json={"query": "cat"})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], {
+            "code": "search_v3_unavailable",
+            "message": "Search V3 is unavailable.",
+            "retryable": True,
+        })
+        self.assertNotIn("fallback_version", response.text)
 
 
 

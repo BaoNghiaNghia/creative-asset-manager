@@ -502,8 +502,9 @@ export default function App() {
 
           {explorer.searchV2.active && <SearchV2Controls capabilities={explorer.searchV2.capabilities} facets={explorer.searchV2.facets} selected={explorer.searchV2.selectedFacets} parsed={explorer.searchV2.parsed} onToggle={explorer.searchV2.toggleFacet} />}
 
-          {explorer.searchError && <div className="search-warning">
-            Subfolder search is temporarily unavailable. Showing matches from the current folder.
+          {explorer.searchError && <div className="search-warning" role="alert">
+            <span>{explorer.searchError} Showing the current folder contents.</span>
+            <button type="button" onClick={explorer.retrySearch}>Retry Search V3</button>
           </div>}
           {explorer.searchTruncated && <div className="search-warning">
             Search reached the metadata indexing limit; refine the query for more precise results.

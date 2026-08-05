@@ -13,7 +13,7 @@ class SearchV2Request(BaseModel):
     debug: bool = False
 
 class SearchV2Response(BaseModel):
-    search_version: Literal["v2", "v3"]
+    search_version: Literal["v3"]
     items: list[dict[str, Any]]
     total: int
     facets: dict[str, list[dict[str, Any]]]
@@ -23,15 +23,13 @@ class SearchV2Response(BaseModel):
     has_more: bool = False
 
 class SearchCapabilities(BaseModel):
-    selected_version: Literal["v1", "v2", "v3"]
-    v2_available: bool
-    parser_available: bool
-    debug_allowed: bool
+    selected_version: Literal["v3"]
+    readiness: Literal["ready", "verification_unknown", "incompatible", "unavailable"]
+    search_available: bool
+    viewer_scoped: bool
+    failure_code: str | None = None
     facet_names: list[str]
     examples: list[str]
-    viewer_scoped: bool = False
-    fallback_reason: str | None = None
-    viewer_search_supported: bool = True
 
 
 class SearchSuggestion(BaseModel):
@@ -41,6 +39,6 @@ class SearchSuggestion(BaseModel):
     kind: Literal["filename", "visible_text", "search_text"]
 
 class SearchSuggestionsResponse(BaseModel):
-    search_version: Literal["v2", "v3"]
+    search_version: Literal["v3"]
     suggestions: list[SearchSuggestion]
     took_ms: int | None = None

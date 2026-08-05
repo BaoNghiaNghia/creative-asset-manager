@@ -9,23 +9,11 @@ import type {
   OAuthErrorState,
   Provider,
   ProviderSessions,
-  SearchResponse,
   Tag,
   TreeCache,
   VisibilityFilter,
 } from "../types";
 import { isSearchRequestInFlight, useSearchV2 } from "./useSearchV2";
-
-type SearchStreamEvent = {
-  type: "progress" | "result" | "error";
-  status?: string;
-  progress?: number;
-  indexed_count?: number;
-  processed_folders?: number;
-  pending_folders?: number;
-  detail?: string;
-  data?: SearchResponse;
-};
 
 const emptyIndexStatus: DriveIndexStatus = {
   state: "idle",
@@ -163,7 +151,6 @@ export function useDriveExplorer() {
   const [error, setError] = useState("");
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
-  const [indexRetryKey, setIndexRetryKey] = useState(0);
   const searchV2 = useSearchV2(auth.authenticated, provider, query, activeExternalSourceId);
 
   const folderCache = useRef(new Map<string, Folder>());
@@ -615,197 +602,23 @@ export function useDriveExplorer() {
   }, []);
 
   useEffect(() => {
-    if (!auth.authenticated) {
-      setMetadataIndex({ ...emptyIndexStatus });
-      return;
-    }
-    // Modern Search V2/V3 does not depend on the legacy Drive metadata index.
-    // Avoid polling (or starting) that index while capabilities are unresolved
-    // or a modern generation is active.
-    if (!searchV2.capabilitiesResolved || searchV2.active) return;
-
-    let cancelled = false;
-    let pollTimer: number | undefined;
-
-    function applyStatus(status: DriveIndexStatus) {
-      if (!cancelled) setMetadataIndex(status);
-      return status.state;
-    }
-
-    async function poll() {
-      try {
-        const response = await fetch("/api/explorer/index/status?provider=" + encodeURIComponent(provider));
-        if (!response.ok) throw Error("Unable to read indexing status");
-        const status = await response.json() as DriveIndexStatus;
-        if (applyStatus(status) === "running") {
-          pollTimer = window.setTimeout(() => void poll(), 3000);
-        }
-      } catch (reason) {
-        if (!cancelled) {
-          setMetadataIndex(current => ({
-            ...current,
-            state: "failed",
-            status: "Unable to read metadata indexing status",
-            error: reason instanceof Error ? reason.message : "Index status request failed",
-          }));
-        }
-      }
-    }
-
-    async function start() {
-      setMetadataIndex({
-        ...emptyIndexStatus,
-        state: "running",
-        status: "Starting " + (provider === "sharepoint" ? "SharePoint" : "Google Drive") + " metadata index",
-        progress: 1,
-      });
-      try {
-        const response = await fetch("/api/explorer/index/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider, root_id: rootId(provider) }),
-        });
-        if (!response.ok) {
-          const body: unknown = await response.json().catch(() => null);
-          throw Error(apiErrorMessage(body, "Unable to start metadata indexing"));
-        }
-        const status = await response.json() as DriveIndexStatus;
-        if (applyStatus(status) === "running") {
-          pollTimer = window.setTimeout(() => void poll(), 3000);
-        }
-      } catch (reason) {
-        if (!cancelled) {
-          setMetadataIndex({
-            ...emptyIndexStatus,
-            state: "failed",
-            status: "Metadata indexing failed",
-            error: reason instanceof Error ? reason.message : "Unable to start metadata indexing",
-          });
-        }
-      }
-    }
-
-    if (indexRetryKey > 0) void start();
-    else void poll();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(pollTimer);
-    };
-  }, [auth.authenticated, indexRetryKey, provider, searchV2.active, searchV2.capabilitiesResolved]);
+    // Search V3 is index-backed; normal browsing never starts or polls the legacy index.
+    setMetadataIndex({ ...emptyIndexStatus });
+  }, [auth.authenticated, provider]);
 
   useEffect(() => {
-    const normalizedQuery = query.trim();
-    const currentFolder = path.at(-1);
-
+    // Legacy explorer search is disabled for the normal UI.
     setSearchResults(null);
     setSearching(false);
     setSearchProgress(0);
-    setSearchStatus("Preparing search");
+    setSearchStatus("Search ready");
     setSearchProcessedFolders(0);
     setSearchPendingFolders(0);
     setSearchError("");
-
-    if (!searchV2.capabilitiesResolved || searchV2.active) return;
-
-    const searchSourceId = currentFolder?.external_source_id || activeExternalSourceId;
-    if (
-      !auth.authenticated
-      || !currentFolder
-      || !searchSourceId?.trim()
-      || normalizedQuery.length < 2
-    ) {
-      setSearchIndexedCount(0);
-      setSearchIndexSource(null);
-      setSearchTruncated(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setSearching(true);
-      try {
-        const searchParams = new URLSearchParams();
-        searchParams.set("external_source_id", searchSourceId);
-        const searchUrl = "/api/explorer/search/stream" + (searchParams.toString() ? "?" + searchParams.toString() : "");
-        const response = await fetch(searchUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            provider,
-            query: normalizedQuery,
-            root_id: currentFolder.id,
-            external_source_id: searchSourceId,
-            ancestor_ids: path.slice(0, -1).map(folder => folder.id),
-            ancestor_names: path.slice(0, -1).map(folder => folder.name),
-            limit: 60,
-          }),
-        });
-        if (!response.ok) {
-          const body: unknown = await response.json().catch(() => null);
-          throw Error(apiErrorMessage(body, "Unable to search Drive metadata"));
-        }
-        if (!response.body) throw Error("Search progress stream is unavailable");
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let receivedResult = false;
-
-        function handleEvent(event: SearchStreamEvent) {
-          if (event.type === "error") {
-            throw Error(event.detail || "Unable to search subfolders");
-          }
-
-          if (event.status) setSearchStatus(event.status);
-          if (typeof event.progress === "number") {
-            setSearchProgress(current => Math.max(current, Math.min(100, event.progress || 0)));
-          }
-          if (typeof event.indexed_count === "number") setSearchIndexedCount(event.indexed_count);
-          if (typeof event.processed_folders === "number") {
-            setSearchProcessedFolders(event.processed_folders);
-          }
-          if (typeof event.pending_folders === "number") {
-            setSearchPendingFolders(event.pending_folders);
-          }
-
-          if (event.type === "result" && event.data) {
-            receivedResult = true;
-            setSearchResults(event.data.items);
-            setSearchIndexedCount(event.data.indexed_count);
-            setSearchIndexSource(event.data.index_source);
-            setSearchTruncated(event.data.truncated);
-            setSearchStatus("Search complete");
-            setSearchProgress(100);
-            setSearchPendingFolders(0);
-          }
-        }
-
-        while (true) {
-          const { done, value } = await reader.read();
-          buffer += decoder.decode(value, { stream: !done });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          lines.filter(Boolean).forEach(line => handleEvent(JSON.parse(line) as SearchStreamEvent));
-          if (done) break;
-        }
-        if (buffer.trim()) handleEvent(JSON.parse(buffer) as SearchStreamEvent);
-        if (!receivedResult) throw Error("Search ended before results were ready");
-      } catch (reason) {
-        if (!controller.signal.aborted) {
-          setSearchError(reason instanceof Error ? reason.message : "Unable to search subfolders");
-          setSearchStatus("Search failed");
-        }
-      } finally {
-        if (!controller.signal.aborted) setSearching(false);
-      }
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [auth.authenticated, path, provider, activeExternalSourceId, query, searchV2.active, searchV2.capabilitiesResolved]);
+    setSearchIndexedCount(0);
+    setSearchIndexSource(null);
+    setSearchTruncated(false);
+  }, [query, provider, activeExternalSourceId]);
 
   async function selectProvider(source: Provider) {
     setProvider(source); setActiveExternalSourceId(null); setOauthError(null); clearExplorer(source);
@@ -882,12 +695,8 @@ export function useDriveExplorer() {
   }
 
   const matchedItems = useMemo(
-    () => searchV2.active && query.trim().length >= 1
-      ? searchV2.items
-      : query.trim().length >= 2 && searchResults !== null
-        ? searchResults
-        : items,
-    [items, query, searchResults, searchV2.active, searchV2.items],
+    () => searchV2.active && query.trim().length >= 1 ? searchV2.items : items,
+    [items, query, searchV2.active, searchV2.items],
   );
 
   const visibleItems = useMemo(
@@ -966,11 +775,11 @@ export function useDriveExplorer() {
     searchStatus,
     searchProcessedFolders,
     searchPendingFolders,
-    searchComplete: searchV2.active ? query.trim().length >= 1 && !searchV2.loading && !searchV2.error : query.trim().length >= 2 && searchResults !== null && !searching,
+    searchComplete: searchV2.active && query.trim().length >= 1 && !searchV2.loading && !searchV2.error,
     searchIndexedCount,
     searchIndexSource,
     searchTruncated,
-    searchError: searchV2.active ? searchV2.error : searchError,
+    searchError: searchV2.error,
     searchDurationMs: searchV2.active ? searchV2.durationMs : null,
     loading,
     hasMoreFolderItems: hasMore,
@@ -983,9 +792,9 @@ export function useDriveExplorer() {
     authByProvider,
     oauthError,
     metadataIndex,
-    searchReady: searchV2.capabilitiesResolved && (searchV2.active || metadataIndex.state === "completed"),
+    searchReady: searchV2.capabilitiesResolved && searchV2.active,
     searchV2,
-    retryMetadataIndex: () => setIndexRetryKey(current => current + 1),
+    retrySearch: searchV2.retry,
     refreshCurrentFolder,
     selectProvider,
     open,

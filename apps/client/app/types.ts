@@ -85,14 +85,13 @@ export type DriveIndexStatus = {
 export type ProviderSessions = Record<Provider, AuthState>;
 
 export type SearchCapabilities = {
-  selected_version: "v1" | "v2" | "v3";
-  v2_available: boolean;
-  parser_available: boolean;
-  debug_allowed: boolean;
+  selected_version: "v3";
+  readiness: "ready" | "verification_unknown" | "incompatible" | "unavailable";
+  search_available: boolean;
+  viewer_scoped: boolean;
+  failure_code: string | null;
   facet_names: string[];
   examples: string[];
-  viewer_scoped?: boolean;
-  viewer_search_supported?: boolean;
 };
 export type SearchFacetBucket = { value: string; count: number };
 export type SearchSuggestion = {
