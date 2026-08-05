@@ -20,6 +20,7 @@ FEATURE_FLAG_NAMES = (
     "UNIFIED_ASSET_INGESTION_ENABLED",
     "CONTENT_DEDUP_ENABLED",
     "INCREMENTAL_SOURCE_SYNC_ENABLED",
+    "SOURCE_SYNC_SCHEDULER_ENABLED",
     "GOOGLE_AUTO_SCAN_ON_LOGIN_ENABLED",
     "GOOGLE_FULL_SCAN_ON_FIRST_LOGIN_ENABLED",
     "PROCESSING_JOBS_ENABLED",
@@ -74,6 +75,7 @@ class Settings(BaseSettings):
     UNIFIED_ASSET_INGESTION_ENABLED: bool = False
     CONTENT_DEDUP_ENABLED: bool = False
     INCREMENTAL_SOURCE_SYNC_ENABLED: bool = False
+    SOURCE_SYNC_SCHEDULER_ENABLED: bool = False
     GOOGLE_AUTO_SCAN_ON_LOGIN_ENABLED: bool = False
     GOOGLE_FULL_SCAN_ON_FIRST_LOGIN_ENABLED: bool = False
     PROCESSING_JOBS_ENABLED: bool = False
@@ -199,6 +201,9 @@ class Settings(BaseSettings):
     RETENTION_OUTBOX_DAYS: int = 30
     RETENTION_TEMP_EXPORT_DAYS: int = 7
     RETENTION_SOURCE_SYNC_RUN_DAYS: int = 30
+    SOURCE_SYNC_POLL_INTERVAL_SECONDS: int = 60
+    SOURCE_SYNC_MAX_SOURCES_PER_TICK: int = 100
+    SOURCE_SYNC_JOB_STALE_SECONDS: int = 900
     RETENTION_CLEANUP_BATCH_SIZE: int = 500
     RETENTION_CLEANUP_MAX_ROWS: int = 5000
     RETENTION_CLEANUP_INTERVAL_SECONDS: int = 86400
@@ -236,6 +241,13 @@ class Settings(BaseSettings):
             if normalized == "false":
                 return False
         raise ValueError("feature flags must be either 'true' or 'false'")
+
+    @field_validator("SOURCE_SYNC_POLL_INTERVAL_SECONDS", "SOURCE_SYNC_MAX_SOURCES_PER_TICK", "SOURCE_SYNC_JOB_STALE_SECONDS")
+    @classmethod
+    def validate_source_sync_scheduler_limits(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("source sync scheduler limits must be positive")
+        return value
 
     @property
     def cors_allowed_origins(self) -> tuple[str, ...]:

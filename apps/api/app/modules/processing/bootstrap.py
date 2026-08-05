@@ -42,6 +42,7 @@ from app.modules.retention.handler import RetentionCleanupJobHandler
 from app.modules.retention.scheduler import RetentionCleanupScheduler
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
 from app.modules.source_sync.handler import SourceSyncJobHandler
+from app.modules.source_sync.scheduler import SourceSyncScheduler
 from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.source_factory import create_source_provider
@@ -228,6 +229,7 @@ def run_worker(
     worker_logger = logger or configure_worker_logging(settings.WORKER_LOG_LEVEL)
     runtime: WorkerRuntime | None = None
     health_server: WorkerHealthServer | None = None
+    source_sync_scheduler: SourceSyncScheduler | None = None
     try:
         runtime = build_worker_runtime(
             settings,
@@ -241,6 +243,10 @@ def run_worker(
             settings.WORKER_HEALTH_PORT,
         )
         health_server.start()
+        source_sync_scheduler = SourceSyncScheduler(
+            session_factory, settings, logger=worker_logger,
+        )
+        source_sync_scheduler.start()
 
         if install_signal_handlers:
             def stop(_signum: int, _frame: object) -> None:
@@ -288,6 +294,8 @@ def run_worker(
         )
         return 1
     finally:
+        if source_sync_scheduler is not None:
+            source_sync_scheduler.stop()
         if runtime is not None:
             runtime.close()
         if health_server is not None:
