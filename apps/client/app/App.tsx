@@ -504,7 +504,7 @@ export default function App() {
                   const currentName = explorer.path.at(-1)?.name || "";
                   const ancestorNames = explorer.path.slice(0, -1).map(folder => folder.name);
                   const asin = amazonAsin(currentName) || [...ancestorNames].reverse().map(amazonAsin).find(Boolean) || null;
-                  const listingId = etsyListingId(currentName);
+                  const listingId = etsyListingId(currentName) || [...ancestorNames].reverse().map(etsyListingId).find(Boolean) || null;
                   const underEtsy = ancestorNames.some(name => sourceFolderBrand(name) === "etsy");
                   if (asin) return <a
                     className="amazon-redirect"
