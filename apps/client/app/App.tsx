@@ -665,8 +665,9 @@ export default function App() {
         <button onClick={() => explorer.clearUploads?.()} aria-label="Close upload progress">×</button>
       </header>
       {explorer.uploads.map(upload => <div className={"upload-row upload-" + upload.status} key={upload.id}>
-        <span title={upload.name}>{upload.name}</span>
-        <small>{upload.status === "failed" ? upload.error || "Upload failed." : upload.status}</small>
+        <span className="upload-status-icon" aria-hidden="true">{upload.status === "failed" ? "!" : ""}</span>
+        <span className="upload-file-name" title={upload.name}>{upload.name}</span>
+        <small>{upload.status === "failed" ? upload.error || "Upload failed." : upload.status === "completed" ? "Completed" : "Uploading..."}</small>
       </div>)}
     </aside>}
     {confirm && <div className="confirm-toast" role="alertdialog"><span>{confirm.message}</span><button onClick={confirm.run}>Confirm</button><button onClick={() => setConfirm(null)}>Cancel</button></div>}
