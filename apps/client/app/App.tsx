@@ -5,7 +5,7 @@ import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchGuide, SearchControls } from "./components/SearchControls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
-import { AmazonLogo, amazonAsin, SidebarIcon } from "./components/Icons";
+import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, SidebarIcon, sourceFolderBrand } from "./components/Icons";
 import { MediaViewer } from "./components/MediaViewer";
 import { Sidebar } from "./components/Sidebar";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
@@ -501,15 +501,26 @@ export default function App() {
               <h1>
                 {explorer.path.at(-1)?.name || "My Drive"}
                 {(() => {
-                  const asin = amazonAsin(explorer.path.at(-1)?.name || "");
-                  return asin ? <a
+                  const currentName = explorer.path.at(-1)?.name || "";
+                  const asin = amazonAsin(currentName);
+                  const listingId = etsyListingId(currentName);
+                  const underEtsy = explorer.path.slice(0, -1).some(folder => sourceFolderBrand(folder.name) === "etsy");
+                  if (asin) return <a
                     className="amazon-redirect"
                     href={"https://www.amazon.com/dp/" + asin}
                     target="_blank"
                     rel="noreferrer"
                     aria-label={"Open " + asin + " on Amazon"}
                     title={"Open " + asin + " on Amazon"}
-                  ><AmazonLogo /><span className="amazon-external-mark" aria-hidden="true">-&gt;</span></a> : null;
+                  ><AmazonLogo /><span className="amazon-external-mark" aria-hidden="true">-&gt;</span></a>;
+                  return underEtsy && listingId ? <a
+                    className="etsy-redirect"
+                    href={"https://www.etsy.com/listing/" + listingId}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={"Open listing " + listingId + " on Etsy"}
+                    title={"Open listing " + listingId + " on Etsy"}
+                  ><EtsyLogo /><span className="etsy-external-mark" aria-hidden="true">-&gt;</span></a> : null;
                 })()}
               </h1>
               <small>{explorer.searching

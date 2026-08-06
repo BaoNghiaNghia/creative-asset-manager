@@ -25,6 +25,17 @@ export function FolderTreeIcon() {
   </svg>;
 }
 
+export function EtsyLogo() {
+  return <svg className="etsy-logo" viewBox="0 0 64 30" aria-hidden="true">
+    <text x="1" y="22" fontFamily="Georgia, serif" fontSize="25" fill="currentColor">Etsy</text>
+  </svg>;
+}
+
+export function etsyListingId(name: string): string | null {
+  const match = name.trim().match(/^listing\s*-\s*(\d{6,})\b/i);
+  return match?.[1] ?? null;
+}
+
 export function AmazonLogo() {
   return <svg className="amazon-logo" viewBox="0 0 92 34" aria-hidden="true">
     <text x="2" y="18" fontFamily="Arial, sans-serif" fontSize="16" fontWeight="700" fill="currentColor">amazon</text>

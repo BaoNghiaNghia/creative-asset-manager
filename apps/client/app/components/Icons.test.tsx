@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amazonAsin, sourceFolderBrand } from "./Icons";
+import { amazonAsin, etsyListingId, sourceFolderBrand } from "./Icons";
 
 describe("sourceFolderBrand", () => {
   it("recognizes Etsy folders case-insensitively", () => {
@@ -28,5 +28,18 @@ describe("amazonAsin", () => {
   it("rejects titles without an Amazon ASIN prefix", () => {
     expect(amazonAsin("Amazon - Collection Nurse")).toBeNull();
     expect(amazonAsin("Etsy - B0GD6H8HYJ - Product")).toBeNull();
+  });
+});
+
+
+describe("etsyListingId", () => {
+  it("extracts a listing id from an Etsy child folder title", () => {
+    expect(etsyListingId("listing - 4343675953")).toBe("4343675953");
+    expect(etsyListingId("Listing - 4343675953 - Assets")).toBe("4343675953");
+  });
+
+  it("rejects non-listing folder names", () => {
+    expect(etsyListingId("Optimized assets")).toBeNull();
+    expect(etsyListingId("Etsy - HarleyEmbroidery")).toBeNull();
   });
 });
