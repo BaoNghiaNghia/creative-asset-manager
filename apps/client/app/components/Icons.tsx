@@ -25,6 +25,14 @@ export function FolderTreeIcon() {
   </svg>;
 }
 
+export function AmazonLogo() {
+  return <svg className="amazon-logo" viewBox="0 0 92 34" aria-hidden="true">
+    <text x="2" y="18" fontFamily="Arial, sans-serif" fontSize="16" fontWeight="700" fill="currentColor">amazon</text>
+    <path d="M20 25.5c13 7.4 31 7.3 43-.2" fill="none" stroke="#ff9900" strokeLinecap="round" strokeWidth="2.8" />
+    <path d="m60.5 22.8 5.5 1.2-3.2 4.3" fill="none" stroke="#ff9900" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+  </svg>;
+}
+
 export function amazonAsin(name: string): string | null {
   const match = name.trim().match(/^amazon\s*-\s*([a-z0-9]{10})(?:\s*-\s|$)/i);
   return match?.[1].toUpperCase() ?? null;

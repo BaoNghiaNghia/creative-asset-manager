@@ -5,7 +5,7 @@ import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchGuide, SearchControls } from "./components/SearchControls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
-import { amazonAsin, SidebarIcon } from "./components/Icons";
+import { AmazonLogo, amazonAsin, SidebarIcon } from "./components/Icons";
 import { MediaViewer } from "./components/MediaViewer";
 import { Sidebar } from "./components/Sidebar";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
@@ -509,7 +509,7 @@ export default function App() {
                     rel="noreferrer"
                     aria-label={"Open " + asin + " on Amazon"}
                     title={"Open " + asin + " on Amazon"}
-                  ><span aria-hidden="true">a</span><span aria-hidden="true">-&gt;</span></a> : null;
+                  ><AmazonLogo /><span className="amazon-external-mark" aria-hidden="true">-&gt;</span></a> : null;
                 })()}
               </h1>
               <small>{explorer.searching
