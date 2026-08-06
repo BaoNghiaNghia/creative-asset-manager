@@ -513,7 +513,7 @@ export default function App() {
                     rel="noreferrer"
                     aria-label={"Open " + asin + " on Amazon"}
                     title={"Open " + asin + " on Amazon"}
-                  ><AmazonLogo /><span className="amazon-external-mark" aria-hidden="true">-&gt;</span></a>;
+                  ><AmazonLogo /><span className="amazon-external-mark" aria-hidden="true">⟶</span></a>;
                   return underEtsy && listingId ? <a
                     className="etsy-redirect"
                     href={"https://www.etsy.com/listing/" + listingId}
@@ -521,7 +521,7 @@ export default function App() {
                     rel="noreferrer"
                     aria-label={"Open listing " + listingId + " on Etsy"}
                     title={"Open listing " + listingId + " on Etsy"}
-                  ><EtsyLogo /><span className="etsy-external-mark" aria-hidden="true">-&gt;</span></a> : null;
+                  ><EtsyLogo /><span className="etsy-external-mark" aria-hidden="true">⟶</span></a> : null;
                 })()}
               </h1>
               <small>{explorer.searching
