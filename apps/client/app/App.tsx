@@ -502,9 +502,10 @@ export default function App() {
                 {explorer.path.at(-1)?.name || "My Drive"}
                 {(() => {
                   const currentName = explorer.path.at(-1)?.name || "";
-                  const asin = amazonAsin(currentName);
+                  const ancestorNames = explorer.path.slice(0, -1).map(folder => folder.name);
+                  const asin = amazonAsin(currentName) || [...ancestorNames].reverse().map(amazonAsin).find(Boolean) || null;
                   const listingId = etsyListingId(currentName);
-                  const underEtsy = explorer.path.slice(0, -1).some(folder => sourceFolderBrand(folder.name) === "etsy");
+                  const underEtsy = ancestorNames.some(name => sourceFolderBrand(name) === "etsy");
                   if (asin) return <a
                     className="amazon-redirect"
                     href={"https://www.amazon.com/dp/" + asin}
