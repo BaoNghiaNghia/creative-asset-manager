@@ -25,6 +25,11 @@ export function FolderTreeIcon() {
   </svg>;
 }
 
+export function amazonAsin(name: string): string | null {
+  const match = name.trim().match(/^amazon\s*-\s*([a-z0-9]{10})(?:\s*-\s|$)/i);
+  return match?.[1].toUpperCase() ?? null;
+}
+
 export type SourceFolderBrand = "etsy" | "amazon" | null;
 
 export function sourceFolderBrand(name: string): SourceFolderBrand {

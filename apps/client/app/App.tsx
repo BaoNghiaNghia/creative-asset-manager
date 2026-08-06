@@ -5,7 +5,7 @@ import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchGuide, SearchControls } from "./components/SearchControls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
-import { SidebarIcon } from "./components/Icons";
+import { amazonAsin, SidebarIcon } from "./components/Icons";
 import { MediaViewer } from "./components/MediaViewer";
 import { Sidebar } from "./components/Sidebar";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
@@ -498,7 +498,20 @@ export default function App() {
           </div>}
           <div className="title">
             <span className="search-summary">
-              <h1>{explorer.path.at(-1)?.name || "My Drive"}</h1>
+              <h1>
+                {explorer.path.at(-1)?.name || "My Drive"}
+                {(() => {
+                  const asin = amazonAsin(explorer.path.at(-1)?.name || "");
+                  return asin ? <a
+                    className="amazon-redirect"
+                    href={"https://www.amazon.com/dp/" + asin}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={"Open " + asin + " on Amazon"}
+                    title={"Open " + asin + " on Amazon"}
+                  ><span aria-hidden="true">a</span><span aria-hidden="true">-&gt;</span></a> : null;
+                })()}
+              </h1>
               <small>{explorer.searching
                 ? "Searching with Search V3…"
                 : explorer.searchComplete
