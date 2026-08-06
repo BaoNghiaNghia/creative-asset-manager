@@ -38,11 +38,15 @@ def _filters(
     metadata_profile: str | None,
     status: str | None,
     source_provider: str | None,
+    date_range: str | None = None,
 ) -> AiOperationsFilters:
     target_tenant = tenant_id or principal.active_tenant_id
     require_tenant_scope(principal, target_tenant)
     end = to_at or datetime.now(timezone.utc)
-    start = from_at or (end - timedelta(days=7))
+    if date_range == "all":
+        start = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    else:
+        start = from_at or (end - timedelta(days=180))
     if start.tzinfo is None:
         start = start.replace(tzinfo=timezone.utc)
     if end.tzinfo is None:
@@ -51,14 +55,6 @@ def _filters(
         raise HTTPException(
             status_code=422,
             detail={"code": "invalid_date_range", "message": "from must be before to"},
-        )
-    if end - start > timedelta(days=90):
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "date_range_too_large",
-                "message": "Interactive date range cannot exceed 90 days",
-            },
         )
     if processing_mode and processing_mode not in _VALID_MODES:
         raise HTTPException(
@@ -94,10 +90,11 @@ def common_filters(
     metadata_profile: str | None = Query(default=None, max_length=255),
     status: str | None = Query(default=None),
     source_provider: str | None = Query(default=None, max_length=32),
+    date_range: str | None = Query(default=None, alias="range"),
 ) -> AiOperationsFilters:
     return _filters(
         principal, tenant_id, from_at, to_at, provider, model,
-        processing_mode, metadata_profile, status, source_provider,
+        processing_mode, metadata_profile, status, source_provider, date_range,
     )
 
 

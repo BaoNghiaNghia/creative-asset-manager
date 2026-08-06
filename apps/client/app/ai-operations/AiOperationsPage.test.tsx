@@ -185,6 +185,22 @@ function render(tab: "overview" | "processing" | "cost" = "overview", overrides 
   />);
 }
 
+describe("AI Operations date range", () => {
+  it("defaults to six months and preserves all-time selection", () => {
+    expect(filtersFromSearch("").range).toBe(180);
+    expect(filtersFromSearch("?range=all").range).toBe(0);
+    expect(searchFromFilters({ ...filters, range: 0 }, "overview")).toContain("range=all");
+  });
+
+  it("renders month and all-time choices", () => {
+    const markup = renderToStaticMarkup(<AiOperationsFilters filters={{ ...filters, range: 180 }} models={[]} profiles={[]} onChange={noop} />);
+    expect(markup).toContain("Last 1 month");
+    expect(markup).toContain("Last 3 months");
+    expect(markup).toContain("Last 6 months");
+    expect(markup).toContain("All time");
+  });
+});
+
 describe("AI Operations dashboard", () => {
   it("routes normally and renders navigation without opening a new tab", () => {
     expect(routeForPath("/ai-operations")).toBe("ai-operations");

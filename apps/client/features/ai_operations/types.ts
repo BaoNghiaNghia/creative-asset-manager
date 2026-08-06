@@ -2,7 +2,7 @@ export type AiOpsProvider = "gemini" | "openai";
 export type AiOpsMode = "single" | "batch";
 
 export type AiOpsFilters = {
-  range: 7 | 30 | 90;
+  range: 0 | 30 | 90 | 180;
   provider: string;
   model: string;
   processingMode: string;

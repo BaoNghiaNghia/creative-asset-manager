@@ -21,14 +21,17 @@ async function read<T>(url: string, fetcher: Fetcher): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function isoRange(days: number, now: Date): { from: string; to: string } {
+function isoRange(days: AiOpsFilters["range"], now: Date): { from: string | null; to: string } {
+  if (days === 0) return { from: null, to: now.toISOString() };
   const from = new Date(now);
   from.setUTCDate(from.getUTCDate() - days);
   return { from: from.toISOString(), to: now.toISOString() };
 }
 
-function filteredParams(filters: AiOpsFilters, range: { from: string; to: string }): URLSearchParams {
-  const params = new URLSearchParams({ from: range.from, to: range.to });
+function filteredParams(filters: AiOpsFilters, range: { from: string | null; to: string }): URLSearchParams {
+  const params = new URLSearchParams({ to: range.to });
+  if (range.from) params.set("from", range.from);
+  if (range.from === null) params.set("range", "all");
   if (filters.provider) params.set("provider", filters.provider);
   if (filters.model) params.set("model", filters.model);
   if (filters.processingMode) params.set("processing_mode", filters.processingMode);
@@ -121,7 +124,8 @@ export async function fetchAiOperationsDashboard(
 export function filtersFromSearch(search: string): AiOpsFilters {
   const params = new URLSearchParams(search);
   const requestedRange = Number(params.get("range"));
-  const range = requestedRange === 30 || requestedRange === 90 ? requestedRange : 7;
+  const range = params.get("range") === "all" ? 0
+    : requestedRange === 30 || requestedRange === 90 || requestedRange === 180 ? requestedRange : 180;
   return {
     range,
     provider: params.get("provider") || "",
@@ -140,7 +144,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
 
 export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSeconds = 0): string {
   const params = new URLSearchParams();
-  if (filters.range !== 7) params.set("range", String(filters.range));
+  if (filters.range !== 180) params.set("range", filters.range === 0 ? "all" : String(filters.range));
   if (filters.provider) params.set("provider", filters.provider);
   if (filters.model) params.set("model", filters.model);
   if (filters.processingMode) params.set("mode", filters.processingMode);
