@@ -1,3 +1,5 @@
+import amazonLogoUrl from "../../assets/logos/amazon-logo.svg";
+
 export function ChevronIcon({ expanded = false }: { expanded?: boolean }) {
   return <svg className={"chevron-icon " + (expanded ? "expanded" : "")} viewBox="0 0 16 16" aria-hidden="true">
     <path d="m6 3.5 4.5 4.5L6 12.5" />
@@ -37,11 +39,7 @@ export function etsyListingId(name: string): string | null {
 }
 
 export function AmazonLogo() {
-  return <svg className="amazon-logo" viewBox="0 0 92 34" aria-hidden="true">
-    <text x="2" y="18" fontFamily="Arial, sans-serif" fontSize="16" fontWeight="700" fill="currentColor">amazon</text>
-    <path d="M20 25.5c13 7.4 31 7.3 43-.2" fill="none" stroke="#ff9900" strokeLinecap="round" strokeWidth="2.8" />
-    <path d="m60.5 22.8 5.5 1.2-3.2 4.3" fill="none" stroke="#ff9900" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-  </svg>;
+  return <img className="amazon-logo" src={amazonLogoUrl} alt="" aria-hidden="true" />;
 }
 
 export function amazonAsin(name: string): string | null {
