@@ -515,12 +515,14 @@ class AiOperationsApiTest(unittest.TestCase):
             "/api/v1/admin/ai-operations/exports/usage.csv", **filters,
         )
         self.assertEqual(len(list(csv.reader(io.StringIO(exported.text)))), 3)
-    def test_date_limits_authorization_and_tenant_isolation(self):
-        too_long = self.get(
+    def test_date_range_authorization_and_tenant_isolation(self):
+        six_months = self.get(
             "/api/v1/admin/ai-operations/summary",
-            **{"from": (self.now - timedelta(days=91)).isoformat()},
+            **{"from": (self.now - timedelta(days=180)).isoformat()},
         )
-        self.assertEqual(too_long.status_code, 422)
+        self.assertEqual(six_months.status_code, 200)
+        all_time = self.get("/api/v1/admin/ai-operations/summary", **{"range": "all"})
+        self.assertEqual(all_time.status_code, 200)
         invalid = self.get(
             "/api/v1/admin/ai-operations/summary",
             **{"from": self.now.isoformat(), "to": (self.now - timedelta(days=1)).isoformat()},
