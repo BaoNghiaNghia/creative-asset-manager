@@ -10,6 +10,15 @@ import {
   thumbnailFetchPriority,
   THUMBNAIL_CONCURRENCY_LIMIT,
 } from "./AssetGrid";
+import { isAvifAsset } from "../utils/fileType";
+
+describe("AVIF asset detection", () => {
+  it("detects AVIF by MIME type or extension", () => {
+    expect(isAvifAsset({ name: "photo.bin", mime_type: "image/avif" })).toBe(true);
+    expect(isAvifAsset({ name: "PHOTO.AVIF", mime_type: "application/octet-stream" })).toBe(true);
+    expect(isAvifAsset({ name: "photo.png", mime_type: "image/png" })).toBe(false);
+  });
+});
 
 describe("AssetGrid thumbnail loading", () => {
   it("does not request a thumbnail until its card reaches the viewport", () => {

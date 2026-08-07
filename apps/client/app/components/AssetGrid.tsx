@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
-import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType } from "../utils/fileType";
+import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
 
 
 export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
@@ -73,16 +73,25 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
   const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
   const [inViewport, setInViewport] = useState(false);
   const [grantedThumbnailUrl, setGrantedThumbnailUrl] = useState<string | null>(null);
+  const [useMediaFallback, setUseMediaFallback] = useState(false);
   const previewRef = useRef<HTMLSpanElement>(null);
   const queueTicket = useRef<ThumbnailQueueTicket | null>(null);
+  const avif = isAvifAsset(item);
+  const query = new URLSearchParams({ provider: item.provider });
+  if (item.external_source_id) query.set("external_source_id", item.external_source_id);
+  const mediaUrl = "/api/explorer/media/" + encodeURIComponent(item.id) + "?" + query.toString();
+  const thumbnailSourceUrl = item.thumbnail_url
+    || (avif ? "/api/explorer/thumbnail/" + encodeURIComponent(item.id) + "?" + query.toString() : null);
+  const previewUrl = useMediaFallback ? mediaUrl : thumbnailSourceUrl;
   const canShowThumbnail = (item.kind === "image" || item.kind === "video")
-    && Boolean(item.thumbnail_url)
+    && Boolean(thumbnailSourceUrl)
     && !thumbnailFailed;
 
   useEffect(() => {
     setThumbnailFailed(false);
     setThumbnailLoaded(false);
     setGrantedThumbnailUrl(null);
+    setUseMediaFallback(false);
   }, [item.id, item.thumbnail_url]);
 
   useEffect(() => {
@@ -104,15 +113,15 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
   }, [canShowThumbnail]);
 
   useEffect(() => {
-    if (!shouldLoadAssetThumbnail(inViewport, item.thumbnail_url) || !item.thumbnail_url) return;
-    const url = item.thumbnail_url;
+    if (!shouldLoadAssetThumbnail(inViewport, thumbnailSourceUrl) || !thumbnailSourceUrl) return;
+    const url = thumbnailSourceUrl;
     const ticket = thumbnailLoadQueue.acquire(() => setGrantedThumbnailUrl(url));
     queueTicket.current = ticket;
     return () => {
       ticket.cancel();
       if (queueTicket.current === ticket) queueTicket.current = null;
     };
-  }, [inViewport, item.id, item.thumbnail_url]);
+  }, [inViewport, item.id, thumbnailSourceUrl]);
 
   function finishThumbnail() {
     queueTicket.current?.release();
@@ -124,12 +133,12 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
     return <span className={"preview-fallback asset-file-icon " + fileTypeTone(type)} aria-label={fileTypeLabel(type)}>{fileTypeGlyph(type)}</span>;
   }
 
-  const shouldLoad = grantedThumbnailUrl === item.thumbnail_url;
+  const shouldLoad = grantedThumbnailUrl === previewUrl;
   return <span ref={previewRef} className="thumbnail-frame">
     {!thumbnailLoaded && <span className="thumbnail-skeleton" aria-hidden="true" />}
     {shouldLoad && <img
       className={"preview-thumbnail" + (thumbnailLoaded ? " is-loaded" : "")}
-      src={item.thumbnail_url}
+      src={previewUrl || undefined}
       alt=""
       loading={fetchPriority === "high" ? "eager" : "lazy"}
       decoding="async"
@@ -141,6 +150,12 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
       }}
       onError={() => {
         finishThumbnail();
+        if (avif && !useMediaFallback) {
+          setThumbnailLoaded(false);
+          setUseMediaFallback(true);
+          setGrantedThumbnailUrl(mediaUrl);
+          return;
+        }
         setThumbnailFailed(true);
       }}
     />}

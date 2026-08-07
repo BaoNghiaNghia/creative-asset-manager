@@ -757,6 +757,7 @@ async def media(
             if (value := upstream.headers.get(name))
         }
         passthrough_headers["cache-control"] = "private, max-age=300"
+        passthrough_headers["content-disposition"] = "inline"
 
         return StreamingResponse(
             upstream.aiter_raw(),

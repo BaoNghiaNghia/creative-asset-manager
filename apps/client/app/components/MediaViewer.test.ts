@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mediaPreviewUrl, previewUnavailableMessage } from "./MediaViewer";
+import { isAvifAsset } from "../utils/fileType";
 
 describe("mediaPreviewUrl", () => {
   it("keeps the selected external source in a safe preview URL", () => {
@@ -26,5 +27,18 @@ describe("previewUnavailableMessage", () => {
   it("keeps the generic message for other media types", () => {
     expect(previewUnavailableMessage("image/png"))
       .toBe("The connected cloud provider could not stream this file.");
+  });
+});
+
+
+describe("AVIF preview routing", () => {
+  it("uses the media endpoint with provider scope for AVIF assets", () => {
+    expect(isAvifAsset({ name: "photo.avif", mime_type: "application/octet-stream" })).toBe(true);
+    expect(mediaPreviewUrl({ id: "avif-1", provider: "google-drive", external_source_id: "source-1" }))
+      .toBe("/api/explorer/media/avif-1?provider=google-drive&external_source_id=source-1");
+  });
+
+  it("keeps non-AVIF media behavior unchanged", () => {
+    expect(isAvifAsset({ name: "photo.png", mime_type: "image/png" })).toBe(false);
   });
 });

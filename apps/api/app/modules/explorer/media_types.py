@@ -11,11 +11,13 @@ _IMAGE_MIME_BY_EXTENSION = {
 }
 
 def infer_media_type(filename: str | None, declared: str | None = None, upstream: str | None = None) -> str:
+    extension_type = _IMAGE_MIME_BY_EXTENSION.get(Path(filename or "").suffix.lower())
+    if extension_type == "image/avif":
+        return extension_type
     for value in (declared, upstream):
         normalized = (value or "").split(";", 1)[0].strip().lower()
         if normalized.startswith(("image/", "video/")):
             return normalized
-    extension_type = _IMAGE_MIME_BY_EXTENSION.get(Path(filename or "").suffix.lower())
     if extension_type:
         return extension_type
     return (declared or upstream or "application/octet-stream").split(";", 1)[0].strip().lower()

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Asset } from "../types";
+import { isAvifAsset } from "../utils/fileType";
 
 type Props = {
   item: Asset;
@@ -22,6 +23,7 @@ export function MediaViewer({ item, onClose }: Props) {
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const mediaUrl = mediaPreviewUrl(item);
+  const isAvif = isAvifAsset(item);
 
   useEffect(() => {
     setFailed(false);
@@ -64,7 +66,7 @@ export function MediaViewer({ item, onClose }: Props) {
         {failed ? <div className="media-viewer-error">
           <strong>Preview unavailable</strong>
           <span>{previewUnavailableMessage(item.mime_type)}</span>
-        </div> : item.kind === "video" ? <video
+        </div> : item.kind === "video" && !isAvif ? <video
           src={mediaUrl}
           poster={item.thumbnail_url}
           controls
