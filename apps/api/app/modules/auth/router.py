@@ -54,7 +54,7 @@ def _authorization_response(flow, *, redirect_intent: str) -> RedirectResponse:
 async def login(request: Request):
     """Application sign-in: identity scopes only, never Drive access."""
     return _authorization_response(
-        oauth_flow(require_drive_scope=False),
+        oauth_flow(require_drive_scope=True),
         redirect_intent="application_login",
     )
 
@@ -66,7 +66,7 @@ async def connect_drive(
 ):
     """Privileged workspace setup: requests Google Drive read/write access."""
     return _authorization_response(
-        oauth_flow(require_drive_scope=True),
+        oauth_flow(require_drive_scope=True, require_drive_write_scope=True),
         redirect_intent=f"drive_connect:{principal.active_tenant_id}",
     )
 
@@ -106,7 +106,7 @@ async def callback(
         return client_redirect(auth_error="state", auth_request=request_id)
 
     drive_connect = redirect_intent.startswith("drive_connect:")
-    flow = oauth_flow(state, require_drive_scope=drive_connect)
+    flow = oauth_flow(state, require_drive_scope=True, require_drive_write_scope=drive_connect)
     if code_verifier:
         flow.code_verifier = code_verifier
 
@@ -130,7 +130,7 @@ async def callback(
         )
         session_id, cloud_session = await create_session(
             flow.credentials,
-            require_drive_scope=drive_connect,
+            require_drive_scope=True,
             connection_tenant_id=connection_tenant_id,
         )
     except ApplicationUserInactiveError:
@@ -145,7 +145,7 @@ async def callback(
         return client_redirect(auth_error=exc.code, auth_request=request_id)
     except PermissionError:
         logger.warning("Google Drive scope was not granted request_id=%s", request_id)
-        return client_redirect(auth_error="scope", auth_request=request_id)
+        return client_redirect(auth_error="insufficient_drive_scope", auth_request=request_id)
     except Exception as exc:
         logger.exception(
             "Google OAuth user profile failed request_id=%s error_type=%s",

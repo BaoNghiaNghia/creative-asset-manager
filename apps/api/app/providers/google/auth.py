@@ -23,12 +23,13 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 # Read/write source management is required for Explorer uploads, moves, and deletes.
 DRIVE_WRITE_SCOPE = "https://www.googleapis.com/auth/drive"
-IDENTITY_SCOPES = [
+IDENTITY_SCOPES = (
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-]
-DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_WRITE_SCOPE]
+)
+GOOGLE_OAUTH_SCOPES = (*IDENTITY_SCOPES, DRIVE_READONLY_SCOPE)
+DRIVE_SCOPES = (*GOOGLE_OAUTH_SCOPES, DRIVE_WRITE_SCOPE)
 SCOPES = DRIVE_SCOPES
 SESSION_COOKIE = "cam_google_session"
 OAUTH_BINDING_COOKIE = "cam_oauth_binding"
@@ -44,9 +45,9 @@ def _settings():
         raise HTTPException(503,"Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
     return client_id,client_secret,redirect_uri
 
-def oauth_flow(state=None, *, require_drive_scope: bool = False):
+def oauth_flow(state=None, *, require_drive_scope: bool = True, require_drive_write_scope: bool = False):
     client_id,client_secret,redirect_uri=_settings()
-    scopes = DRIVE_SCOPES if require_drive_scope else IDENTITY_SCOPES
+    scopes = DRIVE_SCOPES if require_drive_write_scope else GOOGLE_OAUTH_SCOPES
     flow=Flow.from_client_config({"web":{"client_id":client_id,"client_secret":client_secret,"auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":[redirect_uri]}},scopes=scopes,state=state)
     flow.redirect_uri=redirect_uri
     return flow
@@ -73,8 +74,8 @@ def consume_state_details(state, session_binding=None) -> tuple[str | None, str]
 
 def validate_granted_scopes(credentials):
     granted=set(credentials.granted_scopes or credentials.scopes or [])
-    if DRIVE_WRITE_SCOPE not in granted:
-        raise PermissionError("Google Drive read/write permission was not granted. Reconnect Google Drive and approve access.")
+    if not ({DRIVE_READONLY_SCOPE, DRIVE_WRITE_SCOPE} & granted):
+        raise PermissionError("Google Drive read permission was not granted. Reconnect Google Drive and approve access.")
 
 async def create_session(credentials, *, require_drive_scope: bool = True, connection_tenant_id: str | None = None):
     if require_drive_scope:
@@ -241,7 +242,7 @@ async def get_access_token(request):
             if latest and latest.expires_at>time.time()+60: return latest.access_token
         raise HTTPException(503,"Google token refresh is already in progress.")
     client_id,client_secret,_=_settings()
-    credentials=Credentials(token=cloud.access_token,refresh_token=cloud.refresh_token,token_uri="https://oauth2.googleapis.com/token",client_id=client_id,client_secret=client_secret,scopes=SCOPES)
+    credentials=Credentials(token=cloud.access_token,refresh_token=cloud.refresh_token,token_uri="https://oauth2.googleapis.com/token",client_id=client_id,client_secret=client_secret,scopes=list(cloud.scopes) or list(GOOGLE_OAUTH_SCOPES))
     try:
         await run_in_threadpool(credentials.refresh,GoogleAuthRequest())
         expiry=credentials.expiry or datetime.now(timezone.utc)
