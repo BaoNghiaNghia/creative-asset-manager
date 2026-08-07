@@ -37,6 +37,9 @@ class AssetNode(BaseModel):
     location_breadcrumb: list[LocationBreadcrumbNode] = Field(default_factory=list)
     location_unavailable: bool = False
     location_status: Literal["resolved", "unavailable"] = "unavailable"
+    image_width: int | None = None
+    image_height: int | None = None
+    media_duration_ms: int | None = None
 
 
 class FolderListing(BaseModel):

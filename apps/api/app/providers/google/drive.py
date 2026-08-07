@@ -8,7 +8,11 @@ from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.schema import AssetNode
 from app.providers.google.mapper import map_drive_file
 
-FIELDS = "id,name,mimeType,parents,size,modifiedTime,thumbnailLink,webViewLink"
+FIELDS = (
+    "id,name,mimeType,parents,size,modifiedTime,thumbnailLink,webViewLink,"
+    "imageMediaMetadata(width,height,rotation),"
+    "videoMediaMetadata(width,height,durationMillis)"
+)
 FOLDER_MIME = "application/vnd.google-apps.folder"
 _MEDIA_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _MEDIA_MAX_ATTEMPTS = 3
