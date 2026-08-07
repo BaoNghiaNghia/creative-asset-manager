@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
+import { assetPreviewUrl } from "../utils/mediaUrls";
 
 
 export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
@@ -76,9 +77,7 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
   const previewRef = useRef<HTMLSpanElement>(null);
   const queueTicket = useRef<ThumbnailQueueTicket | null>(null);
   const avif = isAvifAsset(item);
-  const query = new URLSearchParams({ provider: item.provider });
-  if (item.external_source_id) query.set("external_source_id", item.external_source_id);
-  const mediaUrl = "/api/explorer/preview/" + encodeURIComponent(item.id) + "?" + query.toString();
+  const mediaUrl = assetPreviewUrl(item);
   const thumbnailSourceUrl = avif ? mediaUrl : item.thumbnail_url;
   const previewUrl = thumbnailSourceUrl;
   const canShowThumbnail = (item.kind === "image" || item.kind === "video")

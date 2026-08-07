@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mediaPreviewUrl, previewUnavailableMessage } from "./MediaViewer";
 import { isAvifAsset } from "../utils/fileType";
+import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 describe("mediaPreviewUrl", () => {
   it("keeps the selected external source in a safe preview URL", () => {
@@ -40,5 +41,19 @@ describe("AVIF preview routing", () => {
 
   it("keeps non-AVIF media behavior unchanged", () => {
     expect(isAvifAsset({ name: "photo.png", mime_type: "image/png" })).toBe(false);
+  });
+});
+
+
+describe("shared asset URL helpers", () => {
+  it("uses one scoped preview URL for AVIF and preserves source parameters", () => {
+    const item = { id: "avif", name: "PHOTO.AVIF", mime_type: "application/octet-stream", provider: "google-drive" as const, external_source_id: "source-a" };
+    expect(assetPreviewUrl(item)).toBe("/api/explorer/preview/avif?provider=google-drive&external_source_id=source-a");
+    expect(explorerAssetUrl(item, "preview")).toBe(assetPreviewUrl(item));
+  });
+
+  it("keeps non-AVIF media URLs on the existing media endpoint", () => {
+    const item = { id: "png", name: "photo.png", mime_type: "image/png", provider: "google-drive" as const, external_source_id: "source-a" };
+    expect(assetPreviewUrl(item)).toBe("/api/explorer/media/png?provider=google-drive&external_source_id=source-a");
   });
 });

@@ -5,6 +5,7 @@ import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { SafeJsonTree } from "./SafeJsonTree";
 import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
+import { assetPreviewUrl } from "../utils/mediaUrls";
 
 type Props = {
   item: Asset | null;
@@ -147,12 +148,14 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
   const location = item?.folder_path || item?.ancestor_names?.join(" / ") || sourcePath(source) || "Current folder";
   const webUrl = resolveProviderWebUrl(item, source, provider);
   const previewUrl = resolvePreviewUrl(item, source);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  useEffect(() => setPreviewFailed(false), [previewUrl]);
   const previewName = item?.name || stringValue(source.filename) || "asset";
 
   return <>
     <div className="inspector-preview">
-      {previewUrl && (kind === "image" || kind === "video") ? <>
-        <img src={previewUrl} alt={`Preview of ${previewName}`} referrerPolicy="no-referrer" />
+      {previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
+        <img src={previewUrl} alt={`Preview of ${previewName}`} referrerPolicy="no-referrer" onError={() => setPreviewFailed(true)} />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
       </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}
       {item && onPreview && (kind === "image" || kind === "video") && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
@@ -274,11 +277,7 @@ function sourcePath(source: Record<string, unknown>): string | undefined {
 }
 
 export function resolvePreviewUrl(item: Asset | null, source: Record<string, unknown>): string | undefined {
-  if (item && isAvifAsset(item)) {
-    const params = new URLSearchParams({ provider: item.provider });
-    if (item.external_source_id) params.set("external_source_id", item.external_source_id);
-    return "/api/explorer/preview/" + encodeURIComponent(item.id) + "?" + params.toString();
-  }
+  if (item && isAvifAsset(item)) return assetPreviewUrl(item);
   return item?.thumbnail_url || stringValue(source.preview_url);
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Asset } from "../types";
+import { assetPreviewUrl } from "../utils/mediaUrls";
 import { isAvifAsset } from "../utils/fileType";
 
 type Props = {
@@ -7,12 +8,7 @@ type Props = {
   onClose: () => void;
 };
 
-export function mediaPreviewUrl(item: Pick<Asset, "id" | "provider" | "external_source_id"> & Partial<Pick<Asset, "name" | "mime_type">>): string {
-  const parameters = new URLSearchParams({ provider: item.provider });
-  if (item.external_source_id) parameters.set("external_source_id", item.external_source_id);
-  const endpoint = isAvifAsset(item) ? "preview" : "media";
-  return "/api/explorer/" + endpoint + "/" + encodeURIComponent(item.id) + "?" + parameters.toString();
-}
+export const mediaPreviewUrl = assetPreviewUrl
 
 export function previewUnavailableMessage(mimeType: string): string {
   return mimeType === "image/avif"
@@ -23,7 +19,7 @@ export function previewUnavailableMessage(mimeType: string): string {
 export function MediaViewer({ item, onClose }: Props) {
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
-  const mediaUrl = mediaPreviewUrl(item);
+  const mediaUrl = assetPreviewUrl(item);
   const isAvif = isAvifAsset(item);
 
   useEffect(() => {
