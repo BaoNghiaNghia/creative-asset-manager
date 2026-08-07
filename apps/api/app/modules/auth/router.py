@@ -3,9 +3,11 @@ import secrets
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import select
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.config import get_settings
+from app.core.database import SessionLocal
 from app.modules.source_sync.login_trigger import enqueue_google_login_sync
 
 from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
@@ -106,6 +108,12 @@ async def callback(
         return client_redirect(auth_error="state", auth_request=request_id)
 
     drive_connect = redirect_intent.startswith("drive_connect:")
+    connection_tenant_id = redirect_intent.removeprefix("drive_connect:") if drive_connect else None
+    if drive_connect:
+        existing_session = get_session(request)
+        if not existing_session or not existing_session.active_tenant_id or existing_session.active_tenant_id != connection_tenant_id:
+            logger.warning("Google Drive callback tenant mismatch request_id=%s redirect_intent=%s", request_id, redirect_intent)
+            return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
     flow = oauth_flow(state, require_drive_scope=drive_connect)
     if code_verifier:
         flow.code_verifier = code_verifier
@@ -124,10 +132,6 @@ async def callback(
         return client_redirect(auth_error="token_exchange", auth_request=request_id)
 
     try:
-        connection_tenant_id = (
-            redirect_intent.removeprefix("drive_connect:")
-            if drive_connect else None
-        )
         session_id, cloud_session = await create_session(
             flow.credentials,
             require_drive_scope=drive_connect,
@@ -160,10 +164,11 @@ async def callback(
             enqueue_google_login_sync(cloud_session)
         except Exception as exc:
             logger.exception(
-                "Google Drive source sync enqueue failed request_id=%s error_type=%s",
+                "Google Drive source connection failed request_id=%s error_type=%s",
                 request_id,
                 type(exc).__name__,
             )
+            return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
 
     remove_session(request)
     response = client_redirect(
@@ -177,10 +182,21 @@ async def callback(
 @router.get("/session")
 async def session(request: Request):
     google_session = get_session(request)
-    return {
-        "authenticated": google_session is not None,
-        "user": google_session.user if google_session else None,
-    }
+    result = {"authenticated": google_session is not None, "user": google_session.user if google_session else None, "drive_connected": False, "drive_usable": False, "external_source_id": None, "connection_status": None, "reconnect_required": False}
+    if not google_session or not google_session.active_tenant_id:
+        return result
+    with SessionLocal() as db:
+        source = db.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == google_session.active_tenant_id, ExternalSourceModel.source_type == "google_drive").order_by(ExternalSourceModel.source_metadata["is_default"].desc(), ExternalSourceModel.updated_at.desc()))
+        if source:
+            result["external_source_id"] = source.id
+            metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+            connection_id = metadata.get("oauth_connection_id")
+            connection = db.scalar(select(OAuthConnectionModel).where(OAuthConnectionModel.id == connection_id, OAuthConnectionModel.tenant_id == google_session.active_tenant_id)) if connection_id else None
+            result["drive_connected"] = connection is not None
+            result["connection_status"] = connection.status if connection else "missing"
+            result["reconnect_required"] = result["connection_status"] != "active"
+            result["drive_usable"] = bool(connection and connection.status == "active" and DRIVE_READONLY_SCOPE in set(connection.scopes_json or ()))
+    return result
 
 
 @router.post("/logout")
