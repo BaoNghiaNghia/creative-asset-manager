@@ -100,6 +100,34 @@ class AnalysisImagePreparerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "analysis_image_dimensions")
         self.assertFalse(raised.exception.retryable)
 
+
+    async def test_2k_output_preserves_portrait_aspect_and_never_upscales(self):
+        source = io.BytesIO()
+        Image.new("RGB", (4000, 6000), (20, 40, 80)).save(source, format="JPEG", quality=30)
+        result = await AnalysisImagePreparer(FakeStorage(source.getvalue())).prepare(
+            OpenStoredAssetInput(tenant_id="tenant-a", asset_id="asset-a", remote_file_id="file-a")
+        )
+        self.assertEqual((result.width, result.height), (1365, 2048))
+        small = io.BytesIO()
+        Image.new("RGB", (640, 480), "red").save(small, format="PNG")
+        result = await AnalysisImagePreparer(FakeStorage(small.getvalue())).prepare(
+            OpenStoredAssetInput(tenant_id="tenant-a", asset_id="asset-a", remote_file_id="file-a")
+        )
+        self.assertEqual((result.width, result.height), (640, 480))
+
+    async def test_transparent_input_is_rgb_jpeg_and_output_is_bounded(self):
+        source = io.BytesIO()
+        Image.new("RGBA", (3000, 1000), (255, 0, 0, 80)).save(source, format="PNG")
+        result = await AnalysisImagePreparer(FakeStorage(source.getvalue())).prepare(
+            OpenStoredAssetInput(tenant_id="tenant-a", asset_id="asset-a", remote_file_id="file-a")
+        )
+        with Image.open(io.BytesIO(result.content)) as prepared:
+            self.assertEqual(prepared.format, "JPEG")
+            self.assertEqual(prepared.mode, "RGB")
+            self.assertLessEqual(prepared.width, 2048)
+            self.assertLessEqual(prepared.height, 2048)
+            self.assertLessEqual(prepared.width * prepared.height, 4_194_304)
+
     async def test_storage_errors_preserve_safe_classification(self):
         cases = (
             ("managed_storage_object_missing", False, "analysis_storage_object_missing"),

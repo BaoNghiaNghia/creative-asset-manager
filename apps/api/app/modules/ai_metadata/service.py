@@ -224,6 +224,8 @@ class AiAnalysisService:
                 self.storage_provider,
                 limits=AnalysisImageLimits(
                     max_source_bytes=self.settings.AI_ANALYSIS_MAX_SOURCE_BYTES,
+                    max_source_width=self.settings.AI_ANALYSIS_MAX_SOURCE_WIDTH,
+                    max_source_height=self.settings.AI_ANALYSIS_MAX_SOURCE_HEIGHT,
                     max_output_bytes=self.settings.AI_ANALYSIS_MAX_OUTPUT_BYTES,
                     max_width=self.settings.AI_ANALYSIS_MAX_WIDTH,
                     max_height=self.settings.AI_ANALYSIS_MAX_HEIGHT,
