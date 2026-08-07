@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.ai_batch.model import AiBatchItemModel, AiBatchJobModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.pipeline.mime_types import is_ignored_image_analysis_mime_type
 from app.modules.assets.model import AssetModel
 
 def utcnow(): return datetime.now(timezone.utc)
@@ -63,7 +64,7 @@ class AiBatchRepository:
         grouped:dict[BatchCompatibilityKey,list[AssetAiAnalysisModel]]={}
         for analysis in candidates:
             asset=self.session.get(AssetModel,analysis.asset_id)
-            if asset is None or asset.tenant_id!=tenant_id or not (asset.mime_type or "").startswith("image/"):
+            if asset is None or asset.tenant_id!=tenant_id or not (asset.mime_type or "").startswith("image/") or is_ignored_image_analysis_mime_type(asset.mime_type):
                 continue
             grouped.setdefault(self.compatibility(analysis,asset),[]).append(analysis)
         result=[]

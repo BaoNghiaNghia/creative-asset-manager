@@ -33,6 +33,7 @@ from app.modules.ai_governance.metrics import AI_METRICS
 from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 from app.modules.ai_governance.repository import AiGovernanceRepository, MissingCostRateError, ProviderGovernanceBlocked
 from app.modules.ai_governance.service import AiBudgetService, usage_units
+from app.modules.pipeline.mime_types import is_ignored_image_analysis_mime_type
 from app.modules.assets.model import AssetModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.claim import AI_MODEL_SLOT_PAYLOAD_KEY
@@ -155,7 +156,7 @@ class AiAnalysisService:
                         "metadata_profile_inactive",
                         "The selected metadata profile is not active.",
                     )
-                if not (asset.mime_type or "").lower().startswith("image/"):
+                if not (asset.mime_type or "").lower().startswith("image/") or is_ignored_image_analysis_mime_type(asset.mime_type):
                     repository.fail_analysis(
                         analysis_id,
                         error_code="unsupported_asset_type",
