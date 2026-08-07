@@ -290,7 +290,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
-            model_limits={"gemini-first": GeminiModelLimit(rpm=12, tpm=100, rpd=400), "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=400)},
+            model_limits={"gemini-first": GeminiModelLimit(rpm=12, tpm=300, rpd=400), "gemini-second": GeminiModelLimit(rpm=12, tpm=300, rpd=400)},
             transport=httpx.MockTransport(handler),
         )
         result = await provider.analyze_single(analysis_input())
@@ -336,7 +336,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "secret",
                 model="gemini-test",
                 model_pool=("gemini-test",),
-                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=100, rpd=400)},
+                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=300, rpd=400)},
                 now=lambda: now,
                 quota_coordinator=_DatabaseGeminiQuotaCoordinator(
                     sessions, "creative-assets", 1_000
@@ -398,8 +398,8 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
             model_limits={
-                "gemini-first": GeminiModelLimit(rpm=12, tpm=100, rpd=400),
-                "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=400),
+                "gemini-first": GeminiModelLimit(rpm=12, tpm=300, rpd=400),
+                "gemini-second": GeminiModelLimit(rpm=12, tpm=300, rpd=400),
             },
             sleeper=sleeper,
             clock=clock,
@@ -431,7 +431,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             model_pool=("gemini-first", "gemini-second"),
             model_limits={
                 "gemini-first": GeminiModelLimit(rpm=12, tpm=4, rpd=400),
-                "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=400),
+                "gemini-second": GeminiModelLimit(rpm=12, tpm=300, rpd=400),
             },
             clock=clock,
             now=clock.now,
@@ -460,8 +460,8 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
             model_limits={
-                "gemini-first": GeminiModelLimit(rpm=1, tpm=100, rpd=400),
-                "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=400),
+                "gemini-first": GeminiModelLimit(rpm=1, tpm=300, rpd=400),
+                "gemini-second": GeminiModelLimit(rpm=12, tpm=300, rpd=400),
             },
             clock=clock,
             now=clock.now,
@@ -493,7 +493,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             "secret",
             model="gemini-first",
             model_limits={
-                "gemini-first": GeminiModelLimit(rpm=2, tpm=6, rpd=2),
+                "gemini-first": GeminiModelLimit(rpm=2, tpm=300, rpd=2),
             },
             clock=clock,
             now=clock.now,
@@ -524,7 +524,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             "secret",
             model="gemini-first",
             model_limits={
-                "gemini-first": GeminiModelLimit(rpm=2, tpm=5, rpd=2),
+                "gemini-first": GeminiModelLimit(rpm=2, tpm=300, rpd=2),
             },
             clock=clock,
             now=clock.now,
@@ -571,7 +571,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             "secret",
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
-            model_limits={"gemini-first": GeminiModelLimit(rpm=12, tpm=100, rpd=1), "gemini-second": GeminiModelLimit(rpm=12, tpm=100, rpd=1)},
+            model_limits={"gemini-first": GeminiModelLimit(rpm=12, tpm=300, rpd=1), "gemini-second": GeminiModelLimit(rpm=12, tpm=300, rpd=1)},
             transport=httpx.MockTransport(handler),
         )
         await provider.analyze_single(analysis_input())
@@ -651,8 +651,8 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
             model_limits={
-                "gemini-first": GeminiModelLimit(rpm=1, tpm=100, rpd=10),
-                "gemini-second": GeminiModelLimit(rpm=1, tpm=100, rpd=10),
+                "gemini-first": GeminiModelLimit(rpm=1, tpm=300, rpd=10),
+                "gemini-second": GeminiModelLimit(rpm=1, tpm=300, rpd=10),
             },
             clock=clock,
             now=clock.now,
@@ -683,8 +683,8 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
             model_limits={
-                "gemini-first": GeminiModelLimit(rpm=10, tpm=6, rpd=10),
-                "gemini-second": GeminiModelLimit(rpm=10, tpm=6, rpd=10),
+                "gemini-first": GeminiModelLimit(rpm=10, tpm=300, rpd=10),
+                "gemini-second": GeminiModelLimit(rpm=10, tpm=300, rpd=10),
             },
             clock=clock,
             now=clock.now,
@@ -733,7 +733,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "secret",
                 model="gemini-test",
                 model_pool=("gemini-test",),
-                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=100, rpd=10)},
+                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=300, rpd=10)},
                 now=lambda: now,
                 quota_coordinator=_DatabaseGeminiQuotaCoordinator(
                     sessions, "creative-assets", 2
@@ -809,7 +809,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             "secret",
             model="gemini-test",
             model_pool=("gemini-test",),
-            model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=100, rpd=10)},
+            model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=300, rpd=10)},
             now=lambda: now,
             quota_coordinator=_DatabaseGeminiQuotaCoordinator(
                 sessions, "creative-assets", 2
@@ -857,7 +857,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
                 "secret",
                 model="gemini-test",
                 model_pool=("gemini-test",),
-                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=100, rpd=10)},
+                model_limits={"gemini-test": GeminiModelLimit(rpm=10, tpm=300, rpd=10)},
                 now=lambda: now,
                 quota_coordinator=_DatabaseGeminiQuotaCoordinator(
                     sessions, "creative-assets", 1
@@ -911,8 +911,8 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
             model_limits={
-                "gemini-first": GeminiModelLimit(rpm=10, tpm=100, rpd=1),
-                "gemini-second": GeminiModelLimit(rpm=10, tpm=100, rpd=10),
+                "gemini-first": GeminiModelLimit(rpm=10, tpm=300, rpd=1),
+                "gemini-second": GeminiModelLimit(rpm=10, tpm=300, rpd=10),
             },
             now=lambda: now,
             quota_coordinator=_DatabaseGeminiQuotaCoordinator(
@@ -955,8 +955,8 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             model="gemini-first",
             model_pool=("gemini-first", "gemini-second"),
             model_limits={
-                "gemini-first": GeminiModelLimit(rpm=10, tpm=100, rpd=1),
-                "gemini-second": GeminiModelLimit(rpm=10, tpm=100, rpd=1),
+                "gemini-first": GeminiModelLimit(rpm=10, tpm=300, rpd=1),
+                "gemini-second": GeminiModelLimit(rpm=10, tpm=300, rpd=1),
             },
             clock=clock,
             now=clock.now,
