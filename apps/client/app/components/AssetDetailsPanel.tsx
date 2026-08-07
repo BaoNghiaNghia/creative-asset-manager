@@ -115,7 +115,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
     <nav aria-label="File information sections">{tabs.map(name => <button key={name} className={section === name ? "active" : ""} aria-current={section === name ? "page" : undefined} onClick={() => setSection(name)}>{name}</button>)}</nav>
     {error && <div className="panel-error" role="alert">{error}</div>}
     {notice && <div className="panel-notice" role="status">{notice}</div>}
-    {loading && <div className="panel-loading" role="status">Loading file information...</div>}
+    {loading && <div className="panel-loading" role="status" aria-label="Loading file information"><span className="panel-loading-spinner" aria-hidden="true" /></div>}
     {!loading && !item && !data && <InspectorEmpty />}
     {!loading && (item || data) && <div className="asset-details-body">
       {section === "details" && <FriendlyDetails item={item} data={data} metadata={metadata} provider={provider} onPreview={onPreview} onOpenFolder={onOpenFolder} locationNodes={locationNodes} locationStatus={locationStatus} locationLoading={locationLoading} />}
@@ -201,7 +201,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
       <dl className="inspector-properties">
         <Info label="Type" value={`${fileTypeLabel(fileType)} · ${mimeType}`} />
         <Info label="Size" value={formatBytes(size)} />
-        <Info label="Location" value={locationLoading ? <span className="location-loading" aria-busy="true">Resolving location...</span> : locationStatus === "available" || locationStatus === "unavailable" ? <LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationUnavailable} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} /> : <span aria-hidden="true"> </span>} />
+        <Info className="inspector-location" label="Location" value={locationLoading ? <span className="location-loading" aria-busy="true">Resolving location...</span> : locationStatus === "available" || locationStatus === "unavailable" ? <LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationUnavailable} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} /> : <span aria-hidden="true"> </span>} />
         <Info label="Provider" value={provider === "sharepoint" ? "Microsoft SharePoint" : "Google Drive"} />
         <Info label="Modified" value={humanDate(modified)} />
         {created && <Info label="Created" value={humanDate(created)} />}
@@ -237,8 +237,8 @@ function InspectorEmpty() {
   return <div className="inspector-empty"><span className="info-empty-icon" aria-hidden="true">i</span><b>Select a file or folder</b><span>Its preview, location, metadata and activity will appear here.</span></div>;
 }
 
-function Info({ label, value }: { label: string; value: ReactNode }) {
-  return <div><dt>{label}</dt><dd>{value}</dd></div>;
+function Info({ label, value, className }: { label: string; value: ReactNode; className?: string }) {
+  return <div className={className}><dt>{label}</dt><dd>{value}</dd></div>;
 }
 
 function Detail({ title, value }: { title: string; value: unknown }) {

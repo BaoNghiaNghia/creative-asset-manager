@@ -1059,3 +1059,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 @media(max-width:700px){.search-tools{gap:7px}.search-tools>.search-box{width:100%;flex-basis:100%}.search-guide-content{width:min(520px,calc(100vw - 24px));max-height:calc(100vh - 20px)}.search-guide-examples{grid-template-columns:1fr}}
 
 .location-loading{display:inline-flex;min-width:140px;height:12px;border-radius:5px;background:linear-gradient(90deg,#eef2f7,#f8fafc,#eef2f7);background-size:200% 100%;animation:location-loading-shimmer 1.2s ease-in-out infinite;color:transparent}@keyframes location-loading-shimmer{to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.location-loading{animation:none}}
+
+.inspector-properties>div.inspector-location{grid-column:1/-1;border-right:0!important}.inspector-properties>div.inspector-location dd{max-width:100%;overflow-wrap:anywhere}.inspector-properties>div.inspector-location:nth-last-child(-n+2){border-bottom:1px solid #e9edf3}
+
+.panel-loading{display:flex;min-height:260px;align-items:center;justify-content:center}.panel-loading-spinner{display:block;width:30px;height:30px;border:3px solid #dbe5f5;border-top-color:#3265df;border-radius:50%;animation:panel-loading-spin .8s linear infinite}@keyframes panel-loading-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.panel-loading-spinner{animation:none}}
