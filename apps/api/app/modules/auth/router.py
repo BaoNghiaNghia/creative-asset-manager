@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.source_sync.login_trigger import enqueue_google_login_sync
+from app.modules.assets.model import ExternalSourceModel
 
 from app.modules.auth_persistence.service import clear_provider_session_cookies, cookie_options
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
