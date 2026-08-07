@@ -7,6 +7,11 @@ AssetKind = Literal["folder", "image", "video", "pdf", "document", "other"]
 Provider = Literal["google-drive", "sharepoint"]
 
 
+class LocationBreadcrumbNode(BaseModel):
+    id: str
+    name: str
+
+
 class AssetNode(BaseModel):
     id: str
     internal_asset_id: str | None = None
@@ -24,6 +29,8 @@ class AssetNode(BaseModel):
     has_children: bool = False
     ancestor_ids: list[str] = Field(default_factory=list)
     ancestor_names: list[str] = Field(default_factory=list)
+    location_breadcrumb: list[LocationBreadcrumbNode] = Field(default_factory=list)
+    location_unavailable: bool = False
 
 
 class FolderListing(BaseModel):

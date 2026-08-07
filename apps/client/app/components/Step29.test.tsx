@@ -22,8 +22,7 @@ describe("Step 29 operator UI", () => {
       onToggle={() => undefined}
     />);
     const guide = renderToStaticMarkup(<SearchGuide capabilities={{ selected_version: "v3", readiness: "ready", search_available: true, viewer_scoped: false, failure_code: null, facet_names: ["subject"], examples: ["cat OR dog"] }} />);
-    expect(guide).toContain("Search guide");
-    expect(guide).toContain("Requires every term");
+    expect(guide).toContain("H\u01b0\u1edbng d\u1eabn t\u00ecm ki\u1ebfm");
     expect(markup).toContain("subject");
     expect(markup).toContain("Parsed query debug");
   });

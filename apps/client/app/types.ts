@@ -30,6 +30,8 @@ export type Asset = {
   source_asset_id?: string;
   external_source_id?: string;
   folder_path?: string;
+  location_breadcrumb?: Array<{ id: string; name: string }>;
+  location_unavailable?: boolean;
   score?: number;
   has_children?: boolean;
 };
@@ -123,6 +125,8 @@ export type AssetDetails = {
   job_total: number;
   pipelines: Array<Record<string, any>>;
   lifecycle_status: string;
+  location_breadcrumb?: Array<{ id: string; name: string }>;
+  location_unavailable?: boolean;
   can_administer: boolean;
   limits: { max_json_nodes: number; max_json_depth: number };
 };

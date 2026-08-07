@@ -13,6 +13,7 @@ from app.modules.assets.status_service import AssetProcessingStatusService
 
 from app.modules.explorer.provider_contract import SourceProviderFactory
 from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
+from app.modules.explorer.breadcrumb import resolve_breadcrumb
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.metadata.service import MetadataService, schedule_metadata_index
 from app.modules.authorization.folder_scope import ViewerFolderAccess
@@ -45,6 +46,47 @@ class ExplorerService:
         self.provider_factory = provider_factory
         self.asset_status_service = asset_status_service
         self.viewer_access = viewer_access
+
+    def _attach_breadcrumbs(
+        self, items: list[AssetNode], parent: AssetNode, tenant_id: str | None,
+        external_source_id: str | None, viewer_access: ViewerFolderAccess | None,
+    ) -> list[AssetNode]:
+        if not items or not tenant_id or not external_source_id or self.asset_status_service is None:
+            return items
+        session = self.asset_status_service.session
+        rows = list(session.scalars(select(SourceAssetModel).where(
+            SourceAssetModel.tenant_id == tenant_id,
+            SourceAssetModel.external_source_id == external_source_id,
+            SourceAssetModel.deleted_at.is_(None),
+        )))
+        folders: dict[str, dict[str, object]] = {}
+        for row in rows:
+            metadata = row.source_metadata if isinstance(row.source_metadata, dict) else {}
+            if metadata.get("is_folder") is False:
+                continue
+            parents = metadata.get("parents") if isinstance(metadata.get("parents"), list) else [metadata.get("parent_id")]
+            folders[str(row.external_asset_id)] = {
+                "name": row.filename or "Folder",
+                "parent_id": next((str(value) for value in parents if value), None),
+            }
+        folders.setdefault(parent.id, {"name": parent.name, "parent_id": parent.parent_id})
+        source = session.scalar(select(ExternalSourceModel).where(
+            ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.id == external_source_id,
+        ))
+        source_metadata = source.source_metadata if source and isinstance(source.source_metadata, dict) else {}
+        source_root_id = str(source_metadata.get("root_folder_id") or source_metadata.get("folder_id") or "") or None
+        if source_root_id and source_root_id not in folders:
+            folders[source_root_id] = {"name": str(source.display_name or "Root"), "parent_id": None}
+        permitted = set(viewer_access.folder_ids) if viewer_access and viewer_access.restricted else None
+        for item in items:
+            breadcrumb = resolve_breadcrumb(
+                item_id=item.id, parent_id=item.parent_id or parent.id, folders=folders,
+                source_root_id=source_root_id or (parent.id if parent.parent_id is None else None),
+                permitted_root_ids=permitted,
+            )
+            item.location_breadcrumb = breadcrumb
+            item.location_unavailable = not bool(breadcrumb)
+        return items
 
     @staticmethod
     def _assign_external_source(items: list[AssetNode], external_source_id: str | None) -> list[AssetNode]:
@@ -148,6 +190,7 @@ class ExplorerService:
             provider,
             external_source_id,
         )
+        self._attach_breadcrumbs(children, parent, tenant_id, external_source_id, self.viewer_access)
         if self.viewer_access is not None and self.viewer_access.restricted and not viewer_parent_authorized:
             # Root exposes only the explicitly assigned folders. A verified
             # descendant folder passes viewer_parent_authorized=True so every
@@ -590,6 +633,10 @@ class ExplorerService:
             items = [item for item in items if self.viewer_access.allows(
                 item_id=item.id, parent_id=item.parent_id, ancestor_ids=item.ancestor_ids
             )]
+        for item in items:
+            if item.ancestor_ids and item.ancestor_names:
+                item.location_breadcrumb = [{"id": folder_id, "name": folder_name} for folder_id, folder_name in zip(item.ancestor_ids, item.ancestor_names)]
+                item.location_unavailable = False
         self._assign_media_proxy_urls(
             items,
             provider=body.provider,

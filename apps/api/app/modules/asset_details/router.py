@@ -12,6 +12,7 @@ from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
+from app.modules.explorer.breadcrumb import resolve_breadcrumb
 from app.modules.authorization.principal import (
     CurrentPrincipal, require_authenticated_principal, require_permission,
     require_principal_permission,
@@ -131,6 +132,33 @@ def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit
                 detail={"code": "viewer_folder_scope_denied", "message": "Asset is outside the viewer folder scope."},
             )
         source_rows = visible_source_rows
+        location_breadcrumb: list[dict[str, str]] = []
+        location_unavailable = bool(source_rows)
+        for source, external_source in source_rows:
+            rows = list(session.scalars(select(SourceAssetModel).where(
+                SourceAssetModel.tenant_id == tenant,
+                SourceAssetModel.external_source_id == source.external_source_id,
+                SourceAssetModel.deleted_at.is_(None),
+            )))
+            folders = {}
+            for row in rows:
+                metadata = row.source_metadata if isinstance(row.source_metadata, dict) else {}
+                parents = metadata.get("parents") if isinstance(metadata.get("parents"), list) else [metadata.get("parent_id")]
+                folders[str(row.external_asset_id)] = {
+                    "name": row.filename or "Folder",
+                    "parent_id": next((str(value) for value in parents if value), None),
+                }
+            metadata = external_source.source_metadata if isinstance(external_source.source_metadata, dict) else {}
+            root_id = str(metadata.get("root_folder_id") or metadata.get("folder_id") or "root")
+            folders.setdefault("root", {"name": str(external_source.display_name or "My Drive"), "parent_id": None})
+            access = scope_service.access(tenant_id=tenant, membership_id=principal.membership_id, roles=principal.effective_roles, external_source_id=source.external_source_id)
+            permitted = set(access.folder_ids) if access.restricted else None
+            source_parents = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+            parent_id = next((str(value) for value in source_parents.get("parents", []) if value), None) if isinstance(source_parents.get("parents"), list) else str(source_parents.get("parent_id") or "")
+            location_breadcrumb = resolve_breadcrumb(item_id=asset_id, parent_id=parent_id, folders=folders, source_root_id=root_id, permitted_root_ids=permitted)
+            location_unavailable = not bool(location_breadcrumb)
+            if location_breadcrumb:
+                break
         sources = [{"source_asset_id": s.id, "external_source_id": s.external_source_id, "external_asset_id": s.external_asset_id, "source_type": e.source_type, "source_key": e.source_key, "display_name": e.display_name, "filename": s.filename, "mime_type": s.mime_type or asset.mime_type, "size_bytes": s.size_bytes, "provider_checksum": s.provider_checksum, "provider_version": s.provider_version, "preview_url": source_preview_url(s, e, asset.mime_type), "web_url": resolve_source_web_url(provider="sharepoint" if e.source_type == "sharepoint" else "google-drive", external_asset_id=s.external_asset_id, source_metadata=s.source_metadata), "deleted": s.deleted_at is not None, "created_at": iso(s.source_created_at), "modified_at": iso(s.source_modified_at)} for s, e in source_rows]
         storage = [{"id": row.id, "provider": row.storage_provider, "status": row.status, "remote_file_id": row.remote_file_id, "remote_folder_id": row.remote_folder_id, "web_url": safe_url(row.web_url), "verified": row.status == "stored" and bool(row.remote_file_id), "attempt_count": row.attempt_count, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "stored_at": iso(row.stored_at)} for row in session.scalars(select(AssetStorageObjectModel).where(AssetStorageObjectModel.tenant_id == tenant, AssetStorageObjectModel.asset_id == asset_id).order_by(AssetStorageObjectModel.updated_at.desc()))]
         base_analysis = select(AssetAiAnalysisModel).where(AssetAiAnalysisModel.tenant_id == tenant, AssetAiAnalysisModel.asset_id == asset_id)
@@ -144,7 +172,7 @@ def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit
         pipeline_rows = list(session.scalars(select(AssetPipelineModel).where(AssetPipelineModel.tenant_id == tenant, AssetPipelineModel.asset_id == asset_id).order_by(AssetPipelineModel.updated_at.desc())))
         pipelines = [{"id": row.id, "state": row.state, "origin_type": row.origin_type, "origin_id": row.origin_id, "analysis_id": row.analysis_id, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "failure_retryable": row.failure_retryable, "created_at": iso(row.created_at), "updated_at": iso(row.updated_at), "completed_at": iso(row.completed_at)} for row in pipeline_rows]
         lifecycle = pipeline_rows[0].state if pipeline_rows else ("metadata_ready" if analyses and analyses[0].status == "completed" else "discovered")
-        return {"asset": {"id": asset.id, "content_hash": asset.content_hash, "analysis_image_hash": asset.analysis_image_hash, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "created_at": iso(asset.created_at), "updated_at": iso(asset.updated_at)}, "sources": sources, "storage": storage, "active_analysis": analysis_doc(analyses[0], include_cost) if analyses else None, "analysis_history": [analysis_doc(item, include_cost) for item in analyses], "analysis_total": analysis_total, "jobs": jobs, "job_total": job_total, "pipelines": pipelines, "lifecycle_status": lifecycle, "can_administer": can_administer, "limits": {"max_json_nodes": MAX_JSON_NODES, "max_json_depth": MAX_JSON_DEPTH}}
+        return {"asset": {"id": asset.id, "content_hash": asset.content_hash, "analysis_image_hash": asset.analysis_image_hash, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "created_at": iso(asset.created_at), "updated_at": iso(asset.updated_at)}, "sources": sources, "storage": storage, "active_analysis": analysis_doc(analyses[0], include_cost) if analyses else None, "analysis_history": [analysis_doc(item, include_cost) for item in analyses], "analysis_total": analysis_total, "jobs": jobs, "job_total": job_total, "pipelines": pipelines, "lifecycle_status": lifecycle, "location_breadcrumb": location_breadcrumb, "location_unavailable": location_unavailable, "can_administer": can_administer, "limits": {"max_json_nodes": MAX_JSON_NODES, "max_json_depth": MAX_JSON_DEPTH}}
 
 @router.post("/admin/assets/{asset_id}/actions", response_model=AcceptedAssetAction, status_code=202)
 def action(asset_id: str, body: AssetActionRequest, principal: CurrentPrincipal = Depends(require_authenticated_principal)):

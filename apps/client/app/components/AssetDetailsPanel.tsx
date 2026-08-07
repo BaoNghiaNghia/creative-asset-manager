@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Asset, AssetDetails, AssetMetadata } from "../types";
 import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
 import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
@@ -7,6 +7,7 @@ import { SafeJsonTree } from "./SafeJsonTree";
 import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
 import { assetPreviewUrl } from "../utils/mediaUrls";
 import googleDriveLogoUrl from "../../assets/logos/google-drive-logo.svg";
+import { LocationBreadcrumb, itemLocationBreadcrumb } from "./LocationBreadcrumb";
 
 type Props = {
   item: Asset | null;
@@ -16,6 +17,7 @@ type Props = {
   onPreview?: (item: Asset) => void;
   onDelete?: () => void;
   onMove?: () => void;
+  onOpenFolder?: (id: string) => void;
 };
 
 type Section = "details" | "activity" | "metadata" | "history" | "jobs";
@@ -23,7 +25,7 @@ type Section = "details" | "activity" | "metadata" | "history" | "jobs";
 type ActivityTone = "success" | "warning" | "danger" | "neutral";
 type ActivityEntry = { id: string; title: string; detail: string; category: string; tone: ActivityTone; at?: string };
 
-export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview, onDelete, onMove }: Props) {
+export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview, onDelete, onMove, onOpenFolder }: Props) {
   const [data, setData] = useState<AssetDetails | null>(null);
   const [section, setSection] = useState<Section>("details");
   const [error, setError] = useState("");
@@ -135,7 +137,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
   />}</>;
 }
 
-function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void }) {
+function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFolder }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void; onOpenFolder?: (id: string) => void }) {
   const source = data?.sources[0] || {};
   const assetRecord = data?.asset || {};
   const inferredKind = inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), item?.name || stringValue(source.filename));
@@ -147,6 +149,9 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
   const modified = item?.modified_at || stringValue(source.source_modified_at) || stringValue(assetRecord.updated_at);
   const created = stringValue(source.source_created_at) || stringValue(assetRecord.created_at);
   const location = resolveLocation(item, source);
+  const breadcrumb = data?.location_breadcrumb?.length ? data.location_breadcrumb : itemLocationBreadcrumb(item);
+  const displayBreadcrumb = breadcrumb.length ? breadcrumb : (location ? location.split(/\s*[/\\]\s*/).map((name, index) => ({ id: "location-" + index, name })) : []);
+  const locationUnavailable = data?.location_unavailable ?? item?.location_unavailable ?? !displayBreadcrumb.length;
   const webUrl = resolveProviderWebUrl(item, source, provider);
   const previewUrl = resolvePreviewUrl(item, source);
   const [previewFailed, setPreviewFailed] = useState(false);
@@ -173,7 +178,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
       <dl className="inspector-properties">
         <Info label="Type" value={`${fileTypeLabel(fileType)} · ${mimeType}`} />
         <Info label="Size" value={formatBytes(size)} />
-        <Info label="Location" value={location} />
+        <Info label="Location" value={<LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationUnavailable} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} />} />
         <Info label="Provider" value={provider === "sharepoint" ? "Microsoft SharePoint" : "Google Drive"} />
         <Info label="Modified" value={humanDate(modified)} />
         {created && <Info label="Created" value={humanDate(created)} />}
@@ -209,7 +214,7 @@ function InspectorEmpty() {
   return <div className="inspector-empty"><span className="info-empty-icon" aria-hidden="true">i</span><b>Select a file or folder</b><span>Its preview, location, metadata and activity will appear here.</span></div>;
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ label, value }: { label: string; value: ReactNode }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>;
 }
 
@@ -287,7 +292,7 @@ export function resolveLocation(item: Asset | null, source: Record<string, unkno
     .filter((value): value is string => Boolean(value && value.trim()))
     .map(value => value.trim())
     .filter(value => value.toLowerCase() !== "current folder");
-  if (!candidates.length) return "Current folder";
+  if (!candidates.length) return "";
   return candidates.sort((left, right) => right.split(/\s*[/\\]\s*/).length - left.split(/\s*[/\\]\s*/).length)[0];
 }
 

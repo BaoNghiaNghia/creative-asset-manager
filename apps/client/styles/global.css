@@ -1043,3 +1043,17 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 
 .etsy-redirect{display:inline-flex;align-items:center;gap:5px;margin-left:10px;padding:4px 8px;border:1px solid #ead7ce;border-radius:7px;background:#fff;color:#f1641e;font-size:12px;font-weight:800;line-height:1;text-decoration:none;vertical-align:middle;transition:background .15s ease,border-color .15s ease,transform .15s ease}.etsy-redirect:hover{background:#fff7f2;border-color:#e6b59f;transform:translateY(-1px)}.etsy-logo{display:block;width:62px;height:29px;color:#f1641e}.etsy-external-mark{font-size:17px;color:#9c6956}
 @keyframes upload-spin{to{transform:rotate(360deg)}}@keyframes upload-check-pop{0%{opacity:0;transform:scale(.5)}70%{transform:scale(1.15)}100%{opacity:1;transform:scale(1)}}
+.location-breadcrumb{display:inline;max-width:100%;overflow-wrap:anywhere;line-height:1.5}.location-breadcrumb-node{display:inline}.location-breadcrumb-separator{padding:0 5px;color:#8a96a8}.location-breadcrumb button{padding:0;border:0;background:transparent;color:#263447;font:inherit;text-align:left;text-decoration:underline;text-decoration-color:#d6deea;text-underline-offset:2px;cursor:pointer}.location-breadcrumb button:hover{color:#2458bd;text-decoration-color:#9fb7df}.location-unavailable{color:#8a95a5;font-style:italic}
+
+/* Search guide refresh: the input owns the flexible width and the guide is content-sized. */
+.search-tools{display:flex;align-items:center;min-width:0;width:100%;gap:10px}
+.search-tools>.search-box{flex:1 1 auto;min-width:0;width:auto;max-width:none}
+.search-tools .search-guide{flex:0 0 auto;z-index:21}
+.search-guide>button{cursor:pointer}
+.search-guide-content{display:block;top:calc(100% + 8px);right:0;left:auto;width:min(520px,calc(100vw - 24px));max-height:min(460px,calc(100vh - 24px));overflow:auto;padding:12px}
+.search-guide-content h3{margin:0 0 10px;color:#263447;font-size:14px}
+.search-guide-examples{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.search-guide-examples li{min-height:0;padding:7px 8px}
+.search-guide-api-examples{margin-top:10px;padding-top:9px}
+@media(max-width:1024px){.search-tools .search-guide{display:none}.search-tools>.search-box{width:100%;flex-basis:100%}}
+@media(max-width:700px){.search-tools{gap:7px}.search-tools>.search-box{width:100%;flex-basis:100%}.search-guide-content{width:min(520px,calc(100vw - 24px));max-height:calc(100vh - 20px)}.search-guide-examples{grid-template-columns:1fr}}
