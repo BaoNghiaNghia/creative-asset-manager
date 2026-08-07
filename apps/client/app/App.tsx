@@ -417,7 +417,7 @@ export default function App() {
             {"T\u00ecm ki\u1ebfm ho\u00e0n t\u1ea5t trong "}{formatSearchDuration(explorer.searchDurationMs)}
           </small>}
         </div>
-        {explorer.auth.authenticated ? <div className="account">
+        {explorer.applicationAuthenticated ? <div className="account">
           {explorer.pureViewer && explorer.viewerSources.length > 1 && explorer.activeExternalSourceId && <label>
             <span className="sr-only">Assigned source</span>
             <select
@@ -466,12 +466,20 @@ export default function App() {
         </label>
       </nav>}
 
-      {explorer.auth.checking ? <div className="state">Checking Google connection…</div>
+      {explorer.applicationAuthenticated === null ? <div className="state">Checking application session...</div>
+        : explorer.applicationAuthenticated === false ? <DriveEmpty
+          oauthError={explorer.oauthError}
+          activeProvider={explorer.provider}
+          authByProvider={explorer.authByProvider}
+          onSelectProvider={explorer.selectProvider}
+          applicationAuthenticated={explorer.applicationAuthenticated}
+        />
         : !explorer.auth.authenticated ? <DriveEmpty
           oauthError={explorer.oauthError}
           activeProvider={explorer.provider}
           authByProvider={explorer.authByProvider}
           onSelectProvider={explorer.selectProvider}
+          applicationAuthenticated
         />
         : explorer.pureViewer && explorer.viewerBootstrapState === "loading"
           ? <div className="state">Loading assigned Google Drive folders…</div>

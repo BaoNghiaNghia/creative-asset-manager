@@ -59,3 +59,12 @@ def delete_cookie_options():
         "path": settings.AUTH_COOKIE_PATH,
         **({"domain": settings.AUTH_COOKIE_DOMAIN} if settings.AUTH_COOKIE_DOMAIN else {}),
     }
+
+
+def clear_provider_session_cookies(response, cookie_name: str, oauth_path: str):
+    """Expire the configured cookie and paths used by pre-persistence releases."""
+    settings = get_settings()
+    domain = {"domain": settings.AUTH_COOKIE_DOMAIN} if settings.AUTH_COOKIE_DOMAIN else {}
+    paths = {settings.AUTH_COOKIE_PATH or "/", "/", oauth_path}
+    for path in paths:
+        response.delete_cookie(cookie_name, path=path, **domain)

@@ -6,6 +6,7 @@ type Props = {
   activeProvider: Provider;
   authByProvider: ProviderSessions;
   onSelectProvider: (provider: Provider) => void;
+  applicationAuthenticated?: boolean;
 };
 
 const sources: Array<{
@@ -28,7 +29,7 @@ const sources: Array<{
   },
 ];
 
-export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelectProvider }: Props) {
+export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelectProvider, applicationAuthenticated = false }: Props) {
   const activeName = activeProvider === "sharepoint" ? "SharePoint" : "Google Drive";
 
   return <div className="drive-empty source-onboarding">
@@ -57,8 +58,7 @@ export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelec
             ? onSelectProvider(source.provider)
             : window.location.assign(source.login)}
           >
-            {connected ? "Open source" : `Sign in with ${source.provider === "sharepoint" ? "Microsoft" : "Google"}`}
-          </button>
+            {connected ? "Open source" : applicationAuthenticated ? "Connect " + (source.provider === "sharepoint" ? "SharePoint" : "Google Drive") : "Sign in with " + (source.provider === "sharepoint" ? "Microsoft" : "Google")}</button>
           {connected && <span className="source-card-status"><i /> Connected</span>}
         </article>;
       })}

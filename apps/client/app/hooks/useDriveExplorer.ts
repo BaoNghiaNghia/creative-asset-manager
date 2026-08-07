@@ -159,6 +159,7 @@ export function useDriveExplorer() {
   const [viewerBootstrapState, setViewerBootstrapState] = useState<"idle" | "loading" | "ready" | "permission" | "error">("idle");
   const [pureViewer, setPureViewer] = useState<boolean | null>(null);
   const [explorerReady, setExplorerReady] = useState(false);
+  const [applicationAuthenticated, setApplicationAuthenticated] = useState<boolean | null>(null);
   const [authByProvider, setAuthByProvider] = useState<ProviderSessions>({
     "google-drive": { authenticated: false, user: null, checking: true },
     sharepoint: { authenticated: false, user: null, checking: true },
@@ -721,31 +722,66 @@ export function useDriveExplorer() {
       const cleanQuery = params.toString();
       window.history.replaceState({}, "", window.location.pathname + (cleanQuery ? "?" + cleanQuery : ""));
     }
-    async function readSession(url: string): Promise<Omit<AuthState, "checking">> {
-      try { const response = await fetch(url); if (!response.ok) throw Error(); return await response.json(); }
-      catch { return { authenticated: false, user: null }; }
+    type SessionRead = { state: Omit<AuthState, "checking">; error?: string };
+    async function readSession(url: string): Promise<SessionRead> {
+      try {
+        const response = await fetch(url);
+        if (response.status === 401) return { state: { authenticated: false, user: null } };
+        if (!response.ok) return { state: { authenticated: false, user: null }, error: "Provider session returned " + response.status };
+        const body = await response.json() as Omit<AuthState, "checking">;
+        if (typeof body?.authenticated !== "boolean") return { state: { authenticated: false, user: null }, error: "Provider session response was malformed" };
+        return { state: body };
+      } catch {
+        return { state: { authenticated: false, user: null }, error: "Provider session is temporarily unavailable" };
+      }
     }
     async function readIdentity(): Promise<{ roles: string[]; is_processing_admin: boolean }> {
       const response = await fetch("/api/v1/auth/identity");
-      if (!response.ok) throw Error("Unable to verify workspace access");
+      if (response.status === 401) throw Object.assign(new Error("unauthenticated"), { status: 401 });
+      if (!response.ok) throw Object.assign(new Error("Unable to verify workspace access"), { status: response.status });
       return await response.json();
     }
     async function initialize() {
-      const [google, sharepoint] = await Promise.all([readSession("/api/auth/google/session"), readSession("/api/auth/microsoft/session")]);
+      let identity: { roles: string[]; is_processing_admin: boolean };
+      try {
+        identity = await readIdentity();
+        setApplicationAuthenticated(true);
+      } catch (reason) {
+        const status = typeof reason === "object" && reason && "status" in reason ? Number((reason as { status?: number }).status) : 0;
+        setApplicationAuthenticated(status === 401 ? false : null);
+        setAuthByProvider({
+          "google-drive": { authenticated: false, user: null, checking: false },
+          sharepoint: { authenticated: false, user: null, checking: false },
+        });
+        clearExplorer(provider);
+        if (status !== 401) setError("Unable to verify application authentication. Please retry.");
+        return;
+      }
+
+      const [googleResult, sharepointResult] = await Promise.all([
+        readSession("/api/auth/google/session"),
+        readSession("/api/auth/microsoft/session"),
+      ]);
+      const google = googleResult.state;
+      const sharepoint = sharepointResult.state;
       const sessions: ProviderSessions = {
         "google-drive": { ...google, checking: false },
         sharepoint: { ...sharepoint, checking: false },
       };
+      setAuthByProvider(sessions);
       const selected: Provider = preferred === "sharepoint" && sharepoint.authenticated ? "sharepoint"
         : google.authenticated ? "google-drive" : sharepoint.authenticated ? "sharepoint" : preferred;
-      setAuthByProvider(sessions); setProvider(selected);
+      setProvider(selected);
+      setPureViewer(isPureViewerIdentity(identity));
+      if (googleResult.error || sharepointResult.error) {
+        setError("A cloud provider session could not be verified. Connect or reconnect the source to continue.");
+      }
       if (!sessions[selected].authenticated) {
         setPureViewer(null);
         clearExplorer(selected);
         return;
       }
       try {
-        const identity = await readIdentity();
         const viewer = isPureViewerIdentity(identity);
         setPureViewer(viewer);
         if (viewer) {
@@ -795,6 +831,7 @@ export function useDriveExplorer() {
 
   async function logout() {
     await fetch(provider === "sharepoint" ? "/api/auth/microsoft/logout" : "/api/auth/google/logout", { method: "POST" });
+    setApplicationAuthenticated(false);
     setAuthByProvider(current => ({ ...current, [provider]: { authenticated: false, user: null, checking: false } }));
     clearExplorer(provider);
     setViewerBootstrap(null);
@@ -952,6 +989,7 @@ export function useDriveExplorer() {
     provider,
     auth,
     authByProvider,
+    applicationAuthenticated,
     oauthError,
     metadataIndex,
     explorerReady,

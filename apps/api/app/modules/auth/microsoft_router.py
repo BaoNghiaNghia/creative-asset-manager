@@ -9,7 +9,7 @@ from app.core.config import get_settings
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.login import LoginAdmissionError
 
-from app.modules.auth_persistence.service import cookie_options, delete_cookie_options
+from app.modules.auth_persistence.service import clear_provider_session_cookies, cookie_options
 from app.providers.microsoft.auth import (
     SESSION_COOKIE,
     OAUTH_BINDING_COOKIE,
@@ -35,6 +35,7 @@ def client_redirect(**params: str) -> RedirectResponse:
 async def login():
     binding = secrets.token_urlsafe(32)
     response = RedirectResponse(authorization_url(binding))
+    clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/microsoft")
     response.set_cookie(OAUTH_BINDING_COOKIE, binding, max_age=600, httponly=True, secure=cookie_options()["secure"], samesite="lax", path="/api/auth/microsoft")
     return response
 
@@ -82,6 +83,7 @@ async def callback(
 
     remove_session(request)
     response = client_redirect(microsoft="connected")
+    clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/microsoft")
     response.set_cookie(SESSION_COOKIE, session_id, **cookie_options())
     response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/microsoft")
     return response
@@ -100,5 +102,6 @@ async def session(request: Request):
 async def logout(request: Request):
     remove_session(request)
     response = JSONResponse({"authenticated": False})
-    response.delete_cookie(SESSION_COOKIE, **delete_cookie_options())
+    clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/microsoft")
+    response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/microsoft")
     return response
