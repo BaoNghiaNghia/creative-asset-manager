@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import math
 import logging
 import re
 import time
@@ -514,8 +515,14 @@ class GeminiAiMetadataProvider:
 
     @staticmethod
     def _estimate_input_tokens(input: AiMetadataAnalysisInput) -> int:
-        prompt_tokens = (len(input.prompt.encode("utf-8")) + 3) // 4
-        image_tokens = (len(input.image_bytes) + 3) // 4
+        prompt_tokens = math.ceil(len(input.prompt.encode("utf-8")) / 4)
+        width = input.image_width or 384
+        height = input.image_height or 384
+        if width <= 0 or height <= 0:
+            width = height = 384
+        tiles_x = math.ceil(width / 768)
+        tiles_y = math.ceil(height / 768)
+        image_tokens = 258 * tiles_x * tiles_y
         return max(1, prompt_tokens + image_tokens)
 
     @staticmethod

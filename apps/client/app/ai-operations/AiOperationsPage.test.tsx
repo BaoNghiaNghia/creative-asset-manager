@@ -187,7 +187,7 @@ function render(tab: "overview" | "processing" | "cost" = "overview", overrides 
 
 describe("AI Operations date range", () => {
   it("defaults to six months and preserves all-time selection", () => {
-    expect(filtersFromSearch("").range).toBe(180);
+    expect(filtersFromSearch("").range).toBe(90);
     expect(filtersFromSearch("?range=all").range).toBe(0);
     expect(searchFromFilters({ ...filters, range: 0 }, "overview")).toContain("range=all");
   });

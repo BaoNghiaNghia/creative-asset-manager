@@ -125,7 +125,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
   const params = new URLSearchParams(search);
   const requestedRange = Number(params.get("range"));
   const range = params.get("range") === "all" ? 0
-    : requestedRange === 30 || requestedRange === 90 || requestedRange === 180 ? requestedRange : 180;
+    : requestedRange === 30 || requestedRange === 90 || requestedRange === 180 ? requestedRange : 90;
   return {
     range,
     provider: params.get("provider") || "",
@@ -144,7 +144,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
 
 export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSeconds = 0): string {
   const params = new URLSearchParams();
-  if (filters.range !== 180) params.set("range", filters.range === 0 ? "all" : String(filters.range));
+  if (filters.range !== 90) params.set("range", filters.range === 0 ? "all" : String(filters.range));
   if (filters.provider) params.set("provider", filters.provider);
   if (filters.model) params.set("model", filters.model);
   if (filters.processingMode) params.set("mode", filters.processingMode);

@@ -336,6 +336,8 @@ class AiAnalysisService:
                     image_mime_type=prepared.mime_type,
                     metadata_profile=profile_name,
                     metadata_profile_version=profile_version,
+                    image_width=prepared.width,
+                    image_height=prepared.height,
                     json_schema=schema,
                     is_cancelled=is_cancelled,
                     analysis_id=analysis_id,

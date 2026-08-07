@@ -134,6 +134,8 @@ class AiMetadataAnalysisInput:
     image_mime_type: str
     metadata_profile: str
     metadata_profile_version: str
+    image_width: int | None = None
+    image_height: int | None = None
     json_schema: Mapping[str, Any] | None = None
     is_cancelled: Callable[[], bool] | None = None
     # Correlation values are optional and never included in the provider request.

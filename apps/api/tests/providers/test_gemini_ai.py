@@ -1,5 +1,6 @@
 import json
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -74,6 +75,37 @@ class FakeClock:
 
 
 class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
+    def test_image_token_estimate_uses_pixels_not_file_size(self):
+        first = analysis_input()
+        first = replace(first, image_width=1024, image_height=768, image_bytes=b"a" * (1 * 1024 * 1024))
+        second = replace(first, image_bytes=b"b" * (8 * 1024 * 1024))
+        self.assertEqual(
+            GeminiAiMetadataProvider._estimate_input_tokens(first),
+            GeminiAiMetadataProvider._estimate_input_tokens(second),
+        )
+
+    def test_image_token_estimate_uses_gemini_tiles_and_safe_fallback(self):
+        large = replace(analysis_input(), image_width=4096, image_height=4096)
+        small = replace(analysis_input(), image_width=384, image_height=384)
+        missing = analysis_input()
+        self.assertEqual(GeminiAiMetadataProvider._estimate_input_tokens(large), 9288 + 4)
+        self.assertEqual(GeminiAiMetadataProvider._estimate_input_tokens(small), 258 + 4)
+        self.assertEqual(
+            GeminiAiMetadataProvider._estimate_input_tokens(missing),
+            GeminiAiMetadataProvider._estimate_input_tokens(small),
+        )
+
+    async def test_large_file_size_does_not_trigger_token_limit_by_itself(self):
+        provider = configured_gemini_provider(
+            "secret",
+            model_limits={"gemini-2.5-flash": GeminiModelLimit(rpm=12, tpm=200000, rpd=400)},
+        )
+        image = replace(analysis_input(), image_width=384, image_height=384, image_bytes=b"x" * (8 * 1024 * 1024))
+        self.assertLess(GeminiAiMetadataProvider._estimate_input_tokens(image), 200000)
+        reservation, unavailable = await provider._reserve_request("gemini-2.5-flash", image)
+        self.assertIsNotNone(reservation)
+        self.assertIsNone(unavailable)
+
     def test_missing_model_limits_are_rejected(self):
         with self.assertRaisesRegex(
             ValueError,

@@ -46,7 +46,7 @@ def _filters(
     if date_range == "all":
         start = datetime(1970, 1, 1, tzinfo=timezone.utc)
     else:
-        start = from_at or (end - timedelta(days=180))
+        start = from_at or (end - timedelta(days=90))
     if start.tzinfo is None:
         start = start.replace(tzinfo=timezone.utc)
     if end.tzinfo is None:
