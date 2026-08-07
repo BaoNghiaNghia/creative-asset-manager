@@ -146,7 +146,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
   const size = item?.size ?? numberValue(source.size_bytes) ?? numberValue(assetRecord.size_bytes);
   const modified = item?.modified_at || stringValue(source.source_modified_at) || stringValue(assetRecord.updated_at);
   const created = stringValue(source.source_created_at) || stringValue(assetRecord.created_at);
-  const location = item?.folder_path || item?.ancestor_names?.join(" / ") || sourcePath(source) || "Current folder";
+  const location = resolveLocation(item, source);
   const webUrl = resolveProviderWebUrl(item, source, provider);
   const previewUrl = resolvePreviewUrl(item, source);
   const [previewFailed, setPreviewFailed] = useState(false);
@@ -280,6 +280,15 @@ function sourcePath(source: Record<string, unknown>): string | undefined {
   const metadata = source.source_metadata;
   if (metadata && typeof metadata === "object" && "path" in metadata) return stringValue((metadata as Record<string, unknown>).path);
   return undefined;
+}
+
+export function resolveLocation(item: Asset | null, source: Record<string, unknown>): string {
+  const candidates = [sourcePath(source), item?.folder_path, item?.ancestor_names?.join(" / ")]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .map(value => value.trim())
+    .filter(value => value.toLowerCase() !== "current folder");
+  if (!candidates.length) return "Current folder";
+  return candidates.sort((left, right) => right.split(/\s*[/\\]\s*/).length - left.split(/\s*[/\\]\s*/).length)[0];
 }
 
 export function resolvePreviewUrl(item: Asset | null, source: Record<string, unknown>): string | undefined {

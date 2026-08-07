@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset, AssetMetadata } from "../types";
-import { AssetDetailsPanel, buildActivity, formatBytes, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl } from "./AssetDetailsPanel";
+import { AssetDetailsPanel, buildActivity, formatBytes, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl, resolveLocation } from "./AssetDetailsPanel";
 
 const item: Asset = {
   provider: "google-drive",
@@ -32,6 +32,11 @@ describe("Asset details inspector", () => {
       expect(markup).toContain(value);
     }
     expect(markup).not.toContain("Operator actions");
+  });
+
+  it("shows the longest available breadcrumb and ignores placeholder location values", () => {
+    expect(resolveLocation({ ...item, folder_path: "Current folder", ancestor_names: ["Desify - Image & Video Assets", "Etsy - VienLuna", "listing - 4467905366"] }, {})).toBe("Desify - Image & Video Assets / Etsy - VienLuna / listing - 4467905366");
+    expect(resolveLocation({ ...item, folder_path: "Current folder", ancestor_names: [] }, { source_metadata: { path: "Desify - Image & Video Assets / Etsy - VienLuna" } })).toBe("Desify - Image & Video Assets / Etsy - VienLuna");
   });
 
   it("previews AVIF files when the provider reports octet-stream", () => {
