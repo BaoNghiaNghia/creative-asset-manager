@@ -193,7 +193,7 @@ async def session(request: Request):
     with SessionLocal() as db:
         is_default_text = func.lower(
             func.coalesce(
-                ExternalSourceModel.source_metadata["is_default"].astext,
+                ExternalSourceModel.source_metadata.op("->>")("is_default"),
                 "false",
             )
         )
