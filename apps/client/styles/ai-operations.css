@@ -270,3 +270,10 @@
 .ops-bulk-retry .ops-confirm{position:fixed;inset:auto 24px 24px auto;width:min(420px,calc(100vw - 48px));z-index:30}
 .ops-bulk-retry .ops-action-message{flex-basis:100%}
 @media(max-width:560px){.ops-bulk-retry{align-items:stretch;flex-direction:column}.ops-bulk-retry>button{width:100%}}
+
+
+/* Keep the active Operations tab aligned with the product navigation treatment. */
+.ops-tabs button.active{
+  background:linear-gradient(90deg,#fff 0%,#fffdf1 42%,#fff1a8 100%);
+  color:#234fb5;
+}
