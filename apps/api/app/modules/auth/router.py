@@ -3,19 +3,21 @@ import secrets
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.source_sync.login_trigger import enqueue_google_login_sync
 from app.modules.assets.model import ExternalSourceModel
+from app.modules.auth_persistence.model import OAuthConnectionModel
 
 from app.modules.auth_persistence.service import clear_provider_session_cookies, cookie_options
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.login import LoginAdmissionError
 from app.providers.google.auth import (
+    DRIVE_READONLY_SCOPE,
     SESSION_COOKIE,
     OAUTH_BINDING_COOKIE,
     consume_state_details,
@@ -189,7 +191,30 @@ async def session(request: Request):
     if not google_session or not google_session.active_tenant_id:
         return result
     with SessionLocal() as db:
-        source = db.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == google_session.active_tenant_id, ExternalSourceModel.source_type == "google_drive").order_by(ExternalSourceModel.source_metadata["is_default"].desc(), ExternalSourceModel.updated_at.desc()))
+        is_default_text = func.lower(
+            func.coalesce(
+                ExternalSourceModel.source_metadata["is_default"].astext,
+                "false",
+            )
+        )
+        is_default_rank = case(
+            (is_default_text.in_(("true", "1", "yes")), 1),
+            else_=0,
+        )
+        source = db.scalar(
+            select(ExternalSourceModel)
+            .where(
+                ExternalSourceModel.tenant_id == google_session.active_tenant_id,
+                ExternalSourceModel.source_type == "google_drive",
+            )
+            .order_by(
+                is_default_rank.desc(),
+                ExternalSourceModel.updated_at.desc(),
+                ExternalSourceModel.created_at.asc(),
+                ExternalSourceModel.id.asc(),
+            )
+            .limit(1)
+        )
         if source:
             result["external_source_id"] = source.id
             metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
