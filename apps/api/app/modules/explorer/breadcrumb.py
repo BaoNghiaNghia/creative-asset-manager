@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections import OrderedDict
 from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
@@ -39,3 +41,35 @@ def resolve_breadcrumb(
         return []
     chain.reverse()
     return chain
+
+
+class LocationBreadcrumbCache:
+    def __init__(self, max_entries: int = 4096, ttl_seconds: float = 300):
+        self.max_entries = max_entries
+        self.ttl_seconds = ttl_seconds
+        self._entries: OrderedDict[tuple[str, str, str], tuple[float, list[dict[str, str]]]] = OrderedDict()
+
+    def get(self, key: tuple[str, str, str]) -> list[dict[str, str]] | None:
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        expires, value = entry
+        if expires <= time.monotonic():
+            self._entries.pop(key, None)
+            return None
+        self._entries.move_to_end(key)
+        return [dict(item) for item in value]
+
+    def put(self, key: tuple[str, str, str], value: list[dict[str, str]]) -> None:
+        self._entries[key] = (time.monotonic() + self.ttl_seconds, [dict(item) for item in value])
+        self._entries.move_to_end(key)
+        while len(self._entries) > self.max_entries:
+            self._entries.popitem(last=False)
+
+    def invalidate(self, *, tenant_id: str, external_source_id: str, item_id: str | None = None) -> None:
+        for key in list(self._entries):
+            if key[:2] == (tenant_id, external_source_id) and (item_id is None or key[2] == item_id):
+                self._entries.pop(key, None)
+
+
+location_breadcrumb_cache = LocationBreadcrumbCache()

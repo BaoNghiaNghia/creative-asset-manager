@@ -1057,3 +1057,5 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .search-guide-api-examples{margin-top:10px;padding-top:9px}
 @media(max-width:1024px){.search-tools .search-guide{display:none}.search-tools>.search-box{width:100%;flex-basis:100%}}
 @media(max-width:700px){.search-tools{gap:7px}.search-tools>.search-box{width:100%;flex-basis:100%}.search-guide-content{width:min(520px,calc(100vw - 24px));max-height:calc(100vh - 20px)}.search-guide-examples{grid-template-columns:1fr}}
+
+.location-loading{display:inline-flex;min-width:140px;height:12px;border-radius:5px;background:linear-gradient(90deg,#eef2f7,#f8fafc,#eef2f7);background-size:200% 100%;animation:location-loading-shimmer 1.2s ease-in-out infinite;color:transparent}@keyframes location-loading-shimmer{to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.location-loading{animation:none}}

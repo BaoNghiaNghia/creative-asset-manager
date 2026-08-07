@@ -13,6 +13,7 @@ from app.modules.authorization.folder_scope_cache import (
 from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.source_sync.repository import SourceSyncRepository
+from app.modules.explorer.breadcrumb import location_breadcrumb_cache
 
 
 def _invalidate_viewer_folder_hierarchy(*, tenant_id: str, external_source_id: str) -> None:
@@ -23,6 +24,7 @@ def _invalidate_viewer_folder_hierarchy(*, tenant_id: str, external_source_id: s
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=external_source_id
     )
+    location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=external_source_id)
 
 
 def _datetime(value: str | None) -> datetime | None:

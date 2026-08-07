@@ -12,6 +12,11 @@ class LocationBreadcrumbNode(BaseModel):
     name: str
 
 
+class AssetLocationResponse(BaseModel):
+    status: Literal["available", "unavailable"]
+    breadcrumb: list[LocationBreadcrumbNode] = Field(default_factory=list)
+
+
 class AssetNode(BaseModel):
     id: str
     internal_asset_id: str | None = None

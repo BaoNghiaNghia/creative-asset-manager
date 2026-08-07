@@ -18,6 +18,7 @@ from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.indexing import get_index_status, start_index_job
 from app.modules.explorer.schema import (
     AssetNode,
+    AssetLocationResponse,
     FolderListing,
     IndexRequest,
     IndexStatus,
@@ -25,6 +26,7 @@ from app.modules.explorer.schema import (
     ViewerBootstrapResponse,
 )
 from app.modules.explorer.service import ExplorerService
+from app.modules.explorer.breadcrumb import location_breadcrumb_cache, resolve_breadcrumb
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.preview import PreviewConversionError, convert_avif_to_webp, preview_cache_get, preview_cache_put
 from app.modules.explorer.tenant_source import TenantSourceResolver
@@ -383,6 +385,90 @@ def viewer_bootstrap(
     }
 
 
+@router.get("/items/{item_id}/location", response_model=AssetLocationResponse)
+async def item_location(request: Request, item_id: str, provider: Provider = Query("google-drive"), external_source_id: str | None = Query(None), session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(ASSETS_READ)):
+    token, _account_id, tenant_id, resolved_source_id = await _source_context(request, provider, session, principal, external_source_id)
+    if not resolved_source_id:
+        return AssetLocationResponse(status="unavailable", breadcrumb=[])
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(tenant_id=tenant_id, membership_id=principal.membership_id, roles=principal.effective_roles, external_source_id=resolved_source_id)
+    if access.restricted and not await _viewer_folder_scope_allowed(scope_service, tenant_id=tenant_id, access=access, provider=provider, token=token or "", item_id=item_id):
+        raise HTTPException(status_code=403, detail={"code": "viewer_folder_scope_denied", "message": "Asset is outside the viewer folder scope."})
+    cache_key = (str(tenant_id), str(resolved_source_id), str(item_id))
+    cached = location_breadcrumb_cache.get(cache_key)
+    if cached is not None:
+        return AssetLocationResponse(status="available", breadcrumb=cached)
+    source = session.scalar(select(SourceAssetModel).where(SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.external_source_id == resolved_source_id, SourceAssetModel.external_asset_id == item_id, SourceAssetModel.deleted_at.is_(None)))
+    external = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.id == resolved_source_id))
+    if source is None or external is None:
+        return AssetLocationResponse(status="unavailable", breadcrumb=[])
+    rows = list(session.scalars(select(SourceAssetModel).where(SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.external_source_id == resolved_source_id, SourceAssetModel.deleted_at.is_(None))))
+    folders = {}
+    for row in rows:
+        metadata = row.source_metadata if isinstance(row.source_metadata, dict) else {}
+        parents = metadata.get("parents") if isinstance(metadata.get("parents"), list) else [metadata.get("parent_id")]
+        folders[str(row.external_asset_id)] = {"name": row.filename or "Folder", "parent_id": next((str(value) for value in parents if value), None)}
+    source_metadata = external.source_metadata if isinstance(external.source_metadata, dict) else {}
+    root_id = str(source_metadata.get("root_folder_id") or source_metadata.get("folder_id") or "root")
+    folders.setdefault("root", {"name": external.display_name or "My Drive", "parent_id": None})
+    item_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+    parent_id = next((str(value) for value in item_metadata.get("parents", []) if value), None) if isinstance(item_metadata.get("parents"), list) else str(item_metadata.get("parent_id") or "")
+    permitted = set(access.folder_ids) if access.restricted else None
+    breadcrumb = resolve_breadcrumb(item_id=item_id, parent_id=parent_id, folders=folders, source_root_id=root_id, permitted_root_ids=permitted)
+    resolution_source = "database"
+    failure_reason = "missing_parent"
+    if not breadcrumb and provider == "google-drive" and token:
+        resolution_source = "provider"
+        provider_folders = {}
+        current = parent_id
+        visited = set()
+        try:
+            async with create_source_provider(provider, token) as client:
+                for depth in range(64):
+                    if not current:
+                        failure_reason = "missing_parent"
+                        break
+                    if current in visited:
+                        failure_reason = "cycle_detected"
+                        break
+                    visited.add(current)
+                    node = await client.get_node(current)
+                    provider_folders[current] = {"name": node.name, "parent_id": node.parent_id}
+                    if access.restricted and current in access.folder_ids:
+                        failure_reason = ""
+                        break
+                    if current == root_id or (root_id == "root" and node.parent_id in {None, "root"}):
+                        if root_id == "root":
+                            root_id = current
+                        failure_reason = ""
+                        break
+                    current = node.parent_id
+                else:
+                    failure_reason = "root_not_reached"
+            breadcrumb = resolve_breadcrumb(item_id=item_id, parent_id=parent_id, folders={**folders, **provider_folders}, source_root_id=root_id, permitted_root_ids=permitted)
+            if breadcrumb:
+                from app.modules.assets.repository import AssetRegistryRepository
+                repository = AssetRegistryRepository(session)
+                for folder_id, folder in provider_folders.items():
+                    repository.upsert_source_asset(
+                        tenant_id=tenant_id, external_source_id=resolved_source_id,
+                        external_asset_id=folder_id, filename=str(folder["name"]),
+                        mime_type="application/vnd.google-apps.folder",
+                        source_metadata={"parents": [folder["parent_id"]] if folder["parent_id"] else [], "is_folder": True},
+                    )
+                location_breadcrumb_cache.put(cache_key, breadcrumb)
+                session.commit()
+        except httpx.HTTPStatusError as exc:
+            failure_reason = "provider_forbidden" if exc.response.status_code in {401, 403} else "provider_not_found" if exc.response.status_code == 404 else "provider_error"
+        except (httpx.HTTPError, ValueError):
+            failure_reason = "provider_error"
+    logger.info("asset_location item_id=%s external_source_id=%s missing_parent_id=%s resolved_depth=%s resolution_source=%s failure_reason=%s", item_id, resolved_source_id, parent_id, len(breadcrumb), resolution_source, failure_reason)
+    if breadcrumb:
+        location_breadcrumb_cache.put(cache_key, breadcrumb)
+        return AssetLocationResponse(status="available", breadcrumb=breadcrumb)
+    return AssetLocationResponse(status="unavailable", breadcrumb=[])
+
+
 @router.get("/children", response_model=FolderListing)
 async def children(
     request: Request,
@@ -588,6 +674,7 @@ async def upload_file(
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 @router.delete("/items/{item_id}")
@@ -608,6 +695,7 @@ async def delete_item(
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
     return {"deleted": True, "id": item_id}
 
 @router.post("/items/{item_id}/copy")
@@ -634,6 +722,7 @@ async def copy_item(
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
     return {"id": node.id, "parent_id": node.parent_id, "name": node.name}
 
 @router.post("/items/{item_id}/move")
@@ -655,6 +744,7 @@ async def move_item(
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
     return {"id": node.id, "parent_id": node.parent_id}
 
 @router.get("/thumbnail/{item_id}")

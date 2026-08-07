@@ -34,6 +34,9 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
   const [notice, setNotice] = useState("");
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [forceAnalysis, setForceAnalysis] = useState(false);
+  const [locationNodes, setLocationNodes] = useState<Array<{ id: string; name: string }>>([]);
+  const [locationStatus, setLocationStatus] = useState<"available" | "unavailable" | null>(null);
+  const [locationLoading, setLocationLoading] = useState(Boolean(item?.id));
 
   async function load(signal?: AbortSignal) {
     if (!assetId) { setData(null); setLoading(false); return; }
@@ -56,6 +59,24 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
     });
     return () => controller.abort();
   }, [assetId, item?.external_source_id]);
+
+  useEffect(() => {
+    if (!item?.id) { setLocationNodes([]); setLocationStatus(null); setLocationLoading(false); return; }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ provider: item.provider });
+    if (item.external_source_id) params.set("external_source_id", item.external_source_id);
+    setLocationLoading(true); setLocationStatus(null);
+    void fetch("/api/explorer/items/" + encodeURIComponent(item.id) + "/location?" + params.toString(), { signal: controller.signal })
+      .then(async response => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw Error(payload.detail || "Unable to resolve asset location");
+        setLocationNodes(Array.isArray(payload.breadcrumb) ? payload.breadcrumb : []);
+        setLocationStatus(payload.status === "available" ? "available" : "unavailable");
+      })
+      .catch(() => { if (!controller.signal.aborted) { setLocationNodes([]); setLocationStatus("unavailable"); } })
+      .finally(() => { if (!controller.signal.aborted) setLocationLoading(false); });
+    return () => controller.abort();
+  }, [item?.id, item?.provider, item?.external_source_id]);
 
   async function action(name: string, extra: Record<string, unknown> = {}) {
     if (!assetId) return;
@@ -97,7 +118,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
     {loading && <div className="panel-loading" role="status">Loading file information...</div>}
     {!loading && !item && !data && <InspectorEmpty />}
     {!loading && (item || data) && <div className="asset-details-body">
-      {section === "details" && <FriendlyDetails item={item} data={data} metadata={metadata} provider={provider} onPreview={onPreview} />}
+      {section === "details" && <FriendlyDetails item={item} data={data} metadata={metadata} provider={provider} onPreview={onPreview} onOpenFolder={onOpenFolder} locationNodes={locationNodes} locationStatus={locationStatus} locationLoading={locationLoading} />}
       {section === "activity" && <Activity entries={activity} />}
       {section === "metadata" && data && <>
         <Summary analysis={data.active_analysis} />
@@ -139,7 +160,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
   />}</>;
 }
 
-function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFolder }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void; onOpenFolder?: (id: string) => void }) {
+function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFolder, locationNodes, locationStatus, locationLoading }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void; onOpenFolder?: (id: string) => void; locationNodes: Array<{ id: string; name: string }>; locationStatus: "available" | "unavailable" | null; locationLoading: boolean }) {
   const source = data?.sources[0] || {};
   const assetRecord = data?.asset || {};
   const inferredKind = inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), item?.name || stringValue(source.filename));
@@ -151,9 +172,9 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
   const modified = item?.modified_at || stringValue(source.source_modified_at) || stringValue(assetRecord.updated_at);
   const created = stringValue(source.source_created_at) || stringValue(assetRecord.created_at);
   const location = resolveLocation(item, source);
-  const breadcrumb = data?.location_breadcrumb?.length ? data.location_breadcrumb : itemLocationBreadcrumb(item);
+  const breadcrumb = locationStatus === "available" ? locationNodes : (data?.location_breadcrumb?.length ? data.location_breadcrumb : itemLocationBreadcrumb(item));
   const displayBreadcrumb = breadcrumb.length ? breadcrumb : (location ? location.split(/\s*[/\\]\s*/).map((name, index) => ({ id: "location-" + index, name })) : []);
-  const locationUnavailable = data?.location_status ? data.location_status === "unavailable" : (data?.location_unavailable ?? item?.location_unavailable ?? !displayBreadcrumb.length);
+  const locationUnavailable = locationStatus === "unavailable" || (locationStatus === null && data?.location_status === "unavailable");
   const webUrl = resolveProviderWebUrl(item, source, provider);
   const previewUrl = resolvePreviewUrl(item, source);
   const [previewFailed, setPreviewFailed] = useState(false);
@@ -180,7 +201,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
       <dl className="inspector-properties">
         <Info label="Type" value={`${fileTypeLabel(fileType)} · ${mimeType}`} />
         <Info label="Size" value={formatBytes(size)} />
-        <Info label="Location" value={<LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationUnavailable} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} />} />
+        <Info label="Location" value={locationLoading ? <span className="location-loading" aria-busy="true">Resolving location...</span> : locationStatus === "available" || locationStatus === "unavailable" ? <LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationUnavailable} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} /> : <span aria-hidden="true"> </span>} />
         <Info label="Provider" value={provider === "sharepoint" ? "Microsoft SharePoint" : "Google Drive"} />
         <Info label="Modified" value={humanDate(modified)} />
         {created && <Info label="Created" value={humanDate(created)} />}
