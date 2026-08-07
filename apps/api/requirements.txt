@@ -9,6 +9,7 @@ SQLAlchemy==2.0.41
 psycopg[binary]==3.2.9
 alembic==1.18.5
 Pillow==12.3.0
+pyvips==2.2.3
 jsonschema==4.26.0
 cryptography==49.0.0
 openai==2.45.0

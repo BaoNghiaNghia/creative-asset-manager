@@ -47,6 +47,14 @@ class PreparedAnalysisImage:
     height: int
 
 
+def _load_vips():
+    try:
+        import pyvips
+        return pyvips
+    except (ImportError, OSError):
+        return None
+
+
 class AnalysisImagePreparer:
     def __init__(
         self,
@@ -91,34 +99,55 @@ class AnalysisImagePreparer:
                 if source_pixels > self.limits.max_decode_pixels:
                     raise AnalysisImageError("Analysis source exceeds the safe decode limit.", code="analysis_image_dimensions", retryable=False)
 
-                image = opened
-                if source_format in {"JPEG", "MPO"} and max(source_width, source_height) > max(self.limits.max_width, self.limits.max_height):
-                    image.draft("RGB", (self.limits.max_width, self.limits.max_height))
-                    reduced_decode = image.size != (source_width, source_height)
-                image = ImageOps.exif_transpose(image)
-                if getattr(image, "n_frames", 1) > 1:
-                    image.seek(0)
-                image.load()
-                if image.mode not in {"RGB", "RGBA"}:
-                    image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
-                if "A" in image.getbands():
-                    background = Image.new("RGB", image.size, "white")
-                    background.paste(image.convert("RGBA"), mask=image.getchannel("A"))
-                    image = background
+                use_vips = source_format not in {"JPEG", "MPO"} and max(source_width, source_height) > max(self.limits.max_width, self.limits.max_height)
+                vips = _load_vips() if use_vips else None
+                if use_vips and vips is not None:
+                    vips_image = vips.Image.thumbnail(source_path, max(self.limits.max_width, self.limits.max_height), size="down")
+                    vips_image = vips_image.autorot()
+                    if vips_image.hasalpha():
+                        vips_image = vips_image.flatten(background=[255, 255, 255])
+                    if vips_image.bands == 1:
+                        vips_image = vips_image.colourspace("srgb")
+                    width, height = vips_image.width, vips_image.height
+                    with tempfile.NamedTemporaryFile(prefix="cam-analysis-ready-", suffix=".jpg", dir=self.temp_dir, delete=False) as output:
+                        output_path = output.name
+                    vips_image.write_to_file(output_path, Q=self.limits.jpeg_quality, optimize_coding=True, interlace=True)
+                    reduced_decode = True
+                    decoder = "libvips"
                 else:
-                    image = image.convert("RGB")
-                image.thumbnail((self.limits.max_width, self.limits.max_height), Image.Resampling.LANCZOS)
-                width, height = image.size
+                    if use_vips and source_pixels > self.limits.max_decode_pixels // 2:
+                        raise AnalysisImageError("Safe native decoder is unavailable for this image.", code="analysis_image_decoder_unavailable", retryable=False)
+                    decoder = "pillow"
+                    image = opened
+                    if source_format in {"JPEG", "MPO"} and max(source_width, source_height) > max(self.limits.max_width, self.limits.max_height):
+                        image.draft("RGB", (self.limits.max_width, self.limits.max_height))
+                        reduced_decode = image.size != (source_width, source_height)
+                    image = ImageOps.exif_transpose(image)
+                    if getattr(image, "n_frames", 1) > 1:
+                        image.seek(0)
+                    image.load()
+                    if image.mode not in {"RGB", "RGBA"}:
+                        image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+                    if "A" in image.getbands():
+                        background = Image.new("RGB", image.size, "white")
+                        background.paste(image.convert("RGBA"), mask=image.getchannel("A"))
+                        image = background
+                    else:
+                        image = image.convert("RGB")
+                    image.thumbnail((self.limits.max_width, self.limits.max_height), Image.Resampling.LANCZOS)
+                    width, height = image.size
+                    with tempfile.NamedTemporaryFile(prefix="cam-analysis-ready-", suffix=".jpg", dir=self.temp_dir, delete=False) as output:
+                        output_path = output.name
+                    image.save(output_path, format="JPEG", quality=self.limits.jpeg_quality, optimize=True, progressive=True, exif=b"")
+
                 if width <= 0 or height <= 0 or width > self.limits.max_width or height > self.limits.max_height or width * height > self.limits.max_pixels:
                     raise AnalysisImageError("Prepared image exceeds image dimension limits.", code="analysis_image_dimensions", retryable=False)
-                with tempfile.NamedTemporaryFile(prefix="cam-analysis-ready-", suffix=".jpg", dir=self.temp_dir, delete=False) as output:
-                    output_path = output.name
-                image.save(output_path, format="JPEG", quality=self.limits.jpeg_quality, optimize=True, progressive=True, exif=b"")
+
             with open(output_path, "rb") as prepared:
                 content = prepared.read(self.limits.max_output_bytes + 1)
             if len(content) > self.limits.max_output_bytes:
                 raise AnalysisImageError("Prepared analysis image exceeds the byte limit.", code="analysis_image_output_too_large", retryable=False)
-            logger.info("analysis_image_prepared format=%s source_width=%s source_height=%s source_bytes=%s source_pixels=%s decoder=%s reduced_decode=%s prepared_width=%s prepared_height=%s prepared_bytes=%s duration_ms=%s", source_format, source_width, source_height, source_size, source_pixels, "pillow", reduced_decode, width, height, len(content), round((time.monotonic() - started) * 1000))
+            logger.info("analysis_image_prepared format=%s source_width=%s source_height=%s source_bytes=%s source_pixels=%s decoder=%s reduced_decode=%s prepared_width=%s prepared_height=%s prepared_bytes=%s duration_ms=%s", source_format, source_width, source_height, source_size, source_pixels, decoder, reduced_decode, width, height, len(content), round((time.monotonic() - started) * 1000))
             return PreparedAnalysisImage(content=content, mime_type="image/jpeg", content_hash=hashlib.sha256(content).hexdigest(), width=width, height=height)
         except AnalysisImageError:
             raise
