@@ -28,7 +28,9 @@ type ActivityEntry = { id: string; title: string; detail: string; category: stri
 export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview, onDelete, onMove, onOpenFolder }: Props) {
   const [data, setData] = useState<AssetDetails | null>(null);
   const [section, setSection] = useState<Section>("details");
-  const [error, setError] = useState("");
+  const [coreDetailsError, setCoreDetailsError] = useState("");
+  const [locationError, setLocationError] = useState("");
+  const [resolutionError, setResolutionError] = useState("");
   const [loading, setLoading] = useState(Boolean(assetId));
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
@@ -40,7 +42,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
 
   async function load(signal?: AbortSignal) {
     if (!assetId) { setData(null); setLoading(false); return; }
-    setError(""); setLoading(true);
+    setCoreDetailsError(""); setResolutionError(""); setLoading(true);
     const params = new URLSearchParams();
     if (item?.external_source_id) params.set("external_source_id", item.external_source_id);
     const response = await fetch("/api/v1/assets/" + encodeURIComponent(assetId) + (params.toString() ? "?" + params : ""), { signal });
@@ -55,7 +57,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
     if (!assetId) return;
     const controller = new AbortController();
     void load(controller.signal).catch(reason => {
-      if (!controller.signal.aborted) { setLoading(false); setError(reason.message); }
+      if (!controller.signal.aborted) { setLoading(false); setCoreDetailsError(reason.message); }
     });
     return () => controller.abort();
   }, [assetId, item?.external_source_id]);
@@ -65,7 +67,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
     const controller = new AbortController();
     const params = new URLSearchParams({ provider: item.provider });
     if (item.external_source_id) params.set("external_source_id", item.external_source_id);
-    setLocationLoading(true); setLocationStatus(null);
+    setLocationLoading(true); setLocationStatus(null); setLocationError("");
     void fetch("/api/explorer/items/" + encodeURIComponent(item.id) + "/location?" + params.toString(), { signal: controller.signal })
       .then(async response => {
         const payload = await response.json().catch(() => ({}));
@@ -73,7 +75,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
         setLocationNodes(Array.isArray(payload.breadcrumb) ? payload.breadcrumb : []);
         setLocationStatus(payload.status === "available" ? "available" : "unavailable");
       })
-      .catch(() => { if (!controller.signal.aborted) { setLocationNodes([]); setLocationStatus("unavailable"); } })
+      .catch(() => { if (!controller.signal.aborted) { setLocationNodes([]); setLocationStatus("unavailable"); setLocationError("Unable to resolve asset location"); } })
       .finally(() => { if (!controller.signal.aborted) setLocationLoading(false); });
     return () => controller.abort();
   }, [item?.id, item?.provider, item?.external_source_id]);
@@ -90,9 +92,10 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw Error(payload.detail || "Operation was rejected");
       setNotice(name === "cancel_job" ? "Queued job cancelled." : "Operation accepted. It will run asynchronously.");
+      setCoreDetailsError("");
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Operation failed");
+      setCoreDetailsError(reason instanceof Error ? reason.message : "Operation failed");
     } finally { setBusy(""); }
   }
 
@@ -113,7 +116,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
       <button onClick={onClose} aria-label="Close file information" title="Close">×</button>
     </header>
     <nav aria-label="File information sections">{tabs.map(name => <button key={name} className={section === name ? "active" : ""} aria-current={section === name ? "page" : undefined} onClick={() => setSection(name)}>{name}</button>)}</nav>
-    {error && <div className="panel-error" role="alert">{error}</div>}
+    {coreDetailsError && !data && !item && <div className="panel-error" role="alert">{coreDetailsError}</div>}
     {notice && <div className="panel-notice" role="status">{notice}</div>}
     {loading && <div className="panel-loading" role="status" aria-label="Loading file information"><span className="panel-loading-spinner" aria-hidden="true" /></div>}
     {!loading && !item && !data && <InspectorEmpty />}
@@ -156,7 +159,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
     forceInitially={forceAnalysis}
     includeProviderBatchId={data.can_administer}
     onClose={() => setAnalysisOpen(false)}
-    onSubmitted={() => void load().catch(reason => setError(reason.message))}
+    onSubmitted={() => void load().catch(reason => setCoreDetailsError(reason.message))}
   />}</>;
 }
 

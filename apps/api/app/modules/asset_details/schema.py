@@ -1,5 +1,6 @@
 from typing import Any, Literal
 from pydantic import BaseModel, Field
+from app.modules.explorer.schema import LocationBreadcrumbNode
 
 class AssetActionRequest(BaseModel):
     action: Literal["reanalyze", "rebuild_projection", "reindex", "retry_failed_stage", "cancel_job"]
@@ -17,12 +18,12 @@ class AcceptedAssetAction(BaseModel):
 class AssetDetailsResponse(BaseModel):
     asset: dict[str, Any]
     sources: list[dict[str, Any]]
-    location_breadcrumb: list[dict[str, str]] = Field(default_factory=list)
+    location_breadcrumb: list[LocationBreadcrumbNode] = Field(default_factory=list)
     location_unavailable: bool = False
     location_status: Literal["resolved", "unavailable"] = "unavailable"
     image_width: int | None = None
     image_height: int | None = None
-    resolution_source: Literal["database", "drive_metadata", "media_header", "unavailable"] = "unavailable"
+    resolution_source: Literal["database", "drive_metadata", "media_header", "provider_forbidden", "provider_missing", "media_header_failed", "unavailable"] = "unavailable"
     resolution_status: Literal["available", "unavailable"] = "unavailable"
     storage: list[dict[str, Any]]
     active_analysis: dict[str, Any] | None

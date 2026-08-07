@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import httpx
 import os
 import tempfile
 import time
@@ -68,7 +69,16 @@ class MediaDimensionsResolver:
             self._persist(source, provider_pair, "drive_metadata")
             return MediaDimensions(*provider_pair, "drive_metadata")
         if _is_image(source) and token and external.source_type == "google_drive":
-            result = await self._header_fallback(source.external_asset_id, token)
+            try:
+                result = await self._header_fallback(source.external_asset_id, token)
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                failure_source = "provider_forbidden" if status in {401, 403} else "provider_missing" if status == 404 else "unavailable"
+                logger.warning("media_dimensions_optional_failure item_id=%s provider_item_id=%s external_source_id=%s provider=google-drive status=%s stage=media_header", source.id, source.external_asset_id, source.external_source_id, status)
+                return MediaDimensions(None, None, failure_source)
+            except (httpx.HTTPError, TimeoutError, OSError, ValueError, UnidentifiedImageError) as exc:
+                logger.warning("media_dimensions_optional_failure item_id=%s provider_item_id=%s external_source_id=%s provider=google-drive status=unknown stage=media_header error=%s", source.id, source.external_asset_id, source.external_source_id, type(exc).__name__)
+                return MediaDimensions(None, None, "media_header_failed")
             if result:
                 self._persist(source, result, "media_header")
                 return MediaDimensions(*result, "media_header")

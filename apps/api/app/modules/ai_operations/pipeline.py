@@ -11,6 +11,7 @@ from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import PROCESSING_JOB_QUEUED_STATUSES, PROCESSING_JOB_RUNNING_STATUSES, ProcessingJobModel
 from app.modules.source_sync.model import SourceSyncRunModel
+from app.modules.pipeline.mime_types import SUPPORTED_GOOGLE_DRIVE_IMAGE_MIME_TYPES, normalize_source_mime_type
 
 PIPELINE_STAGES: tuple[tuple[str, str, str], ...] = (
     ("source_asset_download", "Download", "Download supported source images from Google Drive."),
@@ -19,7 +20,7 @@ PIPELINE_STAGES: tuple[tuple[str, str, str], ...] = (
     ("search_projection_build", "Search Projection", "Build searchable metadata."),
     ("asset_index", "Elasticsearch Index", "Index the search document."),
 )
-SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png", "image/webp")
+SUPPORTED_IMAGE_MIME_TYPES = tuple(SUPPORTED_GOOGLE_DRIVE_IMAGE_MIME_TYPES)
 _DEFERRED_CODES = {"ai_model_rate_limited", "gemini_quota_deferred"}
 _SKIPPED_CODES = {"unsupported_source_mime_type": "unsupported", "source_content_too_large": "oversized"}
 _ACTIONABLE_CODES = {"analysis_image_dimensions": "preprocessing_required", "gemini_http_error": "provider_error", "search_index_unconfigured": "configuration_error"}
@@ -194,7 +195,9 @@ class PipelineOperationsRepository:
             progress[key] += 1
         source_filter = SourceAssetModel.external_source_id.in_(source_ids) if source_ids else SourceAssetModel.id == literal("__no_active_source__")
         all_active = int(self.session.scalar(select(func.count(SourceAssetModel.id)).where(SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.deleted_at.is_(None), source_filter)) or 0)
-        skipped = {"folders_non_images": max(0, all_active - supported), "unsupported": 0, "oversized": 0, "other_permanent": 0}
+        image_active = int(self.session.scalar(select(func.count(SourceAssetModel.id)).where(SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.deleted_at.is_(None), source_filter, func.lower(SourceAssetModel.mime_type).like("image/%"))) or 0)
+        unsupported_formats = max(0, image_active - supported)
+        skipped = {"folders_non_images": max(0, all_active - image_active), "unsupported": unsupported_formats, "oversized": 0, "other_permanent": 0}
         failures: dict[tuple[str, str, str], dict[str, Any]] = {}
         for rows in by_asset.values():
             for row in rows:
@@ -205,7 +208,7 @@ class PipelineOperationsRepository:
                     item = failures.setdefault(key, {"stage": next(label for stage, label, _ in PIPELINE_STAGES if stage == row["stage"]), "error_code": code, "category": category, "message": code.replace("_", " "), "count": 0, "latest_at": now})
                     item["count"] += 1
         return {"generated_at": now, "definitions": {"snapshot": "Current logical asset state; reporting date filters never affect this endpoint.", "attempt_diagnostics": "Raw immutable processing-job attempts; diagnostics only."}, "latest_source_sync": self._latest_source_sync(tenant_id),
-            "overall": {"source_items_discovered": all_active, "supported_assets": supported, "eligible_assets": supported, "unsupported_assets": skipped["folders_non_images"], "completed": progress["search_ready"], "search_ready_assets": progress["search_ready"], "active": in_progress, "in_progress_assets": in_progress, "queued": queued, "queued_assets": queued, "failed": attention, "needs_attention_assets": attention, "skipped": skipped["folders_non_images"] + skipped_stage, "skipped_assets": skipped["folders_non_images"] + skipped_stage, "indexed_percentage": round(progress["search_ready"] / supported * 100, 1) if supported else None, "throughput_today": 0, "asset_progress": [{"key": key, "count": count} for key, count in progress.items()]},
+            "overall": {"source_items_discovered": all_active, "supported_assets": supported, "eligible_assets": supported, "unsupported_assets": skipped["unsupported"], "completed": progress["search_ready"], "search_ready_assets": progress["search_ready"], "active": in_progress, "in_progress_assets": in_progress, "queued": queued, "queued_assets": queued, "failed": attention, "needs_attention_assets": attention, "skipped": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "skipped_assets": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "indexed_percentage": round(progress["search_ready"] / supported * 100, 1) if supported else None, "throughput_today": 0, "asset_progress": [{"key": key, "count": count} for key, count in progress.items()]},
             "stages": stages, "active_job": self._active_job(tenant_id, now), "failure_groups": list(failures.values()), "skipped_breakdown": [{"category": key, "count": value} for key, value in skipped.items() if value], "recent_assets": self._recent_assets(logical, page=recent_page, page_size=recent_page_size),
             "diagnostics": {"decommissioned_sources_excluded": decommissioned_sources, "raw_attempts": {stage["key"]: {key: stage[key] for key in ("total_attempts", "completed_attempts", "failed_attempts")} for stage in stages}}}
 
