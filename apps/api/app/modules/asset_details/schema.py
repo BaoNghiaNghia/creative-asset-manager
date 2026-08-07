@@ -22,6 +22,8 @@ class AssetDetailsResponse(BaseModel):
     location_status: Literal["resolved", "unavailable"] = "unavailable"
     image_width: int | None = None
     image_height: int | None = None
+    resolution_source: Literal["database", "drive_metadata", "media_header", "unavailable"] = "unavailable"
+    resolution_status: Literal["available", "unavailable"] = "unavailable"
     storage: list[dict[str, Any]]
     active_analysis: dict[str, Any] | None
     analysis_history: list[dict[str, Any]]

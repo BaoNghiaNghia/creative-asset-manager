@@ -162,7 +162,7 @@ class GoogleDriveClient:
     async def get_image_dimensions(self, item_id: str):
         data = await self._get(
             f"/files/{item_id}",
-            {"fields": "id,mimeType,imageMediaMetadata(width,height)", "supportsAllDrives": "true"},
+            {"fields": "id,mimeType,size,modifiedTime,imageMediaMetadata(width,height,rotation),videoMediaMetadata(width,height,durationMillis)", "supportsAllDrives": "true"},
         )
         metadata = data.get("imageMediaMetadata") or {}
         width, height = metadata.get("width"), metadata.get("height")

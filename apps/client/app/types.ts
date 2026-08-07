@@ -133,6 +133,8 @@ export type AssetDetails = {
   location_status?: "resolved" | "unavailable";
   image_width?: number | null;
   image_height?: number | null;
+  resolution_source?: "database" | "drive_metadata" | "media_header" | "unavailable";
+  resolution_status?: "available" | "unavailable";
   can_administer: boolean;
   limits: { max_json_nodes: number; max_json_depth: number };
 };

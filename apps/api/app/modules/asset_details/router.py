@@ -22,6 +22,7 @@ from app.modules.authorization.principal import (
     require_principal_permission,
 )
 from app.modules.asset_details.schema import AcceptedAssetAction, AssetActionRequest, AssetDetailsResponse
+from app.modules.asset_details.media_dimensions import MediaDimensionsResolver
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.assets.source_url import resolve_source_web_url
 from app.modules.explorer.media_types import infer_media_type, is_previewable_media
@@ -141,6 +142,7 @@ async def details(request: Request, asset_id: str, external_source_id: str | Non
         source_rows = visible_source_rows
         image_width: int | None = None
         image_height: int | None = None
+        resolution_source = "unavailable"
         selected_image_source = next(
             ((source, external_source) for source, external_source in source_rows
              if (source.mime_type or asset.mime_type or "").lower().startswith("image/")),
@@ -148,24 +150,10 @@ async def details(request: Request, asset_id: str, external_source_id: str | Non
         )
         if selected_image_source:
             image_source, image_external = selected_image_source
-            metadata = image_source.source_metadata if isinstance(image_source.source_metadata, dict) else {}
-            dimension_metadata = metadata.get("imageMediaMetadata") if isinstance(metadata.get("imageMediaMetadata"), dict) else metadata.get("image_media_metadata")
-            if not isinstance(dimension_metadata, dict):
-                dimension_metadata = metadata
-            try:
-                image_width = int(dimension_metadata.get("width")) if dimension_metadata.get("width") else None
-                image_height = int(dimension_metadata.get("height")) if dimension_metadata.get("height") else None
-            except (TypeError, ValueError):
-                image_width = image_height = None
-            if image_width is None or image_height is None:
-                if image_external.source_type == "google_drive":
-                    try:
-                        token = await get_google_token(request)
-                        if token:
-                            async with GoogleDriveClient(token) as client:
-                                image_width, image_height = await client.get_image_dimensions(image_source.external_asset_id)
-                    except (httpx.HTTPError, ValueError, TypeError):
-                        logger.info("image_dimensions_unavailable item_id=%s external_source_id=%s", image_source.external_asset_id, image_source.external_source_id)
+            dimensions = await MediaDimensionsResolver(session).resolve(
+                source=image_source, external=image_external, token=await get_google_token(request) if image_external.source_type == "google_drive" else None
+            )
+            image_width, image_height, resolution_source = dimensions.width, dimensions.height, dimensions.source
         location_breadcrumb: list[dict[str, str]] = []
         location_status = "unavailable" if source_rows else "unavailable"
         location_unavailable = bool(source_rows)
@@ -252,7 +240,7 @@ async def details(request: Request, asset_id: str, external_source_id: str | Non
         pipeline_rows = list(session.scalars(select(AssetPipelineModel).where(AssetPipelineModel.tenant_id == tenant, AssetPipelineModel.asset_id == asset_id).order_by(AssetPipelineModel.updated_at.desc())))
         pipelines = [{"id": row.id, "state": row.state, "origin_type": row.origin_type, "origin_id": row.origin_id, "analysis_id": row.analysis_id, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "failure_retryable": row.failure_retryable, "created_at": iso(row.created_at), "updated_at": iso(row.updated_at), "completed_at": iso(row.completed_at)} for row in pipeline_rows]
         lifecycle = pipeline_rows[0].state if pipeline_rows else ("metadata_ready" if analyses and analyses[0].status == "completed" else "discovered")
-        return {"asset": {"id": asset.id, "content_hash": asset.content_hash, "analysis_image_hash": asset.analysis_image_hash, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "created_at": iso(asset.created_at), "updated_at": iso(asset.updated_at)}, "sources": sources, "storage": storage, "active_analysis": analysis_doc(analyses[0], include_cost) if analyses else None, "analysis_history": [analysis_doc(item, include_cost) for item in analyses], "analysis_total": analysis_total, "jobs": jobs, "job_total": job_total, "pipelines": pipelines, "lifecycle_status": lifecycle, "location_breadcrumb": location_breadcrumb, "location_status": location_status, "location_unavailable": location_unavailable, "image_width": image_width, "image_height": image_height, "can_administer": can_administer, "limits": {"max_json_nodes": MAX_JSON_NODES, "max_json_depth": MAX_JSON_DEPTH}}
+        return {"asset": {"id": asset.id, "content_hash": asset.content_hash, "analysis_image_hash": asset.analysis_image_hash, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "created_at": iso(asset.created_at), "updated_at": iso(asset.updated_at)}, "sources": sources, "storage": storage, "active_analysis": analysis_doc(analyses[0], include_cost) if analyses else None, "analysis_history": [analysis_doc(item, include_cost) for item in analyses], "analysis_total": analysis_total, "jobs": jobs, "job_total": job_total, "pipelines": pipelines, "lifecycle_status": lifecycle, "location_breadcrumb": location_breadcrumb, "location_status": location_status, "location_unavailable": location_unavailable, "image_width": image_width, "image_height": image_height, "resolution_source": resolution_source, "resolution_status": "available" if image_width and image_height else "unavailable", "can_administer": can_administer, "limits": {"max_json_nodes": MAX_JSON_NODES, "max_json_depth": MAX_JSON_DEPTH}}
 
 @router.post("/admin/assets/{asset_id}/actions", response_model=AcceptedAssetAction, status_code=202)
 def action(asset_id: str, body: AssetActionRequest, principal: CurrentPrincipal = Depends(require_authenticated_principal)):
