@@ -32,6 +32,7 @@ export type Asset = {
   folder_path?: string;
   location_breadcrumb?: Array<{ id: string; name: string }>;
   location_unavailable?: boolean;
+  location_status?: "resolved" | "unavailable";
   score?: number;
   has_children?: boolean;
 };
@@ -127,6 +128,7 @@ export type AssetDetails = {
   lifecycle_status: string;
   location_breadcrumb?: Array<{ id: string; name: string }>;
   location_unavailable?: boolean;
+  location_status?: "resolved" | "unavailable";
   can_administer: boolean;
   limits: { max_json_nodes: number; max_json_depth: number };
 };

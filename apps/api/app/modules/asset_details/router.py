@@ -1,9 +1,11 @@
 from __future__ import annotations
 from datetime import datetime, timezone
+import logging
+import httpx
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 
 from app.core.config import get_settings
@@ -13,6 +15,8 @@ from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.explorer.breadcrumb import resolve_breadcrumb
+from app.providers.google.auth import get_access_token as get_google_token
+from app.providers.google.drive import GoogleDriveClient
 from app.modules.authorization.principal import (
     CurrentPrincipal, require_authenticated_principal, require_permission,
     require_principal_permission,
@@ -29,6 +33,7 @@ from app.modules.processing.repository import ProcessingRepository
 from app.modules.storage.model import AssetStorageObjectModel
 
 router = APIRouter(prefix="/api/v1", tags=["asset-details"])
+logger = logging.getLogger(__name__)
 MAX_JSON_NODES = 1500
 MAX_JSON_DEPTH = 10
 ASSETS_READ = require_permission("assets.read")
@@ -102,7 +107,7 @@ def related_ids(session, tenant, asset_id):
     return analyses, pipelines, sources
 
 @router.get("/assets/{asset_id}", response_model=AssetDetailsResponse)
-def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit: int = Query(20, ge=1, le=100), job_offset: int = Query(0, ge=0), job_limit: int = Query(50, ge=1, le=200), principal: CurrentPrincipal = Depends(ASSETS_READ)):
+async def details(request: Request, asset_id: str, external_source_id: str | None = Query(None), analysis_offset: int = Query(0, ge=0), analysis_limit: int = Query(20, ge=1, le=100), job_offset: int = Query(0, ge=0), job_limit: int = Query(50, ge=1, le=200), principal: CurrentPrincipal = Depends(ASSETS_READ)):
     tenant = principal.active_tenant_id
     include_cost = principal.platform_admin or bool({"ai_operations.read", "ai_budget.read"}.intersection(principal.effective_permissions))
     can_administer = principal.platform_admin or bool({"ai_analysis.run", "ai_jobs.retry", "ai_jobs.cancel", "search.rebuild"}.intersection(principal.effective_permissions))
@@ -110,7 +115,9 @@ def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit
         asset = session.scalar(select(AssetModel).where(AssetModel.id == asset_id, AssetModel.tenant_id == tenant))
         if asset is None:
             raise HTTPException(404, "Asset not found")
-        source_rows = session.execute(select(SourceAssetModel, ExternalSourceModel).join(AssetSourceLinkModel, AssetSourceLinkModel.source_asset_id == SourceAssetModel.id).join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id).where(AssetSourceLinkModel.tenant_id == tenant, AssetSourceLinkModel.asset_id == asset_id, SourceAssetModel.tenant_id == tenant, ExternalSourceModel.tenant_id == tenant).order_by(SourceAssetModel.created_at)).all()
+        source_rows = session.execute(select(SourceAssetModel, ExternalSourceModel).join(AssetSourceLinkModel, AssetSourceLinkModel.source_asset_id == SourceAssetModel.id).join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id).where(AssetSourceLinkModel.tenant_id == tenant, AssetSourceLinkModel.asset_id == asset_id, SourceAssetModel.tenant_id == tenant, ExternalSourceModel.tenant_id == tenant,
+            *( [SourceAssetModel.external_source_id == external_source_id] if external_source_id else [] ),
+        ).order_by(SourceAssetModel.created_at)).all()
         scope_service = ViewerFolderScopeService(session)
         visible_source_rows = []
         for source, external_source in source_rows:
@@ -133,6 +140,7 @@ def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit
             )
         source_rows = visible_source_rows
         location_breadcrumb: list[dict[str, str]] = []
+        location_status = "unavailable" if source_rows else "unavailable"
         location_unavailable = bool(source_rows)
         for source, external_source in source_rows:
             rows = list(session.scalars(select(SourceAssetModel).where(
@@ -155,10 +163,55 @@ def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit
             permitted = set(access.folder_ids) if access.restricted else None
             source_parents = source.source_metadata if isinstance(source.source_metadata, dict) else {}
             parent_id = next((str(value) for value in source_parents.get("parents", []) if value), None) if isinstance(source_parents.get("parents"), list) else str(source_parents.get("parent_id") or "")
-            location_breadcrumb = resolve_breadcrumb(item_id=asset_id, parent_id=parent_id, folders=folders, source_root_id=root_id, permitted_root_ids=permitted)
-            location_unavailable = not bool(location_breadcrumb)
+            location_breadcrumb = resolve_breadcrumb(item_id=source.external_asset_id, parent_id=parent_id, folders=folders, source_root_id=root_id, permitted_root_ids=permitted)
             if location_breadcrumb:
+                location_status = "resolved"
+                location_unavailable = False
                 break
+            # Local metadata can lag a newly synchronized parent. Resolve with
+            # the same tenant source credential, then persist each folder row.
+            if external_source.source_type == "google_drive" and (not access.restricted or access.allows_external_asset(tenant_id=tenant, external_asset_id=source.external_asset_id)):
+                try:
+                    token = await get_google_token(request)
+                    if token:
+                        current = parent_id
+                        provider_folders = {}
+                        async with GoogleDriveClient(token) as client:
+                            for depth in range(64):
+                                if not current:
+                                    break
+                                if current in provider_folders:
+                                    logger.warning("Folder breadcrumb cycle file_provider_id=%s missing_parent_id=%s external_source_id=%s depth=%s", source.external_asset_id, current, source.external_source_id, depth)
+                                    break
+                                node = await client.get_breadcrumb_metadata(current)
+                                provider_folders[current] = {"name": node.name, "parent_id": node.parent_id}
+                                if current == root_id or (root_id == "root" and node.parent_id in {None, "root"}):
+                                    if root_id == "root":
+                                        root_id = current
+                                    break
+                                current = node.parent_id
+                        location_breadcrumb = resolve_breadcrumb(item_id=source.external_asset_id, parent_id=parent_id, folders={**folders, **provider_folders}, source_root_id=root_id, permitted_root_ids=permitted)
+                        if location_breadcrumb:
+                            from app.modules.assets.repository import AssetRegistryRepository
+                            repository = AssetRegistryRepository(session)
+                            for folder_id, folder in provider_folders.items():
+                                repository.upsert_source_asset(
+                                    tenant_id=tenant, external_source_id=source.external_source_id,
+                                    external_asset_id=folder_id, filename=folder["name"],
+                                    mime_type="application/vnd.google-apps.folder",
+                                    source_metadata={"parents": [folder["parent_id"]] if folder["parent_id"] else [], "is_folder": True},
+                                )
+                            session.commit()
+                            location_status = "resolved"
+                            location_unavailable = False
+                            break
+                except httpx.HTTPStatusError as exc:
+                    status_code = exc.response.status_code
+                    reason = "provider_forbidden" if status_code in {401, 403} else "provider_not_found" if status_code == 404 else "provider_error"
+                    logger.warning("Folder breadcrumb %s file_provider_id=%s missing_parent_id=%s external_source_id=%s depth=%s", reason, source.external_asset_id, parent_id, source.external_source_id, depth if "depth" in locals() else 0)
+                except (httpx.HTTPError, ValueError) as exc:
+                    logger.warning("Folder breadcrumb provider_error file_provider_id=%s missing_parent_id=%s external_source_id=%s error=%s", source.external_asset_id, parent_id, source.external_source_id, type(exc).__name__)
+            location_unavailable = True
         sources = [{"source_asset_id": s.id, "external_source_id": s.external_source_id, "external_asset_id": s.external_asset_id, "source_type": e.source_type, "source_key": e.source_key, "display_name": e.display_name, "filename": s.filename, "mime_type": s.mime_type or asset.mime_type, "size_bytes": s.size_bytes, "provider_checksum": s.provider_checksum, "provider_version": s.provider_version, "preview_url": source_preview_url(s, e, asset.mime_type), "web_url": resolve_source_web_url(provider="sharepoint" if e.source_type == "sharepoint" else "google-drive", external_asset_id=s.external_asset_id, source_metadata=s.source_metadata), "deleted": s.deleted_at is not None, "created_at": iso(s.source_created_at), "modified_at": iso(s.source_modified_at)} for s, e in source_rows]
         storage = [{"id": row.id, "provider": row.storage_provider, "status": row.status, "remote_file_id": row.remote_file_id, "remote_folder_id": row.remote_folder_id, "web_url": safe_url(row.web_url), "verified": row.status == "stored" and bool(row.remote_file_id), "attempt_count": row.attempt_count, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "stored_at": iso(row.stored_at)} for row in session.scalars(select(AssetStorageObjectModel).where(AssetStorageObjectModel.tenant_id == tenant, AssetStorageObjectModel.asset_id == asset_id).order_by(AssetStorageObjectModel.updated_at.desc()))]
         base_analysis = select(AssetAiAnalysisModel).where(AssetAiAnalysisModel.tenant_id == tenant, AssetAiAnalysisModel.asset_id == asset_id)
@@ -172,7 +225,7 @@ def details(asset_id: str, analysis_offset: int = Query(0, ge=0), analysis_limit
         pipeline_rows = list(session.scalars(select(AssetPipelineModel).where(AssetPipelineModel.tenant_id == tenant, AssetPipelineModel.asset_id == asset_id).order_by(AssetPipelineModel.updated_at.desc())))
         pipelines = [{"id": row.id, "state": row.state, "origin_type": row.origin_type, "origin_id": row.origin_id, "analysis_id": row.analysis_id, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "failure_retryable": row.failure_retryable, "created_at": iso(row.created_at), "updated_at": iso(row.updated_at), "completed_at": iso(row.completed_at)} for row in pipeline_rows]
         lifecycle = pipeline_rows[0].state if pipeline_rows else ("metadata_ready" if analyses and analyses[0].status == "completed" else "discovered")
-        return {"asset": {"id": asset.id, "content_hash": asset.content_hash, "analysis_image_hash": asset.analysis_image_hash, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "created_at": iso(asset.created_at), "updated_at": iso(asset.updated_at)}, "sources": sources, "storage": storage, "active_analysis": analysis_doc(analyses[0], include_cost) if analyses else None, "analysis_history": [analysis_doc(item, include_cost) for item in analyses], "analysis_total": analysis_total, "jobs": jobs, "job_total": job_total, "pipelines": pipelines, "lifecycle_status": lifecycle, "location_breadcrumb": location_breadcrumb, "location_unavailable": location_unavailable, "can_administer": can_administer, "limits": {"max_json_nodes": MAX_JSON_NODES, "max_json_depth": MAX_JSON_DEPTH}}
+        return {"asset": {"id": asset.id, "content_hash": asset.content_hash, "analysis_image_hash": asset.analysis_image_hash, "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "created_at": iso(asset.created_at), "updated_at": iso(asset.updated_at)}, "sources": sources, "storage": storage, "active_analysis": analysis_doc(analyses[0], include_cost) if analyses else None, "analysis_history": [analysis_doc(item, include_cost) for item in analyses], "analysis_total": analysis_total, "jobs": jobs, "job_total": job_total, "pipelines": pipelines, "lifecycle_status": lifecycle, "location_breadcrumb": location_breadcrumb, "location_status": location_status, "location_unavailable": location_unavailable, "can_administer": can_administer, "limits": {"max_json_nodes": MAX_JSON_NODES, "max_json_depth": MAX_JSON_DEPTH}}
 
 @router.post("/admin/assets/{asset_id}/actions", response_model=AcceptedAssetAction, status_code=202)
 def action(asset_id: str, body: AssetActionRequest, principal: CurrentPrincipal = Depends(require_authenticated_principal)):

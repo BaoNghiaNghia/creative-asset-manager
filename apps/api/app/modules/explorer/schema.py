@@ -31,6 +31,7 @@ class AssetNode(BaseModel):
     ancestor_names: list[str] = Field(default_factory=list)
     location_breadcrumb: list[LocationBreadcrumbNode] = Field(default_factory=list)
     location_unavailable: bool = False
+    location_status: Literal["resolved", "unavailable"] = "unavailable"
 
 
 class FolderListing(BaseModel):

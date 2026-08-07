@@ -38,7 +38,9 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
   async function load(signal?: AbortSignal) {
     if (!assetId) { setData(null); setLoading(false); return; }
     setError(""); setLoading(true);
-    const response = await fetch("/api/v1/assets/" + encodeURIComponent(assetId), { signal });
+    const params = new URLSearchParams();
+    if (item?.external_source_id) params.set("external_source_id", item.external_source_id);
+    const response = await fetch("/api/v1/assets/" + encodeURIComponent(assetId) + (params.toString() ? "?" + params : ""), { signal });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw Error(payload.detail || "Unable to load asset details");
     setData(payload);
@@ -53,7 +55,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
       if (!controller.signal.aborted) { setLoading(false); setError(reason.message); }
     });
     return () => controller.abort();
-  }, [assetId]);
+  }, [assetId, item?.external_source_id]);
 
   async function action(name: string, extra: Record<string, unknown> = {}) {
     if (!assetId) return;
@@ -151,7 +153,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
   const location = resolveLocation(item, source);
   const breadcrumb = data?.location_breadcrumb?.length ? data.location_breadcrumb : itemLocationBreadcrumb(item);
   const displayBreadcrumb = breadcrumb.length ? breadcrumb : (location ? location.split(/\s*[/\\]\s*/).map((name, index) => ({ id: "location-" + index, name })) : []);
-  const locationUnavailable = data?.location_unavailable ?? item?.location_unavailable ?? !displayBreadcrumb.length;
+  const locationUnavailable = data?.location_status ? data.location_status === "unavailable" : (data?.location_unavailable ?? item?.location_unavailable ?? !displayBreadcrumb.length);
   const webUrl = resolveProviderWebUrl(item, source, provider);
   const previewUrl = resolvePreviewUrl(item, source);
   const [previewFailed, setPreviewFailed] = useState(false);

@@ -16,12 +16,12 @@ def resolve_breadcrumb(
     visited: set[str] = set()
     while current and len(chain) < MAX_BREADCRUMB_DEPTH:
         if current in visited:
-            logger.warning("Folder breadcrumb cycle for item_id=%s parent_id=%s", item_id, current)
+            logger.warning("Folder breadcrumb cycle_detected item_id=%s missing_parent_id=%s depth=%s", item_id, current, len(chain))
             return []
         visited.add(current)
         row = folders.get(current)
         if row is None:
-            logger.warning("Folder breadcrumb parent missing item_id=%s parent_id=%s", item_id, current)
+            logger.warning("Folder breadcrumb missing_parent item_id=%s missing_parent_id=%s depth=%s", item_id, current, len(chain))
             return []
         name = str(row.get("name") or "").strip()
         if not name:
@@ -33,7 +33,7 @@ def resolve_breadcrumb(
             break
         current = str(row.get("parent_id") or "")
     else:
-        logger.warning("Folder breadcrumb depth exceeded item_id=%s", item_id)
+        logger.warning("Folder breadcrumb root_not_reached item_id=%s depth=%s", item_id, len(chain))
         return []
     if not chain or (source_root_id and chain[-1]["id"] != source_root_id and not (permitted_root_ids and chain[-1]["id"] in permitted_root_ids)):
         return []

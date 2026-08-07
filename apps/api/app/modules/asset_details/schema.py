@@ -19,6 +19,7 @@ class AssetDetailsResponse(BaseModel):
     sources: list[dict[str, Any]]
     location_breadcrumb: list[dict[str, str]] = Field(default_factory=list)
     location_unavailable: bool = False
+    location_status: Literal["resolved", "unavailable"] = "unavailable"
     storage: list[dict[str, Any]]
     active_analysis: dict[str, Any] | None
     analysis_history: list[dict[str, Any]]

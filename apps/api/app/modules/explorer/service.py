@@ -86,6 +86,7 @@ class ExplorerService:
             )
             item.location_breadcrumb = breadcrumb
             item.location_unavailable = not bool(breadcrumb)
+            item.location_status = "resolved" if breadcrumb else "unavailable"
         return items
 
     @staticmethod
@@ -637,6 +638,7 @@ class ExplorerService:
             if item.ancestor_ids and item.ancestor_names:
                 item.location_breadcrumb = [{"id": folder_id, "name": folder_name} for folder_id, folder_name in zip(item.ancestor_ids, item.ancestor_names)]
                 item.location_unavailable = False
+                item.location_status = "resolved"
         self._assign_media_proxy_urls(
             items,
             provider=body.provider,

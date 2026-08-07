@@ -147,6 +147,14 @@ class GoogleDriveClient:
             await self.copy_file(child.id, copied.id)
         return copied
 
+    async def get_breadcrumb_metadata(self, item_id: str):
+        """Fetch only the provider fields needed to resolve a folder path."""
+        data = await self._get(
+            f"/files/{item_id}",
+            {"fields": "id,name,mimeType,parents,driveId", "supportsAllDrives": "true"},
+        )
+        return map_drive_file(data)
+
     async def get(self, item_id: str):
         data = await self._get(
             f"/files/{item_id}",
