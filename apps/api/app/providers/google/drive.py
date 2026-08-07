@@ -155,6 +155,15 @@ class GoogleDriveClient:
         )
         return map_drive_file(data)
 
+    async def get_image_dimensions(self, item_id: str):
+        data = await self._get(
+            f"/files/{item_id}",
+            {"fields": "id,mimeType,imageMediaMetadata(width,height)", "supportsAllDrives": "true"},
+        )
+        metadata = data.get("imageMediaMetadata") or {}
+        width, height = metadata.get("width"), metadata.get("height")
+        return (int(width), int(height)) if width and height else (None, None)
+
     async def get(self, item_id: str):
         data = await self._get(
             f"/files/{item_id}",

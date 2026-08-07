@@ -33,6 +33,8 @@ export type Asset = {
   location_breadcrumb?: Array<{ id: string; name: string }>;
   location_unavailable?: boolean;
   location_status?: "resolved" | "unavailable";
+  image_width?: number | null;
+  image_height?: number | null;
   score?: number;
   has_children?: boolean;
 };
@@ -129,6 +131,8 @@ export type AssetDetails = {
   location_breadcrumb?: Array<{ id: string; name: string }>;
   location_unavailable?: boolean;
   location_status?: "resolved" | "unavailable";
+  image_width?: number | null;
+  image_height?: number | null;
   can_administer: boolean;
   limits: { max_json_nodes: number; max_json_depth: number };
 };

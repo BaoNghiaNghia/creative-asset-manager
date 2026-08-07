@@ -201,7 +201,8 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
       <dl className="inspector-properties">
         <Info label="Type" value={`${fileTypeLabel(fileType)} · ${mimeType}`} />
         <Info label="Size" value={formatBytes(size)} />
-        <Info className="inspector-location" label="Location" value={locationLoading ? <span className="location-loading" aria-busy="true">Resolving location...</span> : locationStatus === "available" || locationStatus === "unavailable" ? <LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationUnavailable} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} /> : <span aria-hidden="true"> </span>} />
+        <Info className="inspector-location" label="Location" value={locationLoading ? <span className="location-loading" aria-busy="true">Resolving location...</span> : <LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationStatus !== "available"} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} />} />
+        {kind === "image" && <Info label="Resolution" value={formatResolution(data?.image_width ?? item?.image_width, data?.image_height ?? item?.image_height)} />}
         <Info label="Provider" value={provider === "sharepoint" ? "Microsoft SharePoint" : "Google Drive"} />
         <Info label="Modified" value={humanDate(modified)} />
         {created && <Info label="Created" value={humanDate(created)} />}
@@ -235,6 +236,10 @@ function Activity({ entries }: { entries: ActivityEntry[] }) {
 }
 function InspectorEmpty() {
   return <div className="inspector-empty"><span className="info-empty-icon" aria-hidden="true">i</span><b>Select a file or folder</b><span>Its preview, location, metadata and activity will appear here.</span></div>;
+}
+
+function formatResolution(width?: number | null, height?: number | null): string {
+  return width && height ? `${width} \u00d7 ${height} px` : "Resolution unavailable";
 }
 
 function Info({ label, value, className }: { label: string; value: ReactNode; className?: string }) {
