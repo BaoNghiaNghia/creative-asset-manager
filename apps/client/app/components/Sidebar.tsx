@@ -29,7 +29,7 @@ export function mayViewAiOperations(permissions: readonly string[]): boolean {
 }
 
 const sources: Array<{ provider: Provider; label: string; login: string }> = [
-  { provider: "google-drive", label: "Google Drive", login: "/api/auth/google/login" },
+  { provider: "google-drive", label: "Google Drive", login: "/api/auth/google/connect-drive" },
   { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/login" },
 ];
 

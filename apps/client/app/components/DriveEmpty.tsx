@@ -18,7 +18,7 @@ const sources: Array<{
     provider: "google-drive",
     name: "Google Drive",
     description: "Browse My Drive folders, creative files and shared assets.",
-    login: "/api/auth/google/login",
+    login: "/api/auth/google/connect-drive",
   },
   {
     provider: "sharepoint",

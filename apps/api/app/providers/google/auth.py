@@ -23,13 +23,12 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 # Read/write source management is required for Explorer uploads, moves, and deletes.
 DRIVE_WRITE_SCOPE = "https://www.googleapis.com/auth/drive"
-IDENTITY_SCOPES = (
+IDENTITY_SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-)
-GOOGLE_OAUTH_SCOPES = (*IDENTITY_SCOPES, DRIVE_READONLY_SCOPE)
-DRIVE_SCOPES = (*GOOGLE_OAUTH_SCOPES, DRIVE_WRITE_SCOPE)
+]
+DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_READONLY_SCOPE]
 SCOPES = DRIVE_SCOPES
 SESSION_COOKIE = "cam_google_session"
 OAUTH_BINDING_COOKIE = "cam_oauth_binding"
@@ -45,9 +44,9 @@ def _settings():
         raise HTTPException(503,"Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
     return client_id,client_secret,redirect_uri
 
-def oauth_flow(state=None, *, require_drive_scope: bool = True, require_drive_write_scope: bool = False):
+def oauth_flow(state=None, *, require_drive_scope: bool = False):
     client_id,client_secret,redirect_uri=_settings()
-    scopes = DRIVE_SCOPES if require_drive_write_scope else GOOGLE_OAUTH_SCOPES
+    scopes = DRIVE_SCOPES if require_drive_scope else IDENTITY_SCOPES
     flow=Flow.from_client_config({"web":{"client_id":client_id,"client_secret":client_secret,"auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":[redirect_uri]}},scopes=scopes,state=state)
     flow.redirect_uri=redirect_uri
     return flow
@@ -242,7 +241,7 @@ async def get_access_token(request):
             if latest and latest.expires_at>time.time()+60: return latest.access_token
         raise HTTPException(503,"Google token refresh is already in progress.")
     client_id,client_secret,_=_settings()
-    credentials=Credentials(token=cloud.access_token,refresh_token=cloud.refresh_token,token_uri="https://oauth2.googleapis.com/token",client_id=client_id,client_secret=client_secret,scopes=list(cloud.scopes) or list(GOOGLE_OAUTH_SCOPES))
+    credentials=Credentials(token=cloud.access_token,refresh_token=cloud.refresh_token,token_uri="https://oauth2.googleapis.com/token",client_id=client_id,client_secret=client_secret,scopes=list(cloud.scopes) or list(IDENTITY_SCOPES))
     try:
         await run_in_threadpool(credentials.refresh,GoogleAuthRequest())
         expiry=credentials.expiry or datetime.now(timezone.utc)
