@@ -7,10 +7,11 @@ type Props = {
   onClose: () => void;
 };
 
-export function mediaPreviewUrl(item: Pick<Asset, "id" | "provider" | "external_source_id">): string {
+export function mediaPreviewUrl(item: Pick<Asset, "id" | "provider" | "external_source_id"> & Partial<Pick<Asset, "name" | "mime_type">>): string {
   const parameters = new URLSearchParams({ provider: item.provider });
   if (item.external_source_id) parameters.set("external_source_id", item.external_source_id);
-  return "/api/explorer/media/" + encodeURIComponent(item.id) + "?" + parameters.toString();
+  const endpoint = isAvifAsset(item) ? "preview" : "media";
+  return "/api/explorer/" + endpoint + "/" + encodeURIComponent(item.id) + "?" + parameters.toString();
 }
 
 export function previewUnavailableMessage(mimeType: string): string {

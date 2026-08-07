@@ -141,6 +141,7 @@ class Settings(BaseSettings):
     OPENAI_BATCH_INPUT_RETENTION_HOURS: int = 24
     OPENAI_BATCH_OUTPUT_RETENTION_HOURS: int = 24
     AI_ANALYSIS_MAX_SOURCE_BYTES: int = 25_000_000
+    AVIF_PREVIEW_MAX_INPUT_BYTES: int = 25_000_000
     AI_ANALYSIS_MAX_OUTPUT_BYTES: int = 8_000_000
     AI_ANALYSIS_MAX_WIDTH: int = 4096
     AI_ANALYSIS_MAX_HEIGHT: int = 4096
@@ -762,6 +763,7 @@ class Settings(BaseSettings):
             raise ValueError("AI_ANALYSIS_LEASE_SECONDS must be positive")
         if min(
             self.AI_ANALYSIS_MAX_SOURCE_BYTES,
+            self.AVIF_PREVIEW_MAX_INPUT_BYTES,
             self.AI_ANALYSIS_MAX_OUTPUT_BYTES,
             self.AI_ANALYSIS_MAX_WIDTH,
             self.AI_ANALYSIS_MAX_HEIGHT,

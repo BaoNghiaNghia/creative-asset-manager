@@ -73,16 +73,14 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
   const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
   const [inViewport, setInViewport] = useState(false);
   const [grantedThumbnailUrl, setGrantedThumbnailUrl] = useState<string | null>(null);
-  const [useMediaFallback, setUseMediaFallback] = useState(false);
   const previewRef = useRef<HTMLSpanElement>(null);
   const queueTicket = useRef<ThumbnailQueueTicket | null>(null);
   const avif = isAvifAsset(item);
   const query = new URLSearchParams({ provider: item.provider });
   if (item.external_source_id) query.set("external_source_id", item.external_source_id);
-  const mediaUrl = "/api/explorer/media/" + encodeURIComponent(item.id) + "?" + query.toString();
-  const thumbnailSourceUrl = item.thumbnail_url
-    || (avif ? "/api/explorer/thumbnail/" + encodeURIComponent(item.id) + "?" + query.toString() : null);
-  const previewUrl = useMediaFallback ? mediaUrl : thumbnailSourceUrl;
+  const mediaUrl = "/api/explorer/preview/" + encodeURIComponent(item.id) + "?" + query.toString();
+  const thumbnailSourceUrl = avif ? mediaUrl : item.thumbnail_url;
+  const previewUrl = thumbnailSourceUrl;
   const canShowThumbnail = (item.kind === "image" || item.kind === "video")
     && Boolean(thumbnailSourceUrl)
     && !thumbnailFailed;
@@ -91,7 +89,6 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
     setThumbnailFailed(false);
     setThumbnailLoaded(false);
     setGrantedThumbnailUrl(null);
-    setUseMediaFallback(false);
   }, [item.id, item.thumbnail_url]);
 
   useEffect(() => {
@@ -150,12 +147,6 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
       }}
       onError={() => {
         finishThumbnail();
-        if (avif && !useMediaFallback) {
-          setThumbnailLoaded(false);
-          setUseMediaFallback(true);
-          setGrantedThumbnailUrl(mediaUrl);
-          return;
-        }
         setThumbnailFailed(true);
       }}
     />}

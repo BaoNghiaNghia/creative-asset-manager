@@ -5,7 +5,7 @@ import logging
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -26,6 +26,7 @@ from app.modules.explorer.schema import (
 )
 from app.modules.explorer.service import ExplorerService
 from app.modules.explorer.media_types import infer_media_type
+from app.modules.explorer.preview import PreviewConversionError, convert_avif_to_webp, preview_cache_get, preview_cache_put
 from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.authorization.folder_scope import (
@@ -707,6 +708,98 @@ async def thumbnail(
         raise
     except (httpx.HTTPError, PermissionError, ValueError) as exc:
         raise _provider_error(exc, "Unable to stream google-drive thumbnail") from exc
+
+
+@router.get("/preview/{item_id}")
+async def preview(
+    request: Request,
+    item_id: str,
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
+):
+    token, tenant_id, resolved_source_id = await _authorized_file_context(
+        request, item_id, provider, session, principal, external_source_id
+    )
+    source_row = session.execute(
+        select(SourceAssetModel.filename, SourceAssetModel.mime_type).where(
+            SourceAssetModel.tenant_id == tenant_id,
+            SourceAssetModel.external_source_id == resolved_source_id,
+            SourceAssetModel.external_asset_id == item_id,
+            SourceAssetModel.deleted_at.is_(None),
+        )
+    ).first()
+    filename, declared_mime = source_row if source_row else (None, None)
+    if infer_media_type(filename, declared_mime) != "image/avif":
+        raise HTTPException(status_code=415, detail={
+            "code": "preview_unsupported_media",
+            "message": "The preview endpoint only converts AVIF images.",
+            "retryable": False,
+        })
+
+    settings = get_settings()
+    shared_client = getattr(request.app.state, "google_drive_stream_client", None)
+    client = None
+    upstream = None
+    close_client = True
+    try:
+        if provider == "sharepoint":
+            client, upstream = await open_sharepoint_media(token, item_id, None)
+        else:
+            client, upstream = await open_google_media(
+                token, item_id, None, http_client=shared_client,
+            )
+            close_client = client is not shared_client
+        declared_size = upstream.headers.get("content-length")
+        if declared_size and int(declared_size) > settings.AVIF_PREVIEW_MAX_INPUT_BYTES:
+            raise HTTPException(status_code=413, detail={
+                "code": "avif_preview_input_too_large",
+                "message": "The AVIF image exceeds the preview size limit.",
+                "retryable": False,
+            })
+        etag = upstream.headers.get("etag") or ""
+        modified = upstream.headers.get("last-modified") or ""
+        cache_key = (str(tenant_id), str(resolved_source_id), item_id, etag + "|" + modified)
+        cached = preview_cache_get(cache_key)
+        if cached is None:
+            content = bytearray()
+            async for chunk in upstream.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > settings.AVIF_PREVIEW_MAX_INPUT_BYTES:
+                    raise HTTPException(status_code=413, detail={
+                        "code": "avif_preview_input_too_large",
+                        "message": "The AVIF image exceeds the preview size limit.",
+                        "retryable": False,
+                    })
+            try:
+                cached = await asyncio.to_thread(convert_avif_to_webp, bytes(content))
+            except PreviewConversionError as exc:
+                raise HTTPException(status_code=422, detail={
+                    "code": "avif_preview_conversion_failed",
+                    "message": str(exc),
+                    "retryable": False,
+                }) from exc
+            preview_cache_put(cache_key, cached)
+        return Response(
+            content=cached,
+            media_type="image/webp",
+            headers={
+                "content-disposition": "inline",
+                "cache-control": "private, max-age=3600",
+                "x-content-type-options": "nosniff",
+            },
+        )
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, PermissionError, ValueError) as exc:
+        raise _provider_error(exc, "Unable to download AVIF preview source") from exc
+    finally:
+        if client is not None and upstream is not None:
+            if provider == "sharepoint":
+                await close_sharepoint_media(client, upstream)
+            else:
+                await close_google_media(client, upstream, close_client)
 
 
 @router.get("/media/{item_id}")

@@ -37,7 +37,7 @@ describe("Asset details inspector", () => {
   it("previews AVIF files when the provider reports octet-stream", () => {
     const avif = { ...item, name: "photo.avif", mime_type: "application/octet-stream", thumbnail_url: "/api/explorer/media/avif-1?provider=google-drive" };
     const markup = renderToStaticMarkup(<AssetDetailsPanel item={avif} metadata={metadata} onClose={noop} onPreview={noop} />);
-    expect(markup).toContain('<img src="/api/explorer/media/avif-1?provider=google-drive"');
+    expect(markup).toContain('<img src="/api/explorer/preview/drive-image-1?provider=google-drive"');
     expect(markup).toContain("image/avif");
   });
 

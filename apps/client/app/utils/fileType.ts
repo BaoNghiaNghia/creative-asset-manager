@@ -67,7 +67,7 @@ export function fileTypeTone(type: FileType): string {
 }
 
 
-export function isAvifAsset(asset: Pick<Asset, "mime_type" | "name">): boolean {
-  return asset.mime_type?.split(";", 1)[0].trim().toLowerCase() === "image/avif"
-    || /\.avif$/i.test(asset.name);
+export function isAvifAsset(asset: Partial<Pick<Asset, "mime_type" | "name">>): boolean {
+  return (asset.mime_type || "").split(";", 1)[0].trim().toLowerCase() === "image/avif"
+    || /\.avif$/i.test(asset.name || "");
 }

@@ -4,7 +4,7 @@ import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
 import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { SafeJsonTree } from "./SafeJsonTree";
-import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType } from "../utils/fileType";
+import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
 
 type Props = {
   item: Asset | null;
@@ -274,6 +274,11 @@ function sourcePath(source: Record<string, unknown>): string | undefined {
 }
 
 export function resolvePreviewUrl(item: Asset | null, source: Record<string, unknown>): string | undefined {
+  if (item && isAvifAsset(item)) {
+    const params = new URLSearchParams({ provider: item.provider });
+    if (item.external_source_id) params.set("external_source_id", item.external_source_id);
+    return "/api/explorer/preview/" + encodeURIComponent(item.id) + "?" + params.toString();
+  }
   return item?.thumbnail_url || stringValue(source.preview_url);
 }
 
