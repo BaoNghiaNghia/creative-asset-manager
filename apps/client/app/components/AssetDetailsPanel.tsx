@@ -6,6 +6,7 @@ import { AssetStatusBadge } from "./AssetStatusBadge";
 import { SafeJsonTree } from "./SafeJsonTree";
 import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
 import { assetPreviewUrl } from "../utils/mediaUrls";
+import googleDriveLogoUrl from "../../assets/logos/google-drive-logo.svg";
 
 type Props = {
   item: Asset | null;
@@ -158,7 +159,13 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
         <img src={previewUrl} alt={`Preview of ${previewName}`} referrerPolicy="no-referrer" onError={() => setPreviewFailed(true)} />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
       </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}
-      {item && onPreview && (kind === "image" || kind === "video") && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
+      <div className="inspector-preview-actions">
+        {item && onPreview && (kind === "image" || kind === "video") && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
+        {webUrl && <a className={"open-provider-link" + (provider === "google-drive" ? " open-provider-link--drive" : "")} href={webUrl} target="_blank" rel="noopener noreferrer">
+          {provider === "google-drive" && <img src={googleDriveLogoUrl} alt="" aria-hidden="true" />}
+          <span>Open in {provider === "sharepoint" ? "SharePoint" : "Google Drive"}</span>
+        </a>}
+      </div>
     </div>
 
     <section className="inspector-section" aria-labelledby="file-properties-heading">
@@ -171,7 +178,6 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview }: { item: 
         <Info label="Modified" value={humanDate(modified)} />
         {created && <Info label="Created" value={humanDate(created)} />}
       </dl>
-      {webUrl && <a className="open-provider-link" href={webUrl} target="_blank" rel="noopener noreferrer">Open in {provider === "sharepoint" ? "SharePoint" : "Google Drive"}</a>}
     </section>
 
     <section className="inspector-section" aria-labelledby="asset-state-heading">

@@ -926,6 +926,13 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .inspector-preview>img{display:block;width:100%;object-fit:contain;background:#f1f3f6}
 .inspector-preview>button{position:absolute;right:10px;bottom:10px;padding:7px 11px;border:1px solid #cad4e2;border-radius:8px;background:#fffffff2;color:#254e9f;cursor:pointer;font-size:11px;font-weight:750;box-shadow:0 3px 12px #1821331c}
 .inspector-preview>button:hover{background:#fff;border-color:#9db4df}
+.inspector-preview-actions{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.inspector-preview-actions>button{padding:7px 11px;border:1px solid #cad4e2;border-radius:8px;background:#fffffff2;color:#254e9f;cursor:pointer;font-size:11px;font-weight:750;box-shadow:0 3px 12px #1821331c}
+.inspector-preview-actions>button:hover{background:#fff;border-color:#9db4df}
+.inspector-preview-actions .open-provider-link{margin:0;background:#fffffff2}
+.inspector-preview-actions .open-provider-link:hover{background:#fff}
+.open-provider-link--drive{display:inline-flex;align-items:center;gap:6px}
+.open-provider-link--drive img{display:block;width:16px;height:16px;object-fit:contain}
 .inspector-play{position:absolute;display:grid;width:48px;height:48px;place-items:center;padding-left:3px;border:2px solid #ffffffdd;border-radius:50%;background:#172033b8;color:#fff;font-size:19px;box-shadow:0 4px 18px #1018284d}
 .inspector-section{padding:22px 0;border-bottom:1px solid #e8ecf1}
 .inspector-section:last-child{border-bottom:0}
