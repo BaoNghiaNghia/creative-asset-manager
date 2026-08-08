@@ -28,7 +28,7 @@ IDENTITY_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
-DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_READONLY_SCOPE]
+DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_WRITE_SCOPE]
 SCOPES = DRIVE_SCOPES
 SESSION_COOKIE = "cam_google_session"
 OAUTH_BINDING_COOKIE = "cam_oauth_binding"
@@ -71,14 +71,28 @@ def consume_state_details(state, session_binding=None) -> tuple[str | None, str]
     except LookupError as exc:
         raise HTTPException(400,"Invalid or expired OAuth state.") from exc
 
-def validate_granted_scopes(credentials):
-    granted=set(credentials.granted_scopes or credentials.scopes or [])
-    if not ({DRIVE_READONLY_SCOPE, DRIVE_WRITE_SCOPE} & granted):
-        raise PermissionError("Google Drive read permission was not granted. Reconnect Google Drive and approve access.")
+def _credential_scopes(credentials: Any) -> tuple[str, ...]:
+    values = getattr(credentials, "granted_scopes", None) or getattr(credentials, "scopes", None) or ()
+    if isinstance(values, str):
+        values = (values,)
+    return tuple(str(scope) for scope in values if scope)
+
+
+def validate_granted_scopes(credentials, *, require_write: bool = True) -> None:
+    granted = set(_credential_scopes(credentials))
+    if require_write:
+        if DRIVE_WRITE_SCOPE not in granted:
+            raise PermissionError(
+                "Google Drive write permission was not granted. Reconnect Google Drive and approve read/write access."
+            )
+    elif not ({DRIVE_READONLY_SCOPE, DRIVE_WRITE_SCOPE} & granted):
+        raise PermissionError(
+            "Google Drive read permission was not granted. Reconnect Google Drive and approve access."
+        )
 
 async def create_session(credentials, *, require_drive_scope: bool = True, connection_tenant_id: str | None = None):
     if require_drive_scope:
-        validate_granted_scopes(credentials)
+        validate_granted_scopes(credentials, require_write=True)
     async with httpx.AsyncClient(timeout=15) as client:
         response=await client.get("https://openidconnect.googleapis.com/v1/userinfo",headers={"Authorization":f"Bearer {credentials.token}"})
         response.raise_for_status(); profile=response.json()
@@ -241,13 +255,18 @@ async def get_access_token(request):
             if latest and latest.expires_at>time.time()+60: return latest.access_token
         raise HTTPException(503,"Google token refresh is already in progress.")
     client_id,client_secret,_=_settings()
-    credentials=Credentials(token=cloud.access_token,refresh_token=cloud.refresh_token,token_uri="https://oauth2.googleapis.com/token",client_id=client_id,client_secret=client_secret,scopes=list(cloud.scopes) or list(IDENTITY_SCOPES))
+    with auth_repository() as repository:
+        persisted_connection = repository.load_connection(
+            provider="google", connection_id=cloud.connection_id
+        )
+    persisted_scopes = tuple(getattr(persisted_connection, "scopes", ()) or ())
+    credentials=Credentials(token=cloud.access_token,refresh_token=cloud.refresh_token,token_uri="https://oauth2.googleapis.com/token",client_id=client_id,client_secret=client_secret,scopes=list(persisted_scopes or DRIVE_SCOPES))
     try:
         await run_in_threadpool(credentials.refresh,GoogleAuthRequest())
         expiry=credentials.expiry or datetime.now(timezone.utc)
         if expiry.tzinfo is None: expiry=expiry.replace(tzinfo=timezone.utc)
         with auth_repository() as repository:
-            repository.finish_refresh(tenant_id=cloud.tenant_id,connection_id=cloud.connection_id,owner=owner,access_token=credentials.token,refresh_token=credentials.refresh_token,expires_at=expiry,scopes=list(credentials.granted_scopes or credentials.scopes or SCOPES),token_type="Bearer")
+            repository.finish_refresh(tenant_id=cloud.tenant_id,connection_id=cloud.connection_id,owner=owner,access_token=credentials.token,refresh_token=credentials.refresh_token,expires_at=expiry,scopes=list(_credential_scopes(credentials) or persisted_scopes or DRIVE_SCOPES),token_type="Bearer")
         AUTH_METRICS.increment("connection_refreshed","google")
         return credentials.token
     except Exception as exc:

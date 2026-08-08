@@ -18,6 +18,7 @@ from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.login import LoginAdmissionError
 from app.providers.google.auth import (
     DRIVE_READONLY_SCOPE,
+    DRIVE_WRITE_SCOPE,
     SESSION_COOKIE,
     OAUTH_BINDING_COOKIE,
     consume_state_details,
@@ -188,7 +189,8 @@ async def callback(
 async def session(request: Request):
     google_session = get_session(request)
     result = {"authenticated": google_session is not None, "user": google_session.user if google_session else None, "drive_connected": False, "drive_usable": False, "external_source_id": None, "connection_status": None, "reconnect_required": False}
-    if not google_session or not google_session.active_tenant_id:
+    active_tenant_id = getattr(google_session, "active_tenant_id", None) if google_session else None
+    if not active_tenant_id:
         return result
     with SessionLocal() as db:
         is_default_text = func.lower(
@@ -204,7 +206,7 @@ async def session(request: Request):
         source = db.scalar(
             select(ExternalSourceModel)
             .where(
-                ExternalSourceModel.tenant_id == google_session.active_tenant_id,
+                ExternalSourceModel.tenant_id == active_tenant_id,
                 ExternalSourceModel.source_type == "google_drive",
             )
             .order_by(
@@ -219,11 +221,15 @@ async def session(request: Request):
             result["external_source_id"] = source.id
             metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
             connection_id = metadata.get("oauth_connection_id")
-            connection = db.scalar(select(OAuthConnectionModel).where(OAuthConnectionModel.id == connection_id, OAuthConnectionModel.tenant_id == google_session.active_tenant_id)) if connection_id else None
+            connection = db.scalar(select(OAuthConnectionModel).where(OAuthConnectionModel.id == connection_id, OAuthConnectionModel.tenant_id == active_tenant_id)) if connection_id else None
             result["drive_connected"] = connection is not None
             result["connection_status"] = connection.status if connection else "missing"
             result["reconnect_required"] = result["connection_status"] != "active"
-            result["drive_usable"] = bool(connection and connection.status == "active" and DRIVE_READONLY_SCOPE in set(connection.scopes_json or ()))
+            result["drive_usable"] = bool(
+                connection
+                and connection.status == "active"
+                and ({DRIVE_READONLY_SCOPE, DRIVE_WRITE_SCOPE} & set(connection.scopes_json or ()))
+            )
     return result
 
 

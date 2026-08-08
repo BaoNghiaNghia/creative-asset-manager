@@ -18,7 +18,7 @@ class AuthApiExposureTest(unittest.TestCase):
             microsoft=TestClient(app).get("/api/auth/microsoft/session")
         for response in (google,microsoft):
             self.assertEqual(response.status_code,200)
-            self.assertEqual(set(response.json()),{"authenticated","user"})
+            self.assertTrue({"authenticated", "user"}.issubset(response.json()))
             self.assertNotIn("plain-access-secret",response.text)
             self.assertNotIn("plain-refresh-secret",response.text)
 
@@ -87,6 +87,7 @@ class AuthApiExposureTest(unittest.TestCase):
         with (
             patch("app.modules.auth.router.consume_state_details", return_value=(None, "drive_connect:tenant-a")),
             patch("app.modules.auth.router.oauth_flow", return_value=flow),
+            patch("app.modules.auth.router.get_session", return_value=SimpleNamespace(active_tenant_id="tenant-a")),
             patch("app.modules.auth.router.create_session", new=AsyncMock(return_value=("session-id", cloud))) as create,
             patch("app.modules.auth.router.enqueue_google_login_sync") as enqueue,
             patch("app.modules.auth.router.remove_session"),

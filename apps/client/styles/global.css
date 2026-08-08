@@ -1045,7 +1045,9 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 @keyframes upload-spin{to{transform:rotate(360deg)}}@keyframes upload-check-pop{0%{opacity:0;transform:scale(.5)}70%{transform:scale(1.15)}100%{opacity:1;transform:scale(1)}}
 .location-breadcrumb{display:inline;max-width:100%;overflow-wrap:anywhere;line-height:1.5}.location-breadcrumb-node{display:inline}.location-breadcrumb-separator{padding:0 5px;color:#8a96a8}.location-breadcrumb button{padding:0;border:0;background:transparent;color:#263447;font:inherit;text-align:left;text-decoration:underline;text-decoration-color:#d6deea;text-underline-offset:2px;cursor:pointer}.location-breadcrumb button:hover{color:#2458bd;text-decoration-color:#9fb7df}.location-unavailable{color:#8a95a5;font-style:italic}
 
-/* Search guide refresh: the input owns the flexible width and the guide is content-sized. */
+/* Explorer header: keep the query field readable without letting it consume the account area. */
+.explorer-content>header{gap:18px}
+.explorer-content>header .search-area{flex:0 1 50%;max-width:50%;min-width:0}
 .search-tools{display:flex;align-items:center;min-width:0;width:100%;gap:10px}
 .search-tools>.search-box{flex:1 1 auto;min-width:0;width:auto;max-width:none}
 .search-tools .search-guide{flex:0 0 auto;z-index:21}
@@ -1055,8 +1057,20 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .search-guide-examples{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
 .search-guide-examples li{min-height:0;padding:7px 8px}
 .search-guide-api-examples{margin-top:10px;padding-top:9px}
-@media(max-width:1024px){.search-tools .search-guide{display:none}.search-tools>.search-box{width:100%;flex-basis:100%}}
-@media(max-width:700px){.search-tools{gap:7px}.search-tools>.search-box{width:100%;flex-basis:100%}.search-guide-content{width:min(520px,calc(100vw - 24px));max-height:calc(100vh - 20px)}.search-guide-examples{grid-template-columns:1fr}}
+@media(max-width:1024px){
+  .explorer-content>header .search-area{flex:1 1 auto;max-width:none}
+  .search-tools .search-guide{display:none}
+  .search-tools>.search-box{width:100%;flex-basis:100%}
+  .explorer-content>header .account>label,
+  .explorer-content>header .account>button{display:none}
+}
+@media(max-width:700px){
+  .explorer-content>header{gap:10px;padding-inline:16px}
+  .search-tools{gap:7px}
+  .search-tools>.search-box{width:100%;flex-basis:100%}
+  .search-guide-content{width:min(520px,calc(100vw - 24px));max-height:calc(100vh - 20px)}
+  .search-guide-examples{grid-template-columns:1fr}
+}
 
 .location-loading{display:inline-flex;min-width:140px;height:12px;border-radius:5px;background:linear-gradient(90deg,#eef2f7,#f8fafc,#eef2f7);background-size:200% 100%;animation:location-loading-shimmer 1.2s ease-in-out infinite;color:transparent}@keyframes location-loading-shimmer{to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.location-loading{animation:none}}
 

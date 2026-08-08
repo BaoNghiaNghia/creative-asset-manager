@@ -1,6 +1,6 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
@@ -8,6 +8,7 @@ from app.providers.google.auth import (
     DRIVE_READONLY_SCOPE,
     DRIVE_WRITE_SCOPE,
     IDENTITY_SCOPES,
+    get_access_token,
     get_connection_access_token,
     oauth_flow,
 )
@@ -43,6 +44,45 @@ class GoogleOAuthConnectionScopeTest(unittest.IsolatedAsyncioTestCase):
                     require_drive_write_scope=True,
                 )
         self.assertEqual(raised.exception.status_code, 403)
+
+
+    async def test_expired_session_refresh_uses_persisted_connection_scopes(self):
+        expired_session = SimpleNamespace(
+            tenant_id="tenant-id",
+            connection_id="connection-id",
+            access_token="expired",
+            refresh_token="refresh",
+            expires_at=0,
+        )
+        persisted_connection = SimpleNamespace(scopes=(DRIVE_WRITE_SCOPE,))
+        refreshed_credentials = SimpleNamespace(
+            token="fresh",
+            refresh_token="rotated",
+            expiry=None,
+            granted_scopes=None,
+            scopes=(DRIVE_WRITE_SCOPE,),
+            refresh=lambda *_args: None,
+        )
+        repository = MagicMock()
+        repository.claim_refresh.return_value = True
+        repository.load_connection.return_value = persisted_connection
+        context = MagicMock()
+        context.__enter__.return_value = repository
+        with (
+            patch("app.providers.google.auth.get_session_by_id", return_value=expired_session),
+            patch("app.providers.google.auth.get_settings", return_value=SimpleNamespace(AUTH_REFRESH_LEASE_SECONDS=60)),
+            patch("app.providers.google.auth._settings", return_value=("id", "secret", "https://example.test/callback")),
+            patch("app.providers.google.auth.auth_repository", return_value=context),
+            patch("app.providers.google.auth.Credentials", return_value=refreshed_credentials) as credentials,
+            patch("app.providers.google.auth.run_in_threadpool", new=AsyncMock()),
+        ):
+            token = await get_access_token(SimpleNamespace(cookies={"cam_google_session": "session-id"}))
+
+        self.assertEqual(token, "fresh")
+        self.assertEqual(credentials.call_args.kwargs["scopes"], [DRIVE_WRITE_SCOPE])
+        self.assertEqual(repository.finish_refresh.call_args.kwargs["scopes"], [DRIVE_WRITE_SCOPE])
+        self.assertEqual(credentials.call_args.kwargs["token_uri"], "https://oauth2.googleapis.com/token")
+        self.assertNotIn("[https://", credentials.call_args.kwargs["token_uri"])
 
     async def test_refresh_waiter_reuses_token_refreshed_by_another_request(self):
         expired = SimpleNamespace(
