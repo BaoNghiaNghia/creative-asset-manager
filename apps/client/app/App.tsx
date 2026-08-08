@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
+import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchGuide, SearchControls } from "./components/SearchControls";
@@ -10,6 +11,7 @@ import { MediaViewer } from "./components/MediaViewer";
 import { Sidebar } from "./components/Sidebar";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
+import { explorerAssetUrl } from "./utils/mediaUrls";
 import type { Asset, SearchSuggestion } from "./types";
 
 const visibilityFilters = ["all", "public", "draft"] as const;
@@ -17,6 +19,11 @@ const visibilityFilters = ["all", "public", "draft"] as const;
 type ExplorerClipboard = {
   items: Asset[];
   operation: "copy" | "cut";
+};
+
+type AssetContextState = {
+  item: Asset;
+  position: AssetContextMenuPosition;
 };
 
 type ShortcutNotice = {
@@ -132,6 +139,7 @@ export default function App() {
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
+  const [assetContextMenu, setAssetContextMenu] = useState<AssetContextState | null>(null);
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragDepthRef = useRef(0);
@@ -308,6 +316,61 @@ export default function App() {
     setIsDraggingFiles(false);
     const files = Array.from(event.dataTransfer.files);
     if (files.length && explorer.auth.authenticated) void explorer.uploadFiles(files);
+  }
+
+
+  function contextAncestors(item: Asset): Asset[] {
+    if (!item.ancestor_ids?.length || item.ancestor_ids.length !== item.ancestor_names?.length) {
+      return explorer.path;
+    }
+    return item.ancestor_ids.map((id, index) => ({
+      provider: item.provider,
+      id,
+      name: item.ancestor_names?.[index] || "Folder",
+      kind: "folder",
+      mime_type: "application/vnd.google-apps.folder",
+      external_source_id: item.external_source_id,
+    }));
+  }
+
+  function openContextItem(item: Asset) {
+    if (item.kind === "folder") {
+      void explorer.open(item.id, contextAncestors(item));
+      return;
+    }
+    if (item.kind === "image" || item.kind === "video") setPreviewItem(item);
+    else openDetails(item);
+  }
+
+  function copyContextItem(item: Asset) {
+    setClipboard({ items: [item], operation: "copy" });
+    setShortcutNotice({ tone: "copy", message: "Copied 1 item. Open a destination folder and press Ctrl+V." });
+  }
+
+  function moveContextItem(item: Asset) {
+    const destination = window.prompt("Enter destination folder ID");
+    if (!destination) return;
+    setConfirm({
+      message: "Move this item to the selected folder?",
+      run: () => {
+        setConfirm(null);
+        void explorer.moveItem(item.id, destination)
+          .then(() => setShortcutNotice({ tone: "success", message: "Item moved successfully." }))
+          .catch(() => setShortcutNotice({ tone: "error", message: "Could not move this item." }));
+      },
+    });
+  }
+
+  function deleteContextItem(item: Asset) {
+    setConfirm({
+      message: "Move this item to Google Drive trash?",
+      run: () => {
+        setConfirm(null);
+        void explorer.deleteItem(item.id)
+          .then(() => setShortcutNotice({ tone: "success", message: "Item moved to trash." }))
+          .catch(() => setShortcutNotice({ tone: "error", message: "Could not move this item to trash." }));
+      },
+    });
   }
 
   return <main
@@ -588,6 +651,7 @@ export default function App() {
             onRate={explorer.rateAsset}
             onDetails={openDetails}
             onFocus={item => detailsOpen && openDetails(item)}
+            onContextMenu={(item, event) => { event.preventDefault(); setAssetContextMenu({ item, position: { x: event.clientX, y: event.clientY } }); }}
           />}
 
           {explorer.searchV3.active && <LoadMoreSentinel
@@ -658,6 +722,22 @@ export default function App() {
         </>}
     </section>
 
+    {assetContextMenu && <AssetContextMenu
+      item={assetContextMenu.item}
+      position={assetContextMenu.position}
+      onOpen={() => openContextItem(assetContextMenu.item)}
+      onDownload={() => {
+        const link = document.createElement("a");
+        link.href = explorerAssetUrl(assetContextMenu.item, "media");
+        link.download = assetContextMenu.item.name;
+        link.click();
+      }}
+      onCopy={() => copyContextItem(assetContextMenu.item)}
+      onMove={() => moveContextItem(assetContextMenu.item)}
+      onDetails={() => openDetails(assetContextMenu.item)}
+      onDelete={() => deleteContextItem(assetContextMenu.item)}
+      onClose={() => setAssetContextMenu(null)}
+    />}
     {previewItem && <MediaViewer item={previewItem} onClose={() => setPreviewItem(null)} />}
     {detailsOpen && explorer.auth.authenticated && <AssetDetailsPanel
       item={detailsItem}

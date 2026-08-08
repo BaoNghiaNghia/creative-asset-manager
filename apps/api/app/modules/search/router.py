@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 SEARCH_READ = require_permission("search.read")
 EXAMPLES = ["cat", "cat mama", "cat, est, 2015", "\"est 2015\"", "cat OR dog", "subject:cat", "text:\"mama\""]
 
+
+
+def enabled(*_args, **_kwargs) -> bool:
+    """Compatibility hook; Search V3 is the only runtime generation."""
+    return True
 def search_config(session, tenant):
     profiles = list(session.scalars(select(MetadataProfileModel).where(MetadataProfileModel.tenant_id == tenant, MetadataProfileModel.active.is_(True))))
     facets, aliases, boosts = set(), {}, {}
@@ -116,7 +121,7 @@ def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
     }
 
 
-def _source_provider_filter(session, tenant: str, source_provider: str | None, *, external_source_id: str | None = None) -> dict | None:
+def _source_provider_filter(session, tenant: str, source_provider: str | None, *, external_source_id: str | None = None, generation: str | None = None) -> dict | None:
     if not source_provider and not external_source_id:
         return None
     source_type = "google_drive" if source_provider == "google-drive" else "sharepoint" if source_provider == "sharepoint" else None
@@ -137,6 +142,8 @@ def _source_provider_filter(session, tenant: str, source_provider: str | None, *
 def _viewer_scope_filter(
     session,
     principal: CurrentPrincipal,
+    *,
+    generation: str | None = None,
 ) -> tuple[dict | None, tuple[tuple[str, tuple[str, ...]], ...] | None]:
     if not is_pure_viewer(principal) or not principal.membership_id:
         return ({"match_none": {}}, ()) if is_pure_viewer(principal) else (None, None)

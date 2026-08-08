@@ -86,7 +86,21 @@ export function Sidebar({
             {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}
-          {active && session.authenticated && source.provider === "google-drive" && applicationAuthenticated && <button className="source-reconnect" onClick={() => window.location.assign("/api/auth/google/connect-drive")}>Switch Google account</button>}
+          {active && session.authenticated && source.provider === "google-drive" && applicationAuthenticated && <button
+            className="source-reconnect"
+            type="button"
+            onClick={() => window.location.assign("/api/auth/google/connect-drive")}
+            aria-label="Switch Google account"
+          >
+            <span className="source-reconnect-icon"><DriveIcon /></span>
+            <span className="source-reconnect-copy">
+              <strong>Switch Google account</strong>
+              <small>Connect a different Drive account</small>
+            </span>
+            <svg className="source-reconnect-arrow" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 7h10l-2.5-2.5M17 7l-2.5 2.5M17 17H7l2.5 2.5M7 17l2.5-2.5" />
+            </svg>
+          </button>}
           {active && session.authenticated && <div className="tree">
             {rootFolders.map(folder => <DriveTreeNode
               key={folder.id} node={folder} ancestors={rootAncestors} activeId={activeId}

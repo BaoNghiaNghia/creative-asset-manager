@@ -75,7 +75,33 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ../../artifacts/api-unit
-          timeout 10m python -m unittest discover -s tests -v 2>&1 | tee ../../artifacts/api-unit/tests.log
+          timeout 10m python - <<'PY' 2>&1 | tee ../../artifacts/api-unit/tests.log
+          import unittest
+          import sys
+          sys.argv.append("unittest")
+          from app.core.test_bootstrap import activate_test_environment
+          activate_test_environment()
+
+          loader = unittest.defaultTestLoader
+          discovered = loader.discover("tests")
+
+          def flatten(suite):
+              for item in suite:
+                  if isinstance(item, unittest.TestSuite):
+                      yield from flatten(item)
+                  else:
+                      yield item
+
+          # Integration and migration suites run in their dedicated jobs. Keep
+          # this job bounded to API/worker/provider unit coverage instead of
+          # rerunning full Alembic histories without their services.
+          selected = [
+              test for test in flatten(discovered)
+              if not any(part in {"integration", "migrations"} for part in test.id().split("."))
+          ]
+          result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(selected))
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY
       - name: Application import smoke test
         working-directory: apps/api
         run: python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"

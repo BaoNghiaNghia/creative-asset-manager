@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
@@ -210,6 +210,7 @@ type Props = {
   onRate: (item: Asset, rating: number | null) => void;
   onDetails: (item: Asset) => void;
   onFocus: (item: Asset) => void;
+  onContextMenu: (item: Asset, event: MouseEvent<HTMLElement>) => void;
 };
 
 export function AssetGrid({
@@ -225,6 +226,7 @@ export function AssetGrid({
   onRate,
   onDetails,
   onFocus,
+  onContextMenu,
 }: Props) {
   function resultAncestors(item: Asset) {
     if (
@@ -251,6 +253,7 @@ export function AssetGrid({
       className={(selected.has(item.id) ? "selected" : "") + ((item.kind === "image" || item.kind === "video") ? " media-card" : "")}
       key={item.id}
       onClick={() => onFocus(item)}
+      onContextMenu={event => onContextMenu(item, event)}
       onPointerEnter={() => item.kind === "folder" && onPrefetch(item.id)}
       onPointerLeave={onCancelPrefetch}
     >

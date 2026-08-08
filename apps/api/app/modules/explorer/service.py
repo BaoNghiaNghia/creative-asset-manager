@@ -91,9 +91,9 @@ class ExplorerService:
 
     @staticmethod
     def _assign_external_source(items: list[AssetNode], external_source_id: str | None) -> list[AssetNode]:
-        if external_source_id:
-            for item in items:
-                item.external_source_id = external_source_id
+        # Source identity is assigned only by _enrich_asset_identities. Do not
+        # stamp the active source onto provider nodes that have no live local
+        # SourceAsset row (deleted/unlinked files and folders).
         return items
 
     def _enrich_asset_identities(
