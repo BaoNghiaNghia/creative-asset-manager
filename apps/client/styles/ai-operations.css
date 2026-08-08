@@ -368,3 +368,12 @@
 .pipeline-current-state.duplicate i{background:#e9dcff;color:#8458b6}
 @keyframes pipeline-state-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.pipeline-current-state.active i{animation:none}}
+
+/* Three-card context grid: scan, active work and verified readiness. */
+.pipeline-context-row{grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}
+.pipeline-context-row>.pipeline-scan-card,.pipeline-context-row>.pipeline-active-job,.pipeline-context-row>.pipeline-progress-summary{min-width:0;height:100%;box-sizing:border-box}
+.pipeline-context-row>.pipeline-progress-summary{align-items:stretch;justify-content:flex-start;flex-direction:column;gap:12px}
+.pipeline-context-row>.pipeline-progress-summary>div{width:100%;min-width:0;flex:0 0 auto}
+.pipeline-context-row>.pipeline-progress-summary dl{width:100%;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
+@media(max-width:1180px){.pipeline-context-row{grid-template-columns:repeat(2,minmax(0,1fr))}.pipeline-context-row>.pipeline-progress-summary{grid-column:1/-1;flex-direction:row;align-items:center}.pipeline-context-row>.pipeline-progress-summary>div{width:auto;flex:0 0 34%}}
+@media(max-width:760px){.pipeline-context-row{grid-template-columns:1fr}.pipeline-context-row>.pipeline-progress-summary{grid-column:auto;align-items:flex-start;flex-direction:column}.pipeline-context-row>.pipeline-progress-summary>div{width:100%;flex-basis:auto}.pipeline-context-row>.pipeline-progress-summary dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
