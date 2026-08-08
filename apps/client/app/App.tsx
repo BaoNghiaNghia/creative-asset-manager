@@ -332,6 +332,7 @@ export default function App() {
       onCancelPrefetch={explorer.cancelFolderPrefetch}
       onCollapse={sidebar.collapse}
       onResizeStart={sidebar.startResize}
+      applicationAuthenticated={explorer.applicationAuthenticated === true}
     />
 
     {sidebar.collapsed && <button

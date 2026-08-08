@@ -4,7 +4,7 @@ import time
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 import httpx
 from fastapi import HTTPException, Request
@@ -71,15 +71,33 @@ def consume_state_details(state, session_binding=None) -> tuple[str | None, str]
     except LookupError as exc:
         raise HTTPException(400,"Invalid or expired OAuth state.") from exc
 
-def _credential_scopes(credentials: Any) -> tuple[str, ...]:
-    values = getattr(credentials, "granted_scopes", None) or getattr(credentials, "scopes", None) or ()
+def _normalize_scopes(values: Iterable[str] | str | None) -> tuple[str, ...]:
     if isinstance(values, str):
-        values = (values,)
-    return tuple(str(scope) for scope in values if scope)
+        values = values.split()
+    normalized = {str(scope).strip() for scope in (values or ()) if str(scope).strip()}
+    return tuple(sorted(normalized))
 
 
-def validate_granted_scopes(credentials, *, require_write: bool = True) -> None:
-    granted = set(_credential_scopes(credentials))
+def _credential_scopes(credentials: Any, token_response: Mapping[str, Any] | None = None) -> tuple[str, ...]:
+    # Google may expose the token response as granted_scopes or scopes;
+    # the raw token response is the authoritative fallback for reconnects.
+    granted = _normalize_scopes(getattr(credentials, "granted_scopes", None))
+    if granted:
+        return granted
+    configured = _normalize_scopes(getattr(credentials, "scopes", None))
+    if configured:
+        return configured
+    response_scopes = token_response.get("scope") if token_response else None
+    return _normalize_scopes(response_scopes)
+
+
+def resolve_granted_scopes(credentials: Any, token_response: Mapping[str, Any] | None = None) -> tuple[str, ...]:
+    response = token_response or getattr(credentials, "_token_response", None)
+    return _credential_scopes(credentials, response if isinstance(response, Mapping) else None)
+
+
+def validate_granted_scopes(credentials, *, require_write: bool = True, scopes: Iterable[str] | None = None) -> None:
+    granted = set(_normalize_scopes(scopes) or _credential_scopes(credentials))
     if require_write:
         if DRIVE_WRITE_SCOPE not in granted:
             raise PermissionError(
@@ -90,9 +108,10 @@ def validate_granted_scopes(credentials, *, require_write: bool = True) -> None:
             "Google Drive read permission was not granted. Reconnect Google Drive and approve access."
         )
 
-async def create_session(credentials, *, require_drive_scope: bool = True, connection_tenant_id: str | None = None):
+async def create_session(credentials, *, require_drive_scope: bool = True, connection_tenant_id: str | None = None, granted_scopes: Iterable[str] | None = None):
+    persisted_scopes = _normalize_scopes(granted_scopes) or resolve_granted_scopes(credentials)
     if require_drive_scope:
-        validate_granted_scopes(credentials, require_write=True)
+        validate_granted_scopes(credentials, require_write=True, scopes=persisted_scopes)
     async with httpx.AsyncClient(timeout=15) as client:
         response=await client.get("https://openidconnect.googleapis.com/v1/userinfo",headers={"Authorization":f"Bearer {credentials.token}"})
         response.raise_for_status(); profile=response.json()
@@ -121,7 +140,7 @@ async def create_session(credentials, *, require_drive_scope: bool = True, conne
             tenant_id=connection_tenant_id,provider="google",provider_account_id=account_id,
             account_email=profile.get("email"),access_token=credentials.token,
             refresh_token=credentials.refresh_token,expires_at=expiry,
-            scopes=list(credentials.granted_scopes or credentials.scopes or (DRIVE_SCOPES if require_drive_scope else IDENTITY_SCOPES)),
+            scopes=list(persisted_scopes or (DRIVE_SCOPES if require_drive_scope else IDENTITY_SCOPES)),
             token_type="Bearer",provider_metadata={"picture":profile.get("picture"), "connection_purpose": "drive_source" if require_drive_scope else "application_login"},
         )
         session_id,_=repository.create_session(

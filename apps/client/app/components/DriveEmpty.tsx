@@ -29,6 +29,14 @@ const sources: Array<{
   },
 ];
 
+export function sourceLoginRoute(provider: Provider, applicationAuthenticated: boolean): string {
+  return applicationAuthenticated && provider === "google-drive"
+    ? "/api/auth/google/connect-drive"
+    : provider === "google-drive"
+      ? "/api/auth/google/login"
+      : "/api/auth/microsoft/login";
+}
+
 export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelectProvider, applicationAuthenticated = false }: Props) {
   const activeName = activeProvider === "sharepoint" ? "SharePoint" : "Google Drive";
 
@@ -56,7 +64,7 @@ export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelec
           </div>
           <button onClick={() => connected
             ? onSelectProvider(source.provider)
-            : window.location.assign(source.login)}
+            : window.location.assign(sourceLoginRoute(source.provider, applicationAuthenticated))}
           >
             {connected ? "Open source" : applicationAuthenticated ? "Connect " + (source.provider === "sharepoint" ? "SharePoint" : "Google Drive") : "Sign in with " + (source.provider === "sharepoint" ? "Microsoft" : "Google")}</button>
           {connected && <span className="source-card-status"><i /> Connected</span>}

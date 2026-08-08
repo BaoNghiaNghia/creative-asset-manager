@@ -38,6 +38,7 @@ class GoogleLoginSyncScheduler:
     def enqueue(
         self,
         cloud_session: PersistentCloudSession,
+        external_source_id: str | None = None,
     ) -> LoginSyncEnqueueResult | None:
         tenant_id = cloud_session.active_tenant_id
         if not tenant_id:
@@ -63,7 +64,21 @@ class GoogleLoginSyncScheduler:
             == provider_account_id
         ]
         source = None
-        if account_sources:
+        if external_source_id:
+            source = self.session.scalar(
+                select(ExternalSourceModel).where(
+                    ExternalSourceModel.id == external_source_id,
+                    ExternalSourceModel.tenant_id == tenant_id,
+                    ExternalSourceModel.source_type == "google_drive",
+                )
+            )
+            if source is None:
+                raise ValueError("Google Drive source is not available in the active tenant")
+            metadata = source.source_metadata or {}
+            bound_account = str(metadata.get("provider_account_id") or "")
+            if bound_account and bound_account != provider_account_id:
+                raise ValueError("Google Drive source belongs to a different Google account")
+        if source is None and account_sources:
             source_counts = dict(
                 self.session.execute(
                     select(
@@ -193,10 +208,11 @@ class GoogleLoginSyncScheduler:
 def enqueue_google_login_sync(
     cloud_session: PersistentCloudSession,
     settings: Settings | None = None,
+    external_source_id: str | None = None,
 ) -> LoginSyncEnqueueResult | None:
     with SessionLocal() as session:
         result = GoogleLoginSyncScheduler(
             session, settings or get_settings()
-        ).enqueue(cloud_session)
+        ).enqueue(cloud_session, external_source_id=external_source_id)
         session.commit()
         return result

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ProviderSessions } from "../types";
-import { DriveEmpty } from "./DriveEmpty";
+import { DriveEmpty, sourceLoginRoute } from "./DriveEmpty";
 
 const sessions: ProviderSessions = {
   "google-drive": { authenticated: false, user: null, checking: false },
@@ -21,5 +21,21 @@ describe("public Google sign-in", () => {
 
     expect(markup).toContain("Sign in with Google");
     expect(markup).not.toContain("/api/auth/google/connect-drive");
+  });
+
+  it("uses the Drive connection route after application authentication", () => {
+    const markup = renderToStaticMarkup(
+      <DriveEmpty
+        oauthError={null}
+        activeProvider="google-drive"
+        authByProvider={sessions}
+        onSelectProvider={() => undefined}
+        applicationAuthenticated
+      />,
+    );
+
+    expect(markup).toContain("Connect Google Drive");
+    expect(sourceLoginRoute("google-drive", true)).toBe("/api/auth/google/connect-drive");
+    expect(sourceLoginRoute("google-drive", false)).toBe("/api/auth/google/login");
   });
 });

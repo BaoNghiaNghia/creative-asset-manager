@@ -22,6 +22,7 @@ type Props = {
   onCancelPrefetch: () => void;
   onCollapse: () => void;
   onResizeStart: PointerEventHandler<HTMLDivElement>;
+  applicationAuthenticated?: boolean;
 };
 
 export function mayViewAiOperations(permissions: readonly string[]): boolean {
@@ -37,6 +38,7 @@ export function Sidebar({
   provider, auth, authByProvider, tags, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onOpen,
   onToggle, onPrefetch, onCancelPrefetch, onCollapse, onResizeStart,
+  applicationAuthenticated = false,
 }: Props) {
   const currentRoot = provider === "sharepoint" ? "sharepoint-root" : "root";
   const rootAncestors = path.length > 0 && path[0].id === currentRoot ? [path[0]] : [];
@@ -76,7 +78,11 @@ export function Sidebar({
           {session.authenticated ? <button className={"source " + sourceState} onClick={() => onSelectProvider(source.provider)}>
             {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
             <span>{source.label}</span>{active && <i className="source-connected" title="Connected" />}
-          </button> : <button className="source provider-login" onClick={() => window.location.assign(source.login)}>
+          </button> : <button className="source provider-login" onClick={() => window.location.assign(
+            applicationAuthenticated && source.provider === "google-drive"
+              ? "/api/auth/google/connect-drive"
+              : source.login
+          )}>
             {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}

@@ -11,6 +11,7 @@ from app.providers.google.auth import (
     get_access_token,
     get_connection_access_token,
     oauth_flow,
+    resolve_granted_scopes,
 )
 
 
@@ -26,6 +27,24 @@ class GoogleOauthScopesTest(unittest.TestCase):
             oauth_flow(require_drive_scope=True)
         self.assertIn(DRIVE_WRITE_SCOPE, build.call_args.kwargs["scopes"])
         self.assertNotIn(DRIVE_READONLY_SCOPE, build.call_args.kwargs["scopes"])
+
+
+    def test_granted_scopes_are_normalized_and_token_response_is_supported(self):
+        credentials = SimpleNamespace(granted_scopes=None, scopes=None)
+        self.assertEqual(
+            resolve_granted_scopes(
+                credentials,
+                {"scope": f"{DRIVE_WRITE_SCOPE} {DRIVE_WRITE_SCOPE}"},
+            ),
+            (DRIVE_WRITE_SCOPE,),
+        )
+
+    def test_granted_scopes_take_precedence_over_requested_scopes(self):
+        credentials = SimpleNamespace(
+            granted_scopes=(DRIVE_WRITE_SCOPE,),
+            scopes=(DRIVE_READONLY_SCOPE,),
+        )
+        self.assertEqual(resolve_granted_scopes(credentials), (DRIVE_WRITE_SCOPE,))
 
 
 class GoogleOAuthConnectionScopeTest(unittest.IsolatedAsyncioTestCase):

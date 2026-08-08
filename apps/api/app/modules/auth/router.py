@@ -25,6 +25,7 @@ from app.providers.google.auth import (
     create_session,
     get_session,
     oauth_flow,
+    resolve_granted_scopes,
     remember_state,
     remove_session,
 )
@@ -39,8 +40,11 @@ def client_redirect(**params: str) -> RedirectResponse:
     return RedirectResponse(client_url + separator + urlencode(params))
 
 
-def _authorization_response(flow, *, redirect_intent: str) -> RedirectResponse:
-    authorization_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+def _authorization_response(flow, *, redirect_intent: str, prompt_consent: bool = False) -> RedirectResponse:
+    options = {"access_type": "offline", "include_granted_scopes": "true"}
+    if prompt_consent:
+        options["prompt"] = "consent"
+    authorization_url, state = flow.authorization_url(**options)
     binding = secrets.token_urlsafe(32)
     remember_state(
         state,
@@ -63,18 +67,35 @@ async def login(request: Request):
     return _authorization_response(
         oauth_flow(require_drive_scope=False),
         redirect_intent="application_login",
+        prompt_consent=False,
     )
 
 
 @router.get("/connect-drive")
 async def connect_drive(
     request: Request,
+    source_id: str | None = Query(None),
     principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
 ):
     """Privileged workspace setup: requests Google Drive read/write access."""
+    if source_id:
+        with SessionLocal() as db:
+            source = db.scalar(
+                select(ExternalSourceModel).where(
+                    ExternalSourceModel.id == source_id,
+                    ExternalSourceModel.tenant_id == principal.active_tenant_id,
+                    ExternalSourceModel.source_type == "google_drive",
+                )
+            )
+        if source is None:
+            raise HTTPException(404, "Google Drive source was not found.")
+    intent = f"drive_connect:{principal.active_tenant_id}"
+    if source_id:
+        intent += f":{source_id}"
     return _authorization_response(
         oauth_flow(require_drive_scope=True),
-        redirect_intent=f"drive_connect:{principal.active_tenant_id}",
+        redirect_intent=intent,
+        prompt_consent=True,
     )
 
 
@@ -113,7 +134,12 @@ async def callback(
         return client_redirect(auth_error="state", auth_request=request_id)
 
     drive_connect = redirect_intent.startswith("drive_connect:")
-    connection_tenant_id = redirect_intent.removeprefix("drive_connect:") if drive_connect else None
+    connection_tenant_id = None
+    reconnect_source_id = None
+    if drive_connect:
+        parts = redirect_intent.split(":", 2)
+        connection_tenant_id = parts[1] if len(parts) > 1 else None
+        reconnect_source_id = parts[2] if len(parts) > 2 else None
     if drive_connect:
         existing_session = get_session(request)
         if not existing_session or not existing_session.active_tenant_id or existing_session.active_tenant_id != connection_tenant_id:
@@ -127,7 +153,7 @@ async def callback(
         # State is validated above. Passing the one-time code directly avoids
         # OAuthlib rejecting an otherwise valid HTTP localhost callback while
         # the token request itself still goes to Google's HTTPS endpoint.
-        flow.fetch_token(code=code)
+        token_response = flow.fetch_token(code=code)
     except Exception as exc:
         logger.exception(
             "Google OAuth token exchange failed request_id=%s error_type=%s",
@@ -141,6 +167,7 @@ async def callback(
             flow.credentials,
             require_drive_scope=drive_connect,
             connection_tenant_id=connection_tenant_id,
+            granted_scopes=resolve_granted_scopes(flow.credentials, token_response if isinstance(token_response, dict) else None),
         )
     except ApplicationUserInactiveError:
         logger.warning("Google application user is inactive request_id=%s", request_id)
@@ -166,7 +193,10 @@ async def callback(
 
     if drive_connect:
         try:
-            enqueue_google_login_sync(cloud_session)
+            if reconnect_source_id:
+                enqueue_google_login_sync(cloud_session, external_source_id=reconnect_source_id)
+            else:
+                enqueue_google_login_sync(cloud_session)
         except Exception as exc:
             logger.exception(
                 "Google Drive source connection failed request_id=%s error_type=%s",
