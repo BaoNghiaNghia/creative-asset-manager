@@ -84,19 +84,53 @@ class AuthApiExposureTest(unittest.TestCase):
         cloud = SimpleNamespace(active_tenant_id="tenant-a", connection_id="connection-a", user={"id": "google-a"})
         flow = SimpleNamespace(fetch_token=lambda **_kwargs: None, credentials=object())
         app = FastAPI(); app.include_router(google_router, prefix="/api")
+        fake_user = SimpleNamespace(id="user-a", status="active")
+        fake_authz = SimpleNamespace(membership_id="membership-a", permissions=frozenset({"assets.manage"}))
+        class FakeDb:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def get(self, _model, _key): return fake_user
+            def scalar(self, _statement): return None
         with (
-            patch("app.modules.auth.router.consume_state_details", return_value=(None, "drive_connect:tenant-a")),
+            patch("app.modules.auth.router.consume_state_details", return_value=(None, "drive_connect:tenant-a:-:user-a")),
             patch("app.modules.auth.router.oauth_flow", return_value=flow),
-            patch("app.modules.auth.router.get_session", return_value=SimpleNamespace(active_tenant_id="tenant-a")),
-            patch("app.modules.auth.router.create_session", new=AsyncMock(return_value=("session-id", cloud))) as create,
+            patch("app.modules.auth.router.SessionLocal", return_value=FakeDb()),
+            patch("app.modules.auth.router.TenantAuthorizationService.get_effective_permissions", return_value=fake_authz),
+            patch("app.modules.auth.router.resolve_granted_scopes", return_value=("https://www.googleapis.com/auth/drive",)),
+            patch("app.modules.auth.router.persist_drive_connection", new=AsyncMock(return_value=cloud)) as persist,
             patch("app.modules.auth.router.enqueue_google_login_sync") as enqueue,
-            patch("app.modules.auth.router.remove_session"),
         ):
             response = TestClient(app).get("/api/auth/google/callback?state=state&code=code", follow_redirects=False)
         self.assertEqual(response.status_code, 307)
         self.assertIn("google=source_connected", response.headers["location"])
-        self.assertFalse(create.await_args.kwargs["require_drive_scope"] is False)
+        self.assertEqual(persist.await_args.kwargs["tenant_id"], "tenant-a")
+        self.assertEqual(persist.await_args.kwargs["user_id"], "user-a")
         enqueue.assert_called_once_with(cloud)
+
+    def test_google_drive_callback_ignores_unrelated_application_cookie(self):
+        flow = SimpleNamespace(fetch_token=lambda **_kwargs: None, credentials=object())
+        cloud = SimpleNamespace(active_tenant_id="tenant-a", connection_id="connection-a", user={"id": "google-a"})
+        app = FastAPI(); app.include_router(google_router, prefix="/api")
+        class FakeDb:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def get(self, _model, key): return SimpleNamespace(id=key, status="active")
+            def scalar(self, _statement): return None
+        authz = SimpleNamespace(membership_id="member-a", permissions=frozenset({"assets.manage"}))
+        with (
+            patch("app.modules.auth.router.consume_state_details", return_value=(None, "drive_connect:tenant-a:-:user-a")),
+            patch("app.modules.auth.router.oauth_flow", return_value=flow),
+            patch("app.modules.auth.router.SessionLocal", return_value=FakeDb()),
+            patch("app.modules.auth.router.TenantAuthorizationService.get_effective_permissions", return_value=authz),
+            patch("app.modules.auth.router.resolve_granted_scopes", return_value=("https://www.googleapis.com/auth/drive",)),
+            patch("app.modules.auth.router.persist_drive_connection", new=AsyncMock(return_value=cloud)),
+            patch("app.modules.auth.router.enqueue_google_login_sync"),
+        ):
+            client = TestClient(app)
+            client.cookies.set("cam_google_session", "tenant-b-session")
+            response = client.get("/api/auth/google/callback?state=state&code=code", follow_redirects=False)
+        self.assertEqual(response.status_code, 307)
+        self.assertIn("google=source_connected", response.headers["location"])
 
     def test_google_oauth_failure_does_not_enqueue_scan(self):
         def fail_exchange(**_kwargs):

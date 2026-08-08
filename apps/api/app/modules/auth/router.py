@@ -10,10 +10,11 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.source_sync.login_trigger import enqueue_google_login_sync
 from app.modules.assets.model import ExternalSourceModel
-from app.modules.auth_persistence.model import OAuthConnectionModel
+from app.modules.auth_persistence.model import OAuthConnectionModel, UserModel
 
 from app.modules.auth_persistence.service import clear_provider_session_cookies, cookie_options
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.authorization.service import TenantAuthorizationService
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.login import LoginAdmissionError
 from app.providers.google.auth import (
@@ -28,6 +29,7 @@ from app.providers.google.auth import (
     resolve_granted_scopes,
     remember_state,
     remove_session,
+    persist_drive_connection,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,9 +91,8 @@ async def connect_drive(
             )
         if source is None:
             raise HTTPException(404, "Google Drive source was not found.")
-    intent = f"drive_connect:{principal.active_tenant_id}"
-    if source_id:
-        intent += f":{source_id}"
+    source_token = source_id or chr(45)
+    intent = f"drive_connect:{principal.active_tenant_id}:{source_token}:{principal.user_id}"
     return _authorization_response(
         oauth_flow(require_drive_scope=True),
         redirect_intent=intent,
@@ -136,15 +137,24 @@ async def callback(
     drive_connect = redirect_intent.startswith("drive_connect:")
     connection_tenant_id = None
     reconnect_source_id = None
+    initiating_user_id = None
     if drive_connect:
-        parts = redirect_intent.split(":", 2)
+        parts = redirect_intent.split(":", 3)
         connection_tenant_id = parts[1] if len(parts) > 1 else None
-        reconnect_source_id = parts[2] if len(parts) > 2 else None
-    if drive_connect:
-        existing_session = get_session(request)
-        if not existing_session or not existing_session.active_tenant_id or existing_session.active_tenant_id != connection_tenant_id:
-            logger.warning("Google Drive callback tenant mismatch request_id=%s redirect_intent=%s", request_id, redirect_intent)
+        reconnect_source_id = parts[2] if len(parts) > 2 and parts[2] != "-" else None
+        initiating_user_id = parts[3] if len(parts) > 3 else None
+        if not connection_tenant_id or not initiating_user_id:
             return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
+        with SessionLocal() as db:
+            user = db.get(UserModel, initiating_user_id)
+            authorization = TenantAuthorizationService(db).get_effective_permissions(tenant_id=connection_tenant_id, user_id=initiating_user_id)
+            if user is None or user.status != "active" or not authorization.membership_id or "assets.manage" not in authorization.permissions:
+                logger.warning("Google Drive callback authorization failed request_id=%s", request_id)
+                return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
+            if reconnect_source_id:
+                source = db.scalar(select(ExternalSourceModel).where(ExternalSourceModel.id == reconnect_source_id, ExternalSourceModel.tenant_id == connection_tenant_id, ExternalSourceModel.source_type == "google_drive"))
+                if source is None:
+                    return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
     flow = oauth_flow(state, require_drive_scope=drive_connect)
     if code_verifier:
         flow.code_verifier = code_verifier
@@ -163,12 +173,12 @@ async def callback(
         return client_redirect(auth_error="token_exchange", auth_request=request_id)
 
     try:
-        session_id, cloud_session = await create_session(
-            flow.credentials,
-            require_drive_scope=drive_connect,
-            connection_tenant_id=connection_tenant_id,
-            granted_scopes=resolve_granted_scopes(flow.credentials, token_response if isinstance(token_response, dict) else None),
-        )
+        granted_scopes = resolve_granted_scopes(flow.credentials, token_response if isinstance(token_response, dict) else None)
+        if drive_connect:
+            cloud_session = await persist_drive_connection(flow.credentials, tenant_id=connection_tenant_id, user_id=initiating_user_id, granted_scopes=granted_scopes)
+            session_id = None
+        else:
+            session_id, cloud_session = await create_session(flow.credentials, require_drive_scope=False, granted_scopes=granted_scopes)
     except ApplicationUserInactiveError:
         logger.warning("Google application user is inactive request_id=%s", request_id)
         return client_redirect(auth_error="account_inactive", auth_request=request_id)
@@ -205,12 +215,11 @@ async def callback(
             )
             return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
 
-    remove_session(request)
-    response = client_redirect(
-        google="source_connected" if drive_connect else "signed_in"
-    )
-    clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/google")
-    response.set_cookie(SESSION_COOKIE, session_id, **cookie_options())
+    response = client_redirect(google="source_connected" if drive_connect else "signed_in")
+    if not drive_connect:
+        remove_session(request)
+        clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/google")
+        response.set_cookie(SESSION_COOKIE, session_id, **cookie_options())
     response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/google")
     return response
 

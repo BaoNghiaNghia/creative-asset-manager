@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 
 import httpx
 from fastapi import HTTPException, Request
+from sqlalchemy import select
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.credentials import Credentials
@@ -15,6 +16,7 @@ from google_auth_oauthlib.flow import Flow
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
+from app.modules.auth_persistence.model import UserIdentityModel, UserModel
 from app.modules.auth_persistence.repository import PersistentCloudSession
 from app.modules.auth_persistence.login import ApplicationLoginService
 from app.modules.auth_persistence.service import AUTH_METRICS, auth_repository
@@ -107,6 +109,31 @@ def validate_granted_scopes(credentials, *, require_write: bool = True, scopes: 
         raise PermissionError(
             "Google Drive read permission was not granted. Reconnect Google Drive and approve access."
         )
+
+async def persist_drive_connection(credentials, *, tenant_id: str, user_id: str, granted_scopes: Iterable[str] | None = None) -> PersistentCloudSession:
+    """Persist a workspace Drive connection without rotating app login."""
+    persisted_scopes = _normalize_scopes(granted_scopes) or resolve_granted_scopes(credentials)
+    validate_granted_scopes(credentials, require_write=True, scopes=persisted_scopes)
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get("https://openidconnect.googleapis.com/v1/userinfo", headers={"Authorization": f"Bearer {credentials.token}"})
+        response.raise_for_status()
+        profile = response.json()
+    account_id = str(profile.get("sub") or "")
+    if not account_id:
+        raise ValueError("Google profile has no account identity")
+    expiry = credentials.expiry or datetime.now(timezone.utc) + timedelta(seconds=3500)
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    with auth_repository() as repository:
+        identity = repository.session.scalar(select(UserIdentityModel).where(UserIdentityModel.user_id == user_id, UserIdentityModel.provider == "google", UserIdentityModel.provider_subject == account_id))
+        user = repository.session.get(UserModel, user_id)
+        if user is None or user.status != "active" or identity is None:
+            raise PermissionError("Google account is not linked to the initiating user")
+        connection = repository.upsert_connection(tenant_id=tenant_id, provider="google", provider_account_id=account_id, account_email=profile.get("email"), access_token=credentials.token, refresh_token=credentials.refresh_token, expires_at=expiry, scopes=list(persisted_scopes), token_type="Bearer", provider_metadata={"picture": profile.get("picture"), "connection_purpose": "drive_source"})
+        repository.session.commit()
+    AUTH_METRICS.increment("connection_reconnected", "google")
+    return PersistentCloudSession("", connection.id, tenant_id, user_id, tenant_id, "google", credentials.token, credentials.refresh_token, expiry.timestamp(), {"id": account_id, "name": profile.get("name"), "email": profile.get("email"), "picture": profile.get("picture")})
+
 
 async def create_session(credentials, *, require_drive_scope: bool = True, connection_tenant_id: str | None = None, granted_scopes: Iterable[str] | None = None):
     persisted_scopes = _normalize_scopes(granted_scopes) or resolve_granted_scopes(credentials)
