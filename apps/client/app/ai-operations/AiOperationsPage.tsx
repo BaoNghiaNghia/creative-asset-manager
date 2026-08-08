@@ -435,6 +435,15 @@ function assetProgressLabel(key: string): string {
   return ({ discovered: "Đã phát hiện", downloaded: "Đã tải xuống", stored: "Đã lưu trữ", analyzed: "Đã phân tích", projection_ready: "Đã chuẩn bị tìm kiếm", search_ready: "Sẵn sàng tìm kiếm", projection_built: "Đã chuẩn bị tìm kiếm", indexed: "Sẵn sàng tìm kiếm" } as Record<string, string>)[key] || key.replaceAll("_", " ");
 }
 
+function opsKpiIcon(label: string): string {
+  if (/failed|cần xử lý/i.test(label)) return "!";
+  if (/success|hoàn tất/i.test(label)) return "✓";
+  if (/cost|budget/i.test(label)) return "$";
+  if (/rate|quota|chờ/i.test(label)) return "◷";
+  if (/running|đang chạy/i.test(label)) return "↻";
+  return "▣";
+}
+
 function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; canManage: boolean; onRefresh: () => void }) {
   const summary = data.summary;
   if (!summary && !data.daily.length) return <DashboardState kind="empty" />;
@@ -467,7 +476,7 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
       <div><span className="ops-quota-badge">Quota</span><div><strong>Gemini quota or provider cooldown is active</strong><p>{quotaScheduled} {quotaScheduled === 1 ? "analysis" : "analyses"} will retry automatically after the provider allows another request.</p></div></div>
       <time dateTime={nextQuotaRetry}><span>Tiếp provider retry</span>{new Date(nextQuotaRetry).toLocaleString()}</time>
     </section>}
-    <section className="ops-kpis" aria-label="AI processing summary">{cards.map(card => <article key={card.label} className={`ops-kpi ops-kpi-${card.tone}`}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
+    <section className="ops-kpis" aria-label="AI processing summary">{cards.map(card => <article key={card.label} className={`ops-kpi ops-kpi-${card.tone}`}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
     <section className="ops-charts">
       <AccessibleChart title="Daily processing" description="Hoàn tất and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
       <AccessibleChart title="Daily estimated cost by provider" description="Estimated provider cost aggregated by the server for the selected period." data={dailyProviderCostChart(data.daily)} valueLabel={value => formatCost(value)} />

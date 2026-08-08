@@ -441,3 +441,17 @@
   .pipeline-context-row>.pipeline-progress-summary{min-height:0}
   .pipeline-context-row>.pipeline-progress-summary{flex-direction:column}
 }
+
+/* AI Analysis KPI grid: six balanced columns with a leading status icon. */
+.ops-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
+.ops-kpis .ops-kpi-title{display:flex;align-items:center;min-width:0;gap:7px;color:#697689;font-size:11px;font-weight:700;line-height:1.25}
+.ops-kpis .ops-kpi-title i{display:inline-grid;flex:0 0 21px;width:21px;height:21px;place-items:center;border-radius:6px;background:#eef2f7;color:#62738a;font-size:12px;font-style:normal;font-weight:900}
+.ops-kpi-success .ops-kpi-title i{background:#eaf8ef;color:#247a50}
+.ops-kpi-danger .ops-kpi-title i{background:#fff0ee;color:#b5473e}
+.ops-kpi-warning .ops-kpi-title i{background:#fff5df;color:#9a6700}
+.ops-kpi-info .ops-kpi-title i{background:#edf0ff;color:#315fd7}
+.ops-kpis .ops-kpi strong{margin-top:7px}
+@media(max-width:1400px){.ops-kpis{grid-template-columns:repeat(4,minmax(160px,1fr))}}
+@media(max-width:900px){.ops-kpis{grid-template-columns:repeat(3,minmax(150px,1fr))}}
+@media(max-width:720px){.ops-kpis{grid-template-columns:repeat(2,minmax(140px,1fr))}}
+@media(max-width:460px){.ops-kpis{grid-template-columns:1fr}}
