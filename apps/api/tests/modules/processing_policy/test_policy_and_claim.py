@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
 from app.core.database import Base
+from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.bootstrap import globally_enabled_job_types
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
@@ -41,9 +42,19 @@ class ProcessingPolicyTest(unittest.TestCase):
 
     def job(self, tenant, key, *, kind="asset_analyze", provider="gemini", scope="ai"):
         with self.sessions.begin() as session:
+            payload = {}
+            if kind == "asset_analyze":
+                analysis = AssetAiAnalysisModel(
+                    id=f"analysis-{tenant}-{key}", tenant_id=tenant, asset_id=f"asset-{key}",
+                    content_hash=(key * 64)[:64], metadata_profile_id="profile",
+                    metadata_profile="creative-assets", metadata_profile_version="v1",
+                    prompt_version="prompt-v1", pipeline_version="pipeline-v1",
+                    ai_provider=provider, ai_model="gemini-3.5-flash-lite",
+                )
+                session.add(analysis); session.flush(); payload = {"analysis_id": analysis.id}
             return ProcessingRepository(session).create_job(
                 tenant_id=tenant, job_type=kind, entity_type="asset", entity_id=key,
-                idempotency_key=key, next_attempt_at=NOW, provider_key=provider, provider_scope=scope,
+                idempotency_key=key, payload=payload, next_attempt_at=NOW, provider_key=provider, provider_scope=scope,
             ).id
 
     def claim(self, worker):

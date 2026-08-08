@@ -3,7 +3,7 @@ import io
 import unittest
 from contextlib import asynccontextmanager
 
-from PIL import Image
+from PIL import Image, features
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -42,6 +42,14 @@ def png(color):
 def webp(color):
     output = io.BytesIO()
     Image.new("RGB", (2, 2), color).save(output, format="WEBP")
+    return output.getvalue()
+
+
+def avif(color):
+    if not features.check("avif"):
+        raise unittest.SkipTest("Pillow AVIF decoder is unavailable")
+    output = io.BytesIO()
+    Image.new("RGB", (2, 2), color).save(output, format="AVIF")
     return output.getvalue()
 
 
@@ -98,6 +106,13 @@ class ProviderDownloadStageTest(unittest.TestCase):
         pipeline = self.pipeline("google_drive", "drive", "webp", "one.webp")
         result = asyncio.run(ProviderDownloadStage(
             self.sessions, BytesResolver(webp("green"), "image/webp")
+        ).execute(tenant_id="tenant-a", pipeline=pipeline))
+        self.assertIsNotNone(result.asset_id)
+
+    def test_avif_is_accepted(self):
+        pipeline = self.pipeline("google_drive", "drive", "avif", "one.avif")
+        result = asyncio.run(ProviderDownloadStage(
+            self.sessions, BytesResolver(avif("green"), "image/avif")
         ).execute(tenant_id="tenant-a", pipeline=pipeline))
         self.assertIsNotNone(result.asset_id)
 

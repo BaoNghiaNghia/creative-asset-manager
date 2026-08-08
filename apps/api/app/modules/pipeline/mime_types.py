@@ -10,7 +10,7 @@ class SourceContentTooLarge(ValueError):
 
 
 SUPPORTED_GOOGLE_DRIVE_IMAGE_MIME_TYPES = frozenset(
-    {"image/jpeg", "image/png", "image/webp"}
+    {"image/jpeg", "image/png", "image/webp", "image/avif"}
 )
 
 IGNORED_IMAGE_ANALYSIS_MIME_TYPES = frozenset({

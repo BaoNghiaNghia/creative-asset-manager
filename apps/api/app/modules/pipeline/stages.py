@@ -89,10 +89,13 @@ class ProviderDownloadStage:
 
     def _validate(self, path: Path, declared_type: str) -> str:
         with path.open("rb") as source:
-            header = source.read(16)
+            header = source.read(32)
+        normalized_type = (declared_type or "").strip().lower()
+        avif_signature = (len(header) >= 12 and header[4:8] == bytes(("ftyp"), "ascii") and (bytes(("avif"), "ascii") in header[8:] or bytes(("avis"), "ascii") in header[8:]))
         image = (
             header.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a"))
             or (len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP")
+            or (normalized_type == "image/avif" and avif_signature)
         )
         video = len(header) >= 12 and header[4:8] == b"ftyp"
         if image:

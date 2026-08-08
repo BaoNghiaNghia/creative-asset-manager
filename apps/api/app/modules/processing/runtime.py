@@ -232,7 +232,7 @@ class WorkerRuntime:
             return False
         try:
             with self.dependencies.session_factory() as session:
-                service = ProcessingJobService(ProcessingRepository(session))
+                service = ProcessingJobService(ProcessingRepository(session, self.dependencies.settings))
                 model = service.claim_next(
                     worker_id=self.config.worker_id,
                     lease_seconds=self.config.lease_seconds,
@@ -368,7 +368,7 @@ class WorkerRuntime:
         while not active.stop_heartbeat.wait(self.config.heartbeat_seconds):
             try:
                 with self.dependencies.session_factory() as session:
-                    renewed = ProcessingJobService(ProcessingRepository(session)).renew_lease(
+                    renewed = ProcessingJobService(ProcessingRepository(session, self.dependencies.settings)).renew_lease(
                         job_id=job.id,
                         worker_id=self.config.worker_id,
                         lease_seconds=self.config.lease_seconds,
@@ -397,7 +397,7 @@ class WorkerRuntime:
         self, job: ClaimedJob, result: JobHandlerResult | DeferredJobOutcome
     ) -> None:
         with self.dependencies.session_factory() as session:
-            service = ProcessingJobService(ProcessingRepository(session))
+            service = ProcessingJobService(ProcessingRepository(session, self.dependencies.settings))
             if isinstance(result, DeferredJobOutcome):
                 service.defer(
                     job_id=job.id,

@@ -177,6 +177,7 @@ def build_worker_runtime(
     default_resources.update(resources or {})
     dependencies = WorkerDependencies(
         session_factory=session_factory,
+        settings=settings,
         source_provider_factory=create_source_provider,
         storage_provider=storage_provider,
         ai_provider_registry=ai_provider_registry,

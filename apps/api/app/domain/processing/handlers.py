@@ -86,6 +86,8 @@ class WorkerDependencies:
     ai_provider_registry: AiProviderRegistry | None = None
     resources: Mapping[str, Any] = field(default_factory=dict)
     closers: tuple[Callable[[], Any], ...] = ()
+    # Explicit worker settings keep policy-aware claims isolated from global settings.
+    settings: Any | None = None
     _closed: bool = field(default=False, init=False)
 
     def close(self) -> None:

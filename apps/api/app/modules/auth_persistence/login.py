@@ -140,8 +140,9 @@ class ApplicationLoginService:
 
                 if first_login:
                     self._provision_first_membership(
-                        user,
-                        display_name,
+                        user=user,
+                        identity=identity,
+                        display_name=display_name,
                     )
 
             if (

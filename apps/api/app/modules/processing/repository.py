@@ -24,8 +24,9 @@ def utcnow() -> datetime:
 class ProcessingRepository:
     """Persistence boundary; methods flush but never commit caller transactions."""
 
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, settings: Any | None = None):
         self.session = session
+        self.settings = settings
 
     def create_job(
         self,
@@ -122,7 +123,7 @@ class ProcessingRepository:
         lease_expires_at = claimed_at + timedelta(seconds=lease_seconds)
 
         if enforce_tenant_policy:
-            return TenantAwareJobClaimer(self.session).claim(
+            return TenantAwareJobClaimer(self.session, self.settings).claim(
                 worker_id=worker_id, lease_seconds=lease_seconds,
                 now=claimed_at, allowed_job_types=allowed_job_types,
             )
@@ -207,7 +208,7 @@ class ProcessingRepository:
         job.completed_at = completed_at
         job.claimed_by = None
         job.claimed_at = None
-        TenantAwareJobClaimer(self.session).release(job)
+        TenantAwareJobClaimer(self.session, self.settings).release(job)
         job.lease_expires_at = None
         job.last_error_code = None
         job.last_error_message = None
@@ -233,7 +234,7 @@ class ProcessingRepository:
         job.last_error_message = redact_url_queries(error_message)
         job.claimed_by = None
         job.claimed_at = None
-        TenantAwareJobClaimer(self.session).release(job)
+        TenantAwareJobClaimer(self.session, self.settings).release(job)
         job.lease_expires_at = None
         job.updated_at = failed_at
         if job.attempt_count >= job.max_attempts:
@@ -263,7 +264,7 @@ class ProcessingRepository:
         job.completed_at = failed_at
         job.last_error_code = error_code[:100]
         job.last_error_message = redact_url_queries(error_message)
-        TenantAwareJobClaimer(self.session).release(job)
+        TenantAwareJobClaimer(self.session, self.settings).release(job)
         job.claimed_by = None
         job.claimed_at = None
         job.lease_expires_at = None
@@ -293,7 +294,7 @@ class ProcessingRepository:
             job.next_attempt_at = released_at
             job.last_error_code = error_code[:100]
             job.last_error_message = redact_url_queries(error_message)
-        TenantAwareJobClaimer(self.session).release(job)
+        TenantAwareJobClaimer(self.session, self.settings).release(job)
         job.claimed_by = None
         job.claimed_at = None
         job.lease_expires_at = None
@@ -316,7 +317,7 @@ class ProcessingRepository:
         deferred_at = now or utcnow()
         job = self._owned_processing_job(job_id, worker_id)
         self._record_execution_duration(job, deferred_at)
-        TenantAwareJobClaimer(self.session).release(job)
+        TenantAwareJobClaimer(self.session, self.settings).release(job)
         job.status = JobStatus.PENDING.value
         job.next_attempt_at = retry_at
         # Claiming increments attempts. Deferral is not an execution failure.
@@ -537,7 +538,7 @@ class ProcessingRepository:
         )
 
     def _terminalize_exhausted_jobs(self, now: datetime) -> None:
-        TenantAwareJobClaimer(self.session).release_exhausted(now)
+        TenantAwareJobClaimer(self.session, self.settings).release_exhausted(now)
         self.session.execute(
             update(ProcessingJobModel)
             .where(

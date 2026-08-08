@@ -110,7 +110,7 @@ class LoopSafeSearchProvider:
             await index.client.delete(f"/{self.config.index_prefix}-v2-*",params={"expand_wildcards":"all"})
 
 def fake_pipeline_settings():
-    return Settings(PROCESSING_JOBS_ENABLED=True,UNIFIED_ASSET_INGESTION_ENABLED=True,CONTENT_DEDUP_ENABLED=True,MANAGED_ASSET_STORAGE_ENABLED=True,DYNAMIC_AI_METADATA_ENABLED=True,AI_SINGLE_ANALYSIS_ENABLED=True,AI_AUTO_ANALYZE_ENABLED=True,SEARCH_PROJECTION_ENABLED=True,ELASTICSEARCH_V2_ENABLED=True,SEARCH_QUERY_PARSER_V2_ENABLED=True,EXTERNAL_INGESTION_API_ENABLED=True,SENSITIVE_URL_ENCRYPTION_KEYS="v1:eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg=",GEMINI_API_KEY="fake-no-network-key",GEMINI_MODEL="fake-gemini-v1",GEMINI_ALLOWED_MODELS="fake-gemini-v1",WORKER_LEASE_SECONDS=10,WORKER_HEARTBEAT_SECONDS=.2,WORKER_IDLE_POLL_SECONDS=.01)
+    return Settings(PROCESSING_JOBS_ENABLED=True,UNIFIED_ASSET_INGESTION_ENABLED=True,CONTENT_DEDUP_ENABLED=True,MANAGED_ASSET_STORAGE_ENABLED=True,DYNAMIC_AI_METADATA_ENABLED=True,AI_SINGLE_ANALYSIS_ENABLED=True,AI_AUTO_ANALYZE_ENABLED=True,SEARCH_PROJECTION_ENABLED=True,ELASTICSEARCH_V2_ENABLED=True,SEARCH_QUERY_PARSER_V2_ENABLED=True,EXTERNAL_INGESTION_API_ENABLED=True,SENSITIVE_URL_ENCRYPTION_KEYS="v1:eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg=",GEMINI_API_KEY="fake-no-network-key",GEMINI_MODEL="fake-gemini-v1",GEMINI_MODEL_POOL="fake-gemini-v1",GEMINI_MODEL_LIMITS='{"fake-gemini-v1":{"rpm":100,"tpm":200000,"rpd":400}}',GEMINI_ALLOWED_MODELS="fake-gemini-v1",WORKER_LEASE_SECONDS=10,WORKER_HEARTBEAT_SECONDS=.2,WORKER_IDLE_POLL_SECONDS=.01)
 
 def fake_pipeline_cost_rate():
     return AiCostRateModel(provider="gemini",model="fake-gemini-v1",processing_mode="single",effective_at=datetime.now(timezone.utc)-timedelta(seconds=1),input_unit_cost=0,output_unit_cost=0,media_unit_cost=0)
@@ -159,7 +159,7 @@ class DurablePipelineEndToEndTest(unittest.TestCase):
         ai=FakeGemini({"wrong":True} if invalid_metadata else {"subject":"cat","label":"mama est 2015","year":2015})
         self.search=LoopSafeSearchProvider(ELASTICSEARCH_URL,self.prefix,search_failures); asyncio.run(self.search.initialize())
         ai_registry=AiProviderRegistry();ai_registry.register(ai.provider_name,ai)
-        dependencies=WorkerDependencies(session_factory=self.sessions,storage_provider=storage,ai_provider_registry=ai_registry,resources={"pipeline_download_stage":ProviderDownloadStage(self.sessions,resolver),"pipeline_storage_stage":ProviderStorageStage(self.sessions,resolver,storage),"search_index_provider":self.search})
+        dependencies=WorkerDependencies(settings=self.settings,session_factory=self.sessions,storage_provider=storage,ai_provider_registry=ai_registry,resources={"pipeline_download_stage":ProviderDownloadStage(self.sessions,resolver),"pipeline_storage_stage":ProviderStorageStage(self.sessions,resolver,storage),"search_index_provider":self.search})
         handlers=build_handler_registry((("source_asset_download",SourceAssetDownloadJobHandler(self.settings)),("asset_store",AssetStoreJobHandler(self.settings)),("asset_analyze",AssetAnalyzeJobHandler(self.settings)),("search_projection_build",SearchProjectionBuildJobHandler(self.settings)),("asset_index",AssetIndexJobHandler(self.settings))))
         runtime=WorkerRuntime(config=WorkerRuntimeConfig(worker_id=f"e2e-worker-{self.marker}",enabled=True,lease_seconds=10,heartbeat_seconds=.2,idle_poll_seconds=.01,enforce_tenant_policy=True,allowed_job_types=("source_asset_download","asset_store","asset_analyze","search_projection_build","asset_index")),dependencies=dependencies,registry=handlers)
         return runtime,resolver,storage,ai
@@ -199,7 +199,10 @@ class DurablePipelineEndToEndTest(unittest.TestCase):
         self.assert_searchable(asset_id)
     def test_duplicate_content_reuses_asset_and_analysis(self):
         ids=self.submit(["same-a","same-b"]); content=png_bytes("green"); runtime,_,storage,ai=self.runtime({"same-a":content,"same-b":content})
-        try: self.assertGreaterEqual(self.drain(runtime),7)
+        try:
+            # Content deduplication shares the downstream asset/store/analyze/index
+            # chain, so two ingested items require six jobs rather than seven.
+            self.assertGreaterEqual(self.drain(runtime),6)
         finally: runtime.close()
         with self.sessions() as session:
             pipelines=[session.get(AssetPipelineModel,item) for item in ids]

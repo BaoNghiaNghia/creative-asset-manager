@@ -288,6 +288,7 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
             ("jpeg", "image/jpeg", False),
             ("png", "image/png", False),
             ("webp", "image/webp", False),
+            ("avif", "image/avif", False),
             ("folder", "application/vnd.google-apps.folder", True),
             ("shortcut", "application/vnd.google-apps.shortcut", False),
             ("video", "video/mp4", False),
@@ -316,12 +317,12 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.changes, len(mime_types))
-        self.assertEqual(result.jobs_created, 3)
+        self.assertEqual(result.jobs_created, 4)
         self.assertEqual(
             self.session.scalar(select(func.count()).select_from(SourceAssetModel)),
             len(mime_types),
         )
-        self.assertEqual(self.processing.count_jobs(), 3)
+        self.assertEqual(self.processing.count_jobs(), 4)
 
     async def test_feature_flag_preserves_existing_behavior(self) -> None:
         disabled = SourceSyncService(self.repository, self.processing, enabled=False)

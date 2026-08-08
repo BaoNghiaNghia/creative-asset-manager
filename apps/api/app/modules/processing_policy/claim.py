@@ -386,6 +386,12 @@ class TenantAwareJobClaimer:
         )
         if not provider:
             return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
+        # Reused completed analyses do not start a provider request.
+        if analysis.status == "completed":
+            model = analysis.ai_model.strip() if isinstance(analysis.ai_model, str) else ""
+            if not model:
+                return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
+            return {"provider": provider, "model": model, "next_eligible_at": now}
         model_rates = configured_model_rates(
             self.settings, provider, analysis.ai_model
         )
