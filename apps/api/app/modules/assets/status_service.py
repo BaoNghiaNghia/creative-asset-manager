@@ -14,6 +14,7 @@ from app.modules.assets.model import (
     SourceAssetModel,
 )
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.search.operations_model import (
     SearchOperationItemModel,
     SearchOperationRunModel,
@@ -162,6 +163,8 @@ class AssetProcessingStatusService:
         indexed_assets: set[str] = set()
         latest_analysis: dict[str, AssetAiAnalysisModel] = {}
         latest_jobs: dict[tuple[str, str], ProcessingJobModel] = {}
+        pipeline_ids_by_source_asset: dict[str, set[str]] = defaultdict(set)
+        pipeline_ids_by_asset: dict[str, set[str]] = defaultdict(set)
 
         if asset_ids:
             duplicate_assets = {
@@ -239,7 +242,33 @@ class AssetProcessingStatusService:
                 )
             )
 
-        job_entity_ids = tuple(sorted({*asset_ids, *source_asset_ids}))
+        if source_asset_ids:
+            for pipeline_id, source_asset_id, asset_id in self.session.execute(
+                select(
+                    AssetPipelineModel.id,
+                    AssetPipelineModel.source_asset_id,
+                    AssetPipelineModel.asset_id,
+                ).where(
+                    AssetPipelineModel.tenant_id == tenant_id,
+                    AssetPipelineModel.source_asset_id.in_(source_asset_ids),
+                )
+            ):
+                if source_asset_id:
+                    pipeline_ids_by_source_asset[source_asset_id].add(pipeline_id)
+                if asset_id:
+                    pipeline_ids_by_asset[asset_id].add(pipeline_id)
+
+        pipeline_ids = {
+            pipeline_id
+            for values in (
+                *pipeline_ids_by_source_asset.values(),
+                *pipeline_ids_by_asset.values(),
+            )
+            for pipeline_id in values
+        }
+        job_entity_ids = tuple(
+            sorted({*asset_ids, *source_asset_ids, *pipeline_ids})
+        )
         if job_entity_ids:
             for job in self.session.scalars(
                 select(ProcessingJobModel)
@@ -272,7 +301,25 @@ class AssetProcessingStatusService:
                 for asset_id in item_asset_ids
                 for job_type in _RELEVANT_ASSET_JOBS
             ]
-            relevant_jobs = [job for job in (*source_jobs, *asset_jobs) if job is not None]
+            item_pipeline_ids = {
+                pipeline_id
+                for source_id in item_source_ids
+                for pipeline_id in pipeline_ids_by_source_asset.get(source_id, set())
+            } | {
+                pipeline_id
+                for asset_id in item_asset_ids
+                for pipeline_id in pipeline_ids_by_asset.get(asset_id, set())
+            }
+            pipeline_jobs = [
+                latest_jobs.get((pipeline_id, job_type))
+                for pipeline_id in item_pipeline_ids
+                for job_type in _RELEVANT_ASSET_JOBS
+            ]
+            relevant_jobs = [
+                job
+                for job in (*source_jobs, *asset_jobs, *pipeline_jobs)
+                if job is not None
+            ]
             analyses = [
                 latest_analysis[asset_id]
                 for asset_id in item_asset_ids

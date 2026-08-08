@@ -12,6 +12,7 @@ from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.metadata.router import router
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.search.operations_model import (
     SearchOperationItemModel,
     SearchOperationRunModel,
@@ -207,6 +208,42 @@ class AssetProcessingStatusTest(unittest.TestCase):
         self.assertEqual(
             service.list(TENANT, "sharepoint", ["private-item"]),
             {"private-item": "discovered"},
+        )
+
+
+    def test_completed_pipeline_index_job_marks_provider_item_indexed(self) -> None:
+        source_asset, asset = self.add_item("pipeline-indexed", "7")
+        pipeline = AssetPipelineModel(
+            tenant_id=TENANT,
+            correlation_id="pipeline-indexed",
+            origin_type="source_asset",
+            origin_id=source_asset.id,
+            source_asset_id=source_asset.id,
+            asset_id=asset.id,
+            state="search_pending",
+        )
+        self.session.add(pipeline)
+        self.session.flush()
+        self.session.add(
+            ProcessingJobModel(
+                tenant_id=TENANT,
+                job_type="asset_index",
+                entity_type="asset_pipeline",
+                entity_id=pipeline.id,
+                idempotency_key="pipeline-indexed-job",
+                payload_json={"pipeline_id": pipeline.id},
+                status="completed",
+            )
+        )
+        self.session.commit()
+
+        self.assertEqual(
+            AssetProcessingStatusService(self.session).list(
+                TENANT,
+                "google-drive",
+                ["pipeline-indexed"],
+            ),
+            {"pipeline-indexed": "indexed"},
         )
 
 

@@ -1,6 +1,6 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.main import app
+from app.modules.asset_details.media_dimensions import MediaDimensions
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.authorization.folder_scope import ViewerFolderScopeModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
@@ -78,6 +79,49 @@ class AssetDetailsApiTest(unittest.TestCase):
             allowed = self.client.get(f"/api/v1/assets/{self.asset_id}")
         self.assertEqual(allowed.status_code, 200)
         self.assertIn(f"external_source_id={source.id}", allowed.json()["sources"][0]["preview_url"])
+
+    def test_details_use_selected_tenant_source_for_drive_dimensions(self):
+        self._principal()
+        with self.factory() as session:
+            source_asset = session.scalar(
+                select(SourceAssetModel).where(
+                    SourceAssetModel.external_asset_id == "external-1"
+                )
+            )
+            source_asset.source_metadata = {"parents": ["root"]}
+            source_id = source_asset.external_source_id
+            session.commit()
+
+        with (
+            patch("app.modules.asset_details.router.SessionLocal", self.factory),
+            patch(
+                "app.modules.asset_details.router.TenantSourceResolver.google_drive",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(access_token="workspace-source-token"),
+            ) as resolve_source,
+            patch(
+                "app.modules.asset_details.router.MediaDimensionsResolver.resolve",
+                new_callable=AsyncMock,
+                return_value=MediaDimensions(2048, 1365, "drive_metadata"),
+            ) as resolve_dimensions,
+        ):
+            response = self.client.get(
+                f"/api/v1/assets/{self.asset_id}",
+                params={"external_source_id": source_id},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["image_width"], 2048)
+        self.assertEqual(response.json()["image_height"], 1365)
+        self.assertEqual(response.json()["resolution_status"], "available")
+        self.assertEqual(
+            resolve_source.await_args.kwargs,
+            {"tenant_id": "tenant-a", "external_source_id": source_id},
+        )
+        self.assertEqual(
+            resolve_dimensions.await_args.kwargs["token"],
+            "workspace-source-token",
+        )
 
     def test_unauthenticated_action_is_rejected(self):
         app.dependency_overrides.clear()

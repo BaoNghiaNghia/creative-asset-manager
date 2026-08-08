@@ -15,7 +15,7 @@ from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.explorer.breadcrumb import resolve_breadcrumb
-from app.providers.google.auth import get_access_token as get_google_token
+from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.providers.google.drive import GoogleDriveClient
 from app.modules.authorization.principal import (
     CurrentPrincipal, require_authenticated_principal, require_permission,
@@ -39,6 +39,27 @@ logger = logging.getLogger(__name__)
 MAX_JSON_NODES = 1500
 MAX_JSON_DEPTH = 10
 ASSETS_READ = require_permission("assets.read")
+
+async def _tenant_google_token(
+    session,
+    *,
+    tenant_id: str,
+    external_source_id: str,
+) -> str | None:
+    try:
+        source = await TenantSourceResolver(session).google_drive(
+            tenant_id=tenant_id,
+            external_source_id=external_source_id,
+        )
+        return source.access_token
+    except HTTPException as exc:
+        logger.warning(
+            "asset_details_source_token_unavailable tenant_id=%s external_source_id=%s status=%s",
+            tenant_id,
+            external_source_id,
+            exc.status_code,
+        )
+        return None
 
 
 
@@ -151,8 +172,19 @@ async def details(request: Request, asset_id: str, external_source_id: str | Non
         )
         if selected_image_source:
             image_source, image_external = selected_image_source
+            source_token = (
+                await _tenant_google_token(
+                    session,
+                    tenant_id=tenant,
+                    external_source_id=image_external.id,
+                )
+                if image_external.source_type == "google_drive"
+                else None
+            )
             dimensions = await MediaDimensionsResolver(session).resolve(
-                source=image_source, external=image_external, token=await get_google_token(request) if image_external.source_type == "google_drive" else None
+                source=image_source,
+                external=image_external,
+                token=source_token,
             )
             image_width, image_height, resolution_source = dimensions.width, dimensions.height, dimensions.source
         location_breadcrumb: list[dict[str, str]] = []
@@ -186,13 +218,34 @@ async def details(request: Request, asset_id: str, external_source_id: str | Non
                 break
             # Local metadata can lag a newly synchronized parent. Resolve with
             # the same tenant source credential, then persist each folder row.
-            if external_source.source_type == "google_drive" and (not access.restricted or access.allows_external_asset(tenant_id=tenant, external_asset_id=source.external_asset_id)):
+            if external_source.source_type == "google_drive" and (
+                not access.restricted
+                or scope_service.allows_external_asset(
+                    tenant_id=tenant,
+                    access=access,
+                    external_asset_id=source.external_asset_id,
+                )
+            ):
                 try:
-                    token = await get_google_token(request)
+                    token = await _tenant_google_token(
+                        session,
+                        tenant_id=tenant,
+                        external_source_id=external_source.id,
+                    )
                     if token:
                         current = parent_id
                         provider_folders = {}
                         async with GoogleDriveClient(token) as client:
+                            if not current:
+                                item_node = await client.get_breadcrumb_metadata(
+                                    source.external_asset_id
+                                )
+                                current = item_node.parent_id
+                                parent_id = str(current or "")
+                                if current:
+                                    updated_source_metadata = dict(source.source_metadata or {})
+                                    updated_source_metadata["parents"] = [str(current)]
+                                    source.source_metadata = updated_source_metadata
                             for depth in range(64):
                                 if not current:
                                     break

@@ -424,6 +424,14 @@ async def item_location(request: Request, item_id: str, provider: Provider = Que
         visited = set()
         try:
             async with create_source_provider(provider, token) as client:
+                if not current:
+                    item_node = await client.get_node(item_id)
+                    current = item_node.parent_id
+                    parent_id = str(current or "")
+                    if current:
+                        item_source_metadata = dict(source.source_metadata or {})
+                        item_source_metadata["parents"] = [str(current)]
+                        source.source_metadata = item_source_metadata
                 for depth in range(64):
                     if not current:
                         failure_reason = "missing_parent"
