@@ -67,6 +67,10 @@ export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelec
             : window.location.assign(sourceLoginRoute(source.provider, applicationAuthenticated))}
           >
             {connected ? "Open source" : applicationAuthenticated ? "Connect " + (source.provider === "sharepoint" ? "SharePoint" : "Google Drive") : "Sign in with " + (source.provider === "sharepoint" ? "Microsoft" : "Google")}</button>
+          {connected && source.provider === "google-drive" && applicationAuthenticated && <button
+            className="source-card-secondary-action"
+            onClick={() => window.location.assign("/api/auth/google/connect-drive")}
+          >Switch Google account</button>}
           {connected && <span className="source-card-status"><i /> Connected</span>}
         </article>;
       })}

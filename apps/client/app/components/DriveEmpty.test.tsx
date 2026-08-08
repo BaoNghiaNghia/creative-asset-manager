@@ -38,4 +38,22 @@ describe("public Google sign-in", () => {
     expect(sourceLoginRoute("google-drive", true)).toBe("/api/auth/google/connect-drive");
     expect(sourceLoginRoute("google-drive", false)).toBe("/api/auth/google/login");
   });
+
+  it("offers account switching through the dedicated Drive route", () => {
+    const connected: ProviderSessions = {
+      "google-drive": { authenticated: true, user: { id: "google-a" }, checking: false },
+      sharepoint: { authenticated: false, user: null, checking: false },
+    };
+    const markup = renderToStaticMarkup(
+      <DriveEmpty
+        oauthError={null}
+        activeProvider="google-drive"
+        authByProvider={connected}
+        onSelectProvider={() => undefined}
+        applicationAuthenticated
+      />,
+    );
+    expect(markup).toContain("Switch Google account");
+    expect(sourceLoginRoute("google-drive", true)).toBe("/api/auth/google/connect-drive");
+  });
 });

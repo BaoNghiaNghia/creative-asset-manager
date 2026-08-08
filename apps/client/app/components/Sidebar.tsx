@@ -86,6 +86,7 @@ export function Sidebar({
             {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}
+          {active && session.authenticated && source.provider === "google-drive" && applicationAuthenticated && <button className="source-reconnect" onClick={() => window.location.assign("/api/auth/google/connect-drive")}>Switch Google account</button>}
           {active && session.authenticated && <div className="tree">
             {rootFolders.map(folder => <DriveTreeNode
               key={folder.id} node={folder} ancestors={rootAncestors} activeId={activeId}

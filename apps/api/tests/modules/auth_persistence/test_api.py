@@ -1,4 +1,5 @@
 import unittest
+from urllib.parse import urlencode
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -131,6 +132,28 @@ class AuthApiExposureTest(unittest.TestCase):
             response = client.get("/api/auth/google/callback?state=state&code=code", follow_redirects=False)
         self.assertEqual(response.status_code, 307)
         self.assertIn("google=source_connected", response.headers["location"])
+
+    def test_drive_authorization_forces_account_chooser(self):
+        from urllib.parse import parse_qs, urlparse
+        from app.modules.auth.router import _authorization_response
+        flow = SimpleNamespace(
+            code_verifier=None,
+            authorization_url=lambda **options: (
+                "https://accounts.google.com/o/oauth2/auth?" + urlencode(options),
+                "oauth-state",
+            ),
+        )
+        with patch("app.modules.auth.router.remember_state"), patch("app.modules.auth.router.clear_provider_session_cookies"):
+            response = _authorization_response(
+                flow,
+                redirect_intent="drive_connect:tenant-a:-:user-a",
+                prompt="consent select_account",
+            )
+        params = parse_qs(urlparse(response.headers["location"]).query)
+        self.assertEqual(params["prompt"], ["consent select_account"])
+        self.assertEqual(params["access_type"], ["offline"])
+        self.assertEqual(params["include_granted_scopes"], ["true"])
+        self.assertNotIn("login_hint", params)
 
     def test_google_oauth_failure_does_not_enqueue_scan(self):
         def fail_exchange(**_kwargs):

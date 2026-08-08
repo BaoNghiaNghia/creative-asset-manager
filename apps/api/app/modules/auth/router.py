@@ -42,10 +42,10 @@ def client_redirect(**params: str) -> RedirectResponse:
     return RedirectResponse(client_url + separator + urlencode(params))
 
 
-def _authorization_response(flow, *, redirect_intent: str, prompt_consent: bool = False) -> RedirectResponse:
+def _authorization_response(flow, *, redirect_intent: str, prompt: str | None = None) -> RedirectResponse:
     options = {"access_type": "offline", "include_granted_scopes": "true"}
-    if prompt_consent:
-        options["prompt"] = "consent"
+    if prompt:
+        options["prompt"] = prompt
     authorization_url, state = flow.authorization_url(**options)
     binding = secrets.token_urlsafe(32)
     remember_state(
@@ -69,7 +69,7 @@ async def login(request: Request):
     return _authorization_response(
         oauth_flow(require_drive_scope=False),
         redirect_intent="application_login",
-        prompt_consent=False,
+        prompt=None,
     )
 
 
@@ -96,7 +96,7 @@ async def connect_drive(
     return _authorization_response(
         oauth_flow(require_drive_scope=True),
         redirect_intent=intent,
-        prompt_consent=True,
+        prompt="consent select_account",
     )
 
 
