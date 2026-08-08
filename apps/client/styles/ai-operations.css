@@ -277,3 +277,16 @@
   background:linear-gradient(90deg,#fff 0%,#fffdf1 42%,#fff1a8 100%);
   color:#234fb5;
 }
+
+
+.scan-status{display:inline-flex;align-items:center;gap:6px}
+.scan-status-icon{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;font-size:11px;font-weight:900;line-height:1}
+.scan-status-icon.completed{background:#dff6e8;color:#1d8a50}
+.scan-status-icon.failed{background:#fff0ed;color:#c53f35}
+.scan-status-icon.idle{background:#eef2f7;color:#64748b}
+.scan-status-icon.running{border:2px solid #c9d8ff;border-top-color:#3568e8;animation:scan-status-spin .8s linear infinite}
+.scan-status-icon.waiting{position:relative;background:#fff6dd;color:#ad7514;animation:scan-status-pulse 1.4s ease-in-out infinite}
+.scan-status-icon.waiting i{width:5px;height:5px;border-radius:50%;background:currentColor}
+@keyframes scan-status-spin{to{transform:rotate(360deg)}}
+@keyframes scan-status-pulse{50%{transform:scale(.84);opacity:.62}}
+@media (prefers-reduced-motion:reduce){.scan-status-icon.running,.scan-status-icon.waiting{animation:none}}

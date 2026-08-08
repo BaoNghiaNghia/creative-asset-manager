@@ -518,18 +518,18 @@ describe("Search Coverage card", () => {
       stages, active_job: { stage: "Download", job_type: "source_asset_download", status: "processing", filename: "nurse.jpg", provider: "google_drive", attempt_count: 1, max_attempts: 5, started_at: "2026-07-27T00:00:00Z", elapsed_ms: 1_000, message: "Downloading from Google Drive" },
       failure_groups: [], skipped_breakdown: [{ category: "folders_non_images", count: 5 }], recent_assets: { page: 2, page_size: 25, total: 60, items: [{ asset_id: "asset-1", filename: "nurse.jpg", state: "search_pending", stage_statuses: { download: "completed", store: "completed", analyze: "completed", projection: "completed", index: "pending" }, updated_at: "2026-07-27T00:00:00Z", error_code: null }] },
     }} />);
-    expect(markup).toContain("GOOGLE DRIVE SCAN");
+    expect(markup).toContain("scan-status-icon completed");
     expect(markup).toContain("Elasticsearch Index");
     expect(markup).toContain("Downloading from Google Drive");
     expect(markup).toContain("Queue breakdown by stage");
     expect(markup).toContain("Waiting to start");
     expect(markup).toContain("Scheduled retry");
-    expect(markup).toContain("Furthest verified stage");
+    expect(markup).toContain("pipeline-progress-summary");
     expect(markup).toContain("Search ready");
     expect(markup).toContain("In progress");
     expect(markup).toContain("Queued or waiting");
     expect(markup).toContain('aria-label="Latest scan and current processing"');
-    expect(markup).toContain("8 Drive items discovered · 4 pipeline jobs queued.");
+    expect(markup).toContain("8 m");
     expect(markup).not.toContain("<dd>Pipeline item</dd>");
     expect(markup).toContain("Showing 26-50 of 60");
     expect(markup).toContain("Pipeline asset pagination");

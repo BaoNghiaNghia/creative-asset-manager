@@ -253,6 +253,33 @@ export function AiOperationsFilters({ filters, models, profiles, onChange }: {
   </form>;
 }
 
+function scanStatusLabel(status: string): string {
+  return ({
+    completed: "Hoàn thành",
+    running: "Đang quét",
+    processing: "Đang quét",
+    queued: "Chờ quét",
+    waiting: "Chờ quét",
+    failed: "Cần kiểm tra",
+    cancelled: "Đã hủy",
+  } as Record<string, string>)[status] || status.replaceAll("_", " ");
+}
+
+function ScanStatusIcon({ status }: { status: string }) {
+  const state = ["running", "processing"].includes(status)
+    ? "running"
+    : ["queued", "waiting"].includes(status)
+      ? "waiting"
+      : status === "completed"
+        ? "completed"
+        : ["failed", "cancelled"].includes(status)
+          ? "failed"
+          : "idle";
+  return <span className={"scan-status-icon " + state} aria-hidden="true">
+    {state === "completed" ? "✓" : state === "failed" ? "!" : <i />}
+  </span>;
+}
+
 export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipeline?: PipelineSnapshot | null; onPage?: (page: number, pageSize: 25 | 50 | 100) => void }) {
   if (pipeline === undefined) return <DashboardState kind="empty" label="Pipeline overview is unavailable until the API is updated and restarted." />;
   if (pipeline === null) return <DashboardState kind="empty" label="No pipeline activity for this tenant" />;
@@ -269,14 +296,14 @@ export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipel
       <PipelineMetric icon="attention" label="Needs attention" value={pipeline.overall.needs_attention_assets ?? pipeline.overall.failed} detail="Unique unresolved actionable assets" tone="attention" />
     </section>
     <div className="pipeline-context-row" role="group" aria-label="Latest scan and current processing">
-      <section className="pipeline-scan-card pipeline-scan-card-compact" aria-label="Latest Google Drive scan">
-        <div><small>GOOGLE DRIVE SCAN</small><h2>{scan ? "Last " + scan.mode + " scan" : "No scan recorded"}</h2>
-        <p>{scan ? (scan.status === "completed" ? scan.items_seen_count.toLocaleString() + " Drive items discovered · " + scan.jobs_created_count.toLocaleString() + " pipeline jobs queued." : "Scan is " + scan.status + ". " + scan.items_seen_count.toLocaleString() + " items seen so far.") : "Run a source sync to discover Drive assets."}</p></div>
-        {scan && <dl><div><dt>Status</dt><dd><StatusText status={scan.status} /></dd></div><div><dt>Finished</dt><dd>{scan.completed_at ? new Date(scan.completed_at).toLocaleString() : "In progress"}</dd></div></dl>}
+      <section className="pipeline-scan-card pipeline-scan-card-compact" aria-label="Trạng thái quét Google Drive">
+        <div><small>ĐỒNG BỘ GOOGLE DRIVE</small><h2>{scan ? (scan.mode === "full" ? "Lần quét toàn bộ gần nhất" : "Lần quét cập nhật gần nhất") : "Chưa có lần quét nào"}</h2>
+        <p>{scan ? (scan.status === "completed" ? scan.items_seen_count.toLocaleString() + " mục trên Google Drive đã được ghi nhận. " + scan.jobs_created_count.toLocaleString() + " tác vụ xử lý đã được xếp hàng." : "Hệ thống đang quét. Đã ghi nhận " + scan.items_seen_count.toLocaleString() + " mục cho đến thời điểm này.") : "Kết nối Google Drive để hệ thống phát hiện tài sản và chuẩn bị xử lý."}</p></div>
+        {scan && <dl><div><dt>Trạng thái</dt><dd><span className="scan-status"><ScanStatusIcon status={scan.status} />{scanStatusLabel(scan.status)}</span></dd></div><div><dt>{scan.completed_at ? "Hoàn tất lúc" : "Thời gian"}</dt><dd>{scan.completed_at ? new Date(scan.completed_at).toLocaleString() : "Đang thực hiện"}</dd></div></dl>}
       </section>
       {active && <section className="pipeline-active-job" aria-live="polite"><div><small>CURRENTLY PROCESSING</small><div className="pipeline-active-title"><span className="pipeline-status-dot active" aria-hidden="true" /><h2>{active.stage}</h2></div><p>{active.message}</p></div><dl>{active.filename && <div><dt>Item</dt><dd>{active.filename}</dd></div>}<div><dt>Started</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Elapsed</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Attempt</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl></section>}
     </div>
-    <section className="pipeline-progress-summary pipeline-progress-summary-compact" aria-label="Asset readiness by furthest completed stage"><div><small>ASSET READINESS</small><h2>Furthest verified stage</h2><p>Each eligible image is counted once.</p></div><dl>{pipeline.overall.asset_progress.filter(item => item.count > 0).map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
+    <section className="pipeline-progress-summary pipeline-progress-summary-compact" aria-label="Mức sẵn sàng của tài sản theo giai đoạn đã xác thực"><div><small>MỨC SẴN SÀNG CỦA TÀI SẢN</small><h2>Giai đoạn hoàn tất đã xác thực</h2><p>Mỗi ảnh đủ điều kiện chỉ được tính một lần.</p></div><dl>{pipeline.overall.asset_progress.filter(item => item.count > 0).map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
     {needsAttentionStages.length > 0 && <section className="pipeline-stage-section" aria-label="Stages requiring attention"><header><div><small>WHERE TO FOCUS</small><h2>Active pipeline stages</h2><p>Only stages with queued, waiting, running, or failed work are expanded here.</p></div><span>{needsAttentionStages.length} stage{needsAttentionStages.length === 1 ? "" : "s"}</span></header><div className="pipeline-stage-grid">{needsAttentionStages.map(stage => { const tone = pipelineStageTone(stage, active?.job_type); return <article key={stage.key} className={tone}>
       <header><div><small>STAGE</small><h2>{stage.label}</h2></div><StageStatusBadge tone={tone} /></header><p>{stage.subtitle}</p>
       <strong>{stage.completed_assets.toLocaleString()} / {stage.total_logical_assets ? stage.total_logical_assets.toLocaleString() : "-"}</strong><span>{stage.percentage === null ? "Calculating progress" : String(stage.percentage) + "% of logical assets complete"}</span><div className={"pipeline-progress " + tone}><i style={{ width: String(stage.percentage || 0) + "%" }} /></div>
