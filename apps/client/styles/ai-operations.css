@@ -377,3 +377,67 @@
 .pipeline-context-row>.pipeline-progress-summary dl{width:100%;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
 @media(max-width:1180px){.pipeline-context-row{grid-template-columns:repeat(2,minmax(0,1fr))}.pipeline-context-row>.pipeline-progress-summary{grid-column:1/-1;flex-direction:row;align-items:center}.pipeline-context-row>.pipeline-progress-summary>div{width:auto;flex:0 0 34%}}
 @media(max-width:760px){.pipeline-context-row{grid-template-columns:1fr}.pipeline-context-row>.pipeline-progress-summary{grid-column:auto;align-items:flex-start;flex-direction:column}.pipeline-context-row>.pipeline-progress-summary>div{width:100%;flex-basis:auto}.pipeline-context-row>.pipeline-progress-summary dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Align card hierarchy: title and description at the top, metadata anchored below. */
+.pipeline-context-row>.pipeline-scan-card,
+.pipeline-context-row>.pipeline-active-job{
+  align-items:stretch;
+  justify-content:flex-start;
+  flex-direction:column;
+  gap:14px;
+  min-height:178px;
+  padding:16px;
+}
+.pipeline-context-row>.pipeline-scan-card>div:first-child,
+.pipeline-context-row>.pipeline-active-job>div:first-child{
+  min-width:0;
+  min-height:72px;
+}
+.pipeline-context-row>.pipeline-scan-card h2,
+.pipeline-context-row>.pipeline-active-job h2{
+  margin:4px 0 6px;
+  font-size:16px;
+  line-height:1.2;
+}
+.pipeline-context-row>.pipeline-scan-card p,
+.pipeline-context-row>.pipeline-active-job p{
+  max-width:none;
+  margin:0;
+  font-size:11px;
+  line-height:1.4;
+}
+.pipeline-context-row>.pipeline-scan-card dl,
+.pipeline-context-row>.pipeline-active-job dl{
+  width:100%;
+  margin-top:auto;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px 16px;
+}
+.pipeline-context-row>.pipeline-active-job dl{
+  padding-top:10px;
+  border-top:1px solid #edf1f5;
+}
+.pipeline-context-row>.pipeline-progress-summary{
+  min-height:178px;
+  padding:16px;
+}
+.pipeline-context-row>.pipeline-progress-summary>div{
+  min-height:72px;
+}
+.pipeline-context-row>.pipeline-progress-summary dl{
+  margin-top:auto;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+}
+.pipeline-context-row>.pipeline-progress-summary dl div{
+  padding:8px 10px;
+}
+@media(max-width:1180px){
+  .pipeline-context-row>.pipeline-progress-summary{flex-direction:row;align-items:stretch}
+  .pipeline-context-row>.pipeline-progress-summary>div{min-height:0}
+}
+@media(max-width:760px){
+  .pipeline-context-row>.pipeline-scan-card,
+  .pipeline-context-row>.pipeline-active-job,
+  .pipeline-context-row>.pipeline-progress-summary{min-height:0}
+  .pipeline-context-row>.pipeline-progress-summary{flex-direction:column}
+}
