@@ -943,7 +943,11 @@ export function useDriveExplorer() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             signal: controller.signal,
-            body: JSON.stringify({ provider, item_ids: batch }),
+            body: JSON.stringify({
+              provider,
+              item_ids: batch,
+              ...(activeExternalSourceId ? { external_source_id: activeExternalSourceId } : {}),
+            }),
           });
           if (!response.ok) throw Error("Unable to load asset metadata");
           const body = await response.json() as { items: AssetMetadata[] };
@@ -959,7 +963,7 @@ export function useDriveExplorer() {
 
     void loadMetadata();
     return () => controller.abort();
-  }, [auth.authenticated, provider, matchedItems]);
+  }, [auth.authenticated, provider, matchedItems, activeExternalSourceId]);
 
   return {
     path,

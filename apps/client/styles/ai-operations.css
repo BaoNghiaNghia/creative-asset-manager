@@ -290,3 +290,64 @@
 @keyframes scan-status-spin{to{transform:rotate(360deg)}}
 @keyframes scan-status-pulse{50%{transform:scale(.84);opacity:.62}}
 @media (prefers-reduced-motion:reduce){.scan-status-icon.running,.scan-status-icon.waiting{animation:none}}
+
+
+/* Fill the Operations navigation width on desktop while preserving horizontal scroll on small screens. */
+@media (min-width: 901px) {
+  .ops-tabs {
+    display:grid;
+    grid-template-columns:repeat(6,minmax(0,1fr));
+    width:100%;
+    overflow:visible;
+  }
+  .ops-tabs button {
+    justify-content:center;
+    min-width:0;
+    padding-inline:12px;
+  }
+}
+.ops-tabs button .ops-tab-icon{
+  width:18px;
+  height:18px;
+  padding:2px;
+  border-radius:6px;
+  background:#f3f6fa;
+  color:#64748b;
+}
+.ops-tabs button.active .ops-tab-icon{
+  background:#e8efff;
+  color:#315ed1;
+  stroke-width:2.1;
+}
+.ops-tabs button:hover:not(.active) .ops-tab-icon{
+  background:#edf2fa;
+  color:#405a87;
+}
+
+
+/* Recent asset list: compact file identity and scannable stage badges. */
+.pipeline-recent .ops-data-table tbody tr{transition:background .16s ease}
+.pipeline-recent .ops-data-table tbody tr:hover{background:#f8faff}
+.pipeline-recent .ops-data-table td{vertical-align:middle}
+.pipeline-asset-cell{min-width:260px}
+.pipeline-asset{display:flex;align-items:center;gap:9px;min-width:0}
+.pipeline-asset>div{display:flex;min-width:0;flex-direction:column;gap:2px}
+.pipeline-asset a,.pipeline-asset>div>span{max-width:245px;overflow:hidden;color:#2454b8;font-size:11px;font-weight:750;line-height:1.25;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
+.pipeline-asset a:hover{text-decoration:underline}
+.pipeline-asset small{color:#8793a5;font-size:9px;letter-spacing:.04em;text-transform:uppercase}
+.pipeline-asset-icon{display:grid;place-items:center;width:27px;height:27px;flex:0 0 auto;border:1px solid #dce5f2;border-radius:8px;background:#f5f8fc;color:#60728d}
+.pipeline-asset-icon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pipeline-asset-icon.image{border-color:#d5e5ff;background:#edf5ff;color:#3b6fc9}
+.pipeline-asset-icon.video{border-color:#eadcff;background:#f8f2ff;color:#8054bd}
+.pipeline-asset-icon.document{border-color:#ffe1d7;background:#fff5f0;color:#c76b40}
+.pipeline-recent .ops-status{gap:5px;padding:4px 7px;border:1px solid #e4eaf2;border-radius:999px;background:#f7f9fb;color:#607087;font-size:10px;font-weight:750;line-height:1;white-space:nowrap}
+.pipeline-recent .ops-status i{width:6px;height:6px;background:#8793a5}
+.pipeline-recent .ops-status.completed{border-color:#cdebd8;background:#f1fbf5;color:#28784c}
+.pipeline-recent .ops-status.completed i{background:#37a464}
+.pipeline-recent .ops-status.failed{border-color:#f5d0cb;background:#fff4f2;color:#b84035}
+.pipeline-recent .ops-status.failed i{background:#dc584c}
+.pipeline-recent .ops-status.processing{border-color:#cddcff;background:#f2f6ff;color:#315fc5}
+.pipeline-recent .ops-status.processing i{background:#4777e8}
+.pipeline-recent .ops-status.pending,.pipeline-recent .ops-status.queued,.pipeline-recent .ops-status.retry,.pipeline-recent .ops-status.waiting{border-color:#f2dfaa;background:#fff9e9;color:#9a6a13}
+.pipeline-recent .ops-status.pending i,.pipeline-recent .ops-status.queued i,.pipeline-recent .ops-status.retry i,.pipeline-recent .ops-status.waiting i{background:#d79b20}
+@media(max-width:760px){.pipeline-asset-cell{min-width:210px}.pipeline-asset a,.pipeline-asset>div>span{max-width:185px}}

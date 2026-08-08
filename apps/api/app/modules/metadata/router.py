@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.core.cloud_account import cloud_account_id
+from app.core.cloud_account import cloud_account_id, cloud_tenant_id
 from app.core.database import get_db
 from app.modules.metadata.asset_service import AssetMetadataService
 from app.modules.metadata.schema import MetadataQueryRequest, SetRatingRequest
@@ -21,6 +21,8 @@ def query_metadata(
             cloud_account_id(request, body.provider),
             body.provider,
             body.item_ids,
+            processing_tenant_id=cloud_tenant_id(request, body.provider),
+            external_source_id=body.external_source_id,
         )
     }
 

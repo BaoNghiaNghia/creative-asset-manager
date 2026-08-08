@@ -122,6 +122,8 @@ class AssetProcessingStatusService:
         tenant_id: str,
         provider: str,
         item_ids: list[str],
+        *,
+        external_source_id: str | None = None,
     ) -> dict[str, AssetProcessingStatus]:
         unique_ids = tuple(dict.fromkeys(item_ids))
         statuses: dict[str, AssetProcessingStatus] = {
@@ -130,7 +132,12 @@ class AssetProcessingStatusService:
         if not unique_ids:
             return statuses
 
-        identities = self.list_source_identities(tenant_id, provider, list(unique_ids))
+        identities = self.list_source_identities(
+            tenant_id,
+            provider,
+            list(unique_ids),
+            external_source_id=external_source_id,
+        )
         if not identities:
             return statuses
 

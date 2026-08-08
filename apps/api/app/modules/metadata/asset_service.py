@@ -32,8 +32,16 @@ class AssetMetadataService:
         account_id: str,
         provider: str,
         item_ids: list[str],
+        *,
+        processing_tenant_id: str | None = None,
+        external_source_id: str | None = None,
     ) -> list[AssetMetadata]:
-        statuses = self.processing_statuses.list(account_id, provider, item_ids)
+        statuses = self.processing_statuses.list(
+            processing_tenant_id or account_id,
+            provider,
+            item_ids,
+            external_source_id=external_source_id,
+        )
         stored = {
             metadata.item_id: serialize_asset_metadata(
                 metadata,

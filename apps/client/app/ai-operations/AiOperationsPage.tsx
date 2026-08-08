@@ -354,13 +354,37 @@ function PipelineFailureCard({ item }: { item: PipelineSnapshot["failure_groups"
   return <li className="pipeline-attention-card"><span className="pipeline-attention-icon" aria-hidden="true">!</span><div><header><span className="pipeline-stage-chip">{item.stage}</span><b>{details.title}</b></header><p>{details.guidance}</p><footer><code>{item.error_code}</code><span>{item.count.toLocaleString()} affected</span><time dateTime={item.latest_at}>Last seen {new Date(item.latest_at).toLocaleString()}</time></footer></div></li>;
 }
 
+function pipelineAssetKind(filename: string): "image" | "video" | "document" | "asset" {
+  const extension = filename.split(".").at(-1)?.toLowerCase() || "";
+  if (["jpg", "jpeg", "png", "webp", "avif", "gif", "svg"].includes(extension)) return "image";
+  if (["mp4", "mov", "avi", "webm", "mkv"].includes(extension)) return "video";
+  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(extension)) return "document";
+  return "asset";
+}
+
+function pipelineAssetTitle(filename: string): string {
+  const looksLikeId = /^[a-f0-9]{24,}$/i.test(filename);
+  return looksLikeId ? "Asset " + filename.slice(0, 8) + "..." + filename.slice(-5) : filename;
+}
+
+function PipelineAssetIcon({ filename }: { filename: string }) {
+  const kind = pipelineAssetKind(filename);
+  const paths = {
+    image: "M4 5h16v14H4z M6.5 16l3.5-4 2.5 3 2-2 3.5 3",
+    video: "M4 6h11v12H4z M15 10l5-3v10l-5-3",
+    document: "M7 3h7l4 4v14H7z M14 3v5h5 M10 12h5M10 16h5",
+    asset: "M7 3h7l4 4v14H7z M14 3v5h5 M10 12h5M10 16h4",
+  };
+  return <span className={"pipeline-asset-icon " + kind} aria-hidden="true"><svg viewBox="0 0 24 24"><path d={paths[kind]} /></svg></span>;
+}
+
 function PipelineRecentAssets({ recent, onPage }: { recent: PipelineSnapshot["recent_assets"]; onPage: (page: number, pageSize: 25 | 50 | 100) => void }) {
   if (!recent.items.length) return <section className="pipeline-recent"><h2>Recent asset progress</h2><p>No pipeline assets have been created yet.</p></section>;
   const pages = Math.max(1, Math.ceil(recent.total / recent.page_size));
   const page = Math.min(recent.page, pages);
   const first = (page - 1) * recent.page_size + 1;
   const last = Math.min(page * recent.page_size, recent.total);
-  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Recent asset progress</h2><p>Showing {first}-{last} of {recent.total} logical assets. Select a name to open details.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Items per page<select aria-label="Pipeline items per page" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Previous</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Next</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Asset</th><th>Current stage</th><th>Download</th><th>Store</th><th>AI</th><th>Projection</th><th>Index</th><th>Updated</th><th>Attention</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)}>{item.filename}</a> : item.filename}</td><td>{item.state.replaceAll("_", " ")}</td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
+  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Recent asset progress</h2><p>Showing {first}-{last} of {recent.total} logical assets. Select a name to open details.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Items per page<select aria-label="Pipeline items per page" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Previous</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Next</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Asset</th><th>Current stage</th><th>Download</th><th>Store</th><th>AI</th><th>Projection</th><th>Index</th><th>Updated</th><th>Attention</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetIcon filename={item.filename} /><div>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)} title={item.filename}>{pipelineAssetTitle(item.filename)}</a> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small>{pipelineAssetKind(item.filename) === "asset" ? "Asset ID" : pipelineAssetKind(item.filename)}</small></div></div></td><td><StatusText status={item.state} /></td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
 }
 
 function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: string; label: string; value: number; detail: string; tone?: string }) {

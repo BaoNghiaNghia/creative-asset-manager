@@ -18,3 +18,15 @@ def cloud_account_id(request: Request, provider: Provider) -> str:
         or session.user.get("email")
         or f"{provider}-user"
     )
+
+
+def cloud_tenant_id(request: Request, provider: Provider) -> str:
+    """Use the authenticated workspace tenant for pipeline/status lookups."""
+    session = (
+        get_microsoft_session(request)
+        if provider == "sharepoint"
+        else get_google_session(request)
+    )
+    if session and session.active_tenant_id:
+        return str(session.active_tenant_id)
+    return cloud_account_id(request, provider)
