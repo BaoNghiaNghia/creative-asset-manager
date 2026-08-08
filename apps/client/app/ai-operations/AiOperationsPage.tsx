@@ -265,6 +265,26 @@ function scanStatusLabel(status: string): string {
   } as Record<string, string>)[status] || status.replaceAll("_", " ");
 }
 
+function PipelineContextIcon({ kind }: { kind: "sync" | "active" | "ready" }) {
+  const paths = kind === "sync"
+    ? <>
+      <path d="M5.2 14.3a4.1 4.1 0 1 1 1-7.7A4.6 4.6 0 0 1 15 8.8a3 3 0 0 1-.3 5.9H5.2Z" />
+      <path d="M6.2 10.4a4.4 4.4 0 0 1 5.1-1.8M12.9 8.6v2.4h-2.4M13.8 12.2a4.4 4.4 0 0 1-5.1 1.8M7.1 14v-2.4h2.4" />
+    </>
+    : kind === "active"
+      ? <>
+        <path d="M5.2 14.3a4.1 4.1 0 1 1 1-7.7A4.6 4.6 0 0 1 15 8.8a3 3 0 0 1-.3 5.9H5.2Z" />
+        <path d="M10 8.8v5.1M7.9 11.8 10 14l2.1-2.2" />
+      </>
+      : <>
+        <path d="M5 3.5h5.8l3.2 3.2v7.8A1.5 1.5 0 0 1 12.5 16h-7A1.5 1.5 0 0 1 4 14.5V5A1.5 1.5 0 0 1 5 3.5Z" />
+        <path d="M10.5 3.8v3h3M6.5 11.2l1.7 1.7 3.4-3.5" />
+      </>;
+  return <span className={"pipeline-context-icon " + kind} aria-hidden="true">
+    <svg viewBox="0 0 20 20" fill="none">{paths}</svg>
+  </span>;
+}
+
 function ScanStatusIcon({ status }: { status: string }) {
   const state = ["running", "processing"].includes(status)
     ? "running"
@@ -297,12 +317,12 @@ export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipel
     </section>
     <div className="pipeline-context-row" role="group" aria-label="Latest scan and current processing">
       <section className="pipeline-scan-card pipeline-scan-card-compact" aria-label="Trạng thái quét Google Drive">
-        <div><small>ĐỒNG BỘ GOOGLE DRIVE</small><h2>{scan ? (scan.mode === "full" ? "Lần quét toàn bộ gần nhất" : "Lần quét cập nhật gần nhất") : "Chưa có lần quét nào"}</h2>
-        <p>{scan ? (scan.status === "completed" ? scan.items_seen_count.toLocaleString() + " mục trên Google Drive đã được ghi nhận. " + scan.jobs_created_count.toLocaleString() + " tác vụ xử lý đã được xếp hàng." : "Hệ thống đang quét. Đã ghi nhận " + scan.items_seen_count.toLocaleString() + " mục cho đến thời điểm này.") : "Kết nối Google Drive để hệ thống phát hiện tài sản và chuẩn bị xử lý."}</p></div>
+        <div className="pipeline-context-heading"><PipelineContextIcon kind="sync" /><div><small>ĐỒNG BỘ GOOGLE DRIVE</small><h2>{scan ? (scan.mode === "full" ? "Lần quét toàn bộ gần nhất" : "Lần quét cập nhật gần nhất") : "Chưa có lần quét nào"}</h2>
+        <p>{scan ? (scan.status === "completed" ? scan.items_seen_count.toLocaleString() + " mục trên Google Drive đã được ghi nhận. " + scan.jobs_created_count.toLocaleString() + " tác vụ xử lý đã được xếp hàng." : "Hệ thống đang quét. Đã ghi nhận " + scan.items_seen_count.toLocaleString() + " mục cho đến thời điểm này.") : "Kết nối Google Drive để hệ thống phát hiện tài sản và chuẩn bị xử lý."}</p></div></div>
         {scan && <dl><div><dt>Trạng thái</dt><dd><span className="scan-status"><ScanStatusIcon status={scan.status} />{scanStatusLabel(scan.status)}</span></dd></div><div><dt>{scan.completed_at ? "Hoàn tất lúc" : "Thời gian"}</dt><dd>{scan.completed_at ? new Date(scan.completed_at).toLocaleString() : "Đang thực hiện"}</dd></div></dl>}
       </section>
-      {active && <section className="pipeline-active-job" aria-live="polite"><div><small>ĐANG XỬ LÝ</small><div className="pipeline-active-title"><span className="pipeline-status-dot active" aria-hidden="true" /><h2>{pipelineStageLabel(active.stage)}</h2></div><p>{active.message}</p></div><dl>{active.filename && <div><dt>Tài sản</dt><dd>{active.filename}</dd></div>}<div><dt>Bắt đầu</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Thời gian đã chạy</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Lần thử</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl></section>}
-    <section className="pipeline-progress-summary pipeline-progress-summary-compact" aria-label="Mức sẵn sàng của tài sản theo giai đoạn đã xác thực"><div><small>MỨC SẴN SÀNG CỦA TÀI SẢN</small><h2>Giai đoạn hoàn tất đã xác thực</h2><p>Mỗi ảnh đủ điều kiện chỉ được tính một lần.</p></div><dl>{pipeline.overall.asset_progress.filter(item => item.count > 0).map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
+      {active && <section className="pipeline-active-job" aria-live="polite"><div className="pipeline-context-heading"><PipelineContextIcon kind="active" /><div><small>ĐANG XỬ LÝ</small><div className="pipeline-active-title"><span className="pipeline-status-dot active" aria-hidden="true" /><h2>{pipelineStageLabel(active.stage)}</h2></div><p>{active.message}</p></div></div><dl>{active.filename && <div><dt>Tài sản</dt><dd>{active.filename}</dd></div>}<div><dt>Bắt đầu</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Thời gian đã chạy</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Lần thử</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl></section>}
+    <section className="pipeline-progress-summary pipeline-progress-summary-compact" aria-label="Mức sẵn sàng của tài sản theo giai đoạn đã xác thực"><div className="pipeline-context-heading"><PipelineContextIcon kind="ready" /><div><small>MỨC SẴN SÀNG CỦA TÀI SẢN</small><h2>Giai đoạn hoàn tất đã xác thực</h2><p>Mỗi ảnh đủ điều kiện chỉ được tính một lần.</p></div></div><dl>{pipeline.overall.asset_progress.filter(item => item.count > 0).map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
     </div>
     {needsAttentionStages.length > 0 && <section className="pipeline-stage-section" aria-label="Các giai đoạn cần xử lý"><header><div><small>ĐIỂM CẦN LƯU Ý</small><h2>Các giai đoạn đang hoạt động</h2><p>Chỉ các giai đoạn đang chờ, đang chạy hoặc gặp lỗi mới được mở rộng.</p></div><span>{needsAttentionStages.length} giai đoạn</span></header><div className="pipeline-stage-grid">{needsAttentionStages.map(stage => { const tone = pipelineStageTone(stage, active?.job_type); return <article key={stage.key} className={tone}>
       <header><div><small>GIAI ĐOẠN</small><h2>{pipelineStageLabel(stage.label)}</h2></div><StageStatusBadge tone={tone} /></header><p>{stage.subtitle}</p>
