@@ -674,7 +674,6 @@ async def upload_file(
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
-    location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 @router.delete("/items/{item_id}")
