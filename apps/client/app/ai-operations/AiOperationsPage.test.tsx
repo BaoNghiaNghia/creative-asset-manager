@@ -223,15 +223,15 @@ describe("AI Operations dashboard", () => {
   it("renders all KPI cards and accessible chart/table equivalents", () => {
     const markup = render();
     for (const value of [
-      "Processed today", "Completed", "Failed", "Running", "Queued", "Success rate",
+      "Processed today", "Completed", "Failed", "Đang chạy", "Đã xếp hàng", "Success rate",
       "Estimated cost today", "Estimated cost this month", "Daily processing",
       "Daily estimated cost by provider", "Provider and mode volume",
       "Failure categories", "Latency", "View chart data table",
     ]) expect(markup).toContain(value);
-    expect(markup).toContain("Running");
+    expect(markup).toContain("Đang chạy");
     expect(markup).toContain("Currently processing");
-    expect(markup).toContain("Queued");
-    expect(markup).toContain("Waiting to start");
+    expect(markup).toContain("Đã xếp hàng");
+    expect(markup).toContain("Chờ bắt đầu");
     expect(markup).toContain('role="img"');
     expect(markup).toContain("provider_timeout");
   });
@@ -240,7 +240,7 @@ describe("AI Operations dashboard", () => {
     const markup = render("overview", { data: { ...data, summary: { ...summary, deferred: 3, quota_deferred: 3, next_deferred_retry_at: "2026-07-22T10:30:00Z", next_quota_retry_at: "2026-07-22T10:30:00Z" } } });
     expect(markup).toContain("Gemini quota or provider cooldown is active");
     expect(markup).toContain("3 analyses will retry automatically");
-    expect(markup).toContain("Next provider retry");
+    expect(markup).toContain("Tiếp provider retry");
   });
 
   it("formats only accumulated worker execution time for completed jobs", () => {
@@ -251,7 +251,7 @@ describe("AI Operations dashboard", () => {
 
   it("renders processing details, stable errors, pagination and the real asset link", () => {
     const markup = render("processing", { data: { ...data, usage: { ...data.usage, total: 0, items: [] } } });
-    for (const value of ["AI processing jobs", "OpenAI", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Showing 26-50 of 60", "Items per page"]) expect(markup).toContain(value);
+    for (const value of ["AI processing jobs", "OpenAI", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Showing 26-50 of 60", "Số mục mỗi trang"]) expect(markup).toContain(value);
     expect(markup).toContain("asset-1");
     expect(markup).toContain("asset=asset-1");
     expect(markup).not.toContain(">analysis-1</code>");
@@ -259,7 +259,7 @@ describe("AI Operations dashboard", () => {
 
   it("keeps estimated, provider-reported and reconciled cost clearly separated", () => {
     const markup = render("cost");
-    for (const value of ["Cost &amp; Usage", "AI cost and usage records", "Showing 1-1 of 1", "Items per page", "Estimated total", "Provider-reported total", "Reconciled total", "$1.20", "$1.10", "$1.05", "Input units", "Output units", "Export usage CSV"]) expect(markup).toContain(value);
+    for (const value of ["Cost &amp; Usage", "AI cost and usage records", "Showing 1-1 of 1", "Số mục mỗi trang", "Estimated total", "Provider-reported total", "Reconciled total", "$1.20", "$1.10", "$1.05", "Input units", "Output units", "Export usage CSV"]) expect(markup).toContain(value);
     expect(markup).toContain("/api/v1/admin/ai-operations/exports/usage.csv");
   });
 
@@ -347,7 +347,7 @@ describe("AI Operations dashboard", () => {
     const result = await fetchAiOperationsDashboard(filters, fetcher, new Date("2026-07-22T00:00:00Z"));
     expect(result.errors).toEqual([]);
     expect(result.data.pipeline).toBeUndefined();
-    expect(renderToStaticMarkup(<PipelineOverview pipeline={result.data.pipeline} />)).toContain("API is updated and restarted");
+    expect(renderToStaticMarkup(<PipelineOverview pipeline={result.data.pipeline} />)).toContain("Tổng quan pipeline chưa khả dụng");
   });
 });
 
@@ -359,7 +359,7 @@ describe("AI Operations interactions", () => {
     expect(markup).toContain('role="tab"');
     expect(markup).toContain('role="tabpanel"');
     expect(markup).toContain('aria-selected="true"');
-    expect(markup).toContain("Items per page");
+    expect(markup).toContain("Số mục mỗi trang");
     for (const value of ["Off", "15s", "30s", "60s"]) expect(markup).toContain(value);
     expect(markup).toContain("Last updated");
     expect(markup).toContain("10:00:00");
@@ -423,9 +423,9 @@ describe("AI Operations interactions", () => {
 
   it("renders deferred Gemini jobs as waiting and keeps normal pending jobs queued", () => {
     const waiting = { ...data.jobs.items[0], status: "pending", is_deferred: true, waiting_reason: "gemini_quota_deferred", next_attempt_at: "2099-01-01T10:00:00Z" };
-    expect(renderToStaticMarkup(<StatusText status={waiting.status} isDeferred={waiting.is_deferred} nextAttemptAt={waiting.next_attempt_at} />)).toContain("Waiting for Gemini quota");
+    expect(renderToStaticMarkup(<StatusText status={waiting.status} isDeferred={waiting.is_deferred} nextAttemptAt={waiting.next_attempt_at} />)).toContain("Đang chờ for Gemini quota");
     expect(renderToStaticMarkup(<StatusText status="failed" />)).toContain("Failed");
-    expect(renderToStaticMarkup(<StatusText status="pending" />)).toContain("Queued");
+    expect(renderToStaticMarkup(<StatusText status="pending" />)).toContain("Đã xếp hàng");
     expect(eligibleProcessingAction(waiting)).toBe("force_retry");
   });
 
@@ -521,23 +521,23 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("scan-status-icon completed");
     expect(markup).toContain("Elasticsearch Index");
     expect(markup).toContain("Downloading from Google Drive");
-    expect(markup).toContain("Queue breakdown by stage");
-    expect(markup).toContain("Waiting to start");
-    expect(markup).toContain("Scheduled retry");
+    expect(markup).toContain("Phân bổ hàng đợi theo giai đoạn");
+    expect(markup).toContain("Chờ bắt đầu");
+    expect(markup).toContain("Đã lên lịch thử lại");
     expect(markup).toContain("pipeline-progress-summary");
-    expect(markup).toContain("Search ready");
-    expect(markup).toContain("In progress");
-    expect(markup).toContain("Queued or waiting");
+    expect(markup).toContain("Sẵn sàng tìm kiếm");
+    expect(markup).toContain("Đang xử lý");
+    expect(markup).toContain("Đang chờ xử lý");
     expect(markup).toContain('aria-label="Latest scan and current processing"');
     expect(markup).toContain("8 m");
     expect(markup).not.toContain("<dd>Pipeline item</dd>");
-    expect(markup).toContain("Showing 26-50 of 60");
+    expect(markup).toContain("Hiển thị 26-50 trên tổng số 60 tài sản logic");
     expect(markup).toContain("Pipeline asset pagination");
-    expect(markup).toContain("Ready now");
-    expect(markup).toContain("Active pipeline stages");
-    expect(markup).toContain("Needs attention");
-    expect(markup).toContain("Excluded inputs");
-    expect(markup).toContain("Permanent exclusions; no retry required");
+    expect(markup).toContain("Sẵn sàng");
+    expect(markup).toContain("Các giai đoạn đang hoạt động");
+    expect(markup).toContain("Cần xử lý");
+    expect(markup).toContain("Dữ liệu bị loại trừ");
+    expect(markup).toContain("Loại trừ vĩnh viễn; không cần thử lại");
     expect(markup).not.toContain("Folders and non-images are excluded");
   });
 

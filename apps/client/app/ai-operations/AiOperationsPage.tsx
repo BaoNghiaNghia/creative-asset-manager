@@ -249,7 +249,7 @@ export function AiOperationsFilters({ filters, models, profiles, onChange }: {
     <label>Model<input aria-label="Model" list="ops-models" value={filters.model} onChange={event => field({ model: event.target.value })} placeholder="All models" /><datalist id="ops-models">{models.map(model => <option key={model} value={model} />)}</datalist></label>
     <label>Mode<select aria-label="Processing mode" value={filters.processingMode} onChange={event => field({ processingMode: event.target.value })}><option value="">All modes</option><option value="single">Single</option><option value="batch">Batch</option></select></label>
     <label>Metadata profile<input aria-label="Metadata profile" list="ops-profiles" value={filters.metadataProfile} onChange={event => field({ metadataProfile: event.target.value })} placeholder="All profiles" /><datalist id="ops-profiles">{profiles.map(profile => <option key={profile} value={profile} />)}</datalist></label>
-    <label>Status<select aria-label="Processing status" value={filters.status} onChange={event => field({ status: event.target.value })}><option value="">All statuses</option><option value="waiting">Waiting</option><option value="queued">Queued</option><option value="running">Running</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
+    <label>Status<select aria-label="Processing status" value={filters.status} onChange={event => field({ status: event.target.value })}><option value="">All statuses</option><option value="waiting">Đang chờ</option><option value="queued">Đã xếp hàng</option><option value="running">Đang chạy</option><option value="completed">Hoàn tất</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
   </form>;
 }
 
@@ -281,19 +281,19 @@ function ScanStatusIcon({ status }: { status: string }) {
 }
 
 export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipeline?: PipelineSnapshot | null; onPage?: (page: number, pageSize: 25 | 50 | 100) => void }) {
-  if (pipeline === undefined) return <DashboardState kind="empty" label="Pipeline overview is unavailable until the API is updated and restarted." />;
-  if (pipeline === null) return <DashboardState kind="empty" label="No pipeline activity for this tenant" />;
+  if (pipeline === undefined) return <DashboardState kind="empty" label="Tổng quan pipeline chưa khả dụng cho đến khi API được cập nhật và khởi động lại." />;
+  if (pipeline === null) return <DashboardState kind="empty" label="Chưa có hoạt động pipeline cho workspace này" />;
   const scan = pipeline.latest_source_sync;
   const active = pipeline.active_job;
   const needsAttentionStages = pipeline.stages.filter(stage => stage.needs_attention_assets > 0 || stage.processing_assets > 0 || stage.queued_assets > 0 || stage.waiting_assets > 0);
   const settledStages = pipeline.stages.filter(stage => !needsAttentionStages.includes(stage) && stage.completed_assets > 0);
   return <div className="ops-content pipeline-content">
-    <section className="pipeline-summary" aria-label="Pipeline summary">
-      <PipelineMetric icon="eligible" label="Eligible images" value={pipeline.overall.eligible_assets ?? pipeline.overall.supported_assets} detail="Unique image source records on active sources" />
-      <PipelineMetric icon="ready" label="Search ready" value={pipeline.overall.search_ready_assets ?? pipeline.overall.completed} detail={pipeline.overall.indexed_percentage === null ? "Calculating progress" : String(pipeline.overall.indexed_percentage) + "% of eligible images"} tone="success" />
-      <PipelineMetric icon="active" label="In progress" value={pipeline.overall.in_progress_assets ?? pipeline.overall.active} detail="Unique assets currently being processed" tone="info" />
-      <PipelineMetric icon="queued" label="Queued or waiting" value={pipeline.overall.queued_assets ?? pipeline.overall.queued} detail="Unique assets waiting to start or retry" tone="warning" />
-      <PipelineMetric icon="attention" label="Needs attention" value={pipeline.overall.needs_attention_assets ?? pipeline.overall.failed} detail="Unique unresolved actionable assets" tone="attention" />
+    <section className="pipeline-summary" aria-label="Tóm tắt pipeline">
+      <PipelineMetric icon="eligible" label="Ảnh đủ điều kiện" value={pipeline.overall.eligible_assets ?? pipeline.overall.supported_assets} detail="Bản ghi ảnh duy nhất từ các nguồn đang hoạt động" />
+      <PipelineMetric icon="ready" label="Sẵn sàng tìm kiếm" value={pipeline.overall.search_ready_assets ?? pipeline.overall.completed} detail={pipeline.overall.indexed_percentage === null ? "Đang tính tiến độ" : String(pipeline.overall.indexed_percentage) + "% ảnh đủ điều kiện"} tone="success" />
+      <PipelineMetric icon="active" label="Đang xử lý" value={pipeline.overall.in_progress_assets ?? pipeline.overall.active} detail="Tài sản duy nhất đang được xử lý" tone="info" />
+      <PipelineMetric icon="queued" label="Đang chờ xử lý" value={pipeline.overall.queued_assets ?? pipeline.overall.queued} detail="Tài sản duy nhất đang chờ bắt đầu hoặc thử lại" tone="warning" />
+      <PipelineMetric icon="attention" label="Cần xử lý" value={pipeline.overall.needs_attention_assets ?? pipeline.overall.failed} detail="Tài sản chưa hoàn tất cần can thiệp" tone="attention" />
     </section>
     <div className="pipeline-context-row" role="group" aria-label="Latest scan and current processing">
       <section className="pipeline-scan-card pipeline-scan-card-compact" aria-label="Trạng thái quét Google Drive">
@@ -301,19 +301,19 @@ export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipel
         <p>{scan ? (scan.status === "completed" ? scan.items_seen_count.toLocaleString() + " mục trên Google Drive đã được ghi nhận. " + scan.jobs_created_count.toLocaleString() + " tác vụ xử lý đã được xếp hàng." : "Hệ thống đang quét. Đã ghi nhận " + scan.items_seen_count.toLocaleString() + " mục cho đến thời điểm này.") : "Kết nối Google Drive để hệ thống phát hiện tài sản và chuẩn bị xử lý."}</p></div>
         {scan && <dl><div><dt>Trạng thái</dt><dd><span className="scan-status"><ScanStatusIcon status={scan.status} />{scanStatusLabel(scan.status)}</span></dd></div><div><dt>{scan.completed_at ? "Hoàn tất lúc" : "Thời gian"}</dt><dd>{scan.completed_at ? new Date(scan.completed_at).toLocaleString() : "Đang thực hiện"}</dd></div></dl>}
       </section>
-      {active && <section className="pipeline-active-job" aria-live="polite"><div><small>CURRENTLY PROCESSING</small><div className="pipeline-active-title"><span className="pipeline-status-dot active" aria-hidden="true" /><h2>{active.stage}</h2></div><p>{active.message}</p></div><dl>{active.filename && <div><dt>Item</dt><dd>{active.filename}</dd></div>}<div><dt>Started</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Elapsed</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Attempt</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl></section>}
+      {active && <section className="pipeline-active-job" aria-live="polite"><div><small>ĐANG XỬ LÝ</small><div className="pipeline-active-title"><span className="pipeline-status-dot active" aria-hidden="true" /><h2>{pipelineStageLabel(active.stage)}</h2></div><p>{active.message}</p></div><dl>{active.filename && <div><dt>Tài sản</dt><dd>{active.filename}</dd></div>}<div><dt>Bắt đầu</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Thời gian đã chạy</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Lần thử</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl></section>}
     </div>
     <section className="pipeline-progress-summary pipeline-progress-summary-compact" aria-label="Mức sẵn sàng của tài sản theo giai đoạn đã xác thực"><div><small>MỨC SẴN SÀNG CỦA TÀI SẢN</small><h2>Giai đoạn hoàn tất đã xác thực</h2><p>Mỗi ảnh đủ điều kiện chỉ được tính một lần.</p></div><dl>{pipeline.overall.asset_progress.filter(item => item.count > 0).map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
-    {needsAttentionStages.length > 0 && <section className="pipeline-stage-section" aria-label="Stages requiring attention"><header><div><small>WHERE TO FOCUS</small><h2>Active pipeline stages</h2><p>Only stages with queued, waiting, running, or failed work are expanded here.</p></div><span>{needsAttentionStages.length} stage{needsAttentionStages.length === 1 ? "" : "s"}</span></header><div className="pipeline-stage-grid">{needsAttentionStages.map(stage => { const tone = pipelineStageTone(stage, active?.job_type); return <article key={stage.key} className={tone}>
-      <header><div><small>STAGE</small><h2>{stage.label}</h2></div><StageStatusBadge tone={tone} /></header><p>{stage.subtitle}</p>
-      <strong>{stage.completed_assets.toLocaleString()} / {stage.total_logical_assets ? stage.total_logical_assets.toLocaleString() : "-"}</strong><span>{stage.percentage === null ? "Calculating progress" : String(stage.percentage) + "% of logical assets complete"}</span><div className={"pipeline-progress " + tone}><i style={{ width: String(stage.percentage || 0) + "%" }} /></div>
-      <dl><div><dt>Queued</dt><dd>{(stage.queued_assets ?? stage.pending).toLocaleString()}</dd></div><div><dt>Running</dt><dd>{(stage.processing_assets ?? stage.processing).toLocaleString()}</dd></div><div><dt>Waiting</dt><dd>{(stage.waiting_assets ?? stage.waiting).toLocaleString()}</dd></div><div><dt>Attention</dt><dd>{(stage.needs_attention_assets ?? stage.failed).toLocaleString()}</dd></div></dl>
+    {needsAttentionStages.length > 0 && <section className="pipeline-stage-section" aria-label="Các giai đoạn cần xử lý"><header><div><small>ĐIỂM CẦN LƯU Ý</small><h2>Các giai đoạn đang hoạt động</h2><p>Chỉ các giai đoạn đang chờ, đang chạy hoặc gặp lỗi mới được mở rộng.</p></div><span>{needsAttentionStages.length} giai đoạn</span></header><div className="pipeline-stage-grid">{needsAttentionStages.map(stage => { const tone = pipelineStageTone(stage, active?.job_type); return <article key={stage.key} className={tone}>
+      <header><div><small>GIAI ĐOẠN</small><h2>{pipelineStageLabel(stage.label)}</h2></div><StageStatusBadge tone={tone} /></header><p>{stage.subtitle}</p>
+      <strong>{stage.completed_assets.toLocaleString()} / {stage.total_logical_assets ? stage.total_logical_assets.toLocaleString() : "-"}</strong><span>{stage.percentage === null ? "Đang tính tiến độ" : String(stage.percentage) + "% tài sản logic đã hoàn tất"}</span><div className={"pipeline-progress " + tone}><i style={{ width: String(stage.percentage || 0) + "%" }} /></div>
+      <dl><div><dt>Đã xếp hàng</dt><dd>{(stage.queued_assets ?? stage.pending).toLocaleString()}</dd></div><div><dt>Đang chạy</dt><dd>{(stage.processing_assets ?? stage.processing).toLocaleString()}</dd></div><div><dt>Đang chờ</dt><dd>{(stage.waiting_assets ?? stage.waiting).toLocaleString()}</dd></div><div><dt>Cần xử lý</dt><dd>{(stage.needs_attention_assets ?? stage.failed).toLocaleString()}</dd></div></dl>
     </article>; })}</div></section>}
-    {settledStages.length > 0 && <section className="pipeline-settled-stages" aria-label="Completed pipeline stages"><span><i aria-hidden="true">✓</i> Completed stages</span><ul>{settledStages.map(stage => <li key={stage.key}><b>{stage.label}</b><span>{stage.completed_assets.toLocaleString()} assets complete</span></li>)}</ul></section>}
-    <section className="pipeline-queue" aria-label="Current pipeline queue"><header><div><small>LIVE QUEUE</small><h2>Queue breakdown by stage</h2><p>Only stages with work in progress, waiting, or requiring attention are shown. Counts are unique logical assets, not historical job attempts.</p></div><span className="pipeline-queue-total">{(pipeline.overall.queued_assets ?? pipeline.overall.queued).toLocaleString()} queued or waiting</span></header>{needsAttentionStages.length ? <div className="ops-table-scroll"><table className="ops-data-table pipeline-queue-table"><caption className="sr-only">Current work by pipeline stage</caption><thead><tr className="pipeline-queue-groups"><th rowSpan={2}>Stage</th><th colSpan={3}>Waiting to start</th><th rowSpan={2}>In progress</th><th colSpan={2}>Outcome</th></tr><tr><th title="Assets with a queued stage, including work waiting on a prerequisite">Queued</th><th title="Queued assets that a worker can claim now">Ready now</th><th title="Assets delayed until a scheduled retry or provider quota window">Scheduled retry</th><th title="Assets currently held by a worker">Working</th><th>Completed</th><th>Needs attention</th></tr></thead><tbody>{needsAttentionStages.map(stage => <tr key={stage.key}><td><b>{stage.label}</b><small>{stage.subtitle}</small></td><td><QueueCount value={stage.queued_assets} tone="neutral" /></td><td><QueueCount value={stage.eligible_now_assets} tone="ready" /></td><td><QueueCount value={stage.waiting_assets} tone="waiting" /></td><td><QueueCount value={stage.processing_assets} tone="active" /></td><td><QueueCount value={stage.completed_assets} tone="complete" /></td><td><QueueCount value={stage.needs_attention_assets} tone="failed" /></td></tr>)}</tbody></table></div> : <p className="pipeline-queue-empty">No pipeline stages currently need work. Completed-only stages are shown above.</p>}</section>
-    <details className="pipeline-attempt-diagnostics"><summary>Attempt diagnostics (historical)</summary><p>{pipeline.definitions?.attempt_diagnostics || "Raw processing job attempts are not used for asset progress."}</p><ul>{pipeline.stages.map(stage => <li key={stage.key}><b>{stage.label}</b>: {stage.total_attempts.toLocaleString()} attempts · {stage.completed_attempts.toLocaleString()} completed · {stage.failed_attempts.toLocaleString()} failed</li>)}</ul></details>
-    {pipeline.skipped_breakdown?.length ? <details className="pipeline-exclusions"><summary><span><i aria-hidden="true">–</i><b>Excluded inputs</b><small>Permanent exclusions; no retry required</small></span><strong>{pipeline.skipped_breakdown.reduce((total, item) => total + item.count, 0).toLocaleString()}</strong></summary><p>These records are outside the image pipeline and do not count as failures.</p><ul>{pipeline.skipped_breakdown.map(item => <li key={item.category}><b>{item.category === "unsupported" ? "Unsupported formats" : item.category.replaceAll("_", " ")}</b><span>{item.count.toLocaleString()} input{item.count === 1 ? "" : "s"}</span></li>)}</ul></details> : null}
-    {pipeline.failure_groups.length > 0 && <section className="pipeline-attention"><header><div><small>ACTION REQUIRED</small><h2>Issues needing attention</h2><p>Current unresolved issues only. Technical codes remain available for support and troubleshooting.</p></div><span>{pipeline.failure_groups.length} issue group{pipeline.failure_groups.length === 1 ? "" : "s"}</span></header><ul>{pipeline.failure_groups.map(item => <PipelineFailureCard key={item.stage + item.error_code} item={item} />)}</ul></section>}
+    {settledStages.length > 0 && <section className="pipeline-settled-stages" aria-label="Các giai đoạn đã hoàn tất"><span><i aria-hidden="true">✓</i> Giai đoạn đã hoàn tất</span><ul>{settledStages.map(stage => <li key={stage.key}><b>{pipelineStageLabel(stage.label)}</b><span>{stage.completed_assets.toLocaleString()} tài sản đã hoàn tất</span></li>)}</ul></section>}
+    <section className="pipeline-queue" aria-label="Hàng đợi pipeline hiện tại"><header><div><small>HÀNG ĐỢI TRỰC TIẾP</small><h2>Phân bổ hàng đợi theo giai đoạn</h2><p>Chỉ hiển thị các giai đoạn đang xử lý, chờ hoặc cần can thiệp. Số liệu là tài sản duy nhất, không phải số lần thử.</p></div><span className="pipeline-queue-total">{(pipeline.overall.queued_assets ?? pipeline.overall.queued).toLocaleString()} đang chờ xử lý</span></header>{needsAttentionStages.length ? <div className="ops-table-scroll"><table className="ops-data-table pipeline-queue-table"><caption className="sr-only">Công việc hiện tại theo giai đoạn pipeline</caption><thead><tr className="pipeline-queue-groups"><th rowSpan={2}>Giai đoạn</th><th colSpan={3}>Chờ bắt đầu</th><th rowSpan={2}>Đang xử lý</th><th colSpan={2}>Kết quả</th></tr><tr><th title="Assets with a queued stage, including work waiting on a prerequisite">Đã xếp hàng</th><th title="Đã xếp hàng assets that a worker can claim now">Sẵn sàng</th><th title="Assets delayed until a scheduled retry or provider quota window">Đã lên lịch thử lại</th><th title="Assets currently held by a worker">Đang chạy</th><th>Hoàn tất</th><th>Cần xử lý</th></tr></thead><tbody>{needsAttentionStages.map(stage => <tr key={stage.key}><td><b>{pipelineStageLabel(stage.label)}</b><small>{stage.subtitle}</small></td><td><QueueCount value={stage.queued_assets} tone="neutral" /></td><td><QueueCount value={stage.eligible_now_assets} tone="ready" /></td><td><QueueCount value={stage.waiting_assets} tone="waiting" /></td><td><QueueCount value={stage.processing_assets} tone="active" /></td><td><QueueCount value={stage.completed_assets} tone="complete" /></td><td><QueueCount value={stage.needs_attention_assets} tone="failed" /></td></tr>)}</tbody></table></div> : <p className="pipeline-queue-empty">Hiện không có giai đoạn pipeline nào cần xử lý. Các giai đoạn chỉ hoàn tất được hiển thị ở trên.</p>}</section>
+    <details className="pipeline-attempt-diagnostics"><summary>Chẩn đoán lần thử (lịch sử)</summary><p>{pipeline.definitions?.attempt_diagnostics || "Số lần thử của job không dùng để tính tiến độ tài sản."}</p><ul>{pipeline.stages.map(stage => <li key={stage.key}><b>{stage.label}</b>: {stage.total_attempts.toLocaleString()} attempts · {stage.completed_attempts.toLocaleString()} completed · {stage.failed_attempts.toLocaleString()} failed</li>)}</ul></details>
+    {pipeline.skipped_breakdown?.length ? <details className="pipeline-exclusions"><summary><span><i aria-hidden="true">–</i><b>Dữ liệu bị loại trừ</b><small>Loại trừ vĩnh viễn; không cần thử lại</small></span><strong>{pipeline.skipped_breakdown.reduce((total, item) => total + item.count, 0).toLocaleString()}</strong></summary><p>Các bản ghi này nằm ngoài pipeline ảnh và không được tính là lỗi.</p><ul>{pipeline.skipped_breakdown.map(item => <li key={item.category}><b>{item.category === "unsupported" ? "Định dạng không hỗ trợ" : item.category.replaceAll("_", " ")}</b><span>{item.count.toLocaleString()} mục</span></li>)}</ul></details> : null}
+    {pipeline.failure_groups.length > 0 && <section className="pipeline-attention"><header><div><small>CẦN XỬ LÝ</small><h2>Các vấn đề cần xử lý</h2><p>Chỉ hiển thị các vấn đề chưa được giải quyết. Mã kỹ thuật vẫn được giữ để hỗ trợ.</p></div><span>{pipeline.failure_groups.length} nhóm vấn đề</span></header><ul>{pipeline.failure_groups.map(item => <PipelineFailureCard key={item.stage + item.error_code} item={item} />)}</ul></section>}
     <PipelineRecentAssets recent={pipeline.recent_assets} onPage={onPage} />
   </div>;
 }
@@ -330,14 +330,14 @@ function pipelineStageTone(stage: { key: string; queued_assets: number; waiting_
 
 
 function StageStatusBadge({ tone }: { tone: PipelineStageState }) {
-  const labels: Record<PipelineStageState, string> = { attention: "Needs attention", active: "Processing", waiting: "Waiting", complete: "Completed", idle: "Not started" };
+  const labels: Record<PipelineStageState, string> = { attention: "Cần xử lý", active: "Đang xử lý", waiting: "Đang chờ", complete: "Hoàn tất", idle: "Chưa bắt đầu" };
   const icons: Record<PipelineStageState, string> = { attention: "!", active: "↻", waiting: "◷", complete: "✓", idle: "–" };
   return <span className={"pipeline-stage-status " + tone}><i aria-hidden="true">{icons[tone]}</i>{labels[tone]}</span>;
 }
 
 function QueueCount({ value, tone }: { value: number; tone: "neutral" | "ready" | "waiting" | "active" | "complete" | "failed" }) {
   const count = Math.max(0, value || 0);
-  return <span className={"pipeline-queue-count " + tone + (count === 0 ? " is-zero" : "")} aria-label={count.toLocaleString() + " assets"}>{count === 0 ? "—" : count.toLocaleString()}</span>;
+  return <span className={"pipeline-queue-count " + tone + (count === 0 ? " is-zero" : "")} aria-label={count.toLocaleString() + " tài sản"}>{count === 0 ? "—" : count.toLocaleString()}</span>;
 }
 
 const pipelineFailureGuidance: Record<string, { title: string; guidance: string }> = {
@@ -378,15 +378,26 @@ function PipelineAssetIcon({ filename }: { filename: string }) {
   return <span className={"pipeline-asset-icon " + kind} aria-hidden="true"><svg viewBox="0 0 24 24"><path d={paths[kind]} /></svg></span>;
 }
 
+function pipelineStageLabel(label: string): string {
+  const normalized = label.replaceAll("_", " ").toLowerCase();
+  return ({
+    download: "Tải xuống",
+    store: "Lưu trữ",
+    "ai analyze": "Phân tích AI",
+    "search projection": "Chuẩn bị dữ liệu tìm kiếm",
+    "elasticsearch index": "Lập chỉ mục tìm kiếm",
+  } as Record<string, string>)[normalized] || label;
+}
+
 function PipelineCurrentState({ state }: { state: string }) {
   const labels: Record<string, string> = {
     discovered: "Discovered",
-    stored: "Stored",
+    stored: "Đã lưu trữ",
     analyzing: "Analyzing",
     metadata_ready: "Metadata ready",
     search_pending: "Search pending",
     indexing: "Indexing",
-    indexed: "Search ready",
+    indexed: "Sẵn sàng tìm kiếm",
     search_failed: "Search failed",
     duplicate: "Duplicate",
     failed: "Failed",
@@ -404,16 +415,16 @@ function PipelineCurrentState({ state }: { state: string }) {
             : "neutral";
   const icon = tone === "active" ? ">" : tone === "complete" ? "+" : tone === "failed" ? "!" : tone === "duplicate" ? "=" : "-";
   const label = labels[state] || state.replaceAll("_", " ");
-  return <span className={"pipeline-current-state " + tone} aria-label={"Current state: " + label}><i aria-hidden="true">{icon}</i><span>{label}</span></span>;
+  return <span className={"pipeline-current-state " + tone} aria-label={"Trạng thái hiện tại: " + label}><i aria-hidden="true">{icon}</i><span>{label}</span></span>;
 }
 
 function PipelineRecentAssets({ recent, onPage }: { recent: PipelineSnapshot["recent_assets"]; onPage: (page: number, pageSize: 25 | 50 | 100) => void }) {
-  if (!recent.items.length) return <section className="pipeline-recent"><h2>Recent asset progress</h2><p>No pipeline assets have been created yet.</p></section>;
+  if (!recent.items.length) return <section className="pipeline-recent"><h2>Tiến độ tài sản gần đây</h2><p>Chưa có tài sản pipeline nào được tạo.</p></section>;
   const pages = Math.max(1, Math.ceil(recent.total / recent.page_size));
   const page = Math.min(recent.page, pages);
   const first = (page - 1) * recent.page_size + 1;
   const last = Math.min(page * recent.page_size, recent.total);
-  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Recent asset progress</h2><p>Showing {first}-{last} of {recent.total} logical assets. Select a name to open details.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Items per page<select aria-label="Pipeline items per page" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Previous</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Next</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Asset</th><th>Current stage</th><th>Download</th><th>Store</th><th>AI</th><th>Projection</th><th>Index</th><th>Updated</th><th>Attention</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetIcon filename={item.filename} /><div>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)} title={item.filename}>{pipelineAssetTitle(item.filename)}</a> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small>{pipelineAssetKind(item.filename) === "asset" ? "Asset ID" : pipelineAssetKind(item.filename)}</small></div></div></td><td><PipelineCurrentState state={item.state} /></td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
+  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Tiến độ tài sản gần đây</h2><p>Hiển thị {first}-{last} trên tổng số {recent.total} tài sản logic. Chọn tên để xem chi tiết.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Số mục mỗi trang<select aria-label="Số mục pipeline mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Tài sản</th><th>Giai đoạn hiện tại</th><th>Tải xuống</th><th>Lưu trữ</th><th>Phân tích AI</th><th>Tìm kiếm</th><th>Lập chỉ mục</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetIcon filename={item.filename} /><div>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)} title={item.filename}>{pipelineAssetTitle(item.filename)}</a> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small>{pipelineAssetKind(item.filename) === "asset" ? "Asset ID" : pipelineAssetKind(item.filename)}</small></div></div></td><td><PipelineCurrentState state={item.state} /></td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
 }
 
 function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: string; label: string; value: number; detail: string; tone?: string }) {
@@ -421,7 +432,7 @@ function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: strin
 }
 
 function assetProgressLabel(key: string): string {
-  return ({ discovered: "Discovered", downloaded: "Downloaded", stored: "Stored", analyzed: "Analyzed", projection_ready: "Projection ready", search_ready: "Search ready", projection_built: "Projection ready", indexed: "Search ready" } as Record<string, string>)[key] || key.replaceAll("_", " ");
+  return ({ discovered: "Đã phát hiện", downloaded: "Đã tải xuống", stored: "Đã lưu trữ", analyzed: "Đã phân tích", projection_ready: "Đã chuẩn bị tìm kiếm", search_ready: "Sẵn sàng tìm kiếm", projection_built: "Đã chuẩn bị tìm kiếm", indexed: "Sẵn sàng tìm kiếm" } as Record<string, string>)[key] || key.replaceAll("_", " ");
 }
 
 function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; canManage: boolean; onRefresh: () => void }) {
@@ -429,15 +440,15 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
   if (!summary && !data.daily.length) return <DashboardState kind="empty" />;
   const processedToday = (data.today?.completed || 0) + (data.today?.failed || 0);
   const cards = [
-    { label: "Processed today", value: processedToday, detail: "Completed and failed today", tone: "neutral" },
-    { label: "Completed", value: summary?.completed || 0, detail: "Finished successfully", tone: "success" },
-    { label: "Failed", value: summary?.failed || 0, detail: "Needs attention", tone: "danger" },
+    { label: "Processed today", value: processedToday, detail: "Hoàn tất and failed today", tone: "neutral" },
+    { label: "Hoàn tất", value: summary?.completed || 0, detail: "Finished successfully", tone: "success" },
+    { label: "Failed", value: summary?.failed || 0, detail: "Cần xử lý", tone: "danger" },
     { label: "Budget blocked", value: summary?.budget_blocked || 0, detail: "Stopped by budget policy", tone: "danger" },
     { label: "Rate-limit scheduling delay", value: summary?.local_rate_limited || 0, detail: "Locally scheduled model starts", tone: "warning" },
-    { label: "Waiting for quota", value: (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0), detail: "Provider quota or cooldown", tone: "warning" },
-    { label: "Running", value: summary?.running || 0, detail: "Currently processing", tone: "info" },
-    { label: "Queued", value: summary?.queued || 0, detail: "Waiting to start", tone: "neutral" },
-    { label: "Success rate", value: `${((summary?.success_rate || 0) * 100).toFixed(1)}%`, detail: "Completed out of terminal jobs", tone: "success" },
+    { label: "Đang chờ for quota", value: (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0), detail: "Provider quota or cooldown", tone: "warning" },
+    { label: "Đang chạy", value: summary?.running || 0, detail: "Currently processing", tone: "info" },
+    { label: "Đã xếp hàng", value: summary?.queued || 0, detail: "Chờ bắt đầu", tone: "neutral" },
+    { label: "Success rate", value: `${((summary?.success_rate || 0) * 100).toFixed(1)}%`, detail: "Hoàn tất out of terminal jobs", tone: "success" },
     { label: "Estimated cost today", value: formatCost(data.today?.cost?.estimated_cost_micros, data.today?.cost?.currency), detail: "Projected usage for today", tone: "neutral" },
     { label: "Estimated cost this month", value: formatCost(data.month?.cost?.estimated_cost_micros, data.month?.cost?.currency), detail: "Projected monthly usage", tone: "neutral" },
   ];
@@ -446,19 +457,19 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
   const localScheduled = summary?.local_rate_limited || 0;
   const quotaScheduled = (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0);
   return <div className="ops-content">
-    <p className="ops-ai-scope-note">These metrics cover AI analysis only. Download, storage, projection, and indexing are shown in Pipeline Overview.</p>
+    <p className="ops-ai-scope-note">These metrics cover AI analysis only. Tải xuống, storage, projection, and indexing are shown in Pipeline Overview.</p>
     <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
     {localScheduled > 0 && nextLocalRetry && <section className="ops-quota-notice" role="status" aria-label="AI model scheduling retry status">
       <div><span className="ops-quota-badge">Schedule</span><div><strong>Rate-limit scheduling delay</strong><p>{localScheduled} {localScheduled === 1 ? "analysis is" : "analyses are"} waiting for the next local model-start slot. No provider request was sent.</p></div></div>
-      <time dateTime={nextLocalRetry}><span>Next local slot</span>{new Date(nextLocalRetry).toLocaleString()}</time>
+      <time dateTime={nextLocalRetry}><span>Tiếp local slot</span>{new Date(nextLocalRetry).toLocaleString()}</time>
     </section>}
     {quotaScheduled > 0 && nextQuotaRetry && <section className="ops-quota-notice" role="status" aria-label="Gemini quota retry status">
       <div><span className="ops-quota-badge">Quota</span><div><strong>Gemini quota or provider cooldown is active</strong><p>{quotaScheduled} {quotaScheduled === 1 ? "analysis" : "analyses"} will retry automatically after the provider allows another request.</p></div></div>
-      <time dateTime={nextQuotaRetry}><span>Next provider retry</span>{new Date(nextQuotaRetry).toLocaleString()}</time>
+      <time dateTime={nextQuotaRetry}><span>Tiếp provider retry</span>{new Date(nextQuotaRetry).toLocaleString()}</time>
     </section>}
     <section className="ops-kpis" aria-label="AI processing summary">{cards.map(card => <article key={card.label} className={`ops-kpi ops-kpi-${card.tone}`}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
     <section className="ops-charts">
-      <AccessibleChart title="Daily processing" description="Completed and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
+      <AccessibleChart title="Daily processing" description="Hoàn tất and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
       <AccessibleChart title="Daily estimated cost by provider" description="Estimated provider cost aggregated by the server for the selected period." data={dailyProviderCostChart(data.daily)} valueLabel={value => formatCost(value)} />
       <AccessibleChart title="Provider and mode volume" description="Analysis volume grouped by provider and processing mode." data={providerVolumeChart(data.providers)} />
       <AccessibleChart title="Failure categories" description="Stable internal failure codes; raw exception messages are excluded." data={failureChart(data.failures)} />
@@ -541,17 +552,17 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted }:
   if (!data.jobs.items.length) return <DashboardState kind="empty" label="No processing jobs in this period" />;
   const pages = Math.max(1, Math.ceil(data.jobs.total / data.jobs.page_size));
   const currentPage = Math.min(Math.max(1, data.jobs.page), pages);
-  const firstItem = (currentPage - 1) * data.jobs.page_size + 1;
-  const lastItem = Math.min(currentPage * data.jobs.page_size, data.jobs.total);
+  const firstAsset = (currentPage - 1) * data.jobs.page_size + 1;
+  const lastAsset = Math.min(currentPage * data.jobs.page_size, data.jobs.total);
   return <div className="ops-content">
     <div className="ops-table-heading">
-      <div><h2>AI processing jobs</h2><p>Showing {firstItem}-{lastItem} of {data.jobs.total}</p></div>
+      <div><h2>AI processing jobs</h2><p>Showing {firstAsset}-{lastAsset} of {data.jobs.total}</p></div>
       <div className="ops-pagination" aria-label="Processing pagination">
-        <label>Items per page<select aria-label="Items per page" value={data.jobs.page_size} onChange={event => onFilters({ ...filters, page: 1, pageSize: Number(event.target.value) as 25 | 50 | 100 })}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <label>Số mục mỗi trang<select aria-label="Số mục mỗi trang" value={data.jobs.page_size} onChange={event => onFilters({ ...filters, page: 1, pageSize: Number(event.target.value) as 25 | 50 | 100 })}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
         <nav aria-label="Processing page numbers">
-          <button type="button" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => onFilters(pageFilters(filters, currentPage - 1))}>Previous</button>
+          <button type="button" aria-label="Trước page" disabled={currentPage <= 1} onClick={() => onFilters(pageFilters(filters, currentPage - 1))}>Trước</button>
           {visiblePages(currentPage, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" aria-hidden="true" key={`ellipsis-${index}`}>...</span> : <button type="button" key={entry} aria-label={`Page ${entry}`} aria-current={entry === currentPage ? "page" : undefined} className={entry === currentPage ? "active" : ""} onClick={() => onFilters(pageFilters(filters, entry))}>{entry}</button>)}
-          <button type="button" aria-label="Next page" disabled={currentPage >= pages} onClick={() => onFilters(pageFilters(filters, currentPage + 1))}>Next</button>
+          <button type="button" aria-label="Tiếp page" disabled={currentPage >= pages} onClick={() => onFilters(pageFilters(filters, currentPage + 1))}>Tiếp</button>
         </nav>
       </div>
     </div>
@@ -639,17 +650,17 @@ function CostUsage({ data, filters, onFilters }: { data: AiOpsDashboardData; fil
   if (!data.usage.items.length) return <DashboardState kind="empty" label="No usage records in this period" />;
   const pages = Math.max(1, Math.ceil(data.usage.total / data.usage.page_size));
   const currentPage = Math.min(Math.max(1, data.usage.page), pages);
-  const firstItem = (currentPage - 1) * data.usage.page_size + 1;
-  const lastItem = Math.min(currentPage * data.usage.page_size, data.usage.total);
+  const firstAsset = (currentPage - 1) * data.usage.page_size + 1;
+  const lastAsset = Math.min(currentPage * data.usage.page_size, data.usage.total);
   return <div className="ops-content">
     <div className="ops-table-heading">
-      <div><h2>AI cost and usage records</h2><p>Showing {firstItem}-{lastItem} of {data.usage.total}</p></div>
+      <div><h2>AI cost and usage records</h2><p>Showing {firstAsset}-{lastAsset} of {data.usage.total}</p></div>
       <div className="ops-pagination" aria-label="Cost and usage pagination">
-        <label>Items per page<select aria-label="Usage items per page" value={data.usage.page_size} onChange={event => onFilters({ ...filters, usagePage: 1, usagePageSize: Number(event.target.value) as 25 | 50 | 100 })}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <label>Số mục mỗi trang<select aria-label="Usage items per page" value={data.usage.page_size} onChange={event => onFilters({ ...filters, usagePage: 1, usagePageSize: Number(event.target.value) as 25 | 50 | 100 })}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
         <nav aria-label="Cost and usage page numbers">
-          <button type="button" aria-label="Previous usage page" disabled={currentPage <= 1} onClick={() => onFilters(usagePageFilters(filters, currentPage - 1))}>Previous</button>
+          <button type="button" aria-label="Trước usage page" disabled={currentPage <= 1} onClick={() => onFilters(usagePageFilters(filters, currentPage - 1))}>Trước</button>
           {visiblePages(currentPage, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" aria-hidden="true" key={`usage-ellipsis-${index}`}>...</span> : <button type="button" key={entry} aria-label={`Usage page ${entry}`} aria-current={entry === currentPage ? "page" : undefined} className={entry === currentPage ? "active" : ""} onClick={() => onFilters(usagePageFilters(filters, entry))}>{entry}</button>)}
-          <button type="button" aria-label="Next usage page" disabled={currentPage >= pages} onClick={() => onFilters(usagePageFilters(filters, currentPage + 1))}>Next</button>
+          <button type="button" aria-label="Tiếp usage page" disabled={currentPage >= pages} onClick={() => onFilters(usagePageFilters(filters, currentPage + 1))}>Tiếp</button>
         </nav>
       </div>
     </div>
@@ -664,10 +675,10 @@ function CostUsage({ data, filters, onFilters }: { data: AiOpsDashboardData; fil
 
 export function StatusText({ status, isDeferred = false, nextAttemptAt = null }: { status: string; isDeferred?: boolean; nextAttemptAt?: string | null }) {
   if (isDeferred) {
-    const retry = nextAttemptAt ? ` Next retry ${new Date(nextAttemptAt).toLocaleString()}.` : "";
-    return <span className="ops-status waiting" aria-label={`Status: Waiting for Gemini quota.${retry}`}><i aria-hidden="true" />Waiting for Gemini quota{nextAttemptAt && <small> - {new Date(nextAttemptAt).toLocaleString()}</small>}</span>;
+    const retry = nextAttemptAt ? ` Tiếp retry ${new Date(nextAttemptAt).toLocaleString()}.` : "";
+    return <span className="ops-status waiting" aria-label={`Status: Đang chờ for Gemini quota.${retry}`}><i aria-hidden="true" />Đang chờ for Gemini quota{nextAttemptAt && <small> - {new Date(nextAttemptAt).toLocaleString()}</small>}</span>;
   }
-  const label = status === "pending" ? "Queued" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase());
+  const label = status === "pending" ? "Đã xếp hàng" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase());
   return <span className={`ops-status ${status}`} aria-label={`Status: ${label}`}><i aria-hidden="true" />{label}</span>;
 }
 
@@ -706,7 +717,7 @@ function SearchCoverageCard({ coverage, canManage, onRefresh }: { coverage: AiOp
     <dl><div><dt>Analyzed</dt><dd>{coverage.completed_analysis_assets}</dd></div><div><dt>Projected</dt><dd>{coverage.current_projection_assets}</dd></div><div><dt>Indexed</dt><dd>{coverage.v3_indexed_documents}</dd></div><div><dt>Missing</dt><dd>{coverage.projection_missing + coverage.projection_stale + coverage.indexing_backlog}</dd></div><div><dt>Coverage</dt><dd>{coverage.coverage_percent.toFixed(1)}%</dd></div></dl>
     {coverage.database_indexed_document_missing > 0 && <p role="alert">Database and Elasticsearch disagree for {coverage.database_indexed_document_missing} asset(s). Run repair after reviewing the audit.</p>}
     <p>Last audit: {coverage.last_audited_at ? new Date(coverage.last_audited_at).toLocaleString() : "Not run"}{coverage.elasticsearch_verification_included ? " (Elasticsearch verified)" : ""}. Repair queue: {coverage.repair_jobs.queued} queued, {coverage.repair_jobs.running} running.</p>
-    {canManage && <div className="ops-coverage-actions"><button type="button" disabled={busy !== null} onClick={() => void run("audit")}>{busy === "audit" ? "Running audit..." : "Run coverage audit"}</button><button type="button" className="danger" disabled={busy !== null} onClick={() => void run("repair")}>{busy === "repair" ? "Queuing repair..." : "Repair missing search data"}</button></div>}
+    {canManage && <div className="ops-coverage-actions"><button type="button" disabled={busy !== null} onClick={() => void run("audit")}>{busy === "audit" ? "Đang chạy audit..." : "Run coverage audit"}</button><button type="button" className="danger" disabled={busy !== null} onClick={() => void run("repair")}>{busy === "repair" ? "Queuing repair..." : "Repair missing search data"}</button></div>}
     {message && <p aria-live="polite">{message}</p>}
   </section>;
 }
