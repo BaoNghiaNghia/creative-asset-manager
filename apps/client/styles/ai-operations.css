@@ -351,3 +351,20 @@
 .pipeline-recent .ops-status.pending,.pipeline-recent .ops-status.queued,.pipeline-recent .ops-status.retry,.pipeline-recent .ops-status.waiting{border-color:#f2dfaa;background:#fff9e9;color:#9a6a13}
 .pipeline-recent .ops-status.pending i,.pipeline-recent .ops-status.queued i,.pipeline-recent .ops-status.retry i,.pipeline-recent .ops-status.waiting i{background:#d79b20}
 @media(max-width:760px){.pipeline-asset-cell{min-width:210px}.pipeline-asset a,.pipeline-asset>div>span{max-width:185px}}
+
+
+/* Current lifecycle state has a distinct, more prominent treatment than stage results. */
+.pipeline-current-state{display:inline-flex;align-items:center;gap:7px;min-width:126px;padding:6px 10px;border:1px solid #dbe4f0;border-radius:9px;background:#f7f9fc;color:#50627d;font-size:11px;font-weight:800;line-height:1;white-space:nowrap}
+.pipeline-current-state i{display:grid;width:19px;height:19px;place-items:center;border-radius:6px;background:#e7edf6;color:#60728d;font-size:12px;font-style:normal;font-weight:900}
+.pipeline-current-state.complete{border-color:#bfe4cc;background:linear-gradient(90deg,#f5fcf7,#eaf8ef);color:#237346}
+.pipeline-current-state.complete i{background:#ccefd8;color:#25864e}
+.pipeline-current-state.active{border-color:#bfd0ff;background:linear-gradient(90deg,#f5f8ff,#eaf0ff);color:#2f58b5}
+.pipeline-current-state.active i{background:#d7e3ff;color:#315fc8;animation:pipeline-state-spin 1s linear infinite}
+.pipeline-current-state.waiting{border-color:#f0dda8;background:linear-gradient(90deg,#fffdf6,#fff7df);color:#946716}
+.pipeline-current-state.waiting i{background:#ffedbd;color:#ad7916}
+.pipeline-current-state.failed{border-color:#f1c7c1;background:linear-gradient(90deg,#fff8f6,#ffefed);color:#b64035}
+.pipeline-current-state.failed i{background:#ffd9d3;color:#c8473c}
+.pipeline-current-state.duplicate{border-color:#d9c9f2;background:linear-gradient(90deg,#fbf9ff,#f4edff);color:#7650a5}
+.pipeline-current-state.duplicate i{background:#e9dcff;color:#8458b6}
+@keyframes pipeline-state-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.pipeline-current-state.active i{animation:none}}
