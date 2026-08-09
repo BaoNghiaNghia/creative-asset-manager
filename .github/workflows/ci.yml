@@ -172,7 +172,7 @@ jobs:
         working-directory: apps/api
         run: |
           set -o pipefail
-          timeout 10m python -m unittest tests.integration.test_postgresql tests.integration.test_ai_operations_postgresql -v 2>&1 | tee ../../artifacts/postgres/tests.log
+          timeout 10m python -m unittest tests.integration.test_postgresql tests.integration.test_ai_operations_postgresql tests.integration.test_inventory_postgresql -v 2>&1 | tee ../../artifacts/postgres/tests.log
       - name: Upload PostgreSQL failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

@@ -21,6 +21,7 @@ from app.modules.retention import model as retention_models  # noqa: F401
 from app.modules.authorization import folder_scope as folder_scope_models  # noqa: F401
 from app.modules.inventory import model as inventory_models  # noqa: F401
 from app.modules.inventory.jobs import model as inventory_job_models  # noqa: F401
+from app.modules.inventory import persistence_model as inventory_persistence_models  # noqa: F401
 
 config = context.config
 if (
