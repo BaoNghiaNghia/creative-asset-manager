@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
+import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
 import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
 import { DriveTreeNode } from "./DriveTree";
@@ -121,7 +122,7 @@ export function Sidebar({
           </div>}
         </Fragment>;
       })}
-    {showSwitchGoogleConfirm && <div
+    {showSwitchGoogleConfirm && createPortal(<div
       className="source-switch-dialog-backdrop"
       onMouseDown={event => event.target === event.currentTarget && setShowSwitchGoogleConfirm(false)}
     >
@@ -137,7 +138,7 @@ export function Sidebar({
           <button type="button" className="primary" autoFocus onClick={() => window.location.assign("/api/auth/google/connect-drive")}>Continue with Google</button>
         </div>
       </section>
-    </div>}
+    </div>, document.body)}
     <p>TAGS</p>
     {tags.map(tag => <button className="tag" key={tag.id}><i style={{ background: tag.color }} />{tag.name}</button>)}
     {auth.authenticated && <div className="connected-user"><span className="status-dot" /> Connected to {provider === "sharepoint" ? "SharePoint" : "Google Drive"}</div>}
