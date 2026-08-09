@@ -516,6 +516,14 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .source-reconnect-copy small{overflow:hidden;color:#758198;font-size:10px;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
 .source-reconnect-arrow{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:transform .16s ease,color .16s ease}
 .source-reconnect:hover .source-reconnect-arrow{color:#2457b8;transform:rotate(8deg)}
+.source-switch-dialog-backdrop{position:fixed;z-index:1400;inset:0;display:grid;place-items:center;padding:20px;background:rgb(15 23 42 / 42%);backdrop-filter:blur(2px);animation:source-switch-backdrop-in .16s ease-out}
+.source-switch-dialog{display:grid;grid-template-columns:48px minmax(0,1fr);gap:14px;width:min(470px,100%);padding:22px;border:1px solid #dce3ef;border-radius:16px;background:#fff;box-shadow:0 24px 70px rgb(15 23 42 / 28%);animation:source-switch-dialog-in .18s ease-out}
+.source-switch-dialog-icon{display:grid;place-items:center;width:48px;height:48px;border:1px solid #dce5f5;border-radius:13px;background:linear-gradient(145deg,#fff,#f2f6ff)}
+.source-switch-dialog-icon svg{width:27px;height:27px}
+.source-switch-dialog-copy{min-width:0}.source-switch-dialog-kicker{display:block;margin:1px 0 4px;color:#75839b;font-size:10px;font-weight:800;letter-spacing:.1em}.source-switch-dialog h2{margin:0;color:#1f2a3a;font-size:18px;line-height:1.3}.source-switch-dialog p{margin:8px 0 0;color:#68778e;font-size:12px;line-height:1.55}
+.source-switch-dialog-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:9px;margin-top:5px;padding-top:15px;border-top:1px solid #edf0f5}.source-switch-dialog-actions button{min-height:38px;padding:8px 14px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer}.source-switch-dialog-actions .secondary{border:1px solid #d7deea;background:#fff;color:#4b5a70}.source-switch-dialog-actions .secondary:hover{background:#f5f7fa}.source-switch-dialog-actions .primary{border:1px solid #2f61d5;background:#3568df;color:#fff;box-shadow:0 4px 10px rgb(53 104 223 / 22%)}.source-switch-dialog-actions .primary:hover{background:#2859cb}.source-switch-dialog-actions button:focus-visible{outline:3px solid #8eb0ff66;outline-offset:2px}
+@keyframes source-switch-backdrop-in{from{opacity:0}to{opacity:1}}@keyframes source-switch-dialog-in{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@media(max-width:520px){.source-switch-dialog{grid-template-columns:40px minmax(0,1fr);padding:18px}.source-switch-dialog-icon{width:40px;height:40px}.source-switch-dialog-actions{flex-direction:column-reverse}.source-switch-dialog-actions button{width:100%}}
 .source-connected{flex:0 0 auto;width:7px;height:7px;margin-left:auto;border-radius:50%;background:#26a269;box-shadow:0 0 0 3px #26a2691f}
 .sharepoint-icon rect{fill:#1677d2;stroke:#0f5fae}
 .sharepoint-icon path{stroke:#fff}
