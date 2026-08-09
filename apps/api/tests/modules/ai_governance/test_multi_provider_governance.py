@@ -16,6 +16,7 @@ from app.modules.ai_governance.repository import (
 )
 from app.modules.ai_governance.service import AiBudgetService
 from app.modules.ai_metadata.repository import AiMetadataRepository
+from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.assets.model import AssetModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.model import (
@@ -100,15 +101,35 @@ class MultiProviderGovernanceTest(unittest.TestCase):
             batch_active_jobs_limit=1,
         )
         self.session.add(provider)
+        analyses = [
+            AssetAiAnalysisModel(
+                id=f"analysis-a{index}",
+                tenant_id="tenant-a",
+                asset_id=f"asset-a{index}",
+                content_hash=str(index) * 64,
+                metadata_profile_id="profile",
+                metadata_profile="creative-assets",
+                metadata_profile_version="v1",
+                prompt_version="prompt-v1",
+                pipeline_version="pipeline-v1",
+                ai_provider="openai",
+                ai_model="gpt-test",
+            )
+            for index in (1, 2)
+        ]
+        self.session.add_all(analyses)
+        self.session.flush()
         jobs = ProcessingRepository(self.session)
         first = jobs.create_job(
-            tenant_id="tenant-a", job_type="asset_analyze", entity_type="analysis",
-            entity_id="a1", idempotency_key="a1", provider_key="openai",
+            tenant_id="tenant-a", job_type="asset_analyze", entity_type="asset_pipeline",
+            entity_id="pipeline-a1", idempotency_key="a1",
+            payload={"analysis_id": analyses[0].id}, provider_key="openai",
             provider_scope="ai",
         )
         jobs.create_job(
-            tenant_id="tenant-a", job_type="asset_analyze", entity_type="analysis",
-            entity_id="a2", idempotency_key="a2", provider_key="openai",
+            tenant_id="tenant-a", job_type="asset_analyze", entity_type="asset_pipeline",
+            entity_id="pipeline-a2", idempotency_key="a2",
+            payload={"analysis_id": analyses[1].id}, provider_key="openai",
             provider_scope="ai",
         )
         self.session.commit()
