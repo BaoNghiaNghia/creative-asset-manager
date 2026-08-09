@@ -62,7 +62,7 @@ class InventorySettingsModel(Base):
             name="ck_inventory_settings_confidence_order",
         ),
         CheckConstraint(
-            "drive_poll_interval_seconds > 0",
+            "drive_poll_interval_seconds >= 60 AND drive_poll_interval_seconds <= 300",
             name="ck_inventory_settings_poll_interval",
         ),
     )
@@ -89,6 +89,9 @@ class InventorySettingsModel(Base):
     drive_poll_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     archive_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     excel_export_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_successful_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_poll_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_poll_error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow
@@ -104,13 +107,19 @@ class InventorySourceFileModel(Base):
             ondelete="RESTRICT",
             name="fk_inventory_source_files_tenant_source",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "duplicate_of_source_file_id"],
+            ["inventory_source_files.tenant_id", "inventory_source_files.id"],
+            ondelete="RESTRICT",
+            name="fk_inventory_source_files_tenant_duplicate",
+        ),
         UniqueConstraint("tenant_id", "id", name="uq_inventory_source_files_tenant_id"),
         UniqueConstraint(
             "tenant_id", "external_source_id", "drive_file_id", "drive_modified_time",
             name="uq_inventory_source_files_provider_version",
         ),
         CheckConstraint(
-            "status IN ('discovered','downloaded','processing','processed','ignored','failed')",
+            "status IN ('discovered','queued','downloading','downloaded','duplicate','unsupported','retryable_failure','terminal_failure')",
             name="ck_inventory_source_files_status",
         ),
         CheckConstraint("drive_size IS NULL OR drive_size >= 0", name="ck_inventory_source_files_size"),
@@ -130,6 +139,10 @@ class InventorySourceFileModel(Base):
     drive_modified_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     drive_size: Mapped[int | None] = mapped_column(BigInteger)
     content_sha256: Mapped[str | None] = mapped_column(String(64))
+    storage_key: Mapped[str | None] = mapped_column(String(1024))
+    duplicate_of_source_file_id: Mapped[str | None] = mapped_column(ENTITY_ID)
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="discovered")
     provider_metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)

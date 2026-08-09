@@ -10,6 +10,7 @@ from app.core.config import Settings
 class InventoryWorkerConfig:
     automation_enabled: bool
     worker_enabled: bool
+    drive_poller_enabled: bool
     worker_id: str
     concurrency: int
     lease_seconds: int
@@ -24,6 +25,7 @@ class InventoryWorkerConfig:
         return cls(
             automation_enabled=settings.INVENTORY_AUTOMATION_ENABLED,
             worker_enabled=settings.INVENTORY_WORKER_ENABLED,
+            drive_poller_enabled=settings.INVENTORY_DRIVE_POLLER_ENABLED,
             worker_id=settings.INVENTORY_WORKER_ID or f"inventory-worker-{uuid4()}",
             concurrency=settings.INVENTORY_WORKER_CONCURRENCY,
             lease_seconds=settings.INVENTORY_WORKER_LEASE_SECONDS,

@@ -17,6 +17,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN groupadd --gid 10001 cam \
     && useradd --uid 10001 --gid cam --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin cam
 
+RUN mkdir -p /var/lib/creative-asset-manager/inventory \
+    && chown -R cam:cam /var/lib/creative-asset-manager
+
 WORKDIR /app
 COPY --chown=cam:cam apps/api/requirements.txt /app/apps/api/requirements.txt
 RUN python -m pip install --requirement /app/apps/api/requirements.txt

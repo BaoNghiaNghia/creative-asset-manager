@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED: bool = False
     INVENTORY_AUTOMATION_ENABLED: bool = False
     INVENTORY_WORKER_ENABLED: bool = False
+    INVENTORY_DRIVE_POLLER_ENABLED: bool = False
     AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED: bool = False
     AUTH_SELF_SIGNUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
@@ -200,6 +201,8 @@ class Settings(BaseSettings):
     INVENTORY_WORKER_DRAIN_TIMEOUT_SECONDS: float = 30.0
     INVENTORY_WORKER_HEALTH_HOST: str = "127.0.0.1"
     INVENTORY_WORKER_HEALTH_PORT: int = 8082
+    INVENTORY_SOURCE_STORAGE_ROOT: str = "/var/lib/creative-asset-manager/inventory"
+    INVENTORY_DOWNLOAD_MAX_BYTES: int = 100 * 1024 * 1024
     AI_ANALYSIS_LEASE_SECONDS: int = 300
     PROCESSING_POLICY_CACHE_TTL_SECONDS: float = 5.0
     PROCESSING_POLICY_ADMIN_IDS: str = ""
@@ -738,6 +741,16 @@ class Settings(BaseSettings):
             raise ValueError(
                 "INVENTORY_AUTOMATION_ENABLED is required when the Inventory worker is enabled"
             )
+        if self.INVENTORY_DRIVE_POLLER_ENABLED and not (
+            self.INVENTORY_AUTOMATION_ENABLED and self.INVENTORY_WORKER_ENABLED
+        ):
+            raise ValueError(
+                "Inventory automation and worker flags are required when the Drive poller is enabled"
+            )
+        if self.INVENTORY_DOWNLOAD_MAX_BYTES <= 0:
+            raise ValueError("INVENTORY_DOWNLOAD_MAX_BYTES must be positive")
+        if not self.INVENTORY_SOURCE_STORAGE_ROOT.strip():
+            raise ValueError("INVENTORY_SOURCE_STORAGE_ROOT is required")
         if self.INVENTORY_WORKER_CONCURRENCY <= 0:
             raise ValueError("INVENTORY_WORKER_CONCURRENCY must be positive")
         if self.INVENTORY_WORKER_LEASE_SECONDS <= 0:

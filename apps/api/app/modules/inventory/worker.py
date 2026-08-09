@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import signal
 import threading
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.config import Settings
 from app.core.database import SessionLocal
 from app.modules.inventory.config import InventoryWorkerConfig
+from app.modules.inventory.drive.downloader import InventoryDownloadFailure
+from app.modules.inventory.drive.poller import poll_inventory_drive
+from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.health import InventoryWorkerHealth, InventoryWorkerHealthServer
 from app.modules.inventory.jobs.registry import build_inventory_handler_registry
+from app.modules.inventory.persistence_model import InventorySourceFileModel
 from app.modules.inventory.jobs.repository import InventoryJobRepository
 
 
@@ -24,7 +29,7 @@ def run_inventory_worker(settings: Settings | None = None) -> int:
     health_server = InventoryWorkerHealthServer(
         health, config.health_host, config.health_port
     )
-    registry = build_inventory_handler_registry()
+    registry = build_inventory_handler_registry(runtime_settings)
 
     def stop(_signum: int, _frame: object) -> None:
         health.start_draining()
@@ -46,17 +51,69 @@ def run_inventory_worker(settings: Settings | None = None) -> int:
         while not stop_event.wait(config.idle_poll_seconds):
             if not config.enabled:
                 continue
+            if config.drive_poller_enabled:
+                try:
+                    asyncio.run(poll_inventory_drive(runtime_settings))
+                except Exception:
+                    logger.exception("inventory_drive_poll_runtime_failed")
             with SessionLocal() as session:
-                job = InventoryJobRepository(
-                    session, registry.job_types
-                ).claim_next(
+                repository = InventoryJobRepository(session, registry.job_types)
+                job = repository.claim_next(
                     worker_id=config.worker_id,
                     lease_seconds=config.lease_seconds,
                 )
-                if job is not None:
-                    raise RuntimeError(
-                        "Inventory job was claimed without a registered Phase 1 handler"
+                if job is None:
+                    continue
+                session.commit()
+                job_id = job.id
+                handler = registry.resolve(job.job_type)
+            failure = None
+            try:
+                if handler is None:
+                    raise InventoryDownloadFailure(
+                        "inventory_handler_not_registered", retryable=False
                     )
+                handler(job)
+            except InventoryDownloadFailure as exc:
+                failure = exc
+            except Exception:
+                logger.exception(
+                    "inventory_job_unexpected_failure job_id=%s job_type=%s",
+                    job.id,
+                    job.job_type,
+                )
+                failure = InventoryDownloadFailure(
+                    "inventory_job_unexpected_failure", retryable=True
+                )
+            with SessionLocal() as session:
+                current = session.get(InventoryJobModel, job_id)
+                if current is None:
+                    continue
+                repository = InventoryJobRepository(session, registry.job_types)
+                if failure is None:
+                    repository.complete(current, config.worker_id)
+                else:
+                    will_retry = repository.fail(
+                        current,
+                        config.worker_id,
+                        error_code=failure.code,
+                        error_message=failure.code,
+                        retryable=failure.retryable,
+                    )
+                    if failure.retryable and not will_retry:
+                        source_file_id = str(
+                            (current.payload_json or {}).get("source_file_id")
+                            or current.entity_id
+                        )
+                        source = session.scalar(
+                            select(InventorySourceFileModel).where(
+                                InventorySourceFileModel.tenant_id == current.tenant_id,
+                                InventorySourceFileModel.id == source_file_id,
+                            )
+                        )
+                        if source is not None and source.status == "retryable_failure":
+                            source.status = "terminal_failure"
+                session.commit()
         return 0
     finally:
         health.stop()

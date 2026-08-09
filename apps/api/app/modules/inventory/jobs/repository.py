@@ -147,3 +147,34 @@ class InventoryJobRepository:
         job.lease_expires_at = None
         job.updated_at = now
         self.session.flush()
+
+    def fail(
+        self,
+        job: InventoryJobModel,
+        worker_id: str,
+        *,
+        error_code: str,
+        error_message: str,
+        retryable: bool,
+        now: datetime | None = None,
+    ) -> bool:
+        if job.status != "processing" or job.claimed_by != worker_id:
+            raise RuntimeError("Inventory job is not owned by this worker")
+        failed_at = now or _utcnow()
+        can_retry = retryable and job.attempt_count < job.max_attempts
+        job.status = "retry" if can_retry else "failed"
+        job.next_attempt_at = (
+            failed_at
+            + timedelta(seconds=min(300, 2 ** max(0, job.attempt_count - 1)))
+            if can_retry
+            else failed_at
+        )
+        job.last_error_code = error_code[:100]
+        job.last_error_message = error_message[:1000]
+        job.completed_at = None if can_retry else failed_at
+        job.claimed_by = None
+        job.claimed_at = None
+        job.lease_expires_at = None
+        job.updated_at = failed_at
+        self.session.flush()
+        return can_retry

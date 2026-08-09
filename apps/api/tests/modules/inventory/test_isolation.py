@@ -69,7 +69,7 @@ class InventoryIsolationTest(unittest.TestCase):
 
     def test_flags_and_production_registry_are_default_off(self) -> None:
         self.assertFalse(InventoryWorkerConfig.from_settings(Settings()).enabled)
-        self.assertEqual(build_inventory_handler_registry().job_types, ())
+        self.assertEqual(build_inventory_handler_registry().job_types, ("inventory_file_download",))
 
     def test_permissions_are_tenant_admin_only_by_default(self) -> None:
         permissions = {"inventory.read", "inventory.control", "inventory.jobs.manage"}

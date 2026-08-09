@@ -201,6 +201,9 @@ services:
 
     cpus: "${CAM_INVENTORY_WORKER_CPU_LIMIT:-0.5}"
     mem_limit: "${CAM_INVENTORY_WORKER_MEMORY_LIMIT:-512m}"
+    volumes:
+      - inventory-source-data:/var/lib/creative-asset-manager/inventory
+
 
     healthcheck:
       test:
@@ -252,3 +255,4 @@ networks:
 
 volumes:
   elasticsearch-data:
+  inventory-source-data:

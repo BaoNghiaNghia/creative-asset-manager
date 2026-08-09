@@ -18,6 +18,7 @@ from app.modules.inventory.persistence_model import (
     InventoryLocationModel,
     InventoryReviewModel,
     InventorySettingsModel,
+    inventory_utcnow,
     InventorySourceFileModel,
     InventoryTransactionModel,
 )
@@ -88,6 +89,11 @@ class InventorySourceFileRepository(InventoryTenantRepository):
     def register(
         self, tenant_id: str, value: InventorySourceFileInput
     ) -> InventorySourceFileModel:
+        return self.register_with_result(tenant_id, value)[0]
+
+    def register_with_result(
+        self, tenant_id: str, value: InventorySourceFileInput, *, status: str = "discovered"
+    ) -> tuple[InventorySourceFileModel, bool]:
         identity = (
             InventorySourceFileModel.tenant_id == tenant_id,
             InventorySourceFileModel.external_source_id == value.external_source_id,
@@ -96,18 +102,23 @@ class InventorySourceFileRepository(InventoryTenantRepository):
         )
         existing = self.session.scalar(select(InventorySourceFileModel).where(*identity))
         if existing is not None:
-            return existing
+            existing.last_seen_at = inventory_utcnow()
+            return existing, False
         try:
             with self.session.begin_nested():
-                row = InventorySourceFileModel(tenant_id=tenant_id, **value.model_dump())
+                row = InventorySourceFileModel(
+                    tenant_id=tenant_id,
+                    status=status,
+                    **value.model_dump(),
+                )
                 self.session.add(row)
                 self.session.flush()
-            return row
+            return row, True
         except IntegrityError:
             existing = self.session.scalar(select(InventorySourceFileModel).where(*identity))
             if existing is None:
                 raise
-            return existing
+            return existing, False
 
     def find_by_content_hash(
         self, tenant_id: str, content_sha256: str

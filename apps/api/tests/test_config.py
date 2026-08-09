@@ -29,6 +29,7 @@ FEATURE_FLAGS = (
     "AI_BATCH_FALLBACK_TO_SINGLE_ENABLED",
     "INVENTORY_AUTOMATION_ENABLED",
     "INVENTORY_WORKER_ENABLED",
+    "INVENTORY_DRIVE_POLLER_ENABLED",
     "RETENTION_CLEANUP_ENABLED",
 )
 
@@ -59,6 +60,21 @@ class SettingsTest(unittest.TestCase):
         )
         self.assertTrue(settings.INVENTORY_WORKER_ENABLED)
 
+    def test_inventory_drive_poller_requires_worker_and_automation(self) -> None:
+        with self.assertRaises(ValidationError):
+            Settings(INVENTORY_DRIVE_POLLER_ENABLED=True)
+        with self.assertRaises(ValidationError):
+            Settings(
+                INVENTORY_AUTOMATION_ENABLED=True,
+                INVENTORY_DRIVE_POLLER_ENABLED=True,
+            )
+        settings = Settings(
+            INVENTORY_AUTOMATION_ENABLED=True,
+            INVENTORY_WORKER_ENABLED=True,
+            INVENTORY_DRIVE_POLLER_ENABLED=True,
+
+        )
+        self.assertTrue(settings.INVENTORY_DRIVE_POLLER_ENABLED)
     def test_explicit_true_and_false_values_are_accepted(self) -> None:
         with patch.dict(
             os.environ,

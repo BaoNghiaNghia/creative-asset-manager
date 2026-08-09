@@ -39,7 +39,7 @@ class InventorySettingsInput(InventorySchema):
     timezone: str = "Asia/Ho_Chi_Minh"
     auto_approve_confidence: Decimal = Field(default=Decimal("0.95"), ge=0, le=1)
     review_confidence: Decimal = Field(default=Decimal("0.70"), ge=0, le=1)
-    drive_poll_interval_seconds: int = Field(default=60, gt=0)
+    drive_poll_interval_seconds: int = Field(default=60, ge=60, le=300)
     enabled: bool = False
     archive_enabled: bool = False
     excel_export_enabled: bool = False

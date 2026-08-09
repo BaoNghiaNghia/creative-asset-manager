@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.inventory.persistence_model import InventoryDocumentModel
+from app.modules.inventory.jobs.repository import InventoryJobRepository
+
 from app.modules.inventory.repository import InventoryCatalogRepository, InventorySourceFileRepository
 from app.modules.inventory.schema import InventorySourceFileInput
 from tests.modules.inventory.test_persistence import PHASE2_TABLES
@@ -79,3 +81,56 @@ class InventoryPostgreSqlIntegrationTest(unittest.TestCase):
             )
             with self.assertRaises(IntegrityError):
                 session.flush()
+    def test_concurrent_provider_and_job_registration_are_idempotent(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        marker = uuid4().hex
+        tenant_id = f"inv-race-{marker}"
+        source_id = f"s-{marker}"
+        with self.sessions() as session:
+            session.add_all([
+                TenantModel(id=tenant_id, name="Race", slug=tenant_id),
+                ExternalSourceModel(
+                    id=source_id, tenant_id=tenant_id, source_key=source_id,
+                    source_type="google_drive",
+                ),
+            ])
+            session.commit()
+
+        value = InventorySourceFileInput(
+            external_source_id=source_id,
+            drive_file_id="same-file",
+            filename="count.jpg",
+            mime_type="image/jpeg",
+            drive_modified_time=datetime.now(timezone.utc),
+        )
+
+        def register_file() -> str:
+            with self.sessions() as session:
+                row = InventorySourceFileRepository(session).register(
+                    tenant_id, value
+                )
+                session.commit()
+                return row.id
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            file_ids = list(executor.map(lambda _index: register_file(), range(2)))
+        self.assertEqual(len(set(file_ids)), 1)
+
+        def register_job() -> str:
+            with self.sessions() as session:
+                row = InventoryJobRepository(
+                    session, ("inventory_file_download",)
+                ).create_job(
+                    tenant_id=tenant_id,
+                    job_type="inventory_file_download",
+                    entity_type="inventory_source_file",
+                    entity_id=file_ids[0],
+                    idempotency_key=f"inventory-file-download:{file_ids[0]}",
+                )
+                session.commit()
+                return row.id
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            job_ids = list(executor.map(lambda _index: register_job(), range(2)))
+        self.assertEqual(len(set(job_ids)), 1)
