@@ -183,6 +183,38 @@ services:
       retries: 10
       start_period: 45s
 
+  inventory-worker:
+    <<: *backend-common
+
+    profiles:
+      - inventory
+
+    working_dir: /app
+
+    command:
+      - python
+      - /app/apps/inventory_worker/main.py
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+    cpus: "${CAM_INVENTORY_WORKER_CPU_LIMIT:-0.5}"
+    mem_limit: "${CAM_INVENTORY_WORKER_MEMORY_LIMIT:-512m}"
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          response = urllib.request.urlopen(
+              "http://127.0.0.1:8082/live",
+              timeout=5
+          );
+          raise SystemExit(0 if response.status == 200 else 1)
+      interval: 15s
   migrate:
     <<: *backend-common
 

@@ -1,0 +1,2 @@
+"""Inventory Automation isolation boundary."""
+

@@ -69,7 +69,7 @@ jobs:
         run: |
           bash -n scripts/dev-api.sh
           bash -n scripts/test-integration.sh
-          python -m compileall -q apps/api/app apps/worker
+          python -m compileall -q apps/api/app apps/worker apps/inventory_worker
       - name: API, worker and mocked-provider tests
         working-directory: apps/api
         run: |

@@ -27,6 +27,8 @@ FEATURE_FLAGS = (
     "DRIVE_METADATA_SIDECAR_ENABLED",
     "AI_EMERGENCY_STOP_ENABLED",
     "AI_BATCH_FALLBACK_TO_SINGLE_ENABLED",
+    "INVENTORY_AUTOMATION_ENABLED",
+    "INVENTORY_WORKER_ENABLED",
     "RETENTION_CLEANUP_ENABLED",
 )
 
@@ -47,6 +49,15 @@ class SettingsTest(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             settings = Settings()
         self.assertIs(settings.SEARCH_V3_REQUIRED, True)
+
+    def test_inventory_worker_requires_the_default_off_automation_boundary(self) -> None:
+        with self.assertRaises(ValidationError):
+            Settings(INVENTORY_WORKER_ENABLED=True)
+        settings = Settings(
+            INVENTORY_AUTOMATION_ENABLED=True,
+            INVENTORY_WORKER_ENABLED=True,
+        )
+        self.assertTrue(settings.INVENTORY_WORKER_ENABLED)
 
     def test_explicit_true_and_false_values_are_accepted(self) -> None:
         with patch.dict(

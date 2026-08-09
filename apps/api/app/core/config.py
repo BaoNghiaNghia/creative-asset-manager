@@ -48,6 +48,8 @@ FEATURE_FLAG_NAMES = (
     "DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED",
     "SEARCH_SHADOW_COMPARISON_ENABLED",
     "ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED",
+    "INVENTORY_AUTOMATION_ENABLED",
+    "INVENTORY_WORKER_ENABLED",
 )
 
 
@@ -102,6 +104,8 @@ class Settings(BaseSettings):
     DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED: bool = False
     SEARCH_SHADOW_COMPARISON_ENABLED: bool = False
     ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED: bool = False
+    INVENTORY_AUTOMATION_ENABLED: bool = False
+    INVENTORY_WORKER_ENABLED: bool = False
     AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED: bool = False
     AUTH_SELF_SIGNUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
@@ -188,6 +192,14 @@ class Settings(BaseSettings):
     WORKER_HEALTH_HOST: str = "127.0.0.1"
     WORKER_HEALTH_PORT: int = 8081
     WORKER_LOG_LEVEL: str = "INFO"
+    INVENTORY_WORKER_ID: str | None = None
+    INVENTORY_WORKER_CONCURRENCY: int = 1
+    INVENTORY_WORKER_LEASE_SECONDS: int = 60
+    INVENTORY_WORKER_HEARTBEAT_SECONDS: float = 15.0
+    INVENTORY_WORKER_IDLE_POLL_SECONDS: float = 2.0
+    INVENTORY_WORKER_DRAIN_TIMEOUT_SECONDS: float = 30.0
+    INVENTORY_WORKER_HEALTH_HOST: str = "127.0.0.1"
+    INVENTORY_WORKER_HEALTH_PORT: int = 8082
     AI_ANALYSIS_LEASE_SECONDS: int = 300
     PROCESSING_POLICY_CACHE_TTL_SECONDS: float = 5.0
     PROCESSING_POLICY_ADMIN_IDS: str = ""
@@ -722,6 +734,28 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_DRAIN_TIMEOUT_SECONDS cannot be negative")
         if not 1 <= self.WORKER_HEALTH_PORT <= 65535:
             raise ValueError("WORKER_HEALTH_PORT must be between 1 and 65535")
+        if self.INVENTORY_WORKER_ENABLED and not self.INVENTORY_AUTOMATION_ENABLED:
+            raise ValueError(
+                "INVENTORY_AUTOMATION_ENABLED is required when the Inventory worker is enabled"
+            )
+        if self.INVENTORY_WORKER_CONCURRENCY <= 0:
+            raise ValueError("INVENTORY_WORKER_CONCURRENCY must be positive")
+        if self.INVENTORY_WORKER_LEASE_SECONDS <= 0:
+            raise ValueError("INVENTORY_WORKER_LEASE_SECONDS must be positive")
+        if not (
+            0
+            < self.INVENTORY_WORKER_HEARTBEAT_SECONDS
+            < self.INVENTORY_WORKER_LEASE_SECONDS
+        ):
+            raise ValueError(
+                "INVENTORY_WORKER_HEARTBEAT_SECONDS must be positive and shorter than the lease"
+            )
+        if self.INVENTORY_WORKER_IDLE_POLL_SECONDS <= 0:
+            raise ValueError("INVENTORY_WORKER_IDLE_POLL_SECONDS must be positive")
+        if self.INVENTORY_WORKER_DRAIN_TIMEOUT_SECONDS < 0:
+            raise ValueError("INVENTORY_WORKER_DRAIN_TIMEOUT_SECONDS cannot be negative")
+        if not 1 <= self.INVENTORY_WORKER_HEALTH_PORT <= 65535:
+            raise ValueError("INVENTORY_WORKER_HEALTH_PORT must be between 1 and 65535")
         if self.GEMINI_TIMEOUT_SECONDS <= 0:
             raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive")
         if self.GEMINI_MODEL_COOLDOWN_SECONDS < 0:

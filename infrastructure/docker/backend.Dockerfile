@@ -26,6 +26,7 @@ RUN python -m pip install --requirement /app/apps/api/requirements.txt
 COPY --chown=cam:cam apps/api/alembic.ini /app/apps/api/alembic.ini
 COPY --chown=cam:cam apps/api/app /app/apps/api/app
 COPY --chown=cam:cam apps/worker /app/apps/worker
+COPY --chown=cam:cam apps/inventory_worker /app/apps/inventory_worker
 COPY --chown=cam:cam database/migrations /app/database/migrations
 
 WORKDIR /app/apps/api

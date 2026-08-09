@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.authorization.model import PermissionModel, RoleModel, RolePermissionModel
+from app.modules.inventory.permissions import INVENTORY_PERMISSION_DEFINITIONS
 
 
 PERMISSION_DEFINITIONS = {
@@ -26,6 +27,7 @@ PERMISSION_DEFINITIONS = {
     "search.rebuild": "Rebuild tenant search projections",
     "search.index.activate": "Activate a tenant search index",
     "audit.read": "Read tenant audit events",
+    **INVENTORY_PERMISSION_DEFINITIONS,
 }
 
 VIEWER_PERMISSIONS = {"assets.read", "search.read"}
