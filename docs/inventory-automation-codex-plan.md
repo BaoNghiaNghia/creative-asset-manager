@@ -1,239 +1,279 @@
-# Inventory Automation — Codex Implementation Plan
+# Inventory Automation — Isolated Codex Implementation Plan
 
 > Repository: `BaoNghiaNghia/creative-asset-manager`  
 > Branch: `feature/google-drive-explorer-mvp`  
 > Source baseline reviewed: `eac0d8a4c2b19eb1e34f624a73cf72d6f40ddbf8`  
-> Baseline commit message: `update build fe`  
-> Review date: 2026-08-09  
-> Purpose: implementation plan for adding the Google Drive → AI → inventory → daily finalization → Excel workflow to the current codebase.
+> Architecture revision date: 2026-08-09  
+> Status: **THIS VERSION SUPERSEDES THE PREVIOUS SHARED-PIPELINE INVENTORY PLAN**  
+> Primary requirement: the new Inventory Automation flow and the existing Creative Asset flow must be operationally isolated so a failure, backlog, retry storm, schema change, pause, AI error, or business rule in one flow does not affect the other.
 
 ---
 
-# 0. How Codex must use this document
+# 0. Architecture decision
 
-This file is the **primary technical implementation plan** for the Inventory Automation feature.
+Inventory is **not** an extension of the existing creative-asset processing pipeline.
+
+Inventory is a separate application domain and separate asynchronous pipeline living in the same repository/application platform.
+
+The two flows may reuse only stable low-level platform infrastructure where reuse does not create runtime coupling.
+
+Target shape:
+
+```text
+                         SHARED PLATFORM LAYER
+              ┌────────────────────────────────────┐
+              │ FastAPI app shell                  │
+              │ Authentication / tenant identity   │
+              │ PostgreSQL engine                  │
+              │ Google OAuth connection storage    │
+              │ GoogleDriveClient transport        │
+              │ common image utility, if stateless │
+              └──────────────┬─────────────────────┘
+                             │
+               ┌─────────────┴─────────────┐
+               │                           │
+               ▼                           ▼
+     CREATIVE ASSET FLOW             INVENTORY FLOW
+     existing code                   new isolated code
+
+     source_sync                     inventory_drive_poll
+          ↓                               ↓
+     SourceAssetModel                InventorySourceFile
+          ↓                               ↓
+     processing_jobs                 inventory_jobs
+          ↓                               ↓
+     AssetModel                      InventorySubmission/Page
+          ↓                               ↓
+     asset_store                     inventory image storage
+          ↓                               ↓
+     AssetAiAnalysisModel            InventoryAiAnalysis
+          ↓                               ↓
+     search projection               inventory normalize/validate
+          ↓                               ↓
+     Elasticsearch                   review / transactions
+                                          ↓
+                                     daily finalize
+                                          ↓
+                                     Excel export
+```
+
+**Hard rule:** Inventory data must never enter the existing generic `source_sync → source_asset_download → AssetModel → asset_analyze → search_projection_build → asset_index` chain.
+
+**Hard rule:** Existing creative-asset modules must not import Inventory modules.
+
+---
+
+# 1. How Codex must use this document
+
+This file is the primary technical implementation plan for Inventory Automation.
 
 Source-of-truth precedence:
 
-1. **Current source code on the target branch** — always wins if the repository has changed after this document was written.
-2. **`docs/inventory-automation-codex-plan.md`** — authoritative implementation sequencing and architecture for this feature.
-3. **`docs/inventory-system-readiness-assessment.md`** — historical technical assessment; use for context only where it does not conflict with this plan or newer source.
-4. **`docs/google-drive-inventory-automation.md`** — business/operational reference for forms, inventory rules, daily workflow, Excel behavior, and staff operations.
+1. current source code on the target branch;
+2. this document;
+3. `docs/google-drive-inventory-automation.md` for business rules and operational workflow;
+4. older inventory readiness/planning documents for historical context only.
 
-Codex rules:
+Codex execution rules:
 
-- Re-read the current branch before starting every phase.
-- Implement **one phase only per task/PR** unless explicitly instructed otherwise.
-- Do not implement future phases opportunistically.
-- Do not replace the existing source-sync, processing-job, AI-governance, tenant-policy, auth, or asset-storage infrastructure with a second queue/backend.
-- Do not call OpenAI/Gemini SDKs directly from inventory business services.
-- Do not let inventory files use the generic "latest active metadata profile" selection.
-- Preserve tenant isolation, durable job semantics, idempotency, audit history, and current Explorer behavior.
-- Existing creative-asset behavior must remain unchanged for files outside the configured inventory Inbox.
-- Every phase must add/update tests and must stop when its acceptance criteria are met.
-- Do not move to the next phase while relevant CI checks are red.
-
----
-
-# 1. Current source assessment at `eac0d8a4...`
-
-The repository already provides most infrastructure required by Inventory Automation. The new feature should be added as a domain on top of the existing platform rather than as a parallel application.
-
-## 1.1. Components that must be reused
-
-Current reusable foundations include:
-
-- FastAPI application and tenant-aware authorization.
-- PostgreSQL + SQLAlchemy + Alembic.
-- Persistent Google OAuth connections.
-- Google Drive read/write source connection.
-- Google Drive incremental Changes API synchronization.
-- `ExternalSourceModel`, `SourceAssetModel`, `AssetModel`, source-to-asset links.
-- Durable `processing_jobs` queue with lease, retry, cancellation, idempotency and concurrency accounting.
-- Worker handler registry and processing policy.
-- Content deduplication.
-- Managed asset storage.
-- `AnalysisImagePreparer` for safe image normalization.
-- `MetadataProfileModel` + `AssetAiAnalysisModel`.
-- Gemini/OpenAI provider registry.
-- AI rate-limit, concurrency, budget and emergency-stop governance.
-- Existing React application shell, sidebar and explicit route mapping.
-
-Do **not** introduce Celery, Redis queue, Google Apps Script orchestration, a second database, or a separate AI pipeline for the MVP.
+- Re-read current source before every phase.
+- Implement **one phase per task/PR** unless explicitly instructed otherwise.
+- Stop at the phase boundary.
+- Do not opportunistically refactor the existing creative pipeline.
+- Do not put Inventory job types into generic `processing_jobs`.
+- Do not put Inventory extraction results into `AssetAiAnalysisModel`.
+- Do not create Inventory `SourceAssetModel` or `AssetModel` records.
+- Do not index Inventory documents into the existing creative Elasticsearch index.
+- Do not use generic `AssetProcessingStatusService` for Inventory state.
+- Do not use generic `MetadataProfileModel` as the authoritative Inventory extraction profile.
+- Do not change the meaning of existing creative feature flags or tenant processing policies.
+- Every Inventory feature flag must default to disabled.
+- Every phase must include tests proving that existing creative behavior remains unchanged.
+- Relevant CI must be green before moving to the next phase.
 
 ---
 
-# 2. Important deltas since the previous readiness assessment
+# 2. Isolation level
 
-The previous readiness document was based on commit `ac772df...`. There are additional commits after that baseline, including 15 commits after the readiness-document commit `2bea840...`.
+The desired isolation is **pipeline isolation inside one product**, not a completely separate product.
 
-The following changes materially affect Inventory planning.
+## 2.1. Allowed shared infrastructure
 
-## 2.1. Drive OAuth/reconnect is stronger
+Inventory may reuse:
 
-Current Google Drive source connections request:
+- FastAPI application process and dependency injection;
+- existing authentication and `CurrentPrincipal` tenant identity;
+- PostgreSQL server/SQLAlchemy engine;
+- Alembic migration mechanism;
+- persisted Google OAuth connection records;
+- token refresh/access-token resolution helpers;
+- `GoogleDriveClient` network transport methods;
+- stateless image normalization utilities when they do not write generic asset state;
+- common logging/tracing primitives;
+- common UI shell/layout components.
 
-```text
-https://www.googleapis.com/auth/drive
-```
+These are infrastructure dependencies, not business-pipeline dependencies.
 
-and the source now includes more robust granted-scope normalization and persistence.
+## 2.2. Must be separate
 
-Useful existing functions include:
+Inventory must have its own:
 
-```text
-resolve_granted_scopes(...)
-validate_granted_scopes(..., require_write=True)
-persist_drive_connection(...)
-get_connection_access_token(..., require_drive_write_scope=True)
-```
-
-There is also a safe diagnostic command:
-
-```text
-apps/api/app/operations/google_oauth_diagnostic.py
-```
-
-Inventory preflight should reuse the same persisted source/connection instead of creating a new OAuth subsystem.
-
-## 2.2. Previous Explorer upload `item_id` blocker is resolved
-
-The prior assessment identified an undefined `item_id` cache invalidation after `POST /explorer/upload`.
-
-That specific issue is no longer present in current source.
-
-Do not carry that old blocker into implementation work.
-
-## 2.3. Supported source image MIME types now include AVIF
-
-Current Google Drive ingestion accepts:
-
-```text
-image/jpeg
-image/png
-image/webp
-image/avif
-```
-
-HEIC/HEIF are still **not** accepted by source ingestion even though downstream `AnalysisImagePreparer` can decode more formats after managed storage.
-
-MVP upload contract:
-
-```text
-JPEG / JPG
-PNG
-WebP
-AVIF
-```
-
-HEIC support is explicitly out of scope for the MVP unless separately implemented in source ingestion and tested end-to-end.
-
-## 2.4. Current CI failure is now known precisely
-
-Current HEAD PR workflow run `31289305119` is red because the API/unit job fails.
-
-Passing groups:
-
-```text
-Frontend checks                       PASS
-PostgreSQL migrations/repositories    PASS
-Elasticsearch integration             PASS
-Durable pipeline end-to-end           PASS
-```
-
-Failing group:
-
-```text
-API, worker and provider unit tests    FAIL
-Production release gate                FAIL (because upstream API/unit failed)
-```
-
-Exact current failures:
-
-```text
-ERROR
-modules.ai_governance.test_multi_provider_governance
-.MultiProviderGovernanceTest
-.test_preclaim_honors_provider_mode_limit_and_runtime_stop
-
-claimed is None where the test expects the first job to be claimed.
-```
-
-and:
-
-```text
-FAIL
-modules.ai_operations.test_api
-.AiOperationsApiTest
-.test_summary_uses_canonical_current_job_states_and_latest_replacement
-
-expected today["failed"] == 1
-actual   today["failed"] == 0
-```
-
-These are **Phase 0 blockers**. Do not start Inventory domain implementation while the baseline test suite is knowingly red.
+- configuration and feature flags;
+- Drive Inbox binding;
+- Drive polling cursor/state;
+- source-file registry;
+- download/submission records;
+- durable job table;
+- job repository;
+- job claimer;
+- worker runtime;
+- retry/backoff rules;
+- pause/resume state;
+- concurrency limits;
+- AI analysis records;
+- extraction schema/version;
+- AI rate-limit/budget configuration;
+- review queue;
+- business transactions;
+- daily-run scheduler;
+- daily finalization;
+- Excel exporter;
+- status projection;
+- API routes;
+- React routes/pages;
+- metrics namespace;
+- operational dashboard.
 
 ---
 
-# 3. Target business workflow
+# 3. Isolation guarantees
 
-Staff workflow remains intentionally simple:
+The implementation is accepted only when these statements are true.
+
+## Guarantee A — Inventory failure cannot fail creative jobs
+
+Examples:
 
 ```text
-Write inventory values on the form
-        ↓
-Take clear photos of all pages
-        ↓
-Upload photos directly to one Google Drive Inbox folder
+Inventory AI 429
+Inventory OCR malformed JSON
+Inventory Excel export exception
+Inventory Drive archive 403
+Inventory worker crash
+Inventory queue backlog
 ```
 
-System workflow:
+None of the above may alter:
 
 ```text
-Google Drive Inbox
-        ↓
-SourceSyncScheduler
-        ↓
-source_sync
-        ↓
+processing_jobs
+AssetPipelineModel
+AssetAiAnalysisModel
+creative tenant processing pause state
+creative provider runtime stop state
+creative search projection/index state
+```
+
+## Guarantee B — Creative pause cannot pause Inventory
+
+Pausing generic processing must not stop `inventory_worker`.
+
+Inventory has its own control row, for example:
+
+```text
+inventory_processing_controls
+```
+
+with its own:
+
+```text
+enabled
+paused
+max_active_jobs
+max_ai_jobs
+```
+
+## Guarantee C — Inventory backlog cannot consume generic worker slots
+
+Inventory jobs never appear in `processing_jobs`, so generic `TenantAwareJobClaimer` does not see them.
+
+Do not add Inventory job names to:
+
+```text
+JobType
+STAGE_POLICY
+AI_JOB_TYPES
+SOURCE_JOB_TYPES
+STORAGE_JOB_TYPES
+```
+
+of the existing processing pipeline.
+
+## Guarantee D — Inventory AI cannot satisfy creative AI, and vice versa
+
+Inventory extraction uses `InventoryAiAnalysisModel`.
+
+Creative analysis continues to use `AssetAiAnalysisModel`.
+
+There must be no cross-reuse based only on content hash.
+
+## Guarantee E — Inventory files never reach creative search
+
+An image submitted to the Inventory Inbox must not create:
+
+```text
 SourceAssetModel
-        ↓
-source_asset_download
-        ↓
-content dedup + AssetModel
-        ↓
-asset_store
-        ↓
-Inventory purpose routing
-        ↓
-inventory page/document creation
-        ↓
-explicit inventory AI profile
-        ↓
-AI extraction
-        ↓
-normalization
-        ↓
-business validation
-        ↓
-AUTO APPROVE / REVIEW / REUPLOAD
-        ↓
-inventory transactions
-        ↓
-daily run
-        ↓
-17:00 finalize/report
-        ↓
-Excel export
-        ↓
-Google Drive output + backup
+AssetModel
+AssetSourceLinkModel
+AssetPipelineModel
+AssetAiAnalysisModel
+SearchOperationItemModel
+Elasticsearch creative document
 ```
+
+## Guarantee F — Inventory UI state is independent
+
+Creative Explorer processing status remains generated from current creative models.
+
+Inventory status is generated from Inventory tables only.
 
 ---
 
-# 4. Google Drive operating structure
+# 4. External-provider isolation
 
-Recommended folders:
+Application-level isolation does not automatically isolate external quota.
+
+If Creative and Inventory use the same Gemini project or the same OpenAI API key/project, provider quota, billing caps, or provider outages can still couple the two flows externally.
+
+For strong production isolation, use separate provider credentials/configuration:
+
+```text
+CREATIVE AI
+  GEMINI_API_KEY / project A
+  OPENAI_API_KEY / project A
+
+INVENTORY AI
+  INVENTORY_GEMINI_API_KEY / project B
+  INVENTORY_OPENAI_API_KEY / project B
+```
+
+MVP may initially use one provider if necessary, but Codex must preserve separate Inventory rate-limit/budget state and configuration so credentials can be split without redesigning the domain.
+
+Recommended production rule:
+
+> Separate AI credentials/project for Inventory before full automation rollout.
+
+---
+
+# 5. Google Drive boundary
+
+Inventory may reuse the existing tenant Google Drive OAuth connection, because that is an infrastructure connection rather than a processing pipeline.
+
+Current source already supports a write-scoped Drive connection and token refresh.
+
+Inventory must not register its Inbox into the generic creative source-sync pipeline.
+
+## 5.1. Folder structure
 
 ```text
 KIEM_KHO_TU_DONG/
@@ -247,698 +287,288 @@ KIEM_KHO_TU_DONG/
 └── 05_LUU_TRU_ANH_CU/
 ```
 
-MVP rule:
+## 5.2. Inventory Drive poller
 
-> Staff upload images **directly** into `00_INBOX_NHAN_VIEN`. No nested staff-created folders.
+Create a separate service:
 
-The source-sync mapper already stores Drive parent IDs in source metadata. The MVP can route an item with:
-
-```python
-inbox_folder_id in (source_asset.source_metadata or {}).get("parents", [])
+```text
+InventoryDrivePoller
 ```
 
-No extra Google Drive API request is required for direct Inbox membership.
+It should call the low-level Drive provider/client using the configured tenant OAuth connection.
 
-Nested/descendant Inbox routing may be added later using the existing ancestry/breadcrumb infrastructure.
+MVP behavior:
+
+1. list files directly inside `00_INBOX_NHAN_VIEN`;
+2. ignore folders;
+3. accept only supported image MIME types;
+4. compare provider identity/version against `inventory_source_files`;
+5. create an Inventory source record for new/changed submissions;
+6. enqueue an Inventory download job in `inventory_jobs`;
+7. never call generic source-sync services.
+
+A simple bounded folder listing every 1–5 minutes is preferred for MVP because it is easy to reason about and remains isolated from the account-wide creative Drive changes cursor.
+
+Do not reuse the creative source cursor.
+
+Future optimization may use a dedicated Drive Changes cursor stored in Inventory tables, but it still must remain separate.
+
+## 5.3. Source identity/version
+
+Recommended idempotency identity:
+
+```text
+tenant_id
+external_source_id
+drive_file_id
+drive_modified_time
+```
+
+After download also persist:
+
+```text
+content_sha256
+```
+
+This supports both provider-version idempotency and duplicate-content detection.
 
 ---
 
-# 5. Critical architecture decision: route Inventory before generic AI behavior
-
-This is the most important implementation requirement.
-
-Current asset pipeline behavior after storage can:
-
-1. reuse any completed analysis for an `AssetModel`, or
-2. if auto-analysis is enabled, select the newest active metadata profile and enqueue generic `asset_analyze`.
-
-That behavior is correct for creative assets but unsafe for inventory submissions.
-
-## Required behavior
-
-Inventory purpose must be determined **before** both:
-
-- generic completed-analysis reuse;
-- generic latest-active-profile auto-analysis.
-
-Required shape:
-
-```text
-Asset has been downloaded/stored
-        ↓
-AssetPurposeRouter
-        ↓
-Does this source occurrence belong to configured Inventory Inbox?
-        │
-        ├── NO
-        │    ↓
-        │  preserve existing creative-asset pipeline exactly
-        │
-        └── YES
-             ↓
-           inventory pipeline
-             ↓
-           DO NOT select generic active metadata profile
-             ↓
-           DO NOT reuse unrelated creative analysis as inventory extraction
-```
-
-## Important identity rule
-
-Inventory routing must be based on the **source occurrence** (`SourceAssetModel`) and its folder binding, not only on `AssetModel`.
-
-Reason:
-
-```text
-Drive file A in creative folder ─┐
-                                 ├─ same bytes → same AssetModel
-Drive file B in inventory Inbox ─┘
-```
-
-Creative content dedup is correct, but business intent is different.
-
-Therefore:
-
-- content dedup may reuse `AssetModel`;
-- inventory submission/page identity must still point to `SourceAssetModel`;
-- a completed creative AI analysis must never satisfy inventory extraction requirements.
-
----
-
-# 6. Recommended Inventory module structure
+# 6. New Inventory module structure
 
 Create:
 
 ```text
 apps/api/app/modules/inventory/
 ├── __init__.py
+├── config.py
+├── permissions.py
 ├── model.py
 ├── schema.py
 ├── repository.py
-├── service.py
 ├── router.py
-├── permissions.py
-├── settings_service.py
-├── routing.py
-├── extraction.py
-├── normalization.py
-├── validation.py
-├── transactions.py
-├── review_service.py
-├── daily_run_service.py
-├── report_service.py
-├── excel_export_service.py
-├── drive_archive_service.py
-├── job_handlers.py
-└── scheduler.py
+│
+├── drive/
+│   ├── poller.py
+│   ├── source_repository.py
+│   ├── downloader.py
+│   └── archive.py
+│
+├── jobs/
+│   ├── model.py
+│   ├── repository.py
+│   ├── claimer.py
+│   ├── registry.py
+│   ├── runtime.py
+│   ├── handlers.py
+│   └── scheduler.py
+│
+├── ai/
+│   ├── model.py
+│   ├── repository.py
+│   ├── gateway.py
+│   ├── schema.py
+│   ├── prompt.py
+│   ├── rate_limit.py
+│   └── budget.py
+│
+├── documents/
+│   ├── service.py
+│   ├── normalization.py
+│   └── validation.py
+│
+├── review/
+│   └── service.py
+│
+├── transactions/
+│   └── service.py
+│
+├── daily/
+│   ├── service.py
+│   ├── scheduler.py
+│   └── report.py
+│
+└── export/
+    ├── excel.py
+    └── drive.py
 ```
 
-Keep layers narrow. Do not create one `inventory_service.py` containing all behavior.
+Tests should mirror the same domain boundaries under:
+
+```text
+apps/api/tests/modules/inventory/
+```
 
 ---
 
-# 7. Data model
+# 7. Inventory database model
 
-All inventory tables must be tenant-scoped.
+All Inventory tables are tenant-scoped.
 
-Use PostgreSQL as the authoritative business-data store. Excel is a reproducible output, not the source of truth.
+Use a clear `inventory_` prefix so queries, migrations, dashboards and support tools cannot confuse them with creative tables.
+
+Minimum tables:
+
+```text
+inventory_settings
+inventory_processing_controls
+inventory_source_files
+inventory_jobs
+inventory_locations
+inventory_items
+inventory_item_aliases
+inventory_documents
+inventory_document_pages
+inventory_ai_analyses
+inventory_lines
+inventory_reviews
+inventory_transactions
+inventory_daily_runs
+inventory_exports
+```
 
 ## 7.1. `inventory_settings`
-
-One active settings row per tenant for MVP.
 
 Suggested fields:
 
 ```text
 id
- tenant_id
- enabled
- external_source_id
- inbox_folder_id
- processed_folder_id
- reupload_folder_id
- excel_folder_id
- backup_folder_id
- excel_template_file_id
- metadata_profile_id
- timezone
- auto_approve_confidence
- review_confidence
- daily_missing_check_time
- daily_final_scan_time
- daily_finalize_time
- daily_export_time
- archive_enabled
- excel_export_enabled
- created_at
- updated_at
+tenant_id
+enabled
+external_source_id
+inbox_folder_id
+processed_folder_id
+reupload_folder_id
+excel_folder_id
+backup_folder_id
+excel_template_file_id
+timezone
+auto_approve_confidence
+review_confidence
+drive_poll_interval_seconds
+archive_enabled
+excel_export_enabled
+created_at
+updated_at
 ```
 
-Constraints:
+One active row per tenant for MVP.
 
-- unique `tenant_id` for MVP;
-- `external_source_id` must belong to the same tenant;
-- `metadata_profile_id` must belong to the same tenant;
-- timezone defaults to `Asia/Ho_Chi_Minh`;
-- thresholds must satisfy `0 <= review <= auto_approve <= 1`.
+Tokens are never stored here.
 
-Do not store Google tokens in this table.
+## 7.2. `inventory_processing_controls`
 
-## 7.2. `inventory_locations`
-
-Suggested initial codes:
+Suggested fields:
 
 ```text
-KHO_PHA_CHE
-PHONG_PHA_CHE
-KHO_PHONG_RANG
+tenant_id
+enabled
+paused
+max_active_jobs
+max_ai_jobs
+updated_at
+updated_by
 ```
 
-Fields:
+Do not reuse `TenantProcessingPolicyModel`.
+
+## 7.3. `inventory_source_files`
+
+Suggested fields:
 
 ```text
 id
- tenant_id
- code
- name
- active
- created_at
- updated_at
+tenant_id
+external_source_id
+drive_file_id
+filename
+mime_type
+drive_modified_time
+drive_size
+content_sha256
+status
+last_seen_at
+downloaded_at
+created_at
+updated_at
 ```
 
-Unique:
+Unique provider-version key:
 
 ```text
-tenant_id + code
+tenant_id + external_source_id + drive_file_id + drive_modified_time
 ```
 
-## 7.3. `inventory_items`
+## 7.4. `inventory_jobs`
 
-Fields:
+This is a separate durable queue.
 
-```text
-id
- tenant_id
- code
- name
- category
- whole_unit
- fraction_unit
- base_unit
- conversion_factor
- active
- created_at
- updated_at
-```
-
-Do not retroactively mutate historical transaction quantity semantics when a conversion factor changes. Transactions must persist the actual conversion snapshot used.
-
-## 7.4. `inventory_item_aliases`
-
-Fields:
+Suggested fields:
 
 ```text
 id
- tenant_id
- item_id
- alias
- normalized_alias
- active
- created_at
- updated_at
+tenant_id
+job_type
+entity_type
+entity_id
+status
+priority
+payload_json
+idempotency_key
+attempt_count
+max_attempts
+next_attempt_at
+claimed_by
+claimed_at
+lease_expires_at
+cancellation_requested
+last_error_code
+last_error_message
+created_at
+updated_at
+completed_at
 ```
 
-Initial business aliases may include:
+Required queue semantics:
+
+- idempotent enqueue;
+- `SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL;
+- lease expiration/recovery;
+- retry with bounded backoff;
+- terminal non-retryable failure;
+- cancellation;
+- separate Inventory concurrency control.
+
+Do not insert these jobs into generic `processing_jobs`.
+
+## 7.5. Inventory business tables
+
+Use dedicated models for:
 
 ```text
-TC OLONG   -> TRÂN CHÂU OLONG
-RICHS (LÙN) -> RICH LÙN
-CPHÊ MÁY   -> CÀ PHÊ PHA MÁY
-BỘT Đ.XAY  -> BỘT BÉO ĐÁ XAY
+inventory_locations
+inventory_items
+inventory_item_aliases
+inventory_documents
+inventory_document_pages
+inventory_lines
+inventory_reviews
+inventory_transactions
+inventory_daily_runs
+inventory_exports
 ```
 
-Unknown names must **not** auto-create a new item.
-
-## 7.5. `inventory_documents`
-
-A logical inventory document, potentially containing multiple pages.
-
-Fields:
-
-```text
-id
- tenant_id
- business_date
- document_type
- location_code
- document_reference
- expected_pages
- received_pages
- status
- submitted_by
- approved_by
- approved_at
- finalized_at
- created_at
- updated_at
-```
-
-Suggested document types:
-
-```text
-stock_count
-warehouse_transfer
-waste
-```
-
-Suggested statuses:
-
-```text
-collecting
-analyzing
-needs_review
-needs_reupload
-approved
-rejected
-finalized
-```
-
-## 7.6. `inventory_document_pages`
-
-A page represents a specific source submission occurrence.
-
-Fields:
-
-```text
-id
- tenant_id
- document_id
- source_asset_id
- asset_id
- drive_file_id
- content_hash
- page_number
- page_count
- analysis_id
- extraction_status
- raw_extraction_json
- submitted_at
- created_at
- updated_at
-```
-
-Required uniqueness:
-
-```text
-tenant_id + source_asset_id
-```
-
-This prevents the same source occurrence from entering inventory twice.
-
-`content_hash` is still stored for business duplicate detection and audit.
-
-## 7.7. `inventory_lines`
-
-Fields:
-
-```text
-id
- tenant_id
- document_id
- page_id
- line_number
- raw_item_name
- item_id
- whole_quantity
- whole_unit
- fraction_quantity
- fraction_unit
- quantity_base_unit
- conversion_factor_snapshot
- waste_quantity
- waste_unit
- waste_quantity_base_unit
- waste_reason
- confidence
- validation_status
- review_note
- created_at
- updated_at
-```
-
-## 7.8. `inventory_reviews`
-
-Fields:
-
-```text
-id
- tenant_id
- document_id
- page_id
- line_id
- review_type
- status
- proposed_json
- resolved_json
- reason
- assigned_to
- resolved_by
- resolved_at
- created_at
- updated_at
-```
-
-Suggested statuses:
-
-```text
-open
-approved
-corrected
-reupload_requested
-ignored
-```
-
-## 7.9. `inventory_transactions`
-
-Fields:
-
-```text
-id
- tenant_id
- business_date
- location_id
- item_id
- transaction_type
- quantity_base_unit
- source_document_id
- source_line_id
- conversion_snapshot_json
- status
- created_at
- finalized_at
-```
-
-Transaction types:
-
-```text
-opening_balance
-receipt
-transfer_out
-transfer_in
-closing_count
-waste
-usage_adjustment
-```
-
-## 7.10. `inventory_daily_runs`
-
-Fields:
-
-```text
-id
- tenant_id
- business_date
- status
- missing_locations_json
- open_reviews_count
- forced_finalize
- finalized_by
- finalized_at
- report_json
- version
- created_at
- updated_at
-```
-
-Unique:
-
-```text
-tenant_id + business_date
-```
-
-## 7.11. `inventory_exports`
-
-Fields:
-
-```text
-id
- tenant_id
- business_month
- business_date
- export_type
- status
- drive_file_id
- drive_web_url
- content_hash
- source_template_file_id
- protected_sheet_fingerprint
- error_code
- error_message
- created_at
- completed_at
-```
+Inventory page identity should reference `inventory_source_files.id`, not `SourceAssetModel.id`.
 
 ---
 
-# 8. Business idempotency and duplicate rules
+# 8. Inventory job types
 
-Do not rely only on generic `AssetModel` content dedup.
-
-Required protections:
-
-## 8.1. Source-occurrence idempotency
+Recommended MVP Inventory job registry:
 
 ```text
-unique tenant_id + source_asset_id
-```
-
-A source item can create at most one inventory page.
-
-## 8.2. Job idempotency
-
-Recommended keys:
-
-```text
-inventory-page-prepare:{page_id}:{content_hash}
-inventory-analyze:{page_id}:{analysis_id}
-inventory-normalize:{page_id}:{extraction_version}
-inventory-validate:{document_id}:{document_version}
-inventory-archive:{page_id}:{destination_folder_id}
-inventory-finalize:{tenant_id}:{business_date}:{run_version}
-inventory-export:{tenant_id}:{yyyy_mm}:{business_date}:{run_version}
-inventory-report:{tenant_id}:{business_date}:{run_version}
-```
-
-## 8.3. Business duplicate detection
-
-A second Drive file may have a different `source_asset_id` but identical bytes.
-
-Do not blindly create a second business transaction.
-
-At page prepare time:
-
-```text
-same tenant
-+ same content_hash
-+ same business_date/document context
-```
-
-must be evaluated for duplicate submission.
-
-Safe default:
-
-- mark second occurrence as `duplicate_submission` / needs review or ignored;
-- preserve source history;
-- do not create duplicate lines/transactions.
-
-## 8.4. Archive/move behavior
-
-Current source-sync behavior does not enqueue a new download job for a pure rename/move when content version is unchanged. That reduces loop risk.
-
-Nevertheless, Inventory must remain idempotent even if future source behavior changes.
-
----
-
-# 9. Multi-page document grouping rules
-
-Do not guess aggressively when grouping pages.
-
-## Stock count
-
-Expected printed form title identifies location, for example:
-
-```text
-PHIẾU KIỂM KHO – PHÒNG PHA CHẾ
-PHIẾU KIỂM KHO – KHO PHÒNG RANG
-```
-
-For a stock-count form, document identity may be grouped by:
-
-```text
-tenant + business_date + location + document_type
-```
-
-when page markers `Trang X/Y` are present and consistent.
-
-## Transfer document
-
-Expected title:
-
-```text
-PHIẾU XUẤT KHO PHA CHẾ
-```
-
-Prefer a printed reference/document number.
-
-If a multi-page transfer has no reliable document reference and pages cannot be deterministically grouped, create review instead of guessing.
-
----
-
-# 10. AI extraction profile
-
-Create an explicit tenant-owned metadata profile, e.g.:
-
-```text
-profile_name: inventory_stock_sheet
-profile_version: 1
-prompt_version: inventory-v1
-pipeline_version: inventory-v1
-```
-
-`inventory_settings.metadata_profile_id` must point to the exact profile.
-
-Do not resolve by:
-
-```text
-active = true
-ORDER BY created_at DESC
-LIMIT 1
-```
-
-## 10.1. Example extraction schema
-
-```json
-{
-  "document_type": "stock_count",
-  "business_date": "2026-08-09",
-  "location_code": "PHONG_PHA_CHE",
-  "document_reference": null,
-  "page_number": 1,
-  "page_count": 2,
-  "employee_name": null,
-  "rows": [
-    {
-      "line_number": 1,
-      "raw_item_name": "TC OLONG",
-      "whole_quantity": 1,
-      "whole_unit": "gói",
-      "fraction_quantity": 250,
-      "fraction_unit": "gram",
-      "waste_quantity": 0,
-      "waste_unit": null,
-      "waste_reason": null,
-      "confidence": 0.97,
-      "notes": null
-    }
-  ],
-  "warnings": []
-}
-```
-
-## 10.2. Prompt constraints
-
-- Read only what is visible.
-- Never invent unreadable quantities.
-- Preserve `raw_item_name` from the photo.
-- Capture handwritten notes outside the printed table when relevant.
-- Extract whole and fractional quantity separately.
-- Extract waste amount and reason.
-- Detect page number/page count.
-- If crossed-out/replaced values are ambiguous, output a warning instead of guessing.
-- JSON only, conforming to profile schema.
-
----
-
-# 11. AI execution must reuse existing governance
-
-Inventory AI must reuse:
-
-- `AssetAiAnalysisModel`;
-- `AiAnalysisService`;
-- `AnalysisImagePreparer`;
-- provider registry;
-- model allowlist;
-- provider policy;
-- rate limits;
-- budget reservations;
-- project quota;
-- runtime emergency stop;
-- analysis lease;
-- structured-output validation.
-
-Do not call provider SDKs directly from `inventory/job_handlers.py`.
-
-## 11.1. Recommended lifecycle
-
-`inventory_page_prepare` must create the AI analysis record **before** enqueueing the AI job.
-
-```text
-inventory_page_prepare
-   ↓
-resolve exact inventory metadata_profile_id
-   ↓
-create/reuse AssetAiAnalysisModel
-   ↓
-store analysis_id on inventory_document_pages
-   ↓
-enqueue inventory_document_analyze
-        payload:
-        - analysis_id
-        - inventory_page_id
-```
-
-The AI job must have an `analysis_id` available at claim time because the current worker claim path can reserve a model-start slot before the handler runs.
-
-## 11.2. Inventory AI handler
-
-Recommended behavior:
-
-```text
-inventory_document_analyze
-   ↓
-load persisted AssetAiAnalysisModel
-   ↓
-resolve exact persisted AI provider
-   ↓
-call shared AiAnalysisService(..., enqueue_index=False)
-   ↓
-completed metadata_json
-   ↓
-persist extraction result/reference on inventory page
-   ↓
-enqueue inventory_document_normalize
-```
-
-Inventory extraction must **not** automatically build creative search projection or index the extraction into Search V3 as if it were creative metadata.
-
----
-
-# 12. Processing-job integration — exact cross-cutting requirements
-
-Adding a new handler is not sufficient. Current worker eligibility is fail-closed.
-
-## 12.1. Job types
-
-Modify:
-
-```text
-apps/api/app/domain/processing/types.py
-```
-
-Add:
-
-```text
-inventory_page_prepare
+inventory_file_download
+inventory_document_prepare
 inventory_document_analyze
 inventory_document_normalize
 inventory_document_validate
@@ -948,1433 +578,990 @@ inventory_excel_export
 inventory_daily_report
 ```
 
-## 12.2. Worker global feature flags
+These strings exist only in the Inventory registry.
 
-Modify:
+They must not be added to generic processing domain types.
 
-```text
-apps/api/app/modules/processing/bootstrap.py
-```
-
-Add `_JOB_GLOBAL_FLAGS` entries and register every handler in `build_handler_registry(...)`.
-
-Recommended global gating:
+Typical chain:
 
 ```text
-inventory_page_prepare       -> PROCESSING_JOBS_ENABLED + INVENTORY_AUTOMATION_ENABLED
-inventory_document_analyze   -> PROCESSING_JOBS_ENABLED + INVENTORY_AUTOMATION_ENABLED + DYNAMIC_AI_METADATA_ENABLED + AI_SINGLE_ANALYSIS_ENABLED
-inventory_document_normalize -> PROCESSING_JOBS_ENABLED + INVENTORY_AUTOMATION_ENABLED
-inventory_document_validate  -> PROCESSING_JOBS_ENABLED + INVENTORY_AUTOMATION_ENABLED
-inventory_document_archive   -> PROCESSING_JOBS_ENABLED + INVENTORY_AUTOMATION_ENABLED + INVENTORY_DRIVE_ARCHIVE_ENABLED
-inventory_daily_finalize     -> PROCESSING_JOBS_ENABLED + INVENTORY_AUTOMATION_ENABLED
-inventory_excel_export       -> PROCESSING_JOBS_ENABLED + INVENTORY_AUTOMATION_ENABLED + INVENTORY_EXCEL_EXPORT_ENABLED
-inventory_daily_report       -> PROCESSING_JOBS_ENABLED + INVENTORY_AUTOMATION_ENABLED
+inventory_file_download
+        ↓
+inventory_document_prepare
+        ↓
+inventory_document_analyze
+        ↓
+inventory_document_normalize
+        ↓
+inventory_document_validate
+        ↓
+     ┌───────────────┐
+     │               │
+     ▼               ▼
+ approved        needs_review
+     │
+     ▼
+inventory_document_archive
 ```
 
-## 12.3. Tenant-aware job claimer
-
-Modify:
+Daily chain:
 
 ```text
-apps/api/app/modules/processing_policy/claim.py
+inventory_daily_finalize
+        ↓
+inventory_excel_export
+        ↓
+inventory_daily_report
 ```
-
-This is mandatory.
-
-Current `_stage_enabled()` only allows job types represented in `STAGE_POLICY`. A new inventory job omitted from that map will never be claimed.
-
-For MVP, avoid schema expansion of the tenant processing-policy table unless necessary.
-
-Recommended mappings:
-
-```text
-inventory_page_prepare       -> pipeline_enabled
-inventory_document_analyze   -> ai_analysis_enabled
-inventory_document_normalize -> pipeline_enabled
-inventory_document_validate  -> pipeline_enabled
-inventory_document_archive   -> pipeline_enabled
-inventory_daily_finalize     -> pipeline_enabled
-inventory_excel_export       -> pipeline_enabled
-inventory_daily_report       -> pipeline_enabled
-```
-
-## 12.4. AI job category
-
-Do not let `inventory_document_analyze` bypass AI concurrency/governance.
-
-Recommended refactor:
-
-```python
-SINGLE_AI_JOB_TYPES = (
-    "asset_analyze",
-    "inventory_document_analyze",
-)
-
-BATCH_AI_JOB_TYPES = (
-    "ai_batch_prepare",
-    "ai_batch_submit",
-    "ai_batch_poll",
-    "ai_batch_import",
-    "ai_batch_retry_items",
-)
-
-AI_JOB_TYPES = SINGLE_AI_JOB_TYPES + BATCH_AI_JOB_TYPES
-```
-
-Update semantically relevant checks that are currently hard-coded to:
-
-```python
-job.job_type == "asset_analyze"
-```
-
-so the inventory single-analysis job receives:
-
-- tenant AI concurrency accounting;
-- provider `single_enabled` gating;
-- provider `single_active_jobs_limit`;
-- provider emergency stop;
-- global runtime AI stop;
-- model-start reservation/rate limit.
-
-Generalize analysis-ID resolution so `inventory_document_analyze` resolves `payload["analysis_id"]` deterministically.
-
-Do not weaken fail-closed behavior for unknown job types.
 
 ---
 
-# 13. Processing policy recommendation for MVP
+# 9. Separate Inventory worker
 
-Do **not** add a large set of inventory-specific processing-policy database columns in Phase 1.
-
-Use:
+Create a separate worker entrypoint/process, for example:
 
 ```text
-Global feature flag:
-INVENTORY_AUTOMATION_ENABLED
-
-Tenant feature state:
-inventory_settings.enabled
-
-Existing processing policy:
-pipeline_enabled
-ai_analysis_enabled
-processing_paused
-provider policy / emergency stop
+apps/inventory_worker/
 ```
 
-This gives Inventory:
+or an equivalent explicit runtime command under the API package.
 
-- platform-level kill switch;
-- tenant-level enable/disable;
-- existing global tenant pause;
-- existing AI policy and budget enforcement.
+Recommended deployment processes:
 
-Independent Inventory-specific concurrency controls can be added in a later iteration after operational data exists.
+```text
+api
+creative-worker
+inventory-worker
+inventory-scheduler
+```
+
+The Inventory worker claims **only `inventory_jobs`**.
+
+The Creative worker keeps its current behavior and claims **only `processing_jobs`**.
+
+No shared in-memory registry.
+
+No shared queue polling loop.
+
+No shared tenant concurrency counters.
+
+This is the core runtime isolation boundary.
 
 ---
 
-# 14. Normalization and validation
+# 10. Separate Inventory scheduler
 
-## 14.1. Item matching order
-
-Use deterministic matching order:
+Inventory scheduler handles only:
 
 ```text
-1. exact item code
-2. exact normalized canonical name
-3. exact normalized alias
-4. safe fuzzy candidate only if uniquely above threshold
-5. otherwise review
+Drive polling
+daily completeness checks
+17:00 finalization
+Excel/report scheduling
+retry maintenance for inventory_jobs
 ```
 
-Never automatically create an inventory item because AI returned a new string.
+It does not invoke the generic source-sync scheduler.
 
-## 14.2. Units
-
-Persist both source values and normalized base-unit values.
-
-Example:
-
-```text
-source whole_quantity       = 1
-source whole_unit           = bag
-source fraction_quantity    = 250
-source fraction_unit        = gram
-base quantity               = calculated normalized amount
-conversion factor snapshot  = factor used at this moment
-```
-
-## 14.3. Confidence policy
-
-Initial configuration:
-
-```text
-confidence >= 0.95 and all validations pass -> auto approve
-0.80 <= confidence < 0.95                  -> review
-confidence < 0.80                          -> review/reupload
-```
-
-Confidence never overrides business validation.
-
-## 14.4. Mandatory validation rules
-
-At minimum:
-
-- no negative quantities;
-- recognized item required for auto approval;
-- valid unit required;
-- page count must be complete before document finalization;
-- duplicate source/page rejected;
-- waste quantity with no waste reason -> review;
-- conflicting page numbering -> review;
-- implausible large delta -> review;
-- negative calculated usage -> anomaly/review; never clamp to zero;
-- transfer must create both source and destination legs atomically.
-
----
-
-# 15. Inventory transaction rules
-
-For warehouse transfer from `KHO_PHA_CHE` to `PHONG_PHA_CHE`, create both records in one database transaction:
-
-```text
-KHO_PHA_CHE   -> transfer_out
-PHONG_PHA_CHE -> transfer_in
-```
-
-Both must reference the same source document.
-
-If either insert fails, rollback both.
-
-Usage formula:
-
-```text
-Usage = Opening
-      + Receipt
-      + Transfer In
-      - Transfer Out
-      - Closing
-      - Waste
-```
-
-A simplified display may roll transfer into receipt, but authoritative transactions should keep transfers separate for auditability.
-
-Do not generate business transactions from a document until it is approved according to validation/review policy.
-
----
-
-# 16. Daily run semantics
-
-Default timezone:
+Recommended business timezone:
 
 ```text
 Asia/Ho_Chi_Minh
 ```
 
-Recommended operating schedule:
+Suggested schedule:
 
 ```text
-14:00  staff reminder — notification integration may remain external for MVP
-16:30  missing-location/page check
-16:50  final source-sync request / readiness check
-17:00  daily finalize attempt
-17:10  report/export/archive attempt
+14:00 expected staff submission window begins
+16:30 check missing required documents
+16:50 final pre-close scan
+17:00 finalize eligible business day
+17:10 export/report
 ```
 
-Important rule:
-
-> Process all unprocessed source occurrences, not only files whose Drive timestamp equals today.
-
-`business_date` precedence:
-
-1. date confidently extracted from the form;
-2. source upload/discovery date converted to configured timezone;
-3. manager correction during review.
-
-Daily finalize must not silently discard open review items or incomplete pages.
-
-Possible states:
-
-```text
-collecting
-awaiting_review
-ready_to_finalize
-finalized
-finalized_with_override
-export_failed
-completed
-```
-
-Forced finalization must record actor and reason.
+Exact times belong to Inventory settings and must not alter creative schedulers.
 
 ---
 
-# 17. Drive archive design
+# 11. Image handling
 
-Use a background service/worker directly against the tenant Drive source with an explicitly write-scoped connection.
+Inventory should not create an `AssetModel` merely to use image preprocessing.
 
-Do **not** call Explorer HTTP endpoints from the worker.
+Preferred implementation:
 
-Use the existing source resolver/provider boundary or create a narrow server-side Inventory Drive service around it.
+1. download original bytes into Inventory-controlled storage/temp file;
+2. calculate SHA-256;
+3. call a **stateless/common image preparation utility**;
+4. store prepared analysis image identity in Inventory tables/storage;
+5. pass prepared bytes to Inventory AI gateway.
 
-Before mutation:
+If existing `AnalysisImagePreparer` is tightly coupled to generic asset-storage records, extract only the stateless image transform into a common utility first.
+
+Do not make Inventory depend on `AssetStorageObjectModel`.
+
+Inventory storage namespace example:
 
 ```text
-get_connection_access_token(..., require_drive_write_scope=True)
+inventory/
+  {tenant_id}/
+    source/
+    prepared/
+    exports/
 ```
 
-or equivalent tenant-source resolver path.
-
-Archive behavior:
-
-```text
-approved/finalized page -> 01_DA_XU_LY/YYYY-MM-DD
-needs_reupload          -> 02_CAN_CHUP_LAI/YYYY-MM-DD
-```
-
-The archive service must be idempotent:
-
-- if already in target folder -> success;
-- provider 429/5xx -> retryable;
-- 401/403 -> stable connection/write-permission error;
-- missing source file -> review/failure state, not destructive recreation.
-
-Legacy readonly connections must fail preflight before automation is enabled.
+Creative storage paths remain unchanged.
 
 ---
 
-# 18. Excel export design
+# 12. Separate Inventory AI domain
 
-## 18.1. Dependency
+Inventory AI must not create `AssetAiAnalysisModel`.
 
-Current backend requirements do not include `openpyxl`.
-
-Add and pin it during the Excel phase only.
-
-## 18.2. Source of truth
+Create:
 
 ```text
-PostgreSQL = authoritative inventory state
-Excel      = generated/reproducible output
+InventoryAiAnalysisModel
 ```
 
-Never read a manually modified workbook back as the authoritative inventory ledger unless a later feature explicitly defines reconciliation.
-
-## 18.3. Protected Sheet 4
-
-Existing business requirement:
+Suggested fields:
 
 ```text
-Sheet 4: Báo cáo sử dụng NVL trong ca
+id
+tenant_id
+document_page_id
+content_sha256
+extraction_profile
+extraction_profile_version
+prompt_version
+schema_version
+provider
+model
+status
+attempt_count
+raw_response_json
+extracted_json
+validation_errors_json
+usage_json
+estimated_cost
+provider_request_id
+last_error_code
+last_error_message
+created_at
+started_at
+completed_at
+updated_at
 ```
 
-must remain unchanged.
-
-Exporter must use an allowlist of sheets it is permitted to modify.
-
-Do not hard-code assumptions about workbook sheet order without first loading the configured template and validating names.
-
-At minimum, support existing business sheets:
+Normal-run uniqueness should include at least:
 
 ```text
-KHO PHA CHẾ
-PHÒNG PHA CHẾ
-KHO PHÒNG RANG
+tenant_id
+content_sha256
+extraction_profile_version
+prompt_version
+schema_version
+provider
+model
 ```
 
-Potential extra generated sheets:
+## 12.1. Prompt/profile
+
+Inventory extraction profile is code/config owned by the Inventory domain, for example:
 
 ```text
-NHẬT KÝ HẰNG NGÀY
-BÁO CÁO NGẮN
-DANH MỤC HÀNG
-CHỜ XÁC NHẬN
+inventory-stock-sheet-v1
 ```
 
-## 18.4. Safe export algorithm
+Do not select the newest generic metadata profile.
+
+Do not allow creative profile activation/deactivation to change Inventory extraction behavior.
+
+## 12.2. AI gateway
+
+Create an `InventoryAiGateway` with explicit provider configuration.
+
+It may reuse a low-level provider transport abstraction only if that abstraction can be instantiated without writing creative analysis/governance state.
+
+Otherwise create a thin Inventory-specific provider adapter.
+
+The important boundary is data/control isolation, not maximum code reuse.
+
+## 12.3. Inventory AI controls
+
+Inventory must have independent:
 
 ```text
-1. resolve exact configured template/current workbook
-2. download bytes
-3. fingerprint protected sheet/package state
-4. write to temporary workbook using openpyxl
-5. modify allowlisted sheets only
-6. save temporary output
-7. reopen and validate workbook
-8. verify protected Sheet 4 invariant
-9. calculate output hash
-10. upload versioned output/backup
-11. persist Drive file ID + hash in inventory_exports
-12. only then mark export completed
+provider enabled/disabled
+model allowlist
+RPM/start interval
+concurrency
+per-run limit
+daily budget
+monthly budget
+emergency stop
 ```
 
-If validation fails, keep database finalization intact and mark export failed so it can be retried.
-
-## 18.5. Current Drive provider limitation to address explicitly
-
-The current `GoogleDriveClient` clearly supports creating/uploading a new file, moving, copying and deleting.
-
-Do not assume `upload_file(...)` updates an existing Drive file in-place.
-
-For the safest first implementation, export versioned files and persist the returned Drive file ID.
-
-Example:
-
-```text
-KIEM_HANG_2026_08_2026-08-09_1710.xlsx
-```
-
-and/or daily backup:
-
-```text
-BAN_SAO_2026-08-09_1710.xlsx
-```
-
-If the product requires a stable "main workbook" Drive file ID, implement an explicit provider method for replacing/updating Drive file content and cover it with provider tests before using it in production.
-
-## 18.6. Sheet-4 regression test
-
-At minimum compare before/after:
-
-- cell values/formulas;
-- merged ranges;
-- row/column dimensions;
-- styles where relevant.
-
-If the real workbook contains charts, images, macros, named ranges or advanced Excel objects that must survive byte-for-byte/package-level transformations, add a real sanitized fixture and stronger ZIP/XML package regression tests before production rollout.
+Do not reuse creative provider pause/emergency-stop rows as Inventory control state.
 
 ---
 
-# 19. API surface
+# 13. Inventory extraction schema
 
-Suggested endpoints under `/api/inventory`.
+AI output must be structured JSON and validated before any transaction is created.
 
-## Settings
+Example shape:
 
-```text
-GET  /api/inventory/settings
-PUT  /api/inventory/settings
-POST /api/inventory/settings/test-drive
-POST /api/inventory/settings/test-profile
+```json
+{
+  "document_type": "stock_count",
+  "business_date": "2026-08-09",
+  "location": "PHONG_PHA_CHE",
+  "page_number": 1,
+  "page_count": 2,
+  "lines": [
+    {
+      "raw_item_name": "TC OLONG",
+      "whole_quantity": 2,
+      "whole_unit": "goi",
+      "fraction_quantity": 250,
+      "fraction_unit": "g",
+      "waste_quantity": 0,
+      "waste_reason": null,
+      "confidence": 0.97
+    }
+  ]
+}
 ```
 
-`test-drive` must verify:
-
-- source belongs to tenant;
-- Inbox exists/is folder;
-- configured output folders exist;
-- write scope is available when archive/export is enabled;
-- account can actually write required folders.
-
-## Today / daily run
-
-```text
-GET  /api/inventory/daily-runs/{date}
-POST /api/inventory/daily-runs/{date}/scan
-POST /api/inventory/daily-runs/{date}/finalize
-POST /api/inventory/daily-runs/{date}/reopen
-GET  /api/inventory/daily-runs/{date}/report
-```
-
-## Documents
-
-```text
-GET  /api/inventory/documents
-GET  /api/inventory/documents/{id}
-POST /api/inventory/documents/{id}/reanalyze
-POST /api/inventory/documents/{id}/approve
-POST /api/inventory/documents/{id}/reject
-```
-
-## Reviews
-
-```text
-GET   /api/inventory/reviews
-PATCH /api/inventory/reviews/{id}
-POST  /api/inventory/reviews/{id}/approve
-POST  /api/inventory/reviews/{id}/request-reupload
-```
-
-## Master data
-
-```text
-GET/POST/PATCH /api/inventory/items
-GET/POST/DELETE /api/inventory/item-aliases
-GET /api/inventory/locations
-```
-
-## Export
-
-```text
-GET  /api/inventory/exports
-POST /api/inventory/exports/{date}/retry
-```
-
-Mutation endpoints must be tenant-scoped, permission-guarded and auditable.
+Never auto-invent unclear quantities, units, item mappings, or waste reasons.
 
 ---
 
-# 20. Permissions
+# 14. Normalization, validation and review
 
-Create explicit permissions:
+These remain fully inside Inventory.
+
+Normalization responsibilities:
+
+- normalize Vietnamese whitespace/casing;
+- alias matching;
+- exact item master resolution;
+- whole/fraction unit conversion;
+- business-date normalization;
+- location/document-type normalization.
+
+Validation responsibilities:
+
+- known item required;
+- valid location;
+- valid units;
+- non-negative quantities;
+- complete page set;
+- duplicate submission detection;
+- suspicious delta detection;
+- waste quantity requires waste reason;
+- transfer source/destination consistency;
+- confidence thresholds.
+
+Suggested outcomes:
 
 ```text
-inventory.view
-inventory.review
-inventory.manage_items
-inventory.finalize
-inventory.export
-inventory.configure
+APPROVED
+NEEDS_REVIEW
+NEEDS_REUPLOAD
+REJECTED
 ```
 
-Suggested role intent:
-
-```text
-Viewer         -> inventory.view only when intentionally granted
-Operator       -> view + review
-Tenant Admin   -> all tenant inventory permissions
-Platform Admin -> platform override per existing authorization model
-```
-
-Do not piggyback all mutations on `assets.manage`.
-
-Seed permissions through the repository's existing RBAC migration/seed pattern and test least privilege.
+Unknown alias must become a review item, not a new master item.
 
 ---
 
-# 21. React routes/pages
+# 15. Inventory transaction rules
 
-Current application route map does not include Inventory.
+Inventory transactions are append-oriented business records.
 
-Add explicit routes, for example:
+Example transfer:
+
+```text
+KHO_PHA_CHE → PHONG_PHA_CHE
+```
+
+creates linked transaction rows:
+
+```text
+transfer_out at KHO_PHA_CHE
+transfer_in  at PHONG_PHA_CHE
+```
+
+Both rows share the same source document/transfer identity.
+
+Waste records persist:
+
+```text
+item
+quantity
+unit/base quantity
+reason
+source document
+source line
+```
+
+Usage calculation remains:
+
+```text
+Usage = Opening + Receipts + Transfers In
+        - Transfers Out - Closing - Waste
+```
+
+Negative or implausible computed usage is a review/anomaly; never silently clamp to zero.
+
+---
+
+# 16. Separate Inventory API
+
+Recommended prefix:
+
+```text
+/api/inventory
+```
+
+Suggested routes:
+
+```text
+GET    /api/inventory/settings
+PUT    /api/inventory/settings
+GET    /api/inventory/status/today
+GET    /api/inventory/documents
+GET    /api/inventory/documents/{id}
+GET    /api/inventory/reviews
+POST   /api/inventory/reviews/{id}/approve
+POST   /api/inventory/reviews/{id}/correct
+POST   /api/inventory/reviews/{id}/request-reupload
+GET    /api/inventory/daily-runs/{date}
+POST   /api/inventory/daily-runs/{date}/finalize
+POST   /api/inventory/exports/{date}
+GET    /api/inventory/jobs
+POST   /api/inventory/jobs/{id}/retry
+POST   /api/inventory/control/pause
+POST   /api/inventory/control/resume
+```
+
+Inventory endpoints use Inventory permissions and Inventory models only.
+
+Do not route through generic AI Operations endpoints.
+
+---
+
+# 17. Separate Inventory React area
+
+Add a dedicated top-level navigation area, for example:
 
 ```text
 /inventory
+/inventory/inbox
 /inventory/review
-/inventory/items
+/inventory/daily
 /inventory/reports
 /inventory/settings
 ```
 
-Suggested pages:
+Recommended pages:
 
 ```text
-InventoryTodayPage
+InventoryDashboardPage
+InventoryInboxPage
 InventoryReviewPage
-InventoryItemsPage
+InventoryDailyRunPage
 InventoryReportsPage
 InventorySettingsPage
 ```
 
-Do not overload creative Explorer processing status to represent business review state.
+The existing Explorer remains a creative-asset experience.
 
-Explorer can link to Inventory context where useful, but Inventory business screens should own their own statuses.
+Do not add Inventory status badges to creative Asset cards for MVP.
 
----
+Do not reuse creative AI Operations screens as the Inventory operational dashboard.
 
-# 22. Feature flags and configuration
-
-Add to `Settings.FEATURE_FLAG_NAMES`, `.env.example`, and `deploy/production.env.example`:
-
-```dotenv
-INVENTORY_AUTOMATION_ENABLED=false
-INVENTORY_EXCEL_EXPORT_ENABLED=false
-INVENTORY_DRIVE_ARCHIVE_ENABLED=false
-```
-
-Prefer tenant-specific folder IDs, profile ID, times, confidence thresholds and timezone in `inventory_settings`, not as global environment variables.
-
-Global flags are upper-bound kill switches only.
-
-Production defaults must remain fail-closed (`false`).
+Shared visual components are acceptable; shared state machines are not.
 
 ---
 
-# 23. Files that Codex will likely modify across phases
+# 18. Excel boundary
 
-Do not modify all of these in one PR. This list is a dependency map.
+PostgreSQL Inventory tables are source of truth.
 
-Backend core/cross-cutting:
+Excel is output only.
 
-```text
-apps/api/app/core/config.py
-apps/api/app/main.py
-apps/api/app/domain/processing/types.py
-apps/api/app/modules/processing/bootstrap.py
-apps/api/app/modules/processing_policy/claim.py
-apps/api/app/modules/pipeline/handlers.py
-apps/api/requirements.txt
-.env.example
-deploy/production.env.example
-```
-
-New Inventory domain:
+Export flow:
 
 ```text
-apps/api/app/modules/inventory/**
-database/migrations/versions/**
+Inventory PostgreSQL snapshot
+        ↓
+openpyxl
+        ↓
+validate workbook invariants
+        ↓
+write new export file
+        ↓
+Google Drive inventory export folder
 ```
 
-Google Drive integration as needed:
+Do not use creative managed-storage records for Excel exports.
+
+Do not write generated Excel files into generic asset ingestion folders.
+
+Protected invariant:
+
+> Sheet 4 `Báo cáo sử dụng NVL trong ca` must remain completely unchanged.
+
+Before and after export, fingerprint at least:
+
+- sheet name/order;
+- dimensions;
+- cell values/formulas;
+- merged cells;
+- row heights/column widths where practical;
+- relevant styles where practical.
+
+Export must fail closed if the protected sheet changes unexpectedly.
+
+---
+
+# 19. Metrics and logs
+
+Use a separate namespace:
 
 ```text
-apps/api/app/modules/explorer/tenant_source.py
-apps/api/app/providers/google/drive.py
+inventory_drive_poll_*
+inventory_job_*
+inventory_ai_*
+inventory_review_*
+inventory_daily_*
+inventory_export_*
 ```
 
-Frontend:
+Creative dashboards must not count Inventory jobs as creative jobs.
+
+Inventory dashboard must not infer state from creative job tables.
+
+Log every Inventory job with:
 
 ```text
-apps/client/app/AppRoute.tsx
-apps/client/app/App.tsx or shared shell/navigation
-apps/client/app/inventory/**
-apps/client/features/inventory/**
-apps/client/styles/inventory.css
+tenant_id
+inventory_job_id
+job_type
+entity_id
+attempt
+correlation_id
 ```
+
+Never log OAuth access tokens or provider secrets.
+
+---
+
+# 20. Failure behavior
+
+## Inventory Drive failure
+
+```text
+Inventory poll/download fails
+→ retry inventory job/poll only
+→ creative source sync continues normally
+```
+
+## Inventory AI failure
+
+```text
+Inventory provider/rate limit fails
+→ defer/retry inventory AI job
+→ no creative processing policy mutation
+```
+
+## Inventory Excel failure
+
+```text
+Excel export fails
+→ business day remains finalized in PostgreSQL
+→ export status failed
+→ retry export only
+```
+
+## Inventory worker failure
+
+```text
+inventory-worker down
+→ inventory_jobs accumulate
+→ creative-worker continues processing_jobs
+```
+
+## Creative worker failure
+
+```text
+creative-worker down
+→ creative processing_jobs accumulate
+→ inventory-worker continues inventory_jobs
+```
+
+---
+
+# 21. Required isolation tests
+
+These tests are mandatory and are more important than code-reuse convenience.
+
+## 21.1. Data isolation test
+
+Submit an Inventory image and assert that no new rows are created in:
+
+```text
+source_assets
+assets
+asset_source_links
+asset_pipelines
+asset_ai_analyses
+search operation/index tables
+```
+
+## 21.2. Queue isolation test
+
+Create 1,000 pending `inventory_jobs` and prove the generic processing claimer still selects the same creative job it would have selected without the backlog.
+
+## 21.3. Pause isolation test
+
+```text
+pause creative → inventory job still claimable
+pause inventory → creative job still claimable
+```
+
+## 21.4. Failure isolation test
+
+Force Inventory AI and Excel handlers to throw and confirm no creative model/control rows are changed.
+
+## 21.5. Worker isolation test
+
+Run only creative worker:
+
+```text
+processing_jobs drain
+inventory_jobs unchanged
+```
+
+Run only inventory worker:
+
+```text
+inventory_jobs drain
+processing_jobs unchanged
+```
+
+## 21.6. UI isolation test
+
+Inventory API failure must not break Explorer navigation/rendering.
+
+Creative API failure must not corrupt Inventory persisted state.
+
+## 21.7. External quota test/configuration
+
+When production credentials are split, assert Inventory provider factory uses only Inventory credentials and creative factory uses only creative credentials.
+
+---
+
+# 22. Implementation phases for Codex
+
+# PHASE 0 — Restore green baseline
+
+Goal: start from a known-good branch.
+
+Current known baseline CI failures:
+
+```text
+modules.ai_governance.test_multi_provider_governance
+.test_preclaim_honors_provider_mode_limit_and_runtime_stop
+
+modules.ai_operations.test_api
+.test_summary_uses_canonical_current_job_states_and_latest_replacement
+```
+
+Requirements:
+
+- fix only current regressions;
+- no Inventory feature code in Phase 0;
+- run relevant API/unit tests;
+- preserve currently passing PostgreSQL, Elasticsearch, frontend and pipeline E2E checks.
+
+**Stop after Phase 0.**
+
+---
+
+# PHASE 1 — Isolation scaffolding
+
+Goal: create explicit architectural boundaries before business logic.
+
+Implement:
+
+- `modules/inventory/` package;
+- Inventory config with default-off flags;
+- Inventory permissions;
+- Inventory router shell;
+- Inventory processing-control model;
+- Inventory job model/repository/claimer skeleton;
+- inventory worker bootstrap with no business handlers yet;
+- tests proving generic `processing_jobs` and `TenantAwareJobClaimer` are untouched.
+
+Acceptance:
+
+```text
+inventory worker starts
+inventory worker sees inventory_jobs only
+creative worker behavior unchanged
+all inventory flags default false
+```
+
+**Stop after Phase 1.**
+
+---
+
+# PHASE 2 — Inventory models and migration
+
+Goal: establish isolated persistence.
+
+Create Inventory tables listed in section 7 and an Alembic migration.
+
+Requirements:
+
+- tenant-scoped constraints;
+- idempotency uniqueness;
+- no FK from Inventory page/AI/business models to generic Asset/AI/search models;
+- optional allowed FK/read-only relation to existing `external_sources` for OAuth/source identity only.
 
 Tests:
 
-```text
-apps/api/tests/modules/inventory/**
-apps/api/tests/modules/processing_policy/**
-apps/api/tests/modules/pipeline/**
-apps/api/tests/providers/**
-apps/api/tests/integration/**
-apps/client/app/inventory/**/*.test.tsx
-```
-
----
-
-# 24. Implementation phases
-
-Each phase below should normally be one focused PR/task.
-
----
-
-## PHASE 0 — Restore green baseline
-
-### Goal
-
-Return current branch to a known-green baseline before adding Inventory code.
-
-### Scope
-
-Investigate and fix only the current regressions responsible for:
-
-```text
-test_preclaim_honors_provider_mode_limit_and_runtime_stop
-
-test_summary_uses_canonical_current_job_states_and_latest_replacement
-```
-
-Likely touch areas:
-
-```text
-apps/api/app/modules/processing/repository.py
-apps/api/app/modules/processing/runtime.py
-apps/api/app/modules/processing_policy/claim.py
-apps/api/app/modules/ai_operations/**
-```
-
-Do not add Inventory tables/jobs/features in this phase.
-
-### Tests
-
-Run at minimum the two failing tests directly, then full API/unit suite.
-
-CI acceptance:
-
-```text
-Frontend checks                       PASS
-API, worker and provider unit tests   PASS
-PostgreSQL migrations/repositories    PASS
-Elasticsearch integration             PASS
-Durable pipeline end-to-end           PASS
-Production release gate               PASS
-```
-
-### Stop boundary
-
-Stop after baseline CI is green.
-
----
-
-## PHASE 1 — Inventory domain schema, repositories and permissions
-
-### Goal
-
-Introduce durable Inventory data structures with no automatic processing yet.
-
-### Create
-
-```text
-apps/api/app/modules/inventory/model.py
-apps/api/app/modules/inventory/schema.py
-apps/api/app/modules/inventory/repository.py
-apps/api/app/modules/inventory/permissions.py
-apps/api/app/modules/inventory/router.py
-```
-
-Create Alembic migration for the domain tables described in this plan.
-
-Seed Inventory permissions using existing RBAC patterns.
-
-### Requirements
-
-- every repository query tenant-scoped;
-- unique constraints enforce idempotency fundamentals;
-- no Google API calls;
-- no AI calls;
-- no worker jobs yet;
-- no automatic scheduler.
-
-### Tests
-
-- migration upgrade/downgrade/re-upgrade;
+- migration up/down/re-up;
 - tenant isolation;
-- unique source page constraint;
-- item/alias constraints;
-- daily-run uniqueness;
-- permission boundaries.
+- uniqueness/idempotency;
+- creative repository tests unchanged.
 
-### Acceptance criteria
-
-- database at one Alembic head;
-- no existing tests regress;
-- Inventory CRUD/master data works behind explicit permissions;
-- feature remains inactive by default.
-
-### Stop boundary
-
-Stop before Drive Inbox routing.
+**Stop after Phase 2.**
 
 ---
 
-## PHASE 2 — Inventory settings, Drive binding and purpose routing
+# PHASE 3 — Separate Drive poll/download flow
 
-### Goal
+Goal: detect Inventory Inbox images without generic source sync.
 
-Allow a tenant admin to configure one Inventory Inbox and route matching source occurrences into Inventory without calling AI.
+Implement:
 
-### Create/modify
+- settings validation for Drive source/folders;
+- `InventoryDrivePoller`;
+- `inventory_source_files` registration;
+- `inventory_file_download` handler;
+- content SHA-256;
+- Inventory source storage namespace;
+- supported MIME validation.
 
-```text
-apps/api/app/modules/inventory/settings_service.py
-apps/api/app/modules/inventory/routing.py
-apps/api/app/modules/inventory/router.py
-apps/api/app/modules/pipeline/handlers.py
-apps/api/app/core/config.py
-.env.example
-deploy/production.env.example
-```
+Tests:
 
-### Critical routing requirement
+- new file detected once;
+- unchanged file not reprocessed;
+- changed same Drive file creates a new provider version when appropriate;
+- duplicate bytes detected safely;
+- folder ignored;
+- unsupported MIME ignored/rejected;
+- generic `SourceAssetModel` count unchanged.
 
-Modify post-storage orchestration so inventory purpose is checked **before** generic completed-analysis reuse and generic auto-analysis.
-
-Preserve current behavior exactly for non-inventory assets.
-
-### Drive settings test endpoint
-
-Add a preflight that confirms configured source/folders and write capability when applicable.
-
-Reuse existing OAuth/source resolver infrastructure.
-
-### Tests
-
-- direct Inbox parent routes to Inventory;
-- sibling folder remains creative pipeline;
-- same `AssetModel` linked from creative + Inventory source occurrence routes each occurrence correctly;
-- generic creative analysis is not reused as Inventory extraction;
-- readonly legacy connection is rejected when write-required settings are enabled;
-- disabled `inventory_settings.enabled` leaves current pipeline unchanged.
-
-### Acceptance criteria
-
-A photo in Inbox results in a durable Inventory page/submission record, but no AI call yet.
-
-### Stop boundary
-
-Stop before adding Inventory worker jobs.
+**Stop after Phase 3.**
 
 ---
 
-## PHASE 3 — Durable Inventory job plumbing
+# PHASE 4 — Inventory document preparation
 
-### Goal
+Goal: transform downloaded submissions into Inventory documents/pages without generic assets.
 
-Register and make Inventory jobs safely claimable using current worker infrastructure.
+Implement:
 
-### Modify
+- page/submission models;
+- stateless image preparation boundary;
+- page/document grouping rules;
+- `inventory_document_prepare` handler;
+- duplicate submission state.
 
-```text
-apps/api/app/domain/processing/types.py
-apps/api/app/modules/processing/bootstrap.py
-apps/api/app/modules/processing_policy/claim.py
-apps/api/app/core/config.py
-```
+Do not call creative `asset_store` or generic analysis.
 
-Create skeleton handlers in:
+Tests include rotated/AVIF/JPEG/PNG/WebP cases supported by current runtime.
 
-```text
-apps/api/app/modules/inventory/job_handlers.py
-```
-
-### Requirements
-
-- add JobType enum values;
-- add global flag mappings;
-- register handlers explicitly;
-- add `STAGE_POLICY` mappings;
-- include Inventory AI job in single-AI concurrency/provider/runtime-stop semantics;
-- all non-AI Inventory jobs remain bounded by total tenant job concurrency;
-- unknown job types remain fail-closed.
-
-### Tests
-
-- every new job type is registered;
-- disabled global Inventory flag prevents claims;
-- disabled tenant Inventory setting prevents producers from enqueueing;
-- tenant pause blocks jobs;
-- Inventory AI job respects AI active-job limit;
-- provider single limit blocks Inventory AI exactly like `asset_analyze`;
-- emergency stop blocks Inventory AI but not unrelated non-AI jobs;
-- inventory `analysis_id` model-slot resolution is deterministic.
-
-### Acceptance criteria
-
-Skeleton Inventory jobs can be enqueued, claimed and completed without AI/business behavior.
-
-### Stop boundary
-
-Stop before real AI extraction.
+**Stop after Phase 4.**
 
 ---
 
-## PHASE 4 — Explicit Inventory AI extraction
+# PHASE 5 — Separate Inventory AI
 
-### Goal
+Goal: perform structured extraction with independent state/control.
 
-Analyze Inventory photos with the exact configured Inventory profile while reusing existing AI governance.
+Implement:
 
-### Create/modify
+- `InventoryAiAnalysisModel`;
+- Inventory extraction schema/version;
+- Inventory prompt/version;
+- Inventory AI gateway;
+- Inventory-specific rate/concurrency/budget controls;
+- `inventory_document_analyze` handler;
+- structured JSON validation;
+- safe retry/error classification.
 
-```text
-apps/api/app/modules/inventory/extraction.py
-apps/api/app/modules/inventory/job_handlers.py
-apps/api/app/modules/ai_metadata/service.py   # only if a small reusable extension is required
-apps/api/app/modules/processing_policy/claim.py
-```
+Tests:
 
-### Requirements
+- exact profile/version is persisted;
+- creative metadata profile activation has no effect;
+- no `AssetAiAnalysisModel` row is created;
+- Inventory AI pause does not pause creative AI;
+- creative AI pause does not pause Inventory AI;
+- provider errors remain isolated.
 
-- create/reuse exact Inventory `MetadataProfileModel`;
-- persist configured `metadata_profile_id`;
-- create `AssetAiAnalysisModel` before AI job enqueue;
-- call shared `AiAnalysisService`;
-- `enqueue_index=False` for Inventory extraction;
-- no creative Search V3 projection/index side effect;
-- use existing `AnalysisImagePreparer`;
-- persist extraction result/version on Inventory page;
-- enqueue normalization only after completed valid analysis.
-
-### Tests
-
-- explicit profile selected even when a newer creative profile exists;
-- completed creative analysis does not satisfy Inventory analysis;
-- provider/model governance applies;
-- budget block is represented safely;
-- retry/defer preserves page/job idempotency;
-- schema-invalid output never reaches normalization;
-- no Search V3 indexing is enqueued from Inventory extraction.
-
-### Acceptance criteria
-
-A supported image in Inbox produces a valid structured Inventory extraction or a stable review/failure state with no manual DB intervention.
-
-### Stop boundary
-
-Stop before matching item master and creating business transactions.
+**Stop after Phase 5.**
 
 ---
 
-## PHASE 5 — Normalization, validation and review backend
+# PHASE 6 — Normalize, validate and review backend
 
-### Goal
+Goal: turn extraction into business-safe proposed records.
 
-Convert AI extraction into safe business-domain lines.
+Implement:
 
-### Create
+- alias resolution;
+- unit conversion;
+- business validation;
+- confidence decisions;
+- review creation;
+- approve/correct/reupload APIs;
+- audit fields.
 
-```text
-apps/api/app/modules/inventory/normalization.py
-apps/api/app/modules/inventory/validation.py
-apps/api/app/modules/inventory/review_service.py
-```
+No inventory transaction is created from unresolved review data.
 
-### Requirements
-
-- deterministic item/alias matching;
-- unit conversion snapshot;
-- confidence policy;
-- business validation rules;
-- multi-page completeness;
-- duplicate submission handling;
-- review records;
-- unknown items do not auto-create master data.
-
-### Tests
-
-Include at least:
-
-```text
-TC OLONG -> TRÂN CHÂU OLONG
-RICHS (LÙN) -> RICH LÙN
-CPHÊ MÁY -> CÀ PHÊ PHA MÁY
-BỘT Đ.XAY -> BỘT BÉO ĐÁ XAY
-```
-
-plus:
-
-- ambiguous alias;
-- missing waste reason;
-- negative quantity;
-- incomplete page set;
-- confidence boundaries;
-- duplicate content submission.
-
-### Acceptance criteria
-
-Each analyzed document ends as either:
-
-```text
-approved
-needs_review
-needs_reupload
-```
-
-with deterministic reasons.
-
-### Stop boundary
-
-Stop before frontend review UI or ledger transactions.
+**Stop after Phase 6.**
 
 ---
 
-## PHASE 6 — Inventory UI and review workflow
+# PHASE 7 — Inventory transactions
 
-### Goal
+Goal: create authoritative stock movements.
 
-Give operators a safe interface to review/edit/approve extracted values.
+Implement:
 
-### Add routes
+- opening/receipt/transfer/closing/waste semantics;
+- linked transfer in/out;
+- conversion snapshots;
+- append-oriented auditability;
+- idempotent transaction generation from approved lines.
+
+Tests cover retry and concurrent approval without duplicate transactions.
+
+**Stop after Phase 7.**
+
+---
+
+# PHASE 8 — Separate Inventory UI
+
+Goal: expose Inventory operations without modifying creative Explorer behavior.
+
+Implement routes/pages:
 
 ```text
 /inventory
+/inventory/inbox
 /inventory/review
-/inventory/items
+/inventory/daily
+/inventory/reports
 /inventory/settings
 ```
 
-### Create frontend area
+Required UI states:
 
 ```text
-apps/client/app/inventory/**
-apps/client/features/inventory/**
+waiting
+processing
+needs review
+needs reupload
+approved
+failed
+finalized
 ```
 
-### Requirements
+Explorer and creative AI Operations continue to use current code paths.
 
-Inventory Today:
-
-- received/missing locations;
-- page/document count;
-- open review count;
-- last scan;
-- Drive connection/preflight state.
-
-Review:
-
-- source image/preview;
-- extracted row;
-- matched item;
-- quantities/units;
-- confidence/warnings;
-- approve/correct/request reupload.
-
-Settings:
-
-- source/folder binding;
-- explicit AI profile;
-- thresholds;
-- timezone/times;
-- archive/export switches;
-- preflight result.
-
-### Tests
-
-- route mapping;
-- RBAC;
-- review corrections persist before/after values;
-- viewer cannot mutate;
-- failed Drive preflight prevents automation enablement.
-
-### Acceptance criteria
-
-An operator can resolve all open reviews without touching database/Google Sheets/Excel manually.
-
-### Stop boundary
-
-Stop before creating authoritative inventory transactions.
+**Stop after Phase 8.**
 
 ---
 
-## PHASE 7 — Inventory transactions and daily ledger calculation
+# PHASE 9 — Daily scheduler/finalization
 
-### Goal
+Goal: run the business-day lifecycle independently.
 
-Turn approved documents into auditable inventory transactions.
+Implement:
 
-### Create
+- dedicated Inventory scheduler;
+- missing-document checks;
+- 17:00 finalize logic;
+- open-review blocking;
+- forced-finalize with audit;
+- daily report JSON.
 
-```text
-apps/api/app/modules/inventory/transactions.py
-apps/api/app/modules/inventory/daily_run_service.py
-```
+Do not add tasks to creative source-sync scheduler.
 
-### Requirements
-
-- transaction generation idempotent;
-- approved line → deterministic transaction(s);
-- transfer pair atomic;
-- waste separate from usage;
-- conversion snapshot stored;
-- finalized transaction history immutable except explicit reversal/correction policy.
-
-### Tests
-
-- stock count;
-- transfer out/in atomic pair;
-- transaction rollback on one-leg failure;
-- waste reason;
-- usage calculation;
-- negative usage anomaly;
-- rerun does not duplicate ledger entries.
-
-### Acceptance criteria
-
-For a manually initiated day, database produces a reproducible inventory ledger and daily calculation.
-
-### Stop boundary
-
-Stop before automatic time-based finalization.
+**Stop after Phase 9.**
 
 ---
 
-## PHASE 8 — Inventory scheduler and daily finalization
+# PHASE 10 — Excel export and Drive archive
 
-### Goal
+Goal: create reproducible Excel output and archive submissions.
 
-Automate missing checks, final scan/finalize and follow-up jobs.
+Implement:
 
-### Create
+- openpyxl export from Inventory PostgreSQL snapshot;
+- protected Sheet 4 fingerprint;
+- upload to Inventory Drive output folder;
+- archive/reupload move operations;
+- idempotent export identity;
+- retry without rewriting business transactions.
 
-```text
-apps/api/app/modules/inventory/scheduler.py
-```
+Tests prove Sheet 4 is unchanged.
 
-### Worker integration
-
-Run the Inventory scheduler in the worker/scheduler process, not in every API replica.
-
-Follow existing `SourceSyncScheduler` lifecycle conventions.
-
-### Schedule
-
-Use tenant `inventory_settings` timezone/times.
-
-At minimum:
-
-```text
-16:30 missing check
-16:50 source-sync/final readiness request
-17:00 finalize attempt
-17:10 report/export/archive enqueue
-```
-
-### Requirements
-
-- one schedule action per tenant/date/time bucket;
-- database idempotency prevents duplicate scheduler instances;
-- open required reviews block normal finalize;
-- incomplete required documents block normal finalize;
-- forced finalize is explicit and audited;
-- a failed export must not roll back finalized inventory ledger.
-
-### Tests
-
-- two scheduler instances coalesce;
-- timezone/day-boundary behavior;
-- missing page blocks finalize;
-- open review blocks finalize;
-- forced finalize actor/reason;
-- retry after worker restart.
-
-### Acceptance criteria
-
-The system can autonomously reach `finalized` or a clearly actionable blocked state every business day.
-
-### Stop boundary
-
-Stop before Excel writing/Drive archive if those flags remain disabled.
+**Stop after Phase 10.**
 
 ---
 
-## PHASE 9 — Excel export, Drive output and archive
+# PHASE 11 — Production isolation rollout
 
-### Goal
+Goal: verify both pipelines can operate independently under failure.
 
-Generate business Excel output while preserving protected workbook content, then archive source photos.
+Before enabling production automation:
 
-### Create/modify
+1. use separate Inventory AI credentials/project where possible;
+2. run Inventory in shadow mode;
+3. compare manual and automated counts;
+4. inject Inventory worker outage;
+5. inject creative worker outage;
+6. inject Inventory AI 429/provider failure;
+7. inject Inventory Excel failure;
+8. verify the other pipeline remains healthy in each case;
+9. enable one tenant/store first;
+10. expand only after stable observation.
+
+**Stop after Phase 11.**
+
+---
+
+# 23. Files existing creative implementation should normally not require Inventory changes
+
+Codex should treat these areas as protected unless a minimal platform hook is strictly necessary:
 
 ```text
-apps/api/app/modules/inventory/excel_export_service.py
-apps/api/app/modules/inventory/drive_archive_service.py
-apps/api/requirements.txt
-apps/api/app/providers/google/drive.py   # only if explicit file-update capability is required
+apps/api/app/modules/pipeline/*
+apps/api/app/modules/processing/*
+apps/api/app/modules/processing_policy/*
+apps/api/app/modules/ai_metadata/*
+apps/api/app/modules/search/*
+apps/api/app/modules/source_sync/*
+apps/api/app/modules/assets/status_service.py
 ```
 
-### Requirements
-
-- pin `openpyxl`;
-- download configured workbook/template;
-- allowlist modified sheets;
-- protect Sheet 4;
-- temporary output + reopen validation;
-- Drive output uses explicit write-scoped token;
-- worker uses provider/service directly, not Explorer HTTP API;
-- export job idempotent;
-- archive job idempotent;
-- output Drive IDs/hashes persisted.
-
-### Safer initial production behavior
-
-Prefer versioned output files before implementing in-place main-file replacement.
-
-### Tests
-
-- template not found;
-- readonly connection;
-- folder write denied;
-- retryable Google failure;
-- repeated export returns/reuses correct logical output without duplicate ledger state;
-- protected Sheet 4 fingerprint unchanged;
-- workbook opens after export;
-- archive already completed;
-- archive move generates no duplicate business processing.
-
-### Acceptance criteria
-
-A finalized day can regenerate its Excel output from PostgreSQL and source configuration without manual data entry.
-
-### Stop boundary
-
-Stop before full production enablement.
-
----
-
-## PHASE 10 — Shadow rollout and production activation
-
-### Goal
-
-Validate business accuracy before allowing Inventory Automation to become authoritative operationally.
-
-### Shadow period
-
-Run new automation in parallel with current manual process for 7–14 business days.
-
-Track:
+A change in one of these paths requires an explicit explanation in the PR:
 
 ```text
-files discovered
-files processed
-missing files/pages
-duplicate submissions
-AI auto-approved lines
-reviewed/corrected lines
-item-match corrections
-quantity corrections
-waste corrections
-transaction differences
-Excel differences
-AI cost
-processing latency
+Why is this platform-level change necessary?
+Why cannot Inventory implement it in its own module?
+Which regression tests prove creative behavior is unchanged?
 ```
 
-### Go-live gates
+Default answer should be: **do not modify it**.
 
-- no unexplained lost source files;
-- duplicate prevention verified;
-- review queue manageable;
-- transaction calculations reconciled;
-- protected Sheet 4 verified on real sanitized workbook fixture;
-- Drive reconnect/preflight runbook tested;
-- AI emergency stop tested;
-- Inventory global kill switch tested;
-- full CI green;
-- backup/restore/export retry tested.
+Allowed common-layer changes are narrow, for example:
 
-### Production flags
+- exposing an already-existing OAuth/token helper through a stable interface;
+- extracting a truly stateless image transform utility;
+- mounting the `/api/inventory` router;
+- adding Inventory app startup/shutdown hooks;
+- adding separate environment configuration.
 
-Enable in stages:
+---
+
+# 24. Definition of done
+
+Inventory Automation is complete only when:
 
 ```text
-INVENTORY_AUTOMATION_ENABLED=true
+[ ] Existing creative CI is green.
+[ ] Inventory uses a separate durable job table.
+[ ] Inventory runs in a separate worker process/runtime.
+[ ] Inventory has a separate scheduler.
+[ ] Inventory Inbox is not processed by generic source sync.
+[ ] Inventory submissions create no generic SourceAsset/Asset/Pipeline rows.
+[ ] Inventory creates no AssetAiAnalysisModel rows.
+[ ] Inventory creates no creative search/index documents.
+[ ] Inventory pause/resume is independent.
+[ ] Creative pause/resume is independent.
+[ ] Inventory AI control/budget state is independent.
+[ ] Production AI credentials are separable without code redesign.
+[ ] Inventory review and transaction tables are tenant-safe.
+[ ] Inventory daily finalize is idempotent.
+[ ] Excel export is reproducible from PostgreSQL.
+[ ] Sheet 4 remains unchanged.
+[ ] Inventory worker outage does not stop creative worker.
+[ ] Creative worker outage does not stop inventory worker.
+[ ] Inventory queue backlog does not consume creative worker capacity.
+[ ] Inventory AI failure does not modify creative processing controls.
+[ ] Creative AI failure does not modify Inventory processing controls.
 ```
 
-then after shadow validation:
+---
+
+# 25. Codex prompt template
+
+Use this structure for each implementation task:
 
 ```text
-INVENTORY_EXCEL_EXPORT_ENABLED=true
-```
+Read docs/inventory-automation-codex-plan.md first.
+Treat it as the primary implementation architecture for Inventory Automation.
 
-then last:
+The Inventory flow MUST remain isolated from the existing Creative Asset flow.
+Do not route Inventory through generic source_sync, processing_jobs, AssetModel,
+AssetAiAnalysisModel, search projection, Elasticsearch, or creative processing policy.
 
-```text
-INVENTORY_DRIVE_ARCHIVE_ENABLED=true
-```
-
-Do not enable all three for the first production trial.
-
----
-
-# 25. Test fixture requirements
-
-Create a sanitized Inventory fixture set including:
-
-- straight photo;
-- rotated photo;
-- dark photo;
-- perspective/skew;
-- handwritten numbers;
-- crossed-out corrected number;
-- handwritten note outside table;
-- page 1/2 and page 2/2;
-- missing page;
-- duplicate image upload;
-- unknown alias;
-- waste with reason;
-- waste without reason;
-- transfer slip;
-- AVIF image;
-- unsupported HEIC case;
-- same image bytes appearing in creative folder and Inventory Inbox.
-
-Do not use production staff/customer personal data in committed fixtures.
-
----
-
-# 26. Observability
-
-Inventory should emit bounded, tenant-safe metrics/log events.
-
-Recommended metrics:
-
-```text
-inventory_files_routed
-inventory_duplicate_submissions
-inventory_pages_analyzed
-inventory_ai_deferred
-inventory_ai_failed
-inventory_documents_needs_review
-inventory_documents_needs_reupload
-inventory_lines_auto_approved
-inventory_lines_corrected
-inventory_daily_finalize_success
-inventory_daily_finalize_blocked
-inventory_excel_export_success
-inventory_excel_export_failed
-inventory_archive_success
-inventory_archive_failed
-```
-
-Useful latency:
-
-```text
-upload/discovery -> page created
-page created -> AI completed
-AI completed -> approved/review
-business date finalize duration
-Excel export duration
-```
-
-Do not log OAuth tokens, raw signed URLs, full raw provider responses or personal data.
-
----
-
-# 27. Security and data handling
-
-- Persist no Drive tokens in Inventory tables.
-- Reuse encrypted OAuth persistence.
-- All repository methods tenant-scope queries.
-- Write mutations require explicit Inventory permissions.
-- Review corrections record actor + before/after values.
-- Forced finalize records actor + reason.
-- Folder IDs are configuration, not authorization by themselves.
-- Drive provider access must still resolve through tenant-owned connection.
-- Raw AI response retention follows existing AI retention configuration.
-- Inventory photo retention must be configurable operationally; default policy can be defined later, but no silent deletion in MVP.
-
----
-
-# 28. Non-goals for the first production version
-
-Do not include unless explicitly requested:
-
-- Zalo OA/GMF integration;
-- Zalo PC automation;
-- OCR provider separate from the existing AI provider layer;
-- native mobile app;
-- multiple independent Inventory Inboxes per tenant;
-- HEIC source ingestion;
-- multi-store corporate consolidation dashboard;
-- automatic procurement/reorder suggestions;
-- direct POS integration;
-- autonomous creation of new item master rows;
-- automatic destructive deletion of source photos;
-- replacing PostgreSQL with Google Sheets/Excel.
-
----
-
-# 29. Definition of Ready for each Codex phase
-
-Before starting a phase:
-
-- current HEAD has been re-read;
-- previous phase is merged/applied;
-- relevant CI is green;
-- feature flags remain fail-closed unless that phase explicitly enables local/test behavior;
-- migrations are at one head;
-- no undocumented manual DB changes are required.
-
----
-
-# 30. Definition of Done for each Codex phase
-
-A phase is complete only when:
-
-- implementation matches that phase only;
-- tests cover success + failure + tenant isolation + idempotency where applicable;
-- relevant existing tests pass;
-- no new secrets/config values are hard-coded;
-- migrations/config examples are updated;
-- feature remains disabled by default unless explicitly part of rollout;
-- docs/checklist implementation log is updated;
-- Codex stops and reports what changed, tests run, and what remains for the next phase.
-
----
-
-# 31. Implementation log template
-
-Codex should append a short entry after completing each phase instead of rewriting historical entries.
-
-```text
-## Implementation Log
-
-### Phase N — YYYY-MM-DD — <commit SHA>
-Status: completed / partial / blocked
-
-Implemented:
-- ...
-
-Tests:
-- ...
-
-Configuration/migrations:
-- ...
-
-Known follow-ups for next phase:
-- ...
-```
-
-Do not mark a phase complete if CI relevant to that phase is still red.
-
----
-
-# 32. Ready-to-use Codex instruction
-
-Use this template when assigning a phase:
-
-```text
-Read docs/inventory-automation-codex-plan.md as the primary technical implementation plan.
-Read docs/google-drive-inventory-automation.md only as the business/operational reference.
-Read docs/inventory-system-readiness-assessment.md only for historical context.
-
-Before editing, inspect the current branch because source code always overrides stale documentation.
+Inspect the current branch before editing because source code overrides stale documentation.
 
 Implement PHASE <N> only.
-Do not implement later phases.
-Do not perform unrelated refactors.
-Preserve current tenant isolation, Google Drive OAuth model, source-sync behavior, durable processing jobs, content deduplication, processing policy, AI governance, Search V3 behavior and Explorer behavior.
 
-Add/update tests required by the phase and run the most relevant existing test suites.
-If the baseline or required tests are red, diagnose that first and do not hide the failure by weakening tests.
-
-At completion:
-1. summarize files changed;
-2. list migrations/config changes;
-3. list tests run and results;
-4. state residual risks;
-5. update the Implementation Log in docs/inventory-automation-codex-plan.md;
-6. stop before the next phase.
-```
-
-For the current repository state, the first instruction should be:
-
-```text
-Implement PHASE 0 only.
-Restore the current baseline CI by addressing the two known API/unit regressions documented in the plan. Do not add Inventory feature code yet.
+Do not implement future phases.
+Do not refactor protected creative modules unless the phase explicitly requires a narrow platform hook.
+Add tests proving both the requested behavior and pipeline isolation.
+Run the relevant test groups.
+Stop when the phase acceptance criteria are satisfied and report:
+1. files changed,
+2. migrations added,
+3. tests run,
+4. isolation guarantees verified,
+5. remaining issues for the next phase.
 ```
 
 ---
 
-# 33. Final target acceptance flow
+# 26. Final architecture summary
 
-The feature is not complete until this end-to-end flow passes:
-
-```text
-Employee uploads supported image directly to Inventory Inbox
-        ↓
-source sync discovers it
-        ↓
-source occurrence is routed to Inventory before generic AI
-        ↓
-content is downloaded/deduplicated/stored
-        ↓
-explicit Inventory metadata profile analyzes it
-        ↓
-AI result is normalized and validated
-        ↓
-ambiguous data enters review instead of being guessed
-        ↓
-approved document creates idempotent inventory transactions
-        ↓
-daily run finalizes correctly
-        ↓
-Excel can be regenerated from PostgreSQL
-        ↓
-protected Sheet 4 remains unchanged
-        ↓
-output/backup is written to Google Drive
-        ↓
-source photo is archived only when configured and safe
-```
-
-Operationally, staff should still perform only:
+The intended design is deliberately two-lane:
 
 ```text
-Ghi số → Chụp ảnh → Upload vào Google Drive Inbox
+CREATIVE LANE                         INVENTORY LANE
+────────────────────                  ────────────────────
+creative source sync                  inventory Drive poller
+SourceAsset/Asset models              inventory_source_files
+processing_jobs                       inventory_jobs
+creative worker                       inventory worker
+AssetAiAnalysisModel                  InventoryAiAnalysisModel
+creative AI governance               inventory AI controls
+search projection/index              normalize/validate/review
+Explorer / AI Operations              Inventory UI
+no inventory transactions             inventory transactions
+no inventory Excel lifecycle          daily finalize + Excel
 ```
 
-Everything after upload is the system's responsibility, with human review only for uncertain or invalid data.
+They share the road infrastructure, not the traffic lane.
+
+A bug or backlog in one lane must not be able to consume, mutate, pause, complete, retry, index, or finalize work in the other lane.
