@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
@@ -152,6 +153,15 @@ export default function App() {
     && explorer.searchV3.active
     && explorer.query.trim().length >= 2
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
+  useEffect(() => {
+    if (!confirm) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setConfirm(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [confirm]);
+
   useEffect(() => {
     if (!showSuggestions) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -760,7 +770,25 @@ export default function App() {
         <span className="upload-status-icon" aria-label={upload.status === "failed" ? upload.error || "Upload failed." : upload.status === "completed" ? "Completed" : "Uploading..."}>{upload.status === "failed" ? "!" : ""}</span>
       </div>)}
     </aside>}
-    {confirm && <div className="confirm-toast" role="alertdialog"><span>{confirm.message}</span><button onClick={confirm.run}>Confirm</button><button onClick={() => setConfirm(null)}>Cancel</button></div>}
+    {confirm && createPortal(<div
+      className="confirm-dialog-backdrop"
+      onMouseDown={event => event.target === event.currentTarget && setConfirm(null)}
+    >
+      <section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
+        <span className="confirm-dialog-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z" /><path d="M12 9v4m0 3h.01" /></svg>
+        </span>
+        <div className="confirm-dialog-copy">
+          <span>CONFIRMATION</span>
+          <h2 id="confirm-dialog-title">Confirm action</h2>
+          <p id="confirm-dialog-message">{confirm.message}</p>
+        </div>
+        <div className="confirm-dialog-actions">
+          <button type="button" className="secondary" onClick={() => setConfirm(null)}>Cancel</button>
+          <button type="button" className="primary" autoFocus onClick={confirm.run}>Confirm</button>
+        </div>
+      </section>
+    </div>, document.body)}
     <AnalyzeMetadataDialog
       open={analyzeOpen}
       assetIds={analysisAssetIds}
