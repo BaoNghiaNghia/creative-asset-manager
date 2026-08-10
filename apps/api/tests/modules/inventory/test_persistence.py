@@ -30,7 +30,7 @@ class InventoryPersistenceMetadataTest(unittest.TestCase):
             name
             for name in Base.metadata.tables
             if name.startswith("inventory_")
-            and name not in {"inventory_jobs", "inventory_processing_controls"}
+            and name not in {"inventory_jobs", "inventory_processing_controls", "inventory_ai_controls"}
         }
         self.assertEqual(inventory_tables, PHASE2_TABLES)
         for table_name in PHASE2_TABLES:

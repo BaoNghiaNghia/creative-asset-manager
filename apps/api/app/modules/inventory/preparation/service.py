@@ -233,10 +233,24 @@ class InventoryDocumentPreparer:
             current.preparation_error_code = None
             current.preparation_error_message = None
             session.commit()
-            logger.info(
-                "inventory_document_prepared tenant_id=%s source_file_id=%s document_id=%s page_id=%s duplicate=%s",
-                current.tenant_id, current.id, document.id, page.id, is_duplicate,
-            )
+            tenant_id, document_id, page_id = current.tenant_id, document.id, page.id
+        # Phase 5 enqueue is Inventory-only and idempotent. Preparation remains successful
+        # even when AI is disabled; the analyzer itself performs the provider gate.
+        from app.modules.inventory.ai.service import INVENTORY_DOCUMENT_ANALYZE_JOB, InventoryDocumentAnalyzer
+        from app.modules.inventory.jobs.repository import InventoryJobRepository
+        with self.session_factory() as session:
+            current_page = session.scalar(select(InventoryDocumentPageModel).where(InventoryDocumentPageModel.tenant_id == tenant_id, InventoryDocumentPageModel.id == page_id))
+            current_document = session.scalar(select(InventoryDocumentModel).where(InventoryDocumentModel.tenant_id == tenant_id, InventoryDocumentModel.id == document_id))
+            if current_page is not None and current_document is not None:
+                InventoryDocumentAnalyzer(self.session_factory, prepared_storage=self.prepared_storage).enqueue(
+                    tenant_id=tenant_id, page=current_page, document=current_document,
+                    repository=InventoryJobRepository(session, (INVENTORY_DOCUMENT_ANALYZE_JOB,)),
+                )
+                session.commit()
+        logger.info(
+            "inventory_document_prepared tenant_id=%s source_file_id=%s document_id=%s page_id=%s duplicate=%s",
+            tenant_id, source.id, document_id, page_id, is_duplicate,
+        )
 
     def _mark_existing(self, tenant_id: str, source_file_id: str, page: InventoryDocumentPageModel) -> None:
         with self.session_factory() as session:

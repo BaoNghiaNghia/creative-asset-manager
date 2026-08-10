@@ -192,7 +192,7 @@ class InventoryPreparationPhase4Test(unittest.TestCase):
             self.assertEqual(session.get(InventorySourceFileModel, source.id).preparation_status, "terminal_failure")
             self.assertEqual(session.scalar(select(func.count(InventoryDocumentPageModel.id))), 0)
 
-    def test_repeated_execution_is_idempotent_and_registry_stops_before_phase_five(self) -> None:
+    def test_repeated_execution_is_idempotent_and_registry_includes_phase_five(self) -> None:
         source = self._source(source_id="repeat")
         self.preparer.execute(self._job(source))
         self.preparer.execute(self._job(source))
@@ -201,5 +201,5 @@ class InventoryPreparationPhase4Test(unittest.TestCase):
             self.assertEqual(session.scalar(select(func.count(InventoryDocumentPageModel.id))), 1)
         self.assertEqual(
             build_inventory_handler_registry().job_types,
-            ("inventory_file_download", "inventory_document_prepare"),
+            ("inventory_file_download", "inventory_document_prepare", "inventory_document_analyze"),
         )

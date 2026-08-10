@@ -19,7 +19,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.modules.assets.model import AssetModel, ExternalSourceModel, SourceAssetModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.auth_persistence.model import TenantModel
-from app.modules.inventory.persistence_model import InventoryDocumentModel, InventoryDocumentPageModel
+from app.modules.inventory.ai.gateway import InventoryAiGatewayResult
+from app.modules.inventory.ai.service import (
+    INVENTORY_DOCUMENT_ANALYZE_JOB,
+    InventoryAnalyzeFailure,
+    InventoryDocumentAnalyzer,
+)
+from app.modules.inventory.persistence_model import (
+    InventoryAiAnalysisModel,
+    InventoryDocumentModel,
+    InventoryDocumentPageModel,
+)
 from app.modules.inventory.jobs.repository import InventoryJobRepository
 from app.modules.explorer.schema import AssetNode
 from app.modules.inventory.drive.downloader import InventoryFileDownloader
@@ -29,7 +39,10 @@ from app.modules.inventory.preparation.image import InventoryImagePreparationLim
 from app.modules.inventory.preparation.service import INVENTORY_DOCUMENT_PREPARE_JOB, InventoryDocumentPreparer
 from app.modules.inventory.preparation.storage import InventoryPreparedStorage
 from app.modules.inventory.jobs.model import InventoryJobModel
-from app.modules.inventory.model import InventoryProcessingControlModel
+from app.modules.inventory.model import (
+    InventoryAiControlModel,
+    InventoryProcessingControlModel,
+)
 from app.modules.inventory.persistence_model import InventorySettingsModel, InventorySourceFileModel
 from app.modules.pipeline.model import AssetPipelineModel
 
@@ -625,3 +638,171 @@ class InventoryPostgreSqlIntegrationTest(unittest.TestCase):
             with self.sessions() as session:
                 after = tuple(session.scalar(select(func.count(model.id))) for model in (SourceAssetModel, AssetModel, AssetPipelineModel, AssetAiAnalysisModel, SearchIndexRecordModel))
                 self.assertEqual(after, before)
+
+
+    def test_phase5_concurrent_analysis_is_idempotent_and_tenant_scoped(self) -> None:
+        marker = uuid4().hex
+        tenant_a, tenant_b = f"inv-ai-a-{marker}", f"inv-ai-b-{marker}"
+        source_a, source_b = f"src-ai-a-{marker[:24]}", f"src-ai-b-{marker[:24]}"
+        page_a, page_b = str(uuid4()), str(uuid4())
+        content = b"prepared-inventory-page"
+        digest = hashlib.sha256(content).hexdigest()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def add_page(session, tenant_id, source_id, page_id):
+                key = f"inventory/{tenant_id}/prepared/{page_id}/{digest}.jpg"
+                target = root / key
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+                source = InventorySourceFileModel(
+                    id=str(uuid4()), tenant_id=tenant_id,
+                    external_source_id=source_id, drive_file_id=f"drive-{page_id}",
+                    filename="count.jpg", mime_type="image/jpeg",
+                    drive_modified_time=datetime.now(timezone.utc), status="downloaded",
+                    content_sha256=digest,
+                )
+                document = InventoryDocumentModel(
+                    id=str(uuid4()), tenant_id=tenant_id,
+                    idempotency_key=f"doc-{page_id}", document_type="unclassified",
+                    status="prepared", expected_pages=1, received_pages=1,
+                )
+                page = InventoryDocumentPageModel(
+                    id=page_id, tenant_id=tenant_id, document_id=document.id,
+                    source_file_id=source.id, drive_file_id=source.drive_file_id,
+                    page_number=1, page_count=1, content_sha256=digest,
+                    preparation_status="prepared", prepared_storage_key=key,
+                    prepared_content_sha256=digest, prepared_mime_type="image/jpeg",
+                )
+                session.add_all((source, document))
+                session.flush()
+                session.add(page)
+
+            with self.sessions() as session:
+                session.add_all((
+                    TenantModel(id=tenant_a, name="AI tenant A", slug=tenant_a),
+                    TenantModel(id=tenant_b, name="AI tenant B", slug=tenant_b),
+                    ExternalSourceModel(id=source_a, tenant_id=tenant_a, source_key=source_a, source_type="google_drive"),
+                    ExternalSourceModel(id=source_b, tenant_id=tenant_b, source_key=source_b, source_type="google_drive"),
+                    InventoryAiControlModel(tenant_id=tenant_a, enabled=True, provider="fake", allowed_models_json=["fake-v1"], max_concurrent=1, min_start_interval_seconds=0, per_run_limit=1),
+                    InventoryAiControlModel(tenant_id=tenant_b, enabled=True, provider="fake", allowed_models_json=["fake-v1"], max_concurrent=1, min_start_interval_seconds=0, per_run_limit=1),
+                ))
+                add_page(session, tenant_a, source_a, page_a)
+                add_page(session, tenant_b, source_b, page_b)
+                session.commit()
+
+            class Gateway:
+                def __init__(self):
+                    self.calls = 0
+                def analyze(self, **_kwargs):
+                    self.calls += 1
+                    extracted = {"document_type": "stock_count", "business_date": None, "location": None, "page_number": 1, "page_count": 1, "raw_item_lines": []}
+                    return InventoryAiGatewayResult(raw_response_json={"candidate": extracted}, extracted_json=extracted, provider_request_id="request-id", usage_json={"input_tokens": 1}, estimated_cost_micros=1)
+
+            gateway = Gateway()
+            def execute() -> str:
+                analyzer = InventoryDocumentAnalyzer(self.sessions, prepared_storage=InventoryPreparedStorage(root), gateway=gateway, enabled=True)
+                job = InventoryJobModel(tenant_id=tenant_a, job_type=INVENTORY_DOCUMENT_ANALYZE_JOB, entity_type="inventory_document_page", entity_id=page_a, idempotency_key=f"job-{page_a}", payload_json={"page_id": page_a})
+                try:
+                    analyzer.execute(job)
+                    return "completed"
+                except InventoryAnalyzeFailure as exc:
+                    self.assertEqual(exc.code, "inventory_ai_concurrency_limited")
+                    self.assertTrue(exc.retryable)
+                    return "retryable"
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                outcomes = list(executor.map(lambda _value: execute(), range(2)))
+            self.assertIn("completed", outcomes)
+            with self.sessions() as session:
+                self.assertEqual(session.scalar(select(func.count(InventoryAiAnalysisModel.id)).where(InventoryAiAnalysisModel.tenant_id == tenant_a)), 1)
+                analysis = session.scalar(select(InventoryAiAnalysisModel).where(InventoryAiAnalysisModel.tenant_id == tenant_a))
+                self.assertEqual(analysis.status, "succeeded")
+                self.assertEqual(session.scalar(select(func.count(InventoryAiAnalysisModel.id)).where(InventoryAiAnalysisModel.tenant_id == tenant_b)), 0)
+            self.assertEqual(gateway.calls, 1)
+
+            analyzer = InventoryDocumentAnalyzer(self.sessions, prepared_storage=InventoryPreparedStorage(root), gateway=gateway, enabled=True)
+            foreign_job = InventoryJobModel(tenant_id=tenant_a, job_type=INVENTORY_DOCUMENT_ANALYZE_JOB, entity_type="inventory_document_page", entity_id=page_b, idempotency_key="foreign-page", payload_json={"page_id": page_b})
+            with self.assertRaises(InventoryAnalyzeFailure) as raised:
+                analyzer.execute(foreign_job)
+            self.assertEqual(raised.exception.code, "inventory_ai_page_not_found")
+            self.assertEqual(gateway.calls, 1)
+
+    def test_phase5_controls_enforce_rate_budgets_stop_and_creative_isolation(self) -> None:
+        marker = uuid4().hex
+        tenant_id, source_id = f"inv-ai-controls-{marker}", f"src-ai-controls-{marker[:20]}"
+        content = b"prepared-controls-page"
+        digest = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.sessions() as session:
+                session.add_all((
+                    TenantModel(id=tenant_id, name="AI controls", slug=tenant_id),
+                    ExternalSourceModel(id=source_id, tenant_id=tenant_id, source_key=source_id, source_type="google_drive"),
+                    InventoryAiControlModel(tenant_id=tenant_id, enabled=True, provider="fake", allowed_models_json=["fake-v1"], max_concurrent=1, min_start_interval_seconds=0, per_run_limit=1),
+                ))
+                creative_before = session.scalar(select(func.count(AssetAiAnalysisModel.id)))
+                session.commit()
+
+            def create_page(suffix):
+                page_id = str(uuid4())
+                key = f"inventory/{tenant_id}/prepared/{page_id}/{digest}.jpg"
+                target = root / key
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+                with self.sessions() as session:
+                    source = InventorySourceFileModel(id=str(uuid4()), tenant_id=tenant_id, external_source_id=source_id, drive_file_id=f"drive-{page_id}", filename="count.jpg", mime_type="image/jpeg", drive_modified_time=datetime.now(timezone.utc), status="downloaded", content_sha256=digest)
+                    document = InventoryDocumentModel(id=str(uuid4()), tenant_id=tenant_id, idempotency_key=f"doc-{page_id}", document_type="unclassified", status="prepared", expected_pages=1, received_pages=1)
+                    page = InventoryDocumentPageModel(id=page_id, tenant_id=tenant_id, document_id=document.id, source_file_id=source.id, drive_file_id=source.drive_file_id, page_number=1, page_count=1, content_sha256=digest, preparation_status="prepared", prepared_storage_key=key, prepared_content_sha256=digest, prepared_mime_type="image/jpeg")
+                    session.add_all((source, document)); session.flush(); session.add(page); session.commit()
+                return page_id
+
+            class Gateway:
+                def __init__(self): self.calls = 0
+                def analyze(self, **_kwargs):
+                    self.calls += 1
+                    extracted = {"document_type": "stock_count", "business_date": None, "location": None, "page_number": 1, "page_count": 1, "raw_item_lines": []}
+                    return InventoryAiGatewayResult(raw_response_json={"candidate": extracted}, extracted_json=extracted, provider_request_id="request-id", usage_json={}, estimated_cost_micros=10)
+
+            gateway = Gateway()
+            analyzer = InventoryDocumentAnalyzer(self.sessions, prepared_storage=InventoryPreparedStorage(root), gateway=gateway, enabled=True, estimated_cost_micros=10)
+            def job(page_id):
+                return InventoryJobModel(tenant_id=tenant_id, job_type=INVENTORY_DOCUMENT_ANALYZE_JOB, entity_type="inventory_document_page", entity_id=page_id, idempotency_key=f"job-{page_id}", payload_json={"page_id": page_id})
+
+            first = create_page("first")
+            analyzer.execute(job(first))
+            self.assertEqual(gateway.calls, 1)
+            with self.sessions() as session:
+                control = session.scalar(select(InventoryAiControlModel).where(InventoryAiControlModel.tenant_id == tenant_id))
+                control.min_start_interval_seconds = 3600
+                session.commit()
+            with self.assertRaises(InventoryAnalyzeFailure) as raised:
+                analyzer.execute(job(create_page("rate")))
+            self.assertEqual(raised.exception.code, "inventory_ai_rate_limited")
+
+            with self.sessions() as session:
+                control = session.scalar(select(InventoryAiControlModel).where(InventoryAiControlModel.tenant_id == tenant_id))
+                control.min_start_interval_seconds = 0; control.daily_budget_micros = 10
+                session.commit()
+            with self.assertRaises(InventoryAnalyzeFailure) as raised:
+                analyzer.execute(job(create_page("daily")))
+            self.assertEqual(raised.exception.code, "inventory_ai_daily_budget_exceeded")
+
+            with self.sessions() as session:
+                control = session.scalar(select(InventoryAiControlModel).where(InventoryAiControlModel.tenant_id == tenant_id))
+                control.daily_budget_micros = 0; control.monthly_budget_micros = 10
+                session.commit()
+            with self.assertRaises(InventoryAnalyzeFailure) as raised:
+                analyzer.execute(job(create_page("monthly")))
+            self.assertEqual(raised.exception.code, "inventory_ai_monthly_budget_exceeded")
+
+            with self.sessions() as session:
+                control = session.scalar(select(InventoryAiControlModel).where(InventoryAiControlModel.tenant_id == tenant_id))
+                control.monthly_budget_micros = 0; control.emergency_stop = True
+                session.commit()
+            with self.assertRaises(InventoryAnalyzeFailure) as raised:
+                analyzer.execute(job(create_page("stop")))
+            self.assertEqual(raised.exception.code, "inventory_ai_emergency_stop")
+            self.assertEqual(gateway.calls, 1)
+            with self.sessions() as session:
+                self.assertEqual(session.scalar(select(func.count(AssetAiAnalysisModel.id))), creative_before)

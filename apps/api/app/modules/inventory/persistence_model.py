@@ -380,7 +380,7 @@ class InventoryAiAnalysisModel(Base):
             name="ck_inventory_ai_confidence",
         ),
         CheckConstraint(
-            "status IN ('pending','processing','completed','failed','superseded')",
+            "status IN ('pending','processing','completed','failed','queued','analyzing','succeeded','retryable_failure','terminal_failure','superseded')",
             name="ck_inventory_ai_status",
         ),
         CheckConstraint(
@@ -397,21 +397,29 @@ class InventoryAiAnalysisModel(Base):
     page_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
     analysis_version: Mapped[int] = mapped_column(Integer, nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    content_sha256: Mapped[str | None] = mapped_column(String(64))
+    extraction_profile: Mapped[str] = mapped_column(String(128), nullable=False, default="inventory-stock-sheet")
+    extraction_profile_version: Mapped[str] = mapped_column(String(64), nullable=False, default="v1")
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(255), nullable=False)
     prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
     schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    provider_request_id: Mapped[str | None] = mapped_column(String(255))
+    usage_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    estimated_cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     validation_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="unvalidated"
     )
     confidence: Mapped[Decimal | None] = mapped_column(CONFIDENCE)
     raw_result_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    normalized_result_json: Mapped[dict] = mapped_column(
-        JSON, nullable=False, default=dict
-    )
+    # Phase 5 keeps extraction separate from future normalization.
+    normalized_result_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    extracted_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     error_code: Mapped[str | None] = mapped_column(String(100))
     error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=inventory_utcnow

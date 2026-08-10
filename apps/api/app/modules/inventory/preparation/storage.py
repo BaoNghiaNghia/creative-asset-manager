@@ -29,6 +29,16 @@ class InventoryPreparedStorage:
             raise InventoryStorageError("inventory_prepare_source_storage_missing")
         return candidate
 
+    def read_bytes(self, *, tenant_id: str, storage_key: str) -> bytes:
+        tenant = _safe_segment(tenant_id)
+        candidate = (self.root / storage_key).resolve()
+        permitted = (self.root / "inventory" / tenant / "prepared").resolve()
+        if permitted != candidate and permitted not in candidate.parents:
+            raise InventoryStorageError("inventory_prepare_storage_invalid")
+        if not candidate.is_file():
+            raise InventoryStorageError("inventory_prepare_storage_missing")
+        return candidate.read_bytes()
+
     def write_atomic(
         self, *, tenant_id: str, source_file_id: str, preparation_version: int, content_hash: str, content: bytes
     ) -> str:

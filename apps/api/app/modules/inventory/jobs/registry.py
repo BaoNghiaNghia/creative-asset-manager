@@ -12,6 +12,7 @@ from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.preparation.image import InventoryImagePreparationLimits, StatelessInventoryImagePreparer
 from app.modules.inventory.preparation.service import InventoryDocumentPreparer, INVENTORY_DOCUMENT_PREPARE_JOB
 from app.modules.inventory.preparation.storage import InventoryPreparedStorage
+from app.modules.inventory.ai.service import INVENTORY_DOCUMENT_ANALYZE_JOB, InventoryDocumentAnalyzer
 
 InventoryJobHandler = Callable[[InventoryJobModel], None]
 
@@ -40,6 +41,7 @@ def build_inventory_handler_registry(
     *,
     downloader: InventoryFileDownloader | None = None,
     document_preparer: InventoryDocumentPreparer | None = None,
+    document_analyzer: InventoryDocumentAnalyzer | None = None,
 ) -> InventoryHandlerRegistry:
     """Register only handlers delivered by completed Inventory phases."""
     runtime_settings = settings or Settings()
@@ -67,6 +69,11 @@ def build_inventory_handler_registry(
             )
         ),
     )
+    runtime_analyzer = document_analyzer or InventoryDocumentAnalyzer(
+        SessionLocal,
+        prepared_storage=InventoryPreparedStorage(runtime_settings.INVENTORY_SOURCE_STORAGE_ROOT),
+        enabled=runtime_settings.INVENTORY_AI_ENABLED,
+    )
     registry = InventoryHandlerRegistry()
 
     def download(job: InventoryJobModel) -> None:
@@ -75,6 +82,10 @@ def build_inventory_handler_registry(
     def prepare(job: InventoryJobModel) -> None:
         runtime_preparer.execute(job)
 
+    def analyze(job: InventoryJobModel) -> None:
+        runtime_analyzer.execute(job)
+
     registry.register(INVENTORY_FILE_DOWNLOAD_JOB, download)
     registry.register(INVENTORY_DOCUMENT_PREPARE_JOB, prepare)
+    registry.register(INVENTORY_DOCUMENT_ANALYZE_JOB, analyze)
     return registry

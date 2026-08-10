@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.jobs.model import InventoryJobModel
-from app.modules.inventory.model import InventoryProcessingControlModel
+from app.modules.inventory.model import InventoryAiControlModel, InventoryProcessingControlModel
 
 
 def _utcnow() -> datetime:
@@ -91,6 +91,29 @@ class InventoryJobRepository:
             .correlate(control)
             .scalar_subquery()
         )
+        ai_claimable = True
+        if "inventory_document_analyze" in self.registered_job_types:
+            ai_control = InventoryAiControlModel
+            ai_active_count = (
+                select(func.count(InventoryJobModel.id))
+                .where(
+                    InventoryJobModel.tenant_id == ai_control.tenant_id,
+                    InventoryJobModel.job_type == "inventory_document_analyze",
+                    InventoryJobModel.status == "processing",
+                    InventoryJobModel.lease_expires_at > claimed_at,
+                )
+                .correlate(ai_control)
+                .scalar_subquery()
+            )
+            ai_claimable = or_(
+                InventoryJobModel.job_type != "inventory_document_analyze",
+                exists(select(1).where(
+                    ai_control.tenant_id == InventoryJobModel.tenant_id,
+                    ai_control.enabled.is_(True),
+                    ai_control.emergency_stop.is_(False),
+                    ai_active_count < ai_control.max_concurrent,
+                )),
+            )
         eligible = and_(
             InventoryJobModel.job_type.in_(self.registered_job_types),
             InventoryJobModel.cancellation_requested.is_(False),
@@ -114,6 +137,7 @@ class InventoryJobRepository:
                 control.enabled.is_(True),
                 control.paused.is_(False),
                 active_count < control.max_active_jobs,
+                ai_claimable,
             )
             .order_by(
                 InventoryJobModel.priority.desc(),
