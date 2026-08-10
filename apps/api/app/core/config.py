@@ -203,6 +203,14 @@ class Settings(BaseSettings):
     INVENTORY_WORKER_HEALTH_PORT: int = 8082
     INVENTORY_SOURCE_STORAGE_ROOT: str = "/var/lib/creative-asset-manager/inventory"
     INVENTORY_DOWNLOAD_MAX_BYTES: int = 100 * 1024 * 1024
+    INVENTORY_PREPARE_MAX_SOURCE_BYTES: int = 100 * 1024 * 1024
+    INVENTORY_PREPARE_MAX_SOURCE_WIDTH: int = 20_000
+    INVENTORY_PREPARE_MAX_SOURCE_HEIGHT: int = 20_000
+    INVENTORY_PREPARE_MAX_DECODE_PIXELS: int = 120_000_000
+    INVENTORY_PREPARE_MAX_OUTPUT_BYTES: int = 8 * 1024 * 1024
+    INVENTORY_PREPARE_MAX_WIDTH: int = 2048
+    INVENTORY_PREPARE_MAX_HEIGHT: int = 2048
+    INVENTORY_PREPARE_JPEG_QUALITY: int = 85
     AI_ANALYSIS_LEASE_SECONDS: int = 300
     PROCESSING_POLICY_CACHE_TTL_SECONDS: float = 5.0
     PROCESSING_POLICY_ADMIN_IDS: str = ""
@@ -749,6 +757,18 @@ class Settings(BaseSettings):
             )
         if self.INVENTORY_DOWNLOAD_MAX_BYTES <= 0:
             raise ValueError("INVENTORY_DOWNLOAD_MAX_BYTES must be positive")
+        if self.INVENTORY_PREPARE_MAX_SOURCE_BYTES <= 0:
+            raise ValueError("INVENTORY_PREPARE_MAX_SOURCE_BYTES must be positive")
+        if min(self.INVENTORY_PREPARE_MAX_SOURCE_WIDTH, self.INVENTORY_PREPARE_MAX_SOURCE_HEIGHT) <= 0:
+            raise ValueError("Inventory preparation source dimensions must be positive")
+        if self.INVENTORY_PREPARE_MAX_DECODE_PIXELS <= 0:
+            raise ValueError("INVENTORY_PREPARE_MAX_DECODE_PIXELS must be positive")
+        if self.INVENTORY_PREPARE_MAX_OUTPUT_BYTES <= 0:
+            raise ValueError("INVENTORY_PREPARE_MAX_OUTPUT_BYTES must be positive")
+        if min(self.INVENTORY_PREPARE_MAX_WIDTH, self.INVENTORY_PREPARE_MAX_HEIGHT) <= 0:
+            raise ValueError("Inventory preparation output dimensions must be positive")
+        if not 1 <= self.INVENTORY_PREPARE_JPEG_QUALITY <= 95:
+            raise ValueError("INVENTORY_PREPARE_JPEG_QUALITY must be between 1 and 95")
         if not self.INVENTORY_SOURCE_STORAGE_ROOT.strip():
             raise ValueError("INVENTORY_SOURCE_STORAGE_ROOT is required")
         if self.INVENTORY_WORKER_CONCURRENCY <= 0:

@@ -68,9 +68,9 @@ class InventoryItemInput(InventorySchema):
 
 class InventoryDocumentInput(InventorySchema):
     idempotency_key: str
-    business_date: date
-    document_type: DocumentType
-    location_id: str
+    business_date: date | None = None
+    document_type: DocumentType | Literal["unclassified"] = "unclassified"
+    location_id: str | None = None
     expected_pages: int = Field(default=0, ge=0)
     submitted_by: str | None = None
 
@@ -83,6 +83,16 @@ class InventoryDocumentPageInput(InventorySchema):
     page_count: int = Field(default=1, gt=0)
     content_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     duplicate_of_page_id: str | None = None
+    preparation_version: int = Field(default=1, gt=0)
+    preparation_status: Literal[
+        "queued", "preparing", "prepared", "duplicate", "retryable_failure", "terminal_failure"
+    ] = "queued"
+    prepared_storage_key: str | None = None
+    prepared_content_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    prepared_size_bytes: int | None = Field(default=None, ge=0)
+    prepared_mime_type: str | None = None
+    image_width: int | None = Field(default=None, gt=0)
+    image_height: int | None = Field(default=None, gt=0)
 
 
 class InventoryAnalysisInput(InventorySchema):

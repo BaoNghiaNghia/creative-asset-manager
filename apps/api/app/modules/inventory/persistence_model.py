@@ -147,6 +147,12 @@ class InventorySourceFileModel(Base):
     provider_metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
     downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    preparation_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="not_requested"
+    )
+    preparation_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    preparation_error_code: Mapped[str | None] = mapped_column(String(100))
+    preparation_error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow
@@ -236,11 +242,11 @@ class InventoryDocumentModel(Base):
         UniqueConstraint("tenant_id", "id", name="uq_inventory_documents_tenant_id"),
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_inventory_documents_tenant_key"),
         CheckConstraint(
-            "document_type IN ('stock_count','warehouse_transfer','waste')",
+            "document_type IN ('stock_count','warehouse_transfer','waste','unclassified')",
             name="ck_inventory_documents_type",
         ),
         CheckConstraint(
-            "status IN ('collecting','analyzing','needs_review','approved','rejected','finalized')",
+            "status IN ('collecting','preparing','prepared','duplicate','retryable_failure','terminal_failure','analyzing','needs_review','approved','rejected','finalized')",
             name="ck_inventory_documents_status",
         ),
         CheckConstraint("expected_pages >= 0", name="ck_inventory_documents_expected_pages"),
@@ -254,9 +260,9 @@ class InventoryDocumentModel(Base):
         TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
-    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    business_date: Mapped[date | None] = mapped_column(Date)
     document_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    location_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    location_id: Mapped[str | None] = mapped_column(ENTITY_ID)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="collecting")
     expected_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     received_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -306,6 +312,10 @@ class InventoryDocumentPageModel(Base):
             "analysis_status IN ('pending','processing','completed','failed','skipped')",
             name="ck_inventory_pages_analysis_status",
         ),
+        CheckConstraint(
+            "preparation_status IN ('queued','preparing','prepared','duplicate','retryable_failure','terminal_failure')",
+            name="ck_inventory_pages_preparation_status",
+        ),
         Index("ix_inventory_pages_content_hash", "tenant_id", "content_sha256"),
         Index("ix_inventory_pages_document", "tenant_id", "document_id", "page_number"),
     )
@@ -319,6 +329,18 @@ class InventoryDocumentPageModel(Base):
     page_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     content_sha256: Mapped[str | None] = mapped_column(String(64))
     duplicate_of_page_id: Mapped[str | None] = mapped_column(ENTITY_ID)
+    preparation_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    preparation_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="queued"
+    )
+    prepared_storage_key: Mapped[str | None] = mapped_column(String(1024))
+    prepared_content_sha256: Mapped[str | None] = mapped_column(String(64))
+    prepared_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    prepared_mime_type: Mapped[str | None] = mapped_column(String(255))
+    image_width: Mapped[int | None] = mapped_column(Integer)
+    image_height: Mapped[int | None] = mapped_column(Integer)
+    preparation_error_code: Mapped[str | None] = mapped_column(String(100))
+    preparation_error_message: Mapped[str | None] = mapped_column(Text)
     analysis_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
     )
@@ -584,8 +606,8 @@ class InventoryTransactionModel(Base):
     id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
     tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
-    business_date: Mapped[date] = mapped_column(Date, nullable=False)
-    location_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    business_date: Mapped[date | None] = mapped_column(Date)
+    location_id: Mapped[str | None] = mapped_column(ENTITY_ID)
     item_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
     transaction_type: Mapped[str] = mapped_column(String(32), nullable=False)
     quantity_base_unit: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
@@ -626,7 +648,7 @@ class InventoryDailyRunModel(Base):
     tenant_id: Mapped[str] = mapped_column(
         TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
-    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    business_date: Mapped[date | None] = mapped_column(Date)
     idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
     location_state_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
@@ -679,7 +701,7 @@ class InventoryExportModel(Base):
     export_format: Mapped[str] = mapped_column(String(16), nullable=False, default="xlsx")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     period_month: Mapped[str] = mapped_column(String(7), nullable=False)
-    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    business_date: Mapped[date | None] = mapped_column(Date)
     drive_file_id: Mapped[str | None] = mapped_column(String(2048))
     content_sha256: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

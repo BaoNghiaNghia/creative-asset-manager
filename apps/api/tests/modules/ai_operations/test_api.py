@@ -127,8 +127,8 @@ class AiOperationsApiTest(unittest.TestCase):
                     last_error_code="provider_timeout",
                     last_error_message="https://signed.example/file?credential=secret",
                     payload_json={"signed_url": "https://signed.example/file?token=secret"},
-                    created_at=self.now - timedelta(hours=2),
-                    completed_at=self.now - timedelta(hours=2),
+                    created_at=self.now - timedelta(seconds=1),
+                    completed_at=self.now - timedelta(seconds=1),
                 ),
                 ProcessingJobModel(
                     tenant_id="tenant-a", job_type="asset_analyze",

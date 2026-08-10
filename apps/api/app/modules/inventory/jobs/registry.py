@@ -9,6 +9,9 @@ from app.modules.inventory.drive.downloader import InventoryFileDownloader
 from app.modules.inventory.drive.poller import INVENTORY_FILE_DOWNLOAD_JOB
 from app.modules.inventory.drive.storage import InventorySourceStorage
 from app.modules.inventory.jobs.model import InventoryJobModel
+from app.modules.inventory.preparation.image import InventoryImagePreparationLimits, StatelessInventoryImagePreparer
+from app.modules.inventory.preparation.service import InventoryDocumentPreparer, INVENTORY_DOCUMENT_PREPARE_JOB
+from app.modules.inventory.preparation.storage import InventoryPreparedStorage
 
 InventoryJobHandler = Callable[[InventoryJobModel], None]
 
@@ -36,6 +39,7 @@ def build_inventory_handler_registry(
     settings: Settings | None = None,
     *,
     downloader: InventoryFileDownloader | None = None,
+    document_preparer: InventoryDocumentPreparer | None = None,
 ) -> InventoryHandlerRegistry:
     """Register only handlers delivered by completed Inventory phases."""
     runtime_settings = settings or Settings()
@@ -46,10 +50,31 @@ def build_inventory_handler_registry(
         ),
         max_bytes=runtime_settings.INVENTORY_DOWNLOAD_MAX_BYTES,
     )
+    runtime_preparer = document_preparer or InventoryDocumentPreparer(
+        SessionLocal,
+        source_storage=InventoryPreparedStorage(runtime_settings.INVENTORY_SOURCE_STORAGE_ROOT),
+        prepared_storage=InventoryPreparedStorage(runtime_settings.INVENTORY_SOURCE_STORAGE_ROOT),
+        image_preparer=StatelessInventoryImagePreparer(
+            InventoryImagePreparationLimits(
+                max_source_bytes=runtime_settings.INVENTORY_PREPARE_MAX_SOURCE_BYTES,
+                max_source_width=runtime_settings.INVENTORY_PREPARE_MAX_SOURCE_WIDTH,
+                max_source_height=runtime_settings.INVENTORY_PREPARE_MAX_SOURCE_HEIGHT,
+                max_decode_pixels=runtime_settings.INVENTORY_PREPARE_MAX_DECODE_PIXELS,
+                max_output_bytes=runtime_settings.INVENTORY_PREPARE_MAX_OUTPUT_BYTES,
+                max_width=runtime_settings.INVENTORY_PREPARE_MAX_WIDTH,
+                max_height=runtime_settings.INVENTORY_PREPARE_MAX_HEIGHT,
+                jpeg_quality=runtime_settings.INVENTORY_PREPARE_JPEG_QUALITY,
+            )
+        ),
+    )
     registry = InventoryHandlerRegistry()
 
     def download(job: InventoryJobModel) -> None:
         asyncio.run(runtime_downloader.execute(job))
 
+    def prepare(job: InventoryJobModel) -> None:
+        runtime_preparer.execute(job)
+
     registry.register(INVENTORY_FILE_DOWNLOAD_JOB, download)
+    registry.register(INVENTORY_DOCUMENT_PREPARE_JOB, prepare)
     return registry

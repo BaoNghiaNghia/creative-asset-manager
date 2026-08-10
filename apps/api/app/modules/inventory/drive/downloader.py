@@ -16,6 +16,9 @@ from app.modules.inventory.drive.storage import (
     InventoryStorageError,
 )
 from app.modules.inventory.jobs.model import InventoryJobModel
+from app.modules.inventory.jobs.errors import InventoryJobFailure
+from app.modules.inventory.jobs.repository import InventoryJobRepository
+from app.modules.inventory.preparation.service import INVENTORY_DOCUMENT_PREPARE_JOB
 from app.modules.inventory.persistence_model import (
     InventorySourceFileModel,
     inventory_utcnow,
@@ -31,11 +34,8 @@ from app.providers.google.drive import (
 logger = logging.getLogger("cam.inventory.drive")
 
 
-class InventoryDownloadFailure(RuntimeError):
-    def __init__(self, code: str, *, retryable: bool):
-        super().__init__(code)
-        self.code = code
-        self.retryable = retryable
+class InventoryDownloadFailure(InventoryJobFailure):
+    pass
 
 
 def _same_instant(left: datetime | None, right: datetime) -> bool:
@@ -231,6 +231,15 @@ class InventoryFileDownloader:
                 row.duplicate_of_source_file_id = None
             row.last_error_code = None
             row.last_error_message = None
+            row.preparation_status = "queued"
+            InventoryJobRepository(session, (INVENTORY_DOCUMENT_PREPARE_JOB,)).create_job(
+                tenant_id=row.tenant_id,
+                job_type=INVENTORY_DOCUMENT_PREPARE_JOB,
+                entity_type="inventory_source_file",
+                entity_id=row.id,
+                idempotency_key=f"inventory-document-prepare:v{row.preparation_version}:{row.id}",
+                payload={"source_file_id": row.id},
+            )
             session.commit()
             inventory_drive_metrics.increment("download_succeeded")
             inventory_drive_metrics.increment("download_bytes", pending.size_bytes)

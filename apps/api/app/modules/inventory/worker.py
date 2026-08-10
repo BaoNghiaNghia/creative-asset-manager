@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from app.core.config import Settings
 from app.core.database import SessionLocal
 from app.modules.inventory.config import InventoryWorkerConfig
-from app.modules.inventory.drive.downloader import InventoryDownloadFailure
+from app.modules.inventory.jobs.errors import InventoryJobFailure
 from app.modules.inventory.drive.poller import poll_inventory_drive
 from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.health import InventoryWorkerHealth, InventoryWorkerHealthServer
@@ -70,11 +70,11 @@ def run_inventory_worker(settings: Settings | None = None) -> int:
             failure = None
             try:
                 if handler is None:
-                    raise InventoryDownloadFailure(
+                    raise InventoryJobFailure(
                         "inventory_handler_not_registered", retryable=False
                     )
                 handler(job)
-            except InventoryDownloadFailure as exc:
+            except InventoryJobFailure as exc:
                 failure = exc
             except Exception:
                 logger.exception(
@@ -82,7 +82,7 @@ def run_inventory_worker(settings: Settings | None = None) -> int:
                     job.id,
                     job.job_type,
                 )
-                failure = InventoryDownloadFailure(
+                failure = InventoryJobFailure(
                     "inventory_job_unexpected_failure", retryable=True
                 )
             with SessionLocal() as session:
