@@ -246,7 +246,7 @@ class InventoryDocumentModel(Base):
             name="ck_inventory_documents_type",
         ),
         CheckConstraint(
-            "status IN ('collecting','preparing','prepared','duplicate','retryable_failure','terminal_failure','analyzing','needs_review','approved','rejected','finalized')",
+            "status IN ('collecting','preparing','prepared','duplicate','retryable_failure','terminal_failure','analyzing','validating','needs_review','needs_reupload','approved','rejected','finalized')",
             name="ck_inventory_documents_status",
         ),
         CheckConstraint("expected_pages >= 0", name="ck_inventory_documents_expected_pages"),
@@ -555,6 +555,22 @@ class InventoryReviewModel(Base):
         DateTime(timezone=True), nullable=False,
         default=inventory_utcnow, onupdate=inventory_utcnow,
     )
+
+
+class InventoryReviewEventModel(Base):
+    __tablename__ = "inventory_review_events"
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "review_id"], ["inventory_reviews.tenant_id", "inventory_reviews.id"], ondelete="CASCADE", name="fk_inventory_review_events_tenant_review"),
+        UniqueConstraint("tenant_id", "id", name="uq_inventory_review_events_tenant_id"),
+        Index("ix_inventory_review_events_review", "tenant_id", "review_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    review_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(255))
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
 
 
 class InventoryTransactionModel(Base):

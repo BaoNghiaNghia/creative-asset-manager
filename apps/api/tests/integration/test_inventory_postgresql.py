@@ -29,8 +29,19 @@ from app.modules.inventory.persistence_model import (
     InventoryAiAnalysisModel,
     InventoryDocumentModel,
     InventoryDocumentPageModel,
+    InventoryItemAliasModel,
+    InventoryItemModel,
+    InventoryLineModel,
+    InventoryReviewEventModel,
+    InventoryReviewModel,
+    InventoryTransactionModel,
 )
 from app.modules.inventory.jobs.repository import InventoryJobRepository
+from app.modules.inventory.documents.service import (
+    INVENTORY_DOCUMENT_NORMALIZE_JOB, INVENTORY_DOCUMENT_VALIDATE_JOB,
+    InventoryDocumentNormalizer, InventoryDocumentValidator,
+)
+from app.modules.inventory.review.service import InventoryReviewService
 from app.modules.explorer.schema import AssetNode
 from app.modules.inventory.drive.downloader import InventoryFileDownloader
 from app.modules.inventory.drive.poller import InventoryDrivePoller
@@ -806,3 +817,130 @@ class InventoryPostgreSqlIntegrationTest(unittest.TestCase):
             self.assertEqual(gateway.calls, 1)
             with self.sessions() as session:
                 self.assertEqual(session.scalar(select(func.count(AssetAiAnalysisModel.id))), creative_before)
+
+
+@unittest.skipUnless(POSTGRES_AVAILABLE, "PostgreSQL integration database is not configured")
+class InventoryPhase6PostgreSqlIntegrationTest(unittest.TestCase):
+    """Phase 6 acceptance uses real PostgreSQL sessions and constraints."""
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        cls.sessions = sessionmaker(cls.engine, class_=Session, expire_on_commit=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def _fixture(self, *, low_confidence=False):
+        marker = uuid4().hex
+        tenant, other, source = f"p6-{marker}", f"p6-other-{marker}", f"src-{marker[:28]}"
+        ids = {key: str(uuid4()) for key in ("file", "doc", "page", "analysis", "item", "other_item")}
+        raw = {"raw_item_lines": [{"raw_item_name": "Coffee beans", "whole_quantity": "2", "fraction_quantity": "0.5", "whole_unit": "kg", "fraction_unit": "kg", "confidence": "0.70" if low_confidence else "0.95"}]}
+        with self.sessions() as session:
+            session.add_all((
+                TenantModel(id=tenant, name="Phase6", slug=tenant), TenantModel(id=other, name="Other", slug=other),
+                ExternalSourceModel(id=source, tenant_id=tenant, source_key=source, source_type="google_drive"),
+                InventoryProcessingControlModel(tenant_id=tenant, enabled=True, paused=False, max_active_jobs=4, max_ai_jobs=0),
+                InventorySourceFileModel(id=ids["file"], tenant_id=tenant, external_source_id=source, drive_file_id=f"drive-{marker}", filename="count.jpg", mime_type="image/jpeg", drive_modified_time=datetime.now(timezone.utc), status="downloaded"),
+                InventoryDocumentModel(id=ids["doc"], tenant_id=tenant, idempotency_key=f"doc-{marker}", document_type="stock_count", status="prepared", expected_pages=1, received_pages=1),
+                InventoryItemModel(id=ids["item"], tenant_id=tenant, sku=f"sku-{marker}", name="Coffee beans", base_unit="kg", conversion_factor=1),
+                InventoryItemModel(id=ids["other_item"], tenant_id=other, sku=f"other-{marker}", name="Other beans", base_unit="kg", conversion_factor=1),
+            ))
+            session.flush()
+            session.add(InventoryDocumentPageModel(id=ids["page"], tenant_id=tenant, document_id=ids["doc"], source_file_id=ids["file"], drive_file_id=f"drive-{marker}", page_number=1, page_count=1, preparation_status="prepared"))
+            # PostgreSQL enforces the page composite FK immediately; flush its
+            # parent row before adding the analysis fixture.
+            session.flush()
+            session.add(InventoryAiAnalysisModel(id=ids["analysis"], tenant_id=tenant, document_id=ids["doc"], page_id=ids["page"], analysis_version=1, idempotency_key=f"analysis-{marker}", provider="fake", model="fake", prompt_version="v1", schema_version="v1", status="succeeded", confidence=0.95, raw_result_json={"immutable": True}, extracted_json=raw))
+            session.commit()
+        return tenant, other, ids, raw
+
+    @staticmethod
+    def _normalize_job(tenant, analysis):
+        return InventoryJobModel(tenant_id=tenant, job_type=INVENTORY_DOCUMENT_NORMALIZE_JOB, entity_type="inventory_ai_analysis", entity_id=analysis, idempotency_key=f"normalize:{analysis}")
+
+    @staticmethod
+    def _validate_job(tenant, doc):
+        return InventoryJobModel(tenant_id=tenant, job_type=INVENTORY_DOCUMENT_VALIDATE_JOB, entity_type="inventory_document", entity_id=doc, idempotency_key=f"validate:{doc}", payload_json={"document_id": doc})
+
+    def test_concurrent_normalize_is_idempotent(self):
+        tenant, _other, ids, raw = self._fixture()
+        barrier = Barrier(2)
+        def execute():
+            barrier.wait(timeout=10)
+            InventoryDocumentNormalizer(self.sessions).execute(self._normalize_job(tenant, ids["analysis"]))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _x: execute(), range(2)))
+        with self.sessions() as session:
+            self.assertEqual(session.scalar(select(func.count(InventoryLineModel.id)).where(InventoryLineModel.tenant_id == tenant)), 1)
+            analysis = session.get(InventoryAiAnalysisModel, ids["analysis"])
+            self.assertEqual(analysis.raw_result_json, {"immutable": True})
+            self.assertEqual(session.scalar(select(func.count(InventoryJobModel.id)).where(InventoryJobModel.tenant_id == tenant, InventoryJobModel.job_type == INVENTORY_DOCUMENT_VALIDATE_JOB)), 1)
+
+    def test_concurrent_validate_is_idempotent_and_creates_no_transactions(self):
+        tenant, _other, ids, _raw = self._fixture(low_confidence=True)
+        InventoryDocumentNormalizer(self.sessions).execute(self._normalize_job(tenant, ids["analysis"]))
+        barrier = Barrier(2)
+        def execute():
+            barrier.wait(timeout=10)
+            InventoryDocumentValidator(self.sessions).execute(self._validate_job(tenant, ids["doc"]))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _x: execute(), range(2)))
+        with self.sessions() as session:
+            self.assertEqual(session.get(InventoryDocumentModel, ids["doc"]).status, "needs_review")
+            self.assertEqual(session.scalar(select(func.count(InventoryReviewModel.id)).where(InventoryReviewModel.tenant_id == tenant)), 1)
+            self.assertEqual(session.scalar(select(func.count(InventoryTransactionModel.id)).where(InventoryTransactionModel.tenant_id == tenant)), 0)
+
+    def test_concurrent_review_mutations_are_safe_and_events_append(self):
+        tenant, _other, ids, _raw = self._fixture(low_confidence=True)
+        InventoryDocumentNormalizer(self.sessions).execute(self._normalize_job(tenant, ids["analysis"]))
+        InventoryDocumentValidator(self.sessions).execute(self._validate_job(tenant, ids["doc"]))
+        with self.sessions() as session:
+            review_id = session.scalar(select(InventoryReviewModel.id).where(InventoryReviewModel.tenant_id == tenant))
+        barrier = Barrier(2)
+        def approve():
+            barrier.wait(timeout=10); InventoryReviewService(self.sessions).mutate(tenant, review_id, "approve", "reviewer")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _x: approve(), range(2)))
+        service = InventoryReviewService(self.sessions)
+        service.mutate(tenant, review_id, "correct", "reviewer", {"note": "checked"})
+        with self.sessions() as session:
+            review = session.get(InventoryReviewModel, review_id)
+            events = list(session.scalars(select(InventoryReviewEventModel).where(InventoryReviewEventModel.tenant_id == tenant, InventoryReviewEventModel.review_id == review_id)))
+            self.assertEqual(review.status, "approved")
+            self.assertEqual([event.action for event in events], ["approve", "correct"])
+            self.assertTrue(all(event.actor_id == "reviewer" and event.created_at for event in events))
+            self.assertEqual(session.scalar(select(func.count(InventoryTransactionModel.id)).where(InventoryTransactionModel.tenant_id == tenant)), 0)
+
+    def test_postgres_tenant_isolation_and_phase6_creative_isolation(self):
+        tenant, other, ids, _raw = self._fixture(low_confidence=True)
+        with self.sessions() as session:
+            before = {model.__tablename__: session.scalar(select(func.count()).select_from(model)) for model in (SourceAssetModel, AssetModel, AssetPipelineModel, AssetAiAnalysisModel, SearchIndexRecordModel)}
+        InventoryDocumentNormalizer(self.sessions).execute(self._normalize_job(tenant, ids["analysis"]))
+        InventoryDocumentValidator(self.sessions).execute(self._validate_job(tenant, ids["doc"]))
+        with self.sessions() as session:
+            review_id = session.scalar(select(InventoryReviewModel.id).where(InventoryReviewModel.tenant_id == tenant))
+        with self.assertRaises(ValueError):
+            InventoryReviewService(self.sessions).mutate(tenant, review_id, "correct", "reviewer", {"item_id": ids["other_item"]})
+        with self.assertRaises(LookupError):
+            InventoryReviewService(self.sessions).mutate(other, review_id, "approve", "other")
+        with self.sessions() as session:
+            after = {model.__tablename__: session.scalar(select(func.count()).select_from(model)) for model in (SourceAssetModel, AssetModel, AssetPipelineModel, AssetAiAnalysisModel, SearchIndexRecordModel)}
+            self.assertEqual(after, before)
+
+    def test_inventory_pause_and_creative_pause_isolation_for_phase6_jobs(self):
+        tenant, _other, ids, _raw = self._fixture()
+        types = (INVENTORY_DOCUMENT_NORMALIZE_JOB, INVENTORY_DOCUMENT_VALIDATE_JOB)
+        with self.sessions() as session:
+            repo = InventoryJobRepository(session, types)
+            priority = 1 + session.scalar(select(func.coalesce(func.max(InventoryJobModel.priority), 0)))
+            normalize = repo.create_job(tenant_id=tenant, job_type=types[0], entity_type="inventory_ai_analysis", entity_id=ids["analysis"], idempotency_key=f"claim-normalize:{ids['analysis']}", priority=priority)
+            validate = repo.create_job(tenant_id=tenant, job_type=types[1], entity_type="inventory_document", entity_id=ids["doc"], idempotency_key=f"claim-validate:{ids['doc']}", priority=priority)
+            control = session.scalar(select(InventoryProcessingControlModel).where(InventoryProcessingControlModel.tenant_id == tenant)); control.paused = True; session.commit()
+        with self.sessions() as session:
+            claimed_while_paused = InventoryJobRepository(session, types).claim_next(worker_id="w", lease_seconds=30)
+            self.assertNotIn(getattr(claimed_while_paused, "id", None), {normalize.id, validate.id})
+            control = session.scalar(select(InventoryProcessingControlModel).where(InventoryProcessingControlModel.tenant_id == tenant)); control.paused = False
+            session.add(TenantProcessingPolicyModel(tenant_id=tenant, pipeline_enabled=True, processing_paused=True)); session.commit()
+            claimed = InventoryJobRepository(session, types).claim_next(worker_id="w", lease_seconds=30)
+            self.assertIn(claimed.id, {normalize.id, validate.id})
