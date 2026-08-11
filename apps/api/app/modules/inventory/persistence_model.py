@@ -239,10 +239,16 @@ class InventoryDocumentModel(Base):
             ondelete="RESTRICT",
             name="fk_inventory_documents_tenant_location",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "destination_location_id"],
+            ["inventory_locations.tenant_id", "inventory_locations.id"],
+            ondelete="RESTRICT",
+            name="fk_inventory_documents_tenant_destination_location",
+        ),
         UniqueConstraint("tenant_id", "id", name="uq_inventory_documents_tenant_id"),
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_inventory_documents_tenant_key"),
         CheckConstraint(
-            "document_type IN ('stock_count','warehouse_transfer','waste','unclassified')",
+            "document_type IN ('opening','receipt','stock_count','warehouse_transfer','waste','unclassified')",
             name="ck_inventory_documents_type",
         ),
         CheckConstraint(
@@ -263,6 +269,7 @@ class InventoryDocumentModel(Base):
     business_date: Mapped[date | None] = mapped_column(Date)
     document_type: Mapped[str] = mapped_column(String(32), nullable=False)
     location_id: Mapped[str | None] = mapped_column(ENTITY_ID)
+    destination_location_id: Mapped[str | None] = mapped_column(ENTITY_ID)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="collecting")
     expected_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     received_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -9,10 +9,11 @@ from pathlib import Path
 from PIL import Image
 import unittest
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from threading import Barrier
 from uuid import uuid4
 
-from sqlalchemy import create_engine, func, inspect, select
+from sqlalchemy import create_engine, delete, func, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -31,6 +32,7 @@ from app.modules.inventory.persistence_model import (
     InventoryDocumentPageModel,
     InventoryItemAliasModel,
     InventoryItemModel,
+    InventoryLocationModel,
     InventoryLineModel,
     InventoryReviewEventModel,
     InventoryReviewModel,
@@ -38,10 +40,11 @@ from app.modules.inventory.persistence_model import (
 )
 from app.modules.inventory.jobs.repository import InventoryJobRepository
 from app.modules.inventory.documents.service import (
-    INVENTORY_DOCUMENT_NORMALIZE_JOB, INVENTORY_DOCUMENT_VALIDATE_JOB,
+    INVENTORY_DOCUMENT_NORMALIZE_JOB, INVENTORY_DOCUMENT_VALIDATE_JOB, InventoryBusinessFailure,
     InventoryDocumentNormalizer, InventoryDocumentValidator,
 )
 from app.modules.inventory.review.service import InventoryReviewService
+from app.modules.inventory.transactions.service import INVENTORY_DOCUMENT_COMMIT_JOB, InventoryDocumentCommitter
 from app.modules.explorer.schema import AssetNode
 from app.modules.inventory.drive.downloader import InventoryFileDownloader
 from app.modules.inventory.drive.poller import InventoryDrivePoller
@@ -944,3 +947,97 @@ class InventoryPhase6PostgreSqlIntegrationTest(unittest.TestCase):
             session.add(TenantProcessingPolicyModel(tenant_id=tenant, pipeline_enabled=True, processing_paused=True)); session.commit()
             claimed = InventoryJobRepository(session, types).claim_next(worker_id="w", lease_seconds=30)
             self.assertIn(claimed.id, {normalize.id, validate.id})
+
+@unittest.skipUnless(POSTGRES_AVAILABLE, "PostgreSQL integration database is not configured")
+class InventoryPhase7PostgreSqlIntegrationTest(InventoryPhase6PostgreSqlIntegrationTest):
+    """Phase 7 uses real PostgreSQL locking and immutable ledger constraints."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with cls.sessions() as session:
+            session.execute(delete(InventoryJobModel).where(
+                InventoryJobModel.job_type == INVENTORY_DOCUMENT_COMMIT_JOB,
+            ))
+            session.commit()
+
+    def setUp(self):
+        with self.sessions() as session:
+            leaked = session.scalar(select(func.count(InventoryJobModel.id)).where(
+                InventoryJobModel.job_type == INVENTORY_DOCUMENT_COMMIT_JOB,
+                InventoryJobModel.status.in_(("queued", "leased", "running")),
+            ))
+            self.assertEqual(leaked, 0)
+
+    def tearDown(self):
+        with self.sessions() as session:
+            session.execute(delete(InventoryJobModel).where(
+                InventoryJobModel.job_type == INVENTORY_DOCUMENT_COMMIT_JOB,
+            ))
+            session.commit()
+    def _approved_document(self, *, document_type="receipt", transfer=False):
+        tenant, other, ids, raw = self._fixture()
+        with self.sessions() as session:
+            source = InventoryLocationModel(id=str(uuid4()), tenant_id=tenant, code=f"SRC-{ids['doc'][:8]}", name="Source")
+            destination = InventoryLocationModel(id=str(uuid4()), tenant_id=tenant, code=f"DST-{ids['doc'][:8]}", name="Destination")
+            session.add_all((source, destination))
+            document = session.get(InventoryDocumentModel, ids["doc"])
+            document.document_type = document_type
+            document.location_id = source.id
+            document.destination_location_id = destination.id if transfer else None
+            document.business_date = date(2026, 8, 11)
+            session.commit()
+        InventoryDocumentNormalizer(self.sessions).execute(self._normalize_job(tenant, ids["analysis"]))
+        InventoryDocumentValidator(self.sessions).execute(self._validate_job(tenant, ids["doc"]))
+        return tenant, other, ids, raw
+
+    @staticmethod
+    def _commit_job(tenant, document_id):
+        return InventoryJobModel(tenant_id=tenant, job_type=INVENTORY_DOCUMENT_COMMIT_JOB, entity_type="inventory_document", entity_id=document_id, idempotency_key=f"commit:{document_id}", payload_json={"document_id": document_id})
+
+    def test_concurrent_commit_is_idempotent_and_creative_isolated(self):
+        tenant, _other, ids, raw = self._approved_document()
+        with self.sessions() as session:
+            before = {model.__tablename__: session.scalar(select(func.count()).select_from(model)) for model in (SourceAssetModel, AssetModel, AssetPipelineModel, AssetAiAnalysisModel, SearchIndexRecordModel)}
+            raw_before = session.get(InventoryAiAnalysisModel, ids["analysis"]).raw_result_json
+        barrier = Barrier(2)
+        def commit():
+            barrier.wait(timeout=10)
+            InventoryDocumentCommitter(self.sessions).execute(self._commit_job(tenant, ids["doc"]))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _index: commit(), range(2)))
+        with self.sessions() as session:
+            rows = list(session.scalars(select(InventoryTransactionModel).where(InventoryTransactionModel.tenant_id == tenant)))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].transaction_type, "receipt")
+            self.assertEqual(rows[0].quantity_base_unit, Decimal("2.5"))
+            self.assertEqual(session.get(InventoryAiAnalysisModel, ids["analysis"]).raw_result_json, raw_before)
+            after = {model.__tablename__: session.scalar(select(func.count()).select_from(model)) for model in (SourceAssetModel, AssetModel, AssetPipelineModel, AssetAiAnalysisModel, SearchIndexRecordModel)}
+            self.assertEqual(after, before)
+
+    def test_transfer_creates_two_atomic_tenant_scoped_legs(self):
+        tenant, _other, ids, _raw = self._approved_document(document_type="warehouse_transfer", transfer=True)
+        InventoryDocumentCommitter(self.sessions).execute(self._commit_job(tenant, ids["doc"]))
+        with self.sessions() as session:
+            document = session.get(InventoryDocumentModel, ids["doc"])
+            rows = list(session.scalars(select(InventoryTransactionModel).where(InventoryTransactionModel.tenant_id == tenant, InventoryTransactionModel.source_document_id == document.id)))
+            self.assertEqual({row.transaction_type for row in rows}, {"transfer_out", "transfer_in"})
+            self.assertEqual({row.location_id for row in rows}, {document.location_id, document.destination_location_id})
+            self.assertTrue(all(row.metadata_json["transfer_identity"] == document.id for row in rows))
+
+    def test_commit_pause_and_cross_tenant_document_are_safe(self):
+        tenant, other, ids, _raw = self._approved_document()
+        with self.sessions() as session:
+            control = session.scalar(select(InventoryProcessingControlModel).where(InventoryProcessingControlModel.tenant_id == tenant))
+            control.paused = True
+            job = InventoryJobRepository(session, (INVENTORY_DOCUMENT_COMMIT_JOB,)).create_job(tenant_id=tenant, job_type=INVENTORY_DOCUMENT_COMMIT_JOB, entity_type="inventory_document", entity_id=ids["doc"], idempotency_key=f"queue:{ids['doc']}", payload={"document_id": ids["doc"]})
+            session.commit()
+        with self.sessions() as session:
+            repo = InventoryJobRepository(session, (INVENTORY_DOCUMENT_COMMIT_JOB,))
+            self.assertIsNone(repo.claim_next(worker_id="phase7", lease_seconds=30))
+            session.scalar(select(InventoryProcessingControlModel).where(InventoryProcessingControlModel.tenant_id == tenant)).paused = False
+            session.commit()
+        with self.sessions() as session:
+            self.assertIsNotNone(InventoryJobRepository(session, (INVENTORY_DOCUMENT_COMMIT_JOB,)).claim_next(worker_id="phase7", lease_seconds=30))
+        with self.assertRaises(InventoryBusinessFailure):
+            InventoryDocumentCommitter(self.sessions).execute(self._commit_job(other, ids["doc"]))

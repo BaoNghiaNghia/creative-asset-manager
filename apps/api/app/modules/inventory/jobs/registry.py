@@ -13,6 +13,7 @@ from app.modules.inventory.preparation.image import InventoryImagePreparationLim
 from app.modules.inventory.preparation.service import InventoryDocumentPreparer, INVENTORY_DOCUMENT_PREPARE_JOB
 from app.modules.inventory.preparation.storage import InventoryPreparedStorage
 from app.modules.inventory.ai.service import INVENTORY_DOCUMENT_ANALYZE_JOB, InventoryDocumentAnalyzer
+from app.modules.inventory.transactions.service import INVENTORY_DOCUMENT_COMMIT_JOB, InventoryDocumentCommitter
 from app.modules.inventory.documents.service import (
     INVENTORY_DOCUMENT_NORMALIZE_JOB, INVENTORY_DOCUMENT_VALIDATE_JOB,
     InventoryDocumentNormalizer, InventoryDocumentValidator,
@@ -48,6 +49,7 @@ def build_inventory_handler_registry(
     document_analyzer: InventoryDocumentAnalyzer | None = None,
     document_normalizer: InventoryDocumentNormalizer | None = None,
     document_validator: InventoryDocumentValidator | None = None,
+    document_committer: InventoryDocumentCommitter | None = None,
 ) -> InventoryHandlerRegistry:
     """Register only handlers delivered by completed Inventory phases."""
     runtime_settings = settings or Settings()
@@ -82,6 +84,7 @@ def build_inventory_handler_registry(
     )
     runtime_normalizer = document_normalizer or InventoryDocumentNormalizer(SessionLocal)
     runtime_validator = document_validator or InventoryDocumentValidator(SessionLocal)
+    runtime_committer = document_committer or InventoryDocumentCommitter(SessionLocal)
     registry = InventoryHandlerRegistry()
 
     def download(job: InventoryJobModel) -> None:
@@ -99,9 +102,13 @@ def build_inventory_handler_registry(
     def validate(job: InventoryJobModel) -> None:
         runtime_validator.execute(job)
 
+    def commit(job: InventoryJobModel) -> None:
+        runtime_committer.execute(job)
+
     registry.register(INVENTORY_FILE_DOWNLOAD_JOB, download)
     registry.register(INVENTORY_DOCUMENT_PREPARE_JOB, prepare)
     registry.register(INVENTORY_DOCUMENT_ANALYZE_JOB, analyze)
     registry.register(INVENTORY_DOCUMENT_NORMALIZE_JOB, normalize)
     registry.register(INVENTORY_DOCUMENT_VALIDATE_JOB, validate)
+    registry.register(INVENTORY_DOCUMENT_COMMIT_JOB, commit)
     return registry

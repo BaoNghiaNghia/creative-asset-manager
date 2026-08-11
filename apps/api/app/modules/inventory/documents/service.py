@@ -21,6 +21,7 @@ from app.modules.inventory.persistence_model import (
 
 INVENTORY_DOCUMENT_NORMALIZE_JOB = "inventory_document_normalize"
 INVENTORY_DOCUMENT_VALIDATE_JOB = "inventory_document_validate"
+INVENTORY_DOCUMENT_COMMIT_JOB = "inventory_document_commit"
 OUTCOMES = frozenset(("APPROVED", "NEEDS_REVIEW", "NEEDS_REUPLOAD", "REJECTED"))
 KNOWN_UNITS = {"g", "kg", "ml", "l", "piece", "pack", "box", "bag", "bottle", "can"}
 _UNIT_ALIASES = {"gram": "g", "grams": "g", "kg": "kg", "kilogram": "kg", "ml": "ml", "l": "l", "litre": "l", "cai": "piece", "cái": "piece", "goi": "pack", "gói": "pack", "hop": "box", "hộp": "box", "chai": "bottle", "lon": "can"}
@@ -129,6 +130,13 @@ class InventoryDocumentValidator:
                 line.validation_status = "valid" if outcome == "APPROVED" else "needs_review"
             if outcome != "APPROVED":
                 self._reviews(session, job.tenant_id, document, lines, sorted(set(reasons)))
+            else:
+                InventoryJobRepository(session, (INVENTORY_DOCUMENT_COMMIT_JOB,)).create_job(
+                    tenant_id=job.tenant_id, job_type=INVENTORY_DOCUMENT_COMMIT_JOB,
+                    entity_type="inventory_document", entity_id=document.id,
+                    idempotency_key=f"inventory-document-commit:{document.id}",
+                    payload={"document_id": document.id},
+                )
             session.commit()
 
     def _reviews(self, session, tenant_id, document, lines, reasons):

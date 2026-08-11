@@ -201,5 +201,5 @@ class InventoryPreparationPhase4Test(unittest.TestCase):
             self.assertEqual(session.scalar(select(func.count(InventoryDocumentPageModel.id))), 1)
         self.assertEqual(
             build_inventory_handler_registry().job_types,
-            ("inventory_file_download", "inventory_document_prepare", "inventory_document_analyze", "inventory_document_normalize", "inventory_document_validate"),
+            ("inventory_file_download", "inventory_document_prepare", "inventory_document_analyze", "inventory_document_normalize", "inventory_document_validate", "inventory_document_commit"),
         )

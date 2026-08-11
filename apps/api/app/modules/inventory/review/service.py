@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
+from app.modules.inventory.jobs.repository import InventoryJobRepository
+from app.modules.inventory.documents.service import INVENTORY_DOCUMENT_COMMIT_JOB
 from app.modules.inventory.persistence_model import InventoryDocumentModel, InventoryItemModel, InventoryLineModel, InventoryReviewEventModel, InventoryReviewModel
 
 class InventoryReviewService:
@@ -41,5 +43,12 @@ class InventoryReviewService:
             s.add(InventoryReviewEventModel(tenant_id=tenant_id, review_id=review.id, action=action, actor_id=actor_id, payload_json=dict(correction or {})))
             if document and action != 'request_reupload':
                 pending = s.scalar(select(InventoryReviewModel).where(InventoryReviewModel.tenant_id == tenant_id, InventoryReviewModel.document_id == document.id, InventoryReviewModel.status.in_(('pending','in_review'))))
-                if pending is None: document.status = 'approved'; document.approved_by = actor_id; document.approved_at = datetime.now(timezone.utc)
+                if pending is None:
+                    document.status = 'approved'; document.approved_by = actor_id; document.approved_at = datetime.now(timezone.utc)
+                    InventoryJobRepository(s, (INVENTORY_DOCUMENT_COMMIT_JOB,)).create_job(
+                        tenant_id=tenant_id, job_type=INVENTORY_DOCUMENT_COMMIT_JOB,
+                        entity_type="inventory_document", entity_id=document.id,
+                        idempotency_key=f"inventory-document-commit:{document.id}",
+                        payload={"document_id": document.id},
+                    )
             s.commit(); return review

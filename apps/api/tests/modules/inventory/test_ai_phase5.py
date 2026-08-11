@@ -139,4 +139,4 @@ class InventoryAiPhase5Test(unittest.TestCase):
             self.assertEqual(session.scalar(select(func.count(AssetAiAnalysisModel.id))), 0)
 
     def test_registry_includes_only_completed_phase_five_handlers(self):
-        self.assertEqual(build_inventory_handler_registry().job_types, ("inventory_file_download", "inventory_document_prepare", "inventory_document_analyze", "inventory_document_normalize", "inventory_document_validate"))
+        self.assertEqual(build_inventory_handler_registry().job_types, ("inventory_file_download", "inventory_document_prepare", "inventory_document_analyze", "inventory_document_normalize", "inventory_document_validate", "inventory_document_commit"))
