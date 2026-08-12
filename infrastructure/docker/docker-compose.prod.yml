@@ -183,6 +183,20 @@ services:
       retries: 10
       start_period: 45s
 
+  inventory-scheduler:
+    <<: *backend-common
+    profiles:
+      - inventory
+    working_dir: /app
+    command:
+      - python
+      - /app/apps/inventory_scheduler/main.py
+    depends_on:
+      api:
+        condition: service_healthy
+    cpus: "0.25"
+    mem_limit: "256m"
+
   inventory-worker:
     <<: *backend-common
 

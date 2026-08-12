@@ -107,6 +107,8 @@ class Settings(BaseSettings):
     INVENTORY_AUTOMATION_ENABLED: bool = False
     INVENTORY_WORKER_ENABLED: bool = False
     INVENTORY_DRIVE_POLLER_ENABLED: bool = False
+    INVENTORY_DAILY_SCHEDULER_ENABLED: bool = False
+    INVENTORY_DAILY_SCHEDULER_POLL_SECONDS: int = 30
     AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED: bool = False
     AUTH_SELF_SIGNUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
@@ -761,6 +763,10 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Inventory automation and worker flags are required when the Drive poller is enabled"
             )
+        if self.INVENTORY_DAILY_SCHEDULER_ENABLED and not self.INVENTORY_AUTOMATION_ENABLED:
+            raise ValueError("INVENTORY_AUTOMATION_ENABLED is required when the Inventory daily scheduler is enabled")
+        if self.INVENTORY_DAILY_SCHEDULER_POLL_SECONDS <= 0:
+            raise ValueError("INVENTORY_DAILY_SCHEDULER_POLL_SECONDS must be positive")
         if self.INVENTORY_DOWNLOAD_MAX_BYTES <= 0:
             raise ValueError("INVENTORY_DOWNLOAD_MAX_BYTES must be positive")
         if self.INVENTORY_PREPARE_MAX_SOURCE_BYTES <= 0:

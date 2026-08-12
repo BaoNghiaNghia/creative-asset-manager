@@ -696,6 +696,44 @@ class InventoryDailyRunModel(Base):
     )
 
 
+
+
+class InventoryDailyRunEventModel(Base):
+    """Append-only, tenant-scoped audit trail for daily readiness decisions."""
+
+    __tablename__ = "inventory_daily_run_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "daily_run_id"],
+            ["inventory_daily_runs.tenant_id", "inventory_daily_runs.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_daily_run_events_tenant_run",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_inventory_daily_run_events_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "daily_run_id", "idempotency_key",
+            name="uq_inventory_daily_run_events_tenant_key",
+        ),
+        CheckConstraint(
+            "event_type IN ('completeness_check','preclose_check','finalized','forced_finalized')",
+            name="ck_inventory_daily_run_events_type",
+        ),
+        Index("ix_inventory_daily_run_events_run", "tenant_id", "daily_run_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(
+        TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    daily_run_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(255))
+    reason: Mapped[str | None] = mapped_column(Text)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=inventory_utcnow
+    )
 class InventoryExportModel(Base):
     __tablename__ = "inventory_exports"
     __table_args__ = (

@@ -44,6 +44,8 @@ from app.modules.inventory.documents.service import (
     InventoryDocumentNormalizer, InventoryDocumentValidator,
 )
 from app.modules.inventory.review.service import InventoryReviewService
+from app.modules.inventory.daily.service import InventoryDailyRunService
+from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 from app.modules.inventory.transactions.service import INVENTORY_DOCUMENT_COMMIT_JOB, InventoryDocumentCommitter
 from app.modules.explorer.schema import AssetNode
 from app.modules.inventory.drive.downloader import InventoryFileDownloader
@@ -57,7 +59,7 @@ from app.modules.inventory.model import (
     InventoryAiControlModel,
     InventoryProcessingControlModel,
 )
-from app.modules.inventory.persistence_model import InventorySettingsModel, InventorySourceFileModel
+from app.modules.inventory.persistence_model import InventorySettingsModel, InventorySourceFileModel, InventoryDailyRunEventModel, InventoryDailyRunModel
 from app.modules.pipeline.model import AssetPipelineModel
 
 from app.modules.inventory.repository import InventoryCatalogRepository, InventorySourceFileRepository
@@ -1041,3 +1043,70 @@ class InventoryPhase7PostgreSqlIntegrationTest(InventoryPhase6PostgreSqlIntegrat
             self.assertIsNotNone(InventoryJobRepository(session, (INVENTORY_DOCUMENT_COMMIT_JOB,)).claim_next(worker_id="phase7", lease_seconds=30))
         with self.assertRaises(InventoryBusinessFailure):
             InventoryDocumentCommitter(self.sessions).execute(self._commit_job(other, ids["doc"]))
+
+@unittest.skipUnless(POSTGRES_AVAILABLE, "PostgreSQL integration database is not configured")
+class InventoryPhase9PostgreSqlIntegrationTest(unittest.TestCase):
+    """Real PostgreSQL concurrency coverage for daily scheduler/finalization."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        cls.sessions = sessionmaker(cls.engine, class_=Session, expire_on_commit=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def _tenant(self):
+        marker = uuid4().hex
+        tenant = f"inv-daily-{marker}"
+        source = f"src-daily-{marker[:24]}"
+        with self.sessions.begin() as session:
+            session.add(TenantModel(id=tenant, name="Daily", slug=tenant))
+            session.add(ExternalSourceModel(id=source, tenant_id=tenant, source_key=source, source_type="google_drive"))
+            session.add(InventorySettingsModel(tenant_id=tenant, external_source_id=source, inbox_folder_id="inbox", enabled=True))
+        return tenant
+
+    def test_concurrent_check_and_force_finalize_are_idempotent(self):
+        tenant = self._tenant()
+        business_day = date(2030, 8, 9)
+        barrier = Barrier(2)
+
+        def check():
+            barrier.wait(timeout=10)
+            return InventoryDailyRunService(self.sessions).evaluate(tenant, business_day).id
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            self.assertEqual(1, len(set(executor.map(lambda _value: check(), range(2)))))
+
+        barrier = Barrier(2)
+        def finalize():
+            barrier.wait(timeout=10)
+            return InventoryDailyRunService(self.sessions).finalize(
+                tenant, business_day, actor_id="daily-test", force=True, reason="test race"
+            ).id
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            self.assertEqual(1, len(set(executor.map(lambda _value: finalize(), range(2)))))
+
+        with self.sessions() as session:
+            self.assertEqual(1, session.scalar(select(func.count(InventoryDailyRunModel.id)).where(InventoryDailyRunModel.tenant_id == tenant)))
+            events = list(session.scalars(select(InventoryDailyRunEventModel).where(InventoryDailyRunEventModel.tenant_id == tenant).order_by(InventoryDailyRunEventModel.created_at)))
+            self.assertEqual(["completeness_check", "forced_finalized"], [event.event_type for event in events])
+            self.assertEqual("daily-test", events[-1].actor_id)
+            self.assertTrue(events[-1].snapshot_json["blockers"])
+
+    def test_scheduler_is_tenant_scoped_and_creative_isolated(self):
+        tenant_a = self._tenant()
+        tenant_b = self._tenant()
+        business_day = date(2030, 8, 9)
+        models = (SourceAssetModel, AssetModel, AssetPipelineModel, AssetAiAnalysisModel, SearchIndexRecordModel)
+        with self.sessions() as session:
+            before = {model.__tablename__: session.scalar(select(func.count()).select_from(model)) for model in models}
+        InventoryDailyRunService(self.sessions).evaluate(tenant_a, business_day)
+        self.assertIsNone(InventoryDailyRunService(self.sessions).get(tenant_b, business_day))
+        InventoryDailyScheduler(self.sessions).run_once(datetime(2030, 8, 9, 9, 30, tzinfo=timezone.utc))
+        with self.sessions() as session:
+            after = {model.__tablename__: session.scalar(select(func.count()).select_from(model)) for model in models}
+            self.assertEqual(before, after)
+            self.assertEqual(1, session.scalar(select(func.count(InventoryDailyRunModel.id)).where(InventoryDailyRunModel.tenant_id == tenant_a)))
