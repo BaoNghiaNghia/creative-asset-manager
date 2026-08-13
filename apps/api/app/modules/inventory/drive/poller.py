@@ -61,6 +61,7 @@ class InventoryDrivePoller:
         token_resolver: Callable = get_connection_access_token,
         client_factory: Callable = GoogleDriveClient,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        allowed_tenant_ids: frozenset[str] | None = None,
     ):
         self.session = session
         self.automation_enabled = automation_enabled
@@ -68,6 +69,7 @@ class InventoryDrivePoller:
         self.token_resolver = token_resolver
         self.client_factory = client_factory
         self.clock = clock
+        self.allowed_tenant_ids = allowed_tenant_ids
 
     async def poll_due(self) -> InventoryPollSummary:
         summary = InventoryPollSummary()
@@ -91,6 +93,8 @@ class InventoryDrivePoller:
             )
         )
         for binding in bindings:
+            if self.allowed_tenant_ids is not None and binding.tenant_id not in self.allowed_tenant_ids:
+                continue
             last_poll = binding.last_successful_poll_at
             if last_poll is not None:
                 if last_poll.tzinfo is None:
@@ -254,4 +258,5 @@ async def poll_inventory_drive(settings: Settings) -> InventoryPollSummary:
             session,
             automation_enabled=settings.INVENTORY_AUTOMATION_ENABLED,
             poller_enabled=settings.INVENTORY_DRIVE_POLLER_ENABLED,
+            allowed_tenant_ids=settings.inventory_tenant_allowlist,
         ).poll_due()

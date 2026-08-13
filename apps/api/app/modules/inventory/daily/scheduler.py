@@ -20,9 +20,10 @@ class InventoryDailyScheduler:
     idempotency keys so restarts and concurrent scheduler processes are safe.
     """
 
-    def __init__(self, session_factory: sessionmaker[Session], service: InventoryDailyRunService | None = None):
+    def __init__(self, session_factory: sessionmaker[Session], service: InventoryDailyRunService | None = None, *, allowed_tenant_ids: frozenset[str] | None = None):
         self.session_factory = session_factory
         self.service = service or InventoryDailyRunService(session_factory)
+        self.allowed_tenant_ids = allowed_tenant_ids
 
     def run_once(self, now: datetime | None = None) -> int:
         moment = now or datetime.now(timezone.utc)
@@ -41,6 +42,8 @@ class InventoryDailyScheduler:
             ))
         count = 0
         for tenant_id in tenants:
+            if self.allowed_tenant_ids is not None and tenant_id not in self.allowed_tenant_ids:
+                continue
             try:
                 for checkpoint in due:
                     self.service.evaluate(tenant_id, local.date(), checkpoint=checkpoint)

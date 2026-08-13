@@ -32,7 +32,7 @@ def main() -> int:
         return 0
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
-    scheduler = InventoryDailyScheduler(SessionLocal)
+    scheduler = InventoryDailyScheduler(SessionLocal, allowed_tenant_ids=settings.inventory_tenant_allowlist)
     logger.info("inventory_daily_scheduler_started")
     while not _stop:
         scheduler.run_once()

@@ -51,12 +51,29 @@ class SettingsTest(unittest.TestCase):
             settings = Settings()
         self.assertIs(settings.SEARCH_V3_REQUIRED, True)
 
+    def test_inventory_rollout_is_default_deny_and_requires_dedicated_ai_credential(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings()
+        self.assertEqual(settings.inventory_tenant_allowlist, frozenset())
+        self.assertFalse(settings.INVENTORY_SHADOW_MODE)
+        with self.assertRaises(ValidationError):
+            Settings(INVENTORY_AUTOMATION_ENABLED=True, INVENTORY_WORKER_ENABLED=True)
+        with self.assertRaises(ValidationError):
+            Settings(INVENTORY_AI_ENABLED=True, INVENTORY_TENANT_ALLOWLIST="tenant-a")
+        enabled = Settings(
+            INVENTORY_AUTOMATION_ENABLED=True,
+            INVENTORY_WORKER_ENABLED=True,
+            INVENTORY_TENANT_ALLOWLIST="tenant-a, tenant-b,tenant-a",
+        )
+        self.assertEqual(enabled.inventory_tenant_allowlist, frozenset(("tenant-a", "tenant-b")))
+
     def test_inventory_worker_requires_the_default_off_automation_boundary(self) -> None:
         with self.assertRaises(ValidationError):
             Settings(INVENTORY_WORKER_ENABLED=True)
         settings = Settings(
             INVENTORY_AUTOMATION_ENABLED=True,
             INVENTORY_WORKER_ENABLED=True,
+            INVENTORY_TENANT_ALLOWLIST="tenant-a",
         )
         self.assertTrue(settings.INVENTORY_WORKER_ENABLED)
 
@@ -72,7 +89,7 @@ class SettingsTest(unittest.TestCase):
             INVENTORY_AUTOMATION_ENABLED=True,
             INVENTORY_WORKER_ENABLED=True,
             INVENTORY_DRIVE_POLLER_ENABLED=True,
-
+            INVENTORY_TENANT_ALLOWLIST="tenant-a",
         )
         self.assertTrue(settings.INVENTORY_DRIVE_POLLER_ENABLED)
     def test_explicit_true_and_false_values_are_accepted(self) -> None:

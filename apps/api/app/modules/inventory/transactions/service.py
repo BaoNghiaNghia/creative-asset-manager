@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -11,15 +13,20 @@ from app.modules.inventory.persistence_model import (
 )
 
 INVENTORY_DOCUMENT_COMMIT_JOB = "inventory_document_commit"
+logger = logging.getLogger("cam.inventory.transactions")
 
 
 class InventoryDocumentCommitter:
     """Append immutable, tenant-scoped ledger rows for one approved document."""
 
-    def __init__(self, session_factory: sessionmaker):
+    def __init__(self, session_factory: sessionmaker, *, shadow_mode: bool = False):
         self.session_factory = session_factory
+        self.shadow_mode = shadow_mode
 
     def execute(self, job: InventoryJobModel) -> None:
+        if self.shadow_mode:
+            logger.info("inventory_shadow_mode_blocked tenant_id=%s operation=ledger_commit document_id=%s", job.tenant_id, job.entity_id)
+            raise InventoryBusinessFailure("inventory_shadow_mode_commit_blocked", retryable=False)
         document_id = str((job.payload_json or {}).get("document_id") or job.entity_id)
         with self.session_factory() as session:
             query = select(InventoryDocumentModel).where(

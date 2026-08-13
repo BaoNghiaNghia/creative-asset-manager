@@ -84,6 +84,11 @@ done
 if printf '%s\n' "$SERVICES" | grep -Eq '^(postgres|postgresql|nginx|frontend)$'; then
   deploy_die "Production Compose must not contain PostgreSQL, Nginx or frontend services."
 fi
+INVENTORY_SERVICES="$("${COMPOSE[@]}" --profile inventory config --services)"
+for required in inventory-worker inventory-scheduler; do
+  printf '%s\n' "$INVENTORY_SERVICES" | grep -qx "$required" \
+    || deploy_die "Inventory Compose service is missing: $required"
+done
 
 IMAGE_REF="$CAM_BACKEND_IMAGE:$BUILD_COMMIT"
 printf 'Building immutable backend image %s...\n' "$IMAGE_REF"
@@ -106,7 +111,7 @@ printf '%s\n' "Checking backend imports and Alembic command..."
 "${COMPOSE[@]}" run --rm --no-deps api \
   python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
 "${COMPOSE[@]}" run --rm --no-deps api \
-  python -c "from app.core.config import get_settings; s=get_settings(); assert s.APP_ENV == 'production'; assert s.PERSISTENT_AUTH_ENABLED; assert not s.DEVELOPMENT_PERSONAL_TENANT_ENABLED; assert not s.AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED; assert not s.DATABASE_URL.startswith('sqlite'); assert '@host.docker.internal:5432/' in s.DATABASE_URL"
+  python -c "from app.core.config import get_settings; s=get_settings(); assert s.APP_ENV == 'production'; assert s.PERSISTENT_AUTH_ENABLED; assert not s.DEVELOPMENT_PERSONAL_TENANT_ENABLED; assert not s.AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED; assert not s.DATABASE_URL.startswith('sqlite'); assert '@host.docker.internal:5432/' in s.DATABASE_URL; enabled=any((s.INVENTORY_AUTOMATION_ENABLED,s.INVENTORY_WORKER_ENABLED,s.INVENTORY_DRIVE_POLLER_ENABLED,s.INVENTORY_DAILY_SCHEDULER_ENABLED,s.INVENTORY_AI_ENABLED)); assert not enabled or s.inventory_tenant_allowlist; assert not s.INVENTORY_AI_ENABLED or s.INVENTORY_AI_GEMINI_API_KEY"
 "${COMPOSE[@]}" run --rm --no-deps -e PYTHONPYCACHEPREFIX=/tmp/pycache api \
   python -c "from pathlib import Path; import compileall; assert compileall.compile_dir(Path('/app/apps/worker'), quiet=1)"
 [[ "$("${COMPOSE[@]}" run --rm --no-deps api python -m alembic heads | grep -c '(head)')" -eq 1 ]] \

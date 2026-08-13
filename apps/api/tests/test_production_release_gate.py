@@ -51,6 +51,9 @@ class ProductionReleaseGateTest(unittest.TestCase):
             "PYTHONPYCACHEPREFIX=/tmp/pycache",
             "GATE_HOST",
             "nginx -t",
+            "INVENTORY_SERVICES",
+            "inventory_tenant_allowlist",
+            "INVENTORY_AI_GEMINI_API_KEY",
         ):
             self.assertIn(required, source)
 

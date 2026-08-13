@@ -61,6 +61,7 @@ def run_inventory_worker(settings: Settings | None = None) -> int:
                 job = repository.claim_next(
                     worker_id=config.worker_id,
                     lease_seconds=config.lease_seconds,
+                    allowed_tenant_ids=getattr(config, "tenant_allowlist", None),
                 )
                 if job is None:
                     continue

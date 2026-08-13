@@ -95,11 +95,13 @@ class InventoryExportService:
         token_resolver: Callable = get_connection_access_token,
         client_factory: Callable = GoogleDriveClient,
         workbook_factory: Callable[[], Workbook] | None = None,
+        shadow_mode: bool = False,
     ):
         self.session_factory = session_factory
         self.token_resolver = token_resolver
         self.client_factory = client_factory
         self.workbook_factory = workbook_factory or Workbook
+        self.shadow_mode = shadow_mode
 
     def get(self, tenant_id: str, business_date: date) -> ExportResult | None:
         with self.session_factory() as session:
@@ -115,6 +117,9 @@ class InventoryExportService:
 
     def export(self, tenant_id: str, business_date: date, actor_id: str | None = None) -> ExportResult:
         """Create/retry one logical export. A competing request observes it."""
+        if self.shadow_mode:
+            logger.info("inventory_shadow_mode_blocked tenant_id=%s operation=excel_export", tenant_id)
+            raise InventoryExportFailure("inventory_shadow_mode_export_blocked")
         with self.session_factory.begin() as session:
             if session.bind and session.bind.dialect.name == "postgresql":
                 session.execute(

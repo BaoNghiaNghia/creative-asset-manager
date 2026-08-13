@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     INVENTORY_DRIVE_POLLER_ENABLED: bool = False
     INVENTORY_DAILY_SCHEDULER_ENABLED: bool = False
     INVENTORY_DAILY_SCHEDULER_POLL_SECONDS: int = 30
+    # Deployment controls are deny-by-default. Tenant IDs and credentials stay in deployment secrets.
+    INVENTORY_TENANT_ALLOWLIST: str = ""
+    INVENTORY_SHADOW_MODE: bool = False
+    INVENTORY_AI_GEMINI_API_KEY: str | None = None
+    INVENTORY_AI_PROJECT_QUOTA_SCOPE: str = "inventory"
     AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED: bool = False
     AUTH_SELF_SIGNUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
@@ -282,6 +287,10 @@ class Settings(BaseSettings):
         if value < 1:
             raise ValueError("source sync scheduler limits must be positive")
         return value
+
+    @property
+    def inventory_tenant_allowlist(self) -> frozenset[str]:
+        return frozenset(value.strip() for value in self.INVENTORY_TENANT_ALLOWLIST.split(",") if value.strip())
 
     @property
     def cors_allowed_origins(self) -> tuple[str, ...]:
@@ -765,6 +774,19 @@ class Settings(BaseSettings):
             )
         if self.INVENTORY_DAILY_SCHEDULER_ENABLED and not self.INVENTORY_AUTOMATION_ENABLED:
             raise ValueError("INVENTORY_AUTOMATION_ENABLED is required when the Inventory daily scheduler is enabled")
+        inventory_runtime_enabled = any((
+            self.INVENTORY_AUTOMATION_ENABLED,
+            self.INVENTORY_WORKER_ENABLED,
+            self.INVENTORY_DRIVE_POLLER_ENABLED,
+            self.INVENTORY_DAILY_SCHEDULER_ENABLED,
+            self.INVENTORY_AI_ENABLED,
+        ))
+        if inventory_runtime_enabled and not self.inventory_tenant_allowlist:
+            raise ValueError("INVENTORY_TENANT_ALLOWLIST is required whenever Inventory runtime is enabled")
+        if self.INVENTORY_AI_ENABLED and not self.INVENTORY_AI_GEMINI_API_KEY:
+            raise ValueError("INVENTORY_AI_GEMINI_API_KEY is required when Inventory AI is enabled")
+        if not self.INVENTORY_AI_PROJECT_QUOTA_SCOPE.strip():
+            raise ValueError("INVENTORY_AI_PROJECT_QUOTA_SCOPE is required")
         if self.INVENTORY_DAILY_SCHEDULER_POLL_SECONDS <= 0:
             raise ValueError("INVENTORY_DAILY_SCHEDULER_POLL_SECONDS must be positive")
         if self.INVENTORY_DOWNLOAD_MAX_BYTES <= 0:

@@ -3,6 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.inventory.daily.service import DailyRunBlocked, InventoryDailyRunService
@@ -160,6 +161,17 @@ def finalize_daily_run(
     return _daily_view(result)
 
 
+def _export_service():
+    service = InventoryExportService(SessionLocal)
+    # Keep router fakes used by API tests backward compatible while the real
+    # service receives the production shadow-mode guard.
+    try:
+        service.shadow_mode = get_settings().INVENTORY_SHADOW_MODE
+    except AttributeError:
+        pass
+    return service
+
+
 def _export_view(row):
     return {
         "id": row.id, "business_date": row.business_date, "status": row.status,
@@ -174,7 +186,7 @@ def _export_view(row):
 
 @router.get("/exports/{business_date}")
 def get_export(business_date: date, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_EXPORT_PERMISSION))):
-    result = InventoryExportService(SessionLocal).get(principal.active_tenant_id, business_date)
+    result = _export_service().get(principal.active_tenant_id, business_date)
     if result is None:
         raise HTTPException(404, detail={"code": "inventory_export_not_found"})
     return _export_view(result)
@@ -183,7 +195,7 @@ def get_export(business_date: date, principal: CurrentPrincipal = Depends(requir
 @router.post("/exports/{business_date}")
 def export(business_date: date, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_EXPORT_PERMISSION))):
     try:
-        return _export_view(InventoryExportService(SessionLocal).export(principal.active_tenant_id, business_date, principal.actor_id))
+        return _export_view(_export_service().export(principal.active_tenant_id, business_date, principal.actor_id))
     except InventoryExportFailure as exc:
         code = str(exc)
         status = 409 if code == "inventory_daily_run_not_finalized" else 422

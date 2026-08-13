@@ -19,6 +19,7 @@ class InventoryWorkerConfig:
     drain_timeout_seconds: float
     health_host: str
     health_port: int
+    tenant_allowlist: frozenset[str]
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "InventoryWorkerConfig":
@@ -34,6 +35,7 @@ class InventoryWorkerConfig:
             drain_timeout_seconds=settings.INVENTORY_WORKER_DRAIN_TIMEOUT_SECONDS,
             health_host=settings.INVENTORY_WORKER_HEALTH_HOST,
             health_port=settings.INVENTORY_WORKER_HEALTH_PORT,
+            tenant_allowlist=settings.inventory_tenant_allowlist,
         )
 
     @property

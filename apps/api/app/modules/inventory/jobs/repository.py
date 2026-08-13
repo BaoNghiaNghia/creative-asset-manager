@@ -76,6 +76,7 @@ class InventoryJobRepository:
         worker_id: str,
         lease_seconds: int,
         now: datetime | None = None,
+        allowed_tenant_ids: frozenset[str] | None = None,
     ) -> InventoryJobModel | None:
         if not self.registered_job_types:
             return None
@@ -146,6 +147,10 @@ class InventoryJobRepository:
             )
             .limit(1)
         )
+        if allowed_tenant_ids is not None:
+            if not allowed_tenant_ids:
+                return None
+            query = query.where(InventoryJobModel.tenant_id.in_(allowed_tenant_ids))
         if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
             query = query.with_for_update(skip_locked=True, of=InventoryJobModel)
         job = self.session.scalar(query)

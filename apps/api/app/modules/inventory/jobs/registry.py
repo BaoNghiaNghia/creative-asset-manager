@@ -84,7 +84,9 @@ def build_inventory_handler_registry(
     )
     runtime_normalizer = document_normalizer or InventoryDocumentNormalizer(SessionLocal)
     runtime_validator = document_validator or InventoryDocumentValidator(SessionLocal)
-    runtime_committer = document_committer or InventoryDocumentCommitter(SessionLocal)
+    runtime_committer = document_committer or InventoryDocumentCommitter(
+        SessionLocal, shadow_mode=runtime_settings.INVENTORY_SHADOW_MODE
+    )
     registry = InventoryHandlerRegistry()
 
     def download(job: InventoryJobModel) -> None:
