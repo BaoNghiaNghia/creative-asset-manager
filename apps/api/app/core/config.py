@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     AUTH_SELF_SIGNUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
+    # Separate AES-256-GCM master key for tenant-configured Creative AI secrets.
+    # This is intentionally independent from Inventory credentials and OAuth keys.
+    CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     GEMINI_TIMEOUT_SECONDS: float = 45.0
     GEMINI_ALLOWED_MODELS: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
@@ -937,6 +940,7 @@ class Settings(BaseSettings):
             and self.AI_SINGLE_ANALYSIS_ENABLED
             and not (
                 self.GEMINI_API_KEY
+                or self.CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY
                 or (self.OPENAI_AI_ENABLED and self.OPENAI_API_KEY)
             )
         ):
@@ -948,6 +952,7 @@ class Settings(BaseSettings):
             and self.AI_BATCH_ANALYSIS_ENABLED
             and not (
                 self.GEMINI_API_KEY
+                or self.CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY
                 or (self.OPENAI_AI_ENABLED and self.OPENAI_BATCH_ENABLED
                     and self.OPENAI_API_KEY)
             )

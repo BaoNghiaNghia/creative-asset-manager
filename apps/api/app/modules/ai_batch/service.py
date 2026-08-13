@@ -194,6 +194,9 @@ class AiBatchService:
             batch=self.repository.get_batch(tenant_id,batch_id,for_update=True)
             batch.provider_batch_id=submission.provider_batch_id
             batch.provider_request_id=submission.provider_request_id
+            batch.credential_fingerprint=submission.credential_fingerprint
+            batch.credential_encrypted_secret=submission.credential_encrypted_secret
+            batch.credential_key_version=submission.credential_key_version
             if submission.provider_metadata:
                 batch.error_json={
                     "provider_metadata":dict(submission.provider_metadata)}
@@ -245,7 +248,10 @@ class AiBatchService:
             raise AiProviderError("Batch provider identity is not known.",
                                   code="batch_submission_ambiguous",retryable=True)
         status=await provider.get_batch_status(AiBatchStatusInput(
-            tenant_id=tenant_id,provider_batch_id=batch.provider_batch_id))
+            tenant_id=tenant_id,provider_batch_id=batch.provider_batch_id,
+            credential_fingerprint=batch.credential_fingerprint,
+            credential_encrypted_secret=batch.credential_encrypted_secret,
+            credential_key_version=batch.credential_key_version))
         batch.poll_attempt+=1;batch.usage_json=dict(status.usage)
         state=status.state.lower()
         if state in {"pending","submitted","running"}:
@@ -306,7 +312,9 @@ class AiBatchService:
         try:
             async for entry in provider.stream_batch_results(AiBatchResultsInput(
                 tenant_id=tenant_id,provider_batch_id=batch.provider_batch_id,
-                cursor=batch.result_cursor)):
+                cursor=batch.result_cursor, credential_fingerprint=batch.credential_fingerprint,
+                credential_encrypted_secret=batch.credential_encrypted_secret,
+                credential_key_version=batch.credential_key_version)):
                 sequence+=1
                 batch=self.repository.get_batch(tenant_id,batch_id)
                 item=self.repository.item_by_custom(batch,entry.custom_item_id)
@@ -438,7 +446,10 @@ class AiBatchService:
         batch.cancellation_requested=True
         if batch.provider_batch_id and batch.status not in BATCH_TERMINAL_STATUSES:
             await provider.cancel_batch(AiBatchStatusInput(
-                tenant_id=tenant_id,provider_batch_id=batch.provider_batch_id))
+                tenant_id=tenant_id,provider_batch_id=batch.provider_batch_id,
+            credential_fingerprint=batch.credential_fingerprint,
+            credential_encrypted_secret=batch.credential_encrypted_secret,
+            credential_key_version=batch.credential_key_version))
         for item in self.repository.items(batch):
             if item.status!="completed":
                 item.status="cancelled";item.completed_at=utcnow()

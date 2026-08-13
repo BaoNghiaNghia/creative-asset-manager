@@ -29,7 +29,7 @@ describe("Inventory Gemini credential settings", () => {
     for (const value of [
       "Inventory AI", "Google Gemini", "Connected", "••••••••7KxQ",
       "Configuration", "Gemini Account B", "Last Tested", "Last Updated",
-      "Updated By", "Gemini AI credentials are independent from the Google Drive connection.",
+      "Updated By", "Used only by the Inventory document pipeline. It does not affect Creative AI jobs.",
       "Test Connection", "Replace API Key",
     ]) expect(markup).toContain(value);
     expect(markup).not.toContain(secret);

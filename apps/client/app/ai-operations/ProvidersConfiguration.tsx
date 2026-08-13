@@ -7,6 +7,7 @@ import {
 } from "../../features/ai_operations";
 import { formatCost } from "./presentation";
 import { InventoryGeminiCredentialSettings } from "../inventory/InventoryGeminiCredentialSettings";
+import { CreativeGeminiCredentialSettings } from "./CreativeGeminiCredentialSettings";
 
 export function ProvidersTab({ metrics }: { metrics: AiOpsProviderBreakdown[] }) {
   const state = useConfiguration();
@@ -247,6 +248,9 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
       <section className="ops-global-settings ops-config-global"><header className="ops-config-card-header"><div><h3>Global controls</h3><p>Giới hạn toàn cục do deployment quản lý và chỉ có thể xem tại đây.</p></div><span className="ops-card-kicker">Read-only</span></header><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Tenant không thể bật lại chức năng đã bị tắt ở cấp toàn cục.</p>
         {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục.</small>}
         <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
+      </section>
+      <section className="ops-config-creative-ai" aria-label="Creative AI credential settings">
+        <CreativeGeminiCredentialSettings canManage={canEdit} />
       </section>
       <section className="ops-config-inventory-ai" aria-label="Inventory AI credential settings">
         <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} />

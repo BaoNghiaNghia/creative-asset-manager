@@ -195,6 +195,9 @@ class AiBatchSubmissionInput:
     input_path: str
     item_count: int
     total_bytes: int
+    credential_fingerprint: str | None = None
+    credential_encrypted_secret: str | None = None
+    credential_key_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,12 +206,18 @@ class AiBatchSubmission:
     state: str
     provider_request_id: str | None = None
     provider_metadata: Mapping[str, Any] = field(default_factory=dict)
+    credential_fingerprint: str | None = None
+    credential_encrypted_secret: str | None = None
+    credential_key_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class AiBatchStatusInput:
     tenant_id: str
     provider_batch_id: str
+    credential_fingerprint: str | None = None
+    credential_encrypted_secret: str | None = None
+    credential_key_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +244,9 @@ class AiBatchResultsInput:
     tenant_id: str
     provider_batch_id: str
     cursor: str | None = None
+    credential_fingerprint: str | None = None
+    credential_encrypted_secret: str | None = None
+    credential_key_version: str | None = None
 
 
 @runtime_checkable

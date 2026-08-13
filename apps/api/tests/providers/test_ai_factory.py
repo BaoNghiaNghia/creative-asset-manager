@@ -8,6 +8,7 @@ from app.core.database import Base
 from app.core.config import Settings
 from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.ai.gemini import GeminiAiMetadataProvider, GeminiModelLimit
+from app.providers.ai.creative_gemini import RuntimeCreativeGeminiProvider
 
 
 class AiProviderFactoryTest(unittest.TestCase):
@@ -40,8 +41,9 @@ class AiProviderFactoryTest(unittest.TestCase):
                 ),
                 session_factory=sessions,
             ).require("gemini")
-            self.assertIsNotNone(provider._quota_coordinator)
-            self.assertEqual(provider._quota_coordinator.project_rpd, 7)
+            self.assertIsInstance(provider, RuntimeCreativeGeminiProvider)
+            self.assertEqual(provider.default_model, "gemini-3.5-flash-lite")
+            self.assertEqual(provider.settings.gemini_project_daily_request_limit, 7)
         finally:
             engine.dispose()
 

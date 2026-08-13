@@ -249,3 +249,10 @@ export const runSearchCoverageAudit = (body: { verify_elasticsearch?: boolean; l
 
 export const repairSearchCoverage = (body: { confirmed: true; limit: number; verify_elasticsearch?: boolean; repair_projections: boolean; repair_indexes: boolean }, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-operations/coverage/repair", "POST", body, fetcher);
+
+
+export type CreativeGeminiCredential = { provider:"gemini"; configured:boolean; source:"configuration"|"environment"|"unavailable"; masked_key:string|null; label:string|null; status:string; last_tested_at:string|null; updated_at:string|null; updated_by:string|null };
+export type CreativeGeminiCredentialStatus = "VALID"|"INVALID_KEY"|"PERMISSION_DENIED"|"RATE_LIMITED"|"PROVIDER_UNAVAILABLE";
+export const getCreativeGeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", fetcher);
+export const testCreativeGeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<{provider:"gemini";status:CreativeGeminiCredentialStatus}>("/api/v1/admin/ai-operations/configuration/credentials/gemini/test", "POST", {api_key,label}, fetcher);
+export const replaceCreativeGeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", "PUT", {api_key,label}, fetcher);

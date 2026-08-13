@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.domain.providers.registry import AiProviderRegistry
 from app.providers.ai.gemini import GeminiAiMetadataProvider
+from app.providers.ai.creative_gemini import RuntimeCreativeGeminiProvider
 from app.providers.ai.openai import OpenAiMetadataProvider
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
 
@@ -68,15 +69,17 @@ def build_ai_provider_registry(
     """Build configured adapters without exposing provider SDKs to services."""
 
     registry = AiProviderRegistry()
-    if settings.GEMINI_API_KEY:
-        quota_coordinator = (
-            _DatabaseGeminiQuotaCoordinator(
-                session_factory, settings.GEMINI_PROJECT_QUOTA_SCOPE,
-                settings.gemini_project_daily_request_limit,
-            )
-            if session_factory is not None
-            else None
-        )
+    # Creative Gemini credentials are tenant-scoped and resolved at request time.
+    # An encryption key permits a database override even without the env fallback;
+    # without either server-side configuration, preserve the unavailable registry.
+    if session_factory is not None and (
+        settings.GEMINI_API_KEY
+        or settings.CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY
+    ):
+        gemini = RuntimeCreativeGeminiProvider(settings, session_factory)
+        registry.register(gemini.provider_name, gemini)
+    elif settings.GEMINI_API_KEY:
+        # Narrow compatibility path for callers that have no database boundary.
         gemini = GeminiAiMetadataProvider(
             settings.GEMINI_API_KEY,
             model=settings.GEMINI_MODEL,
@@ -84,7 +87,6 @@ def build_ai_provider_registry(
             model_pool=settings.gemini_model_pool,
             model_limits=settings.gemini_model_limits,
             cooldown_seconds=settings.GEMINI_MODEL_COOLDOWN_SECONDS,
-            quota_coordinator=quota_coordinator,
         )
         registry.register(gemini.provider_name, gemini)
     if settings.OPENAI_AI_ENABLED and settings.OPENAI_API_KEY:

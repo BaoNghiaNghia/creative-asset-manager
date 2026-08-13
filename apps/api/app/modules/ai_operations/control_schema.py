@@ -82,3 +82,8 @@ class AiJobMutation(_Mutation):
 class AiBulkJobRetry(_Mutation):
     error_code: str = Field(min_length=1, max_length=100)
     limit: int = Field(default=100, ge=1, le=1000)
+
+
+class CreativeGeminiCredentialRequest(BaseModel):
+    api_key: str = Field(min_length=1, max_length=512)
+    label: str | None = Field(default=None, max_length=255)

@@ -153,8 +153,8 @@ class AiProviderSelectionService:
                 return False
         else:
             return False
-        if provider == "gemini" and not self.settings.GEMINI_API_KEY:
-            return False
+        # Gemini is backed by a runtime tenant credential resolver. It may be
+        # configured in the database even when no deployment fallback exists.
         if provider == "openai" and not (
             self.settings.OPENAI_AI_ENABLED and self.settings.OPENAI_API_KEY
         ):

@@ -141,7 +141,7 @@ export function InventoryGeminiCredentialSettings({
       <div>
         <p className="inventory-kicker">Inventory AI</p>
         <h2 id="inventory-ai-title">Google Gemini</h2>
-        <p className="inventory-muted">Gemini AI credentials are independent from the Google Drive connection.</p>
+        <p className="inventory-muted">Used only by the Inventory document pipeline. It does not affect Creative AI jobs.</p>
       </div>
       <span className={"inventory-credential-status status-" + credentialStatusClass(credential.status, credential.configured)}>{credentialStatusLabel(credential.status, credential.configured)}</span>
     </div>

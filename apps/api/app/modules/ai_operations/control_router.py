@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.ai_operations.control_schema import (
     AiBudgetUpdate, AiBulkJobRetry, AiConfigurationUpdate, AiDefaultsUpdate, AiJobMutation, AiPauseRequest,
-    AiProviderControlUpdate,
+    AiProviderControlUpdate, CreativeGeminiCredentialRequest,
 )
 from app.modules.ai_operations.controls import (
     AiOperationsControlError, AiOperationsControlService,
@@ -16,6 +17,11 @@ from app.modules.ai_operations.controls import (
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
 from app.modules.processing_policy.service import TenantPolicyCache
 from app.providers.ai.factory import build_ai_provider_registry
+from app.providers.ai.gemini import validate_gemini_api_key
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, CreativeCredentialError, creative_credential_cipher
+import logging
+
+_CREDENTIAL_LOGGER = logging.getLogger("cam.creative_gemini_credential")
 
 
 router = APIRouter(prefix="/api/v1/admin/ai-operations", tags=["ai-operations-controls"])
@@ -27,6 +33,79 @@ AI_JOBS_RETRY = require_permission("ai_jobs.retry")
 AI_JOBS_CANCEL = require_permission("ai_jobs.cancel")
 _policy_cache: TenantPolicyCache | None = None
 
+
+
+def _creative_credential_view(metadata, *, source: str) -> dict:
+    if metadata is None:
+        return {"provider": "gemini", "configured": False, "source": source, "masked_key": None, "label": None, "status": "unavailable", "last_tested_at": None, "updated_at": None, "updated_by": None}
+    return {"provider": "gemini", "configured": True, "source": source, "masked_key": f"••••••••{metadata.secret_last4}", "label": metadata.label, "status": "connected" if metadata.status == "active" else metadata.status, "last_tested_at": metadata.last_tested_at, "updated_at": metadata.updated_at, "updated_by": metadata.updated_by}
+
+
+def _creative_credential_error(exc: Exception) -> HTTPException:
+    code = getattr(exc, "code", "creative_credential_storage_unavailable")
+    if code in {"creative_credential_encryption_unavailable", "creative_ai_credential_decryption_failed"}:
+        return HTTPException(503, detail={"code": code, "message": "Creative credential encryption is not configured correctly on the server."})
+    return HTTPException(503, detail={"code": "creative_credential_storage_unavailable", "message": "Creative credential storage is not ready."})
+
+
+@router.get("/configuration/credentials/gemini")
+def get_creative_gemini_credential(
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+):
+    target = _tenant(principal, tenant_id)
+    try:
+        with SessionLocal() as session:
+            metadata = CreativeAiCredentialRepository(session, None).get_metadata(target)
+    except SQLAlchemyError as exc:
+        raise _creative_credential_error(exc) from exc
+    if metadata is not None:
+        return _creative_credential_view(metadata, source="configuration")
+    fallback = (get_settings().GEMINI_API_KEY or "").strip()
+    if fallback:
+        return {"provider": "gemini", "configured": True, "source": "environment", "masked_key": f"••••••••{fallback[-4:]}", "label": None, "status": "connected", "last_tested_at": None, "updated_at": None, "updated_by": None}
+    return _creative_credential_view(None, source="unavailable")
+
+
+@router.post("/configuration/credentials/gemini/test")
+def test_creative_gemini_credential(
+    body: CreativeGeminiCredentialRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    target = _tenant(principal, tenant_id)
+    result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+    _CREDENTIAL_LOGGER.info("creative_gemini_credential_test tenant_id=%s actor_id=%s provider=gemini result=%s", target, principal.user_id, result)
+    return {"provider": "gemini", "status": result}
+
+
+@router.put("/configuration/credentials/gemini")
+def replace_creative_gemini_credential(
+    body: CreativeGeminiCredentialRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    target = _tenant(principal, tenant_id)
+    result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+    try:
+        with SessionLocal() as session:
+            repository = CreativeAiCredentialRepository(session, None)
+            previous = repository.get_metadata(target)
+            if result != "VALID":
+                repository.audit(target, actor_id=principal.user_id, action="credential_validation", result=result, previous_fingerprint=previous.secret_fingerprint if previous else None)
+                session.commit()
+                raise HTTPException(422, detail={"code": "creative_gemini_credential_invalid", "status": result})
+            repository = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings()))
+            metadata = repository.replace(target, secret=body.api_key, label=body.label, updated_by=principal.user_id, last_test_status="VALID")
+            repository.audit(target, actor_id=principal.user_id, action="credential_replaced", result="VALID", previous_fingerprint=previous.secret_fingerprint if previous else None, new_fingerprint=metadata.secret_fingerprint)
+            session.commit()
+    except HTTPException:
+        raise
+    except (CreativeCredentialError, SQLAlchemyError) as exc:
+        _CREDENTIAL_LOGGER.warning("creative_gemini_credential_replace tenant_id=%s actor_id=%s provider=gemini error_code=%s", target, principal.user_id, getattr(exc, "code", type(exc).__name__))
+        raise _creative_credential_error(exc) from exc
+    _CREDENTIAL_LOGGER.info("creative_gemini_credential_replace tenant_id=%s actor_id=%s provider=gemini result=VALID", target, principal.user_id)
+    return _creative_credential_view(metadata, source="configuration")
 
 def _cache() -> TenantPolicyCache:
     global _policy_cache
