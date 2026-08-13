@@ -146,6 +146,12 @@ class AiOperationsControlsTest(unittest.TestCase):
         paused = self.request("POST", "/api/v1/admin/ai-operations/controls/pause", {"reason": "maintenance"})
         self.assertEqual(paused.status_code, 200)
         self.assertFalse(paused.json()["policy"]["ai_analysis_enabled"])
+        # A dashboard reload reads /configuration. It must expose the persisted
+        # AI-specific flag rather than the unrelated general pipeline pause.
+        reloaded = self.request("GET", "/api/v1/admin/ai-operations/configuration", {})
+        self.assertEqual(reloaded.status_code, 200)
+        self.assertFalse(reloaded.json()["tenant"]["ai_enabled"])
+        self.assertFalse(reloaded.json()["tenant"]["processing_paused"])
         resumed = self.request("POST", "/api/v1/admin/ai-operations/controls/resume", {"reason": "complete"})
         self.assertTrue(resumed.json()["policy"]["ai_analysis_enabled"])
         provider = self.request("POST", "/api/v1/admin/ai-operations/providers/openai/pause", {"reason": "outage"})

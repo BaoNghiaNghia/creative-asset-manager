@@ -58,8 +58,10 @@ class SettingsTest(unittest.TestCase):
         self.assertFalse(settings.INVENTORY_SHADOW_MODE)
         with self.assertRaises(ValidationError):
             Settings(INVENTORY_AUTOMATION_ENABLED=True, INVENTORY_WORKER_ENABLED=True)
-        with self.assertRaises(ValidationError):
-            Settings(INVENTORY_AI_ENABLED=True, INVENTORY_TENANT_ALLOWLIST="tenant-a")
+        # Inventory AI can resolve a tenant-scoped encrypted credential at
+        # execution time; an environment fallback is no longer mandatory.
+        ai_enabled = Settings(INVENTORY_AI_ENABLED=True, INVENTORY_TENANT_ALLOWLIST="tenant-a")
+        self.assertEqual(ai_enabled.inventory_tenant_allowlist, frozenset({"tenant-a"}))
         enabled = Settings(
             INVENTORY_AUTOMATION_ENABLED=True,
             INVENTORY_WORKER_ENABLED=True,

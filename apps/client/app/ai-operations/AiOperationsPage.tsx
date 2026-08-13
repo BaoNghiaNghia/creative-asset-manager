@@ -7,7 +7,7 @@ import {
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
-import { fetchAiOperationsConfiguration, setTenantAiPaused } from "../../features/ai_operations";
+import { fetchAiOperationsConfiguration, setTenantAiPaused, type AiOpsConfiguration } from "../../features/ai_operations";
 import {
   dailyProviderCostChart, dailyStatusChart, failureChart,
   formatCost, formatDuration, modeLabel, providerLabel, providerVolumeChart,
@@ -230,6 +230,13 @@ export function AiOperationsContent({
   </>;
 }
 
+export function aiWorkerIsPaused(tenant: Pick<AiOpsConfiguration["tenant"], "ai_enabled">): boolean {
+  // The pause/resume controls persist TenantProcessingPolicy.ai_analysis_enabled.
+  // `processing_paused` belongs to the general Creative processing pipeline and
+  // must not drive this AI-only control after a page reload.
+  return !tenant.ai_enabled;
+}
+
 function AiWorkerToggle() {
   const [paused, setPaused] = useState<boolean | null>(null);
   const [allowed, setAllowed] = useState(false);
@@ -240,7 +247,7 @@ function AiWorkerToggle() {
     let alive = true;
     fetchAiOperationsConfiguration().then(configuration => {
       if (!alive) return;
-      setPaused(configuration.tenant.processing_paused);
+      setPaused(aiWorkerIsPaused(configuration.tenant));
       setAllowed(Boolean(configuration.permissions.can_emergency_stop));
     }).catch(() => { if (alive) setPaused(null); });
     return () => { alive = false; };

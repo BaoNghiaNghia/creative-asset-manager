@@ -39,6 +39,49 @@ QUANTITY = Numeric(24, 8)
 CONFIDENCE = Numeric(7, 6)
 
 
+class InventoryAiCredentialModel(Base):
+    """Encrypted Inventory provider secret; never a Google OAuth credential."""
+    __tablename__ = "inventory_ai_credentials"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "provider", name="uq_inventory_ai_credentials_tenant_provider"),
+        CheckConstraint("provider = 'gemini'", name="ck_inventory_ai_credentials_provider"),
+        CheckConstraint("status IN ('active','disabled')", name="ck_inventory_ai_credentials_status"),
+        CheckConstraint("length(secret_fingerprint) = 64", name="ck_inventory_ai_credentials_fingerprint"),
+        CheckConstraint("length(secret_last4) = 4", name="ck_inventory_ai_credentials_last4"),
+        Index("ix_inventory_ai_credentials_tenant_status", "tenant_id", "status"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="gemini")
+    encrypted_secret: Mapped[str] = mapped_column(Text, nullable=False)
+    key_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    secret_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    secret_last4: Mapped[str] = mapped_column(String(4), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_test_status: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+
+
+class InventoryAiCredentialAuditModel(Base):
+    __tablename__ = "inventory_ai_credential_audits"
+    __table_args__ = (
+        Index("ix_inventory_ai_credential_audits_tenant_created", "tenant_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="gemini")
+    actor_id: Mapped[str | None] = mapped_column(String(255))
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    previous_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    new_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    result: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
 class InventorySettingsModel(Base):
     __tablename__ = "inventory_settings"
     __table_args__ = (

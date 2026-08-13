@@ -113,6 +113,10 @@ class Settings(BaseSettings):
     INVENTORY_TENANT_ALLOWLIST: str = ""
     INVENTORY_SHADOW_MODE: bool = False
     INVENTORY_AI_GEMINI_API_KEY: str | None = None
+    # Canonical runtime fallback; legacy INVENTORY_AI_GEMINI_API_KEY remains supported.
+    INVENTORY_GEMINI_API_KEY: str | None = None
+    # Dedicated AES-256-GCM master key for tenant-configured Inventory AI secrets.
+    INVENTORY_CREDENTIAL_ENCRYPTION_KEY: str = ""
     INVENTORY_AI_PROJECT_QUOTA_SCOPE: str = "inventory"
     AUTH_PROCESSING_ADMIN_ALLOWLIST_COMPAT_ENABLED: bool = False
     AUTH_SELF_SIGNUP_ENABLED: bool = False
@@ -328,6 +332,11 @@ class Settings(BaseSettings):
             if value.strip()
         ))
         return pool or (self.GEMINI_MODEL,)
+
+    @property
+    def inventory_gemini_api_key(self) -> str | None:
+        """Inventory-only emergency fallback; never inherits GEMINI_API_KEY."""
+        return self.INVENTORY_GEMINI_API_KEY or self.INVENTORY_AI_GEMINI_API_KEY
 
     @property
     def gemini_model_limits(self) -> dict[str, GeminiModelLimit]:
@@ -783,8 +792,7 @@ class Settings(BaseSettings):
         ))
         if inventory_runtime_enabled and not self.inventory_tenant_allowlist:
             raise ValueError("INVENTORY_TENANT_ALLOWLIST is required whenever Inventory runtime is enabled")
-        if self.INVENTORY_AI_ENABLED and not self.INVENTORY_AI_GEMINI_API_KEY:
-            raise ValueError("INVENTORY_AI_GEMINI_API_KEY is required when Inventory AI is enabled")
+        # Inventory AI may instead resolve a tenant-scoped encrypted credential at execution time.
         if not self.INVENTORY_AI_PROJECT_QUOTA_SCOPE.strip():
             raise ValueError("INVENTORY_AI_PROJECT_QUOTA_SCOPE is required")
         if self.INVENTORY_DAILY_SCHEDULER_POLL_SECONDS <= 0:

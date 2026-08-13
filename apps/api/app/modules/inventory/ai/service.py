@@ -59,7 +59,7 @@ class InventoryDocumentAnalyzer:
             return
         try:
             image = self.prepared_storage.read_bytes(tenant_id=job.tenant_id, storage_key=page.prepared_storage_key or "")
-            result = self.gateway.analyze(image_bytes=image, image_mime_type=page.prepared_mime_type or "image/jpeg", prompt=INVENTORY_EXTRACTION_PROMPT, schema=INVENTORY_EXTRACTION_SCHEMA, provider=control.provider, model=analysis.model)
+            result = self.gateway.analyze(tenant_id=job.tenant_id, image_bytes=image, image_mime_type=page.prepared_mime_type or "image/jpeg", prompt=INVENTORY_EXTRACTION_PROMPT, schema=INVENTORY_EXTRACTION_SCHEMA, provider=control.provider, model=analysis.model)
             extracted = validate_extraction(dict(result.extracted_json))
             self._succeed(job.tenant_id, analysis.id, page.id, result, extracted)
         except InventoryAiGatewayError as exc:

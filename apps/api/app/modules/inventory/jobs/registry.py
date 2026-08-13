@@ -13,6 +13,8 @@ from app.modules.inventory.preparation.image import InventoryImagePreparationLim
 from app.modules.inventory.preparation.service import InventoryDocumentPreparer, INVENTORY_DOCUMENT_PREPARE_JOB
 from app.modules.inventory.preparation.storage import InventoryPreparedStorage
 from app.modules.inventory.ai.service import INVENTORY_DOCUMENT_ANALYZE_JOB, InventoryDocumentAnalyzer
+from app.modules.inventory.ai.gateway import RuntimeInventoryGeminiGateway
+from app.modules.inventory.credentials import InventoryGeminiCredentialResolver
 from app.modules.inventory.transactions.service import INVENTORY_DOCUMENT_COMMIT_JOB, InventoryDocumentCommitter
 from app.modules.inventory.documents.service import (
     INVENTORY_DOCUMENT_NORMALIZE_JOB, INVENTORY_DOCUMENT_VALIDATE_JOB,
@@ -80,6 +82,7 @@ def build_inventory_handler_registry(
     runtime_analyzer = document_analyzer or InventoryDocumentAnalyzer(
         SessionLocal,
         prepared_storage=InventoryPreparedStorage(runtime_settings.INVENTORY_SOURCE_STORAGE_ROOT),
+        gateway=RuntimeInventoryGeminiGateway(InventoryGeminiCredentialResolver(SessionLocal, runtime_settings), timeout_seconds=runtime_settings.INVENTORY_AI_TIMEOUT_SECONDS),
         enabled=runtime_settings.INVENTORY_AI_ENABLED,
     )
     runtime_normalizer = document_normalizer or InventoryDocumentNormalizer(SessionLocal)

@@ -1,4 +1,6 @@
 from datetime import date
+import logging
+
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -6,9 +8,15 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.providers.ai.gemini import validate_gemini_api_key as validate_gemini_candidate
 from app.modules.inventory.daily.service import DailyRunBlocked, InventoryDailyRunService
 from app.modules.inventory.exports.service import InventoryExportFailure, InventoryExportService
+from app.modules.inventory.credentials import (
+    InventoryAiCredentialRepository,
+    inventory_credential_cipher,
+)
 from app.modules.inventory.permissions import (
+    INVENTORY_CREDENTIALS_MANAGE_PERMISSION,
     INVENTORY_FINALIZE_PERMISSION,
     INVENTORY_EXPORT_PERMISSION,
     INVENTORY_READ_PERMISSION,
@@ -17,6 +25,108 @@ from app.modules.inventory.permissions import (
 from app.modules.inventory.review.service import InventoryReviewService
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
+_CREDENTIAL_LOGGER = logging.getLogger("cam.inventory.credentials_api")
+
+
+class GeminiCredentialRequest(BaseModel):
+    api_key: str = Field(min_length=1, max_length=512)
+    label: str | None = Field(default=None, max_length=255)
+
+
+def _credential_view(metadata, *, source: str) -> dict:
+    if metadata is None:
+        return {
+            "provider": "gemini", "configured": False, "source": "unavailable",
+            "masked_key": None, "label": None, "status": "unavailable",
+            "last_tested_at": None, "updated_at": None, "updated_by": None,
+        }
+    return {
+        "provider": metadata.provider, "configured": True, "source": source,
+        "masked_key": f"••••••••{metadata.secret_last4}", "label": metadata.label,
+        "status": "connected" if metadata.status == "active" else metadata.status,
+        "last_tested_at": metadata.last_tested_at, "updated_at": metadata.updated_at,
+        "updated_by": metadata.updated_by,
+    }
+
+
+def _credential_repository(session):
+    return InventoryAiCredentialRepository(session, inventory_credential_cipher(get_settings()))
+
+
+def _credential_metadata_repository(session):
+    return InventoryAiCredentialRepository(session, None)
+
+
+@router.get("/configuration/ai-credential")
+def get_ai_credential(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    with SessionLocal() as session:
+        metadata = _credential_metadata_repository(session).get_metadata(principal.active_tenant_id)
+    if metadata is not None:
+        return _credential_view(metadata, source="configuration")
+    if get_settings().inventory_gemini_api_key:
+        return {
+            "provider": "gemini", "configured": True, "source": "environment",
+            "masked_key": None, "label": None, "status": "connected",
+            "last_tested_at": None, "updated_at": None, "updated_by": None,
+        }
+    return _credential_view(None, source="unavailable")
+
+
+@router.post("/configuration/ai-credential/test")
+def test_ai_credential(
+    body: GeminiCredentialRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CREDENTIALS_MANAGE_PERMISSION)),
+):
+    result = validate_gemini_candidate(body.api_key)
+    _CREDENTIAL_LOGGER.info(
+        "inventory_gemini_credential_test tenant_id=%s actor_id=%s provider=gemini result=%s",
+        principal.active_tenant_id, principal.actor_id, result,
+    )
+    return {"provider": "gemini", "status": result}
+
+
+@router.put("/configuration/ai-credential")
+def replace_ai_credential(
+    body: GeminiCredentialRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CREDENTIALS_MANAGE_PERMISSION)),
+):
+    result = validate_gemini_candidate(body.api_key)
+    with SessionLocal() as session:
+        repository = _credential_repository(session)
+        previous = repository.get_metadata(principal.active_tenant_id)
+        if result != "VALID":
+            repository.audit(
+                principal.active_tenant_id, actor_id=principal.actor_id,
+                action="credential_validation", result=result,
+                previous_fingerprint=previous.secret_fingerprint if previous else None,
+            )
+            session.commit()
+            _CREDENTIAL_LOGGER.info(
+                "inventory_gemini_credential_replace tenant_id=%s actor_id=%s provider=gemini result=%s",
+                principal.active_tenant_id, principal.actor_id, result,
+            )
+            raise HTTPException(
+                422,
+                detail={"code": "inventory_gemini_credential_invalid", "status": result},
+            )
+        metadata = repository.replace(
+            principal.active_tenant_id, secret=body.api_key, label=body.label,
+            updated_by=principal.actor_id, last_test_status="VALID",
+        )
+        repository.audit(
+            principal.active_tenant_id, actor_id=principal.actor_id,
+            action="credential_replaced", result="VALID",
+            previous_fingerprint=previous.secret_fingerprint if previous else None,
+            new_fingerprint=metadata.secret_fingerprint,
+        )
+        session.commit()
+    _CREDENTIAL_LOGGER.info(
+        "inventory_gemini_credential_replace tenant_id=%s actor_id=%s provider=gemini result=VALID",
+        principal.active_tenant_id, principal.actor_id,
+    )
+    return _credential_view(metadata, source="configuration")
 
 
 class CorrectRequest(BaseModel):

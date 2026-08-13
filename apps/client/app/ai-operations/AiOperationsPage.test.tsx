@@ -21,6 +21,7 @@ import {
   AiOperationsContent,
   AiOperationsFilters,
   AiOperationsShell,
+  aiWorkerIsPaused,
   eligibleProcessingAction,
   formatProcessingDuration,
   emptyDashboard,
@@ -202,6 +203,11 @@ describe("AI Operations date range", () => {
 });
 
 describe("AI Operations dashboard", () => {
+  it("restores the AI worker toggle from the persisted AI policy, not the general pipeline pause", () => {
+    expect(aiWorkerIsPaused({ ai_enabled: false })).toBe(true);
+    expect(aiWorkerIsPaused({ ai_enabled: true })).toBe(false);
+  });
+
   it("routes normally and renders navigation without opening a new tab", () => {
     expect(routeForPath("/ai-operations")).toBe("ai-operations");
     expect(routeForPath("/ai-operations/processing")).toBe("ai-operations");
