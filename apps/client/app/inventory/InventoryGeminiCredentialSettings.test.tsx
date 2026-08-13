@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { inventoryApi } from "./api";
+import { inventoryApi, InventoryApiError } from "./api";
 import {
   InventoryGeminiCredentialSettings,
   clearCredentialDraft,
@@ -84,6 +84,34 @@ describe("Inventory Gemini credential settings", () => {
     const allCalls = JSON.stringify(fetchMock.mock.calls);
     expect(allCalls).not.toContain("/api/ai");
     expect(allCalls).not.toContain("/api/auth/google");
+    vi.unstubAllGlobals();
+  });
+
+  it("maps structured encryption and storage failures to safe operator messages", async () => {
+    const encryption = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: { code: "inventory_credential_encryption_unavailable" } }),
+    });
+    vi.stubGlobal("fetch", encryption);
+    await expect(inventoryApi.replaceAiCredential(secret)).rejects.toEqual(
+      expect.objectContaining<Partial<InventoryApiError>>({
+        status: 503,
+        message: "Credential encryption is not configured correctly on the server.",
+      }),
+    );
+    const storage = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: { code: "inventory_credential_storage_unavailable" } }),
+    });
+    vi.stubGlobal("fetch", storage);
+    await expect(inventoryApi.replaceAiCredential(secret)).rejects.toEqual(
+      expect.objectContaining<Partial<InventoryApiError>>({
+        status: 503,
+        message: "Credential storage is not ready. A database migration may be required.",
+      }),
+    );
     vi.unstubAllGlobals();
   });
 

@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -99,17 +100,44 @@ def replace_ai_credential(
 ):
     result = validate_gemini_candidate(body.api_key)
     with SessionLocal() as session:
-        # Metadata access does not require decryption. Construct the cipher only
-        # when a valid candidate is about to be encrypted and persisted.
-        metadata_repository = _credential_metadata_repository(session)
-        previous = metadata_repository.get_metadata(principal.active_tenant_id)
-        if result != "VALID":
-            metadata_repository.audit(
-                principal.active_tenant_id, actor_id=principal.actor_id,
-                action="credential_validation", result=result,
-                previous_fingerprint=previous.secret_fingerprint if previous else None,
+        try:
+            # Metadata access intentionally does not construct the cipher.
+            previous = _credential_metadata_repository(session).get_metadata(principal.active_tenant_id)
+        except SQLAlchemyError as exc:
+            session.rollback()
+            _CREDENTIAL_LOGGER.warning(
+                "inventory_gemini_credential_storage tenant_id=%s actor_id=%s provider=gemini error_class=%s",
+                principal.active_tenant_id, principal.actor_id, type(exc).__name__,
             )
-            session.commit()
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "inventory_credential_storage_unavailable",
+                    "message": "Inventory credential storage is not ready.",
+                },
+            ) from exc
+
+        if result != "VALID":
+            try:
+                _credential_metadata_repository(session).audit(
+                    principal.active_tenant_id, actor_id=principal.actor_id,
+                    action="credential_validation", result=result,
+                    previous_fingerprint=previous.secret_fingerprint if previous else None,
+                )
+                session.commit()
+            except SQLAlchemyError as exc:
+                session.rollback()
+                _CREDENTIAL_LOGGER.warning(
+                    "inventory_gemini_credential_storage tenant_id=%s actor_id=%s provider=gemini error_class=%s",
+                    principal.active_tenant_id, principal.actor_id, type(exc).__name__,
+                )
+                raise HTTPException(
+                    503,
+                    detail={
+                        "code": "inventory_credential_storage_unavailable",
+                        "message": "Inventory credential storage is not ready.",
+                    },
+                ) from exc
             _CREDENTIAL_LOGGER.info(
                 "inventory_gemini_credential_replace tenant_id=%s actor_id=%s provider=gemini result=%s",
                 principal.active_tenant_id, principal.actor_id, result,
@@ -118,6 +146,7 @@ def replace_ai_credential(
                 422,
                 detail={"code": "inventory_gemini_credential_invalid", "status": result},
             )
+
         try:
             repository = _credential_repository(session)
             metadata = repository.replace(
@@ -141,7 +170,20 @@ def replace_ai_credential(
                 503,
                 detail={
                     "code": "inventory_credential_encryption_unavailable",
-                    "message": "Credential encryption is not configured on the server.",
+                    "message": "Credential encryption is not configured correctly on the server.",
+                },
+            ) from exc
+        except SQLAlchemyError as exc:
+            session.rollback()
+            _CREDENTIAL_LOGGER.warning(
+                "inventory_gemini_credential_storage tenant_id=%s actor_id=%s provider=gemini error_class=%s",
+                principal.active_tenant_id, principal.actor_id, type(exc).__name__,
+            )
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "inventory_credential_storage_unavailable",
+                    "message": "Inventory credential storage is not ready.",
                 },
             ) from exc
     _CREDENTIAL_LOGGER.info(
@@ -149,7 +191,6 @@ def replace_ai_credential(
         principal.active_tenant_id, principal.actor_id,
     )
     return _credential_view(metadata, source="configuration")
-
 
 class CorrectRequest(BaseModel):
     values: dict = Field(default_factory=dict)

@@ -8,6 +8,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -184,6 +185,34 @@ class InventoryCredentialRouterTest(unittest.TestCase):
         self.assertNotIn(NEW_KEY, response.text)
         with self.sessions() as session:
             self.assertEqual(session.scalar(select(func.count(InventoryAiCredentialModel.id))), 0)
+
+    def test_put_fails_closed_when_server_encryption_key_is_malformed(self):
+        self.settings = Settings(INVENTORY_CREDENTIAL_ENCRYPTION_KEY="not-a-valid-32-byte-key")
+        with patch("app.modules.inventory.router.validate_gemini_candidate", return_value="VALID"):
+            response = self.request(
+                self.manage, "PUT", "/api/inventory/configuration/ai-credential",
+                json={"api_key": NEW_KEY, "label": "Gemini Account B"},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "inventory_credential_encryption_unavailable")
+        self.assertNotIn(NEW_KEY, response.text)
+
+    def test_put_returns_safe_storage_error_and_preserves_previous_credential(self):
+        self.store("tenant-a", OLD_KEY)
+        with patch("app.modules.inventory.router.validate_gemini_candidate", return_value="VALID"), patch(
+            "app.modules.inventory.credentials.InventoryAiCredentialRepository.replace",
+            side_effect=SQLAlchemyError("schema unavailable"),
+        ):
+            response = self.request(
+                self.manage, "PUT", "/api/inventory/configuration/ai-credential",
+                json={"api_key": NEW_KEY, "label": "Gemini Account B"},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "inventory_credential_storage_unavailable")
+        self.assertNotIn(NEW_KEY, response.text)
+        with self.sessions() as session:
+            self.assertEqual(self.repository(session).get_active_secret("tenant-a"), OLD_KEY)
+            self.assertEqual(session.scalar(select(func.count(InventoryAiCredentialAuditModel.id))), 0)
 
     def test_gemini_http_statuses_are_mapped_without_provider_body(self):
         class Response:
