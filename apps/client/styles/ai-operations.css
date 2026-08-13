@@ -38,11 +38,8 @@
 .ops-config-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;align-items:start}
 .ops-config-defaults,.ops-config-budget,.ops-config-global,.ops-config-inventory-ai{grid-column:span 1;min-width:0}
 .ops-config-inventory-ai .inventory-settings-card{height:100%;box-sizing:border-box;padding:20px}
-/* Gemini is the fourth peer card, so its credential facts stack compactly inside it. */
-.ops-config-inventory-ai .inventory-credential-grid{grid-template-columns:1fr;margin:16px 0}
-.ops-config-inventory-ai .inventory-credential-grid>div:nth-child(odd){border-right:0}
-.ops-config-inventory-ai .inventory-credential-grid>div:nth-last-child(-n+2){border-bottom:1px solid #e5eaf0}
-.ops-config-inventory-ai .inventory-credential-grid>div:last-child{border-bottom:0}
+/* Keep paired credential facts comparable while the fourth card remains compact. */
+.ops-config-inventory-ai .inventory-credential-grid{grid-template-columns:repeat(2,minmax(0,1fr));margin:16px 0}
 .ops-config-inventory-ai .inventory-credential-grid>div{padding:10px 12px}
 .ops-config-card,.ops-global-settings{gap:18px!important}
 .ops-config-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid #e8edf3}
