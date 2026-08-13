@@ -110,8 +110,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(asset_details_router)
     api.include_router(search_router)
     api.include_router(search_governance_router)
-    if settings.INVENTORY_AUTOMATION_ENABLED:
-        api.include_router(inventory_router)
+    # Inventory runtime execution remains default-off, but its authenticated
+    # tenant configuration and status routes must stay reachable so an
+    # administrator can configure credentials before automation is enabled.
+    api.include_router(inventory_router)
 
     @api.get("/live")
     def live():

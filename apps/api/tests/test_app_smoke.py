@@ -36,6 +36,15 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    def test_inventory_configuration_routes_are_registered_while_automation_is_disabled(self) -> None:
+        from app.core.config import Settings
+        from app.main import create_app
+
+        api = create_app(Settings(INVENTORY_AUTOMATION_ENABLED=False))
+        paths = {getattr(route, "path", "") for route in api.routes}
+        self.assertIn("/api/inventory/configuration/ai-credential", paths)
+
+
 
 if __name__ == "__main__":
     unittest.main()
