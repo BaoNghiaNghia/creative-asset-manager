@@ -198,7 +198,7 @@ class InventoryCredentialRouterTest(unittest.TestCase):
         response = self.request(self.read, "GET", "/api/inventory/configuration/ai-credential")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["source"], "environment")
-        self.assertIsNone(response.json()["masked_key"])
+        self.assertEqual(response.json()["masked_key"], f"••••••••{NEW_KEY[-4:]}")
         self.assertNotIn(NEW_KEY, response.text)
 
 

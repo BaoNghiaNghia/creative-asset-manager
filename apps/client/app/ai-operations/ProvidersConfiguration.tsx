@@ -196,7 +196,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
     <div className="ops-section-heading"><div><h2 id="configuration-title">Configuration</h2><p>Tenant settings are editable. Global upper bounds are deployment-managed and read-only.</p></div><span className="ops-scope">Tenant: {configuration.tenant_id}</span></div>
     {error && <div className="ops-inline-error" role="alert">{error}</div>}{audit && <AuditNotice audit={audit} />}
     <div className="ops-config-grid">
-      <form className="ops-config-card" onSubmit={event => { event.preventDefault(); saveConfiguration(); }}>
+      <form className="ops-config-card ops-config-defaults" onSubmit={event => { event.preventDefault(); saveConfiguration(); }}>
         <header className="ops-config-card-header"><div><h3>Thiết lập mặc định</h3><p>Chọn cách hệ thống xử lý tài sản mới trong workspace này.</p></div><span className="ops-card-kicker">Tenant</span></header>
         <div className="ops-form-section">
           <div className="ops-form-section-heading"><h4>Nhà cung cấp &amp; mô hình</h4><p>Chỉ các nhà cung cấp đã kết nối và mô hình được phép mới có thể chọn.</p></div>
@@ -225,7 +225,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
           <button className="primary" disabled={!canEdit || saving} type="submit">Save tenant defaults</button>
         </div>
       </form>
-      {configuration.permissions.can_read_budget !== false ? <form className="ops-config-card" onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
+      {configuration.permissions.can_read_budget !== false ? <form className="ops-config-card ops-config-budget" onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
         <header className="ops-config-card-header"><div><h3>Chính sách ngân sách</h3><p>Đặt ngưỡng chi phí AI cho tenant. Mọi thay đổi đều cần xác nhận.</p></div><span className="ops-card-kicker">Budget</span></header>
         <label className="check ops-field-full"><input disabled={!canUpdateBudget} type="checkbox" checked={budget.enabled} onChange={event => setBudget({ ...budget, enabled: event.target.checked })} /> Bật kiểm soát ngân sách</label>
         <div className="ops-form-section">
@@ -243,13 +243,15 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
           </div>
         </div>
         <button className="primary ops-form-submit" disabled={!canUpdateBudget || saving} type="submit">Review budget update</button>
-      </form> : <section className="ops-config-card"><h3>Budget policy</h3><small>Permission ai_budget.read is required to view budget settings.</small></section>}
-      <section className="ops-global-settings"><header className="ops-config-card-header"><div><h3>Global controls</h3><p>Giới hạn toàn cục do deployment quản lý và chỉ có thể xem tại đây.</p></div><span className="ops-card-kicker">Read-only</span></header><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Tenant không thể bật lại chức năng đã bị tắt ở cấp toàn cục.</p>
+      </form> : <section className="ops-config-card ops-config-budget"><h3>Budget policy</h3><small>Permission ai_budget.read is required to view budget settings.</small></section>}
+      <section className="ops-global-settings ops-config-global"><header className="ops-config-card-header"><div><h3>Global controls</h3><p>Giới hạn toàn cục do deployment quản lý và chỉ có thể xem tại đây.</p></div><span className="ops-card-kicker">Read-only</span></header><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Tenant không thể bật lại chức năng đã bị tắt ở cấp toàn cục.</p>
         {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục.</small>}
         <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
       </section>
+      <section className="ops-config-inventory-ai" aria-label="Inventory AI credential settings">
+        <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} />
+      </section>
     </div>
-    <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} />
     {confirmAction && <div className="ops-confirm ops-confirm-wide" role="dialog" aria-label="Confirm configuration change"><h3>Confirm {confirmAction === "budget" ? "budget override" : "emergency action"}</h3><p>This action is audited. Enter a reason before continuing.</p><label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label><div><button type="button" onClick={() => setConfirmAction(null)}>Cancel</button><button className="danger" type="button" disabled={!reason.trim() || saving} onClick={confirmAction === "budget" ? saveBudget : confirmAction === "global-stop" ? toggleGlobal : toggleTenant}>Confirm</button></div></div>}
   </section>;
 }

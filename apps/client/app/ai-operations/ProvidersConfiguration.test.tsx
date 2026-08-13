@@ -33,6 +33,19 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(markup).not.toContain("Emergency stop all AI");
   });
 
+  it("keeps all Configuration cards inside the responsive four-column layout", () => {
+    const markup = renderToStaticMarkup(<ConfigurationForm
+      configuration={configuration}
+      onChanged={noop}
+      onReload={noop}
+      inventoryPermissions={["inventory.read", "inventory.credentials.manage"]}
+    />);
+    expect(markup).toContain("ops-config-card ops-config-defaults");
+    expect(markup).toContain("ops-config-card ops-config-budget");
+    expect(markup).toContain("ops-global-settings ops-config-global");
+    expect(markup).toContain("ops-config-inventory-ai");
+  });
+
   it("mounts Inventory Gemini settings in the visible AI Operations Configuration tab even while Inventory automation is disabled", () => {
     const disabledInventory = { ...configuration, tenant: { ...configuration.tenant, ai_enabled: false } };
     const markup = renderToStaticMarkup(<ConfigurationForm

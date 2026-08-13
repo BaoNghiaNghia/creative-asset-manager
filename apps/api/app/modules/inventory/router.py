@@ -65,11 +65,15 @@ def get_ai_credential(
         metadata = _credential_metadata_repository(session).get_metadata(principal.active_tenant_id)
     if metadata is not None:
         return _credential_view(metadata, source="configuration")
-    if get_settings().inventory_gemini_api_key:
+    environment_key = get_settings().inventory_gemini_api_key
+    if environment_key:
+        # Environment credentials remain deployment-managed. Return only a masked
+        # suffix so operators can confirm that the fallback is active safely.
         return {
             "provider": "gemini", "configured": True, "source": "environment",
-            "masked_key": None, "label": None, "status": "connected",
-            "last_tested_at": None, "updated_at": None, "updated_by": None,
+            "masked_key": f"••••••••{environment_key[-4:]}", "label": None,
+            "status": "connected", "last_tested_at": None, "updated_at": None,
+            "updated_by": None,
         }
     return _credential_view(None, source="unavailable")
 
