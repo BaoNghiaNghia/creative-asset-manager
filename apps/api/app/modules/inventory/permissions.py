@@ -3,6 +3,7 @@ INVENTORY_CONTROL_PERMISSION = "inventory.control"
 INVENTORY_JOBS_MANAGE_PERMISSION = "inventory.jobs.manage"
 INVENTORY_REVIEW_PERMISSION = "inventory.review"
 INVENTORY_FINALIZE_PERMISSION = "inventory.finalize"
+INVENTORY_EXPORT_PERMISSION = "inventory.export"
 
 INVENTORY_PERMISSION_DEFINITIONS = {
     INVENTORY_READ_PERMISSION: "Read tenant Inventory operations",
@@ -10,4 +11,5 @@ INVENTORY_PERMISSION_DEFINITIONS = {
     INVENTORY_JOBS_MANAGE_PERMISSION: "Manage tenant Inventory jobs",
     INVENTORY_REVIEW_PERMISSION: "Review and correct tenant Inventory documents",
     INVENTORY_FINALIZE_PERMISSION: "Finalize or force-finalize tenant Inventory business days",
+    INVENTORY_EXPORT_PERMISSION: "Export finalized tenant Inventory reports",
 }

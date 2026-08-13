@@ -78,6 +78,7 @@ class InventorySettingsModel(Base):
     reupload_folder_id: Mapped[str | None] = mapped_column(String(2048))
     excel_folder_id: Mapped[str | None] = mapped_column(String(2048))
     backup_folder_id: Mapped[str | None] = mapped_column(String(2048))
+    old_image_archive_folder_id: Mapped[str | None] = mapped_column(String(2048))
     excel_template_file_id: Mapped[str | None] = mapped_column(String(2048))
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Ho_Chi_Minh")
     auto_approve_confidence: Mapped[Decimal] = mapped_column(
@@ -772,6 +773,13 @@ class InventoryExportModel(Base):
     period_month: Mapped[str] = mapped_column(String(7), nullable=False)
     business_date: Mapped[date | None] = mapped_column(Date)
     drive_file_id: Mapped[str | None] = mapped_column(String(2048))
+    backup_drive_file_id: Mapped[str | None] = mapped_column(String(2048))
+    archive_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="not_requested"
+    )
+    archive_error_code: Mapped[str | None] = mapped_column(String(100))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     content_sha256: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     error_code: Mapped[str | None] = mapped_column(String(100))

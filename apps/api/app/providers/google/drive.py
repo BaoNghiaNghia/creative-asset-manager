@@ -112,6 +112,18 @@ class GoogleDriveClient:
     async def move_file(self, item_id: str, destination_parent_id: str):
         current = await self.client.get(f"/files/{item_id}", params={"fields": "id,parents", "supportsAllDrives": "true"}); current.raise_for_status(); old=",".join(current.json().get("parents", [])); response=await self.client.patch(f"/files/{item_id}", params={"addParents": destination_parent_id, "removeParents": old, "supportsAllDrives": "true", "fields": FIELDS}); response.raise_for_status(); return map_drive_file(response.json())
 
+    async def ensure_child_folder(self, parent_id: str, name: str):
+        """Return an existing direct child folder or create it once."""
+        for child in await self.children(parent_id, folders_only=True):
+            if child.name == name:
+                return child
+        response = await self.client.post(
+            "/files",
+            params={"supportsAllDrives": "true", "fields": FIELDS},
+            json={"name": name, "mimeType": FOLDER_MIME, "parents": [parent_id]},
+        )
+        response.raise_for_status()
+        return map_drive_file(response.json())
     async def copy_file(self, item_id: str, destination_parent_id: str):
         source = await self.get(item_id)
         if source.kind == "folder":

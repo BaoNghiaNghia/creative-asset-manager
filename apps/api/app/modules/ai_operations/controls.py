@@ -220,6 +220,7 @@ class AiOperationsControlService:
             },
             "tenant": {
                 "ai_enabled": tenant.ai_analysis_enabled,
+                "processing_paused": tenant.processing_paused,
                 "default_provider": tenant.default_ai_provider,
                 "default_model": tenant.default_ai_model,
                 "default_mode": tenant.default_ai_mode,

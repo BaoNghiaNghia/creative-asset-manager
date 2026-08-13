@@ -46,6 +46,7 @@ from app.modules.inventory.documents.service import (
 from app.modules.inventory.review.service import InventoryReviewService
 from app.modules.inventory.daily.service import InventoryDailyRunService
 from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
+from app.modules.inventory.exports.service import InventoryExportFailure, InventoryExportService
 from app.modules.inventory.transactions.service import INVENTORY_DOCUMENT_COMMIT_JOB, InventoryDocumentCommitter
 from app.modules.explorer.schema import AssetNode
 from app.modules.inventory.drive.downloader import InventoryFileDownloader
@@ -59,7 +60,7 @@ from app.modules.inventory.model import (
     InventoryAiControlModel,
     InventoryProcessingControlModel,
 )
-from app.modules.inventory.persistence_model import InventorySettingsModel, InventorySourceFileModel, InventoryDailyRunEventModel, InventoryDailyRunModel
+from app.modules.inventory.persistence_model import InventorySettingsModel, InventorySourceFileModel, InventoryDailyRunEventModel, InventoryDailyRunModel, InventoryExportModel
 from app.modules.pipeline.model import AssetPipelineModel
 
 from app.modules.inventory.repository import InventoryCatalogRepository, InventorySourceFileRepository
@@ -131,6 +132,54 @@ class InventoryPostgreSqlIntegrationTest(unittest.TestCase):
             )
             with self.assertRaises(IntegrityError):
                 session.flush()
+    def test_phase10_finalized_export_is_tenant_scoped_and_unique(self) -> None:
+        marker = uuid4().hex
+        tenant_id = f"e-{marker[:30]}"
+        source_id = f"s-{marker[:30]}"
+        business_date = date(2030, 8, 9)
+        with self.sessions.begin() as session:
+            session.add_all((
+                TenantModel(id=tenant_id, name="Export", slug=tenant_id),
+                ExternalSourceModel(id=source_id, tenant_id=tenant_id, source_key=source_id, source_type="google_drive", source_metadata={"oauth_connection_id": "test-connection"}),
+                InventorySettingsModel(tenant_id=tenant_id, external_source_id=source_id, inbox_folder_id="inbox", excel_folder_id="excel", backup_folder_id="backup", excel_export_enabled=True),
+                InventoryDailyRunModel(tenant_id=tenant_id, business_date=business_date, idempotency_key=f"run-{marker}", status="finalized"),
+            ))
+        uploads = []
+        class Drive:
+            async def __aenter__(inner): return inner
+            async def __aexit__(inner, *_): return None
+            async def upload_file(inner, parent, name, mime, content):
+                uploads.append((parent, name)); return type("Node", (), {"id": f"{parent}-{name}"})()
+        async def token(_): return "phase10-token"
+        service = InventoryExportService(self.sessions, token_resolver=token, client_factory=lambda _: Drive())
+        first = service.export(tenant_id, business_date)
+        second = service.export(tenant_id, business_date)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(2, len(uploads))
+        with self.sessions() as session:
+            self.assertEqual(1, session.scalar(select(func.count(InventoryExportModel.id)).where(InventoryExportModel.tenant_id == tenant_id)))
+            self.assertEqual("completed", session.get(InventoryExportModel, first.id).status)
+
+    def test_phase10_unfinalized_export_is_rejected_without_drive_call(self) -> None:
+        marker = uuid4().hex
+        tenant_id = f"u-{marker[:30]}"
+        source_id = f"s-{marker[:30]}"
+        business_date = date(2030, 8, 10)
+        with self.sessions.begin() as session:
+            session.add_all((
+                TenantModel(id=tenant_id, name="Export", slug=tenant_id),
+                ExternalSourceModel(id=source_id, tenant_id=tenant_id, source_key=source_id, source_type="google_drive", source_metadata={"oauth_connection_id": "test-connection"}),
+                InventorySettingsModel(tenant_id=tenant_id, external_source_id=source_id, inbox_folder_id="inbox", excel_folder_id="excel", backup_folder_id="backup", excel_export_enabled=True),
+            ))
+        called = []
+        class Drive:
+            async def __aenter__(inner): return inner
+            async def __aexit__(inner, *_): return None
+            async def upload_file(inner, *args): called.append(args)
+        async def token(_): return "phase10-token"
+        with self.assertRaisesRegex(InventoryExportFailure, "not_finalized"):
+            InventoryExportService(self.sessions, token_resolver=token, client_factory=lambda _: Drive()).export(tenant_id, business_date)
+        self.assertEqual([], called)
     def test_concurrent_provider_and_job_registration_are_idempotent(self) -> None:
         from concurrent.futures import ThreadPoolExecutor
 

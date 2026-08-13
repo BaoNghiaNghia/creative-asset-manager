@@ -8,7 +8,7 @@ const configuration: AiOpsConfiguration = {
   tenant_id: "tenant-a",
   scope: { tenant: "tenant-a", global_upper_bounds_read_only: true },
   permissions: { can_manage_tenant: true, can_manage_global: false, platform_admin: false },
-  tenant: { ai_enabled: true, default_provider: "openai", default_model: "gpt-5", default_mode: "single", default_metadata_profile: "creative", auto_analyze_new_assets: false, daily_item_limit: 100, total_ai_concurrency: 2, retry_count: 2, timeout_seconds: 60 },
+  tenant: { ai_enabled: true, processing_paused: false, default_provider: "openai", default_model: "gpt-5", default_mode: "single", default_metadata_profile: "creative", auto_analyze_new_assets: false, daily_item_limit: 100, total_ai_concurrency: 2, retry_count: 2, timeout_seconds: 60 },
   global: { ai_auto_analyze_enabled: false, single_enabled: true, batch_enabled: true, emergency_stop: false },
   providers: [
     { id: "gemini", label: "Google Gemini", enabled: true, connection_configured: true, processing_enabled: true, paused: false, single_enabled: true, batch_enabled: true, default_model: "gemini-2", allowed_models: ["gemini-2"], active_jobs_limit: 2, single_concurrency: 1, batch_concurrency: 1, last_error: null },

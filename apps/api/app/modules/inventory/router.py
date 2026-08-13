@@ -6,8 +6,10 @@ from pydantic import BaseModel, Field
 from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.inventory.daily.service import DailyRunBlocked, InventoryDailyRunService
+from app.modules.inventory.exports.service import InventoryExportFailure, InventoryExportService
 from app.modules.inventory.permissions import (
     INVENTORY_FINALIZE_PERMISSION,
+    INVENTORY_EXPORT_PERMISSION,
     INVENTORY_READ_PERMISSION,
     INVENTORY_REVIEW_PERMISSION,
 )
@@ -156,3 +158,33 @@ def finalize_daily_run(
     except ValueError as exc:
         raise HTTPException(422, detail={"code": str(exc)}) from exc
     return _daily_view(result)
+
+
+def _export_view(row):
+    return {
+        "id": row.id, "business_date": row.business_date, "status": row.status,
+        "main_drive_file_id": row.main_drive_file_id,
+        "backup_drive_file_id": row.backup_drive_file_id,
+        "content_sha256": row.content_sha256, "completed_at": row.completed_at,
+        "error_code": row.error_code,
+        "archive_status": row.archive_status,
+        "archive_error_code": row.archive_error_code,
+    }
+
+
+@router.get("/exports/{business_date}")
+def get_export(business_date: date, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_EXPORT_PERMISSION))):
+    result = InventoryExportService(SessionLocal).get(principal.active_tenant_id, business_date)
+    if result is None:
+        raise HTTPException(404, detail={"code": "inventory_export_not_found"})
+    return _export_view(result)
+
+
+@router.post("/exports/{business_date}")
+def export(business_date: date, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_EXPORT_PERMISSION))):
+    try:
+        return _export_view(InventoryExportService(SessionLocal).export(principal.active_tenant_id, business_date, principal.actor_id))
+    except InventoryExportFailure as exc:
+        code = str(exc)
+        status = 409 if code == "inventory_daily_run_not_finalized" else 422
+        raise HTTPException(status, detail={"code": code}) from exc

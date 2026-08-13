@@ -28,7 +28,7 @@ if (
     config.config_file_name is not None
     and config.attributes.get("configure_logger", True)
 ):
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 database_url = config.attributes.get("database_url") or os.getenv("DATABASE_URL")
 if database_url:

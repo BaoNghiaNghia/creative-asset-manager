@@ -7,6 +7,7 @@ import {
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
+import { fetchAiOperationsConfiguration, setTenantAiPaused } from "../../features/ai_operations";
 import {
   dailyProviderCostChart, dailyStatusChart, failureChart,
   formatCost, formatDuration, modeLabel, providerLabel, providerVolumeChart,
@@ -191,6 +192,7 @@ export function AiOperationsContent({
     <header className="ops-header">
       <div><small>OPERATIONS</small><h1>Processing Operations</h1><p>Pipeline progress, AI analysis, usage and cost for the current tenant.</p></div>
       <div className="ops-header-actions">
+        <AiWorkerToggle />
         <label className="ops-refresh-control"><span>Auto-refresh</span><select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
           {AUTO_REFRESH_SECONDS.map(seconds => <option key={seconds} value={seconds}>{seconds ? `${seconds}s` : "Off"}</option>)}
         </select></label>
@@ -228,6 +230,43 @@ export function AiOperationsContent({
   </>;
 }
 
+function AiWorkerToggle() {
+  const [paused, setPaused] = useState<boolean | null>(null);
+  const [allowed, setAllowed] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    fetchAiOperationsConfiguration().then(configuration => {
+      if (!alive) return;
+      setPaused(configuration.tenant.processing_paused);
+      setAllowed(Boolean(configuration.permissions.can_emergency_stop));
+    }).catch(() => { if (alive) setPaused(null); });
+    return () => { alive = false; };
+  }, []);
+
+  async function toggle() {
+    if (paused === null || !allowed || pending) return;
+    const nextPaused = !paused;
+    setPending(true); setError("");
+    try {
+      await setTenantAiPaused(nextPaused, nextPaused ? "AI processing paused from Operations dashboard" : "AI processing resumed from Operations dashboard");
+      setPaused(nextPaused);
+    } catch (reason) {
+      setError(String((reason as Error)?.message || "Could not update AI processing"));
+    } finally { setPending(false); }
+  }
+
+  const running = paused === false;
+  return <div className="ops-worker-control">
+    <span>AI worker</span>
+    <button type="button" role="switch" aria-checked={running} aria-label="Toggle AI worker processing" disabled={!allowed || paused === null || pending} onClick={() => void toggle()} className={running ? "on" : "off"}>
+      <i aria-hidden="true" /><b>{pending ? "Updating…" : running ? "Running" : "Paused"}</b>
+    </button>
+    {error && <small role="alert">{error}</small>}
+  </div>;
+}
 export function handleTabKeyDown(event: React.KeyboardEvent<HTMLElement>, active: AiOpsTab, onTab: (tab: AiOpsTab) => void) {
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
   event.preventDefault();

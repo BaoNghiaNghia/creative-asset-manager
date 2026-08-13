@@ -174,6 +174,7 @@ export type AiOpsConfiguration = {
   };
   tenant: {
     ai_enabled: boolean;
+    processing_paused: boolean;
     default_provider: AiOpsProvider | null;
     default_model: string | null;
     default_mode: AiOpsMode;
