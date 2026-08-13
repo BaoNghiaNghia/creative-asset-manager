@@ -225,7 +225,7 @@ export function AiOperationsContent({
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
-        : <ConfigurationTab />}
+        : <ConfigurationTab permissions={permissions} />}
     </section>
   </>;
 }

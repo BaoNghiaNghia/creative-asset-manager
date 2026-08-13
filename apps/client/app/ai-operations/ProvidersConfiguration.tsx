@@ -6,6 +6,7 @@ import {
   type AiOpsProvider, type AiOpsProviderBreakdown,
 } from "../../features/ai_operations";
 import { formatCost } from "./presentation";
+import { InventoryGeminiCredentialSettings } from "../inventory/InventoryGeminiCredentialSettings";
 
 export function ProvidersTab({ metrics }: { metrics: AiOpsProviderBreakdown[] }) {
   const state = useConfiguration();
@@ -14,11 +15,11 @@ export function ProvidersTab({ metrics }: { metrics: AiOpsProviderBreakdown[] })
   return <ProviderCards configuration={state.value} metrics={metrics} onChanged={state.apply} onReload={state.reload} />;
 }
 
-export function ConfigurationTab() {
+export function ConfigurationTab({ permissions = [] }: { permissions?: readonly string[] }) {
   const state = useConfiguration();
   if (state.loading) return <ConfigurationLoading />;
   if (state.error || !state.value) return <ConfigurationError error={state.error} retry={state.reload} />;
-  return <ConfigurationForm configuration={state.value} onChanged={state.apply} onReload={state.reload} />;
+  return <ConfigurationForm configuration={state.value} onChanged={state.apply} onReload={state.reload} inventoryPermissions={permissions} />;
 }
 
 function useConfiguration() {
@@ -126,8 +127,9 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
   </section>;
 }
 
-export function ConfigurationForm({ configuration, onChanged: _onChanged, onReload }: {
+export function ConfigurationForm({ configuration, onChanged: _onChanged, onReload, inventoryPermissions = [] }: {
   configuration: AiOpsConfiguration; onChanged: (value: AiOpsConfiguration) => void; onReload: () => void;
+  inventoryPermissions?: readonly string[];
 }) {
   const [form, setForm] = useState(() => {
     const fallback = configuration.providers.find(item => item.connection_configured) || configuration.providers[0];
@@ -247,6 +249,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
         <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
       </section>
     </div>
+    <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} />
     {confirmAction && <div className="ops-confirm ops-confirm-wide" role="dialog" aria-label="Confirm configuration change"><h3>Confirm {confirmAction === "budget" ? "budget override" : "emergency action"}</h3><p>This action is audited. Enter a reason before continuing.</p><label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label><div><button type="button" onClick={() => setConfirmAction(null)}>Cancel</button><button className="danger" type="button" disabled={!reason.trim() || saving} onClick={confirmAction === "budget" ? saveBudget : confirmAction === "global-stop" ? toggleGlobal : toggleTenant}>Confirm</button></div></div>}
   </section>;
 }

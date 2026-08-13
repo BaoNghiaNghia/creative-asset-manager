@@ -33,6 +33,31 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(markup).not.toContain("Emergency stop all AI");
   });
 
+  it("mounts Inventory Gemini settings in the visible AI Operations Configuration tab even while Inventory automation is disabled", () => {
+    const disabledInventory = { ...configuration, tenant: { ...configuration.tenant, ai_enabled: false } };
+    const markup = renderToStaticMarkup(<ConfigurationForm
+      configuration={disabledInventory}
+      onChanged={noop}
+      onReload={noop}
+      inventoryPermissions={["inventory.read", "inventory.credentials.manage"]}
+    />);
+    expect(markup).toContain("Inventory AI");
+    expect(markup).toContain("Loading Gemini credential configuration");
+    expect(markup).not.toContain("INVENTORY_AUTOMATION_ENABLED");
+  });
+
+  it("keeps the Gemini section visible but does not expose mutation actions to configuration viewers without credential permission", () => {
+    const markup = renderToStaticMarkup(<ConfigurationForm
+      configuration={configuration}
+      onChanged={noop}
+      onReload={noop}
+      inventoryPermissions={["inventory.read"]}
+    />);
+    expect(markup).toContain("Inventory AI");
+    expect(markup).toContain("Loading Gemini credential configuration");
+    expect(markup).not.toContain("INVENTORY_AUTOMATION_ENABLED");
+  });
+
   it("shows platform-only global emergency action to platform administrators", () => {
     const elevated = { ...configuration, permissions: { can_manage_tenant: true, can_manage_global: true, platform_admin: true } };
     expect(renderToStaticMarkup(<ConfigurationForm configuration={elevated} onChanged={noop} onReload={noop} />)).toContain("Emergency stop all AI");

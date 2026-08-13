@@ -51,8 +51,10 @@ function ErrorMessage({ error }: { error: string }) {
 
 export function InventoryGeminiCredentialSettings({
   initialCredential,
+  canManage = true,
 }: {
   initialCredential?: InventoryAiCredential;
+  canManage?: boolean;
 }) {
   const [credential, setCredential] = useState<InventoryAiCredential | null>(initialCredential || null);
   const [state, setState] = useState<State>(initialCredential ? "ready" : "loading");
@@ -128,7 +130,7 @@ export function InventoryGeminiCredentialSettings({
     return <section className="inventory-settings-card" aria-busy="true"><h2>Inventory AI</h2><p>Loading Gemini credential configuration…</p></section>;
   }
   if (state === "forbidden") {
-    return <section className="inventory-settings-card"><h2>Inventory AI</h2><ErrorMessage error="You do not have permission to manage Inventory Gemini credentials." /></section>;
+    return <section className="inventory-settings-card"><h2>Inventory AI</h2><ErrorMessage error="You do not have permission to view Inventory Gemini credential configuration." /></section>;
   }
   if (state === "error" || !credential) {
     return <section className="inventory-settings-card"><h2>Inventory AI</h2><ErrorMessage error={message || "Unable to load Gemini credential configuration."} /><button type="button" onClick={() => void load()}>Retry</button></section>;
@@ -154,8 +156,10 @@ export function InventoryGeminiCredentialSettings({
       <div><dt>Updated By</dt><dd>{credential.updated_by || "Not available"}</dd></div>
     </dl>
     <div className="inventory-actions">
-      <button type="button" className="secondary" onClick={() => { setDialogOpen(true); setMessage(""); }}>Test Connection</button>
-      <button type="button" onClick={() => { setDialogOpen(true); setMessage(""); }}>Replace API Key</button>
+      {canManage ? <>
+        <button type="button" className="secondary" onClick={() => { setDialogOpen(true); setMessage(""); }}>Test Connection</button>
+        <button type="button" onClick={() => { setDialogOpen(true); setMessage(""); }}>Replace API Key</button>
+      </> : <p className="inventory-muted">You can view this credential status, but <code>inventory.credentials.manage</code> is required to test or replace the key.</p>}
     </div>
     {message ? <ErrorMessage error={message} /> : null}
     {dialogOpen ? <div className="inventory-modal-backdrop" role="presentation" onMouseDown={closeDialog}>

@@ -41,6 +41,20 @@ describe("Inventory Gemini credential settings", () => {
     expect(JSON.stringify(clearCredentialDraft())).not.toContain(secret);
   });
 
+  it("renders not-configured metadata without hiding the credential section", () => {
+    const markup = renderToStaticMarkup(<InventoryGeminiCredentialSettings initialCredential={{
+      ...credential, configured: false, source: "unavailable", masked_key: null, label: null, status: "unavailable",
+    }} />);
+    expect(markup).toContain("Not configured");
+    expect(markup).toContain("Google Gemini");
+  });
+
+  it("shows a clear read-only permission message instead of mutation actions", () => {
+    const markup = renderToStaticMarkup(<InventoryGeminiCredentialSettings initialCredential={credential} canManage={false} />);
+    expect(markup).toContain("inventory.credentials.manage");
+    expect(markup).not.toContain("Replace API Key");
+  });
+
   it("maps all normalized provider states safely for the settings UI", () => {
     expect(credentialStatusLabel("connected", true)).toBe("Connected");
     expect(credentialStatusLabel("INVALID_KEY", true)).toBe("Invalid key");
