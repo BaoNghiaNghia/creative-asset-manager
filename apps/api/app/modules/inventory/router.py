@@ -13,6 +13,7 @@ from app.modules.inventory.daily.service import DailyRunBlocked, InventoryDailyR
 from app.modules.inventory.exports.service import InventoryExportFailure, InventoryExportService
 from app.modules.inventory.credentials import (
     InventoryAiCredentialRepository,
+    InventoryCredentialError,
     inventory_credential_cipher,
 )
 from app.modules.inventory.permissions import (
@@ -98,10 +99,12 @@ def replace_ai_credential(
 ):
     result = validate_gemini_candidate(body.api_key)
     with SessionLocal() as session:
-        repository = _credential_repository(session)
-        previous = repository.get_metadata(principal.active_tenant_id)
+        # Metadata access does not require decryption. Construct the cipher only
+        # when a valid candidate is about to be encrypted and persisted.
+        metadata_repository = _credential_metadata_repository(session)
+        previous = metadata_repository.get_metadata(principal.active_tenant_id)
         if result != "VALID":
-            repository.audit(
+            metadata_repository.audit(
                 principal.active_tenant_id, actor_id=principal.actor_id,
                 action="credential_validation", result=result,
                 previous_fingerprint=previous.secret_fingerprint if previous else None,
@@ -115,17 +118,32 @@ def replace_ai_credential(
                 422,
                 detail={"code": "inventory_gemini_credential_invalid", "status": result},
             )
-        metadata = repository.replace(
-            principal.active_tenant_id, secret=body.api_key, label=body.label,
-            updated_by=principal.actor_id, last_test_status="VALID",
-        )
-        repository.audit(
-            principal.active_tenant_id, actor_id=principal.actor_id,
-            action="credential_replaced", result="VALID",
-            previous_fingerprint=previous.secret_fingerprint if previous else None,
-            new_fingerprint=metadata.secret_fingerprint,
-        )
-        session.commit()
+        try:
+            repository = _credential_repository(session)
+            metadata = repository.replace(
+                principal.active_tenant_id, secret=body.api_key, label=body.label,
+                updated_by=principal.actor_id, last_test_status="VALID",
+            )
+            repository.audit(
+                principal.active_tenant_id, actor_id=principal.actor_id,
+                action="credential_replaced", result="VALID",
+                previous_fingerprint=previous.secret_fingerprint if previous else None,
+                new_fingerprint=metadata.secret_fingerprint,
+            )
+            session.commit()
+        except InventoryCredentialError as exc:
+            session.rollback()
+            _CREDENTIAL_LOGGER.warning(
+                "inventory_gemini_credential_replace tenant_id=%s actor_id=%s provider=gemini result=%s",
+                principal.active_tenant_id, principal.actor_id, str(exc),
+            )
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "inventory_credential_encryption_unavailable",
+                    "message": "Credential encryption is not configured on the server.",
+                },
+            ) from exc
     _CREDENTIAL_LOGGER.info(
         "inventory_gemini_credential_replace tenant_id=%s actor_id=%s provider=gemini result=VALID",
         principal.active_tenant_id, principal.actor_id,

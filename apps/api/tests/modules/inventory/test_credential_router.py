@@ -172,6 +172,19 @@ class InventoryCredentialRouterTest(unittest.TestCase):
             self.assertEqual(session.scalar(select(func.count(AssetAiAnalysisModel.id))), before_creative)
             self.assertEqual(session.get(OAuthConnectionModel, "oauth-a").provider_account_id, "drive-account-a")
 
+    def test_put_fails_closed_with_a_structured_error_when_server_encryption_is_unconfigured(self):
+        self.settings = Settings(INVENTORY_CREDENTIAL_ENCRYPTION_KEY="")
+        with patch("app.modules.inventory.router.validate_gemini_candidate", return_value="VALID"):
+            response = self.request(
+                self.manage, "PUT", "/api/inventory/configuration/ai-credential",
+                json={"api_key": NEW_KEY, "label": "Gemini Account B"},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "inventory_credential_encryption_unavailable")
+        self.assertNotIn(NEW_KEY, response.text)
+        with self.sessions() as session:
+            self.assertEqual(session.scalar(select(func.count(InventoryAiCredentialModel.id))), 0)
+
     def test_gemini_http_statuses_are_mapped_without_provider_body(self):
         class Response:
             def __init__(self, status_code):
