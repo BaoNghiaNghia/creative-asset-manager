@@ -164,6 +164,125 @@ class AiOperationsPostgreSqlTest(unittest.TestCase):
                 session.commit()
             engine.dispose()
 
+    def test_self_ingestion_repair_removes_all_safe_duplicate_managed_sources(self):
+        engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        marker = uuid4().hex
+        tenant_id = f"repair-duplicates-{marker}"
+        now = datetime.now(timezone.utc)
+        try:
+            with Session(engine, expire_on_commit=False) as session:
+                source_a = ExternalSourceModel(
+                    tenant_id=tenant_id,
+                    source_key=f"drive-a-{marker}",
+                    source_type="google_drive",
+                )
+                source_b = ExternalSourceModel(
+                    tenant_id=tenant_id,
+                    source_key=f"drive-b-{marker}",
+                    source_type="google_drive",
+                )
+                asset = AssetModel(
+                    tenant_id=tenant_id, content_hash=marker.ljust(64, "0")[:64]
+                )
+                session.add_all([source_a, source_b, asset])
+                session.flush()
+                original = SourceAssetModel(
+                    tenant_id=tenant_id,
+                    external_source_id=source_a.id,
+                    external_asset_id=f"original-{marker}",
+                    source_metadata={"parents": ["customer-root"]},
+                )
+                managed_a = SourceAssetModel(
+                    tenant_id=tenant_id,
+                    external_source_id=source_a.id,
+                    external_asset_id=f"managed-{marker}",
+                    source_metadata={"parents": ["managed-root"]},
+                )
+                managed_b = SourceAssetModel(
+                    tenant_id=tenant_id,
+                    external_source_id=source_b.id,
+                    external_asset_id=f"managed-{marker}",
+                    source_metadata={"parents": ["managed-root"]},
+                    deleted_at=now,
+                )
+                session.add_all([original, managed_a, managed_b])
+                session.flush()
+                session.add_all([
+                    AssetSourceLinkModel(
+                        tenant_id=tenant_id, asset_id=asset.id, source_asset_id=original.id
+                    ),
+                    AssetSourceLinkModel(
+                        tenant_id=tenant_id, asset_id=asset.id, source_asset_id=managed_a.id
+                    ),
+                    AssetSourceLinkModel(
+                        tenant_id=tenant_id, asset_id=asset.id, source_asset_id=managed_b.id
+                    ),
+                    AssetStorageObjectModel(
+                        tenant_id=tenant_id,
+                        asset_id=asset.id,
+                        content_hash=asset.content_hash,
+                        storage_provider="google_drive_managed",
+                        status="stored",
+                        remote_file_id=f"managed-{marker}",
+                        remote_folder_id="managed-root",
+                        stored_at=now,
+                    ),
+                ])
+                session.commit()
+                ids = (asset.id, original.id, managed_a.id, managed_b.id)
+
+            service = ManagedStorageSelfIngestionRepairService(
+                lambda: Session(engine, expire_on_commit=False),
+                Settings(GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="managed-root"),
+            )
+            preview = asyncio.run(
+                service.execute(tenant_id=tenant_id, limit=1, dry_run=True)
+            )
+            self.assertEqual(preview.selected, 1)
+            self.assertEqual(preview.repairable, 1)
+            self.assertEqual(preview.repaired_links, 0)
+            actual = asyncio.run(
+                service.execute(tenant_id=tenant_id, limit=1, dry_run=False)
+            )
+            self.assertEqual(actual.selected, 1)
+            self.assertEqual(actual.self_ingested, 1)
+            self.assertEqual(actual.repairable, 1)
+            self.assertEqual(actual.repaired_links, 2)
+            self.assertEqual(actual.removed_source_assets, 2)
+            with Session(engine) as session:
+                self.assertIsNotNone(session.get(AssetModel, ids[0]))
+                self.assertIsNotNone(session.get(SourceAssetModel, ids[1]))
+                self.assertIsNone(session.get(SourceAssetModel, ids[2]))
+                self.assertIsNone(session.get(SourceAssetModel, ids[3]))
+                self.assertEqual(
+                    session.scalar(
+                        select(func.count())
+                        .select_from(AssetSourceLinkModel)
+                        .where(AssetSourceLinkModel.asset_id == ids[0])
+                    ),
+                    1,
+                )
+                self.assertEqual(
+                    session.scalar(
+                        select(func.count())
+                        .select_from(AssetStorageObjectModel)
+                        .where(AssetStorageObjectModel.tenant_id == tenant_id)
+                    ),
+                    1,
+                )
+        finally:
+            with Session(engine) as session:
+                for model in (
+                    AssetStorageObjectModel,
+                    AssetSourceLinkModel,
+                    SourceAssetModel,
+                    AssetModel,
+                    ExternalSourceModel,
+                ):
+                    session.execute(delete(model).where(model.tenant_id == tenant_id))
+                session.commit()
+            engine.dispose()
+
     def test_percentiles_are_aggregated_by_postgresql(self):
         engine = create_engine(DATABASE_URL, pool_pre_ping=True)
         marker = uuid4().hex

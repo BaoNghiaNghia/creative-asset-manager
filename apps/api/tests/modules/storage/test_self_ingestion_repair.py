@@ -102,6 +102,34 @@ class ManagedStorageSelfIngestionRepairTest(unittest.IsolatedAsyncioTestCase):
             lambda: Session(self.engine, expire_on_commit=False), Settings()
         )
 
+    def _add_managed_duplicate(
+        self, *, parents: list[str] | None = None, deleted: bool = False
+    ) -> tuple[SourceAssetModel, AssetSourceLinkModel]:
+        duplicate_source = ExternalSourceModel(
+            tenant_id="tenant-a",
+            source_key="drive-duplicate",
+            source_type="google_drive",
+        )
+        self.session.add(duplicate_source)
+        self.session.flush()
+        duplicate = SourceAssetModel(
+            tenant_id="tenant-a",
+            external_source_id=duplicate_source.id,
+            external_asset_id="managed-drive-id",
+            filename="staging-duplicate.png",
+            source_metadata={"parents": parents or ["managed-root"]},
+        )
+        if deleted:
+            duplicate.deleted_at = self.now
+        self.session.add(duplicate)
+        self.session.flush()
+        link = AssetSourceLinkModel(
+            tenant_id="tenant-a", asset_id=self.asset.id, source_asset_id=duplicate.id
+        )
+        self.session.add(link)
+        self.session.commit()
+        return duplicate, link
+
     def test_candidate_statement_is_postgresql_safe_and_bounded(self) -> None:
         statement = ManagedStorageSelfIngestionRepairService._candidate_statement(
             tenant_id="tenant-a",
@@ -141,6 +169,103 @@ class ManagedStorageSelfIngestionRepairTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.session.get(SourceAssetModel, managed_id))
         self.assertIsNotNone(self.session.get(AssetStorageObjectModel, storage_id))
         self.assertIsNotNone(self.session.get(type(self.analysis), analysis_id))
+
+    async def test_two_managed_sources_are_repaired_atomically_as_one_storage_object(self) -> None:
+        duplicate, duplicate_link = self._add_managed_duplicate()
+        asset_id, original_id, managed_id, duplicate_id, storage_id, analysis_id = (
+            self.asset.id, self.original.id, self.managed.id, duplicate.id,
+            self.storage.id, self.analysis.id,
+        )
+        duplicate_link_id = duplicate_link.id
+        preview = await self._repair().execute(tenant_id="tenant-a", dry_run=True)
+        self.assertEqual(preview.selected, 1)
+        self.assertEqual(preview.self_ingested, 1)
+        self.assertEqual(preview.repairable, 1)
+        self.assertEqual(preview.repaired_links, 0)
+        self.assertEqual(preview.removed_source_assets, 0)
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, duplicate_link_id))
+        self.assertIsNotNone(self.session.get(SourceAssetModel, duplicate_id))
+
+        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
+        self.assertEqual(result.self_ingested, 1)
+        self.assertEqual(result.repairable, 1)
+        self.assertEqual(result.repaired_links, 2)
+        self.assertEqual(result.removed_source_assets, 2)
+        self.session.expire_all()
+        self.assertIsNone(self.session.get(SourceAssetModel, managed_id))
+        self.assertIsNone(self.session.get(SourceAssetModel, duplicate_id))
+        self.assertIsNotNone(self.session.get(SourceAssetModel, original_id))
+        self.assertIsNotNone(self.session.get(AssetModel, asset_id))
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, storage_id))
+        self.assertIsNotNone(self.session.get(type(self.analysis), analysis_id))
+
+    async def test_active_and_deleted_managed_duplicates_are_both_repaired(self) -> None:
+        duplicate, _ = self._add_managed_duplicate(deleted=True)
+        managed_id, duplicate_id, original_id = self.managed.id, duplicate.id, self.original.id
+        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
+        self.assertEqual(result.repairable, 1)
+        self.assertEqual(result.repaired_links, 2)
+        self.assertEqual(result.removed_source_assets, 2)
+        self.session.expire_all()
+        self.assertIsNone(self.session.get(SourceAssetModel, managed_id))
+        self.assertIsNone(self.session.get(SourceAssetModel, duplicate_id))
+        self.assertIsNotNone(self.session.get(SourceAssetModel, original_id))
+
+    async def test_mixed_managed_and_non_managed_duplicates_are_not_partially_repaired(self) -> None:
+        duplicate, duplicate_link = self._add_managed_duplicate(parents=["customer-folder"])
+        managed_link_id, duplicate_link_id, managed_id, duplicate_id = (
+            self.managed_link.id, duplicate_link.id, self.managed.id, duplicate.id
+        )
+        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
+        self.assertEqual(result.self_ingested, 0)
+        self.assertEqual(result.skipped_ambiguous, 1)
+        self.assertEqual(result.repaired_links, 0)
+        self.session.expire_all()
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, managed_link_id))
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, duplicate_link_id))
+        self.assertIsNotNone(self.session.get(SourceAssetModel, managed_id))
+        self.assertIsNotNone(self.session.get(SourceAssetModel, duplicate_id))
+
+    async def test_duplicate_with_multiple_links_is_not_partially_repaired(self) -> None:
+        duplicate, duplicate_link = self._add_managed_duplicate()
+        other_asset = AssetModel(tenant_id="tenant-a", content_hash="b" * 64)
+        self.session.add(other_asset)
+        self.session.flush()
+        cross_link = AssetSourceLinkModel(
+            tenant_id="tenant-a", asset_id=other_asset.id, source_asset_id=duplicate.id
+        )
+        self.session.add(cross_link)
+        self.session.commit()
+        managed_link_id, duplicate_link_id, cross_link_id = (
+            self.managed_link.id, duplicate_link.id, cross_link.id
+        )
+
+        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
+        self.assertEqual(result.skipped_ambiguous, 1)
+        self.assertEqual(result.repaired_links, 0)
+        self.session.expire_all()
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, managed_link_id))
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, duplicate_link_id))
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, cross_link_id))
+
+    async def test_duplicate_managed_sources_without_an_original_source_are_not_repaired(self) -> None:
+        duplicate, duplicate_link = self._add_managed_duplicate()
+        self.session.delete(self.original_link)
+        self.session.delete(self.original)
+        self.session.commit()
+        managed_link_id, duplicate_link_id, managed_id, duplicate_id = (
+            self.managed_link.id, duplicate_link.id, self.managed.id, duplicate.id
+        )
+
+        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
+        self.assertEqual(result.self_ingested, 1)
+        self.assertEqual(result.skipped_only_source, 1)
+        self.assertEqual(result.repaired_links, 0)
+        self.session.expire_all()
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, managed_link_id))
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, duplicate_link_id))
+        self.assertIsNotNone(self.session.get(SourceAssetModel, managed_id))
+        self.assertIsNotNone(self.session.get(SourceAssetModel, duplicate_id))
 
     async def test_only_managed_source_is_not_repaired(self) -> None:
         self.session.delete(self.original_link)

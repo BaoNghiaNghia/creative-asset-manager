@@ -150,29 +150,37 @@ class ManagedStorageSelfIngestionRepairService:
                     .with_for_update()
                 )
             )
-            if len(sources) != 1:
+            if not sources:
+                session.commit()
+                return
+            # A storage object can have multiple self-ingested registry rows.
+            # Validate the entire set before making any change so a malformed
+            # member can never result in a partial repair.
+            if any(
+                not self._has_managed_root_evidence(storage, source)
+                for source in sources
+            ):
                 result.skipped_ambiguous += 1
                 session.commit()
                 return
-            source = sources[0]
-            if not self._has_managed_root_evidence(storage, source):
-                result.skipped_ambiguous += 1
-                session.commit()
-                return
-            links = list(
-                session.scalars(
-                    select(AssetSourceLinkModel)
-                    .where(
-                        AssetSourceLinkModel.tenant_id == tenant_id,
-                        AssetSourceLinkModel.source_asset_id == source.id,
+            managed_source_ids = [source.id for source in sources]
+            managed_links: list[AssetSourceLinkModel] = []
+            for source in sources:
+                links = list(
+                    session.scalars(
+                        select(AssetSourceLinkModel)
+                        .where(
+                            AssetSourceLinkModel.tenant_id == tenant_id,
+                            AssetSourceLinkModel.source_asset_id == source.id,
+                        )
+                        .with_for_update()
                     )
-                    .with_for_update()
                 )
-            )
-            if len(links) != 1 or links[0].asset_id != storage.asset_id:
-                result.skipped_ambiguous += 1
-                session.commit()
-                return
+                if len(links) != 1 or links[0].asset_id != storage.asset_id:
+                    result.skipped_ambiguous += 1
+                    session.commit()
+                    return
+                managed_links.append(links[0])
             result.self_ingested += 1
             other_link_count = int(
                 session.scalar(
@@ -181,7 +189,7 @@ class ManagedStorageSelfIngestionRepairService:
                     .where(
                         AssetSourceLinkModel.tenant_id == tenant_id,
                         AssetSourceLinkModel.asset_id == storage.asset_id,
-                        AssetSourceLinkModel.source_asset_id != source.id,
+                        ~AssetSourceLinkModel.source_asset_id.in_(managed_source_ids),
                     )
                 )
                 or 0
@@ -189,10 +197,10 @@ class ManagedStorageSelfIngestionRepairService:
             if other_link_count < 1:
                 result.skipped_only_source += 1
                 logger.info(
-                    "managed_storage_self_ingestion_skipped_only_source tenant_id=%s asset_id=%s source_asset_id=%s",
+                    "managed_storage_self_ingestion_skipped_only_source tenant_id=%s asset_id=%s managed_source_count=%s",
                     tenant_id,
                     storage.asset_id,
-                    source.id,
+                    len(managed_source_ids),
                 )
                 session.commit()
                 return
@@ -200,29 +208,31 @@ class ManagedStorageSelfIngestionRepairService:
             if dry_run:
                 session.commit()
                 return
-            session.delete(links[0])
+            for link in managed_links:
+                session.delete(link)
             session.flush()
-            result.repaired_links += 1
-            remaining = int(
-                session.scalar(
-                    select(func.count())
-                    .select_from(AssetSourceLinkModel)
-                    .where(
-                        AssetSourceLinkModel.tenant_id == tenant_id,
-                        AssetSourceLinkModel.source_asset_id == source.id,
+            result.repaired_links += len(managed_links)
+            for source in sources:
+                remaining = int(
+                    session.scalar(
+                        select(func.count())
+                        .select_from(AssetSourceLinkModel)
+                        .where(
+                            AssetSourceLinkModel.tenant_id == tenant_id,
+                            AssetSourceLinkModel.source_asset_id == source.id,
+                        )
                     )
+                    or 0
                 )
-                or 0
-            )
-            if remaining == 0:
-                session.delete(source)
-                result.removed_source_assets += 1
+                if remaining == 0:
+                    session.delete(source)
+                    result.removed_source_assets += 1
             session.commit()
             logger.info(
-                "managed_storage_self_ingestion_repaired tenant_id=%s asset_id=%s source_asset_id=%s",
+                "managed_storage_self_ingestion_repaired tenant_id=%s asset_id=%s managed_source_count=%s",
                 tenant_id,
                 storage.asset_id,
-                source.id,
+                len(managed_source_ids),
             )
 
     def _has_managed_root_evidence(
