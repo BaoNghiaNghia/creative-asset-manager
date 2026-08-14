@@ -110,3 +110,16 @@
 .access-primary-action:focus-visible{outline:3px solid #84adff;outline-offset:3px}
 .access-state-hint{display:block;margin-top:22px;color:#98a2b3;font-size:13px;line-height:1.5}
 @media (max-width:560px){.access-state{padding:24px 16px}.access-state-card{padding:36px 22px 30px;border-radius:20px}.access-state p{font-size:15px}}
+
+/* Keep member controls in one compact, icon-led action row. */
+.access-table{min-width:1080px}
+.member-action-stack{min-width:520px;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:8px}
+.member-actions{flex-wrap:nowrap;gap:8px}
+.member-role-assignment,.member-status-actions{flex-wrap:nowrap;gap:7px}
+.member-role-assignment button,.member-status-actions button,.member-action-stack>.secondary{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;white-space:nowrap}
+.member-role-assignment button:before{content:"+";font-size:15px;font-weight:800;line-height:1}
+.member-actions .danger-link{display:inline-flex;align-items:center;gap:5px;min-height:36px;padding:7px 9px!important;border:1px solid #f2d1cd!important;background:#fff7f6!important;color:#b42318!important;text-decoration:none}
+.member-actions .danger-link[data-action="suspend"]:before{content:"||";font-size:10px;font-weight:900;letter-spacing:1px}
+.member-actions .danger-link[data-action="remove"]:before{content:"x";font-size:15px;font-weight:800;line-height:1}
+.member-action-stack>.secondary{min-height:36px;margin:0}
+@media(max-width:700px){.member-action-stack{min-width:520px}.member-actions{width:auto}.member-role-assignment,.member-status-actions{width:auto;align-items:center}}
