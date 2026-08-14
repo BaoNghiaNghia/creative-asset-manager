@@ -186,8 +186,8 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
   const previewName = item?.name || stringValue(source.filename) || "asset";
 
   return <>
-    <div className="inspector-preview">
-      {item && isTextAsset(item) ? <TextInspectorPreview item={item} canEdit={data?.can_administer === true} /> : previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
+    <div className={"inspector-preview" + (item && isTextAsset(item) ? " inspector-preview--text" : "")}>
+      {item && isTextAsset(item) ? <TextInspectorPreview item={item} canEdit={data?.can_manage_content === true} /> : previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
         <img src={previewUrl} alt={"Preview of " + previewName} referrerPolicy="no-referrer" onError={() => setPreviewFailed(true)} />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
       </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}

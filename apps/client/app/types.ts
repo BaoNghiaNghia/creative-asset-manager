@@ -136,5 +136,6 @@ export type AssetDetails = {
   resolution_source?: "database" | "drive_metadata" | "media_header" | "unavailable";
   resolution_status?: "available" | "unavailable";
   can_administer: boolean;
+  can_manage_content?: boolean;
   limits: { max_json_nodes: number; max_json_depth: number };
 };

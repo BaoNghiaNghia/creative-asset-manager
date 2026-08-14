@@ -34,4 +34,5 @@ class AssetDetailsResponse(BaseModel):
     pipelines: list[dict[str, Any]]
     lifecycle_status: str
     can_administer: bool
+    can_manage_content: bool = False
     limits: dict[str, int] = Field(default_factory=dict)

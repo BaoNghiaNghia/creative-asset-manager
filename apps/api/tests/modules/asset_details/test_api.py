@@ -123,6 +123,21 @@ class AssetDetailsApiTest(unittest.TestCase):
             "workspace-source-token",
         )
 
+    def test_details_expose_content_management_separately_from_ai_administration(self):
+        self._principal(permissions=("assets.read", "assets.manage"))
+        with patch("app.modules.asset_details.router.SessionLocal", self.factory):
+            response = self.client.get(f"/api/v1/assets/{self.asset_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["can_manage_content"])
+        self.assertFalse(response.json()["can_administer"])
+
+        self._principal(permissions=("assets.read", "ai_analysis.run"))
+        with patch("app.modules.asset_details.router.SessionLocal", self.factory):
+            response = self.client.get(f"/api/v1/assets/{self.asset_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["can_manage_content"])
+        self.assertTrue(response.json()["can_administer"])
+
     def test_unauthenticated_action_is_rejected(self):
         app.dependency_overrides.clear()
         response = self.client.post(f"/api/v1/admin/assets/{self.asset_id}/actions", json={"action": "reindex"})
