@@ -149,6 +149,7 @@ export default function App() {
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [folderNoteOpen, setFolderNoteOpen] = useState(false);
   const [folderNoteSummary, setFolderNoteSummary] = useState("");
+  const [folderNoteAvailable, setFolderNoteAvailable] = useState(false);
   const dragDepthRef = useRef(0);
   const newMenuRef = useRef<HTMLDivElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -163,14 +164,17 @@ export default function App() {
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
   useEffect(() => {
     const folder = explorer.path.at(-1);
-    if (!folder || !productFolderKind(folder.name)) { setFolderNoteSummary(""); return; }
+    if (!folder || folder.id === "root") { setFolderNoteSummary(""); setFolderNoteAvailable(false); return; }
     const controller = new AbortController();
     const params = new URLSearchParams({ provider: explorer.provider });
     if (explorer.activeExternalSourceId) params.set("external_source_id", explorer.activeExternalSourceId);
     fetch("/api/explorer/folders/" + encodeURIComponent(folder.id) + "/note?" + params.toString(), { signal: controller.signal })
       .then(response => response.ok ? response.json() : null)
-      .then(value => setFolderNoteSummary(value?.content_markdown ? folderNotePreview(value.content_markdown) : ""))
-      .catch(() => { if (!controller.signal.aborted) setFolderNoteSummary(""); });
+      .then(value => {
+        setFolderNoteAvailable(Boolean(value?.note_owner_folder_id));
+        setFolderNoteSummary(value?.content_markdown ? folderNotePreview(value.content_markdown) : "");
+      })
+      .catch(() => { if (!controller.signal.aborted) { setFolderNoteSummary(""); setFolderNoteAvailable(false); } });
     return () => controller.abort();
   }, [explorer.path, explorer.provider, explorer.activeExternalSourceId]);
 
@@ -619,7 +623,7 @@ export default function App() {
             <span className="search-summary">
               <h1>
                 {explorer.path.at(-1)?.name || "My Drive"}
-                {productFolderKind(explorer.path.at(-1)?.name || "") && <button
+                {folderNoteAvailable && <button
                   type="button"
                   className="folder-note-trigger"
                   onClick={() => setFolderNoteOpen(true)}

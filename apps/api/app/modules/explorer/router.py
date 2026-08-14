@@ -16,7 +16,7 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, El
 from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.indexing import get_index_status, start_index_job
-from app.modules.explorer.folder_notes import FolderNoteModel, product_folder_kind
+from app.modules.explorer.folder_notes import FolderNoteModel, resolve_note_owner_from_nodes
 from app.modules.explorer.schema import (
     AssetNode,
     AssetLocationResponse,
@@ -609,10 +609,10 @@ async def viewer_folder_options(
     }
 
 
-async def _authorized_product_folder(
+async def _resolve_note_owner(
     request: Request, folder_id: str, provider: Provider, session: Session,
     principal: CurrentPrincipal, external_source_id: str | None, require_write: bool = False,
-) -> tuple[str, str, str, object]:
+) -> tuple[str, str, object, object | None]:
     if provider != "google-drive":
         raise HTTPException(status_code=501, detail="Folder notes are supported for Google Drive only.")
     token, _account, tenant_id, source_id = await _source_context(
@@ -625,19 +625,28 @@ async def _authorized_product_folder(
     access = scope_service.access(tenant_id=tenant_id, membership_id=principal.membership_id,
         roles=principal.effective_roles, external_source_id=source_id)
     async with create_source_provider(provider, token) as client:
-        folder = await client.get_node(folder_id)
-    if folder.kind != "folder":
-        raise HTTPException(status_code=422, detail="Folder notes can only be attached to folders.")
-    _require_viewer_folder_scope(scope_service, tenant_id=tenant_id, access=access,
-        folder_id=folder_id, allow_root=False)
-    if not product_folder_kind(folder.name):
-        raise HTTPException(status_code=422, detail="Folder notes are available only for supported Amazon or Etsy product folders.")
-    return tenant_id, source_id or "", token, folder
+        current = await client.get_node(folder_id)
+        if current.kind != "folder":
+            raise HTTPException(status_code=422, detail="Folder notes can only be opened from a folder.")
+        _require_viewer_folder_scope(scope_service, tenant_id=tenant_id, access=access,
+            folder_id=folder_id, allow_root=False)
+        owner = await resolve_note_owner_from_nodes(current, client.get_node)
+    if owner:
+        _require_viewer_folder_scope(scope_service, tenant_id=tenant_id, access=access,
+            folder_id=owner.id, allow_root=False)
+    return tenant_id, source_id or "", current, owner
 
 
-def _folder_note_response(folder_id: str, note: FolderNoteModel | None) -> FolderNoteResponse:
-    return FolderNoteResponse(folder_id=folder_id, content_markdown=note.content_markdown if note else "",
-        updated_at=note.updated_at if note else None, updated_by=note.updated_by if note else None)
+def _folder_note_response(requested_folder_id: str, owner: object | None, note: FolderNoteModel | None) -> FolderNoteResponse:
+    owner_id = getattr(owner, "id", None)
+    return FolderNoteResponse(
+        requested_folder_id=requested_folder_id,
+        note_owner_folder_id=owner_id,
+        note_owner_folder_name=getattr(owner, "name", None),
+        is_inherited=bool(owner_id and owner_id != requested_folder_id),
+        content_markdown=note.content_markdown if note else "",
+        updated_at=note.updated_at if note else None, updated_by=note.updated_by if note else None,
+    )
 
 
 @router.get("/folders/{folder_id}/note", response_model=FolderNoteResponse)
@@ -646,12 +655,14 @@ async def get_folder_note(
     session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(ASSETS_READ),
     external_source_id: str | None = Query(None),
 ):
-    tenant_id, source_id, _token, _folder = await _authorized_product_folder(
+    tenant_id, source_id, _current, owner = await _resolve_note_owner(
         request, folder_id, provider, session, principal, external_source_id)
+    if owner is None:
+        return _folder_note_response(folder_id, None, None)
     note = session.scalar(select(FolderNoteModel).where(
         FolderNoteModel.tenant_id == tenant_id, FolderNoteModel.external_source_id == source_id,
-        FolderNoteModel.folder_external_id == folder_id))
-    return _folder_note_response(folder_id, note)
+        FolderNoteModel.folder_external_id == owner.id))
+    return _folder_note_response(folder_id, owner, note)
 
 
 @router.put("/folders/{folder_id}/note", response_model=FolderNoteResponse)
@@ -661,27 +672,29 @@ async def put_folder_note(
     principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
     external_source_id: str | None = Query(None),
 ):
-    tenant_id, source_id, _token, _folder = await _authorized_product_folder(
+    tenant_id, source_id, _current, owner = await _resolve_note_owner(
         request, folder_id, provider, session, principal, external_source_id, require_write=True)
+    if owner is None:
+        raise HTTPException(status_code=422, detail="Folder is not inside a supported product folder.")
     note = session.scalar(select(FolderNoteModel).where(
         FolderNoteModel.tenant_id == tenant_id, FolderNoteModel.external_source_id == source_id,
-        FolderNoteModel.folder_external_id == folder_id))
+        FolderNoteModel.folder_external_id == owner.id))
     content = body.content_markdown
     if not content.strip():
         if note:
             session.delete(note)
             session.commit()
-        return _folder_note_response(folder_id, None)
+        return _folder_note_response(folder_id, owner, None)
     if note is None:
         note = FolderNoteModel(tenant_id=tenant_id, external_source_id=source_id,
-            folder_external_id=folder_id, content_markdown=content, updated_by=principal.actor_id)
+            folder_external_id=owner.id, content_markdown=content, updated_by=principal.actor_id)
         session.add(note)
     else:
         note.content_markdown = content
         note.updated_by = principal.actor_id
     session.commit()
     session.refresh(note)
-    return _folder_note_response(folder_id, note)
+    return _folder_note_response(folder_id, owner, note)
 
 
 @router.post("/upload")

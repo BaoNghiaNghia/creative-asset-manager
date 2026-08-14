@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-export type FolderNote = { content_markdown: string; updated_at?: string | null; updated_by?: string | null };
+export type FolderNote = { requested_folder_id: string; note_owner_folder_id?: string | null; note_owner_folder_name?: string | null; is_inherited?: boolean; content_markdown: string; updated_at?: string | null; updated_by?: string | null };
 
 type Props = { folderId: string; folderName: string; provider: string; externalSourceId?: string | null; canManage: boolean; onClose: () => void; onSaved: (note: FolderNote) => void; };
 
@@ -59,7 +59,7 @@ export function FolderNoteDrawer({ folderId, folderName, provider, externalSourc
   });
   return <div className="folder-note-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="folder-note-drawer" role="dialog" aria-modal="true" aria-label={"Folder note for " + folderName}>
-      <header><div><small>PRODUCT NOTE</small><strong>{folderName}</strong></div><button type="button" onClick={onClose} aria-label="Close note">x</button></header>
+      <header><div><small>PRODUCT NOTE</small><strong>{folderName}</strong>{note?.is_inherited && <em>Note for {note.note_owner_folder_name}</em>}</div><button type="button" onClick={onClose} aria-label="Close note">x</button></header>
       {error ? <p className="folder-note-error" role="alert">{error}</p> : note === null ? <p className="folder-note-loading">Loading note...</p> : editing ? <textarea ref={textareaRef} value={draft} maxLength={50000} onChange={event => scheduleSave(event.target.value)} placeholder="Write a Markdown note..." aria-label="Folder Markdown note" /> : <div className="folder-note-rendered">{draft ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{draft}</ReactMarkdown> : <p>No note yet.</p>}</div>}
       <footer>{canManage && <button type="button" className="primary" disabled={saving || note === null} onClick={() => editing ? void save() : setEditing(true)}>{editing ? (saving ? "Saving..." : "Save note") : (draft ? "Edit note" : "+ Add note")}</button>}</footer>
     </aside>

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
+from typing import Any
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -24,6 +26,28 @@ def product_folder_kind(name: str) -> str | None:
         return "amazon"
     if _ETSY.fullmatch(value):
         return "etsy"
+    return None
+
+
+async def resolve_note_owner_from_nodes(
+    requested_folder: Any,
+    get_node: Callable[[str], Awaitable[Any]],
+    max_depth: int = 64,
+) -> Any | None:
+    """Return the nearest product root while walking a provider parent chain."""
+    node = requested_folder
+    visited: set[str] = set()
+    for _depth in range(max_depth):
+        node_id = str(getattr(node, "id", ""))
+        if not node_id or node_id in visited:
+            return None
+        visited.add(node_id)
+        if product_folder_kind(str(getattr(node, "name", ""))):
+            return node
+        parent_id = getattr(node, "parent_id", None)
+        if not parent_id or parent_id == "root":
+            return None
+        node = await get_node(str(parent_id))
     return None
 
 

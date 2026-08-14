@@ -105,7 +105,10 @@ class IndexStatus(BaseModel):
 
 
 class FolderNoteResponse(BaseModel):
-    folder_id: str
+    requested_folder_id: str
+    note_owner_folder_id: str | None = None
+    note_owner_folder_name: str | None = None
+    is_inherited: bool = False
     content_markdown: str = ""
     updated_at: datetime | None = None
     updated_by: str | None = None
