@@ -39,6 +39,58 @@ class GoogleDriveUploadMimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(uploaded_file[2], "image/avif")
 
 
+    async def test_create_folder_uses_drive_folder_mime_and_parent(self):
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {
+            "id": "folder-id",
+            "name": "New folder",
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": ["parent-id"],
+        }
+        http_client = MagicMock()
+        http_client.post = AsyncMock(return_value=response)
+        drive_client = object.__new__(GoogleDriveClient)
+        drive_client.client = http_client
+
+        folder = await drive_client.create_folder("parent-id", "New folder")
+
+        self.assertEqual(folder.id, "folder-id")
+        request = http_client.post.await_args
+        self.assertEqual(request.args[0], "/files")
+        self.assertEqual(request.kwargs["json"]["parents"], ["parent-id"])
+        self.assertEqual(
+            request.kwargs["json"]["mimeType"],
+            "application/vnd.google-apps.folder",
+        )
+        self.assertTrue(request.kwargs["params"]["supportsAllDrives"])
+
+    async def test_update_text_file_uses_media_patch_and_plain_text(self):
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {
+            "id": "text-id",
+            "name": "notes.txt",
+            "mimeType": "text/plain",
+            "parents": ["parent-id"],
+        }
+        http_client = MagicMock()
+        http_client.patch = AsyncMock(return_value=response)
+        drive_client = object.__new__(GoogleDriveClient)
+        drive_client.client = http_client
+
+        updated = await drive_client.update_file_content(
+            "text-id", "notes.txt", "text/plain", b"updated content"
+        )
+
+        self.assertEqual(updated.id, "text-id")
+        request = http_client.patch.await_args
+        self.assertIn("/upload/drive/v3/files/text-id", request.args[0])
+        self.assertEqual(request.kwargs["params"]["uploadType"], "media")
+        self.assertEqual(request.kwargs["headers"]["Content-Type"], "text/plain")
+        self.assertEqual(request.kwargs["content"], b"updated content")
+
+
 class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):
     async def test_follows_redirects_for_authenticated_media(self):
         response = MagicMock(status_code=200, headers={})

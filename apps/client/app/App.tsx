@@ -526,6 +526,16 @@ export default function App() {
         >
           {folder.name}
         </button>)}</div>
+        <div className="explorer-create-actions">
+          <button type="button" title="Create a folder in the current location" onClick={() => {
+            const name = window.prompt("Folder name");
+            if (name?.trim()) void explorer.createFolder(name.trim()).catch(() => window.alert("Unable to create folder."));
+          }}>New folder</button>
+          <button type="button" title="Create a TXT file in the current location" onClick={() => {
+            const name = window.prompt("Text file name");
+            if (name?.trim()) void explorer.createTextFile(name.trim()).catch(() => window.alert("Unable to create text file."));
+          }}>New TXT</button>
+        </div>
         <label className="upload" title="Upload files to the current folder">
           <span aria-hidden="true">＋</span> Upload
           <input

@@ -106,6 +106,25 @@ class GoogleDriveClient:
         effective_mime_type = infer_media_type(filename, mime_type)
         response = await self.client.post("https://www.googleapis.com/upload/drive/v3/files", params={"uploadType": "multipart", "supportsAllDrives": "true", "fields": FIELDS}, files={"metadata": (None, json.dumps({"name": filename, "parents": [parent_id]}), "application/json"), "file": (filename, content, effective_mime_type)}); response.raise_for_status(); return map_drive_file(response.json())
 
+    async def create_folder(self, parent_id: str, name: str):
+        response = await self.client.post(
+            "/files",
+            params={"supportsAllDrives": "true", "fields": FIELDS},
+            json={"name": name, "mimeType": FOLDER_MIME, "parents": [parent_id]},
+        )
+        response.raise_for_status()
+        return map_drive_file(response.json())
+
+    async def update_file_content(self, item_id: str, filename: str, mime_type: str, content: bytes):
+        response = await self.client.patch(
+            f"https://www.googleapis.com/upload/drive/v3/files/{item_id}",
+            params={"uploadType": "media", "supportsAllDrives": "true", "fields": FIELDS},
+            headers={"Content-Type": infer_media_type(filename, mime_type)},
+            content=content,
+        )
+        response.raise_for_status()
+        return map_drive_file(response.json())
+
     async def delete_file(self, item_id: str):
         response = await self.client.delete(f"/files/{item_id}", params={"supportsAllDrives": "true"}); response.raise_for_status()
 

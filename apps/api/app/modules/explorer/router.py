@@ -614,7 +614,7 @@ async def upload_file(
     mime_type: str = Query("application/octet-stream"),
     provider: Provider = Query("google-drive"),
     session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
     external_source_id: str | None = Query(None),
 ):
     if provider != "google-drive":
@@ -682,6 +682,90 @@ async def upload_file(
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    return {"id": node.id, "name": node.name, "kind": node.kind}
+
+
+@router.post("/folders")
+async def create_folder(
+    request: Request,
+    name: str = Query(..., min_length=1, max_length=255),
+    parent_id: str = Query("root"),
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    external_source_id: str | None = Query(None),
+):
+    if provider != "google-drive":
+        raise HTTPException(status_code=501, detail="Folder creation is not supported for this provider yet.")
+    token, _account, tenant_id, source_id = await _source_context(
+        request, provider, session, principal, external_source_id, require_drive_write_scope=True,
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail="Connect Google Drive before creating folders.")
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(
+        tenant_id=tenant_id, membership_id=principal.membership_id,
+        roles=principal.effective_roles, external_source_id=source_id,
+    )
+    _require_viewer_folder_scope(
+        scope_service, tenant_id=tenant_id, access=access, folder_id=parent_id, allow_root=False,
+    )
+    try:
+        async with create_source_provider(provider, token) as client:
+            parent = await client.get_node(parent_id)
+            if parent.kind != "folder":
+                raise HTTPException(status_code=422, detail="Destination must be a folder.")
+            node = await client.create_folder(parent_id, name.strip())
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        raise _provider_error(exc, "Google Drive could not create the folder.") from exc
+    viewer_folder_hierarchy_cache.invalidate(tenant_id=tenant_id, external_source_id=source_id)
+    return {"id": node.id, "name": node.name, "kind": node.kind}
+
+
+@router.put("/items/{item_id}/content")
+async def update_text_file(
+    request: Request,
+    item_id: str,
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    external_source_id: str | None = Query(None),
+):
+    if provider != "google-drive":
+        raise HTTPException(status_code=501, detail="Text editing is not supported for this provider yet.")
+    content = await request.body()
+    if len(content) > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Text files larger than 1 MB cannot be edited here.")
+    token, _account, tenant_id, source_id = await _source_context(
+        request, provider, session, principal, external_source_id, require_drive_write_scope=True,
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail="Connect Google Drive before editing text files.")
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(
+        tenant_id=tenant_id, membership_id=principal.membership_id,
+        roles=principal.effective_roles, external_source_id=source_id,
+    )
+    try:
+        async with create_source_provider(provider, token) as client:
+            current = await client.get_node(item_id)
+            is_text = (
+                (current.mime_type or "").split(";", 1)[0].lower() == "text/plain"
+                or current.name.lower().endswith(".txt")
+            )
+            if current.kind == "folder" or not is_text:
+                raise HTTPException(status_code=422, detail="Only plain-text TXT files can be edited.")
+            _require_viewer_folder_scope(
+                scope_service, tenant_id=tenant_id, access=access,
+                folder_id=current.parent_id or "root", allow_root=False,
+            )
+            node = await client.update_file_content(item_id, current.name, "text/plain", content)
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        raise _provider_error(exc, "Google Drive could not update the text file.") from exc
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 @router.delete("/items/{item_id}")

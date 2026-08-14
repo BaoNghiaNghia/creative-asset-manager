@@ -187,7 +187,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
 
   return <>
     <div className="inspector-preview">
-      {item && isTextAsset(item) ? <TextInspectorPreview item={item} /> : previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
+      {item && isTextAsset(item) ? <TextInspectorPreview item={item} canEdit={data?.can_administer === true} /> : previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
         <img src={previewUrl} alt={"Preview of " + previewName} referrerPolicy="no-referrer" onError={() => setPreviewFailed(true)} />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
       </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}
@@ -231,20 +231,70 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
   </>;
 }
 
-function TextInspectorPreview({ item }: { item: Asset }) {
+function TextInspectorPreview({ item, canEdit }: { item: Asset; canEdit: boolean }) {
   const [state, setState] = useState<{ text: string; truncated: boolean; error: boolean } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   useEffect(() => {
     const controller = new AbortController();
     setState(null);
-    void fetch(explorerAssetUrl(item, "media"), { signal: controller.signal, credentials: "same-origin", headers: { Range: TEXT_PREVIEW_RANGE } })
+    setEditing(false);
+    setSaveError(null);
+    void fetch(explorerAssetUrl(item, "media"), {
+      signal: controller.signal,
+      credentials: "same-origin",
+      headers: { Range: TEXT_PREVIEW_RANGE },
+    })
       .then(response => readTextPreview(response, controller.signal))
       .then(result => { if (!controller.signal.aborted) setState({ ...result, error: false }); })
       .catch(() => { if (!controller.signal.aborted) setState({ text: "", truncated: false, error: true }); });
     return () => controller.abort();
   }, [item.id, item.provider, item.external_source_id]);
+
+  async function save() {
+    if (!state || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const query = new URLSearchParams({ provider: item.provider });
+      if (item.external_source_id) query.set("external_source_id", item.external_source_id);
+      const response = await fetch("/api/explorer/items/" + encodeURIComponent(item.id) + "/content?" + query, {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "Content-Type": "text/plain" },
+        body: draft,
+      });
+      if (!response.ok) throw Error("Unable to save text file.");
+      setState({ ...state, text: draft, truncated: false });
+      setEditing(false);
+    } catch {
+      setSaveError("Unable to save this text file. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (!state) return <div className="inspector-text-preview loading" role="status">Loading text preview…</div>;
   if (state.error) return <div className="inspector-text-preview error">Text preview unavailable.</div>;
-  return <div className="inspector-text-preview"><pre>{state.text || "This text file is empty."}</pre>{state.truncated && <small>Showing the first 1 MB.</small>}</div>;
+  return <div className="inspector-text-preview">
+    {editing ? <>
+      <textarea aria-label="Text file content" value={draft} onChange={event => setDraft(event.target.value)} />
+      {saveError && <p className="inspector-text-save-error" role="alert">{saveError}</p>}
+      <div className="inspector-text-actions">
+        <button type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button>
+        <button type="button" disabled={saving} onClick={() => { setEditing(false); setSaveError(null); }}>Cancel</button>
+      </div>
+    </> : <>
+      <pre>{state.text || "This text file is empty."}</pre>
+      {canEdit && <div className="inspector-text-actions">
+        <button type="button" onClick={() => { setDraft(state.text); setSaveError(null); setEditing(true); }}>Edit text</button>
+      </div>}
+      {state.truncated && <small>Showing the first 1 MB. Open the full preview to read the rest.</small>}
+    </>}
+  </div>;
 }
 
 function Activity({ entries }: { entries: ActivityEntry[] }) {

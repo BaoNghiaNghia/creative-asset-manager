@@ -672,6 +672,29 @@ export function useDriveExplorer() {
     }
     await refreshCurrentFolder();
   }
+  async function createFolder(name: string) {
+    const parentId = path.at(-1)?.id || rootId(provider);
+    const response = await fetch("/api/explorer/folders?name=" + encodeURIComponent(name)
+      + "&parent_id=" + encodeURIComponent(parentId)
+      + "&provider=" + encodeURIComponent(provider)
+      + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "POST" });
+    if (!response.ok) throw Error("Unable to create folder");
+    await refreshCurrentFolder();
+  }
+
+  async function createTextFile(name: string, content = "") {
+    const parentId = path.at(-1)?.id || rootId(provider);
+    const filename = name.toLowerCase().endsWith(".txt") ? name : name + ".txt";
+    const response = await fetch("/api/explorer/upload?parent_id=" + encodeURIComponent(parentId)
+      + "&provider=" + encodeURIComponent(provider)
+      + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : "")
+      + "&filename=" + encodeURIComponent(filename) + "&mime_type=text%2Fplain", {
+        method: "POST", headers: { "Content-Type": "text/plain" }, body: content || "\n",
+      });
+    if (!response.ok) throw Error("Unable to create text file");
+    await refreshCurrentFolder();
+  }
+
   async function deleteItem(itemId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "?provider=" + encodeURIComponent(provider) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "DELETE" }); if (!response.ok) throw Error("Unable to delete file"); await refreshCurrentFolder(); }
   async function moveItem(itemId: string, destinationParentId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/move?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "POST" }); if (!response.ok) throw Error("Unable to move file"); await refreshCurrentFolder(); }
   async function copyItems(itemIds: string[], destinationParentId: string) {
@@ -1024,6 +1047,6 @@ export function useDriveExplorer() {
     rateAsset,
     applyRating,
     clearSelection: () => setSelected(new Set()),
-    uploads, uploadFiles, deleteItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
+    uploads, uploadFiles, createFolder, createTextFile, deleteItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
   };
 }

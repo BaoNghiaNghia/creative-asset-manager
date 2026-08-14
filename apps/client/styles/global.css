@@ -1227,3 +1227,17 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .inspector-text-preview small{display:block;margin-top:10px;color:#66778d;font-size:11px}
 .inspector-text-preview.loading,.inspector-text-preview.error{display:grid;place-items:center;color:#66778d;font-size:13px}
 .inspector-text-preview.error{color:#b42318}
+
+
+/* Explorer creation and TXT editing controls. */
+.explorer-create-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.explorer-create-actions button{border:1px solid #cbd8ef!important;border-radius:7px!important;background:#f8faff!important;color:#2852a5!important;font-size:12px;font-weight:700}
+.explorer-create-actions button:not(:last-child):after{content:none!important}
+.explorer-create-actions button:hover{border-color:#91abe3!important;background:#eef4ff!important}
+.inspector-text-preview textarea{display:block;width:100%;min-height:210px;resize:vertical;border:1px solid #cbd5e1;border-radius:8px;padding:10px;background:#fff;color:#172033;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+.inspector-text-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.inspector-text-actions button{border:1px solid #cbd8ef;border-radius:7px;padding:7px 10px;background:#fff;color:#2852a5;font-size:12px;font-weight:700;cursor:pointer}
+.inspector-text-actions button:first-child{background:#315ce8;color:#fff;border-color:#315ce8}
+.inspector-text-actions button:disabled{opacity:.6;cursor:wait}
+.inspector-text-save-error{margin:10px 0 0;color:#b42318;font-size:12px}
+@media(max-width:700px){.explorer-create-actions{gap:5px}.explorer-create-actions button{padding:5px 7px!important;font-size:11px}.inspector-text-preview textarea{min-height:170px}}
