@@ -46,6 +46,14 @@ describe("Asset details inspector", () => {
     expect(markup).toContain("image/avif");
   });
 
+  it("renders an in-panel TXT preview loading state instead of an image placeholder", () => {
+    const text = { ...item, name: "notes.TXT", kind: "document" as const, mime_type: "text/plain" };
+    const markup = renderToStaticMarkup(<AssetDetailsPanel item={text} metadata={metadata} onClose={noop} onPreview={noop} />);
+    expect(markup).toContain("Loading text preview…");
+    expect(markup).toContain("Text file · text/plain");
+    expect(markup).toContain("Open preview");
+  });
+
   it("turns technical processing states into an understandable activity timeline", () => {
     const entries = buildActivity(item, {
       asset: {}, sources: [], storage: [], active_analysis: null,

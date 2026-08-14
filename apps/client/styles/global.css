@@ -1219,12 +1219,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 @media(max-width:640px){.media-viewer-panel.text{width:calc(100vw - 24px);height:calc(100vh - 24px)}.media-viewer-text{padding:14px}}
 
 /* TXT previews use the full workspace and keep literal text readable. */
-.media-viewer:has(.media-viewer-panel.text){padding:0}
-.media-viewer-panel.text{width:100vw;height:100vh;border:0;border-radius:0}
-.media-viewer-panel.text .media-viewer-text{box-sizing:border-box;width:100
-
-/* TXT previews use the full workspace and keep literal text readable. */
-.media-viewer:has(.media-viewer-panel.text){padding:0}
+.media-viewer-text-fullscreen{padding:0}
 .media-viewer-panel.text{width:100vw;height:100vh;border:0;border-radius:0}
 .media-viewer-panel.text .media-viewer-text{box-sizing:border-box;width:100%;min-width:100%;padding:24px;background:#fff}
 .inspector-text-preview{box-sizing:border-box;width:100%;min-height:156px;max-height:300px;overflow:auto;padding:14px;border-radius:10px;background:#f8fafc;color:#172033;text-align:left}

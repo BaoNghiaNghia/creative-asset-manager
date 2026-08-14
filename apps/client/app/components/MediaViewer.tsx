@@ -50,7 +50,7 @@ export function MediaViewer({ item, onClose }: Props) {
     try { await navigator.clipboard.writeText(text); setCopyFailed(false); setCopied(true); window.setTimeout(() => setCopied(false), 1800); } catch { setCopied(false); setCopyFailed(true); }
   }
 
-  return <div className="media-viewer" role="dialog" aria-modal="true" aria-label={"Preview " + item.name} onMouseDown={event => event.target === event.currentTarget && onClose()}>
+  return <div className={"media-viewer" + (isText ? " media-viewer-text-fullscreen" : "")} role="dialog" aria-modal="true" aria-label={"Preview " + item.name} onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <div className={"media-viewer-panel " + (isText ? "text" : item.kind) + (loading && !failed ? " is-loading" : "")}>
       <div className="media-viewer-toolbar"><div><strong title={item.name}>{item.name}</strong><small>{item.mime_type}</small></div>{item.web_url && <a href={item.web_url} target="_blank" rel="noreferrer">Open in source</a>}<button onClick={onClose} aria-label="Close preview" title="Close preview" autoFocus>×</button></div>
       <div className="media-viewer-stage">
