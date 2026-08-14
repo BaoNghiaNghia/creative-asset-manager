@@ -4,7 +4,7 @@ import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
 import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { SafeJsonTree } from "./SafeJsonTree";
-import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
+import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
 import { assetPreviewUrl } from "../utils/mediaUrls";
 import googleDriveLogoUrl from "../../assets/logos/google-drive-logo.svg";
 import { LocationBreadcrumb, itemLocationBreadcrumb } from "./LocationBreadcrumb";
@@ -169,7 +169,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
   const inferredKind = inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), item?.name || stringValue(source.filename));
   const kind = inferredKind === "other" && item?.kind ? item.kind : inferredKind;
   const declaredMime = item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type);
-  const fileType = getFileType(declaredMime, kind);
+  const fileType = getFileType(declaredMime, kind, item?.name || stringValue(source.filename));
   const mimeType = (declaredMime && declaredMime !== "application/octet-stream" ? declaredMime : inferImageMime(item?.name || stringValue(source.filename)) || declaredMime) || "Unknown";
   const size = item?.size ?? numberValue(source.size_bytes) ?? numberValue(assetRecord.size_bytes);
   const modified = item?.modified_at || stringValue(source.source_modified_at) || stringValue(assetRecord.updated_at);
@@ -191,7 +191,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
       </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}
       <div className="inspector-preview-actions">
-        {item && onPreview && (kind === "image" || kind === "video") && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
+        {item && onPreview && isPreviewableAsset(item) && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
         {webUrl && <a className={"open-provider-link" + (provider === "google-drive" ? " open-provider-link--drive" : "")} href={webUrl} target="_blank" rel="noopener noreferrer">
           {provider === "google-drive" && <img src={googleDriveLogoUrl} alt="" aria-hidden="true" />}
           <span>Open in {provider === "sharepoint" ? "SharePoint" : "Google Drive"}</span>

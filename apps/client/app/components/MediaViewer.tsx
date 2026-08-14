@@ -1,94 +1,90 @@
 import { useEffect, useState } from "react";
 import type { Asset } from "../types";
-import { assetPreviewUrl } from "../utils/mediaUrls";
-import { isAvifAsset } from "../utils/fileType";
+import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
+import { isAvifAsset, isTextAsset } from "../utils/fileType";
 
-type Props = {
-  item: Asset;
-  onClose: () => void;
-};
+type Props = { item: Asset; onClose: () => void };
 
-export const mediaPreviewUrl = assetPreviewUrl
+export const TEXT_PREVIEW_MAX_BYTES = 1024 * 1024;
+export const TEXT_PREVIEW_RANGE = `bytes=0-${TEXT_PREVIEW_MAX_BYTES - 1}`;
+export const mediaPreviewUrl = assetPreviewUrl;
 
 export function previewUnavailableMessage(mimeType: string): string {
-  return mimeType === "image/avif"
-    ? "This AVIF image could not be previewed by this browser or the connected cloud provider."
-    : "The connected cloud provider could not stream this file.";
+  if (mimeType.split(";", 1)[0].trim().toLowerCase() === "text/plain") return "This text file could not be loaded from the connected cloud provider.";
+  return mimeType === "image/avif" ? "This AVIF image could not be previewed by this browser or the connected cloud provider." : "The connected cloud provider could not stream this file.";
+}
+
+export async function readTextPreview(response: Response, signal: AbortSignal): Promise<{ text: string; truncated: boolean }> {
+  if (!response.ok || !response.body) throw Error("text_preview_unavailable");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let truncated = response.status === 206 || Boolean(response.headers.get("content-range")?.match(/\/\d+$/));
+  try {
+    while (size < TEXT_PREVIEW_MAX_BYTES) {
+      const next = await reader.read();
+      if (next.done) break;
+      const remaining = TEXT_PREVIEW_MAX_BYTES - size;
+      if (next.value.byteLength > remaining) { chunks.push(next.value.slice(0, remaining)); size += remaining; truncated = true; break; }
+      chunks.push(next.value); size += next.value.byteLength;
+    }
+    if (size >= TEXT_PREVIEW_MAX_BYTES) truncated = true;
+  } finally {
+    if (truncated || signal.aborted) await reader.cancel().catch(() => undefined);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  chunks.forEach(chunk => { bytes.set(chunk, offset); offset += chunk.byteLength; });
+  return { text: new TextDecoder("utf-8", { fatal: false }).decode(bytes), truncated };
 }
 
 export function MediaViewer({ item, onClose }: Props) {
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [text, setText] = useState("");
+  const [truncated, setTruncated] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const mediaUrl = assetPreviewUrl(item);
   const isAvif = isAvifAsset(item);
+  const isText = isTextAsset(item);
+  const textUrl = explorerAssetUrl(item, "media");
+
+  useEffect(() => { setFailed(false); setLoading(true); setText(""); setTruncated(false); setCopied(false); setCopyFailed(false); }, [item.id, mediaUrl]);
 
   useEffect(() => {
-    setFailed(false);
-    setLoading(true);
-  }, [item.id, mediaUrl]);
+    if (!isText) return;
+    const controller = new AbortController();
+    void fetch(textUrl, { signal: controller.signal, credentials: "same-origin", headers: { Range: TEXT_PREVIEW_RANGE } })
+      .then(response => readTextPreview(response, controller.signal))
+      .then(result => { if (!controller.signal.aborted) { setText(result.text); setTruncated(result.truncated); setLoading(false); } })
+      .catch(error => { if (!controller.signal.aborted && error?.name !== "AbortError") { setFailed(true); setLoading(false); } });
+    return () => controller.abort();
+  }, [isText, item.id, textUrl]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-    };
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", closeOnEscape); };
   }, [onClose]);
 
-  return <div
-    className="media-viewer"
-    role="dialog"
-    aria-modal="true"
-    aria-label={"Preview " + item.name}
-    onMouseDown={event => event.target === event.currentTarget && onClose()}
-  >
-    <div className={"media-viewer-panel " + item.kind + (loading && !failed ? " is-loading" : "")}>
-      <div className="media-viewer-toolbar">
-        <div>
-          <strong title={item.name}>{item.name}</strong>
-          <small>{item.mime_type}</small>
-        </div>
-        {item.web_url && <a href={item.web_url} target="_blank" rel="noreferrer">Open in source</a>}
-        <button onClick={onClose} aria-label="Close preview" title="Close preview" autoFocus>×</button>
-      </div>
+  async function copyAll() {
+    try { await navigator.clipboard.writeText(text); setCopyFailed(false); setCopied(true); window.setTimeout(() => setCopied(false), 1800); } catch { setCopied(false); setCopyFailed(true); }
+  }
 
+  return <div className="media-viewer" role="dialog" aria-modal="true" aria-label={"Preview " + item.name} onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <div className={"media-viewer-panel " + (isText ? "text" : item.kind) + (loading && !failed ? " is-loading" : "")}>
+      <div className="media-viewer-toolbar"><div><strong title={item.name}>{item.name}</strong><small>{item.mime_type}</small></div>{item.web_url && <a href={item.web_url} target="_blank" rel="noreferrer">Open in source</a>}<button onClick={onClose} aria-label="Close preview" title="Close preview" autoFocus>×</button></div>
       <div className="media-viewer-stage">
-        {failed ? <div className="media-viewer-error">
-          <strong>Preview unavailable</strong>
-          <span>{previewUnavailableMessage(item.mime_type)}</span>
-        </div> : item.kind === "video" && !isAvif ? <video
-          src={mediaUrl}
-          poster={item.thumbnail_url}
-          controls
-          autoPlay
-          playsInline
-          preload="metadata"
-          onCanPlay={() => setLoading(false)}
-          onError={() => { setLoading(false); setFailed(true); }}
-        /> : <img
-          src={mediaUrl}
-          alt={item.name}
-          draggable={false}
-          onLoad={() => setLoading(false)}
-          onError={() => { setLoading(false); setFailed(true); }}
-        />}
-        {loading && !failed && <div className="media-viewer-loading" role="status" aria-live="polite">
-          <div className="media-viewer-loading-card">
-            <span className="media-viewer-loading-spinner" aria-hidden="true" />
-            <div>
-              <strong>Preparing preview</strong>
-              <span>Loading securely from the connected source…</span>
-            </div>
-          </div>
-        </div>}
+        {failed ? <div className="media-viewer-error"><strong>Preview unavailable</strong><span>{previewUnavailableMessage(isText ? "text/plain" : item.mime_type)}</span></div>
+          : isText ? <div className="media-viewer-text">{!loading && (text ? <pre className="media-viewer-text-content">{text}</pre> : <p>This text file is empty.</p>)}</div>
+          : item.kind === "video" && !isAvif ? <video src={mediaUrl} poster={item.thumbnail_url} controls autoPlay playsInline preload="metadata" onCanPlay={() => setLoading(false)} onError={() => { setLoading(false); setFailed(true); }} />
+          : <img src={mediaUrl} alt={item.name} draggable={false} onLoad={() => setLoading(false)} onError={() => { setLoading(false); setFailed(true); }} />}
+        {loading && !failed && <div className="media-viewer-loading" role="status" aria-live="polite"><div className="media-viewer-loading-card"><span className="media-viewer-loading-spinner" aria-hidden="true" /><div><strong>Preparing preview</strong><span>Loading securely from the connected source…</span></div></div></div>}
       </div>
+      {isText && !failed && !loading && <div className="media-viewer-text-footer"><span>{copyFailed ? "Copy failed. Select the text to copy it manually." : truncated ? "Preview limited to the first 1 MB." : "Text preview"}</span><button type="button" onClick={() => void copyAll()}>{copied ? "Copied" : "Copy all"}</button></div>}
     </div>
   </div>;
 }

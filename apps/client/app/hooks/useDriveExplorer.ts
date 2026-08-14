@@ -29,7 +29,6 @@ const emptyIndexStatus: DriveIndexStatus = {
 
 const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : "root";
 const explorerLocationKey = (provider: Provider) => "creative-asset-manager:explorer-location:" + provider;
-export const EXPLORER_LOCATION_MAX_AGE_MS = 15 * 60 * 1000;
 
 type SavedExplorerLocation = {
   version: 3;
@@ -43,7 +42,6 @@ type SavedExplorerLocation = {
 export function parseSavedExplorerLocation(
   value: string | null,
   provider: Provider,
-  now = Date.now(),
 ): SavedExplorerLocation | null {
   if (!value) return null;
   try {
@@ -55,7 +53,6 @@ export function parseSavedExplorerLocation(
       || typeof parsed.assigned_root_id !== "string" || !parsed.assigned_root_id.trim()
       || typeof parsed.saved_at !== "number"
       || !Number.isFinite(parsed.saved_at)
-      || now - parsed.saved_at >= EXPLORER_LOCATION_MAX_AGE_MS
       || !Array.isArray(parsed.path)
       || !parsed.path.length
     ) return null;
@@ -76,6 +73,13 @@ export function savedLocationIsAuthorized(saved: SavedExplorerLocation, bootstra
   const source = bootstrap.sources.find(item => item.external_source_id === saved.external_source_id);
   return Boolean(source?.folders.some(folder => folder.id === saved.assigned_root_id));
 }
+
+export function clearSavedExplorerLocation(provider: Provider): void {
+  try {
+    window.localStorage.removeItem(explorerLocationKey(provider));
+  } catch { /* browser storage is optional */ }
+}
+
 
 function savedLocation(
   path: Asset[],
@@ -475,7 +479,7 @@ export function useDriveExplorer() {
   async function restoreSavedLocation(source: Provider, bootstrap?: ViewerBootstrap) {
     const saved = parseSavedExplorerLocation(window.localStorage.getItem(explorerLocationKey(source)), source);
     if (!saved || (bootstrap && !savedLocationIsAuthorized(saved, bootstrap))) {
-      window.localStorage.removeItem(explorerLocationKey(source));
+      clearSavedExplorerLocation(source);
       return false;
     }
     const controller = newBrowseController();
@@ -494,7 +498,7 @@ export function useDriveExplorer() {
       setExpanded(new Set(restoredPath.slice(0, -1).map(folder => folder.id)));
       return await open(current.id, restoredPath.slice(0, -1), source, false, savedSourceId);
     } catch {
-      window.localStorage.removeItem(explorerLocationKey(source));
+      clearSavedExplorerLocation(source);
       return false;
     } finally {
       releaseBrowseController(controller);
@@ -542,7 +546,7 @@ export function useDriveExplorer() {
         return;
       }
     }
-    window.localStorage.removeItem(explorerLocationKey(source));
+    clearSavedExplorerLocation(source);
     if (selectedSource.folders.length === 1) {
       const assignedRoot = selectedSource.folders[0];
       setActiveAssignedRootId(assignedRoot.id);

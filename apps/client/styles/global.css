@@ -1209,3 +1209,11 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 @media(prefers-reduced-motion:reduce){.source-reconnect,.source-reconnect-arrow{transition:none}.source-reconnect:hover{transform:none}.source-reconnect:hover .source-reconnect-arrow{transform:none}}
 
 @media(prefers-reduced-motion:reduce){.confirm-dialog-backdrop,.confirm-dialog{animation:none}}
+
+.media-viewer-panel.text{width:min(900px,calc(100vw - 48px));height:min(720px,calc(100vh - 48px));display:grid;grid-template-rows:auto minmax(0,1fr) auto}
+.media-viewer-panel.text .media-viewer-stage{display:block;padding:0;background:#eef2f7}
+.media-viewer-text{height:100%;overflow:auto;padding:22px;background:#fff;color:#172033}
+.media-viewer-text-content{margin:0;white-space:pre;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+.media-viewer-text-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-top:1px solid #dce3ee;background:#f8fafc;color:#526174;font-size:12px}
+.media-viewer-text-footer button{padding:6px 10px;border:1px solid #c9d5e6;border-radius:6px;background:#fff;color:#284f9e;font-weight:700;cursor:pointer}
+@media(max-width:640px){.media-viewer-panel.text{width:calc(100vw - 24px);height:calc(100vh - 24px)}.media-viewer-text{padding:14px}}

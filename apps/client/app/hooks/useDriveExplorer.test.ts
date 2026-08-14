@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  EXPLORER_LOCATION_MAX_AGE_MS,
   apiErrorMessage,
   appendUniqueFolderPage,
+  clearSavedExplorerLocation,
   isPureViewerIdentity,
   oauthMessageFor,
   parseSavedExplorerLocation,
@@ -69,31 +69,41 @@ describe("parseSavedExplorerLocation", () => {
       saved_at: 1_000,
       path: [{
       id: "folder-1", name: "Campaign", kind: "folder", mime_type: "application/vnd.google-apps.folder", provider: "google-drive", external_source_id: "source-1",
-    }] }), "google-drive", 1_000 + EXPLORER_LOCATION_MAX_AGE_MS - 1)?.path[0].id).toBe("folder-1");
+    }] }), "google-drive")?.path[0].id).toBe("folder-1");
   });
 
   it("rejects malformed, legacy and cross-source saved positions", () => {
     expect(parseSavedExplorerLocation("not json", "google-drive")).toBeNull();
     expect(parseSavedExplorerLocation(JSON.stringify({ version: 1, saved_at: 1_000, path: [{
       id: "folder-1", name: "Campaign", kind: "folder", mime_type: "", provider: "google-drive",
-    }] }), "google-drive", 1_001)).toBeNull();
+    }] }), "google-drive")).toBeNull();
     expect(parseSavedExplorerLocation(JSON.stringify({
       version: 3, provider: "google-drive", external_source_id: "source-1",
       assigned_root_id: "folder-1", saved_at: 1_000, path: [{
         id: "folder-1", name: "Campaign", kind: "folder", mime_type: "folder",
         provider: "google-drive", external_source_id: "source-2",
       }],
-    }), "google-drive", 1_001)).toBeNull();
+    }), "google-drive")).toBeNull();
   });
 
-  it("expires saved positions after fifteen minutes", () => {
+  it("restores saved positions regardless of how old saved_at is", () => {
     const path = [{
       id: "folder-1", name: "Campaign", kind: "folder", mime_type: "application/vnd.google-apps.folder", provider: "google-drive", external_source_id: "source-1",
     }];
     expect(parseSavedExplorerLocation(JSON.stringify({
       version: 3, provider: "google-drive", external_source_id: "source-1",
-      assigned_root_id: "folder-1", saved_at: 1_000, path,
-    }), "google-drive", 1_000 + EXPLORER_LOCATION_MAX_AGE_MS)).toBeNull();
+      assigned_root_id: "folder-1", saved_at: 1, path,
+    }), "google-drive")?.path[0].id).toBe("folder-1");
+  });
+
+  it("rejects a location saved by another provider", () => {
+    expect(parseSavedExplorerLocation(JSON.stringify({
+      version: 3, provider: "google-drive", external_source_id: "source-1",
+      assigned_root_id: "folder-1", saved_at: 1, path: [{
+        id: "folder-1", name: "Campaign", kind: "folder", mime_type: "folder",
+        provider: "google-drive", external_source_id: "source-1",
+      }],
+    }), "sharepoint")).toBeNull();
   });
 
   it("rejects a saved root that is no longer authorized", () => {
@@ -103,11 +113,33 @@ describe("parseSavedExplorerLocation", () => {
         id: "old-root", name: "Old", kind: "folder", mime_type: "folder",
         provider: "google-drive", external_source_id: "source-1",
       }],
-    }), "google-drive", 1_001)!;
+    }), "google-drive")!;
     expect(savedLocationIsAuthorized(saved, {
       sources: [{ external_source_id: "source-1", display_name: "Drive", folders: [{ id: "new-root", name: "New", external_source_id: "source-1" }] }],
       auto_selected_source_id: "source-1", auto_selected_folder_id: "new-root",
     })).toBe(false);
+  });
+});
+
+
+describe("saved explorer location clearing", () => {
+  it("clears only the active provider location for explicit logout", () => {
+    const values = new Map<string, string>();
+    const localStorage = {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+    (globalThis as { window?: unknown }).window = { localStorage };
+    const googleKey = "creative-asset-manager:explorer-location:google-drive";
+    const sharepointKey = "creative-asset-manager:explorer-location:sharepoint";
+    localStorage.setItem(googleKey, "google");
+    localStorage.setItem(sharepointKey, "sharepoint");
+
+    clearSavedExplorerLocation("google-drive");
+
+    expect(localStorage.getItem(googleKey)).toBeNull();
+    expect(localStorage.getItem(sharepointKey)).toBe("sharepoint");
   });
 });
 

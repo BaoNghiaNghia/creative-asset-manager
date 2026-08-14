@@ -1,3 +1,4 @@
+import { isPreviewableAsset } from "./utils/fileType";
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
@@ -348,7 +349,7 @@ export default function App() {
       void explorer.open(item.id, contextAncestors(item));
       return;
     }
-    if (item.kind === "image" || item.kind === "video") setPreviewItem(item);
+    if (isPreviewableAsset(item)) setPreviewItem(item);
     else openDetails(item);
   }
 

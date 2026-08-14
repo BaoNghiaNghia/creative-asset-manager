@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
-import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset } from "../utils/fileType";
+import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
 import { assetPreviewUrl } from "../utils/mediaUrls";
 
 
@@ -125,7 +125,7 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
   }
 
   if (!canShowThumbnail) {
-    const type = getFileType(item.mime_type, item.kind);
+    const type = getFileType(item.mime_type, item.kind, item.name);
     return <span className={"preview-fallback asset-file-icon " + fileTypeTone(type)} aria-label={fileTypeLabel(type)}>{fileTypeGlyph(type)}</span>;
   }
 
@@ -244,8 +244,11 @@ export function AssetGrid({
   }
 
   function openItem(item: Asset) {
-    if (item.kind === "folder") onOpen(item.id, resultAncestors(item));
-    else if (item.kind === "image" || item.kind === "video") onPreview(item);
+    if (item.kind === "folder") {
+      onOpen(item.id, resultAncestors(item));
+      return;
+    }
+    if (isPreviewableAsset(item)) onPreview(item);
   }
 
   return <div className="grid">
@@ -264,7 +267,7 @@ export function AssetGrid({
       </button>
       <div>
         <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>
-        <small>{fileTypeLabel(getFileType(item.mime_type, item.kind))}{item.modified_at && item.kind !== "folder" ? " - " + new Date(item.modified_at).toLocaleDateString() : ""}</small>
+        <small>{fileTypeLabel(getFileType(item.mime_type, item.kind, item.name))}{item.modified_at && item.kind !== "folder" ? " - " + new Date(item.modified_at).toLocaleDateString() : ""}</small>
         <AssetMetadataBar item={item} metadata={metadataByItem[item.id]} onRate={onRate} />
       </div>
     </article>)}
