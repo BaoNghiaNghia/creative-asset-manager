@@ -4,11 +4,14 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from sqlalchemy import and_, exists, func, select
+from sqlalchemy import and_, exists, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
+from app.modules.external_ingestion.model import AssetIngestionItemModel
+from app.modules.pipeline.model import AssetPipelineModel
+from app.modules.pipeline.state import PipelineState
 from app.modules.storage.model import AssetStorageObjectModel
 
 logger = logging.getLogger(__name__)
@@ -181,6 +184,23 @@ class ManagedStorageSelfIngestionRepairService:
                     session.commit()
                     return
                 managed_links.append(links[0])
+            restrictive_ingestion_references = list(
+                session.scalars(
+                    select(AssetIngestionItemModel.id)
+                    .where(
+                        AssetIngestionItemModel.tenant_id == tenant_id,
+                        AssetIngestionItemModel.source_asset_id.in_(managed_source_ids),
+                    )
+                    .with_for_update()
+                )
+            )
+            # asset_ingestion_items has an explicit RESTRICT FK to source assets.
+            # Do not invalidate an external-ingestion audit trail to repair a
+            # managed-storage self-reference.
+            if restrictive_ingestion_references:
+                result.skipped_ambiguous += 1
+                session.commit()
+                return
             result.self_ingested += 1
             other_link_count = int(
                 session.scalar(
@@ -204,14 +224,47 @@ class ManagedStorageSelfIngestionRepairService:
                 )
                 session.commit()
                 return
+            pipelines = list(
+                session.scalars(
+                    select(AssetPipelineModel)
+                    .where(
+                        AssetPipelineModel.tenant_id == tenant_id,
+                        AssetPipelineModel.source_asset_id.in_(managed_source_ids),
+                    )
+                    .with_for_update()
+                )
+            )
+            # source_asset_id is the live source lookup used by pipeline handlers.
+            # A non-terminal pipeline could still need it, so preserve all rows and
+            # leave this storage object untouched until it is safe to repair.
+            if any(
+                pipeline.state != PipelineState.COMPLETED.value
+                for pipeline in pipelines
+            ):
+                result.skipped_ambiguous += 1
+                session.commit()
+                return
             result.repairable += 1
             if dry_run:
                 session.commit()
                 return
+            # Completed pipelines are durable history.  origin_type/origin_id
+            # preserve provenance after detaching the deleted managed source.
+            if pipelines:
+                session.execute(
+                    update(AssetPipelineModel)
+                    .where(
+                        AssetPipelineModel.tenant_id == tenant_id,
+                        AssetPipelineModel.source_asset_id.in_(managed_source_ids),
+                    )
+                    .values(source_asset_id=None)
+                )
+                session.flush()
+            local_repaired_links = len(managed_links)
+            local_removed_source_assets = 0
             for link in managed_links:
                 session.delete(link)
             session.flush()
-            result.repaired_links += len(managed_links)
             for source in sources:
                 remaining = int(
                     session.scalar(
@@ -226,8 +279,10 @@ class ManagedStorageSelfIngestionRepairService:
                 )
                 if remaining == 0:
                     session.delete(source)
-                    result.removed_source_assets += 1
+                    local_removed_source_assets += 1
             session.commit()
+            result.repaired_links += local_repaired_links
+            result.removed_source_assets += local_removed_source_assets
             logger.info(
                 "managed_storage_self_ingestion_repaired tenant_id=%s asset_id=%s managed_source_count=%s",
                 tenant_id,

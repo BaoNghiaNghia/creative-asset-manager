@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import create_engine, delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -20,6 +21,8 @@ from app.modules.assets.model import (
     ExternalSourceModel,
     SourceAssetModel,
 )
+from app.modules.pipeline.model import AssetPipelineModel
+from app.modules.pipeline.state import PipelineState
 from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.storage.self_ingestion_repair import (
     ManagedStorageSelfIngestionRepairService,
@@ -156,6 +159,7 @@ class AiOperationsPostgreSqlTest(unittest.TestCase):
                 for model in (
                     AssetStorageObjectModel,
                     AssetSourceLinkModel,
+                    AssetPipelineModel,
                     SourceAssetModel,
                     AssetModel,
                     ExternalSourceModel,
@@ -227,9 +231,70 @@ class AiOperationsPostgreSqlTest(unittest.TestCase):
                         remote_folder_id="managed-root",
                         stored_at=now,
                     ),
+                    AssetPipelineModel(
+                        tenant_id=tenant_id,
+                        correlation_id=f"source_asset:{original.id}",
+                        origin_type="source_asset",
+                        origin_id=original.id,
+                        source_asset_id=original.id,
+                        asset_id=asset.id,
+                        state=PipelineState.COMPLETED.value,
+                    ),
+                    AssetPipelineModel(
+                        tenant_id=tenant_id,
+                        correlation_id=f"source_asset:{managed_a.id}",
+                        origin_type="source_asset",
+                        origin_id=managed_a.id,
+                        source_asset_id=managed_a.id,
+                        asset_id=asset.id,
+                        state=PipelineState.COMPLETED.value,
+                        content_hash=asset.content_hash,
+                        projection_version="v1",
+                    ),
+                    AssetPipelineModel(
+                        tenant_id=tenant_id,
+                        correlation_id=f"source_asset:{managed_b.id}",
+                        origin_type="source_asset",
+                        origin_id=managed_b.id,
+                        source_asset_id=managed_b.id,
+                        asset_id=asset.id,
+                        state=PipelineState.COMPLETED.value,
+                        content_hash=asset.content_hash,
+                        projection_version="v1",
+                    ),
                 ])
                 session.commit()
+                managed_pipeline_ids = tuple(
+                    session.scalars(
+                        select(AssetPipelineModel.id).where(
+                            AssetPipelineModel.tenant_id == tenant_id,
+                            AssetPipelineModel.source_asset_id.in_(
+                                (managed_a.id, managed_b.id)
+                            ),
+                        )
+                    )
+                )
+                original_pipeline_id = session.scalar(
+                    select(AssetPipelineModel.id).where(
+                        AssetPipelineModel.tenant_id == tenant_id,
+                        AssetPipelineModel.source_asset_id == original.id,
+                    )
+                )
                 ids = (asset.id, original.id, managed_a.id, managed_b.id)
+
+            # This is the exact PostgreSQL failure the repair must avoid: the
+            # composite ON DELETE SET NULL action attempts to null tenant_id.
+            with Session(engine) as session:
+                with self.assertRaises(IntegrityError) as raised:
+                    session.execute(
+                        delete(SourceAssetModel).where(
+                            SourceAssetModel.tenant_id == tenant_id,
+                            SourceAssetModel.id == ids[2],
+                        )
+                    )
+                    session.commit()
+                self.assertIn("tenant_id", str(raised.exception))
+                session.rollback()
 
             service = ManagedStorageSelfIngestionRepairService(
                 lambda: Session(engine, expire_on_commit=False),
@@ -270,11 +335,35 @@ class AiOperationsPostgreSqlTest(unittest.TestCase):
                     ),
                     1,
                 )
+                detached = list(
+                    session.scalars(
+                        select(AssetPipelineModel).where(
+                            AssetPipelineModel.id.in_(managed_pipeline_ids)
+                        )
+                    )
+                )
+                self.assertEqual(len(detached), 2)
+                for pipeline in detached:
+                    self.assertEqual(pipeline.tenant_id, tenant_id)
+                    self.assertIsNone(pipeline.source_asset_id)
+                    self.assertEqual(pipeline.origin_type, "source_asset")
+                    self.assertIn(pipeline.origin_id, ids[2:])
+                    self.assertEqual(pipeline.state, PipelineState.COMPLETED.value)
+                    self.assertEqual(pipeline.asset_id, ids[0])
+                    self.assertEqual(pipeline.content_hash, asset.content_hash)
+                    self.assertEqual(pipeline.projection_version, "v1")
+                original_pipeline = session.get(
+                    AssetPipelineModel, original_pipeline_id
+                )
+                self.assertIsNotNone(original_pipeline)
+                assert original_pipeline is not None
+                self.assertEqual(original_pipeline.source_asset_id, ids[1])
         finally:
             with Session(engine) as session:
                 for model in (
                     AssetStorageObjectModel,
                     AssetSourceLinkModel,
+                    AssetPipelineModel,
                     SourceAssetModel,
                     AssetModel,
                     ExternalSourceModel,

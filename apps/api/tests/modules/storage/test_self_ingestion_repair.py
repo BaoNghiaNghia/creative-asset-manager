@@ -12,6 +12,13 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.external_ingestion.model import (
+    AssetIngestionItemModel,
+    AssetIngestionModel,
+    ExternalApiCredentialModel,
+)
+from app.modules.pipeline.model import AssetPipelineModel
+from app.modules.pipeline.state import PipelineState
 from app.modules.storage.managed_cleanup import ManagedStorageCleanupService
 from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.storage.self_ingestion_repair import ManagedStorageSelfIngestionRepairService
@@ -130,6 +137,28 @@ class ManagedStorageSelfIngestionRepairTest(unittest.IsolatedAsyncioTestCase):
         self.session.commit()
         return duplicate, link
 
+    def _add_pipeline(
+        self, source: SourceAssetModel, *, state: str = PipelineState.COMPLETED.value
+    ) -> AssetPipelineModel:
+        pipeline = AssetPipelineModel(
+            tenant_id="tenant-a",
+            correlation_id=f"source_asset:{source.id}",
+            origin_type="source_asset",
+            origin_id=source.id,
+            source_asset_id=source.id,
+            asset_id=self.asset.id,
+            analysis_id=self.analysis.id,
+            state=state,
+            content_hash=self.asset.content_hash,
+            projection_version="v1",
+            projection_checksum="checksum",
+            status_data_json={"preserved": True},
+            completed_at=self.now - timedelta(minutes=1),
+        )
+        self.session.add(pipeline)
+        self.session.commit()
+        return pipeline
+
     def test_candidate_statement_is_postgresql_safe_and_bounded(self) -> None:
         statement = ManagedStorageSelfIngestionRepairService._candidate_statement(
             tenant_id="tenant-a",
@@ -169,6 +198,139 @@ class ManagedStorageSelfIngestionRepairTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.session.get(SourceAssetModel, managed_id))
         self.assertIsNotNone(self.session.get(AssetStorageObjectModel, storage_id))
         self.assertIsNotNone(self.session.get(type(self.analysis), analysis_id))
+
+    async def test_completed_pipeline_history_is_preserved_and_detached(self) -> None:
+        managed_pipeline = self._add_pipeline(self.managed)
+        original_pipeline = self._add_pipeline(self.original)
+        preserved = {
+            "tenant_id": managed_pipeline.tenant_id,
+            "asset_id": managed_pipeline.asset_id,
+            "analysis_id": managed_pipeline.analysis_id,
+            "correlation_id": managed_pipeline.correlation_id,
+            "origin_type": managed_pipeline.origin_type,
+            "origin_id": managed_pipeline.origin_id,
+            "state": managed_pipeline.state,
+            "content_hash": managed_pipeline.content_hash,
+            "projection_version": managed_pipeline.projection_version,
+            "projection_checksum": managed_pipeline.projection_checksum,
+            "status_data_json": managed_pipeline.status_data_json,
+        }
+        created_at = managed_pipeline.created_at
+        completed_at = managed_pipeline.completed_at
+
+        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
+
+        self.assertEqual(result.repaired_links, 1)
+        self.assertEqual(result.removed_source_assets, 1)
+        self.session.expire_all()
+        detached = self.session.get(AssetPipelineModel, managed_pipeline.id)
+        self.assertIsNotNone(detached)
+        assert detached is not None
+        self.assertIsNone(detached.source_asset_id)
+        self.assertEqual(
+            {field: getattr(detached, field) for field in preserved}, preserved
+        )
+        self.assertIsNotNone(detached.tenant_id)
+        self.assertEqual(
+            detached.created_at.replace(tzinfo=timezone.utc),
+            created_at.replace(tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            detached.completed_at.replace(tzinfo=timezone.utc),
+            completed_at.replace(tzinfo=timezone.utc),
+        )
+        retained = self.session.get(AssetPipelineModel, original_pipeline.id)
+        self.assertIsNotNone(retained)
+        assert retained is not None
+        self.assertEqual(retained.source_asset_id, self.original.id)
+
+    async def test_restrictive_external_ingestion_reference_blocks_repair(self) -> None:
+        credential = ExternalApiCredentialModel(
+            tenant_id="tenant-a",
+            external_source_id=self.source.id,
+            name="test",
+            key_prefix="test",
+            secret_hash="a" * 64,
+        )
+        self.session.add(credential)
+        self.session.flush()
+        ingestion = AssetIngestionModel(
+            tenant_id="tenant-a",
+            external_source_id=self.source.id,
+            credential_id=credential.id,
+            idempotency_key="repair-guard",
+            request_hash="b" * 64,
+            request_json={},
+            received_count=1,
+        )
+        self.session.add(ingestion)
+        self.session.flush()
+        item = AssetIngestionItemModel(
+            tenant_id="tenant-a",
+            ingestion_id=ingestion.id,
+            position=0,
+            external_asset_id="managed-drive-id",
+            download_url="https://example.test/download",
+            status="completed",
+            source_asset_id=self.managed.id,
+        )
+        self.session.add(item)
+        self.session.commit()
+
+        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
+
+        self.assertEqual(result.self_ingested, 0)
+        self.assertEqual(result.repairable, 0)
+        self.assertEqual(result.skipped_ambiguous, 1)
+        self.assertEqual(result.repaired_links, 0)
+        self.assertEqual(result.removed_source_assets, 0)
+        self.session.expire_all()
+        self.assertIsNotNone(self.session.get(SourceAssetModel, self.managed.id))
+        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, self.managed_link.id))
+
+    async def test_non_terminal_pipeline_blocks_repair_without_partial_changes(self) -> None:
+        pipeline = self._add_pipeline(
+            self.managed, state=PipelineState.ANALYSIS_PENDING.value
+        )
+
+        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
+
+        self.assertEqual(result.self_ingested, 1)
+        self.assertEqual(result.repairable, 0)
+        self.assertEqual(result.skipped_ambiguous, 1)
+        self.assertEqual(result.repaired_links, 0)
+        self.assertEqual(result.removed_source_assets, 0)
+        self.session.expire_all()
+        self.assertIsNotNone(
+            self.session.get(AssetSourceLinkModel, self.managed_link.id)
+        )
+        retained = self.session.get(AssetPipelineModel, pipeline.id)
+        self.assertIsNotNone(retained)
+        assert retained is not None
+        self.assertEqual(retained.source_asset_id, self.managed.id)
+
+    async def test_mutation_counters_are_not_reported_when_commit_fails(self) -> None:
+        class FailingCommitSession(Session):
+            def commit(self) -> None:
+                self.rollback()
+                raise RuntimeError("forced commit failure")
+
+        service = ManagedStorageSelfIngestionRepairService(
+            lambda: FailingCommitSession(self.engine, expire_on_commit=False),
+            Settings(),
+        )
+        result = await service.execute(tenant_id="tenant-a", dry_run=False)
+
+        self.assertEqual(result.self_ingested, 1)
+        self.assertEqual(result.repairable, 1)
+        self.assertEqual(result.failed, 1)
+        self.assertEqual(result.repaired_links, 0)
+        self.assertEqual(result.removed_source_assets, 0)
+        self.session.expire_all()
+        self.assertIsNotNone(
+            self.session.get(AssetSourceLinkModel, self.managed_link.id)
+        )
+        self.assertIsNotNone(self.session.get(SourceAssetModel, self.managed.id))
 
     async def test_two_managed_sources_are_repaired_atomically_as_one_storage_object(self) -> None:
         duplicate, duplicate_link = self._add_managed_duplicate()
