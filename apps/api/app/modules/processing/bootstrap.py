@@ -40,13 +40,15 @@ from app.modules.pipeline.handlers import (
 from app.modules.processing.registry import build_handler_registry
 from app.modules.retention.handler import RetentionCleanupJobHandler
 from app.modules.retention.scheduler import RetentionCleanupScheduler
+from app.modules.storage.managed_cleanup_handler import ManagedStorageCleanupJobHandler
+from app.modules.storage.managed_cleanup_scheduler import ManagedStorageCleanupScheduler
+from app.modules.storage.provider_factory import build_managed_storage_provider
+from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
 from app.modules.source_sync.handler import SourceSyncJobHandler
 from app.modules.source_sync.scheduler import SourceSyncScheduler
 from app.providers.ai.factory import build_ai_provider_registry
-from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.source_factory import create_source_provider
-from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
 
 _STANDARD_LOG_FIELDS = set(logging.makeLogRecord({}).__dict__)
@@ -65,6 +67,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "asset_index": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
     "metadata_sidecar_export": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DRIVE_METADATA_SIDECAR_ENABLED"),
     "retention_cleanup": ("PROCESSING_JOBS_ENABLED", "RETENTION_CLEANUP_ENABLED"),
+    "managed_storage_cleanup": ("PROCESSING_JOBS_ENABLED", "MANAGED_STORAGE_AUTO_CLEANUP_ENABLED"),
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
@@ -134,21 +137,9 @@ def build_worker_runtime(
     probe_database(session_factory)
     if settings.PROCESSING_JOBS_ENABLED and settings.RETENTION_CLEANUP_ENABLED:
         RetentionCleanupScheduler(session_factory, settings).schedule_known_tenants()
-    storage_provider = UnconfiguredAssetStorageProvider()
-    if (
-        (
-            settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN
-            or settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN
-        )
-        and settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID
-    ):
-        storage_provider = GoogleDriveAssetStorage(
-            settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN,
-            root_folder_id=settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID,
-            refresh_token=settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN,
-            client_id=settings.GOOGLE_CLIENT_ID,
-            client_secret=settings.GOOGLE_CLIENT_SECRET,
-        )
+    if settings.PROCESSING_JOBS_ENABLED and settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED:
+        ManagedStorageCleanupScheduler(session_factory, settings).schedule_known_tenants()
+    storage_provider = build_managed_storage_provider(settings)
     storage_configured = not isinstance(
         storage_provider, UnconfiguredAssetStorageProvider
     )
@@ -211,6 +202,7 @@ def build_worker_runtime(
                 ("asset_index", AssetIndexJobHandler(settings)),
                 ("metadata_sidecar_export", MetadataSidecarExportJobHandler(settings)),
                 ("retention_cleanup", RetentionCleanupJobHandler(settings)),
+                ("managed_storage_cleanup", ManagedStorageCleanupJobHandler(settings)),
             )
         ),
         health=WorkerHealthState(worker_id),

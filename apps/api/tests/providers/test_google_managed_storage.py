@@ -227,3 +227,35 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
         clock[0] = 161.0
         self.assertEqual(await provider._get_access_token(), "refreshed-2")
         self.assertEqual(len(token_requests), 2)
+
+    async def test_delete_uses_managed_remote_identity_and_supports_all_drives(self) -> None:
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            return httpx.Response(204)
+
+        provider = GoogleDriveAssetStorage(
+            "storage-token", root_folder_id="managed-root",
+            transport=httpx.MockTransport(handler),
+        )
+        from app.domain.providers.contracts import DeleteStoredAssetInput
+        await provider.delete_asset(DeleteStoredAssetInput(
+            tenant_id="tenant-a", asset_id="internal-asset", remote_file_id="managed-remote-id",
+        ))
+        self.assertEqual(requests[0].method, "DELETE")
+        self.assertIn("managed-remote-id", str(requests[0].url))
+        self.assertEqual(requests[0].url.params["supportsAllDrives"], "true")
+
+    async def test_delete_404_is_reported_as_missing_and_429_is_retryable(self) -> None:
+        from app.domain.providers.contracts import DeleteStoredAssetInput
+        input = DeleteStoredAssetInput("tenant-a", "asset-a", "managed-id")
+        for code, expected, retryable in ((404, "managed_storage_object_missing", False), (429, "managed_storage_temporarily_unavailable", True)):
+            provider = GoogleDriveAssetStorage(
+                "storage-token", root_folder_id="managed-root",
+                transport=httpx.MockTransport(lambda _request, status=code: httpx.Response(status)),
+            )
+            with self.assertRaises(StorageProviderError) as context:
+                await provider.delete_asset(input)
+            self.assertEqual(context.exception.code, expected)
+            self.assertEqual(context.exception.retryable, retryable)

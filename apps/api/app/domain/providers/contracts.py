@@ -117,6 +117,15 @@ class OpenStoredAssetInput:
     size_bytes: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class DeleteStoredAssetInput:
+    """Identity of a temporary managed-storage object eligible for removal."""
+
+    tenant_id: str
+    asset_id: str
+    remote_file_id: str
+
+
 @dataclass(slots=True)
 class StoredAssetReadStream:
     body: AsyncIterator[bytes]
@@ -266,6 +275,8 @@ class AssetStorageProvider(Protocol):
     async def store_asset(self, input: StoreAssetInput) -> StoredAsset: ...
 
     async def open_asset(self, input: OpenStoredAssetInput) -> StoredAssetReadStream: ...
+
+    async def delete_asset(self, input: DeleteStoredAssetInput) -> None: ...
 
     async def store_metadata_sidecar(
         self, input: StoreMetadataSidecarInput

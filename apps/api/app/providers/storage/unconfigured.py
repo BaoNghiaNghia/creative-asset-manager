@@ -1,4 +1,5 @@
 from app.domain.providers.contracts import (
+    DeleteStoredAssetInput,
     OpenStoredAssetInput,
     StorageProviderError,
     StoredAssetReadStream,
@@ -10,6 +11,9 @@ from app.domain.providers.contracts import (
 
 
 class UnconfiguredAssetStorageProvider:
+    async def delete_asset(self, input: DeleteStoredAssetInput) -> None:
+        raise StorageProviderError("managed asset storage is not configured", retryable=False)
+
     async def open_asset(
         self, input: OpenStoredAssetInput
     ) -> StoredAssetReadStream:

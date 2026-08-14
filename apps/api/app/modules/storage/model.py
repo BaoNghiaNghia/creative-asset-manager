@@ -34,6 +34,7 @@ class AssetStorageObjectModel(Base):
         ),
         CheckConstraint("attempt_count >= 0", name="ck_asset_storage_objects_attempt_count"),
         Index("ix_asset_storage_objects_status", "status", "next_attempt_at"),
+        Index("ix_asset_storage_objects_cleanup", "tenant_id", "status", "stored_at", "id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))

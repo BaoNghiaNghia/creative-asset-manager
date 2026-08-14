@@ -103,3 +103,29 @@ class ManagedStorageRepository:
             record.next_attempt_at = None
         record.updated_at = now
         self.session.flush()
+
+
+    def list_cleanup_candidate_ids(
+        self, *, tenant_id: str | None, limit: int
+    ) -> tuple[str, ...]:
+        statement = select(AssetStorageObjectModel.id).where(
+            AssetStorageObjectModel.status == "stored",
+            AssetStorageObjectModel.remote_file_id.is_not(None),
+        )
+        if tenant_id is not None:
+            statement = statement.where(AssetStorageObjectModel.tenant_id == tenant_id)
+        return tuple(self.session.scalars(
+            statement.order_by(AssetStorageObjectModel.stored_at, AssetStorageObjectModel.id).limit(limit)
+        ))
+
+    def get_for_cleanup(self, storage_id: str) -> AssetStorageObjectModel | None:
+        statement = select(AssetStorageObjectModel).where(
+            AssetStorageObjectModel.id == storage_id
+        )
+        if self.session.get_bind().dialect.name == "postgresql":
+            statement = statement.with_for_update(skip_locked=True)
+        return self.session.scalar(statement)
+
+    def delete_record(self, record: AssetStorageObjectModel) -> None:
+        self.session.delete(record)
+        self.session.flush()

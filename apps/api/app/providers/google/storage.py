@@ -11,6 +11,7 @@ import httpx
 
 from app.domain.providers.contracts import (
     AssetStorageProvider,
+    DeleteStoredAssetInput,
     StorageProviderError,
     OpenStoredAssetInput,
     StoredAssetReadStream,
@@ -110,6 +111,27 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
                 int(size_header) if size_header and size_header.isdigit() else input.size_bytes
             ),
         )
+
+    async def delete_asset(self, input: DeleteStoredAssetInput) -> None:
+        """Delete only a tracked managed-storage object, never a source object."""
+        access_token = await self._get_access_token()
+        try:
+            async with httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=httpx.Timeout(60, connect=10, read=60),
+                transport=self._transport,
+            ) as client:
+                response = await client.delete(
+                    f"https://www.googleapis.com/drive/v3/files/{input.remote_file_id}",
+                    params={"supportsAllDrives": "true"},
+                )
+                self._raise_for_status(response)
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise StorageProviderError(
+                "Google Drive managed asset deletion failed.",
+                code="managed_storage_network_error",
+                retryable=True,
+            ) from exc
 
     async def store_asset(self, input: StoreAssetInput) -> StoredAsset:
         access_token = await self._get_access_token()
