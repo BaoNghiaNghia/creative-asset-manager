@@ -504,3 +504,26 @@
 /* Keep the compact header controls within their own cells on wide screens. */
 .ops-header-actions .ops-refresh-control{width:160px;max-width:160px}
 @media(max-width:720px){.ops-header-actions .ops-refresh-control{width:100%;max-width:none}}
+
+/* Compact hierarchy for the paired Gemini credential card. */
+.ops-config-gemini{gap:14px;padding:18px 20px}
+.ops-config-gemini>.ops-config-card-header{align-items:flex-start;padding-bottom:12px}
+.ops-config-gemini>.ops-config-card-header h3{margin:0;font-size:18px;letter-spacing:-.015em}
+.ops-config-gemini>.ops-config-card-header p{max-width:520px;margin:4px 0 0;color:#718096;font-size:12px;line-height:1.4}
+.ops-config-gemini .ops-card-kicker{font-size:9px}
+.ops-config-gemini-grid{gap:0}
+.ops-config-gemini .inventory-settings-card-embedded{padding:14px 0}
+.ops-config-gemini .inventory-settings-card-embedded:first-child{padding-top:0}
+.ops-config-gemini .inventory-settings-card-embedded+.inventory-settings-card-embedded{padding-top:14px;border-top-color:#e8edf3}
+.ops-config-gemini .inventory-settings-heading{align-items:center;gap:12px;padding-bottom:8px;border-bottom:0}
+.ops-config-gemini .inventory-kicker{font-size:9px;letter-spacing:.1em}
+.ops-config-gemini .inventory-settings-heading h2{margin:2px 0 3px;font-size:16px;line-height:1.2;letter-spacing:-.01em}
+.ops-config-gemini .inventory-settings-heading .inventory-muted{max-width:430px;margin:0;font-size:12px;line-height:1.35}
+.ops-config-gemini .inventory-credential-status{flex:0 0 auto;padding:5px 8px;font-size:11px}
+.ops-config-gemini .inventory-credential-grid{margin:10px 0;border-radius:8px}
+.ops-config-gemini .inventory-credential-grid>div{padding:8px 12px}
+.ops-config-gemini .inventory-credential-grid dt{font-size:9px;letter-spacing:.065em}
+.ops-config-gemini .inventory-credential-grid dd{margin-top:3px;font-size:13px;line-height:1.25}
+.ops-config-gemini .inventory-actions{margin-top:2px;gap:7px}
+.ops-config-gemini .inventory-actions button{min-height:32px;padding:6px 10px;font-size:12px}
+@media(max-width:640px){.ops-config-gemini{padding:16px}.ops-config-gemini .inventory-settings-heading{align-items:flex-start}.ops-config-gemini .inventory-credential-grid>div{padding:9px 11px}.ops-config-gemini .inventory-settings-heading .inventory-muted{font-size:12px}}
