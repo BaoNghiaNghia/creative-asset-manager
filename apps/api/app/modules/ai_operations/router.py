@@ -12,12 +12,13 @@ from app.modules.ai_operations.export import EXPORT_COLUMNS, audit_export, csv_s
 from app.modules.ai_operations.queries import AiOperationsRepository
 from app.modules.ai_operations.pipeline import PipelineOperationsRepository
 from app.modules.ai_operations.coverage import SearchCoverageSummaryService
-from app.modules.ai_operations.schema import AiOperationsFilters, ManagedStorageCleanupRequest, SearchCoverageAuditRequest, SearchCoverageRepairRequest
+from app.modules.ai_operations.schema import AiOperationsFilters, ManagedStorageCleanupRequest, ManagedStorageSelfIngestionRepairRequest, SearchCoverageAuditRequest, SearchCoverageRepairRequest
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.search.coverage_audit import SearchV3CoverageAudit, SearchV3CoverageRepair
 from app.modules.storage.managed_cleanup import ManagedStorageCleanupService
 from app.modules.storage.provider_factory import build_managed_storage_provider
+from app.modules.storage.self_ingestion_repair import ManagedStorageSelfIngestionRepairService
 
 
 router = APIRouter(prefix="/api/v1/admin/ai-operations", tags=["ai-operations"])
@@ -161,6 +162,34 @@ async def cleanup_managed_storage(
     settings = get_settings()
     result = await ManagedStorageCleanupService(
         SessionLocal, settings, build_managed_storage_provider(settings)
+    ).execute(tenant_id=target, limit=body.limit, dry_run=body.dry_run)
+    return result.document()
+
+
+@router.get("/managed-storage/self-ingestion/preview")
+async def preview_managed_storage_self_ingestion_repair(
+    tenant_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    principal: CurrentPrincipal = Depends(require_permission("ai_provider.configure")),
+):
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    result = await ManagedStorageSelfIngestionRepairService(
+        SessionLocal, get_settings()
+    ).execute(tenant_id=target, limit=limit, dry_run=True)
+    return result.document()
+
+
+@router.post("/managed-storage/self-ingestion/repair")
+async def repair_managed_storage_self_ingestion(
+    body: ManagedStorageSelfIngestionRepairRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(require_permission("ai_provider.configure")),
+):
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    result = await ManagedStorageSelfIngestionRepairService(
+        SessionLocal, get_settings()
     ).execute(tenant_id=target, limit=body.limit, dry_run=body.dry_run)
     return result.document()
 

@@ -24,3 +24,26 @@ row for a future retry.
 
 Set the values in deploy/production.env.example; migrations never call Google
 Drive or delete remote data.
+
+
+## Preventing and repairing self-ingestion
+
+Google Source Sync ignores Drive items carrying CAM-owned appProperties:
+a Managed Storage binary has cam_tenant_id, cam_asset_id, and
+cam_content_hash; a metadata sidecar carries cam_sidecar. User files with
+unrelated app properties continue to sync normally.
+
+Before enabling cleanup on a deployment that previously ingested staging copies:
+
+1. Keep automatic cleanup disabled.
+2. Call GET /api/v1/admin/ai-operations/managed-storage/self-ingestion/preview.
+3. Run POST /api/v1/admin/ai-operations/managed-storage/self-ingestion/repair
+   with dry_run=true, then review every count.
+4. Run a small confirmed batch with dry_run=false.
+5. Verify every repaired asset retained another legitimate source link.
+6. Only then use the Managed Storage cleanup preview and confirmed cleanup.
+
+Repair only deletes the contaminated asset_source_links and an orphaned
+source_assets row. It never deletes an Asset, analysis, source Drive file,
+Managed Storage Drive file, or asset_storage_objects row. An asset whose
+only source is a staging copy is reported as skipped_only_source.

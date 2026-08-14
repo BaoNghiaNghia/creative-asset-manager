@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from app.domain.providers.contracts import (
@@ -8,11 +10,14 @@ from app.domain.providers.contracts import (
     SourceChange,
     SourceChangePage,
 )
+from app.providers.google.internal_files import is_cam_managed_file
+
+logger = logging.getLogger(__name__)
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 FILE_FIELDS = (
     "id,name,mimeType,parents,size,createdTime,modifiedTime,trashed,"
-    "md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,webViewLink"
+    "md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,webViewLink,appProperties"
 )
 
 
@@ -33,8 +38,20 @@ def _candidate(item: dict, source_id: str) -> ExternalAssetCandidate:
             "parents": item.get("parents") or [],
             "is_folder": item.get("mimeType") == FOLDER_MIME,
             "web_url": item.get("webViewLink"),
+            "app_properties": item.get("appProperties") or {},
         },
     )
+
+
+def _ignored_internal_change(item: dict, source_id: str) -> SourceChange:
+    """Use the established safe deletion path for CAM-internal Drive objects."""
+    file_id = str(item.get("id") or "")
+    logger.info(
+        "google_drive_cam_internal_file_ignored source_id=%s file_id=%s",
+        source_id,
+        file_id,
+    )
+    return SourceChange(change_type="deleted", external_asset_id=file_id, candidate=None)
 
 
 async def list_drive_changes(
@@ -61,7 +78,9 @@ async def list_drive_changes(
             data = response.json()
             next_cursor = data.get("nextPageToken")
             changes = tuple(
-                SourceChange(
+                _ignored_internal_change(item, input.source_id)
+                if is_cam_managed_file(item)
+                else SourceChange(
                     change_type="updated",
                     external_asset_id=item["id"],
                     candidate=_candidate(item, input.source_id),
@@ -96,12 +115,15 @@ async def list_drive_changes(
             item = change.get("file") or {}
             external_id = change.get("fileId") or item.get("id")
             removed = change.get("removed") or item.get("trashed") or not item
-            mapped.append(
-                SourceChange(
-                    change_type="deleted" if removed else "updated",
-                    external_asset_id=external_id,
-                    candidate=None if removed else _candidate(item, input.source_id),
+            if not removed and is_cam_managed_file(item):
+                mapped.append(_ignored_internal_change(item, input.source_id))
+            else:
+                mapped.append(
+                    SourceChange(
+                        change_type="deleted" if removed else "updated",
+                        external_asset_id=external_id,
+                        candidate=None if removed else _candidate(item, input.source_id),
+                    )
                 )
-            )
         next_cursor = data.get("nextPageToken") or data.get("newStartPageToken") or input.cursor
         return SourceChangePage(tuple(mapped), next_cursor, bool(data.get("nextPageToken")))

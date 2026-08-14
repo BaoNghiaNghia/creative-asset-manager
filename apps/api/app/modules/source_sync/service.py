@@ -14,6 +14,7 @@ from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.source_sync.repository import SourceSyncRepository
 from app.modules.explorer.breadcrumb import location_breadcrumb_cache
+from app.providers.google.internal_files import is_cam_managed_file
 
 
 def _invalidate_viewer_folder_hierarchy(*, tenant_id: str, external_source_id: str) -> None:
@@ -105,6 +106,17 @@ class SourceSyncService:
                     candidate = change.candidate
                     if candidate is None:
                         raise ValueError("non-delete change requires a candidate")
+                    # Defense in depth for Google providers that produce candidates
+                    # directly instead of going through incremental.py.
+                    if source.source_type == "google_drive" and is_cam_managed_file(candidate.source_metadata):
+                        existing = self.repository.get_source_asset_by_external_id(
+                            tenant_id, source_id, candidate.external_asset_id
+                        )
+                        if existing is not None and existing.deleted_at is None:
+                            self.repository.assets.mark_source_asset_deleted(
+                                tenant_id=tenant_id, source_asset_id=existing.id
+                            )
+                        continue
                     existing = self.repository.get_source_asset_by_external_id(
                         tenant_id, source_id, candidate.external_asset_id
                     )

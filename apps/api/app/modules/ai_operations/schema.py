@@ -47,3 +47,10 @@ class ManagedStorageCleanupRequest(BaseModel):
 
     dry_run: bool = True
     limit: int = Field(default=100, ge=1, le=500)
+
+
+class ManagedStorageSelfIngestionRepairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dry_run: bool = True
+    limit: int = Field(default=100, ge=1, le=500)

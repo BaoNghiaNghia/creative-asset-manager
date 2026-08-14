@@ -85,6 +85,45 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         self.session.close()
         self.engine.dispose()
 
+    async def test_internal_managed_candidate_is_retired_without_ingestion_or_job(self) -> None:
+        managed = ExternalAssetCandidate(
+            source_type="google_drive",
+            source_id="source-db-id",
+            external_asset_id="managed-copy",
+            filename="staging.png",
+            mime_type="image/png",
+            source_metadata={
+                "parents": ["managed-root"],
+                "app_properties": {
+                    "cam_tenant_id": "tenant-a",
+                    "cam_asset_id": "asset-a",
+                    "cam_content_hash": "a" * 64,
+                },
+            },
+        )
+        existing = self.assets.upsert_source_asset(
+            tenant_id="tenant-a",
+            external_source_id=self.source.id,
+            external_asset_id="managed-copy",
+            filename="old-staging.png",
+            source_metadata={"parents": ["managed-root"]},
+        )
+        self.session.commit()
+        provider = FakeProvider([
+            SourceChangePage((SourceChange("updated", "managed-copy", managed),), "cursor", False)
+        ])
+
+        result = await self.service.sync_source(
+            tenant_id="tenant-a", source_id=self.source.id, provider=provider
+        )
+
+        self.assertEqual(result.jobs_created, 0)
+        self.assertTrue(self.session.get(SourceAssetModel, existing.id).deleted_at is not None)
+        self.assertEqual(
+            self.session.scalar(select(func.count()).select_from(ProcessingJobModel)),
+            0,
+        )
+
     async def test_persists_each_page_before_advancing_cursor(self) -> None:
         provider = FakeProvider(
             [
