@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -100,6 +101,27 @@ class ManagedStorageSelfIngestionRepairTest(unittest.IsolatedAsyncioTestCase):
         return ManagedStorageSelfIngestionRepairService(
             lambda: Session(self.engine, expire_on_commit=False), Settings()
         )
+
+    def test_candidate_statement_is_postgresql_safe_and_bounded(self) -> None:
+        statement = ManagedStorageSelfIngestionRepairService._candidate_statement(
+            tenant_id="tenant-a",
+            limit=17,
+        )
+        sql = " ".join(
+            str(
+                statement.compile(
+                    dialect=postgresql.dialect(),
+                    compile_kwargs={"literal_binds": True},
+                )
+            ).split()
+        )
+        self.assertNotIn("SELECT DISTINCT", sql)
+        self.assertIn("EXISTS (SELECT 1", sql)
+        self.assertIn(
+            "ORDER BY asset_storage_objects.stored_at, asset_storage_objects.id",
+            sql,
+        )
+        self.assertIn("LIMIT 17", sql)
 
     async def test_dry_run_and_actual_repair_preserve_original_asset_analysis_and_storage(self) -> None:
         preview = await self._repair().execute(tenant_id="tenant-a", dry_run=True)

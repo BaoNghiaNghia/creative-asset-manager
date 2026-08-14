@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, exists, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -62,30 +62,7 @@ class ManagedStorageSelfIngestionRepairService:
         with self._session_factory() as session:
             candidate_ids = list(
                 session.scalars(
-                    select(AssetStorageObjectModel.id)
-                    .join(
-                        SourceAssetModel,
-                        and_(
-                            SourceAssetModel.tenant_id == AssetStorageObjectModel.tenant_id,
-                            SourceAssetModel.external_asset_id
-                            == AssetStorageObjectModel.remote_file_id,
-                        ),
-                    )
-                    .join(
-                        AssetSourceLinkModel,
-                        and_(
-                            AssetSourceLinkModel.tenant_id == SourceAssetModel.tenant_id,
-                            AssetSourceLinkModel.source_asset_id == SourceAssetModel.id,
-                        ),
-                    )
-                    .where(
-                        AssetStorageObjectModel.tenant_id == tenant_id,
-                        AssetStorageObjectModel.storage_provider == "google_drive_managed",
-                        AssetStorageObjectModel.remote_file_id.is_not(None),
-                    )
-                    .distinct()
-                    .order_by(AssetStorageObjectModel.stored_at, AssetStorageObjectModel.id)
-                    .limit(limit)
+                    self._candidate_statement(tenant_id=tenant_id, limit=limit)
                 )
             )
         result.selected = len(candidate_ids)
@@ -111,6 +88,37 @@ class ManagedStorageSelfIngestionRepairService:
                     storage_id,
                 )
         return result
+
+    @staticmethod
+    def _candidate_statement(*, tenant_id: str, limit: int):
+        candidate_exists = exists(
+            select(1)
+            .select_from(SourceAssetModel)
+            .join(
+                AssetSourceLinkModel,
+                and_(
+                    AssetSourceLinkModel.tenant_id == SourceAssetModel.tenant_id,
+                    AssetSourceLinkModel.source_asset_id == SourceAssetModel.id,
+                ),
+            )
+            .where(
+                SourceAssetModel.tenant_id == AssetStorageObjectModel.tenant_id,
+                SourceAssetModel.external_asset_id
+                == AssetStorageObjectModel.remote_file_id,
+            )
+            .correlate(AssetStorageObjectModel)
+        )
+        return (
+            select(AssetStorageObjectModel.id)
+            .where(
+                AssetStorageObjectModel.tenant_id == tenant_id,
+                AssetStorageObjectModel.storage_provider == "google_drive_managed",
+                AssetStorageObjectModel.remote_file_id.is_not(None),
+                candidate_exists,
+            )
+            .order_by(AssetStorageObjectModel.stored_at, AssetStorageObjectModel.id)
+            .limit(limit)
+        )
 
     def _repair_one(
         self,
