@@ -500,3 +500,7 @@
 .ops-config-gemini .inventory-settings-heading h2{font-size:17px}
 .ops-config-gemini .inventory-credential-grid{margin:14px 0}
 @media(max-width:1320px){.ops-config-gemini{grid-column:auto}}
+
+/* Keep the compact header controls within their own cells on wide screens. */
+.ops-header-actions .ops-refresh-control{width:160px;max-width:160px}
+@media(max-width:720px){.ops-header-actions .ops-refresh-control{width:100%;max-width:none}}
