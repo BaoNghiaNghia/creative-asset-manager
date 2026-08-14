@@ -19,6 +19,7 @@ type Props = {
   onDelete?: () => void;
   onMove?: () => void;
   onOpenFolder?: (id: string) => void;
+  canManageContent?: boolean;
 };
 
 type Section = "details" | "activity" | "metadata" | "history" | "jobs";
@@ -26,7 +27,7 @@ type Section = "details" | "activity" | "metadata" | "history" | "jobs";
 type ActivityTone = "success" | "warning" | "danger" | "neutral";
 type ActivityEntry = { id: string; title: string; detail: string; category: string; tone: ActivityTone; at?: string };
 
-export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview, onDelete, onMove, onOpenFolder }: Props) {
+export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview, onDelete, onMove, onOpenFolder, canManageContent = false }: Props) {
   const [data, setData] = useState<AssetDetails | null>(null);
   const [section, setSection] = useState<Section>("details");
   const [coreDetailsError, setCoreDetailsError] = useState("");
@@ -122,7 +123,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
     {loading && <div className="panel-loading" role="status" aria-label="Loading file information"><span className="panel-loading-spinner" aria-hidden="true" /></div>}
     {!loading && !item && !data && <InspectorEmpty />}
     {!loading && (item || data) && <div className="asset-details-body">
-      {section === "details" && <FriendlyDetails item={item} data={data} metadata={metadata} provider={provider} onPreview={onPreview} onOpenFolder={onOpenFolder} locationNodes={locationNodes} locationStatus={locationStatus} locationLoading={locationLoading} />}
+      {section === "details" && <FriendlyDetails item={item} data={data} metadata={metadata} provider={provider} onPreview={onPreview} onOpenFolder={onOpenFolder} locationNodes={locationNodes} locationStatus={locationStatus} locationLoading={locationLoading} canManageContent={canManageContent} />}
       {section === "activity" && <Activity entries={activity} />}
       {section === "metadata" && data && <>
         <Summary analysis={data.active_analysis} />
@@ -164,7 +165,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
   />}</>;
 }
 
-function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFolder, locationNodes, locationStatus, locationLoading }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void; onOpenFolder?: (id: string) => void; locationNodes: Array<{ id: string; name: string }>; locationStatus: "available" | "unavailable" | null; locationLoading: boolean }) {
+function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFolder, locationNodes, locationStatus, locationLoading, canManageContent }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void; onOpenFolder?: (id: string) => void; locationNodes: Array<{ id: string; name: string }>; locationStatus: "available" | "unavailable" | null; locationLoading: boolean; canManageContent: boolean }) {
   const source = data?.sources[0] || {};
   const assetRecord = data?.asset || {};
   const inferredKind = inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), item?.name || stringValue(source.filename));
@@ -187,7 +188,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
 
   return <>
     <div className={"inspector-preview" + (item && isTextAsset(item) ? " inspector-preview--text" : "")}>
-      {item && isTextAsset(item) ? <TextInspectorPreview item={item} canEdit={data?.can_manage_content === true} /> : previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
+      {item && isTextAsset(item) ? <TextInspectorPreview item={item} canEdit={data?.can_manage_content ?? canManageContent} /> : previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
         <img src={previewUrl} alt={"Preview of " + previewName} referrerPolicy="no-referrer" onError={() => setPreviewFailed(true)} />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
       </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}
@@ -267,11 +268,12 @@ function TextInspectorPreview({ item, canEdit }: { item: Asset; canEdit: boolean
         headers: { "Content-Type": "text/plain" },
         body: draft,
       });
-      if (!response.ok) throw Error("Unable to save text file.");
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw Error(typeof payload.detail === "string" ? payload.detail : "Unable to save text file.");
       setState({ ...state, text: draft, truncated: false });
       setEditing(false);
-    } catch {
-      setSaveError("Unable to save this text file. Please try again.");
+    } catch (reason) {
+      setSaveError(reason instanceof Error ? reason.message : "Unable to save this text file. Please try again.");
     } finally {
       setSaving(false);
     }

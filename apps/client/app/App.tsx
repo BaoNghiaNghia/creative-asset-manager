@@ -776,6 +776,7 @@ export default function App() {
       onPreview={setPreviewItem}
       onClose={closeDetails}
       onOpenFolder={(folderId) => void explorer.openFolder(folderId)}
+      canManageContent={explorer.provider === "google-drive" && !explorer.pureViewer}
       onDelete={() => setConfirm({ message: "Delete this file from Google Drive?", run: () => { setConfirm(null); void explorer.deleteItem(detailsItem?.id || "").catch(reason => console.error(reason)); } })}
       onMove={() => { const destination = window.prompt("Enter destination folder ID"); if (destination && detailsItem) setConfirm({ message: "Move this file to the selected folder?", run: () => { setConfirm(null); void explorer.moveItem(detailsItem.id, destination).catch(() => undefined); } }); }}
     />}
