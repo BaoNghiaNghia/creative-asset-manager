@@ -43,7 +43,10 @@ scan_frontend_dist() {
   local dist="$1"
   verify_frontend_dist "$dist"
   local pattern
-  pattern='localhost|127[.]0[.]0[.]1|(postgresql|postgres|mysql|mariadb|mongodb)([+][A-Za-z0-9_-]+)?://|DATABASE_URL|GEMINI_API_KEY|OPENAI_API_KEY|GOOGLE_CLIENT_SECRET|MICROSOFT_CLIENT_SECRET|(OAUTH_(ACCESS_|REFRESH_)?|ACCESS_|REFRESH_)TOKEN|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|(^|[^A-Za-z0-9])(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|ya29[.][A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|Bearer[[:space:]]+[A-Za-z0-9._~-]{20,})'
+  # A bare library error message can legitimately mention localhost.  Detect
+  # actual local endpoints while retaining fail-closed checks for loopback IPs,
+  # database URLs, credential names, and token-shaped values.
+  pattern='(https?:)?//localhost([/:]|$)|localhost:[0-9]+|127[.]0[.]0[.]1|(postgresql|postgres|mysql|mariadb|mongodb)([+][A-Za-z0-9_-]+)?://|DATABASE_URL|GEMINI_API_KEY|OPENAI_API_KEY|GOOGLE_CLIENT_SECRET|MICROSOFT_CLIENT_SECRET|(OAUTH_(ACCESS_|REFRESH_)?|ACCESS_|REFRESH_)TOKEN|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|(^|[^A-Za-z0-9])(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|ya29[.][A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|Bearer[[:space:]]+[A-Za-z0-9._~-]{20,})'
   if LC_ALL=C grep -RInaE --binary-files=without-match "$pattern" "$dist"; then
     deploy_die "Forbidden local or secret-like value found in frontend dist."
   fi
