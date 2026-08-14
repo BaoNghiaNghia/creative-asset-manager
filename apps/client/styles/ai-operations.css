@@ -493,14 +493,13 @@
 
 /* One compact Gemini card; credentials remain independent by workload. */
 
-.ops-provider-gemini-credentials{display:flex;flex-direction:column;gap:14px;margin-top:18px;padding-top:18px;border-top:1px solid #e8edf3}
+.ops-provider-gemini-credentials{display:flex;flex-direction:column;gap:12px;margin-top:18px;padding-top:18px;border-top:1px solid #e8edf3}
 .ops-provider-gemini-credentials-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:0!important;border:0!important}
 .ops-provider-gemini-credentials-header h4{margin:0;font-size:15px;letter-spacing:-.01em}
 .ops-provider-gemini-credentials-header p{max-width:560px;margin:4px 0 0;color:#718096;font-size:12px;line-height:1.4}
-.ops-provider-gemini-credentials-grid{display:grid;grid-template-columns:1fr;gap:0}
-.ops-provider-gemini-credentials .inventory-settings-card-embedded{padding:14px 0;border:0;border-radius:0;background:transparent;box-shadow:none}
-.ops-provider-gemini-credentials .inventory-settings-card-embedded:first-child{padding-top:0}
-.ops-provider-gemini-credentials .inventory-settings-card-embedded+.inventory-settings-card-embedded{padding-top:14px;border-top:1px solid #e8edf3}
+.ops-provider-gemini-credentials-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.ops-provider-gemini-credentials .inventory-settings-card-embedded{padding:14px;border:1px solid #e3e9f2;border-radius:10px;background:#fbfcfe;box-shadow:none}
+.ops-provider-gemini-credentials .inventory-settings-card-embedded+.inventory-settings-card-embedded{border-top:1px solid #e3e9f2}
 .ops-provider-gemini-credentials .inventory-settings-heading{align-items:center;gap:12px;padding-bottom:8px;border-bottom:0}
 .ops-provider-gemini-credentials .inventory-kicker{font-size:9px;letter-spacing:.1em}
 .ops-provider-gemini-credentials .inventory-settings-heading h2{margin:2px 0 3px;font-size:16px;line-height:1.2;letter-spacing:-.01em}
@@ -508,8 +507,10 @@
 .ops-provider-gemini-credentials .inventory-credential-status{flex:0 0 auto;padding:5px 8px;font-size:11px}
 .ops-provider-gemini-credentials .inventory-credential-grid{margin:10px 0;border-radius:8px}
 .ops-provider-gemini-credentials .inventory-credential-grid>div{padding:8px 12px}
+.ops-provider-gemini-credentials .inventory-credential-grid>div:nth-child(-n+2){display:none}
 .ops-provider-gemini-credentials .inventory-credential-grid dt{font-size:9px;letter-spacing:.065em}
 .ops-provider-gemini-credentials .inventory-credential-grid dd{margin-top:3px;font-size:13px;line-height:1.25}
 .ops-provider-gemini-credentials .inventory-actions{margin-top:2px;gap:7px}
 .ops-provider-gemini-credentials .inventory-actions button{min-height:32px;padding:6px 10px;font-size:12px}
+@media(max-width:960px){.ops-provider-gemini-credentials-grid{grid-template-columns:1fr}}
 @media(max-width:640px){.ops-provider-gemini-credentials{padding-top:16px}.ops-provider-gemini-credentials .inventory-settings-heading{align-items:flex-start}.ops-provider-gemini-credentials .inventory-credential-grid>div{padding:9px 11px}.ops-provider-gemini-credentials .inventory-settings-heading .inventory-muted{font-size:12px}}
