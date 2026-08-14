@@ -102,3 +102,14 @@ class IndexStatus(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
+
+
+class FolderNoteResponse(BaseModel):
+    folder_id: str
+    content_markdown: str = ""
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class FolderNoteUpdateRequest(BaseModel):
+    content_markdown: str = Field(default="", max_length=50_000)

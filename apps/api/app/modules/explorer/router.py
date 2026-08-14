@@ -16,10 +16,13 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, El
 from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.indexing import get_index_status, start_index_job
+from app.modules.explorer.folder_notes import FolderNoteModel, product_folder_kind
 from app.modules.explorer.schema import (
     AssetNode,
     AssetLocationResponse,
     FolderListing,
+    FolderNoteResponse,
+    FolderNoteUpdateRequest,
     IndexRequest,
     IndexStatus,
     Provider,
@@ -604,6 +607,81 @@ async def viewer_folder_options(
         "external_source_id": resolved_source_id,
         "folders": [{"id": item.id, "name": item.name} for item in folders],
     }
+
+
+async def _authorized_product_folder(
+    request: Request, folder_id: str, provider: Provider, session: Session,
+    principal: CurrentPrincipal, external_source_id: str | None, require_write: bool = False,
+) -> tuple[str, str, str, object]:
+    if provider != "google-drive":
+        raise HTTPException(status_code=501, detail="Folder notes are supported for Google Drive only.")
+    token, _account, tenant_id, source_id = await _source_context(
+        request, provider, session, principal, external_source_id,
+        require_drive_write_scope=require_write,
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail="Connect Google Drive before using folder notes.")
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(tenant_id=tenant_id, membership_id=principal.membership_id,
+        roles=principal.effective_roles, external_source_id=source_id)
+    async with create_source_provider(provider, token) as client:
+        folder = await client.get_node(folder_id)
+    if folder.kind != "folder":
+        raise HTTPException(status_code=422, detail="Folder notes can only be attached to folders.")
+    _require_viewer_folder_scope(scope_service, tenant_id=tenant_id, access=access,
+        folder_id=folder_id, allow_root=False)
+    if not product_folder_kind(folder.name):
+        raise HTTPException(status_code=422, detail="Folder notes are available only for supported Amazon or Etsy product folders.")
+    return tenant_id, source_id or "", token, folder
+
+
+def _folder_note_response(folder_id: str, note: FolderNoteModel | None) -> FolderNoteResponse:
+    return FolderNoteResponse(folder_id=folder_id, content_markdown=note.content_markdown if note else "",
+        updated_at=note.updated_at if note else None, updated_by=note.updated_by if note else None)
+
+
+@router.get("/folders/{folder_id}/note", response_model=FolderNoteResponse)
+async def get_folder_note(
+    request: Request, folder_id: str, provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
+):
+    tenant_id, source_id, _token, _folder = await _authorized_product_folder(
+        request, folder_id, provider, session, principal, external_source_id)
+    note = session.scalar(select(FolderNoteModel).where(
+        FolderNoteModel.tenant_id == tenant_id, FolderNoteModel.external_source_id == source_id,
+        FolderNoteModel.folder_external_id == folder_id))
+    return _folder_note_response(folder_id, note)
+
+
+@router.put("/folders/{folder_id}/note", response_model=FolderNoteResponse)
+async def put_folder_note(
+    request: Request, folder_id: str, body: FolderNoteUpdateRequest,
+    provider: Provider = Query("google-drive"), session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    external_source_id: str | None = Query(None),
+):
+    tenant_id, source_id, _token, _folder = await _authorized_product_folder(
+        request, folder_id, provider, session, principal, external_source_id, require_write=True)
+    note = session.scalar(select(FolderNoteModel).where(
+        FolderNoteModel.tenant_id == tenant_id, FolderNoteModel.external_source_id == source_id,
+        FolderNoteModel.folder_external_id == folder_id))
+    content = body.content_markdown
+    if not content.strip():
+        if note:
+            session.delete(note)
+            session.commit()
+        return _folder_note_response(folder_id, None)
+    if note is None:
+        note = FolderNoteModel(tenant_id=tenant_id, external_source_id=source_id,
+            folder_external_id=folder_id, content_markdown=content, updated_by=principal.actor_id)
+        session.add(note)
+    else:
+        note.content_markdown = content
+        note.updated_by = principal.actor_id
+    session.commit()
+    session.refresh(note)
+    return _folder_note_response(folder_id, note)
 
 
 @router.post("/upload")

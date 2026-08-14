@@ -10,10 +10,12 @@ import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
 import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, SidebarIcon, sourceFolderBrand } from "./components/Icons";
 import { MediaViewer } from "./components/MediaViewer";
+import { FolderNoteDrawer } from "./components/FolderNoteDrawer";
 import { Sidebar } from "./components/Sidebar";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
 import { explorerAssetUrl } from "./utils/mediaUrls";
+import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
 import type { Asset, SearchSuggestion } from "./types";
 
 const visibilityFilters = ["all", "public", "draft"] as const;
@@ -145,6 +147,8 @@ export default function App() {
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [folderNoteOpen, setFolderNoteOpen] = useState(false);
+  const [folderNoteSummary, setFolderNoteSummary] = useState("");
   const dragDepthRef = useRef(0);
   const newMenuRef = useRef<HTMLDivElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -157,6 +161,19 @@ export default function App() {
     && explorer.searchV3.active
     && explorer.query.trim().length >= 2
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
+  useEffect(() => {
+    const folder = explorer.path.at(-1);
+    if (!folder || !productFolderKind(folder.name)) { setFolderNoteSummary(""); return; }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ provider: explorer.provider });
+    if (explorer.activeExternalSourceId) params.set("external_source_id", explorer.activeExternalSourceId);
+    fetch("/api/explorer/folders/" + encodeURIComponent(folder.id) + "/note?" + params.toString(), { signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(value => setFolderNoteSummary(value?.content_markdown ? folderNotePreview(value.content_markdown) : ""))
+      .catch(() => { if (!controller.signal.aborted) setFolderNoteSummary(""); });
+    return () => controller.abort();
+  }, [explorer.path, explorer.provider, explorer.activeExternalSourceId]);
+
   useEffect(() => {
     if (!confirm) return;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
@@ -602,6 +619,12 @@ export default function App() {
             <span className="search-summary">
               <h1>
                 {explorer.path.at(-1)?.name || "My Drive"}
+                {productFolderKind(explorer.path.at(-1)?.name || "") && <button
+                  type="button"
+                  className="folder-note-trigger"
+                  onClick={() => setFolderNoteOpen(true)}
+                  aria-label="Open folder note"
+>{folderNoteSummary || "+ Add note"}</button>}
                 {(() => {
                   const currentName = explorer.path.at(-1)?.name || "";
                   const ancestorNames = explorer.path.slice(0, -1).map(folder => folder.name);
@@ -769,6 +792,15 @@ export default function App() {
       onClose={() => setAssetContextMenu(null)}
     />}
     {previewItem && <MediaViewer item={previewItem} onClose={() => setPreviewItem(null)} />}
+    {folderNoteOpen && explorer.path.at(-1) && <FolderNoteDrawer
+      folderId={explorer.path.at(-1)!.id}
+      folderName={explorer.path.at(-1)!.name}
+      provider={explorer.provider}
+      externalSourceId={explorer.activeExternalSourceId}
+      canManage={!explorer.pureViewer}
+      onClose={() => setFolderNoteOpen(false)}
+      onSaved={note => setFolderNoteSummary(folderNotePreview(note.content_markdown))}
+    />}
     {detailsOpen && explorer.auth.authenticated && <AssetDetailsPanel
       item={detailsItem}
       assetId={detailsAssetId}
