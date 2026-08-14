@@ -37,6 +37,17 @@ class CreativeCredentialRouterTest(unittest.TestCase):
   self.store(); response=self.request(self.pread,"GET","/api/v1/admin/ai-operations/configuration/credentials/gemini")
   self.assertEqual(response.status_code,200); self.assertEqual(response.json()["masked_key"],"••••••••1111"); self.assertNotIn(OLD,response.text)
   self.assertEqual(self.request(self.principal(set()),"GET","/api/v1/admin/ai-operations/configuration/credentials/gemini").status_code,403)
+ def test_test_endpoint_uses_the_current_tenant_credential_without_exposing_it(self):
+  self.store()
+  with patch.object(control_router,"validate_gemini_api_key",return_value="VALID") as validate:
+   response=self.request(self.pmanage,"POST","/api/v1/admin/ai-operations/configuration/credentials/gemini/test",json={})
+  self.assertEqual(response.status_code,200); self.assertEqual(response.json(),{"provider":"gemini","status":"VALID"}); validate.assert_called_once_with(OLD,timeout_seconds=10); self.assertNotIn(OLD,response.text)
+
+ def test_test_endpoint_reports_unavailable_when_no_current_credential_exists(self):
+  self.settings.GEMINI_API_KEY=""
+  response=self.request(self.pmanage,"POST","/api/v1/admin/ai-operations/configuration/credentials/gemini/test",json={})
+  self.assertEqual(response.status_code,200); self.assertEqual(response.json(),{"provider":"gemini","status":"PROVIDER_UNAVAILABLE"})
+
  def test_put_validates_encrypts_audits_and_preserves_drive(self):
   self.store();
   with patch.object(control_router,"validate_gemini_api_key",return_value="INVALID_KEY"):

@@ -15,6 +15,7 @@ from app.modules.inventory.exports.service import InventoryExportFailure, Invent
 from app.modules.inventory.credentials import (
     InventoryAiCredentialRepository,
     InventoryCredentialError,
+    InventoryGeminiCredentialResolver,
     inventory_credential_cipher,
 )
 from app.modules.inventory.permissions import (
@@ -31,7 +32,9 @@ _CREDENTIAL_LOGGER = logging.getLogger("cam.inventory.credentials_api")
 
 
 class GeminiCredentialRequest(BaseModel):
-    api_key: str = Field(min_length=1, max_length=512)
+    # An omitted key means test the credential currently resolved for this
+    # tenant. A supplied key remains a non-persisted candidate test.
+    api_key: str | None = Field(default=None, min_length=1, max_length=512)
     label: str | None = Field(default=None, max_length=255)
 
 
@@ -85,7 +88,19 @@ def test_ai_credential(
     body: GeminiCredentialRequest,
     principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CREDENTIALS_MANAGE_PERMISSION)),
 ):
-    result = validate_gemini_candidate(body.api_key)
+    if body.api_key is None:
+        try:
+            api_key = InventoryGeminiCredentialResolver(
+                SessionLocal, get_settings()
+            ).resolve(principal.active_tenant_id)
+        except InventoryCredentialError:
+            # A broken configured override must not be bypassed with another
+            # credential while this endpoint is merely testing it.
+            result = "PROVIDER_UNAVAILABLE"
+        else:
+            result = validate_gemini_candidate(api_key)
+    else:
+        result = validate_gemini_candidate(body.api_key)
     _CREDENTIAL_LOGGER.info(
         "inventory_gemini_credential_test tenant_id=%s actor_id=%s provider=gemini result=%s",
         principal.active_tenant_id, principal.actor_id, result,
@@ -98,6 +113,8 @@ def replace_ai_credential(
     body: GeminiCredentialRequest,
     principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CREDENTIALS_MANAGE_PERMISSION)),
 ):
+    if body.api_key is None:
+        raise HTTPException(422, detail={"code": "inventory_gemini_credential_required"})
     result = validate_gemini_candidate(body.api_key)
     with SessionLocal() as session:
         try:

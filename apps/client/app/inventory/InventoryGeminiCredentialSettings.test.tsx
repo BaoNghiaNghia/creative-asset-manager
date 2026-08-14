@@ -87,6 +87,16 @@ describe("Inventory Gemini credential settings", () => {
     vi.unstubAllGlobals();
   });
 
+  it("tests the saved Inventory credential with an empty body, not a replacement key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ provider: "gemini", status: "VALID" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    await inventoryApi.testAiCredential();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/inventory/configuration/ai-credential/test");
+    expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBe("{}");
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain(secret);
+    vi.unstubAllGlobals();
+  });
+
   it("maps structured encryption and storage failures to safe operator messages", async () => {
     const encryption = vi.fn().mockResolvedValue({
       ok: false,

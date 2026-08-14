@@ -18,7 +18,7 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.processing_policy.service import TenantPolicyCache
 from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.ai.gemini import validate_gemini_api_key
-from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, CreativeCredentialError, creative_credential_cipher
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, CreativeCredentialError, CreativeGeminiCredentialResolver, creative_credential_cipher
 import logging
 
 _CREDENTIAL_LOGGER = logging.getLogger("cam.creative_gemini_credential")
@@ -74,7 +74,21 @@ def test_creative_gemini_credential(
     principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
 ):
     target = _tenant(principal, tenant_id)
-    result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+    if body.api_key is None:
+        try:
+            api_key = CreativeGeminiCredentialResolver(
+                SessionLocal, get_settings()
+            ).resolve(target).secret
+        except CreativeCredentialError:
+            result = "PROVIDER_UNAVAILABLE"
+        else:
+            result = validate_gemini_api_key(
+                api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10)
+            )
+    else:
+        result = validate_gemini_api_key(
+            body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10)
+        )
     _CREDENTIAL_LOGGER.info("creative_gemini_credential_test tenant_id=%s actor_id=%s provider=gemini result=%s", target, principal.user_id, result)
     return {"provider": "gemini", "status": result}
 
@@ -86,6 +100,8 @@ def replace_creative_gemini_credential(
     principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
 ):
     target = _tenant(principal, tenant_id)
+    if body.api_key is None:
+        raise HTTPException(422, detail={"code": "creative_gemini_credential_required"})
     result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
     try:
         with SessionLocal() as session:

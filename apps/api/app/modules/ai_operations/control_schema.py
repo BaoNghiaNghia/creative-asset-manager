@@ -85,5 +85,7 @@ class AiBulkJobRetry(_Mutation):
 
 
 class CreativeGeminiCredentialRequest(BaseModel):
-    api_key: str = Field(min_length=1, max_length=512)
+    # The test endpoint accepts an empty request to validate the credential
+    # currently resolved for the tenant. Replacement still requires a key.
+    api_key: str | None = Field(default=None, min_length=1, max_length=512)
     label: str | None = Field(default=None, max_length=255)

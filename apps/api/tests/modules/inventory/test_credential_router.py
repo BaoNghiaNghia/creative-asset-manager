@@ -133,6 +133,24 @@ class InventoryCredentialRouterTest(unittest.TestCase):
         with self.sessions() as session:
             self.assertEqual(session.scalar(select(func.count(InventoryAiCredentialModel.id))), 0)
 
+    def test_test_endpoint_uses_the_current_tenant_credential_without_opening_or_exposing_it(self):
+        self.store("tenant-a", OLD_KEY)
+        with patch("app.modules.inventory.router.validate_gemini_candidate", return_value="VALID") as validate:
+            response = self.request(
+                self.manage, "POST", "/api/inventory/configuration/ai-credential/test", json={}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"provider": "gemini", "status": "VALID"})
+        validate.assert_called_once_with(OLD_KEY)
+        self.assertNotIn(OLD_KEY, response.text)
+
+    def test_test_endpoint_returns_safe_unavailable_status_without_a_configured_key(self):
+        response = self.request(
+            self.manage, "POST", "/api/inventory/configuration/ai-credential/test", json={}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"provider": "gemini", "status": "PROVIDER_UNAVAILABLE"})
+
     def test_put_validates_before_atomic_replacement_and_audits_safe_metadata(self):
         self.store("tenant-a", OLD_KEY)
         with patch("app.modules.inventory.router.validate_gemini_candidate", return_value="INVALID_KEY"):

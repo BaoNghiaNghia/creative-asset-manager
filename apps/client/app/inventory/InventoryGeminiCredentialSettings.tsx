@@ -66,6 +66,7 @@ export function InventoryGeminiCredentialSettings({
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [showKey, setShowKey] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [testingCurrent, setTestingCurrent] = useState(false);
   const [testStatus, setTestStatus] = useState<InventoryGeminiCredentialStatus | null>(null);
 
   const load = async () => {
@@ -106,6 +107,21 @@ export function InventoryGeminiCredentialSettings({
       return null;
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const testCurrentConnection = async () => {
+    if (!credential?.configured || submitting || testingCurrent) return;
+    setTestingCurrent(true);
+    setMessage("");
+    try {
+      const result = await inventoryApi.testAiCredential();
+      setTestStatus(result.status);
+    } catch (error) {
+      if (error instanceof InventoryApiError && error.status === 403) setState("forbidden");
+      setMessage(error instanceof Error ? error.message : "Unable to test Gemini credential");
+    } finally {
+      setTestingCurrent(false);
     }
   };
 
@@ -160,10 +176,11 @@ export function InventoryGeminiCredentialSettings({
     </dl>
     <div className="inventory-actions">
       {canManage ? <>
-        <button type="button" className="secondary" onClick={() => { setDialogOpen(true); setMessage(""); }}>Test Connection</button>
+        <button type="button" className="secondary" onClick={() => void testCurrentConnection()} disabled={!credential.configured || submitting || testingCurrent}>{testingCurrent ? "Testing..." : "Test Connection"}</button>
         <button type="button" onClick={() => { setDialogOpen(true); setMessage(""); }}>Replace API Key</button>
       </> : <p className="inventory-muted">You can view this credential status, but <code>inventory.credentials.manage</code> is required to test or replace the key.</p>}
     </div>
+    {testStatus && !dialogOpen ? <p className="inventory-test-result" role="status">{credentialStatusLabel(testStatus, true)}</p> : null}
     {message ? <ErrorMessage error={message} /> : null}
     {dialogOpen ? <div className="inventory-modal-backdrop" role="presentation" onMouseDown={closeDialog}>
       <section className="inventory-modal" role="dialog" aria-modal="true" aria-labelledby="replace-gemini-title" onMouseDown={event => event.stopPropagation()}>

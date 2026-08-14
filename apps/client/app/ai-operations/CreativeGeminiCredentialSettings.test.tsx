@@ -12,6 +12,13 @@ describe("Creative Gemini credential settings", () => {
     expect(JSON.stringify(fetcher.mock.calls)).not.toContain("/api/inventory");
     expect(JSON.stringify(fetcher.mock.calls)).not.toContain("/api/auth/google");
   });
+  it("tests the saved Creative credential with an empty request body", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ provider: "gemini", status: "VALID" }) });
+    await testCreativeGeminiCredential(undefined, undefined, fetcher);
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/admin/ai-operations/configuration/credentials/gemini/test");
+    expect(JSON.stringify(fetcher.mock.calls[0][1])).toContain("{}");
+    expect(JSON.stringify(fetcher.mock.calls)).not.toContain(secret);
+  });
   it("renders separate Creative scope without rendering a candidate key", () => {
     const markup = renderToStaticMarkup(<CreativeGeminiCredentialSettings canManage={false} />);
     expect(markup).toContain("Creative AI"); expect(markup).toContain("Loading Gemini credential configuration");
