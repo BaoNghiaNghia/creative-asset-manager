@@ -43,7 +43,9 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(markup).toContain("ops-config-card ops-config-defaults");
     expect(markup).toContain("ops-config-card ops-config-budget");
     expect(markup).toContain("ops-global-settings ops-config-global");
-    expect(markup).toContain("ops-config-inventory-ai");
+    expect(markup).toContain("ops-config-gemini");
+    expect(markup).toContain("Creative AI");
+    expect(markup).toContain("Inventory AI");
   });
 
   it("mounts Inventory Gemini settings in the visible AI Operations Configuration tab even while Inventory automation is disabled", () => {

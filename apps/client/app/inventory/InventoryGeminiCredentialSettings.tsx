@@ -52,10 +52,13 @@ function ErrorMessage({ error }: { error: string }) {
 export function InventoryGeminiCredentialSettings({
   initialCredential,
   canManage = true,
+  embedded = false,
 }: {
   initialCredential?: InventoryAiCredential;
   canManage?: boolean;
+  embedded?: boolean;
 }) {
+  const cardClass = "inventory-settings-card" + (embedded ? " inventory-settings-card-embedded" : "");
   const [credential, setCredential] = useState<InventoryAiCredential | null>(initialCredential || null);
   const [state, setState] = useState<State>(initialCredential ? "ready" : "loading");
   const [message, setMessage] = useState("");
@@ -127,16 +130,16 @@ export function InventoryGeminiCredentialSettings({
   };
 
   if (state === "loading") {
-    return <section className="inventory-settings-card" aria-busy="true"><h2>Inventory AI</h2><p>Loading Gemini credential configuration…</p></section>;
+    return <section className={cardClass} aria-busy="true"><h2>Inventory AI</h2><p>Loading Gemini credential configuration…</p></section>;
   }
   if (state === "forbidden") {
-    return <section className="inventory-settings-card"><h2>Inventory AI</h2><ErrorMessage error="You do not have permission to view Inventory Gemini credential configuration." /></section>;
+    return <section className={cardClass}><h2>Inventory AI</h2><ErrorMessage error="You do not have permission to view Inventory Gemini credential configuration." /></section>;
   }
   if (state === "error" || !credential) {
-    return <section className="inventory-settings-card"><h2>Inventory AI</h2><ErrorMessage error={message || "Unable to load Gemini credential configuration."} /><button type="button" onClick={() => void load()}>Retry</button></section>;
+    return <section className={cardClass}><h2>Inventory AI</h2><ErrorMessage error={message || "Unable to load Gemini credential configuration."} /><button type="button" onClick={() => void load()}>Retry</button></section>;
   }
 
-  return <section className="inventory-settings-card" aria-labelledby="inventory-ai-title">
+  return <section className={cardClass} aria-labelledby="inventory-ai-title">
     <div className="inventory-settings-heading">
       <div>
         <p className="inventory-kicker">Inventory AI</p>
