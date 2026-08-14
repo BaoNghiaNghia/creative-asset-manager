@@ -144,7 +144,10 @@ export default function App() {
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextState | null>(null);
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
   const dragDepthRef = useRef(0);
+  const newMenuRef = useRef<HTMLDivElement | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const resultContainerRef = useRef<HTMLElement | null>(null);
   const autoAppendAttemptsRef = useRef(0);
@@ -162,6 +165,21 @@ export default function App() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [confirm]);
+  useEffect(() => {
+    if (!newMenuOpen) return;
+    const closeMenu = (event: MouseEvent) => {
+      if (newMenuRef.current && !newMenuRef.current.contains(event.target as Node)) setNewMenuOpen(false);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setNewMenuOpen(false);
+    };
+    window.addEventListener("mousedown", closeMenu);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("mousedown", closeMenu);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [newMenuOpen]);
 
   useEffect(() => {
     if (!showSuggestions) return;
@@ -526,29 +544,20 @@ export default function App() {
         >
           {folder.name}
         </button>)}</div>
-        <div className="explorer-create-actions">
-          <button type="button" title="Create a folder in the current location" onClick={() => {
-            const name = window.prompt("Folder name");
-            if (name?.trim()) void explorer.createFolder(name.trim()).catch(() => window.alert("Unable to create folder."));
-          }}>New folder</button>
-          <button type="button" title="Create a TXT file in the current location" onClick={() => {
-            const name = window.prompt("Text file name");
-            if (name?.trim()) void explorer.createTextFile(name.trim()).catch(() => window.alert("Unable to create text file."));
-          }}>New TXT</button>
+        <div className="explorer-create-actions" ref={newMenuRef}>
+          <button type="button" className="explorer-new-trigger" aria-haspopup="menu" aria-expanded={newMenuOpen} aria-controls="explorer-new-menu" onClick={() => setNewMenuOpen(open => !open)}><span aria-hidden="true">+</span>New<span className="explorer-new-caret" aria-hidden="true">v</span></button>
+          {newMenuOpen && <div id="explorer-new-menu" className="explorer-new-menu" role="menu" aria-label="Create or upload">
+            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Folder name"); if (name?.trim()) void explorer.createFolder(name.trim()).catch(() => window.alert("Unable to create folder.")); }}><span className="explorer-new-icon folder" aria-hidden="true">[]</span><span><b>New folder</b><small>Create in this folder</small></span></button>
+            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Text file name"); if (name?.trim()) void explorer.createTextFile(name.trim()).catch(() => window.alert("Unable to create text file.")); }}><span className="explorer-new-icon text" aria-hidden="true">T</span><span><b>Text file</b><small>Create a TXT file</small></span></button>
+            <div className="explorer-new-menu-divider" role="separator" />
+            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); uploadInputRef.current?.click(); }}><span className="explorer-new-icon upload-icon" aria-hidden="true">^</span><span><b>Upload files</b><small>Choose one or more files</small></span></button>
+          </div>}
+          <input ref={uploadInputRef} hidden type="file" multiple onChange={event => {
+            const files = Array.from(event.target.files || []);
+            if (files.length) void explorer.uploadFiles(files);
+            event.currentTarget.value = "";
+          }} />
         </div>
-        <label className="upload" title="Upload files to the current folder">
-          <span aria-hidden="true">＋</span> Upload
-          <input
-            hidden
-            type="file"
-            multiple
-            onChange={event => {
-              const files = Array.from(event.target.files || []);
-              if (files.length) void explorer.uploadFiles(files);
-              event.currentTarget.value = "";
-            }}
-          />
-        </label>
       </nav>}
 
       {explorer.applicationAuthenticated === null ? <div className="state">Checking application session...</div>
