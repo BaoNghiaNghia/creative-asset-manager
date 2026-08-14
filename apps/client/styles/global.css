@@ -1010,7 +1010,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .asset-inspector-header small{font-size:9px;color:#6c798a}.asset-inspector-header h2{font-size:14px!important;color:#1f2b3a}
 .asset-inspector>nav{gap:0;padding:0 10px;background:#fff}.asset-inspector>nav button{flex:1;padding:12px 4px 10px;text-align:center;font-size:11px;white-space:nowrap}
 .asset-inspector .asset-details-body{padding:0 16px 18px;background:#fff}.asset-inspector .asset-details-body>.inspector-section:first-child{padding-top:18px}
-.inspector-preview{min-height:168px;border-radius:14px;border-color:#e2e8f0;background:linear-gradient(145deg,#f7f9fc,#eff3f8)}
+.inspector-preview{margin-top:10px;min-height:168px;border-radius:14px;border-color:#e2e8f0;background:linear-gradient(145deg,#f7f9fc,#eff3f8)}
 .inspector-preview>button{display:inline-flex;align-items:center;gap:5px;right:12px;bottom:12px;padding:8px 10px;border-radius:8px;background:#fff;color:#2459bb;font-size:11px}
 .inspector-section{padding:18px 0}.inspector-section h3,.panel-section-title{font-size:14px;letter-spacing:-.01em}
 .inspector-properties{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #e5eaf1;border-radius:10px;overflow:hidden;background:#fff}
