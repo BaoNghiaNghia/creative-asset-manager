@@ -4,8 +4,9 @@ import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
 import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { SafeJsonTree } from "./SafeJsonTree";
-import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
-import { assetPreviewUrl } from "../utils/mediaUrls";
+import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset, isTextAsset } from "../utils/fileType";
+import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
+import { readTextPreview, TEXT_PREVIEW_RANGE } from "../utils/textPreview";
 import googleDriveLogoUrl from "../../assets/logos/google-drive-logo.svg";
 import { LocationBreadcrumb, itemLocationBreadcrumb } from "./LocationBreadcrumb";
 
@@ -186,8 +187,8 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
 
   return <>
     <div className="inspector-preview">
-      {previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
-        <img src={previewUrl} alt={`Preview of ${previewName}`} referrerPolicy="no-referrer" onError={() => setPreviewFailed(true)} />
+      {item && isTextAsset(item) ? <TextInspectorPreview item={item} /> : previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
+        <img src={previewUrl} alt={"Preview of " + previewName} referrerPolicy="no-referrer" onError={() => setPreviewFailed(true)} />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
       </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}
       <div className="inspector-preview-actions">
@@ -228,6 +229,22 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
       <Detail title="Managed storage" value={data.storage} />
     </section>}
   </>;
+}
+
+function TextInspectorPreview({ item }: { item: Asset }) {
+  const [state, setState] = useState<{ text: string; truncated: boolean; error: boolean } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setState(null);
+    void fetch(explorerAssetUrl(item, "media"), { signal: controller.signal, credentials: "same-origin", headers: { Range: TEXT_PREVIEW_RANGE } })
+      .then(response => readTextPreview(response, controller.signal))
+      .then(result => { if (!controller.signal.aborted) setState({ ...result, error: false }); })
+      .catch(() => { if (!controller.signal.aborted) setState({ text: "", truncated: false, error: true }); });
+    return () => controller.abort();
+  }, [item.id, item.provider, item.external_source_id]);
+  if (!state) return <div className="inspector-text-preview loading" role="status">Loading text preview…</div>;
+  if (state.error) return <div className="inspector-text-preview error">Text preview unavailable.</div>;
+  return <div className="inspector-text-preview"><pre>{state.text || "This text file is empty."}</pre>{state.truncated && <small>Showing the first 1 MB.</small>}</div>;
 }
 
 function Activity({ entries }: { entries: ActivityEntry[] }) {

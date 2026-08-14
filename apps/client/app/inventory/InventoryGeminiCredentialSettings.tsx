@@ -140,8 +140,8 @@ export function InventoryGeminiCredentialSettings({
     <div className="inventory-settings-heading">
       <div>
         <p className="inventory-kicker">Inventory AI</p>
-        <h2 id="inventory-ai-title">Google Gemini</h2>
-        <p className="inventory-muted">Used only by the Inventory document pipeline. It does not affect Creative AI jobs.</p>
+        <h2 id="inventory-ai-title">Gemini cho Inventory</h2>
+        <p className="inventory-muted">Dùng riêng cho pipeline tài liệu Inventory; không ảnh hưởng đến Creative AI.</p>
       </div>
       <span className={"inventory-credential-status status-" + credentialStatusClass(credential.status, credential.configured)}>{credentialStatusLabel(credential.status, credential.configured)}</span>
     </div>
