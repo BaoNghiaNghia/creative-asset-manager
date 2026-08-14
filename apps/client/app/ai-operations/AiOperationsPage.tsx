@@ -224,8 +224,8 @@ export function AiOperationsContent({
         : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
-        : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} />
-        : <ConfigurationTab permissions={permissions} />}
+        : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} inventoryPermissions={permissions} />
+        : <ConfigurationTab />}
     </section>
   </>;
 }

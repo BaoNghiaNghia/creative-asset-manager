@@ -33,37 +33,35 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(markup).not.toContain("Emergency stop all AI");
   });
 
-  it("keeps all Configuration cards inside the responsive four-column layout", () => {
-    const markup = renderToStaticMarkup(<ConfigurationForm
-      configuration={configuration}
-      onChanged={noop}
-      onReload={noop}
-      inventoryPermissions={["inventory.read", "inventory.credentials.manage"]}
-    />);
+  it("keeps core Configuration cards in the responsive layout and moves Gemini credentials to Providers", () => {
+    const markup = renderToStaticMarkup(<ConfigurationForm configuration={configuration} onChanged={noop} onReload={noop} />);
     expect(markup).toContain("ops-config-card ops-config-defaults");
     expect(markup).toContain("ops-config-card ops-config-budget");
     expect(markup).toContain("ops-global-settings ops-config-global");
-    expect(markup).toContain("ops-config-gemini");
-    expect(markup).toContain("Creative AI");
-    expect(markup).toContain("Inventory AI");
+    expect(markup).not.toContain("Google Gemini credential settings");
+    expect(markup).not.toContain("Inventory AI");
   });
 
-  it("mounts Inventory Gemini settings in the visible AI Operations Configuration tab even while Inventory automation is disabled", () => {
-    const disabledInventory = { ...configuration, tenant: { ...configuration.tenant, ai_enabled: false } };
-    const markup = renderToStaticMarkup(<ConfigurationForm
-      configuration={disabledInventory}
+  it("renders both independent Gemini credential settings inside the Google Gemini provider card", () => {
+    const markup = renderToStaticMarkup(<ProviderCards
+      configuration={configuration}
+      metrics={metrics}
       onChanged={noop}
       onReload={noop}
       inventoryPermissions={["inventory.read", "inventory.credentials.manage"]}
     />);
+    expect(markup).toContain("ops-provider-gemini-credentials");
+    expect(markup).toContain("Creative AI");
     expect(markup).toContain("Inventory AI");
     expect(markup).toContain("Loading Gemini credential configuration");
     expect(markup).not.toContain("INVENTORY_AUTOMATION_ENABLED");
   });
 
-  it("keeps the Gemini section visible but does not expose mutation actions to configuration viewers without credential permission", () => {
-    const markup = renderToStaticMarkup(<ConfigurationForm
-      configuration={configuration}
+  it("keeps Inventory Gemini visible in Providers while automation is disabled without exposing actions without credential permission", () => {
+    const disabledInventory = { ...configuration, tenant: { ...configuration.tenant, ai_enabled: false } };
+    const markup = renderToStaticMarkup(<ProviderCards
+      configuration={disabledInventory}
+      metrics={metrics}
       onChanged={noop}
       onReload={noop}
       inventoryPermissions={["inventory.read"]}

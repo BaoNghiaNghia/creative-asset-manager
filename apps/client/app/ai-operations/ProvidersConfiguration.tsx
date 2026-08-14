@@ -9,18 +9,18 @@ import { formatCost } from "./presentation";
 import { InventoryGeminiCredentialSettings } from "../inventory/InventoryGeminiCredentialSettings";
 import { CreativeGeminiCredentialSettings } from "./CreativeGeminiCredentialSettings";
 
-export function ProvidersTab({ metrics }: { metrics: AiOpsProviderBreakdown[] }) {
+export function ProvidersTab({ metrics, inventoryPermissions = [] }: { metrics: AiOpsProviderBreakdown[]; inventoryPermissions?: readonly string[] }) {
   const state = useConfiguration();
   if (state.loading) return <ConfigurationLoading />;
   if (state.error || !state.value) return <ConfigurationError error={state.error} retry={state.reload} />;
-  return <ProviderCards configuration={state.value} metrics={metrics} onChanged={state.apply} onReload={state.reload} />;
+  return <ProviderCards configuration={state.value} metrics={metrics} onChanged={state.apply} onReload={state.reload} inventoryPermissions={inventoryPermissions} />;
 }
 
-export function ConfigurationTab({ permissions = [] }: { permissions?: readonly string[] }) {
+export function ConfigurationTab() {
   const state = useConfiguration();
   if (state.loading) return <ConfigurationLoading />;
   if (state.error || !state.value) return <ConfigurationError error={state.error} retry={state.reload} />;
-  return <ConfigurationForm configuration={state.value} onChanged={state.apply} onReload={state.reload} inventoryPermissions={permissions} />;
+  return <ConfigurationForm configuration={state.value} onChanged={state.apply} onReload={state.reload} />;
 }
 
 function useConfiguration() {
@@ -43,9 +43,10 @@ export function replaceProviderConfiguration(configuration: AiOpsConfiguration, 
   return { ...configuration, providers: configuration.providers.map(item => item.id === provider ? { ...item, ...changes } : item) };
 }
 
-export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
+export function ProviderCards({ configuration, metrics, onChanged, onReload, inventoryPermissions = [] }: {
   configuration: AiOpsConfiguration; metrics: AiOpsProviderBreakdown[];
   onChanged: (value: AiOpsConfiguration) => void; onReload: () => void;
+  inventoryPermissions?: readonly string[];
 }) {
   const [pending, setPending] = useState<string | null>(null);
   const [confirmProvider, setConfirmProvider] = useState<AiOpsProvider | null>(null);
@@ -92,7 +93,7 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
   }
 
   return <section className="ops-content" aria-labelledby="providers-title">
-    <div className="ops-section-heading"><div><h2 id="providers-title">Providers</h2><p>Tenant controls and today’s provider health. Credentials are never displayed.</p></div></div>
+    <div className="ops-section-heading"><div><h2 id="providers-title">Providers</h2><p>Tenant controls and today’s provider health. Google Gemini credentials are managed here with masked values only.</p></div></div>
     {error && <div className="ops-inline-error" role="alert">{error}</div>}
     {audit && <AuditNotice audit={audit} />}
     <div className="ops-provider-grid">{configuration.providers.map(provider => {
@@ -118,6 +119,13 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
           <label><input type="checkbox" checked={provider.batch_enabled} onChange={event => optimistic(provider.id, { batch_enabled: event.target.checked })} /> Batch enabled</label>
         </fieldset>
         <button className={provider.paused ? "primary" : "danger"} type="button" disabled={pauseDisabled} onClick={() => { setConfirmProvider(provider.id); setReason(""); }}>{provider.paused ? "Resume provider" : "Pause provider"}</button>
+        {provider.id === "gemini" && <section className="ops-provider-gemini-credentials" aria-label="Google Gemini credential settings">
+          <header className="ops-provider-gemini-credentials-header"><div><h4>Gemini credentials</h4><p>Hai API key độc lập: một cho Creative AI và một cho Inventory. Thay đổi một key không ảnh hưởng key còn lại.</p></div><span className="ops-card-kicker">Credentials</span></header>
+          <div className="ops-provider-gemini-credentials-grid">
+            <CreativeGeminiCredentialSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
+            <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} embedded />
+          </div>
+        </section>}
         {confirmProvider === provider.id && <div className="ops-confirm" role="dialog" aria-label={`${provider.paused ? "Resume" : "Pause"} ${provider.label}`}>
           <strong>Confirm {provider.paused ? "resume" : "pause"}</strong><p>Queued work is preserved. A reason is required for the audit log.</p>
           <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label>
@@ -128,9 +136,8 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload }: {
   </section>;
 }
 
-export function ConfigurationForm({ configuration, onChanged: _onChanged, onReload, inventoryPermissions = [] }: {
+export function ConfigurationForm({ configuration, onChanged: _onChanged, onReload }: {
   configuration: AiOpsConfiguration; onChanged: (value: AiOpsConfiguration) => void; onReload: () => void;
-  inventoryPermissions?: readonly string[];
 }) {
   const [form, setForm] = useState(() => {
     const fallback = configuration.providers.find(item => item.connection_configured) || configuration.providers[0];
@@ -248,13 +255,6 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
       <section className="ops-global-settings ops-config-global"><header className="ops-config-card-header"><div><h3>Global controls</h3><p>Giới hạn toàn cục do deployment quản lý và chỉ có thể xem tại đây.</p></div><span className="ops-card-kicker">Read-only</span></header><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Tenant không thể bật lại chức năng đã bị tắt ở cấp toàn cục.</p>
         {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục.</small>}
         <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
-      </section>
-      <section className="ops-config-gemini" aria-label="Google Gemini credential settings">
-        <header className="ops-config-card-header"><div><h3>Google Gemini</h3><p>Hai API key độc lập: một cho Creative AI và một cho Inventory. Thay đổi một key không ảnh hưởng key còn lại.</p></div><span className="ops-card-kicker">Credentials</span></header>
-        <div className="ops-config-gemini-grid">
-          <CreativeGeminiCredentialSettings canManage={canEdit} embedded />
-          <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} embedded />
-        </div>
       </section>
     </div>
     {confirmAction && <div className="ops-confirm ops-confirm-wide" role="dialog" aria-label="Confirm configuration change"><h3>Confirm {confirmAction === "budget" ? "budget override" : "emergency action"}</h3><p>This action is audited. Enter a reason before continuing.</p><label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label><div><button type="button" onClick={() => setConfirmAction(null)}>Cancel</button><button className="danger" type="button" disabled={!reason.trim() || saving} onClick={confirmAction === "budget" ? saveBudget : confirmAction === "global-stop" ? toggleGlobal : toggleTenant}>Confirm</button></div></div>}
