@@ -133,6 +133,32 @@ class SourceSyncSchedulerTest(unittest.TestCase):
         self.assertTrue(result.created)
         self.assertEqual(result.mode, "full")
 
+    def test_non_default_and_empty_decommissioned_at_remain_schedulable(self):
+        for suffix, metadata in (
+            ("non-default", {
+                "oauth_connection_id": self.source.source_metadata["oauth_connection_id"],
+                "is_default": False,
+            }),
+            ("empty-marker", {
+                "oauth_connection_id": self.source.source_metadata["oauth_connection_id"],
+                "decommissioned_at": "",
+            }),
+        ):
+            with self.subTest(suffix=suffix):
+                source = ExternalSourceModel(
+                    tenant_id="tenant-a",
+                    source_key=f"google-drive:{suffix}",
+                    source_type="google_drive",
+                    source_metadata=metadata,
+                )
+                self.session.add(source)
+                self.session.commit()
+
+                result = self.scheduler.enqueue_source("tenant-a", source.id)
+
+                self.assertTrue(result.created)
+                self.assertEqual(result.mode, "full")
+
     def test_tick_filters_decommissioned_source_and_preserves_history(self):
         legacy = self._decommissioned_source()
         asset = SourceAssetModel(
