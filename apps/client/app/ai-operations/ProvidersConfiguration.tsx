@@ -9,7 +9,7 @@ import { formatCost } from "./presentation";
 import { InventoryGeminiCredentialSettings } from "../inventory/InventoryGeminiCredentialSettings";
 import { CreativeGeminiCredentialSettings } from "./CreativeGeminiCredentialSettings";
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
-import openAiLogo from "../../assets/openai-logo.png";
+import openAiLogo from "../../assets/openai-logo.svg";
 
 export function ProvidersTab({ metrics, inventoryPermissions = [] }: { metrics: AiOpsProviderBreakdown[]; inventoryPermissions?: readonly string[] }) {
   const state = useConfiguration();
