@@ -26,7 +26,13 @@ class ProductionReleaseGateTest(unittest.TestCase):
             },
         )
         self.assertIn("postgres", gate["services"])
-        self.assertEqual(gate["services"]["postgres"]["image"], "postgres:16.4")
+        self.assertEqual(gate["services"]["postgres"]["image"], "postgres:12.22")
+
+        postgres_integration = workflow["jobs"]["postgres-integration"]
+        self.assertEqual(
+            postgres_integration["strategy"]["matrix"]["postgres_version"],
+            ["12.22", "16.4"],
+        )
 
     def test_gate_script_has_valid_shell_syntax_and_required_runtime_checks(self):
         result = subprocess.run(
