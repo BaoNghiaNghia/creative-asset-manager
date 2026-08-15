@@ -72,6 +72,23 @@ class InventoryDailySchedulerTest(unittest.TestCase):
         self.assertEqual(1, self.scheduler.run_once(after))
         self.assertEqual(1, self.scheduler.run_once(after))
 
+    def test_1710_generates_daily_report(self) -> None:
+        class Daily:
+            def evaluate(self, *args, **kwargs):
+                return None
+            def finalize(self, *args, **kwargs):
+                return None
+        class Reports:
+            calls = []
+            def generate(self, tenant_id, business_date):
+                self.calls.append((tenant_id, business_date))
+                return {"schema_version": "inventory-daily-report-v1"}
+        reports = Reports()
+        scheduler = InventoryDailyScheduler(self.sessions, service=Daily(), report_service=reports)
+        self.assertEqual(4, scheduler.run_once(datetime(2030, 8, 9, 10, 10, tzinfo=timezone.utc)))
+        self.assertEqual([("tenant-a", datetime(2030, 8, 9, 10, 10, tzinfo=timezone.utc).astimezone().date())], reports.calls)
+
+
     def test_standalone_scheduler_entrypoint_registers_tenant_mapping(self) -> None:
         root = Path(__file__).resolve().parents[5]
         command = [

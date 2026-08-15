@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.inventory.daily.service import INVENTORY_TIMEZONE, InventoryDailyRunService
+from app.modules.inventory.daily.report import DailyReportNotFinalized, InventoryDailyReportService
 from app.modules.inventory.persistence_model import InventorySettingsModel
 
 logger = logging.getLogger(__name__)
@@ -20,9 +21,10 @@ class InventoryDailyScheduler:
     idempotency keys so restarts and concurrent scheduler processes are safe.
     """
 
-    def __init__(self, session_factory: sessionmaker[Session], service: InventoryDailyRunService | None = None, *, allowed_tenant_ids: frozenset[str] | None = None):
+    def __init__(self, session_factory: sessionmaker[Session], service: InventoryDailyRunService | None = None, report_service: InventoryDailyReportService | None = None, *, allowed_tenant_ids: frozenset[str] | None = None):
         self.session_factory = session_factory
         self.service = service or InventoryDailyRunService(session_factory)
+        self.report_service = report_service or InventoryDailyReportService(session_factory)
         self.allowed_tenant_ids = allowed_tenant_ids
 
     def run_once(self, now: datetime | None = None) -> int:
@@ -34,7 +36,8 @@ class InventoryDailyScheduler:
         if local.time() >= time(16, 50):
             due.append("preclose_check")
         finalize = local.time() >= time(17, 0)
-        if not due and not finalize:
+        report = local.time() >= time(17, 10)
+        if not due and not finalize and not report:
             return 0
         with self.session_factory() as session:
             tenants = list(session.scalars(
@@ -57,6 +60,12 @@ class InventoryDailyScheduler:
                         # snapshot and continue other tenants.
                         if type(exc).__name__ != "DailyRunBlocked":
                             raise
+                if report:
+                    try:
+                        self.report_service.generate(tenant_id, local.date())
+                        count += 1
+                    except (LookupError, DailyReportNotFinalized):
+                        pass
             except Exception:
                 logger.exception("inventory_daily_scheduler_tenant_failed", extra={"tenant_id": tenant_id})
         return count

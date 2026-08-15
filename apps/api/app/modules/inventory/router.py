@@ -11,6 +11,7 @@ from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.providers.ai.gemini import validate_gemini_api_key as validate_gemini_candidate
 from app.modules.inventory.daily.service import DailyRunBlocked, InventoryDailyRunService
+from app.modules.inventory.daily.report import DailyReportNotFinalized, InventoryDailyReportService
 from app.modules.inventory.exports.service import InventoryExportFailure, InventoryExportService
 from app.modules.inventory.credentials import (
     InventoryAiCredentialRepository,
@@ -321,6 +322,20 @@ def get_daily_run(
         raise HTTPException(404, detail={"code": "inventory_daily_run_not_found"})
     return _daily_view(result)
 
+
+@router.get("/daily-runs/{business_date}/report")
+def get_daily_report(
+    business_date: date,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    try:
+        return InventoryDailyReportService(SessionLocal).generate(
+            principal.active_tenant_id, business_date
+        )
+    except LookupError as exc:
+        raise HTTPException(404, detail={"code": "inventory_daily_run_not_found"}) from exc
+    except DailyReportNotFinalized as exc:
+        raise HTTPException(409, detail={"code": "inventory_daily_run_not_finalized"}) from exc
 
 @router.post("/daily-runs/{business_date}/finalize")
 def finalize_daily_run(
