@@ -106,19 +106,21 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
           <div><dt>Single</dt><dd>{provider.single_enabled ? "Enabled" : "Disabled"}</dd></div>
           <div><dt>Batch</dt><dd>{provider.batch_enabled ? "Enabled" : "Disabled"}</dd></div>
           <div><dt>Default model</dt><dd>{provider.default_model || "Not set"}</dd></div>
-          <div><dt>Allowed models</dt><dd>{provider.allowed_models.join(", ") || "None"}</dd></div>
+          <div className="ops-provider-models"><dt>Allowed models</dt><dd>{provider.allowed_models.length ? <span className="ops-model-badges">{provider.allowed_models.map(model => <span className="ops-model-badge" key={model}>{model}</span>)}</span> : "None"}</dd></div>
           <div><dt>Requests today</dt><dd>{metric.count}</dd></div>
           <div><dt>Success rate</dt><dd>{(metric.success * 100).toFixed(1)}%</dd></div>
           <div><dt title="Maximum p95 among the provider/model/mode groups returned by the API">Highest grouped p95 latency</dt><dd>{Math.round(metric.highestGroupedP95)} ms</dd></div>
           <div><dt>Estimated cost today</dt><dd>{formatCost(metric.cost, metric.currency)}</dd></div>
           <div className="wide"><dt>Last error</dt><dd><code>{provider.last_error || "None"}</code></dd></div>
         </dl>
-        <fieldset disabled={configureDisabled} className="ops-provider-switches"><legend>Tenant settings</legend>
-          <label><input type="checkbox" checked={provider.processing_enabled} onChange={event => optimistic(provider.id, { processing_enabled: event.target.checked })} /> Provider enabled</label>
-          <label><input type="checkbox" checked={provider.single_enabled} onChange={event => optimistic(provider.id, { single_enabled: event.target.checked })} /> Single enabled</label>
-          <label><input type="checkbox" checked={provider.batch_enabled} onChange={event => optimistic(provider.id, { batch_enabled: event.target.checked })} /> Batch enabled</label>
-        </fieldset>
-        <button className={provider.paused ? "primary" : "danger"} type="button" disabled={pauseDisabled} onClick={() => { setConfirmProvider(provider.id); setReason(""); }}>{provider.paused ? "Resume provider" : "Pause provider"}</button>
+        <div className="ops-provider-controls">
+          <fieldset disabled={configureDisabled} className="ops-provider-switches"><legend>Tenant settings</legend>
+            <label><input type="checkbox" checked={provider.processing_enabled} onChange={event => optimistic(provider.id, { processing_enabled: event.target.checked })} /> Provider enabled</label>
+            <label><input type="checkbox" checked={provider.single_enabled} onChange={event => optimistic(provider.id, { single_enabled: event.target.checked })} /> Single enabled</label>
+            <label><input type="checkbox" checked={provider.batch_enabled} onChange={event => optimistic(provider.id, { batch_enabled: event.target.checked })} /> Batch enabled</label>
+          </fieldset>
+          <button className={provider.paused ? "primary" : "danger"} type="button" disabled={pauseDisabled} onClick={() => { setConfirmProvider(provider.id); setReason(""); }}>{provider.paused ? "Resume provider" : "Pause provider"}</button>
+        </div>
         {provider.id === "gemini" && <section className="ops-provider-gemini-credentials" aria-label="Google Gemini credential settings">
           <header className="ops-provider-gemini-credentials-header"><div><h4>Gemini credentials</h4><p>Hai API key độc lập: một cho Creative AI và một cho Inventory. Thay đổi một key không ảnh hưởng key còn lại.</p></div><span className="ops-card-kicker">Credentials</span></header>
           <div className="ops-provider-gemini-credentials-grid">
