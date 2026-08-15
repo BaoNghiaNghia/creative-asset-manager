@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
-import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
+import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
 import { assetPreviewUrl } from "../utils/mediaUrls";
 
 
@@ -126,7 +126,7 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
 
   if (!canShowThumbnail) {
     const type = getFileType(item.mime_type, item.kind, item.name);
-    return <span className={"preview-fallback asset-file-icon " + fileTypeTone(type)} aria-label={fileTypeLabel(type)}>{fileTypeGlyph(type)}</span>;
+    return <span className={"preview-fallback asset-file-icon " + fileTypeTone(type)} aria-label={fileTypeLabel(type)}>{fileTypeLogo(type) ? <img className="google-workspace-file-logo" src={fileTypeLogo(type)!} alt="" /> : fileTypeGlyph(type)}</span>;
   }
 
   const shouldLoad = grantedThumbnailUrl === previewUrl;

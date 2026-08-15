@@ -4,7 +4,7 @@ import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
 import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { SafeJsonTree } from "./SafeJsonTree";
-import { fileTypeGlyph, fileTypeLabel, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset, isTextAsset } from "../utils/fileType";
+import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset, isTextAsset } from "../utils/fileType";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 import { readTextPreview, TEXT_PREVIEW_RANGE } from "../utils/textPreview";
 import googleDriveLogoUrl from "../../assets/logos/google-drive-logo.svg";
@@ -113,7 +113,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
 
   return <><aside className="asset-details asset-inspector" aria-label="File information">
     <header className="asset-inspector-header">
-      <span className={"asset-kind-mark " + kind + " " + fileTypeTone(fileType)} aria-hidden="true">{fileTypeGlyph(fileType)}</span>
+      <span className={"asset-kind-mark " + kind + " " + fileTypeTone(fileType)} aria-hidden="true">{fileTypeLogo(fileType) ? <img className="google-workspace-file-logo" src={fileTypeLogo(fileType)!} alt="" /> : fileTypeGlyph(fileType)}</span>
       <div><small>{provider === "sharepoint" ? "SharePoint" : "Google Drive"}</small><h2 title={displayName}>{displayName}</h2></div>
       <button onClick={onClose} aria-label="Close file information" title="Close">×</button>
     </header>
@@ -191,7 +191,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
       {item && isTextAsset(item) ? <TextInspectorPreview item={item} canEdit={data?.can_manage_content ?? canManageContent} /> : previewUrl && (kind === "image" || kind === "video") && !previewFailed ? <>
         <img src={previewUrl} alt={"Preview of " + previewName} referrerPolicy="no-referrer" onError={() => setPreviewFailed(true)} />
         {kind === "video" && <span className="inspector-play" aria-hidden="true">▶</span>}
-      </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeGlyph(fileType)}</span>}
+      </> : <span className={"asset-kind-mark large " + kind + " " + fileTypeTone(fileType)}>{fileTypeLogo(fileType) ? <img className="google-workspace-file-logo" src={fileTypeLogo(fileType)!} alt="" /> : fileTypeGlyph(fileType)}</span>}
       <div className="inspector-preview-actions">
         {item && onPreview && isPreviewableAsset(item) && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
         {webUrl && <a className={"open-provider-link" + (provider === "google-drive" ? " open-provider-link--drive" : "")} href={webUrl} target="_blank" rel="noopener noreferrer">

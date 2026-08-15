@@ -1,3 +1,5 @@
+import googleDocsLogo from "../../assets/google-docs.png";
+import googleSheetsLogo from "../../assets/google-sheets.png";
 import type { Asset } from "../types";
 
 export type FileType =
@@ -65,6 +67,8 @@ export function fileTypeGlyph(type: FileType): string {
     file: "FILE",
   })[type];
 }
+
+export function fileTypeLogo(type: FileType): string | null { if (type === "document") return googleDocsLogo; if (type === "spreadsheet") return googleSheetsLogo; return null; }
 
 export function fileTypeTone(type: FileType): string {
   return `asset-file-icon--${type}`;
