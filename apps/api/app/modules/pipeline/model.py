@@ -17,8 +17,8 @@ class AssetPipelineModel(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "correlation_id", name="uq_asset_pipelines_tenant_correlation"),
         UniqueConstraint("tenant_id", "origin_type", "origin_id", name="uq_asset_pipelines_tenant_origin"),
-        ForeignKeyConstraint(["tenant_id", "source_asset_id"], ["source_assets.tenant_id", "source_assets.id"], ondelete="SET NULL", name="fk_asset_pipelines_source_asset"),
-        ForeignKeyConstraint(["tenant_id", "asset_id"], ["assets.tenant_id", "assets.id"], ondelete="SET NULL", name="fk_asset_pipelines_asset"),
+        ForeignKeyConstraint(["tenant_id", "source_asset_id"], ["source_assets.tenant_id", "source_assets.id"], ondelete="NO ACTION", name="fk_asset_pipelines_source_asset"),
+        ForeignKeyConstraint(["tenant_id", "asset_id"], ["assets.tenant_id", "assets.id"], ondelete="NO ACTION", name="fk_asset_pipelines_asset"),
         CheckConstraint("origin_type IN ('source_asset', 'ingestion_item')", name="ck_asset_pipelines_origin_type"),
         CheckConstraint("state IN (%s)" % ",".join(repr(item.value) for item in PipelineState), name="ck_asset_pipelines_state"),
         Index("ix_asset_pipelines_status", "tenant_id", "state", "updated_at"),

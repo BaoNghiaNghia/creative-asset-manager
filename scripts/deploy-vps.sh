@@ -15,6 +15,8 @@ HEALTH_ATTEMPTS=40
 SWITCHED=false
 PREVIOUS_FRONTEND=""
 TEMP_LINK=""
+PREVIOUS_BACKEND_IMAGE=""
+PREVIOUS_BACKEND_RUNNING=false
 
 usage() {
   printf '%s\n' "Usage: $0 (--branch NAME | --commit SHA) [--project-root PATH] [--frontend-root PATH] [--env-file PATH] [--allow-user USER]"
@@ -34,6 +36,40 @@ cleanup() {
 }
 trap cleanup ERR
 trap '[[ -n "$TEMP_LINK" && -L "$TEMP_LINK" ]] && sudo rm -f -- "$TEMP_LINK" || true' EXIT
+
+capture_previous_backend() {
+  local api_id worker_id container_id
+  api_id="$(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps -q api 2>/dev/null || true)"
+  worker_id="$(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps -q worker 2>/dev/null || true)"
+  for container_id in "$api_id" "$worker_id"; do
+    [[ -n "$container_id" ]] || continue
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$container_id")" == "true" ]]; then
+      PREVIOUS_BACKEND_RUNNING=true
+      PREVIOUS_BACKEND_IMAGE="$(docker inspect -f '{{.Config.Image}}' "$container_id")"
+      break
+    fi
+  done
+  printf 'Captured previous backend state: running=%s image=%s.\n' "$PREVIOUS_BACKEND_RUNNING" "$PREVIOUS_BACKEND_IMAGE"
+}
+
+recover_previous_backend() {
+  local previous_repository previous_commit
+  [[ "$PREVIOUS_BACKEND_RUNNING" == true ]] || return 0
+  if [[ -z "$PREVIOUS_BACKEND_IMAGE" || "$PREVIOUS_BACKEND_IMAGE" == *@* || "$PREVIOUS_BACKEND_IMAGE" != *:* ]]; then
+    printf 'Cannot safely recover the previous backend image reference.\n' >&2
+    return 1
+  fi
+  docker image inspect "$PREVIOUS_BACKEND_IMAGE" >/dev/null
+  previous_repository="${PREVIOUS_BACKEND_IMAGE%:*}"
+  previous_commit="${PREVIOUS_BACKEND_IMAGE##*:}"
+  export CAM_BACKEND_IMAGE="$previous_repository"
+  export BUILD_COMMIT="$previous_commit"
+  printf 'Migration failed; recovering prior backend image %s.\n' "$PREVIOUS_BACKEND_IMAGE" >&2
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-build api worker
+  wait_for_api_release "http://127.0.0.1:8000" "$previous_commit" "$HEALTH_ATTEMPTS"
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T worker python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/live', timeout=5).read()"
+  printf 'Previous API and worker recovered successfully.\n' >&2
+}
 
 while (($#)); do
   case "$1" in
@@ -91,6 +127,7 @@ export CAM_PRODUCTION_ENV_FILE="$ENV_FILE"
 export BUILD_COMMIT="$RELEASE_COMMIT"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${COMPOSE[@]}" config --quiet
+capture_previous_backend
 
 printf 'Building immutable backend image tagged %s.\n' "$RELEASE_COMMIT"
 "${COMPOSE[@]}" build api
@@ -101,8 +138,22 @@ printf '%s\n' "Validating production application configuration..."
 printf '%s\n' "Checking native PostgreSQL from an ephemeral backend container..."
 "${COMPOSE[@]}" run --rm --no-deps api python -c "from app.core.database import validate_database_connection; validate_database_connection()"
 
+printf '%s\n' "Stopping currently running API and worker before migration..."
+if [[ "$PREVIOUS_BACKEND_RUNNING" == true ]]; then
+  "${COMPOSE[@]}" stop api worker
+fi
+
 printf '%s\n' "Running the forward-only Alembic migration service..."
-"${COMPOSE[@]}" --profile migration run --rm migrate
+if "${COMPOSE[@]}" --profile migration run --rm migrate; then
+  :
+else
+  migration_exit=$?
+  printf 'Migration failed with exit %s; attempting backend recovery.\n' "$migration_exit" >&2
+  if ! recover_previous_backend; then
+    printf 'WARNING: migration failure recovery did not complete; inspect Docker service state immediately.\n' >&2
+  fi
+  exit "$migration_exit"
+fi
 
 "${COMPOSE[@]}" up -d elasticsearch
 "${COMPOSE[@]}" up -d --no-build api worker

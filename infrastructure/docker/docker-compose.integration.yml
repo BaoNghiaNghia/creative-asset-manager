@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16.4
+    image: "${CAM_POSTGRES_IMAGE:-postgres:16.4}"
     environment:
       POSTGRES_DB: cam_integration
       POSTGRES_USER: cam_test

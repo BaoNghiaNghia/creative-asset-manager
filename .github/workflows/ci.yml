@@ -118,9 +118,13 @@ jobs:
     name: PostgreSQL migrations and repositories
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: ["12.22", "16.4"]
     services:
       postgres:
-        image: postgres:16.4
+        image: postgres:${{ matrix.postgres_version }}
         env:
           POSTGRES_DB: cam_integration
           POSTGRES_USER: cam_test
@@ -318,7 +322,7 @@ jobs:
     timeout-minutes: 25
     services:
       postgres:
-        image: postgres:16.4
+        image: postgres:12.22
         env:
           POSTGRES_DB: cam_release_gate
           POSTGRES_USER: cam_gate

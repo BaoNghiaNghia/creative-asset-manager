@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import create_engine, func, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -498,6 +498,26 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
 
         with self.sessions() as session:
             session.delete(session.get(SourceAssetModel, source_asset_id))
+            with self.assertRaises(IntegrityError):
+                session.commit()
+            session.rollback()
+
+        with self.sessions() as session:
+            session.delete(session.get(AssetModel, asset_id))
+            with self.assertRaises(IntegrityError):
+                session.commit()
+            session.rollback()
+
+        with self.sessions() as session:
+            session.execute(
+                update(AssetPipelineModel)
+                .where(
+                    AssetPipelineModel.tenant_id == tenant_id,
+                    AssetPipelineModel.source_asset_id == source_asset_id,
+                )
+                .values(source_asset_id=None)
+            )
+            session.delete(session.get(SourceAssetModel, source_asset_id))
             session.commit()
 
         with self.sessions() as session:
@@ -510,6 +530,14 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
                 self.assertEqual(getattr(detached, field), expected)
 
         with self.sessions() as session:
+            session.execute(
+                update(AssetPipelineModel)
+                .where(
+                    AssetPipelineModel.tenant_id == tenant_id,
+                    AssetPipelineModel.asset_id == asset_id,
+                )
+                .values(asset_id=None)
+            )
             session.delete(session.get(AssetModel, asset_id))
             session.commit()
 
@@ -569,10 +597,12 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
                     'fk_asset_pipelines_asset'
                 )
             """)).all())
-        self.assertIn("ON DELETE SET NULL (source_asset_id)", definitions[
+        # PostgreSQL omits its default NO ACTION clause from pg_get_constraintdef.
+        # The raw-delete assertions above prove the fail-closed behavior.
+        self.assertNotIn("ON DELETE SET NULL", definitions[
             "fk_asset_pipelines_source_asset"
         ])
-        self.assertIn("ON DELETE SET NULL (asset_id)", definitions[
+        self.assertNotIn("ON DELETE SET NULL", definitions[
             "fk_asset_pipelines_asset"
         ])
 
