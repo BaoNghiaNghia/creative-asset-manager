@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.processing.types import JobStatus
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.assets.source_state import is_external_source_decommissioned
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import PROCESSING_JOB_QUEUED_STATUSES, PROCESSING_JOB_RUNNING_STATUSES, ProcessingJobModel
 from app.modules.source_sync.model import SourceSyncRunModel
@@ -42,9 +43,7 @@ class PipelineOperationsRepository:
         sources = self.session.execute(select(ExternalSourceModel.id, ExternalSourceModel.source_metadata).where(ExternalSourceModel.tenant_id == tenant_id)).all()
         active, excluded = [], 0
         for source_id, metadata in sources:
-            metadata = metadata if isinstance(metadata, dict) else {}
-            canonical = metadata.get("canonical_source_id")
-            if metadata.get("decommissioned_at") or (canonical and canonical != source_id):
+            if is_external_source_decommissioned(metadata):
                 excluded += 1
             else:
                 active.append(source_id)

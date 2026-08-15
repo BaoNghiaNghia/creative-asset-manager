@@ -15,6 +15,8 @@ SOURCE_SYNC_JOB_STALE_SECONDS=900
 
 The scheduler respects tenant `source_sync_enabled` and processing pauses, skips sources without an active OAuth connection, and uses a cursor for incremental sync. A source without a cursor receives one bounded full scan.
 
+Sources explicitly marked with a meaningful source_metadata.decommissioned_at value are retained for historical integrity but are excluded from automatic synchronization. The scheduler does not rebind their OAuth connection or delete historical source assets, cursors, or runs.
+
 Useful commands (run from the API environment):
 
 ```bash

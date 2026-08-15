@@ -567,3 +567,7 @@
   }
   .ops-provider-controls > button { width: 100%; }
 }
+/* Provider brand marks */
+.ops-provider-heading{display:flex;align-items:center;gap:10px;min-width:0}
+.ops-provider-logo{display:block;flex:0 0 auto;width:30px;height:30px;object-fit:contain}
+.ops-provider-logo-openai{width:28px;height:28px;border-radius:7px}

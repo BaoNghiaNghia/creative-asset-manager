@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.modules.assets.model import ExternalSourceModel
+from app.modules.assets.source_state import is_external_source_decommissioned
 from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -88,6 +89,9 @@ class SourceSyncScheduler:
             source = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.id == source_id, ExternalSourceModel.source_type == "google_drive"))
             if source is None:
                 return SourceSyncScheduleResult(tenant_id, source_id, None, None, False, "source_not_found")
+            if is_external_source_decommissioned(source):
+                session.rollback()
+                return SourceSyncScheduleResult(tenant_id, source_id, None, None, False, "source_decommissioned")
             if self._source_credentials(session, source) is None:
                 return SourceSyncScheduleResult(tenant_id, source_id, None, None, False, "credentials_unavailable")
             policy = ProcessingPolicyService(ProcessingPolicyRepository(session), self.settings).effective(tenant_id)
@@ -119,7 +123,18 @@ class SourceSyncScheduler:
             return ()
         current = now or datetime.now(timezone.utc)
         with self.session_factory() as session:
-            sources = tuple(session.scalars(select(ExternalSourceModel).where(ExternalSourceModel.source_type == "google_drive").order_by(ExternalSourceModel.tenant_id, ExternalSourceModel.id).limit(self.settings.SOURCE_SYNC_MAX_SOURCES_PER_TICK)))
+            scheduled_sources = session.scalars(
+                select(ExternalSourceModel)
+                .where(ExternalSourceModel.source_type == "google_drive")
+                .order_by(ExternalSourceModel.tenant_id, ExternalSourceModel.id)
+                .limit(self.settings.SOURCE_SYNC_MAX_SOURCES_PER_TICK)
+            )
+            # Keep this portable across SQLite/PostgreSQL JSON implementations.
+            sources = tuple(
+                source
+                for source in scheduled_sources
+                if not is_external_source_decommissioned(source)
+            )
         results = []
         for source in sources:
             try:

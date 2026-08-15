@@ -8,6 +8,8 @@ import {
 import { formatCost } from "./presentation";
 import { InventoryGeminiCredentialSettings } from "../inventory/InventoryGeminiCredentialSettings";
 import { CreativeGeminiCredentialSettings } from "./CreativeGeminiCredentialSettings";
+import geminiSparkle from "../../assets/gemini-sparkle.svg";
+import openAiLogo from "../../assets/openai-logo.png";
 
 export function ProvidersTab({ metrics, inventoryPermissions = [] }: { metrics: AiOpsProviderBreakdown[]; inventoryPermissions?: readonly string[] }) {
   const state = useConfiguration();
@@ -101,7 +103,7 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
       const configureDisabled = pending === provider.id || !(configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant);
       const pauseDisabled = pending === provider.id || !(configuration.permissions.can_emergency_stop ?? configuration.permissions.can_manage_tenant);
       return <article className="ops-provider-card" key={provider.id}>
-        <header><div><h3>{provider.label}</h3><span className={`ops-connection ${provider.connection_configured ? "ok" : "off"}`}>{provider.connection_configured ? "Connection configured" : "Connection not configured"}</span></div><Status enabled={provider.enabled && provider.processing_enabled && !provider.paused} /></header>
+        <header><div className="ops-provider-heading">{provider.id === "gemini" && <img className="ops-provider-logo" src={geminiSparkle} alt="" />} {provider.id === "openai" && <img className="ops-provider-logo ops-provider-logo-openai" src={openAiLogo} alt="" />}<div><h3>{provider.label}</h3><span className={`ops-connection ${provider.connection_configured ? "ok" : "off"}`}>{provider.connection_configured ? "Connection configured" : "Connection not configured"}</span></div></div><Status enabled={provider.enabled && provider.processing_enabled && !provider.paused} /></header>
         <dl>
           <div><dt>Single</dt><dd>{provider.single_enabled ? "Enabled" : "Disabled"}</dd></div>
           <div><dt>Batch</dt><dd>{provider.batch_enabled ? "Enabled" : "Disabled"}</dd></div>

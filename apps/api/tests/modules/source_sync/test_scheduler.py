@@ -7,10 +7,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.core.database import Base
-from app.modules.assets.model import ExternalSourceModel, SourceSyncCursorModel
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel, SourceSyncCursorModel
 from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
+from app.modules.source_sync.model import SourceSyncRunModel
 from app.modules.source_sync.scheduler import SourceSyncScheduler
 
 class SourceSyncSchedulerTest(unittest.TestCase):
@@ -70,6 +71,116 @@ class SourceSyncSchedulerTest(unittest.TestCase):
         first, second = self.scheduler.tick()[0], other.tick()[0]
         self.assertEqual(first.job_id, second.job_id)
         self.assertEqual(self.session.query(ProcessingJobModel).count(), 1)
+
+    def _decommissioned_source(self, *, oauth_connection_id: str = "stale-connection") -> ExternalSourceModel:
+        source = ExternalSourceModel(
+            tenant_id="tenant-a",
+            source_key=f"google-drive:legacy-{oauth_connection_id}",
+            source_type="google_drive",
+            source_metadata={
+                "oauth_connection_id": oauth_connection_id,
+                "canonical_source_id": self.source.id,
+                "decommissioned_at": "2026-08-15T00:00:00+00:00",
+                "decommissioned_reason": "duplicate_google_drive_source",
+                "is_default": False,
+            },
+        )
+        self.session.add(source)
+        self.session.commit()
+        return source
+
+    def test_decommissioned_source_is_skipped_before_credential_resolution(self):
+        legacy = self._decommissioned_source()
+        before = self.session.query(ProcessingJobModel).count()
+
+        with patch.object(self.scheduler, "_source_credentials") as credentials:
+            result = self.scheduler.enqueue_source("tenant-a", legacy.id)
+
+        credentials.assert_not_called()
+        self.assertFalse(result.created)
+        self.assertIsNone(result.job_id)
+        self.assertIsNone(result.mode)
+        self.assertEqual(result.skipped_reason, "source_decommissioned")
+        self.assertEqual(self.session.query(ProcessingJobModel).count(), before)
+
+    def test_decommissioned_source_with_valid_credentials_is_not_scheduled(self):
+        legacy = self._decommissioned_source(
+            oauth_connection_id=self.source.source_metadata["oauth_connection_id"]
+        )
+
+        result = self.scheduler.enqueue_source("tenant-a", legacy.id)
+
+        self.assertFalse(result.created)
+        self.assertEqual(result.skipped_reason, "source_decommissioned")
+        self.assertEqual(self.session.query(ProcessingJobModel).count(), 0)
+
+    def test_canonical_source_id_without_decommissioned_at_remains_schedulable(self):
+        source = ExternalSourceModel(
+            tenant_id="tenant-a",
+            source_key="google-drive:canonical-reference-only",
+            source_type="google_drive",
+            source_metadata={
+                "oauth_connection_id": self.source.source_metadata["oauth_connection_id"],
+                "canonical_source_id": self.source.id,
+                "decommissioned_at": "   ",
+            },
+        )
+        self.session.add(source)
+        self.session.commit()
+
+        result = self.scheduler.enqueue_source("tenant-a", source.id)
+
+        self.assertTrue(result.created)
+        self.assertEqual(result.mode, "full")
+
+    def test_tick_filters_decommissioned_source_and_preserves_history(self):
+        legacy = self._decommissioned_source()
+        asset = SourceAssetModel(
+            tenant_id="tenant-a",
+            external_source_id=legacy.id,
+            external_asset_id="historical-file",
+            filename="historical.png",
+            deleted_at=self.source.created_at,
+        )
+        cursor = SourceSyncCursorModel(
+            tenant_id="tenant-a",
+            external_source_id=legacy.id,
+            cursor_key="changes",
+            cursor_value="historical-cursor",
+        )
+        run = SourceSyncRunModel(
+            tenant_id="tenant-a",
+            external_source_id=legacy.id,
+            mode="full",
+            generation=1,
+            status="completed",
+        )
+        self.session.add_all([asset, cursor, run])
+        self.session.commit()
+        history = (
+            self.session.query(SourceAssetModel).filter_by(external_source_id=legacy.id).count(),
+            self.session.query(SourceSyncCursorModel).filter_by(external_source_id=legacy.id).count(),
+            self.session.query(SourceSyncRunModel).filter_by(external_source_id=legacy.id).count(),
+        )
+
+        results = self.scheduler.tick()
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].created)
+        self.assertEqual(
+            self.session.query(ProcessingJobModel)
+            .filter_by(entity_id=legacy.id, job_type="source_sync")
+            .count(),
+            0,
+        )
+        self.assertEqual(
+            (
+                self.session.query(SourceAssetModel).filter_by(external_source_id=legacy.id).count(),
+                self.session.query(SourceSyncCursorModel).filter_by(external_source_id=legacy.id).count(),
+                self.session.query(SourceSyncRunModel).filter_by(external_source_id=legacy.id).count(),
+            ),
+            history,
+        )
 
     def test_one_failing_source_does_not_stop_other_sources(self):
         second = ExternalSourceModel(tenant_id="tenant-a", source_key="google-drive:source-b", source_type="google_drive", source_metadata={"oauth_connection_id": self.source.source_metadata["oauth_connection_id"]})
