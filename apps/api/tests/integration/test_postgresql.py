@@ -8,7 +8,8 @@ from uuid import uuid4
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, func, inspect, select
+from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
@@ -18,7 +19,12 @@ from app.core.database import (
     validate_alembic_head,
     validate_database_connection,
 )
-from app.modules.assets.model import AssetModel
+from app.modules.assets.model import (
+    AssetModel,
+    AssetSourceLinkModel,
+    ExternalSourceModel,
+    SourceAssetModel,
+)
 from app.modules.auth_persistence.login import ApplicationLoginService
 from app.modules.auth_persistence.model import (
     AuthAuditEventModel,
@@ -37,6 +43,7 @@ from app.modules.authorization.service import TenantAuthorizationService
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
+from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.tag.model import TagModel
 from app.operations.tag_cli import seed_system_tags
 
@@ -440,6 +447,134 @@ class PostgreSqlRepositoryIntegrationTest(unittest.TestCase):
             self.assertEqual(membership.status, "active")
             self.assertEqual(assignments, 1)
             self.assertEqual(creation_events, 1)
+
+
+    def test_asset_pipeline_detaches_optional_references_without_losing_history(self) -> None:
+        marker = uuid4().hex
+        tenant_id = f"pg-pipeline-detach-{marker}"
+        created_at = datetime.now(timezone.utc)
+        snapshot = {
+            "correlation_id": f"correlation-{marker}",
+            "origin_type": "source_asset",
+            "origin_id": f"origin-{marker}",
+            "analysis_id": marker,
+            "state": "completed",
+            "content_hash": marker.ljust(64, "0")[:64],
+            "projection_version": "v-test",
+            "status_data_json": {"preserved": True, "marker": marker},
+            "created_at": created_at,
+            "completed_at": created_at,
+        }
+        with self.sessions() as session:
+            source = ExternalSourceModel(
+                tenant_id=tenant_id,
+                source_key=f"source-{marker}",
+                source_type="google_drive",
+            )
+            asset = AssetModel(tenant_id=tenant_id, content_hash=snapshot["content_hash"])
+            session.add_all((source, asset))
+            session.flush()
+            source_asset = SourceAssetModel(
+                tenant_id=tenant_id,
+                external_source_id=source.id,
+                external_asset_id=f"file-{marker}",
+            )
+            session.add(source_asset)
+            session.flush()
+            session.add(AssetSourceLinkModel(
+                tenant_id=tenant_id,
+                asset_id=asset.id,
+                source_asset_id=source_asset.id,
+            ))
+            pipeline = AssetPipelineModel(
+                tenant_id=tenant_id,
+                source_asset_id=source_asset.id,
+                asset_id=asset.id,
+                **snapshot,
+            )
+            session.add(pipeline)
+            session.commit()
+            pipeline_id, source_asset_id, asset_id = pipeline.id, source_asset.id, asset.id
+
+        with self.sessions() as session:
+            session.delete(session.get(SourceAssetModel, source_asset_id))
+            session.commit()
+
+        with self.sessions() as session:
+            detached = session.get(AssetPipelineModel, pipeline_id)
+            self.assertIsNotNone(detached)
+            self.assertEqual(detached.tenant_id, tenant_id)
+            self.assertIsNone(detached.source_asset_id)
+            self.assertEqual(detached.asset_id, asset_id)
+            for field, expected in snapshot.items():
+                self.assertEqual(getattr(detached, field), expected)
+
+        with self.sessions() as session:
+            session.delete(session.get(AssetModel, asset_id))
+            session.commit()
+
+        with self.sessions() as session:
+            detached = session.get(AssetPipelineModel, pipeline_id)
+            self.assertIsNotNone(detached)
+            self.assertEqual(detached.tenant_id, tenant_id)
+            self.assertIsNone(detached.source_asset_id)
+            self.assertIsNone(detached.asset_id)
+            self.assertEqual(detached.origin_id, snapshot["origin_id"])
+            self.assertEqual(detached.state, snapshot["state"])
+            self.assertEqual(detached.status_data_json, snapshot["status_data_json"])
+
+    def test_asset_pipeline_composite_foreign_keys_preserve_tenant_scope(self) -> None:
+        marker = uuid4().hex
+        tenant_a = f"pg-pipeline-a-{marker}"
+        tenant_b = f"pg-pipeline-b-{marker}"
+        with self.sessions() as session:
+            source = ExternalSourceModel(
+                tenant_id=tenant_b,
+                source_key=f"source-{marker}",
+                source_type="google_drive",
+            )
+            asset = AssetModel(tenant_id=tenant_b, content_hash=marker.ljust(64, "0")[:64])
+            session.add_all((source, asset))
+            session.flush()
+            source_asset = SourceAssetModel(
+                tenant_id=tenant_b,
+                external_source_id=source.id,
+                external_asset_id=f"file-{marker}",
+            )
+            session.add(source_asset)
+            session.commit()
+
+        with self.sessions() as session:
+            invalid = AssetPipelineModel(
+                tenant_id=tenant_a,
+                correlation_id=f"cross-tenant-{marker}",
+                origin_type="source_asset",
+                origin_id=source_asset.id,
+                source_asset_id=source_asset.id,
+                asset_id=asset.id,
+                state="completed",
+                status_data_json={},
+            )
+            session.add(invalid)
+            with self.assertRaises(IntegrityError):
+                session.flush()
+            session.rollback()
+
+        with self.engine.connect() as connection:
+            definitions = dict(connection.execute(text("""
+                SELECT conname, pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname IN (
+                    'fk_asset_pipelines_source_asset',
+                    'fk_asset_pipelines_asset'
+                )
+            """)).all())
+        self.assertIn("ON DELETE SET NULL (source_asset_id)", definitions[
+            "fk_asset_pipelines_source_asset"
+        ])
+        self.assertIn("ON DELETE SET NULL (asset_id)", definitions[
+            "fk_asset_pipelines_asset"
+        ])
 
 if __name__ == "__main__":
     unittest.main()

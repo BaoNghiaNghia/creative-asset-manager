@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import create_engine, delete, func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -282,19 +281,12 @@ class AiOperationsPostgreSqlTest(unittest.TestCase):
                 )
                 ids = (asset.id, original.id, managed_a.id, managed_b.id)
 
-            # This is the exact PostgreSQL failure the repair must avoid: the
-            # composite ON DELETE SET NULL action attempts to null tenant_id.
-            with Session(engine) as session:
-                with self.assertRaises(IntegrityError) as raised:
-                    session.execute(
-                        delete(SourceAssetModel).where(
-                            SourceAssetModel.tenant_id == tenant_id,
-                            SourceAssetModel.id == ids[2],
-                        )
-                    )
-                    session.commit()
-                self.assertIn("tenant_id", str(raised.exception))
-                session.rollback()
+            # The FK migration now allows direct deletion to detach only the
+            # optional pipeline reference.  The repair still explicitly
+            # detaches completed pipeline references before deletion as defense
+            # in depth, and the
+            # remaining assertions verify that its multi-source semantics are
+            # unchanged.
 
             service = ManagedStorageSelfIngestionRepairService(
                 lambda: Session(engine, expire_on_commit=False),
