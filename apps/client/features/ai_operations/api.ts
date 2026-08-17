@@ -183,6 +183,9 @@ export const fetchAiOperationsConfiguration = (fetcher: Fetcher = fetch) =>
 export const updateAiOperationsConfiguration = (body: object, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-operations/configuration", "PATCH", body, fetcher);
 
+export const updateAiMetadataPromptTemplate = (body: object, fetcher: Fetcher = fetch) =>
+  mutate("/api/v1/admin/ai-operations/configuration/metadata-prompt-template", "PATCH", body, fetcher);
+
 export const updateAiDefaults = (body: object, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-operations/controls/defaults", "PATCH", body, fetcher);
 

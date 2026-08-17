@@ -173,6 +173,34 @@ class AiOperationsApiTest(unittest.TestCase):
         with patch("app.modules.ai_operations.router.SessionLocal", self.factory):
             return self.client.get(path, params=defaults)
 
+    def test_metadata_prompt_template_is_exposed_versioned_and_audited(self):
+        with patch("app.modules.ai_operations.control_router.SessionLocal", self.factory):
+            initial = self.client.get("/api/v1/admin/ai-operations/configuration")
+            self.assertEqual(initial.status_code, 200)
+            current = initial.json()["metadata_prompt_template"]
+            self.assertEqual(current["profile_name"], "general")
+            self.assertEqual(current["prompt_template"], "Analyze")
+            updated = self.client.patch(
+                "/api/v1/admin/ai-operations/configuration/metadata-prompt-template",
+                json={
+                    "prompt_template": "Describe image {{ asset }} with searchable visual attributes.",
+                    "reason": "capture search metadata",
+                },
+            )
+        self.assertEqual(updated.status_code, 200)
+        document = updated.json()["metadata_prompt_template"]
+        self.assertEqual(document["profile_name"], "general")
+        self.assertNotEqual(document["id"], current["id"])
+        self.assertEqual(updated.json()["audit"]["action"], "metadata_prompt_template_updated")
+        with self.factory() as session:
+            profiles = list(session.scalars(select(MetadataProfileModel).where(
+                MetadataProfileModel.tenant_id == "tenant-a",
+                MetadataProfileModel.profile_name == "general",
+            )))
+            self.assertEqual(len(profiles), 2)
+            self.assertEqual(sum(profile.active for profile in profiles), 1)
+            self.assertEqual(next(profile for profile in profiles if profile.active).prompt_template, "Describe image {{ asset }} with searchable visual attributes.")
+
     def test_pipeline_snapshot_uses_current_pipeline_jobs(self):
         with self.factory() as session:
             source = session.scalar(select(ExternalSourceModel).where(

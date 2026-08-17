@@ -15,6 +15,7 @@ const configuration: AiOpsConfiguration = {
     { id: "openai", label: "OpenAI", enabled: false, connection_configured: false, processing_enabled: false, paused: true, single_enabled: true, batch_enabled: false, default_model: "gpt-5", allowed_models: ["gpt-5", "gpt-5-mini"], active_jobs_limit: 2, single_concurrency: 1, batch_concurrency: 1, last_error: "rate_limited" },
   ],
   metadata_profiles: ["creative", "products"],
+  metadata_prompt_template: { id: "profile-1", profile_name: "creative", profile_version: "1", prompt_template: "Describe {{ asset }}", updated_at: null },
   budget: { enabled: true, daily_limit_micros: 1_000_000, monthly_limit_micros: 10_000_000, warning_threshold_percent: 80, hard_stop_threshold_percent: 100, currency: "USD" },
 };
 const metrics: AiOpsProviderBreakdown[] = [{ provider: "gemini", model: "gemini-2", processing_mode: "single", count: 10, completed: 9, failed: 1, success_rate: .9, average_latency_ms: 100, p95_latency_ms: 225, input_units: 10, output_units: 5, estimated_cost_micros: 50_000, provider_reported_cost_micros: 0, reconciled_cost_micros: 50_000, currency: "USD" }];
@@ -29,7 +30,7 @@ describe("AI Operations provider and configuration tabs", () => {
 
   it("renders tenant configuration, model allowlist, budgets and read-only global controls", () => {
     const markup = renderToStaticMarkup(<ConfigurationForm configuration={configuration} onChanged={noop} onReload={noop} />);
-    for (const value of ["Thiết lập mặc định", "gpt-5-mini", "Default metadata profile", "Daily item limit", "Retry count", "Timeout", "Daily budget", "Monthly budget", "Warning threshold", "Hard-stop threshold", "Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục"]) expect(markup).toContain(value);
+    for (const value of ["Thiết lập mặc định", "gpt-5-mini", "Default metadata profile", "Prompt template", "Describe {{ asset }}", "Save prompt template", "Daily item limit", "Retry count", "Timeout", "Daily budget", "Monthly budget", "Warning threshold", "Hard-stop threshold", "Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục"]) expect(markup).toContain(value);
     expect(markup).not.toContain("Emergency stop all AI");
   });
 

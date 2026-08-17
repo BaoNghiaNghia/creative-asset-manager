@@ -209,6 +209,17 @@ class AiOperationsControlService:
             MetadataProfileModel.tenant_id == tenant_id,
             MetadataProfileModel.active.is_(True),
         ).distinct().order_by(MetadataProfileModel.profile_name)))
+        prompt_statement = select(MetadataProfileModel).where(
+            MetadataProfileModel.tenant_id == tenant_id,
+            MetadataProfileModel.active.is_(True),
+        )
+        if tenant.default_metadata_profile:
+            prompt_statement = prompt_statement.where(
+                MetadataProfileModel.profile_name == tenant.default_metadata_profile,
+            )
+        prompt_profile = self.session.scalar(
+            prompt_statement.order_by(MetadataProfileModel.created_at.desc()).limit(1)
+        )
         runtime_stopped, _ = self.governance.runtime_stopped("global")
         return {
             "tenant_id": tenant_id,
@@ -239,7 +250,77 @@ class AiOperationsControlService:
             },
             "providers": providers,
             "metadata_profiles": profiles,
+            "metadata_prompt_template": self._prompt_template_document(prompt_profile),
             "budget": budget,
+        }
+
+    def update_metadata_prompt_template(
+        self, tenant_id: str, *, prompt_template: str, actor_id: str, reason: str,
+    ) -> dict[str, Any]:
+        tenant = self.policies.get_or_create_tenant(tenant_id)
+        statement = select(MetadataProfileModel).where(
+            MetadataProfileModel.tenant_id == tenant_id,
+            MetadataProfileModel.active.is_(True),
+        )
+        if tenant.default_metadata_profile:
+            statement = statement.where(
+                MetadataProfileModel.profile_name == tenant.default_metadata_profile,
+            )
+        current = self.session.scalar(
+            statement.order_by(MetadataProfileModel.created_at.desc()).limit(1)
+        )
+        if current is None:
+            raise AiOperationsControlError(
+                "metadata_profile_unavailable",
+                "No active metadata profile is available for this tenant.",
+                status_code=404,
+            )
+        template = prompt_template.strip()
+        if not template:
+            raise AiOperationsControlError(
+                "metadata_prompt_template_required", "Prompt template cannot be empty.",
+            )
+        if template == current.prompt_template:
+            return self._prompt_template_document(current)
+        version_stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        next_version = f"{current.profile_version[:72]}-edit-{version_stamp}"
+        current.active = False
+        replacement = MetadataProfileModel(
+            tenant_id=tenant_id,
+            profile_name=current.profile_name,
+            profile_version=next_version,
+            prompt_template=template,
+            optional_json_schema=dict(current.optional_json_schema) if current.optional_json_schema else None,
+            search_config_json=dict(current.search_config_json or {}),
+            active=True,
+        )
+        self.session.add(replacement)
+        self.session.flush()
+        self.governance.event(
+            tenant_id,
+            "metadata_prompt_template_updated",
+            actor_id=actor_id,
+            reason=reason,
+            details={
+                "profile_name": replacement.profile_name,
+                "previous_profile_id": current.id,
+                "previous_profile_version": current.profile_version,
+                "profile_id": replacement.id,
+                "profile_version": replacement.profile_version,
+            },
+        )
+        return self._prompt_template_document(replacement)
+
+    @staticmethod
+    def _prompt_template_document(profile: MetadataProfileModel | None) -> dict[str, Any] | None:
+        if profile is None:
+            return None
+        return {
+            "id": profile.id,
+            "profile_name": profile.profile_name,
+            "profile_version": profile.profile_version,
+            "prompt_template": profile.prompt_template,
+            "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
         }
 
     def update_configuration(

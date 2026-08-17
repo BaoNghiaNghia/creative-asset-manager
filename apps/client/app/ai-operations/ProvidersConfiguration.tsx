@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   fetchAiOperationsConfiguration, setAiProviderPaused, setGlobalAiEmergencyStop,
-  setTenantAiPaused, updateAiBudget, updateAiDefaults, updateAiOperationsConfiguration,
+  setTenantAiPaused, updateAiBudget, updateAiDefaults, updateAiMetadataPromptTemplate, updateAiOperationsConfiguration,
   updateAiProvider, type AiOpsAudit, type AiOpsConfiguration,
   type AiOpsProvider, type AiOpsProviderBreakdown,
 } from "../../features/ai_operations";
@@ -237,6 +237,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
           <button className="primary" disabled={!canEdit || saving} type="submit">Save tenant defaults</button>
         </div>
       </form>
+      <MetadataPromptTemplateCard key={configuration.metadata_prompt_template?.id || "missing"} profile={configuration.metadata_prompt_template} canEdit={canEdit} onReload={onReload} />
       {configuration.permissions.can_read_budget !== false ? <form className="ops-config-card ops-config-budget" onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
         <header className="ops-config-card-header"><div><h3>Chính sách ngân sách</h3><p>Đặt ngưỡng chi phí AI cho tenant. Mọi thay đổi đều cần xác nhận.</p></div><span className="ops-card-kicker">Budget</span></header>
         <label className="check ops-field-full"><input disabled={!canUpdateBudget} type="checkbox" checked={budget.enabled} onChange={event => setBudget({ ...budget, enabled: event.target.checked })} /> Bật kiểm soát ngân sách</label>
@@ -267,5 +268,41 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
 
 function AuditNotice({ audit }: { audit: AiOpsAudit }) { return <div className="ops-audit" role="status"><strong>Audit recorded</strong><span>{audit.action} · {audit.reason}</span><time dateTime={audit.timestamp}>{new Date(audit.timestamp).toLocaleString()}</time></div>; }
 function Status({ enabled }: { enabled: boolean }) { return <span className={`ops-provider-state ${enabled ? "enabled" : "disabled"}`}>{enabled ? "Enabled" : "Disabled"}</span>; }
+function MetadataPromptTemplateCard({ profile, canEdit, onReload }: {
+  profile: AiOpsConfiguration["metadata_prompt_template"]; canEdit: boolean; onReload: () => void;
+}) {
+  const [promptTemplate, setPromptTemplate] = useState(profile?.prompt_template || "");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function save() {
+    if (!promptTemplate.trim() || !reason.trim()) {
+      setError("Prompt template and a change reason are required.");
+      return;
+    }
+    setSaving(true); setError(""); setMessage("");
+    try {
+      const result = await updateAiMetadataPromptTemplate({ prompt_template: promptTemplate, reason: reason.trim() });
+      const profileName = (result.metadata_prompt_template as { profile_name?: string } | undefined)?.profile_name;
+      setMessage("Saved a new version of " + (profileName || "the metadata profile") + ".");
+      setReason(""); onReload();
+    } catch (failure) { setError(String((failure as Error)?.message || "Prompt template update failed")); }
+    finally { setSaving(false); }
+  }
+
+  if (!profile) return <section className="ops-config-card ops-config-prompt"><header className="ops-config-card-header"><div><h3>Prompt template</h3><p>Chưa có metadata profile active để hiển thị prompt.</p></div><span className="ops-card-kicker">Creative AI</span></header></section>;
+  return <form className="ops-config-card ops-config-prompt" onSubmit={event => { event.preventDefault(); void save(); }}>
+    <header className="ops-config-card-header"><div><h3>Prompt template</h3><p>Prompt nhận diện hình ảnh dùng để tạo metadata phục vụ search. Thay đổi chỉ áp dụng cho phân tích mới.</p></div><span className="ops-card-kicker">Creative AI</span></header>
+    <dl className="ops-prompt-profile"><div><dt>Metadata profile</dt><dd>{profile.profile_name}</dd></div><div><dt>Version</dt><dd>{profile.profile_version}</dd></div></dl>
+    <label>Prompt template<textarea aria-label="Metadata prompt template" disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} rows={12} spellCheck={false} /></label>
+    <small>Giữ <code>{"{{ asset }}"}</code> nếu prompt của bạn cần chèn mã tài sản. Schema và search configuration hiện có được giữ nguyên.</small>
+    <label>Change reason<input disabled={!canEdit || saving} value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: bổ sung nhận diện màu sắc và đối tượng" /></label>
+    <button className="primary" type="submit" disabled={!canEdit || saving || !promptTemplate.trim() || !reason.trim()}>{saving ? "Saving prompt…" : "Save prompt template"}</button>
+    {message && <p className="ops-prompt-message" role="status">{message}</p>}{error && <p className="ops-inline-error" role="alert">{error}</p>}
+  </form>;
+}
+
 function ConfigurationLoading() { return <div className="ops-skeleton" aria-busy="true"><i /><i /><span>Loading provider configuration…</span></div>; }
 function ConfigurationError({ error, retry }: { error: string; retry: () => void }) { return <div className="ops-state unauthorized" role="alert"><strong>Configuration unavailable</strong><p>{error}</p><button type="button" onClick={retry}>Retry</button></div>; }

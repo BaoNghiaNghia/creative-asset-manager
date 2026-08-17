@@ -9,7 +9,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.ai_operations.control_schema import (
     AiBudgetUpdate, AiBulkJobRetry, AiConfigurationUpdate, AiDefaultsUpdate, AiJobMutation, AiPauseRequest,
-    AiProviderControlUpdate, CreativeGeminiCredentialRequest,
+    AiProviderControlUpdate, AiMetadataPromptTemplateUpdate, CreativeGeminiCredentialRequest,
 )
 from app.modules.ai_operations.controls import (
     AiOperationsControlError, AiOperationsControlService,
@@ -221,6 +221,29 @@ async def update_ai_configuration(
         "tenant_id": target,
         "policy": policy,
         "audit": _audit(principal, "ai_configuration_updated", body.reason),
+    }
+
+
+@router.patch("/configuration/metadata-prompt-template")
+async def update_metadata_prompt_template(
+    body: AiMetadataPromptTemplateUpdate,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    target = _tenant(principal, tenant_id)
+    profile = await _mutate(
+        target,
+        lambda service: service.update_metadata_prompt_template(
+            target,
+            prompt_template=body.prompt_template,
+            actor_id=principal.user_id,
+            reason=body.reason,
+        ),
+    )
+    return {
+        "tenant_id": target,
+        "metadata_prompt_template": profile,
+        "audit": _audit(principal, "metadata_prompt_template_updated", body.reason),
     }
 
 @router.post("/controls/pause")

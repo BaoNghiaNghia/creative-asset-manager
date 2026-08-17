@@ -188,6 +188,13 @@ export type AiOpsConfiguration = {
   global: { ai_auto_analyze_enabled: boolean; single_enabled: boolean; batch_enabled: boolean; emergency_stop: boolean };
   providers: AiOpsProviderConfiguration[];
   metadata_profiles: string[];
+  metadata_prompt_template: {
+    id: string;
+    profile_name: string;
+    profile_version: string;
+    prompt_template: string;
+    updated_at: string | null;
+  } | null;
   budget: {
     enabled: boolean;
     daily_limit_micros: number | null;
