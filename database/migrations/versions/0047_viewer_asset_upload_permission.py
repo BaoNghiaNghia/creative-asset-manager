@@ -1,6 +1,6 @@
 """Grant the dedicated upload permission to existing Viewer roles.
 
-Revision ID: 0047_viewer_asset_upload_permission
+Revision ID: 0047_viewer_upload
 Revises: 0046_asset_pipeline_fk_detach
 """
 from datetime import datetime, timezone
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision = "0047_viewer_asset_upload_permission"
+revision = "0047_viewer_upload"
 down_revision = "0046_asset_pipeline_fk_detach"
 branch_labels = None
 depends_on = None
