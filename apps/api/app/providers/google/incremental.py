@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 FOLDER_MIME = "application/vnd.google-apps.folder"
 FILE_FIELDS = (
     "id,name,mimeType,parents,size,createdTime,modifiedTime,trashed,"
-    "md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,webViewLink,appProperties"
+    "md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,webViewLink,appProperties,videoMediaMetadata(width,height,durationMillis)"
 )
 
 
@@ -39,6 +39,9 @@ def _candidate(item: dict, source_id: str) -> ExternalAssetCandidate:
             "is_folder": item.get("mimeType") == FOLDER_MIME,
             "web_url": item.get("webViewLink"),
             "app_properties": item.get("appProperties") or {},
+            "video_width": (item.get("videoMediaMetadata") or {}).get("width"),
+            "video_height": (item.get("videoMediaMetadata") or {}).get("height"),
+            "video_duration_ms": (item.get("videoMediaMetadata") or {}).get("durationMillis"),
         },
     )
 

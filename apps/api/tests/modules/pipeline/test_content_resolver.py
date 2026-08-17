@@ -7,6 +7,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.domain.providers.contracts import AssetDownloadStream
+from app.modules.assets.content_resolver import SourceAssetContentResolver, SourceAssetContentUnavailable
+from app.modules.assets.model import SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.content_resolver import (
     SourceAssetPipelineContentResolver,
@@ -171,6 +173,46 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
         ):
             asyncio.run(open_missing_connection())
         self.assertFalse(called)
+
+
+    def test_generic_resolver_passes_range_header(self):
+        pipeline = self.pipeline()
+        provider = FakeProvider()
+
+        async def token(_connection_id):
+            return "token"
+
+        resolver = SourceAssetContentResolver(
+            self.sessions, token_resolver=token,
+            source_provider_factory=lambda _name, _token: provider,
+        )
+
+        async def consume():
+            async with resolver.open(
+                tenant_id="tenant-a", source_asset_id=pipeline.source_asset_id,
+                range_header="bytes=0-99",
+            ) as stream:
+                self.assertEqual(b"".join([chunk async for chunk in stream.body]), b"content")
+
+        asyncio.run(consume())
+        self.assertEqual(provider.input.range_header, "bytes=0-99")
+        self.assertTrue(provider.stream_closed)
+
+    def test_generic_resolver_rejects_deleted_source_asset(self):
+        pipeline = self.pipeline()
+        with self.sessions() as session:
+            from datetime import datetime, timezone
+            asset = session.get(SourceAssetModel, pipeline.source_asset_id)
+            asset.deleted_at = datetime.now(timezone.utc)
+            session.commit()
+        resolver = SourceAssetContentResolver(self.sessions)
+
+        async def open_deleted():
+            async with resolver.open(tenant_id="tenant-a", source_asset_id=pipeline.source_asset_id):
+                pass
+
+        with self.assertRaisesRegex(SourceAssetContentUnavailable, "source asset is unavailable"):
+            asyncio.run(open_deleted())
 
 
 if __name__ == "__main__":

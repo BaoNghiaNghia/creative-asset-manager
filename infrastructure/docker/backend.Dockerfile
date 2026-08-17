@@ -5,6 +5,7 @@ FROM python:3.12.8-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libvips42 \
     libvips-dev \
+    ffmpeg \
     build-essential \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
