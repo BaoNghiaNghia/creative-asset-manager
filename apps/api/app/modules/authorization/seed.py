@@ -11,6 +11,7 @@ from app.modules.inventory.permissions import INVENTORY_PERMISSION_DEFINITIONS
 PERMISSION_DEFINITIONS = {
     "assets.read": "Read tenant assets",
     "assets.upload": "Upload files to authorized tenant folders",
+    "assets.delete": "Delete files from authorized tenant folders",
     "assets.manage": "Manage tenant assets",
     "ai_operations.read": "Read AI operations",
     "ai_analysis.run": "Run AI analysis",
@@ -31,7 +32,7 @@ PERMISSION_DEFINITIONS = {
     **INVENTORY_PERMISSION_DEFINITIONS,
 }
 
-VIEWER_PERMISSIONS = {"assets.read", "assets.upload", "search.read"}
+VIEWER_PERMISSIONS = {"assets.read", "assets.upload", "assets.delete", "search.read"}
 OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
     "ai_operations.read",
     "ai_analysis.run",
@@ -44,7 +45,7 @@ BILLING_ADMIN_PERMISSIONS = {
     "ai_budget.update",
 }
 SYSTEM_ROLE_DEFINITIONS = {
-    "viewer": ("Viewer", "Read, search, and upload assets within assigned folders", VIEWER_PERMISSIONS),
+    "viewer": ("Viewer", "Read, search, upload, and delete files within assigned folders", VIEWER_PERMISSIONS),
     "operator": ("Operator", "Operate tenant AI processing", OPERATOR_PERMISSIONS),
     "tenant_admin": (
         "Tenant administrator",

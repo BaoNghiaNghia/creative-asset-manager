@@ -862,14 +862,26 @@ async def update_text_file(
 @router.delete("/items/{item_id}")
 async def delete_item(
     request: Request, item_id: str, provider: Provider = Query("google-drive"),
-    session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(require_permission("assets.delete")),
     external_source_id: str | None = Query(None),
 ):
     if provider != "google-drive": raise HTTPException(status_code=501, detail="Delete is not supported for this provider yet.")
-    token, _account, tenant_id, resolved_source_id = await _source_context(request, provider, session, principal, external_source_id)
+    token, _account, tenant_id, resolved_source_id = await _source_context(request, provider, session, principal, external_source_id, require_drive_write_scope=True)
     if not token: raise HTTPException(status_code=401, detail="Connect Google Drive before deleting files.")
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(
+        tenant_id=tenant_id, membership_id=principal.membership_id,
+        roles=principal.effective_roles, external_source_id=resolved_source_id,
+    )
     async with create_source_provider(provider, token) as client:
-        await client.get_node(item_id)
+        current = await client.get_node(item_id)
+        if is_pure_viewer(principal):
+            if current.kind == "folder":
+                raise HTTPException(status_code=403, detail="Viewers can delete files but not folders.")
+            _require_viewer_folder_scope(
+                scope_service, tenant_id=tenant_id, access=access,
+                folder_id=current.parent_id or "root", allow_root=False,
+            )
         await client.delete_file(item_id)
     viewer_folder_hierarchy_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
