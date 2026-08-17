@@ -15,7 +15,7 @@ const configuration: AiOpsConfiguration = {
     { id: "openai", label: "OpenAI", enabled: false, connection_configured: false, processing_enabled: false, paused: true, single_enabled: true, batch_enabled: false, default_model: "gpt-5", allowed_models: ["gpt-5", "gpt-5-mini"], active_jobs_limit: 2, single_concurrency: 1, batch_concurrency: 1, last_error: "rate_limited" },
   ],
   metadata_profiles: ["creative", "products"],
-  metadata_prompt_template: { id: "profile-1", profile_name: "creative", profile_version: "1", prompt_template: "Describe {{ asset }}", updated_at: null },
+  metadata_prompt_template: { id: "profile-1", profile_name: "creative", profile_version: "1", prompt_template: "Describe {{ asset }}", updated_at: null, is_draft: false },
   budget: { enabled: true, daily_limit_micros: 1_000_000, monthly_limit_micros: 10_000_000, warning_threshold_percent: 80, hard_stop_threshold_percent: 100, currency: "USD" },
 };
 const metrics: AiOpsProviderBreakdown[] = [{ provider: "gemini", model: "gemini-2", processing_mode: "single", count: 10, completed: 9, failed: 1, success_rate: .9, average_latency_ms: 100, p95_latency_ms: 225, input_units: 10, output_units: 5, estimated_cost_micros: 50_000, provider_reported_cost_micros: 0, reconciled_cost_micros: 50_000, currency: "USD" }];

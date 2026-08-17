@@ -201,6 +201,33 @@ class AiOperationsApiTest(unittest.TestCase):
             self.assertEqual(sum(profile.active for profile in profiles), 1)
             self.assertEqual(next(profile for profile in profiles if profile.active).prompt_template, "Describe image {{ asset }} with searchable visual attributes.")
 
+    def test_metadata_prompt_template_provides_a_draft_and_creates_first_profile(self):
+        with self.factory() as session:
+            for profile in session.scalars(select(MetadataProfileModel).where(
+                MetadataProfileModel.tenant_id == "tenant-a",
+            )):
+                session.delete(profile)
+            session.commit()
+        with patch("app.modules.ai_operations.control_router.SessionLocal", self.factory):
+            initial = self.client.get("/api/v1/admin/ai-operations/configuration")
+            self.assertEqual(initial.status_code, 200)
+            draft = initial.json()["metadata_prompt_template"]
+            self.assertTrue(draft["is_draft"])
+            self.assertIsNone(draft["id"])
+            self.assertIn("search-ready visual metadata", draft["prompt_template"])
+            created = self.client.patch(
+                "/api/v1/admin/ai-operations/configuration/metadata-prompt-template",
+                json={"prompt_template": draft["prompt_template"], "reason": "initialize profile"},
+            )
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.json()["metadata_prompt_template"]["profile_name"], "creative-default")
+        self.assertFalse(created.json()["metadata_prompt_template"]["is_draft"])
+        with self.factory() as session:
+            self.assertEqual(session.scalar(select(MetadataProfileModel.profile_name).where(
+                MetadataProfileModel.tenant_id == "tenant-a",
+                MetadataProfileModel.active.is_(True),
+            )), "creative-default")
+
     def test_pipeline_snapshot_uses_current_pipeline_jobs(self):
         with self.factory() as session:
             source = session.scalar(select(ExternalSourceModel).where(

@@ -28,6 +28,8 @@ class AiOperationsControlError(ValueError):
 
 _DEFERRED_AI_REASON_CODES = frozenset({"gemini_quota_deferred"})
 
+_DEFAULT_METADATA_PROMPT_TEMPLATE = 'Analyze the image and return JSON only. Extract search-ready visual metadata: a concise title, detailed description, primary subjects, objects, people (without identifying private individuals), actions, setting, scene type, style, colors, mood, composition, visible text, logos or brands, products, materials, patterns, seasons, events, concepts, keywords, and any useful search phrases. Be factual, include only information supported by the image, and use arrays where multiple values apply. {{ asset }}'
+
 
 def _job_document(job: ProcessingJobModel) -> dict[str, Any]:
     return {
@@ -269,29 +271,39 @@ class AiOperationsControlService:
         current = self.session.scalar(
             statement.order_by(MetadataProfileModel.created_at.desc()).limit(1)
         )
-        if current is None:
-            raise AiOperationsControlError(
-                "metadata_profile_unavailable",
-                "No active metadata profile is available for this tenant.",
-                status_code=404,
-            )
         template = prompt_template.strip()
         if not template:
             raise AiOperationsControlError(
                 "metadata_prompt_template_required", "Prompt template cannot be empty.",
             )
-        if template == current.prompt_template:
+        if current is not None and template == current.prompt_template:
             return self._prompt_template_document(current)
         version_stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
-        next_version = f"{current.profile_version[:72]}-edit-{version_stamp}"
-        current.active = False
+        if current is not None:
+            profile_name = current.profile_name
+            next_version = f"{current.profile_version[:72]}-edit-{version_stamp}"
+            current.active = False
+            optional_json_schema = dict(current.optional_json_schema) if current.optional_json_schema else None
+            search_config_json = dict(current.search_config_json or {})
+        else:
+            profile_name = tenant.default_metadata_profile or "creative-default"
+            has_version_one = self.session.scalar(select(MetadataProfileModel.id).where(
+                MetadataProfileModel.tenant_id == tenant_id,
+                MetadataProfileModel.profile_name == profile_name,
+                MetadataProfileModel.profile_version == "1",
+            ).limit(1)) is not None
+            next_version = f"created-{version_stamp}" if has_version_one else "1"
+            optional_json_schema = None
+            search_config_json = {}
+            if tenant.default_metadata_profile is None:
+                tenant.default_metadata_profile = profile_name
         replacement = MetadataProfileModel(
             tenant_id=tenant_id,
-            profile_name=current.profile_name,
+            profile_name=profile_name,
             profile_version=next_version,
             prompt_template=template,
-            optional_json_schema=dict(current.optional_json_schema) if current.optional_json_schema else None,
-            search_config_json=dict(current.search_config_json or {}),
+            optional_json_schema=optional_json_schema,
+            search_config_json=search_config_json,
             active=True,
         )
         self.session.add(replacement)
@@ -303,8 +315,8 @@ class AiOperationsControlService:
             reason=reason,
             details={
                 "profile_name": replacement.profile_name,
-                "previous_profile_id": current.id,
-                "previous_profile_version": current.profile_version,
+                "previous_profile_id": current.id if current else None,
+                "previous_profile_version": current.profile_version if current else None,
                 "profile_id": replacement.id,
                 "profile_version": replacement.profile_version,
             },
@@ -312,15 +324,23 @@ class AiOperationsControlService:
         return self._prompt_template_document(replacement)
 
     @staticmethod
-    def _prompt_template_document(profile: MetadataProfileModel | None) -> dict[str, Any] | None:
+    def _prompt_template_document(profile: MetadataProfileModel | None) -> dict[str, Any]:
         if profile is None:
-            return None
+            return {
+                "id": None,
+                "profile_name": "creative-default",
+                "profile_version": "Draft",
+                "prompt_template": _DEFAULT_METADATA_PROMPT_TEMPLATE,
+                "updated_at": None,
+                "is_draft": True,
+            }
         return {
             "id": profile.id,
             "profile_name": profile.profile_name,
             "profile_version": profile.profile_version,
             "prompt_template": profile.prompt_template,
             "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+            "is_draft": False,
         }
 
     def update_configuration(

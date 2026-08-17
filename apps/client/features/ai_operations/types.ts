@@ -189,11 +189,12 @@ export type AiOpsConfiguration = {
   providers: AiOpsProviderConfiguration[];
   metadata_profiles: string[];
   metadata_prompt_template: {
-    id: string;
+    id: string | null;
     profile_name: string;
     profile_version: string;
     prompt_template: string;
     updated_at: string | null;
+    is_draft: boolean;
   } | null;
   budget: {
     enabled: boolean;
