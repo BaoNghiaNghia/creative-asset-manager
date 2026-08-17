@@ -705,7 +705,7 @@ async def upload_file(
     mime_type: str = Query("application/octet-stream"),
     provider: Provider = Query("google-drive"),
     session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    principal: CurrentPrincipal = Depends(require_permission("assets.upload")),
     external_source_id: str | None = Query(None),
 ):
     if provider != "google-drive":

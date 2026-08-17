@@ -568,9 +568,11 @@ export default function App() {
         <div className="explorer-create-actions" ref={newMenuRef}>
           <button type="button" className="explorer-new-trigger" aria-haspopup="menu" aria-expanded={newMenuOpen} aria-controls="explorer-new-menu" onClick={() => setNewMenuOpen(open => !open)}><span aria-hidden="true">+</span>New<span className="explorer-new-caret" aria-hidden="true">v</span></button>
           {newMenuOpen && <div id="explorer-new-menu" className="explorer-new-menu" role="menu" aria-label="Create or upload">
-            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Folder name"); if (name?.trim()) void explorer.createFolder(name.trim()).catch(() => window.alert("Unable to create folder.")); }}><span className="explorer-new-icon folder" aria-hidden="true">[]</span><span><b>New folder</b><small>Create in this folder</small></span></button>
-            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Text file name"); if (name?.trim()) void explorer.createTextFile(name.trim()).catch(() => window.alert("Unable to create text file.")); }}><span className="explorer-new-icon text" aria-hidden="true">T</span><span><b>Text file</b><small>Create a TXT file</small></span></button>
-            <div className="explorer-new-menu-divider" role="separator" />
+            {!explorer.pureViewer && <>
+              <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Folder name"); if (name?.trim()) void explorer.createFolder(name.trim()).catch(() => window.alert("Unable to create folder.")); }}><span className="explorer-new-icon folder" aria-hidden="true">[]</span><span><b>New folder</b><small>Create in this folder</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Text file name"); if (name?.trim()) void explorer.createTextFile(name.trim()).catch(() => window.alert("Unable to create text file.")); }}><span className="explorer-new-icon text" aria-hidden="true">T</span><span><b>Text file</b><small>Create a TXT file</small></span></button>
+              <div className="explorer-new-menu-divider" role="separator" />
+            </>}
             <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); uploadInputRef.current?.click(); }}><span className="explorer-new-icon upload-icon" aria-hidden="true">^</span><span><b>Upload files</b><small>Choose one or more files</small></span></button>
           </div>}
           <input ref={uploadInputRef} hidden type="file" multiple onChange={event => {
