@@ -2,6 +2,8 @@ import { isPreviewableAsset } from "./utils/fileType";
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
+import { VideoSearchResults } from "./components/VideoSearchResults";
+import { useVideoSearch } from "./hooks/useVideoSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
@@ -19,6 +21,8 @@ import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
 import type { Asset, SearchSuggestion } from "./types";
 
 const visibilityFilters = ["all", "public", "draft"] as const;
+export const DEFAULT_SEARCH_MODE = "images" as const;
+type SearchMode = typeof DEFAULT_SEARCH_MODE | "videos";
 
 type ExplorerClipboard = {
   items: Asset[];
@@ -139,7 +143,10 @@ export function curateSearchSuggestions(query: string, values: SearchSuggestion[
 }
 
 export default function App() {
-  const explorer = useDriveExplorer();
+  const [searchMode, setSearchMode] = useState<SearchMode>(DEFAULT_SEARCH_MODE);
+  const explorer = useDriveExplorer(searchMode);
+  const videoSearch = useVideoSearch(explorer.auth.authenticated, searchMode === "videos", explorer.query);
+  const searchBusy = searchMode === "videos" ? videoSearch.loading : explorer.searching;
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
   const initialDetailsAssetId = new URLSearchParams(window.location.search).get("asset");
@@ -166,7 +173,7 @@ export default function App() {
   const autoAppendAttemptsRef = useRef(0);
   const autoAppendKeyRef = useRef("");
   const suggestions = curateSearchSuggestions(explorer.query, explorer.searchV3.suggestions);
-  const showSuggestions = !suggestionsDismissed
+  const showSuggestions = searchMode === "images" && !suggestionsDismissed
     && explorer.searchV3.active
     && explorer.query.trim().length >= 2
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
@@ -483,9 +490,9 @@ export default function App() {
               ref={searchBoxRef}
               className={[
                 "search-box",
-                explorer.searching ? "searching" : "",
+                searchBusy ? "searching" : "",
               ].filter(Boolean).join(" ")}
-              aria-busy={explorer.searching}
+              aria-busy={searchBusy}
             >
               <span aria-hidden="true">⌕</span>
               <input
@@ -530,14 +537,18 @@ export default function App() {
                   ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
               </div>}
             </div>
-            {explorer.searchV3.active && <SearchGuide capabilities={explorer.searchV3.capabilities} />}
+            {searchMode === "images" && explorer.searchV3.active && <SearchGuide capabilities={explorer.searchV3.capabilities} />}
           </div>
-          {explorer.searching && <small className="search-waiting" role="status" aria-live="polite">
+          {searchBusy && <small className="search-waiting" role="status" aria-live="polite">
             Đang tìm kiếm…
           </small>}
-          {explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
+          {searchMode === "images" && explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
             {"T\u00ecm ki\u1ebfm ho\u00e0n t\u1ea5t trong "}{formatSearchDuration(explorer.searchDurationMs)}
           </small>}
+        </div>
+        <div className="search-mode-tabs" role="tablist" aria-label="Search content type">
+          <button type="button" role="tab" id="search-mode-images" aria-selected={searchMode === "images"} aria-controls="search-results" className={searchMode === "images" ? "active" : ""} onClick={() => setSearchMode("images")}>Images</button>
+          <button type="button" role="tab" id="search-mode-videos" aria-selected={searchMode === "videos"} aria-controls="search-results" className={searchMode === "videos" ? "active" : ""} onClick={() => setSearchMode("videos")}>Videos</button>
         </div>
         {explorer.applicationAuthenticated ? <div className="account">
           {explorer.pureViewer && explorer.viewerSources.length > 1 && explorer.activeExternalSourceId && <label>
@@ -663,17 +674,23 @@ export default function App() {
                   ><EtsyLogo /><span className="etsy-external-mark" aria-hidden="true">⟶</span></a> : null;
                 })()}
               </h1>
-              <small>{explorer.searching
-                ? "Searching with Search V3…"
-                : explorer.searchComplete
-                  ? `Completed · ${explorer.visibleItems.length} results`
-                  : explorer.query
-                    ? `${explorer.visibleItems.length} results in this folder and subfolders`
-                    : !explorer.visibilityFilterReady
-                      ? "Loading asset labels…"
-                      : explorer.visibilityFilter === "all"
-                        ? `${explorer.items.length} items`
-                        : `${explorer.visibleItems.length} items shown`}</small>
+              <small>{searchMode === "videos"
+                ? videoSearch.loading
+                  ? "Searching indexed videos..."
+                  : explorer.query.trim()
+                    ? videoSearch.total + " video result" + (videoSearch.total === 1 ? "" : "s")
+                    : "Search indexed video metadata"
+                : explorer.searching
+                  ? "Searching with Search V3..."
+                  : explorer.searchComplete
+                    ? "Completed · " + explorer.visibleItems.length + " results"
+                    : explorer.query
+                      ? explorer.visibleItems.length + " results in this folder and subfolders"
+                      : !explorer.visibilityFilterReady
+                        ? "Loading asset labels…"
+                        : explorer.visibilityFilter === "all"
+                          ? explorer.items.length + " items"
+                          : explorer.visibleItems.length + " items shown"}</small>
             </span>
             <div className="title-actions">
               <div className="visibility-filter" role="group" aria-label="Filter assets by visibility">
@@ -699,6 +716,11 @@ export default function App() {
             </div>
           </div>
 
+          <div id="search-results" role="tabpanel" aria-labelledby={searchMode === "images" ? "search-mode-images" : "search-mode-videos"}>
+          {searchMode === "videos" ? <>
+            {videoSearch.error && <div className="search-warning" role="alert"><span>{videoSearch.error}</span></div>}
+            {videoSearch.loading ? <AssetGridSkeleton /> : !explorer.query.trim() ? <div className="state">Search indexed videos by filename, scene, speech, or visible text.</div> : videoSearch.items.length ? <VideoSearchResults items={videoSearch.items} /> : <div className="state">No videos matched this search.</div>}
+          </> : <>
           {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
 
           {explorer.searchError && <div className="search-warning" role="alert">
@@ -753,7 +775,9 @@ export default function App() {
             onClearFilter={() => explorer.setVisibilityFilter("all")}
             onOpen={explorer.open}
           />}
-          {explorer.selected.size > 0 && <div className="bulk">
+          </>}
+          </div>
+          {searchMode === "images" && explorer.selected.size > 0 && <div className="bulk">
             <b>{explorer.selected.size} selected</b>
             <button
               type="button"

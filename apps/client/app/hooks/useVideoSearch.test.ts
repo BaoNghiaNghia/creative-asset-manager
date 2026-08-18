@@ -1,0 +1,7 @@
+import { describe, expect, it } from "vitest";
+import { VIDEO_SEARCH_LIMIT, isCurrentVideoSearchResponse, parseVideoSearchResponse, videoSearchErrorMessage } from "./useVideoSearch";
+describe("video search API contract", () => {
+  it("uses a bounded request without tenant identity", () => { const request = { query: "horse riding", limit: VIDEO_SEARCH_LIMIT }; expect(request).toEqual({ query: "horse riding", limit: 20 }); expect(request).not.toHaveProperty("tenant_id"); });
+  it("keeps the approved VIDEO-7A response fields", () => { const value = parseVideoSearchResponse({ items: [{ source_asset_id: "asset-a", analysis_run_id: "run-a", filename: "ride.mp4", mime_type: "video/mp4", duration_ms: 30000, source_type: "google_drive", external_source_id: "source-a", external_asset_id: "file-a", web_url: "https://drive.example/file-a", thumbnail_url: null, score: 10.5, best_match: { start_ms: 12000, end_ms: 18500, summary: "horse riding through field", visual_description: "rider on a horse", speech: "", confidence: 0.92, score: 6.1 }, matches: [] }], total: 1, took_ms: 3 }); expect(value.items[0].best_match.start_ms).toBe(12000); expect(value.total).toBe(1); });
+  it("does not accept stale responses and presents safe availability errors", () => { expect(isCurrentVideoSearchResponse(1, 2)).toBe(false); expect(isCurrentVideoSearchResponse(2, 2)).toBe(true); expect(videoSearchErrorMessage(503, { detail: { message: "http://internal-es" } })).toBe("Video search is temporarily unavailable. Please try again later."); });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
+import { DEFAULT_SEARCH_MODE, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
 import type { Asset } from "./types";
@@ -127,5 +127,12 @@ describe("Search suggestion curation", () => {
     expect(curateSearchSuggestions("petfull", values)).toEqual([
       { text: "petfull embroidered shirt", prefix: "petfull", completion: " embroidered shirt", kind: "search_text" },
     ]);
+  });
+});
+
+
+describe("Video search mode", () => {
+  it("defaults to the existing Images search mode", () => {
+    expect(DEFAULT_SEARCH_MODE).toBe("images");
   });
 });

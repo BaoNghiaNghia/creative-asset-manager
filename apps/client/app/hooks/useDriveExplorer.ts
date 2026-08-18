@@ -155,7 +155,7 @@ export function oauthMessageFor(errorCode: string): string {
   return oauthMessages[errorCode] || "Cloud sign-in could not be completed.";
 }
 
-export function useDriveExplorer() {
+export function useDriveExplorer(searchMode: "images" | "videos" = "images") {
   const [provider, setProvider] = useState<Provider>("google-drive");
   const [activeExternalSourceId, setActiveExternalSourceId] = useState<string | null>(null);
   const [activeAssignedRootId, setActiveAssignedRootId] = useState<string | null>(null);
@@ -184,7 +184,7 @@ export function useDriveExplorer() {
   const [error, setError] = useState("");
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
-  const searchV3 = useSearchV3(auth.authenticated && explorerReady, provider, query, activeExternalSourceId, `${activeAssignedRootId || ""}:${visibilityFilter}`);
+  const searchV3 = useSearchV3(auth.authenticated && explorerReady, provider, searchMode === "images" ? query : "", activeExternalSourceId, `${activeAssignedRootId || ""}:${visibilityFilter}`);
 
   const folderCache = useRef(new Map<string, Folder>());
   const folderRequests = useRef(new Map<string, Promise<Folder>>());
