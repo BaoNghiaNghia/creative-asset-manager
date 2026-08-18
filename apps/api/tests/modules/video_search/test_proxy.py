@@ -109,6 +109,26 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertIn("0:a?", command); self.assertIn("-segment_time", command); self.assertNotIn("Authorization", " ".join(command))
         self.assertEqual(chunks[0].source_start_ms, 0); self.assertEqual(chunks[0].source_end_ms, 1250); self.assertTrue(chunks[0].path.exists())
         service.cleanup_prepared_chunks(chunks); self.assertFalse(chunks[0].path.exists())
+    def test_multiple_chunks_have_independent_files_and_contiguous_timeline(self):
+        factory = FakeProcessFactory()
+        original = factory.__call__
+        async def multiple_chunks(*command, **kwargs):
+            process = await original(*command, **kwargs)
+            if command[0] == "ffmpeg":
+                original_wait = process.wait
+                async def wait():
+                    result = await original_wait()
+                    Path(str(process.output_path).replace("00000", "00001")).write_bytes(b"proxy-two")
+                    return result
+                process.wait = wait
+            return process
+        service = self.service(multiple_chunks)
+        chunks = asyncio.run(service.prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+        self.assertEqual([chunk.chunk_index for chunk in chunks], [0, 1])
+        self.assertTrue(all(chunk.path.exists() and chunk.size_bytes > 0 for chunk in chunks))
+        self.assertEqual(chunks[0].source_end_ms, chunks[1].source_start_ms)
+        service.cleanup_prepared_chunks(chunks)
+
     def test_configuration_and_storage_preflight_fail_before_ffmpeg(self):
         factory = FakeProcessFactory()
         with self.assertRaises(VideoProxyConfigurationError):
