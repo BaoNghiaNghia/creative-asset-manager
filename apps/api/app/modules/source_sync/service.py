@@ -10,7 +10,10 @@ from app.modules.authorization.folder_scope_cache import (
     viewer_folder_hierarchy_cache,
     viewer_folder_remote_parent_cache,
 )
-from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type
+from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type, is_eligible_video_source_asset
+from app.modules.video_search.enqueue import enqueue_video_analysis_job
+from app.modules.video_search.fingerprint import build_video_source_fingerprint
+from app.core.config import Settings
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.source_sync.repository import SourceSyncRepository
 from app.modules.explorer.breadcrumb import location_breadcrumb_cache
@@ -45,12 +48,13 @@ class SourceSyncResult:
 
 
 class SourceSyncService:
-    def __init__(self, repository: SourceSyncRepository, processing: ProcessingRepository, *, enabled: bool = False):
+    def __init__(self, repository: SourceSyncRepository, processing: ProcessingRepository, *, enabled: bool = False, settings: Settings | None = None):
         if repository.session is not processing.session:
             raise ValueError("source sync and processing repositories must share one transaction")
         self.repository = repository
         self.processing = processing
         self.enabled = enabled
+        self.settings = settings
 
     async def sync_source(
         self, *, tenant_id: str, source_id: str, provider: AssetSourceProvider,
@@ -122,6 +126,7 @@ class SourceSyncService:
                     )
                     was_deleted = existing is not None and existing.deleted_at is not None
                     old_marker = None if existing is None else (existing.provider_checksum or existing.provider_version)
+                    old_video_fingerprint = None if existing is None else build_video_source_fingerprint(existing)
                     new_marker = candidate.provider_checksum or candidate.provider_version
                     candidate_metadata = dict(candidate.source_metadata or {})
                     if not candidate_metadata.get("web_url") and existing is not None:
@@ -148,13 +153,23 @@ class SourceSyncService:
                     if active_generation is not None:
                         self.repository.mark_seen(source_asset, active_generation)
                     is_folder = bool(candidate.source_metadata.get("is_folder"))
+                    is_video = not is_folder and is_eligible_video_source_asset(source_asset)
                     is_download_supported = (
                         source.source_type != "google_drive"
                         or is_supported_google_drive_image_mime_type(candidate.mime_type)
                     )
                     content_maybe_changed = existing is None or (new_marker is not None and old_marker != new_marker)
+                    video_content_changed = existing is None or old_video_fingerprint != build_video_source_fingerprint(source_asset)
+                    if is_video and video_content_changed and not was_deleted:
+                        created = int(enqueue_video_analysis_job(
+                            tenant_id=tenant_id, source_asset=source_asset,
+                            processing=self.processing, settings=self.settings,
+                        ))
+                        jobs_created += created
+                        page_jobs += created
                     if (
                         not is_folder
+                        and not is_video
                         and is_download_supported
                         and content_maybe_changed
                         and not (was_deleted and old_marker == new_marker)

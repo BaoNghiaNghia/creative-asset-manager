@@ -371,3 +371,42 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
                 source_id=self.source.id,
                 provider=FakeProvider([]),
             )
+
+
+    def _enable_video_enqueue(self):
+        from app.core.config import Settings
+        from app.modules.video_search.model import VideoMetadataProfileModel
+        self.session.add(VideoMetadataProfileModel(tenant_id="tenant-a", profile_name="video", profile_version="v1", prompt_template="describe", active=True))
+        self.session.commit()
+        self.service = SourceSyncService(self.repository, self.processing, enabled=True, settings=Settings(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, VIDEO_ANALYSIS_ENABLED=True, VIDEO_PROXY_ENABLED=True))
+
+    async def test_supported_video_enqueues_metadata_only_and_dedupes(self):
+        self._enable_video_enqueue()
+        video = candidate("video-1", name="clip.mp4", mime_type="video/mp4")
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "video-1", video),), "c1")]))
+        jobs = list(self.session.scalars(select(ProcessingJobModel)))
+        self.assertEqual([(job.job_type, job.tenant_id) for job in jobs], [("video_analyze", "tenant-a")])
+        self.assertNotIn("ai_model", jobs[0].payload_json)
+        self.assertIn("source_fingerprint", jobs[0].payload_json)
+        repeated = await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "video-1", video),), "c2")]))
+        self.assertEqual(repeated.jobs_created, 0)
+        self.assertEqual(self.processing.count_jobs(), 1)
+
+    async def test_changed_deleted_unsupported_and_no_profile_videos_do_not_download(self):
+        self._enable_video_enqueue()
+        first = candidate("video-2", name="clip.mov", mime_type="video/quicktime", checksum=None)
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "video-2", first),), "c1")]))
+        changed = ExternalAssetCandidate(source_type=first.source_type, source_id=first.source_id, external_asset_id=first.external_asset_id, filename=first.filename, mime_type=first.mime_type, source_modified_at="2026-07-19T08:00:00Z", provider_checksum=None, source_metadata=first.source_metadata)
+        changed_result = await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "video-2", changed),), "c2")]))
+        self.assertEqual(changed_result.jobs_created, 1)
+        before = self.processing.count_jobs()
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("deleted", "video-2"),), "c3")]))
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "pdf", candidate("pdf", name="x.pdf", mime_type="application/pdf")),), "c4")]))
+        self.assertEqual(self.processing.count_jobs(), before)
+        self.assertEqual(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(ProcessingJobModel.job_type == "source_asset_download")), 0)
+
+    async def test_video_without_active_profile_safely_skips_enqueue(self):
+        from app.core.config import Settings
+        self.service = SourceSyncService(self.repository, self.processing, enabled=True, settings=Settings(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, VIDEO_ANALYSIS_ENABLED=True, VIDEO_PROXY_ENABLED=True))
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "video-no-profile", candidate("video-no-profile", name="clip.mp4", mime_type="video/mp4")),), "done")]))
+        self.assertEqual(self.processing.count_jobs(), 0)
