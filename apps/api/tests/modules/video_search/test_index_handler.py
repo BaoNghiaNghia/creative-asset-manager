@@ -28,10 +28,11 @@ class IndexHandlerTest(unittest.TestCase):
  def test_success_and_repeat(self):
   self.data()
   with patch("app.modules.video_search.index_handler.VideoSearchElasticsearchIndex") as cls:
-   instance=cls.return_value; instance.upsert_video_document=AsyncMock(); result=self.context()
+   instance=cls.return_value; instance.upsert_video_document=AsyncMock(); instance.aclose=AsyncMock(); result=self.context()
    self.assertEqual(VideoSearchIndexJobHandler(self.settings)(result).outcome.value,"completed")
    self.assertEqual(VideoSearchIndexJobHandler(self.settings)(result).outcome.value,"completed")
    self.assertEqual(instance.upsert_video_document.call_count,2)
+   self.assertEqual(instance.aclose.await_count,2)
  def test_missing_tenant_incomplete_and_malformed_are_nonretryable(self):
   self.assertEqual(VideoSearchIndexJobHandler(self.settings)(self.context()).outcome.value,"non_retryable_failure")
   self.data(tenant="b"); self.assertEqual(VideoSearchIndexJobHandler(self.settings)(self.context()).outcome.value,"non_retryable_failure")
@@ -61,17 +62,19 @@ class IndexHandlerTest(unittest.TestCase):
   self.data()
   for message in ("connection failed","timeout","returned 429","returned 502","returned 503","returned 504"):
       with self.subTest(message=message), patch("app.modules.video_search.index_handler.VideoSearchElasticsearchIndex") as cls:
-          instance=cls.return_value; instance.upsert_video_document=AsyncMock(side_effect=ElasticsearchV3RequestError(message))
+          instance=cls.return_value; instance.upsert_video_document=AsyncMock(side_effect=ElasticsearchV3RequestError(message)); instance.aclose=AsyncMock()
           self.assertEqual(VideoSearchIndexJobHandler(self.settings)(self.context()).outcome.value,"retryable_failure")
+          instance.aclose.assert_awaited_once()
 
  def test_deterministic_request_rejection_is_nonretryable(self):
   from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
   self.data()
   with patch("app.modules.video_search.index_handler.VideoSearchElasticsearchIndex") as cls:
       instance=cls.return_value
-      instance.upsert_video_document=AsyncMock(side_effect=ElasticsearchV3RequestError("mapping rejected",status_code=400))
+      instance.upsert_video_document=AsyncMock(side_effect=ElasticsearchV3RequestError("mapping rejected",status_code=400)); instance.aclose=AsyncMock()
       result=VideoSearchIndexJobHandler(self.settings)(self.context())
   self.assertEqual(result.outcome.value,"non_retryable_failure")
+  instance.aclose.assert_awaited_once()
   self.assertEqual(result.error_code,"video_index_elasticsearch_request_rejected")
 
 if __name__=="__main__":unittest.main()

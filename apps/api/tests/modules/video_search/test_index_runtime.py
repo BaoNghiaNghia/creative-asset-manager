@@ -120,6 +120,7 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
             patch("app.modules.processing.bootstrap.create_source_provider") as source_provider,
         ):
             index_type.return_value.upsert_video_document = upsert
+            index_type.return_value.aclose = AsyncMock()
             runtime = build_worker_runtime(
                 self.settings,
                 session_factory=self.sessions,

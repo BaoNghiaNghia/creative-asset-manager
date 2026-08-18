@@ -23,12 +23,16 @@ class VideoSearchIndexJobHandler:
             if run is None or source is None: return JobHandlerResult.non_retryable("video_index_source_unavailable","completed video source is unavailable")
             try: document=build_video_document(run=run,source=source,chunks=chunks)
             except VideoIndexDataError as exc: return JobHandlerResult.non_retryable("invalid_video_index_data",str(exc))
-        try:
+        async def upsert() -> None:
             index=VideoSearchElasticsearchIndex(ElasticsearchV3Config(settings.ELASTICSEARCH_URL,index_prefix=settings.ELASTICSEARCH_INDEX_PREFIX,index_generation="v3"))
-            operation=index.upsert_video_document(document)
+            try:
+                await index.upsert_video_document(document)
+            finally:
+                await index.aclose()
+        try:
             executor=context.dependencies.resources.get("async_executor")
-            if executor: executor.run(operation)
-            else: asyncio.run(operation)
+            if executor: executor.run(upsert())
+            else: asyncio.run(upsert())
             return JobHandlerResult.completed()
         except ElasticsearchV3RequestError as exc:
             if exc.status_code is not None and 400 <= exc.status_code < 500 and exc.status_code != 429:
