@@ -11,7 +11,7 @@ export function VideoSearchPlayer({ item, onClose }: Props) {
   function seekToBestMatch() { if (videoRef.current) seekVideoAt(videoRef.current, item.best_match.start_ms); }
   useEffect(() => { setFailed(false); const video = videoRef.current; if (video && video.readyState >= 1) seekToBestMatch(); }, [item.analysis_run_id, item.best_match.start_ms]);
   useEffect(() => { const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", closeOnEscape); return () => window.removeEventListener("keydown", closeOnEscape); }, [onClose]);
-  useEffect(() => () => { const video = videoRef.current; if (!video) return; video.pause(); video.removeAttribute("src"); video.load(); }, [item.analysis_run_id]);
+  useEffect(() => { const video = videoRef.current; return () => { if (!video) return; video.pause(); video.removeAttribute("src"); video.load(); }; }, [item.analysis_run_id]);
   return <div className="media-viewer video-search-player" role="dialog" aria-modal="true" aria-label={"Play " + item.filename} onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <div className="media-viewer-panel video">
       <div className="media-viewer-toolbar"><div><strong title={item.filename}>{item.filename}</strong><small>Best match at {formatVideoTimestamp(item.best_match.start_ms)}</small></div><button type="button" onClick={onClose} aria-label="Close video player" title="Close video player" autoFocus>Close</button></div>
