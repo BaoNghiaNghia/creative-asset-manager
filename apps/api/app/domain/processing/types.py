@@ -7,6 +7,7 @@ class JobType(str, Enum):
     ASSET_STORE = "asset_store"
     ASSET_ANALYZE = "asset_analyze"
     VIDEO_ANALYZE = "video_analyze"
+    VIDEO_SEARCH_INDEX = "video_search_index"
     AI_BATCH_PREPARE = "ai_batch_prepare"
     AI_BATCH_SUBMIT = "ai_batch_submit"
     AI_BATCH_POLL = "ai_batch_poll"

@@ -30,6 +30,8 @@ from app.modules.video_search.repository import (
     VideoRunConflictError,
     VideoSearchRepository,
 )
+from app.modules.video_search.index_enqueue import enqueue_video_search_index_job
+from app.modules.processing.repository import ProcessingRepository
 from app.modules.video_search.scheduler import (
     VideoFreeTierModelPlanner,
     VideoModelSelection,
@@ -207,7 +209,8 @@ class VideoAnalyzeJobHandler:
             with context.dependencies.session_factory() as session:
                 repo = VideoSearchRepository(session)
                 run = repo.get_run(tenant_id=context.job.tenant_id, run_id=run_id)
-                repo.complete_run(tenant_id=context.job.tenant_id, run_id=run_id, summary_json={"completed_chunks": run.completed_chunks, "total_chunks": run.total_chunks})
+                completed = repo.complete_run(tenant_id=context.job.tenant_id, run_id=run_id, summary_json={"completed_chunks": run.completed_chunks, "total_chunks": run.total_chunks})
+                enqueue_video_search_index_job(tenant_id=context.job.tenant_id, run=completed, processing=ProcessingRepository(session))
                 session.commit()
             return JobHandlerResult.completed()
         except asyncio.CancelledError:

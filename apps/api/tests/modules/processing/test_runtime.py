@@ -91,6 +91,22 @@ class WorkerRuntimeTest(unittest.TestCase):
         registry = build_handler_registry()
         self.assertEqual(set(registry.job_types), set(WORKER_HANDLER_TYPES))
 
+    def test_production_bootstrap_registers_video_search_index_handler_once(self) -> None:
+        runtime = build_worker_runtime(
+            Settings(PROCESSING_JOBS_ENABLED=False),
+            session_factory=self.sessions,
+        )
+        try:
+            from app.modules.video_search.index_handler import VideoSearchIndexJobHandler
+
+            self.assertEqual(runtime.registry.job_types.count("video_search_index"), 1)
+            self.assertIsInstance(
+                runtime.registry.resolve("video_search_index"),
+                VideoSearchIndexJobHandler,
+            )
+        finally:
+            runtime.close()
+
     def test_unknown_job_type_is_non_retryable(self) -> None:
         with self.sessions.begin() as session:
             model = ProcessingJobModel(

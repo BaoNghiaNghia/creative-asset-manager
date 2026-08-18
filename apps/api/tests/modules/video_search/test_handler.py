@@ -17,6 +17,7 @@ from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.modules.video_search.handler import VideoAnalyzeJobHandler
 from app.modules.video_search.model import VideoAnalysisRunModel, VideoMetadataProfileModel
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.video_search.repository import VideoSearchRepository
 from app.modules.video_search.proxy import PreparedVideoChunk
 from app.modules.video_search.scheduler import VideoModelSelection
@@ -82,6 +83,33 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
                 stored = VideoSearchRepository(session).list_chunks(tenant_id="tenant-a", run_id=run.id)[0]
                 self.assertEqual(stored.status, "completed")
                 self.assertEqual(stored.metadata_json, {"summary": "ok"})
+                jobs = list(session.scalars(select(ProcessingJobModel).where(
+                    ProcessingJobModel.tenant_id == "tenant-a",
+                    ProcessingJobModel.job_type == "video_search_index",
+                )))
+                self.assertEqual(len(jobs), 1)
+                self.assertEqual(jobs[0].entity_id, run.id)
+                self.assertEqual(jobs[0].payload_json, {"analysis_run_id": run.id})
+
+            # A compatible completed run is reused.  The handler must not enqueue
+            # another index job and must never synchronously invoke Elasticsearch.
+            with patch(
+                "app.modules.video_search.index_handler.VideoSearchElasticsearchIndex"
+            ) as index_type:
+                repeated = VideoAnalyzeJobHandler(self._settings())(self._context(asset.id))
+            self.assertEqual(repeated.outcome.value, "completed")
+            index_type.assert_not_called()
+            with self.sessions() as fresh_session:
+                fresh_run = fresh_session.scalar(select(VideoAnalysisRunModel).where(
+                    VideoAnalysisRunModel.source_asset_id == asset.id
+                ))
+                fresh_jobs = list(fresh_session.scalars(select(ProcessingJobModel).where(
+                    ProcessingJobModel.tenant_id == "tenant-a",
+                    ProcessingJobModel.job_type == "video_search_index",
+                )))
+                self.assertEqual(fresh_run.status, "completed")
+                self.assertEqual(len(fresh_jobs), 1)
+                self.assertEqual(fresh_jobs[0].payload_json, {"analysis_run_id": fresh_run.id})
 
     def test_multi_chunk_resume_skips_completed_chunks_before_reservation(self):
         with self.sessions() as session:

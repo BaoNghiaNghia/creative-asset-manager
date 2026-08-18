@@ -15,7 +15,9 @@ _VERSION_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 
 class ElasticsearchV3RequestError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,7 +335,8 @@ class ElasticsearchV3Index:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ElasticsearchV3RequestError(
-                f"Elasticsearch {method} {path} returned {response.status_code}"
+                f"Elasticsearch {method} {path} returned {response.status_code}",
+                status_code=response.status_code,
             ) from exc
         if not response.content:
             return {}
