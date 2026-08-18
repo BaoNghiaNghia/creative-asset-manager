@@ -20,6 +20,9 @@ _LOGGER = logging.getLogger("cam.providers.gemini_video")
 _API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 _UPLOAD_ROOT = "https://generativelanguage.googleapis.com/upload/v1beta"
 _UPLOAD_BLOCK_SIZE = 1024 * 1024
+MEDIA_RESOLUTION_LOW = "MEDIA_RESOLUTION_LOW"
+MEDIA_RESOLUTION_HIGH = "MEDIA_RESOLUTION_HIGH"
+_MEDIA_RESOLUTIONS = frozenset((MEDIA_RESOLUTION_LOW, MEDIA_RESOLUTION_HIGH))
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,16 +80,18 @@ class GeminiVideoClient:
         self._monotonic = monotonic
 
     async def analyze_proxy(
-        self, *, chunk: PreparedVideoChunk, prompt: str, response_json_schema: Mapping[str, Any]
+        self, *, chunk: PreparedVideoChunk, prompt: str, response_json_schema: Mapping[str, Any], media_resolution: str
     ) -> GeminiVideoGeneration:
         self._validate_chunk(chunk)
+        if media_resolution not in _MEDIA_RESOLUTIONS:
+            raise ValueError("Gemini video media resolution is invalid")
         uploaded: GeminiUploadedVideo | None = None
         primary_error: BaseException | None = None
         cleanup_ok = True
         try:
             uploaded = await self._upload(chunk)
             active = await self._wait_until_active(uploaded)
-            result = await self._generate(active, prompt, response_json_schema)
+            result = await self._generate(active, prompt, response_json_schema, media_resolution)
         except BaseException as exc:
             primary_error = exc
             raise
@@ -154,13 +159,13 @@ class GeminiVideoClient:
             response = await self._request("GET", f"{_API_ROOT}/{current.name}", headers={"x-goog-api-key": self._api_key})
             current = self._uploaded_from_payload(self._json_object(response))
 
-    async def _generate(self, uploaded: GeminiUploadedVideo, prompt: str, schema: Mapping[str, Any]) -> GeminiVideoGeneration:
+    async def _generate(self, uploaded: GeminiUploadedVideo, prompt: str, schema: Mapping[str, Any], media_resolution: str) -> GeminiVideoGeneration:
         body = {
             "contents": [{"role": "user", "parts": [
                 {"file_data": {"mime_type": "video/mp4", "file_uri": uploaded.uri}},
                 {"text": prompt},
             ]}],
-            "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": dict(schema)},
+            "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": dict(schema), "mediaResolution": media_resolution},
         }
         response = await self._request("POST", f"{_API_ROOT}/models/{self.model}:generateContent", headers={"x-goog-api-key": self._api_key}, json=body)
         payload = self._json_object(response)
