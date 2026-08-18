@@ -112,6 +112,26 @@ class VideoSearchRepositoryTest(unittest.TestCase):
         self.assertIs(repository.get_active_profile(tenant_id="tenant-a"), second)
         self.assertIs(repository.get_active_profile(tenant_id="tenant-b"), foreign)
 
+    def test_compatible_run_lookups_are_tenant_scoped(self):
+        repository = self.repository()
+        completed = self.create_run(repository, tenant_id="tenant-b")
+        self.prepare_analyzing(repository, completed)
+        repository.complete_run(tenant_id="tenant-b", run_id=completed.id)
+        resumable = repository.get_or_create_run(
+            tenant_id="tenant-b", source_asset_id=completed.source_asset_id,
+            source_fingerprint="e" * 64, video_metadata_profile_id=completed.video_metadata_profile_id,
+            metadata_profile=completed.metadata_profile, metadata_profile_version=completed.metadata_profile_version,
+            prompt_version=completed.prompt_version, analysis_version=completed.analysis_version,
+            ai_provider=completed.ai_provider, ai_model="model-b", chunk_seconds=30,
+        )
+        identity = {"tenant_id": "tenant-a", "source_asset_id": completed.source_asset_id,
+            "source_fingerprint": completed.source_fingerprint, "video_metadata_profile_id": completed.video_metadata_profile_id,
+            "metadata_profile": completed.metadata_profile, "metadata_profile_version": completed.metadata_profile_version,
+            "prompt_version": completed.prompt_version, "analysis_version": completed.analysis_version, "ai_provider": completed.ai_provider}
+        self.assertIsNone(repository.find_completed_compatible_run(**identity))
+        identity["source_fingerprint"] = resumable.source_fingerprint
+        self.assertIsNone(repository.find_resumable_compatible_run(**identity))
+
     def test_get_or_create_run_is_idempotent_and_identity_scoped(self):
         repository = self.repository()
         run = self.create_run(repository)

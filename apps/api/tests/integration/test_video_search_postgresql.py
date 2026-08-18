@@ -1,6 +1,7 @@
 import os
 import threading
 import unittest
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import create_engine, delete, select
@@ -9,12 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
+from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
+from app.modules.ai_governance.model import GeminiProjectQuotaStateModel
 from app.modules.video_search.model import (
     VideoAnalysisChunkModel,
     VideoAnalysisRunModel,
     VideoMetadataProfileModel,
 )
-from app.modules.video_search.repository import VideoSearchRepository
+from app.modules.video_search.repository import VideoRunConflictError, VideoSearchRepository
 
 
 DATABASE_URL = os.getenv("INTEGRATION_DATABASE_URL") or os.getenv("DATABASE_URL", "")
@@ -41,6 +44,9 @@ class VideoSearchPostgreSqlTest(unittest.TestCase):
             ))
             session.execute(delete(SourceAssetModel).where(SourceAssetModel.tenant_id.like(self.tenant_id + "%")))
             session.execute(delete(ExternalSourceModel).where(ExternalSourceModel.tenant_id.like(self.tenant_id + "%")))
+            session.execute(delete(GeminiProjectQuotaStateModel).where(
+                GeminiProjectQuotaStateModel.quota_scope.like(self.tenant_id + "%")
+            ))
             session.commit()
         self.engine.dispose()
 
@@ -138,6 +144,144 @@ class VideoSearchPostgreSqlTest(unittest.TestCase):
         }
         values.update(overrides)
         return values
+
+
+    @staticmethod
+    def _identity(run, *, tenant_id=None, source_fingerprint=None):
+        return {
+            "tenant_id": tenant_id or run.tenant_id,
+            "source_asset_id": run.source_asset_id,
+            "source_fingerprint": source_fingerprint or run.source_fingerprint,
+            "video_metadata_profile_id": run.video_metadata_profile_id,
+            "metadata_profile": run.metadata_profile,
+            "metadata_profile_version": run.metadata_profile_version,
+            "prompt_version": run.prompt_version,
+            "analysis_version": run.analysis_version,
+            "ai_provider": run.ai_provider,
+        }
+
+    @staticmethod
+    def _analyze_chunk(repository, run, chunk):
+        repository.mark_chunk_preparing(tenant_id=run.tenant_id, run_id=run.id, chunk_id=chunk.id)
+        repository.mark_chunk_uploaded(tenant_id=run.tenant_id, run_id=run.id, chunk_id=chunk.id)
+        return repository.mark_chunk_analyzing(tenant_id=run.tenant_id, run_id=run.id, chunk_id=chunk.id)
+
+    def test_postgresql_expanded_run_lifecycle_and_compatibility(self):
+        """Exercise compatible lookup and a persisted three-chunk resume on PostgreSQL."""
+        with Session(self.engine, expire_on_commit=False) as session:
+            asset, profile = self._prerequisites(session, self.tenant_id)
+            repository = VideoSearchRepository(session)
+            completed_values = self._run_values(self.tenant_id, asset.id, profile.id, source_fingerprint="c" * 64)
+            completed_values.pop("idempotency_key")
+            completed = repository.get_or_create_run(**completed_values)
+            self.assertEqual(repository.get_or_create_run(**completed_values).id, completed.id)
+            chunk = repository.create_chunks(
+                tenant_id=self.tenant_id, run_id=completed.id,
+                layouts=[{"chunk_index": 0, "source_start_ms": 0, "source_end_ms": 1000}],
+            )[0]
+            self.assertEqual(completed.status, "pending")
+            self.assertEqual(repository.mark_run_preparing(tenant_id=self.tenant_id, run_id=completed.id).status, "preparing")
+            self.assertEqual(repository.mark_run_analyzing(tenant_id=self.tenant_id, run_id=completed.id).status, "analyzing")
+            self._analyze_chunk(repository, completed, chunk)
+            repository.complete_chunk(tenant_id=self.tenant_id, run_id=completed.id, chunk_id=chunk.id, metadata_json={"stable": True})
+            repository.complete_chunk(tenant_id=self.tenant_id, run_id=completed.id, chunk_id=chunk.id, metadata_json={"stable": False})
+            self.assertEqual(completed.completed_chunks, 1)
+            self.assertEqual(repository.complete_run(tenant_id=self.tenant_id, run_id=completed.id).status, "completed")
+            self.assertEqual(repository.find_completed_compatible_run(**self._identity(completed)).id, completed.id)
+            self.assertEqual(repository.find_completed_compatible_run(**self._identity(completed)).ai_model, "flash")
+
+            foreign_tenant = self.tenant_id + "-foreign"
+            foreign_asset, foreign_profile = self._prerequisites(session, foreign_tenant)
+            foreign_values = self._run_values(foreign_tenant, foreign_asset.id, foreign_profile.id, source_fingerprint="x" * 64)
+            foreign_values.pop("idempotency_key")
+            foreign_run = repository.get_or_create_run(**foreign_values)
+            self.assertIsNone(repository.find_completed_compatible_run(**self._identity(foreign_run, tenant_id=self.tenant_id)))
+
+            partial_values = self._run_values(self.tenant_id, asset.id, profile.id, source_fingerprint="p" * 64)
+            partial_values.pop("idempotency_key")
+            partial = repository.get_or_create_run(**partial_values)
+            chunks = repository.create_chunks(
+                tenant_id=self.tenant_id, run_id=partial.id,
+                layouts=[
+                    {"chunk_index": 0, "source_start_ms": 0, "source_end_ms": 1000},
+                    {"chunk_index": 1, "source_start_ms": 1000, "source_end_ms": 2000},
+                    {"chunk_index": 2, "source_start_ms": 2000, "source_end_ms": 3000},
+                ],
+            )
+            repository.mark_run_preparing(tenant_id=self.tenant_id, run_id=partial.id)
+            repository.mark_run_analyzing(tenant_id=self.tenant_id, run_id=partial.id)
+            for chunk in chunks[:2]:
+                self._analyze_chunk(repository, partial, chunk)
+                repository.complete_chunk(tenant_id=self.tenant_id, run_id=partial.id, chunk_id=chunk.id, metadata_json={"chunk": chunk.chunk_index})
+            self._analyze_chunk(repository, partial, chunks[2])
+            deferred = repository.defer_chunk(tenant_id=self.tenant_id, run_id=partial.id, chunk_id=chunks[2].id, error_code="quota", error_message="retry later")
+            self.assertEqual((partial.completed_chunks, deferred.status), (2, "pending"))
+            self.assertEqual(repository.find_resumable_compatible_run(**self._identity(partial)).id, partial.id)
+            self.assertEqual(repository.find_resumable_compatible_run(**self._identity(partial)).ai_model, "flash")
+            self.assertIsNone(repository.find_resumable_compatible_run(**self._identity(partial, tenant_id=foreign_tenant)))
+            session.commit()
+            completed_id, partial_id = completed.id, partial.id
+
+        with Session(self.engine, expire_on_commit=False) as session:
+            repository = VideoSearchRepository(session)
+            completed = repository.get_run(tenant_id=self.tenant_id, run_id=completed_id)
+            partial = repository.get_run(tenant_id=self.tenant_id, run_id=partial_id)
+            self.assertEqual(completed.status, "completed")
+            chunks = repository.list_chunks(tenant_id=self.tenant_id, run_id=partial.id)
+            self.assertEqual(([chunk.status for chunk in chunks], partial.completed_chunks), (["completed", "completed", "pending"], 2))
+            self._analyze_chunk(repository, partial, chunks[2])
+            repository.complete_chunk(tenant_id=self.tenant_id, run_id=partial.id, chunk_id=chunks[2].id, metadata_json={"chunk": 2})
+            self.assertEqual(partial.completed_chunks, 3)
+            self.assertEqual(repository.complete_run(tenant_id=self.tenant_id, run_id=partial.id).status, "completed")
+            session.commit()
+
+    def test_postgresql_resumable_conflict_is_explicit(self):
+        with Session(self.engine, expire_on_commit=False) as session:
+            asset, profile = self._prerequisites(session, self.tenant_id)
+            first = self._run_values(self.tenant_id, asset.id, profile.id, idempotency_key="1" * 64, source_fingerprint="m" * 64)
+            second = self._run_values(self.tenant_id, asset.id, profile.id, idempotency_key="2" * 64, source_fingerprint="m" * 64)
+            session.add_all([VideoAnalysisRunModel(**first), VideoAnalysisRunModel(**second)])
+            session.flush()
+            repository = VideoSearchRepository(session)
+            probe = session.scalar(select(VideoAnalysisRunModel).where(VideoAnalysisRunModel.idempotency_key == "1" * 64))
+            with self.assertRaises(VideoRunConflictError):
+                repository.find_resumable_compatible_run(**self._identity(probe))
+            session.commit()
+
+    def test_postgresql_gemini_quota_reservation_is_atomic_at_project_limit(self):
+        scope = self.tenant_id + "-quota"
+        now = datetime(2040, 1, 1, tzinfo=timezone.utc)
+        barrier = threading.Barrier(3)
+        outcomes, errors = [], []
+        guard = threading.Lock()
+
+        def reserve(model):
+            try:
+                barrier.wait(timeout=10)
+                with Session(self.engine) as session:
+                    decision = GeminiProjectQuotaRepository(session).reserve_request(
+                        quota_scope=scope, model=model, rpd=10, project_rpd=1, now=now
+                    )
+                    session.commit()
+                    with guard:
+                        outcomes.append(decision.allowed)
+            except Exception as exc:
+                with guard:
+                    errors.append(exc)
+
+        workers = [threading.Thread(target=reserve, args=(f"model-{index}",)) for index in range(2)]
+        for worker in workers:
+            worker.start()
+        barrier.wait(timeout=10)
+        for worker in workers:
+            worker.join(timeout=20)
+        self.assertEqual(errors, [])
+        self.assertEqual(outcomes.count(True), 1)
+        self.assertEqual(outcomes.count(False), 1)
+        with Session(self.engine) as session:
+            total = session.get(GeminiProjectQuotaStateModel, {"quota_scope": scope, "model": "__project_total__"})
+            self.assertIsNotNone(total)
+            self.assertEqual(total.reserved_requests, 1)
 
     def _assert_integrity(self, session, factory):
         with self.assertRaises(IntegrityError):

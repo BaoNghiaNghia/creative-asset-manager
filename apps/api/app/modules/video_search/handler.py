@@ -55,9 +55,6 @@ class VideoAnalyzeJobHandler:
         source_id = context.job.payload.get("source_asset_id")
         if not isinstance(source_id, str) or not source_id or len(source_id) > 255:
             return JobHandlerResult.non_retryable("invalid_video_analysis_job", "video_analyze job requires a source_asset_id.")
-        if settings.VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS and not settings.GEMINI_MODEL_LIMITS.strip():
-            return JobHandlerResult.non_retryable("video_gemini_limits_not_explicitly_configured", "Video Gemini limits must be explicitly configured.")
-
         with context.dependencies.session_factory() as session:
             source = session.scalar(select(SourceAssetModel).where(
                 SourceAssetModel.tenant_id == context.job.tenant_id,
@@ -89,6 +86,8 @@ class VideoAnalyzeJobHandler:
             resumable_id = resumable.id if resumable is not None else None
             pinned_model = resumable.ai_model if resumable is not None else None
 
+        if settings.VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS and not settings.GEMINI_MODEL_LIMITS.strip():
+            return JobHandlerResult.non_retryable("video_gemini_limits_not_explicitly_configured", "Video Gemini limits must be explicitly configured.")
         if self._interrupted(context):
             return self._cancel(context, resumable_id)
         try:
@@ -214,13 +213,13 @@ class VideoAnalyzeJobHandler:
         except asyncio.CancelledError:
             return self._cancel(context, run_id)
         except VideoProxySourceChangedError:
-            return JobHandlerResult.non_retryable("video_source_changed", "Video source changed during proxy preparation.")
+            return self._non_retry(context, run_id, None, "video_source_changed", "Video source changed during proxy preparation.")
         except VideoProxyConfigurationError:
             return JobHandlerResult.non_retryable("video_proxy_configuration_error", "Video proxy preparation is not configured.")
         except (VideoProxyStorageError, VideoProxyProcessError):
             return self._retry(context, run_id, current_chunk_id, "video_proxy_preparation_failed", "Video proxy preparation could not be completed.")
         except VideoChunkLayoutConflictError:
-            return JobHandlerResult.non_retryable("video_chunk_layout_conflict", "Prepared video chunk layout differs from persisted layout.")
+            return self._non_retry(context, run_id, None, "video_chunk_layout_conflict", "Prepared video chunk layout differs from persisted layout.")
         except AiProviderError as exc:
             if exc.status_code == 429:
                 retry_at = self._rate_limit_retry_at(settings, exc)
