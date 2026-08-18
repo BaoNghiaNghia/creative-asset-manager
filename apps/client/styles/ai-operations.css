@@ -571,3 +571,31 @@
 .ops-provider-heading{display:flex;align-items:center;gap:10px;min-width:0}
 .ops-provider-logo{display:block;flex:0 0 auto;width:30px;height:30px;object-fit:contain}
 .ops-provider-logo-openai{width:28px;height:28px;border-radius:7px}
+
+/* Expanded prompt editor: the modal keeps long metadata templates readable. */
+.ops-prompt-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}
+.ops-prompt-expand{padding:6px 9px!important;border-color:#b9c9e9!important;background:#f4f7ff!important;color:#3159b8!important;font-size:11px}
+.ops-prompt-modal-backdrop{position:fixed;z-index:100;inset:0;display:grid;place-items:center;padding:24px;background:#17203380}
+.ops-prompt-modal{width:min(1180px,calc(100vw - 48px));max-height:calc(100vh - 48px);overflow:auto;padding:22px;border:1px solid #d8e1ef;border-radius:14px;background:#fff;box-shadow:0 24px 60px #10182842}
+.ops-prompt-modal>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:16px;border-bottom:1px solid #e6ebf2}
+.ops-prompt-modal h3{margin:0;font-size:20px}.ops-prompt-modal header p{margin:5px 0 0;color:#66778d;font-size:12px}
+.ops-prompt-close{width:32px;height:32px;padding:0!important;border-radius:50%!important;color:#4b5c73!important;font-size:22px!important;line-height:1}
+.ops-prompt-modal-content{display:grid;gap:12px;padding-top:18px}
+.ops-prompt-resizer{position:relative;width:14px!important;min-width:14px;padding:0!important;border:0!important;border-radius:7px!important;background:transparent!important;color:#8a9ab2!important;cursor:col-resize;touch-action:none}
+.ops-prompt-resizer:before{content:"";position:absolute;top:0;bottom:0;left:6px;width:2px;border-radius:2px;background:#dce5f1}.ops-prompt-resizer:hover:before,.ops-prompt-resizer.is-dragging:before{background:#547ee0}
+.ops-prompt-resizer span{position:relative;z-index:1;display:grid;width:14px;height:38px;place-items:center;margin:auto;border:1px solid #d4dfef;border-radius:7px;background:#fff;font-size:16px;line-height:1;box-shadow:0 2px 5px #17203312}.ops-prompt-resizer:hover span,.ops-prompt-resizer.is-dragging span{border-color:#7999dc;color:#315fd0}
+.ops-prompt-modal-content label{min-width:0}.ops-prompt-modal-content textarea{min-height:58vh;box-sizing:border-box;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+.ops-prompt-preview{min-width:0;padding:12px;border:1px solid #e0e7f1;border-radius:10px;background:#f8fafc}
+.ops-prompt-preview>strong{display:block;margin-bottom:9px;color:#53647a;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.ops-prompt-preview pre{max-height:58vh;overflow:auto;margin:0;color:#324258;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.ops-prompt-key{font-weight:750}.ops-prompt-key.depth-0{color:#1e54bb}.ops-prompt-key.depth-1{color:#7b3ea7}.ops-prompt-key.depth-2{color:#087c5c}.ops-prompt-key.depth-3{color:#b45309}.ops-prompt-key.depth-4{color:#a93671}
+@media(max-width:820px){.ops-prompt-modal-backdrop{padding:12px}.ops-prompt-modal{width:calc(100vw - 24px);max-height:calc(100vh - 24px);padding:16px}.ops-prompt-modal-content{grid-template-columns:1fr!important}.ops-prompt-resizer{display:none}.ops-prompt-modal-content textarea{min-height:45vh}.ops-prompt-preview pre{max-height:30vh}}
+
+/* Prompt configuration card: explicit sections make long templates easy to scan. */
+.ops-config-prompt{display:grid!important;grid-template-columns:minmax(0,1fr);gap:16px!important}
+.ops-prompt-card-header{padding-bottom:15px}.ops-prompt-profile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;border:1px solid #e1e8f2;border-radius:10px;overflow:hidden;background:#e1e8f2}
+.ops-prompt-profile-grid>div{min-width:0;padding:11px 12px;background:#fbfcfe}.ops-prompt-profile-grid dt{font-size:10px!important;font-weight:750;letter-spacing:.045em;text-transform:uppercase}.ops-prompt-profile-grid dd{font-size:14px;line-height:1.32}
+.ops-prompt-editor{display:grid;gap:9px;padding:12px;border:1px solid #dce5f1;border-radius:11px;background:#f9fbfe}.ops-prompt-editor-heading{align-items:flex-start}.ops-prompt-editor-heading>div{display:grid;gap:3px}.ops-prompt-editor-heading small{font-size:10px!important;font-weight:400;color:#718096}
+.ops-prompt-editor textarea{min-height:286px;box-sizing:border-box;background:#fff}.ops-prompt-help{margin:0;padding:2px 1px 0;color:#617188;font-size:11px;line-height:1.45}.ops-prompt-help code{padding:1px 4px;border-radius:4px;background:#eaf0ff;color:#3159b8}
+.ops-prompt-footer{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px;padding-top:16px;border-top:1px solid #e6ecf3}.ops-prompt-footer label{min-width:0}.ops-prompt-footer input{width:100%;box-sizing:border-box}.ops-prompt-footer .primary{min-height:40px;white-space:nowrap}
+@media(max-width:600px){.ops-prompt-profile-grid,.ops-prompt-footer{grid-template-columns:1fr}.ops-prompt-footer .primary{width:100%}.ops-prompt-editor textarea{min-height:240px}}

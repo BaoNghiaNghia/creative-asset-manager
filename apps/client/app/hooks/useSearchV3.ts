@@ -188,8 +188,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider, query: s
       setSuggestionsLoading(false); setSuggestionsError("");
       return;
     }
-    if (previous && previous.scope !== scope) clearSuggestionState();
-    if (!canPreserve && previous?.scope === scope) clearSuggestionState();
+    if (previous && (previous.scope !== scope || previous.query !== normalizedQuery)) clearSuggestionState();
     if (viewerSourceMissing || !shouldFetchSearchSuggestions(active, authenticated, normalizedQuery)) {
       setSuggestionsLoading(false); setSuggestionsError("");
       return;

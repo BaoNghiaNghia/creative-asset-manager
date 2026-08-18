@@ -276,6 +276,16 @@ function MetadataPromptTemplateCard({ profile, canEdit, onReload }: {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const [previewSplit, setPreviewSplit] = useState(62);
+  const [resizingPreview, setResizingPreview] = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setExpanded(false); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
 
   async function save() {
     if (!promptTemplate.trim() || !reason.trim()) {
@@ -294,14 +304,30 @@ function MetadataPromptTemplateCard({ profile, canEdit, onReload }: {
 
   if (!profile) return <section className="ops-config-card ops-config-prompt"><header className="ops-config-card-header"><div><h3>Prompt template</h3><p>Chưa có metadata profile active để hiển thị prompt.</p></div><span className="ops-card-kicker">Creative AI</span></header></section>;
   return <form className="ops-config-card ops-config-prompt" onSubmit={event => { event.preventDefault(); void save(); }}>
-    <header className="ops-config-card-header"><div><h3>Prompt template</h3><p>Prompt nhận diện hình ảnh dùng để tạo metadata phục vụ search. Thay đổi chỉ áp dụng cho phân tích mới.</p></div><span className="ops-card-kicker">Creative AI</span></header>
-    <dl className="ops-prompt-profile"><div><dt>Metadata profile</dt><dd>{profile.profile_name}</dd></div><div><dt>Version</dt><dd>{profile.profile_version}</dd></div></dl>{profile.is_draft && <p className="ops-prompt-message">Đây là prompt mặc định. Bấm lưu lần đầu để tạo metadata profile active cho tenant.</p>}
-    <label>Prompt template<textarea aria-label="Metadata prompt template" disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} rows={12} spellCheck={false} /></label>
-    <small>Giữ <code>{"{{ asset }}"}</code> nếu prompt của bạn cần chèn mã tài sản. Schema và search configuration hiện có được giữ nguyên.</small>
-    <label>Change reason<input disabled={!canEdit || saving} value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: bổ sung nhận diện màu sắc và đối tượng" /></label>
-    <button className="primary" type="submit" disabled={!canEdit || saving || !promptTemplate.trim() || !reason.trim()}>{saving ? "Saving prompt…" : "Save prompt template"}</button>
+    <header className="ops-config-card-header ops-prompt-card-header"><div><h3>Prompt template</h3><p>Prompt nhận diện hình ảnh dùng để tạo metadata phục vụ search. Thay đổi chỉ áp dụng cho phân tích mới.</p></div><span className="ops-card-kicker">Creative AI</span></header>
+    <dl className="ops-prompt-profile ops-prompt-profile-grid"><div><dt>Metadata profile</dt><dd>{profile.profile_name}</dd></div><div><dt>Version</dt><dd>{profile.profile_version}</dd></div></dl>{profile.is_draft && <p className="ops-prompt-message">Đây là prompt mặc định. Bấm lưu lần đầu để tạo metadata profile active cho tenant.</p>}
+    <section className="ops-prompt-editor"><div className="ops-prompt-editor-heading"><div><strong>Prompt template</strong><small>JSON structure is previewed in the expanded view.</small></div><button type="button" className="ops-prompt-expand" onClick={() => setExpanded(true)} disabled={saving}>⤢ Expand</button></div>
+    <textarea aria-label="Metadata prompt template" disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} rows={12} spellCheck={false} />
+    <p className="ops-prompt-help">Giữ <code>{"{{ asset }}"}</code> nếu prompt của bạn cần chèn mã tài sản. Schema và search configuration hiện có được giữ nguyên.</p></section>
+    <footer className="ops-prompt-footer"><label>Change reason<input disabled={!canEdit || saving} value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: bổ sung nhận diện màu sắc và đối tượng" /></label>
+    <button className="primary" type="submit" disabled={!canEdit || saving || !promptTemplate.trim() || !reason.trim()}>{saving ? "Saving prompt…" : "Save prompt template"}</button></footer>
     {message && <p className="ops-prompt-message" role="status">{message}</p>}{error && <p className="ops-inline-error" role="alert">{error}</p>}
+    {expanded && <div className="ops-prompt-modal-backdrop" role="presentation" onMouseDown={() => setExpanded(false)}><section className="ops-prompt-modal" role="dialog" aria-modal="true" aria-labelledby="prompt-template-expanded-title" onMouseDown={event => event.stopPropagation()}><header><div><h3 id="prompt-template-expanded-title">Prompt template</h3><p>Chỉnh sửa toàn màn hình và xem cấu trúc JSON được tô màu theo cấp.</p></div><button type="button" className="ops-prompt-close" onClick={() => setExpanded(false)} aria-label="Đóng prompt template">×</button></header><div className="ops-prompt-modal-content" style={{ gridTemplateColumns: "minmax(0, " + previewSplit + "fr) 14px minmax(0, " + (100 - previewSplit) + "fr)" }}><label>Prompt template<textarea aria-label="Expanded metadata prompt template" autoFocus disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} spellCheck={false} /></label><button type="button" className={"ops-prompt-resizer" + (resizingPreview ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label="Resize prompt editor and preview" aria-valuemin={30} aria-valuemax={70} aria-valuenow={previewSplit} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setResizingPreview(true); }} onPointerMove={event => { if (!resizingPreview) return; const bounds = event.currentTarget.parentElement?.getBoundingClientRect(); if (!bounds) return; setPreviewSplit(Math.max(30, Math.min(70, ((event.clientX - bounds.left) / bounds.width) * 100))); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); setResizingPreview(false); }} onPointerCancel={() => setResizingPreview(false)}><span aria-hidden="true">⋮</span></button><section className="ops-prompt-preview" aria-label="Prompt structure preview"><strong>Preview cấu trúc</strong><PromptStructurePreview prompt={promptTemplate} /></section></div></section></div>}
   </form>;
+}
+
+function PromptStructurePreview({ prompt }: { prompt: string }) {
+  const lines = prompt.split("\n");
+  let depth = 0;
+  return <pre>{lines.map((line, index) => {
+    const lineDepth = depth;
+    const key = line.match(/^(\s*)[\"\x27]([^\"\x27]+)[\"\x27](\s*:)/);
+    depth += (line.match(/[\{\[]/g) || []).length - (line.match(/[\}\]]/g) || []).length;
+    const lineBreak = index < lines.length - 1 ? "\n" : "";
+    if (!key) return <span key={index}>{line}{lineBreak}</span>;
+    const className = "ops-prompt-key depth-" + Math.max(0, Math.min(lineDepth, 4));
+    return <span key={index}>{key[1]}<b className={className}>{key[2]}</b>{key[3]}{line.slice(key[0].length)}{lineBreak}</span>;
+  })}</pre>;
 }
 
 function ConfigurationLoading() { return <div className="ops-skeleton" aria-busy="true"><i /><i /><span>Loading provider configuration…</span></div>; }

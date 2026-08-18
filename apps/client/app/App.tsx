@@ -116,15 +116,23 @@ export function getSearchSuggestionKeyAction(
 export const SEARCH_SUGGESTION_DISPLAY_MAX_LENGTH = 160;
 
 /** Trust backend relevance while enforcing only display-safety constraints. */
-export function curateSearchSuggestions(_query: string, values: SearchSuggestion[]): SearchSuggestion[] {
+export function curateSearchSuggestions(query: string, values: SearchSuggestion[]): SearchSuggestion[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
   const seen = new Set<string>();
   const result: SearchSuggestion[] = [];
   for (const value of values) {
     const text = value.text.trim().slice(0, SEARCH_SUGGESTION_DISPLAY_MAX_LENGTH);
     const key = text.toLocaleLowerCase();
-    if (!text || seen.has(key)) continue;
+    if (!text || key === normalizedQuery || seen.has(key)) continue;
     seen.add(key);
-    result.push({ ...value, text, prefix: text, completion: "" });
+    const prefix = value.prefix.trim();
+    const completion = value.completion.trimEnd();
+    result.push({
+      ...value,
+      text,
+      prefix: prefix && text.toLocaleLowerCase().startsWith(prefix.toLocaleLowerCase()) ? prefix : text,
+      completion: prefix && text.toLocaleLowerCase().startsWith(prefix.toLocaleLowerCase()) ? completion : "",
+    });
     if (result.length === 10) break;
   }
   return result;

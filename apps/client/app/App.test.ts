@@ -118,4 +118,14 @@ describe("Search suggestion curation", () => {
 
     expect(curateSearchSuggestions("nurse", values)).toHaveLength(10);
   });
+
+  it("does not repeat the current query and preserves backend completion", () => {
+    const values = [
+      { text: "petfull", prefix: "petfull", completion: "", kind: "search_text" as const },
+      { text: "petfull embroidered shirt", prefix: "petfull", completion: " embroidered shirt", kind: "search_text" as const },
+    ];
+    expect(curateSearchSuggestions("petfull", values)).toEqual([
+      { text: "petfull embroidered shirt", prefix: "petfull", completion: " embroidered shirt", kind: "search_text" },
+    ]);
+  });
 });
