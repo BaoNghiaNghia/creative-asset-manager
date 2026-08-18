@@ -46,6 +46,26 @@ class VideoSearchQueryTest(unittest.TestCase):
         self.assertIn("segments.speech^3", nested["query"]["multi_match"]["fields"])
         self.assertIn("segments.keywords^2", nested["query"]["multi_match"]["fields"])
 
+    def test_query_limits_top_level_source_and_preserves_inner_hits(self):
+        query = build_video_search_query(query="horse riding", tenant_id="tenant-a", limit=20)
+        self.assertEqual(
+            query["_source"]["includes"],
+            [
+                "source_asset_id", "analysis_run_id", "filename", "mime_type",
+                "duration_ms", "source_type", "external_source_id",
+                "external_asset_id", "web_url", "thumbnail_url",
+            ],
+        )
+        self.assertNotIn("segments", query["_source"]["includes"])
+        nested = query["query"]["bool"]["must"][0]["nested"]
+        inner_source = nested["inner_hits"]["_source"]["includes"]
+        for field in (
+            "segments.start_ms", "segments.end_ms", "segments.summary",
+            "segments.visual_description", "segments.speech", "segments.confidence",
+            "segments.keywords",
+        ):
+            self.assertIn(field, inner_source)
+
     def test_best_match_uses_score_then_timestamp_tie_break_and_preserves_ranges(self):
         result = parse_video_search_response(response(segments=[
             {"_score": 6.0, "_source": {"start_ms": 200, "end_ms": 300, "summary": "later", "visual_description": "", "speech": "", "confidence": 0.5}},

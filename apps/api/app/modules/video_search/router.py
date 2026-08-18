@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.domain.processing.handlers import JobHandlerResult
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.video_search.elasticsearch import VideoSearchElasticsearchIndex

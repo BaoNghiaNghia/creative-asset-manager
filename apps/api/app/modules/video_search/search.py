@@ -60,6 +60,20 @@ def build_video_search_query(*, query: str, tenant_id: str, limit: int) -> dict[
     return {
         "size": limit,
         "track_total_hits": True,
+        "_source": {
+            "includes": [
+                "source_asset_id",
+                "analysis_run_id",
+                "filename",
+                "mime_type",
+                "duration_ms",
+                "source_type",
+                "external_source_id",
+                "external_asset_id",
+                "web_url",
+                "thumbnail_url",
+            ]
+        },
         "query": {
             "bool": {
                 "filter": [{"term": {"tenant_id": tenant_id}}],

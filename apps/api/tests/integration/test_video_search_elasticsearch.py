@@ -8,6 +8,7 @@ from app.modules.authorization.principal import CurrentPrincipal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config
 from app.modules.video_search.elasticsearch import VideoSearchElasticsearchIndex
 from app.modules.video_search.router import VideoSearchRequest, video_search
+from app.modules.video_search.search import build_video_search_query
 
 URL = os.getenv("INTEGRATION_ELASTICSEARCH_URL", "")
 
@@ -80,6 +81,21 @@ class VideoSearchElasticsearchIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 {"start_ms": 5000, "end_ms": 9000, "summary": "horse riding foreign", "visual_description": "", "speech": "", "visible_text": "", "keywords": ["horse", "riding"], "actions": [], "objects": [], "people": [], "products": [], "locations": [], "styles": [], "colors": [], "moods": [], "confidence": 0.9},
             ],
         ))
+
+        raw = await self.index.search(build_video_search_query(
+            query="horse riding", tenant_id="tenant-a", limit=20,
+        ))
+        raw_hit = raw["hits"]["hits"][0]
+        self.assertNotIn("segments", raw_hit["_source"])
+        nested_hits = raw_hit["inner_hits"]["matching_segments"]["hits"]["hits"]
+        self.assertTrue(nested_hits)
+        segment_ranges = []
+        for nested_hit in nested_hits:
+            nested_source = nested_hit["_source"]
+            if "segments" in nested_source:
+                nested_source = nested_source["segments"]
+            segment_ranges.append((nested_source["start_ms"], nested_source["end_ms"]))
+        self.assertIn((12000, 18500), segment_ranges)
 
         with patch("app.modules.video_search.router.get_settings", return_value=self.settings):
             result = await video_search(
