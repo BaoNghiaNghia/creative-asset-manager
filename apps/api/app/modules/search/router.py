@@ -292,15 +292,6 @@ def _completion_variants(value: object, query: str, *, include_exact: bool = Fal
 
 def _suggestion_values(document: dict, query: str) -> list[tuple[str, str, str]]:
     values: list[tuple[str, str, str]] = []
-    exact_terms = [
-        str(value).strip()
-        for key in ("search_terms", "normalized_terms")
-        for value in (document.get(key) or [])
-        if isinstance(value, str)
-    ]
-    if any(value.casefold() == query.casefold() for value in exact_terms):
-        values.append(("search_text", query, ""))
-
     visible_text = document.get("visible_text")
     if isinstance(visible_text, list):
         visible_text = " ".join(str(value) for value in visible_text if isinstance(value, str))

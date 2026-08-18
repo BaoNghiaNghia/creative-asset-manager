@@ -360,14 +360,22 @@ class SearchV3ApiTest(unittest.TestCase):
             )
         )
 
-    def test_suggestion_values_prefer_exact_and_compact_completions(self):
+    def test_suggestion_values_return_compact_completions_without_echoing_exact_term(self):
         values = _suggestion_values({
             "visible_text": "nurse sweatshirt overhead soft natural product photography",
             "search_terms": ["nurse"],
         }, "nurse")
-        self.assertEqual(values[0], ("search_text", "nurse", ""))
+        self.assertNotIn(("search_text", "nurse", ""), values)
         self.assertIn(("visible_text", "nurse sweatshirt", " sweatshirt"), values)
         self.assertNotIn(("visible_text", "nurse sweatshirt overhead soft natural product photography", " sweatshirt overhead soft natural product photography"), values)
+
+    def test_suggestion_values_do_not_block_search_suggest_for_exact_indexed_term(self):
+        values = _suggestion_values({
+            "search_terms": ["petfull"],
+            "search_suggest": "petfull embroidered shirt",
+        }, "petfull")
+        self.assertNotIn(("search_text", "petfull", ""), values)
+        self.assertIn(("search_text", "petfull embroidered", " embroidered"), values)
 
     def test_suggestions_require_at_least_two_characters(self):
         response = self.client.get("/api/v1/search/suggestions?q=m")
