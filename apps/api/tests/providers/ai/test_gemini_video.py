@@ -10,7 +10,7 @@ import httpx
 
 from app.domain.providers.contracts import AiProviderError
 from app.modules.video_search.proxy import PreparedVideoChunk
-from app.providers.ai.gemini_video import GeminiVideoClient
+from app.providers.ai.gemini_video import MEDIA_RESOLUTION_HIGH, MEDIA_RESOLUTION_LOW, GeminiVideoClient
 
 
 def _chunk(path: Path) -> PreparedVideoChunk:
@@ -22,11 +22,11 @@ def _document() -> dict:
 
 
 class GeminiVideoClientTest(unittest.IsolatedAsyncioTestCase):
-    async def _run(self, handler, *, state="ACTIVE", clock=None):
+    async def _run(self, handler, *, state="ACTIVE", clock=None, media_resolution=MEDIA_RESOLUTION_LOW):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "chunk.mp4"; path.write_bytes(b"x" * (2 * 1024 * 1024 + 9))
             client = GeminiVideoClient("secret-video-key", model="gemini-test", transport=httpx.MockTransport(handler), poll_interval_seconds=0.1, processing_timeout_seconds=1, sleeper=lambda _: asyncio.sleep(0), monotonic=clock or (lambda: 0.0))
-            return await client.analyze_proxy(chunk=_chunk(path), prompt="prompt", response_json_schema={"type": "object"})
+            return await client.analyze_proxy(chunk=_chunk(path), prompt="prompt", response_json_schema={"type": "object"}, media_resolution=media_resolution)
 
     async def test_upload_processing_active_generate_delete_and_streams_file(self):
         calls, upload_parts = [], []
@@ -41,11 +41,24 @@ class GeminiVideoClientTest(unittest.IsolatedAsyncioTestCase):
                 payload = json.loads((await request.aread()).decode())
                 self.assertEqual(payload["contents"][0]["parts"][0]["file_data"]["file_uri"], "gemini://x")
                 self.assertIn("responseJsonSchema", payload["generationConfig"])
+                self.assertEqual(payload["generationConfig"]["mediaResolution"], MEDIA_RESOLUTION_LOW)
                 return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": json.dumps(_document())}]}, "finishReason": "STOP"}], "modelVersion": "gemini-test", "responseId": "r", "usageMetadata": {}})
             return httpx.Response(204)
         result = await self._run(handler)
         self.assertEqual(result.document, _document()); self.assertEqual(sum(map(len, upload_parts)), 2 * 1024 * 1024 + 9)
         self.assertEqual(calls, [("POST", "/upload/v1beta/files"), ("POST", "/session"), ("GET", "/v1beta/files/x"), ("POST", "/v1beta/models/gemini-test:generateContent"), ("DELETE", "/v1beta/files/x")])
+
+    async def test_detail_resolution_is_serialized(self):
+        seen = []
+        async def handler(request):
+            if request.url.path == "/upload/v1beta/files": return httpx.Response(200, headers={"X-Goog-Upload-URL": "https://upload.test/session"}, json={})
+            if request.url.host == "upload.test": return httpx.Response(200, json={"file":{"name":"files/x","uri":"gemini://x","state":"ACTIVE"}})
+            if request.method == "POST":
+                seen.append(json.loads((await request.aread()).decode())["generationConfig"]["mediaResolution"])
+                return httpx.Response(200, json={"candidates":[{"content":{"parts":[{"text":json.dumps(_document())}]}}]})
+            return httpx.Response(204)
+        await self._run(handler, media_resolution=MEDIA_RESOLUTION_HIGH)
+        self.assertEqual(seen, [MEDIA_RESOLUTION_HIGH])
 
     async def test_proxy_file_iterator_uses_multiple_bounded_reads(self):
         with tempfile.TemporaryDirectory() as temp:

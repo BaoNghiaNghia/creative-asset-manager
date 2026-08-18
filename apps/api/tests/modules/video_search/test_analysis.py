@@ -6,9 +6,12 @@ import unittest
 from pathlib import Path
 
 from app.domain.providers.contracts import AiProviderError
-from app.modules.video_search.analysis import GeminiVideoAnalysisService, build_video_analysis_prompt, build_video_search_metadata_schema
+from app.modules.video_search.analysis import (
+    VideoAnalysisMode, VideoAnalysisTokenBudgetExceeded, GeminiVideoAnalysisService,
+    build_video_analysis_prompt, build_video_search_metadata_schema, estimate_video_input_tokens,
+)
 from app.modules.video_search.proxy import PreparedVideoChunk
-from app.providers.ai.gemini_video import GeminiVideoGeneration
+from app.providers.ai.gemini_video import MEDIA_RESOLUTION_HIGH, MEDIA_RESOLUTION_LOW, GeminiVideoGeneration
 
 
 def _chunk() -> PreparedVideoChunk:
@@ -21,8 +24,8 @@ def _segment(**changes):
 
 
 class _Client:
-    def __init__(self, document): self.document=document
-    async def analyze_proxy(self, **kwargs): return GeminiVideoGeneration(self.document, "gemini", "m", "r", {}, {})
+    def __init__(self, document): self.document=document; self.calls=[]
+    async def analyze_proxy(self, **kwargs): self.calls.append(kwargs); return GeminiVideoGeneration(self.document, "gemini", "m", "r", {"promptTokenCount": 7}, {})
 
 
 class GeminiVideoAnalysisTest(unittest.IsolatedAsyncioTestCase):
@@ -42,6 +45,41 @@ class GeminiVideoAnalysisTest(unittest.IsolatedAsyncioTestCase):
         for document in invalid:
             with self.subTest(document=document):
                 with self.assertRaises(AiProviderError): await GeminiVideoAnalysisService(_Client(document)).analyze_chunk(chunk=_chunk(), prompt_template="x")
+
+    async def test_default_free_scan_and_explicit_detail_are_forwarded_once(self):
+        client = _Client({"schema_version":"video-search-metadata-v1","summary":"x","segments":[]})
+        service = GeminiVideoAnalysisService(client)
+        free = await service.analyze_chunk(chunk=_chunk(), prompt_template="x")
+        detail = await service.analyze_chunk(chunk=_chunk(), prompt_template="x", mode=VideoAnalysisMode.DETAIL_SCAN)
+        self.assertEqual((free.analysis_mode, free.media_resolution), (VideoAnalysisMode.FREE_SCAN, MEDIA_RESOLUTION_LOW))
+        self.assertEqual((detail.analysis_mode, detail.media_resolution), (VideoAnalysisMode.DETAIL_SCAN, MEDIA_RESOLUTION_HIGH))
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(client.calls[0]["media_resolution"], MEDIA_RESOLUTION_LOW)
+        self.assertEqual(client.calls[1]["media_resolution"], MEDIA_RESOLUTION_HIGH)
+        self.assertEqual(free.usage_json, {"promptTokenCount": 7})
+
+    async def test_budget_preflight_allows_low_twenty_minutes_and_rejects_high_before_call(self):
+        document={"schema_version":"video-search-metadata-v1","summary":"x","segments":[]}
+        long=PreparedVideoChunk(0, Path(tempfile.gettempdir()) / "unused.mp4", 0, 1200000, 1200000, 1, None, None)
+        low_client=_Client(document); low=await GeminiVideoAnalysisService(low_client, max_safe_input_tokens=200000).analyze_chunk(chunk=long,prompt_template="x")
+        self.assertLessEqual(low.estimated_input_tokens,200000); self.assertEqual(len(low_client.calls),1)
+        high_client=_Client(document)
+        with self.assertRaises(VideoAnalysisTokenBudgetExceeded): await GeminiVideoAnalysisService(high_client,max_safe_input_tokens=200000).analyze_chunk(chunk=long,prompt_template="x",mode=VideoAnalysisMode.DETAIL_SCAN)
+        self.assertEqual(high_client.calls, [])
+
+    def test_estimator_and_exact_boundary(self):
+        low=estimate_video_input_tokens(duration_ms=1000,media_resolution=MEDIA_RESOLUTION_LOW)
+        high=estimate_video_input_tokens(duration_ms=1000,media_resolution=MEDIA_RESOLUTION_HIGH)
+        self.assertEqual((low.video_tokens,high.video_tokens),(110,320)); self.assertGreater(high.total_tokens,low.total_tokens)
+        for bad in (0, True, -1):
+            with self.assertRaises(ValueError): estimate_video_input_tokens(duration_ms=bad,media_resolution=MEDIA_RESOLUTION_LOW)
+        with self.assertRaises(ValueError): estimate_video_input_tokens(duration_ms=1000,media_resolution="bad")
+        with self.assertRaises(ValueError): estimate_video_input_tokens(duration_ms=1000,media_resolution=MEDIA_RESOLUTION_LOW,prompt_schema_token_reserve=-1)
+        client=_Client({"schema_version":"video-search-metadata-v1","summary":"x","segments":[]})
+        chunk=_chunk(); exact=estimate_video_input_tokens(duration_ms=chunk.duration_ms,media_resolution=MEDIA_RESOLUTION_LOW).total_tokens
+        import asyncio
+        asyncio.run(GeminiVideoAnalysisService(client,max_safe_input_tokens=exact).analyze_chunk(chunk=chunk,prompt_template="x"))
+        self.assertEqual(len(client.calls),1)
 
     def test_schema_is_strict_and_dynamic(self):
         schema=build_video_search_metadata_schema(5000); self.assertFalse(schema["additionalProperties"]); segment=schema["properties"]["segments"]["items"]; self.assertFalse(segment["additionalProperties"]); self.assertEqual(segment["properties"]["end_ms"]["maximum"],5000)
