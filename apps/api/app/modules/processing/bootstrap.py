@@ -18,6 +18,7 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, El
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
+from app.modules.video_search.handler import VideoAnalyzeJobHandler
 from app.modules.ai_batch.handlers import (
     AiBatchImportJobHandler, AiBatchPollJobHandler,
     AiBatchPrepareJobHandler, AiBatchRetryItemsJobHandler,
@@ -58,6 +59,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "source_asset_download": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "CONTENT_DEDUP_ENABLED"),
     "asset_store": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "asset_analyze": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_SINGLE_ANALYSIS_ENABLED"),
+    "video_analyze": ("PROCESSING_JOBS_ENABLED", "VIDEO_SEARCH_ENABLED", "VIDEO_ANALYSIS_ENABLED", "VIDEO_PROXY_ENABLED"),
     "ai_batch_prepare": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
     "ai_batch_submit": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
     "ai_batch_poll": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
@@ -193,6 +195,7 @@ def build_worker_runtime(
                 ("source_asset_download", SourceAssetDownloadJobHandler(settings)),
                 ("asset_store", AssetStoreJobHandler(settings)),
                 ("asset_analyze", AssetAnalyzeJobHandler(settings)),
+                ("video_analyze", VideoAnalyzeJobHandler(settings)),
                 ("ai_batch_prepare", AiBatchPrepareJobHandler(settings)),
                 ("ai_batch_submit", AiBatchSubmitJobHandler(settings)),
                 ("ai_batch_poll", AiBatchPollJobHandler(settings)),

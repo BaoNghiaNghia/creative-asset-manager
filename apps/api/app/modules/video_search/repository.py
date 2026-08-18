@@ -39,7 +39,7 @@ _RUN_TRANSITIONS = {
 _CHUNK_TRANSITIONS = {
     "preparing": {"pending", "failed"},
     "uploaded": {"preparing"},
-    "analyzing": {"uploaded"},
+    "analyzing": {"uploaded", "preparing"},
     "completed": {"analyzing"},
     "failed": {"pending", "preparing", "uploaded", "analyzing"},
 }
@@ -72,6 +72,23 @@ class VideoSearchRepository:
             )
             .limit(1)
         )
+
+    def find_completed_compatible_run(self, **identity: Any) -> VideoAnalysisRunModel | None:
+        fields = ("tenant_id", "source_asset_id", "source_fingerprint", "video_metadata_profile_id", "metadata_profile", "metadata_profile_version", "prompt_version", "analysis_version", "ai_provider")
+        return self.session.scalar(select(VideoAnalysisRunModel).where(
+            *(getattr(VideoAnalysisRunModel, field) == identity[field] for field in fields),
+            VideoAnalysisRunModel.status == "completed",
+        ).order_by(VideoAnalysisRunModel.completed_at.desc(), VideoAnalysisRunModel.id.desc()).limit(1))
+
+    def find_resumable_compatible_run(self, **identity: Any) -> VideoAnalysisRunModel | None:
+        fields = ("tenant_id", "source_asset_id", "source_fingerprint", "video_metadata_profile_id", "metadata_profile", "metadata_profile_version", "prompt_version", "analysis_version", "ai_provider")
+        rows = list(self.session.scalars(select(VideoAnalysisRunModel).where(
+            *(getattr(VideoAnalysisRunModel, field) == identity[field] for field in fields),
+            VideoAnalysisRunModel.status.in_(("pending", "preparing", "analyzing", "failed")),
+        )))
+        if len(rows) > 1: raise VideoRunConflictError("multiple compatible resumable video runs exist")
+        if rows and not rows[0].ai_model: raise VideoRunConflictError("resumable video run has no pinned model")
+        return rows[0] if rows else None
 
     def get_run(self, *, tenant_id: str, run_id: str) -> VideoAnalysisRunModel | None:
         return self.session.scalar(
@@ -298,6 +315,21 @@ class VideoSearchRepository:
         if provider_metadata_json is not None:
             chunk.provider_metadata_json = dict(provider_metadata_json)
         run.completed_chunks += 1
+        self.session.flush()
+        return chunk
+
+    def defer_chunk(
+        self, *, tenant_id: str, run_id: str, chunk_id: str, error_code: str, error_message: str
+    ) -> VideoAnalysisChunkModel:
+        """Make an unfinished chunk resumable without consuming a provider retry."""
+        chunk = self._chunk(tenant_id=tenant_id, run_id=run_id, chunk_id=chunk_id, lock=True)
+        if chunk.status == "completed":
+            return chunk
+        if chunk.status not in {"pending", "preparing", "uploaded", "analyzing", "failed"}:
+            raise VideoStateTransitionError(f"invalid chunk deferral from {chunk.status}")
+        chunk.status = "pending"
+        chunk.last_error_code = error_code[:100]
+        chunk.last_error_message = error_message
         self.session.flush()
         return chunk
 

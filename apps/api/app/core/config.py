@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     VIDEO_SEARCH_ENABLED: bool = False
     VIDEO_ANALYSIS_ENABLED: bool = False
     VIDEO_PROXY_ENABLED: bool = False
+    VIDEO_AI_TOKEN_SAFETY_RATIO: float = 0.80
+    VIDEO_AI_DAILY_BUDGET_RATIO: float = 0.90
+    VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS: bool = True
+    VIDEO_AI_PROMPT_VERSION: str = "video-search-prompt-v1"
+    VIDEO_AI_ANALYSIS_VERSION: str = "video-search-analysis-v1"
     VIDEO_PROXY_MAX_WIDTH: int = 1280
     VIDEO_PROXY_MAX_HEIGHT: int = 720
     VIDEO_PROXY_FPS: int = 15
@@ -865,6 +870,10 @@ class Settings(BaseSettings):
             raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive")
         if self.GEMINI_MODEL_COOLDOWN_SECONDS < 0:
             raise ValueError("GEMINI_MODEL_COOLDOWN_SECONDS cannot be negative")
+        if not 0 < self.VIDEO_AI_TOKEN_SAFETY_RATIO <= 1 or not 0 < self.VIDEO_AI_DAILY_BUDGET_RATIO <= 1:
+            raise ValueError("VIDEO AI safety ratios must be between 0 and 1")
+        if any(not isinstance(value, str) or not value.strip() for value in (self.VIDEO_AI_PROMPT_VERSION, self.VIDEO_AI_ANALYSIS_VERSION)):
+            raise ValueError("VIDEO AI versions must be non-empty strings")
         if self.AI_JOB_MIN_INTERVAL_SECONDS < 10:
             raise ValueError("AI_JOB_MIN_INTERVAL_SECONDS must be at least 10 seconds")
         if self.AI_JOB_RATE_LIMIT_SAFETY_SECONDS < 0:

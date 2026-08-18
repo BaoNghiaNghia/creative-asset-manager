@@ -27,6 +27,32 @@ class GeminiProjectQuotaRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def check_request_availability(self, *, quota_scope: str, model: str, rpd: int, project_rpd: int | None = None, now: datetime | None = None) -> GeminiQuotaDecision:
+        """Read quota state without consuming a reservation."""
+        if not quota_scope.strip() or not model.strip() or rpd < 1:
+            raise ValueError("Gemini project quota scope, model and RPD are required")
+        if project_rpd is not None and project_rpd < 1:
+            raise ValueError("Gemini project daily request limit must be positive")
+        now = self._utc(now); day = now.astimezone(_PACIFIC_TIME).date()
+        state = self.session.get(GeminiProjectQuotaStateModel, {"quota_scope": quota_scope, "model": model})
+        decision = self._availability(state, day, rpd, now)
+        if not decision.allowed or project_rpd is None: return decision
+        total = self.session.get(GeminiProjectQuotaStateModel, {"quota_scope": quota_scope, "model": _PROJECT_TOTAL_MODEL})
+        if total is not None and total.quota_day == day:
+            project = self._availability(total, day, project_rpd, now)
+            if not project.allowed: return GeminiQuotaDecision(False, "project_rpd_exhausted", project.available_at, project.reserved_requests)
+        else:
+            table = GeminiProjectQuotaStateModel.__table__
+            used = int(self.session.scalar(select(func.coalesce(func.sum(table.c.reserved_requests), 0)).where(table.c.quota_scope == quota_scope, table.c.quota_day == day, table.c.model != _PROJECT_TOTAL_MODEL)) or 0)
+            if used >= project_rpd: return GeminiQuotaDecision(False, "project_rpd_exhausted", self._next_reset(now), used)
+        return decision
+
+    def _availability(self, state, day, rpd, now):
+        if state is None or state.quota_day != day: return GeminiQuotaDecision(True, reserved_requests=0)
+        if state.blocked_until is not None and self._utc(state.blocked_until) > now: return GeminiQuotaDecision(False, "blocked", self._utc(state.blocked_until), state.reserved_requests)
+        if state.reserved_requests >= rpd: return GeminiQuotaDecision(False, "rpd_exhausted", self._next_reset(now), state.reserved_requests)
+        return GeminiQuotaDecision(True, reserved_requests=state.reserved_requests)
+
     def reserve_request(
         self,
         *,

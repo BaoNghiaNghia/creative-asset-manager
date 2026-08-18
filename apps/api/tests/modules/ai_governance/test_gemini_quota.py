@@ -44,6 +44,29 @@ class GeminiProjectQuotaRepositoryTest(unittest.TestCase):
             session.commit()
             return result
 
+    def test_read_only_check_does_not_create_or_consume_state(self) -> None:
+        with self.sessions() as session:
+            repo = GeminiProjectQuotaRepository(session)
+            decision = repo.check_request_availability(quota_scope="scope", model="model", rpd=2, now=self.now)
+            self.assertTrue(decision.allowed)
+            self.assertEqual(session.query(GeminiProjectQuotaStateModel).count(), 0)
+        self.reserve("scope", "model", 3)
+        with self.sessions() as session:
+            before = session.get(GeminiProjectQuotaStateModel, {"quota_scope":"scope","model":"model"}).reserved_requests
+            decision = GeminiProjectQuotaRepository(session).check_request_availability(quota_scope="scope", model="model", rpd=3, now=self.now)
+            after = session.get(GeminiProjectQuotaStateModel, {"quota_scope":"scope","model":"model"}).reserved_requests
+            self.assertTrue(decision.allowed); self.assertEqual((before, after), (1, 1))
+
+    def test_read_only_detects_model_and_project_exhaustion(self) -> None:
+        self.reserve("scope", "model", 1)
+        with self.sessions() as session:
+            denied = GeminiProjectQuotaRepository(session).check_request_availability(quota_scope="scope", model="model", rpd=1, now=self.now)
+            self.assertFalse(denied.allowed); self.assertEqual(denied.reason, "rpd_exhausted"); self.assertGreater(denied.available_at, self.now)
+        self.reserve("project", "a", 5, 1)
+        with self.sessions() as session:
+            denied = GeminiProjectQuotaRepository(session).check_request_availability(quota_scope="project", model="b", rpd=5, project_rpd=1, now=self.now)
+            self.assertFalse(denied.allowed); self.assertEqual(denied.reason, "project_rpd_exhausted")
+
     def test_reservation_is_shared_across_tenants_for_one_google_project(self) -> None:
         self.assertTrue(self.reserve("creative-assets", "gemini-3.5-flash-lite", 2).allowed)
         self.assertTrue(self.reserve("creative-assets", "gemini-3.5-flash-lite", 2).allowed)

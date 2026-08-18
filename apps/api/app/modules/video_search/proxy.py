@@ -343,13 +343,23 @@ class VideoProxyPreparationService:
     def _remove_working_directory(directory: Path) -> None:
         shutil.rmtree(directory, ignore_errors=True)
 
+    def cleanup(self, chunks: tuple[PreparedVideoChunk, ...] | list[PreparedVideoChunk]) -> None:
+        """Remove only proxy directories owned by this service."""
+        root = self._configured_root()
+        for directory in {chunk.path.parent.resolve() for chunk in chunks}:
+            try:
+                directory.relative_to(root)
+            except ValueError:
+                continue
+            if directory.name.startswith("video-proxy-"):
+                shutil.rmtree(directory, ignore_errors=True)
+
     @staticmethod
     def cleanup_prepared_chunks(chunks: tuple[PreparedVideoChunk, ...] | list[PreparedVideoChunk]) -> None:
-        """Idempotently remove successfully prepared chunks when their caller is done."""
-        parents = {chunk.path.parent for chunk in chunks}
+        """Legacy compatibility cleanup without recursive deletion."""
         for path in (chunk.path for chunk in chunks):
             path.unlink(missing_ok=True)
-        for parent in parents:
+        for parent in {chunk.path.parent for chunk in chunks}:
             try:
                 parent.rmdir()
             except OSError:
