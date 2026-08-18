@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type K
 import { createPortal } from "react-dom";
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
 import { VideoSearchResults } from "./components/VideoSearchResults";
+import { VideoSearchPlayer } from "./components/VideoSearchPlayer";
+import type { VideoSearchItem } from "./hooks/useVideoSearch";
 import { useVideoSearch } from "./hooks/useVideoSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
@@ -149,6 +151,7 @@ export default function App() {
   const searchBusy = searchMode === "videos" ? videoSearch.loading : explorer.searching;
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
+  const [playbackItem, setPlaybackItem] = useState<VideoSearchItem | null>(null);
   const initialDetailsAssetId = new URLSearchParams(window.location.search).get("asset");
   const [detailsAssetId, setDetailsAssetId] = useState<string | null>(initialDetailsAssetId);
   const [detailsItem, setDetailsItem] = useState<Asset | null>(null);
@@ -719,7 +722,7 @@ export default function App() {
           <div id="search-results" role="tabpanel" aria-labelledby={searchMode === "images" ? "search-mode-images" : "search-mode-videos"}>
           {searchMode === "videos" ? <>
             {videoSearch.error && <div className="search-warning" role="alert"><span>{videoSearch.error}</span></div>}
-            {videoSearch.loading ? <AssetGridSkeleton /> : !explorer.query.trim() ? <div className="state">Search indexed videos by filename, scene, speech, or visible text.</div> : videoSearch.items.length ? <VideoSearchResults items={videoSearch.items} /> : <div className="state">No videos matched this search.</div>}
+            {videoSearch.loading ? <AssetGridSkeleton /> : !explorer.query.trim() ? <div className="state">Search indexed videos by filename, scene, speech, or visible text.</div> : videoSearch.items.length ? <VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} /> : <div className="state">No videos matched this search.</div>}
           </> : <>
           {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
 
@@ -830,6 +833,7 @@ export default function App() {
       onClose={() => setAssetContextMenu(null)}
     />}
     {previewItem && <MediaViewer item={previewItem} onClose={() => setPreviewItem(null)} />}
+    {playbackItem && <VideoSearchPlayer item={playbackItem} onClose={() => setPlaybackItem(null)} />}
     {folderNoteOpen && explorer.path.at(-1) && <FolderNoteDrawer
       folderId={explorer.path.at(-1)!.id}
       folderName={explorer.path.at(-1)!.name}

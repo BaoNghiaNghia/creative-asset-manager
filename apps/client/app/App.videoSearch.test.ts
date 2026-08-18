@@ -13,7 +13,7 @@ describe("video search UI wiring", () => {
     expect(source).toContain("videoSearch.loading ? <AssetGridSkeleton />");
     expect(source).toContain("No videos matched this search.");
     expect(source).toContain("videoSearch.error && <div className=\"search-warning\"");
-    expect(source).toContain('<VideoSearchResults items={videoSearch.items} />');
+    expect(source).toContain('<VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} />');
     expect(source).toContain('searchMode === "images" && explorer.selected.size');
   });
 });

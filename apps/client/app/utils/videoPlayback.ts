@@ -1,0 +1,6 @@
+import type { VideoSearchItem } from "../hooks/useVideoSearch";
+type PlaybackItem = Pick<VideoSearchItem, "source_type" | "external_source_id" | "external_asset_id">;
+export function playbackProvider(sourceType: string | null): "google-drive" | "sharepoint" | null { if (sourceType === "google_drive") return "google-drive"; if (sourceType === "sharepoint") return "sharepoint"; return null; }
+export function buildVideoPlaybackUrl(item: PlaybackItem): string | null { const provider = playbackProvider(item.source_type); if (!provider || !item.external_asset_id || !item.external_source_id) return null; const params = new URLSearchParams({ provider, external_source_id: item.external_source_id }); return "/api/explorer/media/" + encodeURIComponent(item.external_asset_id) + "?" + params.toString(); }
+export function playbackSeekSeconds(startMs: number, duration: number): number { const target = Number.isFinite(startMs) ? Math.max(0, startMs / 1000) : 0; return Number.isFinite(duration) && duration >= 0 ? Math.min(target, duration) : target; }
+export function seekVideoAt(video: Pick<HTMLVideoElement, "currentTime" | "duration">, startMs: number): number { const target = playbackSeekSeconds(startMs, video.duration); video.currentTime = target; return target; }
