@@ -100,8 +100,9 @@ class VideoProxyPreparationService:
             raise VideoProxySourceChangedError("source asset fingerprint changed before proxy preparation")
 
         root = self._configured_root()
-        reserve = self._required_free_space()
-        self._ensure_free_space(root, reserve)
+        runtime_reserve = self._storage_safety_reserve()
+        preflight_required = self._preflight_required_free_space(runtime_reserve)
+        self._ensure_free_space(root, preflight_required)
         working_directory = Path(tempfile.mkdtemp(prefix="video-proxy-", dir=root))
         process: Any | None = None
         stderr_task: asyncio.Task[bytes] | None = None
@@ -120,7 +121,7 @@ class VideoProxyPreparationService:
                 raise VideoProxyProcessError("FFmpeg did not expose stdin and stderr pipes")
             stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
             storage_task = asyncio.create_task(
-                self._monitor_storage(process, root, reserve, stop_monitor, storage_failed)
+                self._monitor_storage(process, root, runtime_reserve, stop_monitor, storage_failed)
             )
             try:
                 async with self._resolver.open(
@@ -185,11 +186,16 @@ class VideoProxyPreparationService:
             raise VideoProxyConfigurationError("VIDEO_TEMP_DIRECTORY is not writable")
         return root.resolve()
 
-    def _required_free_space(self) -> int:
+    def _storage_safety_reserve(self) -> int:
         maximum = int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES)
         if maximum <= 0:
             raise VideoProxyConfigurationError("VIDEO_PROXY_MAX_CHUNK_BYTES must be positive")
-        return maximum + min(maximum, self._WORKING_RESERVE_BYTES)
+        return min(maximum, self._WORKING_RESERVE_BYTES)
+
+    def _preflight_required_free_space(self, runtime_reserve: int | None = None) -> int:
+        maximum = int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES)
+        reserve = self._storage_safety_reserve() if runtime_reserve is None else runtime_reserve
+        return maximum + reserve
 
     def _ensure_free_space(self, root: Path, required: int) -> None:
         try:
@@ -222,7 +228,7 @@ class VideoProxyPreparationService:
         audio_bitrate = int(self._settings.VIDEO_PROXY_AUDIO_BITRATE_KBPS)
         if min(video_bitrate, audio_bitrate) <= 0:
             raise VideoProxyConfigurationError("video proxy bitrates must be positive")
-        scale = f"scale=w={max_width}:h={max_height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
+        scale = f"scale=w='min(iw,{max_width})':h='min(ih,{max_height})':force_original_aspect_ratio=decrease:force_divisible_by=2"
         force_keyframes = f"expr:gte(t,n_forced*{chunk_seconds})"
         return (
             "ffmpeg", "-hide_banner", "-nostdin", "-y", "-i", "pipe:0",
@@ -230,7 +236,8 @@ class VideoProxyPreparationService:
             "-c:v", "libx264", "-b:v", f"{video_bitrate}k", "-c:a", "aac",
             "-b:a", f"{audio_bitrate}k", "-force_key_frames", force_keyframes,
             "-f", "segment", "-segment_time", str(chunk_seconds),
-            "-reset_timestamps", "1", "-movflags", "+faststart",
+            "-segment_format", "mp4", "-segment_format_options", "movflags=+faststart",
+            "-reset_timestamps", "1",
             str(directory / "chunk_%05d.mp4"),
         )
 
@@ -268,7 +275,7 @@ class VideoProxyPreparationService:
             size_bytes = path.stat().st_size
             if size_bytes <= 0:
                 raise VideoProxyProcessError("FFmpeg produced an empty proxy chunk")
-            if size_bytes > int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES):
+            if size_bytes >= int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES):
                 raise VideoProxyChunkTooLargeError("video proxy chunk exceeds configured maximum size")
             duration_ms, width, height = await self._ffprobe(path)
             end_ms = start_ms + duration_ms

@@ -129,6 +129,23 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertEqual(chunks[0].source_end_ms, chunks[1].source_start_ms)
         service.cleanup_prepared_chunks(chunks)
 
+    def test_command_uses_input_aware_scale_and_segment_mp4_options(self):
+        service = self.service()
+        command = service._ffmpeg_command(Path(self.temp.name))
+        scale = command[command.index("-vf") + 1]
+        self.assertIn("min(iw,1280)", scale)
+        self.assertIn("min(ih,720)", scale)
+        self.assertIn("-segment_format", command)
+        self.assertEqual(command[command.index("-segment_format") + 1], "mp4")
+        self.assertEqual(command[command.index("-segment_format_options") + 1], "movflags=+faststart")
+        self.assertNotIn("-movflags", command)
+
+    def test_storage_preflight_and_runtime_thresholds_are_separate(self):
+        service = self.service(settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=1000))
+        self.assertEqual(service._storage_safety_reserve(), 1000)
+        self.assertEqual(service._preflight_required_free_space(), 2000)
+        service._ensure_free_space(Path(self.temp.name), 1000)
+
     def test_configuration_and_storage_preflight_fail_before_ffmpeg(self):
         factory = FakeProcessFactory()
         with self.assertRaises(VideoProxyConfigurationError):
@@ -150,6 +167,11 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         factory = FakeProcessFactory()
         with self.assertRaises(VideoProxyChunkTooLargeError):
             asyncio.run(self.service(factory, settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=3), free=10**9).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+    def test_exact_chunk_size_limit_is_rejected_and_cleaned(self):
+        factory = FakeProcessFactory()
+        with self.assertRaises(VideoProxyChunkTooLargeError):
+            asyncio.run(self.service(factory, settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=5), free=10**9).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
     def test_process_failure_is_reported_and_cleaned(self):
         factory = FakeProcessFactory()
@@ -190,6 +212,28 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
             return failed.is_set()
         self.assertTrue(asyncio.run(monitor()))
         self.assertTrue(process.terminated)
+
+    def test_runtime_low_space_during_prepare_terminates_and_cleans_up(self):
+        factory = FakeProcessFactory()
+        calls = 0
+        def disk_usage(_path):
+            nonlocal calls
+            calls += 1
+            return SimpleNamespace(free=10**9 if calls < 3 else 1)
+        class DelayedResolver(FakeResolver):
+            @asynccontextmanager
+            async def open(self, **kwargs):
+                async def body():
+                    yield b"first"
+                    await asyncio.sleep(.02)
+                    yield b"second"
+                async def close(): pass
+                yield AssetDownloadStream(body=body(), close=close)
+        service = VideoProxyPreparationService(self.sessions, self.settings(), content_resolver=DelayedResolver(), create_subprocess_exec=factory, disk_usage=disk_usage, storage_poll_seconds=.001)
+        with self.assertRaises(VideoProxyStorageError):
+            asyncio.run(service.prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+        self.assertTrue(factory.ffmpeg.terminated)
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
 
     def test_cancellation_terminates_process_and_cleans_working_directory(self):
         entered = asyncio.Event()
