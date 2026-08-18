@@ -363,10 +363,10 @@ function PromptStructurePreview({ prompt }: { prompt: string }) {
     const lineDepth = lineDepths[index];
     const key = line.match(/^(\s*)["\x27]([^"\x27]+)["\x27](\s*:)/);
     const groupEnd = groupEnds.get(index);
-    const isGroup = groupEnd !== undefined && groupEnd > index;
+    const isGroup = Boolean(key) && groupEnd !== undefined && groupEnd > index;
     const isCollapsed = isGroup && collapsedGroups.has(index);
-    if (isCollapsed) hiddenUntil = groupEnd;
-    const lineBreak = index < lines.length - 1 && !isCollapsed ? "\n" : "";
+    if (isCollapsed) hiddenUntil = groupEnd as number;
+    const lineBreak = (isCollapsed ? (groupEnd as number) < lines.length - 1 : index < lines.length - 1) ? "\n" : "";
     const className = "ops-prompt-key depth-" + Math.max(0, Math.min(lineDepth, 4));
     const toggle = isGroup ? <button type="button" className="ops-prompt-group-toggle" aria-label={(isCollapsed ? "Mở rộng" : "Thu gọn") + " nhóm " + (key?.[2] || "JSON")} aria-expanded={!isCollapsed} onClick={() => setCollapsedGroups(current => { const next = new Set(current); if (next.has(index)) next.delete(index); else next.add(index); return next; })}>{isCollapsed ? "+" : "−"}</button> : <span className="ops-prompt-group-spacer" aria-hidden="true" />;
     const compactValue = isCollapsed ? (line.includes("[") ? " [ … ]" : " { … }") : "";
