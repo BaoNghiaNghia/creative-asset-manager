@@ -160,7 +160,7 @@ class SourceSyncService:
                     )
                     content_maybe_changed = existing is None or (new_marker is not None and old_marker != new_marker)
                     video_content_changed = existing is None or old_video_fingerprint != build_video_source_fingerprint(source_asset)
-                    if is_video and video_content_changed and not was_deleted:
+                    if is_video and video_content_changed:
                         created = int(enqueue_video_analysis_job(
                             tenant_id=tenant_id, source_asset=source_asset,
                             processing=self.processing, settings=self.settings,

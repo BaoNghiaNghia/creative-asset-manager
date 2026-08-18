@@ -78,5 +78,22 @@ class VideoBackfillTest(unittest.TestCase):
         self.assertFalse(any("uri" in key.lower() or "secret" in key.lower() for key in job.payload_json))
 
 
+    def test_pagination_crosses_batches_without_restarting(self):
+        for index in range(5):
+            self.asset(external_id=f"video-{index}")
+        self.profile()
+        result = self.execute_backfill(tenant_id="tenant-a", limit=5, batch_size=2)
+        self.assertEqual((result.scanned, result.enqueued), (5, 5))
+        self.assertEqual(self.session.query(ProcessingJobModel).count(), 5)
+
+    def test_dry_run_existing_job_counts_skip_without_writes(self):
+        asset = self.asset(); self.profile()
+        self.assertEqual(self.execute_backfill(tenant_id="tenant-a").enqueued, 1)
+        before = self.session.query(ProcessingJobModel).count()
+        result = self.execute_backfill(tenant_id="tenant-a", dry_run=True)
+        self.assertEqual((result.enqueued, result.skipped_existing_job), (0, 1))
+        self.assertEqual(self.session.query(ProcessingJobModel).count(), before)
+
+
 if __name__ == "__main__":
     unittest.main()

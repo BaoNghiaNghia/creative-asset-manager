@@ -410,3 +410,21 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         self.service = SourceSyncService(self.repository, self.processing, enabled=True, settings=Settings(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, VIDEO_ANALYSIS_ENABLED=True, VIDEO_PROXY_ENABLED=True))
         await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "video-no-profile", candidate("video-no-profile", name="clip.mp4", mime_type="video/mp4")),), "done")]))
         self.assertEqual(self.processing.count_jobs(), 0)
+
+
+    async def test_restored_video_same_fingerprint_does_not_duplicate_job(self):
+        self._enable_video_enqueue()
+        video = candidate("restore-same", name="clip.mp4", mime_type="video/mp4")
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "restore-same", video),), "c1")]))
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("deleted", "restore-same"),), "c2")]))
+        result = await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("restored", "restore-same", video),), "c3")]))
+        self.assertEqual((result.jobs_created, self.processing.count_jobs()), (0, 1))
+
+    async def test_restored_video_changed_fingerprint_enqueues_once(self):
+        self._enable_video_enqueue()
+        first = candidate("restore-change", name="clip.mp4", mime_type="video/mp4", checksum="v1")
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "restore-change", first),), "c1")]))
+        await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("deleted", "restore-change"),), "c2")]))
+        changed = candidate("restore-change", name="clip.mp4", mime_type="video/mp4", checksum="v2")
+        result = await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("restored", "restore-change", changed),), "c3")]))
+        self.assertEqual((result.jobs_created, self.processing.count_jobs()), (1, 2))
