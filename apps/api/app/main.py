@@ -30,6 +30,7 @@ from app.modules.inventory.router import router as inventory_router
 from app.modules.processing_policy.router import router as processing_policy_router
 from app.modules.search.governance_router import router as search_governance_router
 from app.modules.search.router import router as search_router
+from app.modules.video_search.router import router as video_search_router
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.tag.router import router as tag_router
@@ -109,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(processing_policy_router)
     api.include_router(asset_details_router)
     api.include_router(search_router)
+    api.include_router(video_search_router)
     api.include_router(search_governance_router)
     # Inventory runtime execution remains default-off, but its authenticated
     # tenant configuration and status routes must stay reachable so an

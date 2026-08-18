@@ -63,6 +63,11 @@ class VideoSearchElasticsearchIndex:
     async def get_document(self, document_id: str) -> Mapping[str, Any]:
         return await self._index._request("GET", f"/{self.read_alias}/_doc/{document_id}")
 
+    async def search(self, body: Mapping[str, Any]) -> Mapping[str, Any]:
+        return await self._index._request(
+            "POST", f"/{self.read_alias}/_search", json_body=body
+        )
+
     async def index_mapping(self, name: str) -> dict[str, Any]:
         return await self._index.index_mapping(name)
 
