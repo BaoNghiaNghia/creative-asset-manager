@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchAiOperationsConfiguration, setAiProviderPaused, setGlobalAiEmergencyStop,
   setTenantAiPaused, updateAiBudget, updateAiDefaults, updateAiMetadataPromptTemplate, updateAiOperationsConfiguration,
@@ -279,6 +279,25 @@ function MetadataPromptTemplateCard({ profile, canEdit, onReload }: {
   const [expanded, setExpanded] = useState(false);
   const [previewSplit, setPreviewSplit] = useState(62);
   const [resizingPreview, setResizingPreview] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const expandedEditorRef = useRef<HTMLTextAreaElement>(null);
+
+  async function copyExpandedPrompt() {
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard is unavailable");
+      await navigator.clipboard.writeText(promptTemplate);
+      setCopyStatus("Copied");
+    } catch {
+      expandedEditorRef.current?.select();
+      const copied = document.execCommand?.("copy");
+      setCopyStatus(copied ? "Copied" : "Copy failed");
+    }
+  }
+
+  function editExpandedPrompt() {
+    expandedEditorRef.current?.focus();
+    expandedEditorRef.current?.setSelectionRange(0, expandedEditorRef.current.value.length);
+  }
 
   useEffect(() => {
     if (!expanded) return;
@@ -312,22 +331,52 @@ function MetadataPromptTemplateCard({ profile, canEdit, onReload }: {
     <footer className="ops-prompt-footer"><label>Change reason<input disabled={!canEdit || saving} value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: bổ sung nhận diện màu sắc và đối tượng" /></label>
     <button className="primary" type="submit" disabled={!canEdit || saving || !promptTemplate.trim() || !reason.trim()}>{saving ? "Saving prompt…" : "Save prompt template"}</button></footer>
     {message && <p className="ops-prompt-message" role="status">{message}</p>}{error && <p className="ops-inline-error" role="alert">{error}</p>}
-    {expanded && <div className="ops-prompt-modal-backdrop" role="presentation" onMouseDown={() => setExpanded(false)}><section className="ops-prompt-modal" role="dialog" aria-modal="true" aria-labelledby="prompt-template-expanded-title" onMouseDown={event => event.stopPropagation()}><header><div><h3 id="prompt-template-expanded-title">Prompt template</h3><p>Chỉnh sửa toàn màn hình và xem cấu trúc JSON được tô màu theo cấp.</p></div><button type="button" className="ops-prompt-close" onClick={() => setExpanded(false)} aria-label="Đóng prompt template">×</button></header><div className="ops-prompt-modal-content" style={{ gridTemplateColumns: "minmax(0, " + previewSplit + "fr) 14px minmax(0, " + (100 - previewSplit) + "fr)" }}><label>Prompt template<textarea aria-label="Expanded metadata prompt template" autoFocus disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} spellCheck={false} /></label><button type="button" className={"ops-prompt-resizer" + (resizingPreview ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label="Resize prompt editor and preview" aria-valuemin={30} aria-valuemax={70} aria-valuenow={previewSplit} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setResizingPreview(true); }} onPointerMove={event => { if (!resizingPreview) return; const bounds = event.currentTarget.parentElement?.getBoundingClientRect(); if (!bounds) return; setPreviewSplit(Math.max(30, Math.min(70, ((event.clientX - bounds.left) / bounds.width) * 100))); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); setResizingPreview(false); }} onPointerCancel={() => setResizingPreview(false)}><span aria-hidden="true">⋮</span></button><section className="ops-prompt-preview" aria-label="Prompt structure preview"><strong>Preview cấu trúc</strong><PromptStructurePreview prompt={promptTemplate} /></section></div></section></div>}
+    {expanded && <div className="ops-prompt-modal-backdrop" role="presentation" onMouseDown={() => setExpanded(false)}><section className="ops-prompt-modal" role="dialog" aria-modal="true" aria-labelledby="prompt-template-expanded-title" onMouseDown={event => event.stopPropagation()}><header><div><h3 id="prompt-template-expanded-title">Prompt template</h3><p>Chỉnh sửa toàn màn hình và xem cấu trúc JSON được tô màu theo cấp.</p></div><div className="ops-prompt-modal-actions"><button type="button" className="ops-prompt-action" onClick={() => void copyExpandedPrompt()} aria-label="Copy prompt template">Copy {copyStatus ? "· " + copyStatus : ""}</button><button type="button" className="ops-prompt-action primary-action" onClick={editExpandedPrompt} disabled={!canEdit || saving}>Edit</button><button type="button" className="ops-prompt-close" onClick={() => setExpanded(false)} aria-label="Đóng prompt template">×</button></div></header><div className="ops-prompt-modal-content" style={{ gridTemplateColumns: "minmax(0, " + previewSplit + "fr) 14px minmax(0, " + (100 - previewSplit) + "fr)" }}><label>Prompt template<textarea ref={expandedEditorRef} aria-label="Expanded metadata prompt template" autoFocus disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} spellCheck={false} /></label><button type="button" className={"ops-prompt-resizer" + (resizingPreview ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label="Resize prompt editor and preview" aria-valuemin={30} aria-valuemax={70} aria-valuenow={previewSplit} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setResizingPreview(true); }} onPointerMove={event => { if (!resizingPreview) return; const bounds = event.currentTarget.parentElement?.getBoundingClientRect(); if (!bounds) return; setPreviewSplit(Math.max(30, Math.min(70, ((event.clientX - bounds.left) / bounds.width) * 100))); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); setResizingPreview(false); }} onPointerCancel={() => setResizingPreview(false)}><span aria-hidden="true">⋮</span></button><section className="ops-prompt-preview" aria-label="Prompt structure preview"><strong>Preview cấu trúc</strong><PromptStructurePreview prompt={promptTemplate} /></section></div></section></div>}
   </form>;
 }
 
 function PromptStructurePreview({ prompt }: { prompt: string }) {
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(() => new Set());
   const lines = prompt.split("\n");
+  const lineDepths: number[] = [];
+  const groupEnds = new Map<number, number>();
+  const groupStack: Array<{ line: number; depth: number }> = [];
   let depth = 0;
-  return <pre>{lines.map((line, index) => {
-    const lineDepth = depth;
-    const key = line.match(/^(\s*)[\"\x27]([^\"\x27]+)[\"\x27](\s*:)/);
-    depth += (line.match(/[\{\[]/g) || []).length - (line.match(/[\}\]]/g) || []).length;
-    const lineBreak = index < lines.length - 1 ? "\n" : "";
-    if (!key) return <span key={index}>{line}{lineBreak}</span>;
+
+  lines.forEach((line, index) => {
+    lineDepths[index] = depth;
+    for (const character of line) {
+      if (character === "{" || character === "[") { groupStack.push({ line: index, depth }); depth += 1; }
+      if (character === "}" || character === "]") {
+        depth = Math.max(0, depth - 1);
+        const group = groupStack.pop();
+        if (group) groupEnds.set(group.line, index);
+      }
+    }
+  });
+
+  const rendered = [];
+  let hiddenUntil = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (index <= hiddenUntil) continue;
+    const line = lines[index];
+    const lineDepth = lineDepths[index];
+    const key = line.match(/^(\s*)["\x27]([^"\x27]+)["\x27](\s*:)/);
+    const groupEnd = groupEnds.get(index);
+    const isGroup = groupEnd !== undefined && groupEnd > index;
+    const isCollapsed = isGroup && collapsedGroups.has(index);
+    if (isCollapsed) hiddenUntil = groupEnd;
+    const lineBreak = index < lines.length - 1 && !isCollapsed ? "\n" : "";
     const className = "ops-prompt-key depth-" + Math.max(0, Math.min(lineDepth, 4));
-    return <span key={index}>{key[1]}<b className={className}>{key[2]}</b>{key[3]}{line.slice(key[0].length)}{lineBreak}</span>;
-  })}</pre>;
+    const toggle = isGroup ? <button type="button" className="ops-prompt-group-toggle" aria-label={(isCollapsed ? "Mở rộng" : "Thu gọn") + " nhóm " + (key?.[2] || "JSON")} aria-expanded={!isCollapsed} onClick={() => setCollapsedGroups(current => { const next = new Set(current); if (next.has(index)) next.delete(index); else next.add(index); return next; })}>{isCollapsed ? "+" : "−"}</button> : <span className="ops-prompt-group-spacer" aria-hidden="true" />;
+    const compactValue = isCollapsed ? (line.includes("[") ? " [ … ]" : " { … }") : "";
+    if (!key) {
+      rendered.push(<span key={index}>{toggle}{isCollapsed ? line.replace(/[\[{].*$/, "") + compactValue : line}{lineBreak}</span>);
+      continue;
+    }
+    rendered.push(<span key={index}>{toggle}{key[1]}<b className={className}>{key[2]}</b>{key[3]}{isCollapsed ? compactValue : line.slice(key[0].length)}{lineBreak}</span>);
+  }
+  return <pre>{rendered}</pre>;
 }
 
 function ConfigurationLoading() { return <div className="ops-skeleton" aria-busy="true"><i /><i /><span>Loading provider configuration…</span></div>; }

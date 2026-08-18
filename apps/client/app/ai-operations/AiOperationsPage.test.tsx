@@ -525,10 +525,12 @@ describe("Search Coverage card", () => {
       failure_groups: [], skipped_breakdown: [{ category: "folders_non_images", count: 5 }], recent_assets: { page: 2, page_size: 25, total: 60, items: [{ asset_id: "asset-1", filename: "nurse.jpg", state: "search_pending", stage_statuses: { download: "completed", store: "completed", analyze: "completed", projection: "completed", index: "pending" }, updated_at: "2026-07-27T00:00:00Z", error_code: null }] },
     }} />);
     expect(markup).toContain("scan-status-icon completed");
-    expect(markup).toContain("Elasticsearch Index");
+    expect(markup).toContain("Lập chỉ mục tìm kiếm");
     expect(markup).toContain("Downloading from Google Drive");
     expect(markup).toContain("Phân bổ hàng đợi theo giai đoạn");
     expect(markup).toContain("Chờ bắt đầu");
+    expect(markup).toContain("pipeline-diagnostics-content");
+    expect(markup).toContain("Lịch sử kỹ thuật, không dùng để tính tiến độ tài sản");
     expect(markup).toContain("Đã lên lịch thử lại");
     expect(markup).toContain("pipeline-progress-summary");
     expect(markup).toContain("Sẵn sàng tìm kiếm");
