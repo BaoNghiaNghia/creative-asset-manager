@@ -129,7 +129,7 @@ snapshot_image_aliases() {
   path="$(mktemp)"
   TEMP_FILES+=("$path")
   curl --fail --silent --max-time 5 'http://127.0.0.1:9200/_cat/aliases?format=json&h=alias,index' |
-    "$PYTHON_BIN" -c 'import json,sys; rows=json.load(sys.stdin); print("\n".join(sorted("{} {}".format(row.get("alias", ""), row.get("index", "")) for row in rows if row.get("alias", "") not in {"${prefix}-video-v3-read", "${prefix}-video-v3-write"})))' >"$path" ||
+    "$PYTHON_BIN" -c 'import json,sys; excluded={sys.argv[1] + "-video-v3-read", sys.argv[1] + "-video-v3-write"}; rows=json.load(sys.stdin); print("\n".join(sorted("{} {}".format(row.get("alias", ""), row.get("index", "")) for row in rows if row.get("alias", "") not in excluded))' "$prefix" >"$path" ||
     die 'unable to capture image alias snapshot.'
   printf '%s\n' "$path"
 }
