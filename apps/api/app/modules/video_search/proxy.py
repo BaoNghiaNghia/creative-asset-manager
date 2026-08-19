@@ -111,12 +111,15 @@ class VideoProxyPreparationService:
         storage_failed = asyncio.Event()
         try:
             command = self._ffmpeg_command(working_directory)
-            process = await self._create_subprocess_exec(
-                *command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            try:
+                process = await self._create_subprocess_exec(
+                    *command,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except (FileNotFoundError, PermissionError) as exc:
+                raise VideoProxyConfigurationError("FFmpeg executable is unavailable") from exc
             if process.stdin is None or process.stderr is None:
                 raise VideoProxyProcessError("FFmpeg did not expose stdin and stderr pipes")
             stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
@@ -284,10 +287,13 @@ class VideoProxyPreparationService:
         return tuple(chunks)
 
     async def _ffprobe(self, path: Path) -> tuple[int, int | None, int | None]:
-        process = await self._create_subprocess_exec(
-            "ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
-            "-of", "json", str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            process = await self._create_subprocess_exec(
+                "ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
+                "-of", "json", str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+        except (FileNotFoundError, PermissionError) as exc:
+            raise VideoProxyConfigurationError("ffprobe executable is unavailable") from exc
         stdout, stderr = await process.communicate()
         if process.returncode != 0:
             raise VideoProxyProcessError(f"ffprobe failed: {stderr[-self._STDERR_TAIL_BYTES:].decode('utf-8', errors='replace')}")

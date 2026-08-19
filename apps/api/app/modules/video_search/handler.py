@@ -224,7 +224,7 @@ class VideoAnalyzeJobHandler:
         except VideoProxySourceChangedError:
             return self._non_retry(context, run_id, None, "video_source_changed", "Video source changed during proxy preparation.")
         except VideoProxyConfigurationError:
-            return JobHandlerResult.non_retryable("video_proxy_configuration_error", "Video proxy preparation is not configured.")
+            return self._non_retry(context, run_id, current_chunk_id, "video_proxy_configuration_error", "Video proxy preparation is not configured.")
         except (VideoProxyStorageError, VideoProxyProcessError):
             return self._retry(context, run_id, current_chunk_id, "video_proxy_preparation_failed", "Video proxy preparation could not be completed.")
         except VideoChunkLayoutConflictError:

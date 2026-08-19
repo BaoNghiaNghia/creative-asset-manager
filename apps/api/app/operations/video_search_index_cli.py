@@ -22,16 +22,23 @@ def parser() -> argparse.ArgumentParser:
     return value
 
 
-def _segments_are_nested(mapping: Mapping[str, Any], target: str) -> bool:
-    value = mapping.get(target, mapping)
-    if not isinstance(value, Mapping):
+def _mapping_compatible(actual: Mapping[str, Any], expected: Mapping[str, Any]) -> bool:
+    if not isinstance(actual, Mapping):
         return False
-    mappings = value.get("mappings")
-    if not isinstance(mappings, Mapping):
-        return False
-    properties = mappings.get("properties")
-    return isinstance(properties, Mapping) and properties.get("segments", {}).get("type") == "nested"
+    for key, value in expected.items():
+        candidate = actual.get(key)
+        if isinstance(value, Mapping):
+            if not isinstance(candidate, Mapping) or not _mapping_compatible(candidate, value):
+                return False
+        elif candidate != value:
+            return False
+    return True
 
+def _mapping_is_compatible(mapping: Mapping[str, Any], target: str) -> bool:
+    value = mapping.get(target, mapping)
+    actual = value.get("mappings") if isinstance(value, Mapping) else None
+    expected = VideoSearchElasticsearchIndex.index_definition()["mappings"]
+    return isinstance(actual, Mapping) and _mapping_compatible(actual, expected)
 
 async def execute(args: argparse.Namespace) -> dict[str, Any]:
     if args.apply and not args.confirmed:
@@ -58,8 +65,8 @@ async def execute(args: argparse.Namespace) -> dict[str, Any]:
             return result
         await index.ensure_index(args.version)
         mapping = await index.index_mapping(target)
-        if not _segments_are_nested(mapping, target):
-            raise ValueError("target video index has incompatible segments mapping")
+        if not _mapping_is_compatible(mapping, target):
+            raise ValueError("target video index has incompatible mapping")
         result["segments_nested"] = True
         await index.switch_aliases(target)
         aliases = await index.alias_indices()

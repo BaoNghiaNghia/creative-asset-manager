@@ -5,9 +5,11 @@ from unittest.mock import patch
 
 from app.core.config import Settings
 from app.operations import video_search_index_cli as cli
+from app.modules.video_search.elasticsearch import VideoSearchElasticsearchIndex as CanonicalIndex
 
 
 class _Index:
+    index_definition = staticmethod(CanonicalIndex.index_definition)
     created = []
     ensured = []
     switched = []
@@ -72,7 +74,7 @@ class VideoSearchIndexCliTest(unittest.TestCase):
 
     def test_apply_ensures_nested_mapping_and_switches_video_aliases_only(self):
         target = "creative-assets-video-v3-20260819"
-        _Index.mappings[target] = {target: {"mappings": {"properties": {"segments": {"type": "nested"}}}}}
+        _Index.mappings[target] = {target: {"mappings": CanonicalIndex.index_definition()["mappings"]}}
         with (
             patch.object(cli, "get_settings", return_value=self.settings),
             patch.object(cli, "VideoSearchElasticsearchIndex", _Index),
@@ -91,7 +93,7 @@ class VideoSearchIndexCliTest(unittest.TestCase):
             patch.object(cli, "get_settings", return_value=self.settings),
             patch.object(cli, "VideoSearchElasticsearchIndex", _Index),
         ):
-            with self.assertRaisesRegex(ValueError, "incompatible segments mapping"):
+            with self.assertRaisesRegex(ValueError, "incompatible mapping"):
                 self.execute(dry_run=False, apply=True, confirmed=True)
         self.assertEqual(_Index.switched, [])
 
