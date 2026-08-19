@@ -11,6 +11,8 @@ not start VIDEO-8C or a pilot.
 cd /srv/creative-asset-manager-source
 git status --short
 git rev-parse HEAD
+VIDEO_8B_TARGET_COMMIT=<reviewed-full-commit> \
+VIDEO_8B_RELEASE_ID=<reviewed-12-character-release-id> \
 bash scripts/video_8b_production_deploy.sh
 ```
 
@@ -25,13 +27,13 @@ VIDEO_ANALYSIS_ENABLED=false
 VIDEO_PROXY_ENABLED=false
 ```
 
-It installs immutable release `125ead34f1c3`, migrates forward only, provisions
-`<ELASTICSEARCH_INDEX_PREFIX>-video-v3-125ead34f1c3`, validates the VIDEO
+It installs the supplied immutable release, migrates forward only, provisions
+`<ELASTICSEARCH_INDEX_PREFIX>-video-v3-<reviewed-release-id>`, validates the VIDEO
 mapping, and confirms IMAGE aliases are unchanged before release switch.
 
 If the physical index already exists but is incompatible, stop without deleting
-or changing it. An operator must rerun after selecting `125ead34f1c3-r2` (and
-update the reviewed script/version through the normal change process).
+or changing it. An operator must rerun after a distinct reviewed operator version such as
+`<reviewed-release-id>-r2` (and update the handoff through the normal change process).
 
 If service health fails after switching, use the established rollback only:
 

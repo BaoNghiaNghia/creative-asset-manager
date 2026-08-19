@@ -10,7 +10,7 @@ class Video8BProductionDeployTest(unittest.TestCase):
     def test_script_is_syntax_valid_and_fail_closed_on_a_non_production_host(self):
         syntax = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
-        result = subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, capture_output=True, text=True, check=False)
+        result = subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, capture_output=True, text=True, check=False, env={**__import__("os").environ, "VIDEO_8B_TARGET_COMMIT": "expected", "VIDEO_8B_RELEASE_ID": "expected"})
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("refusing non-production host", result.stderr)
 
@@ -23,7 +23,7 @@ class Video8BProductionDeployTest(unittest.TestCase):
             ("curl() { return 1; }; require_elasticsearch", "Elasticsearch is unavailable"),
         )
         for invocation, message in cases:
-            result = subprocess.run(["bash", "-c", f"source {SCRIPT}; {invocation}"], cwd=ROOT, capture_output=True, text=True, check=False)
+            result = subprocess.run(["bash", "-c", f"source {SCRIPT}; {invocation}"], cwd=ROOT, capture_output=True, text=True, check=False, env={**__import__("os").environ, "VIDEO_8B_TARGET_COMMIT": "expected", "VIDEO_8B_RELEASE_ID": "expected"})
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(message, result.stderr)
 
@@ -33,7 +33,7 @@ class Video8BProductionDeployTest(unittest.TestCase):
             "creative-asset-manager-api", "creative-asset-manager-worker",
             "/etc/creative-asset-manager/production.env",
             "git status --porcelain",
-            'TARGET_COMMIT="125ead34f1c331c665ebc2c46849b961616a1117"',
+            "VIDEO_8B_TARGET_COMMIT", "VIDEO_8B_RELEASE_ID",
             "VIDEO_SEARCH_ENABLED false", "VIDEO_ANALYSIS_ENABLED false",
             "VIDEO_PROXY_ENABLED false", "command -v ffmpeg", "command -v ffprobe",
             "MIN_FREE_BYTES=1567108864", "http://127.0.0.1:9200/_cluster/health",
@@ -44,7 +44,7 @@ class Video8BProductionDeployTest(unittest.TestCase):
     def test_handoff_records_the_reviewed_target_and_video_remains_off(self):
         text = HANDOFF.read_text()
         for required in (
-            "125ead34f1c331c665ebc2c46849b961616a1117", "125ead34f1c3",
+            "VIDEO_8B_TARGET_COMMIT", "VIDEO_8B_RELEASE_ID",
             "VIDEO_SEARCH_ENABLED=false", "VIDEO_ANALYSIS_ENABLED=false",
             "VIDEO_PROXY_ENABLED=false", "VIDEO-8C", "rollback-release",
         ):

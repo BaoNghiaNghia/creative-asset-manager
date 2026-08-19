@@ -3,9 +3,9 @@
 set -Eeuo pipefail
 umask 027
 
-TARGET_COMMIT="125ead34f1c331c665ebc2c46849b961616a1117"
-RELEASE_ID="125ead34f1c3"
-VIDEO_INDEX_VERSION="125ead34f1c3"
+TARGET_COMMIT="${VIDEO_8B_TARGET_COMMIT:?set VIDEO_8B_TARGET_COMMIT to the reviewed full commit}"
+RELEASE_ID="${VIDEO_8B_RELEASE_ID:?set VIDEO_8B_RELEASE_ID to the reviewed immutable release id}"
+VIDEO_INDEX_VERSION="${VIDEO_8B_VIDEO_INDEX_VERSION:-$RELEASE_ID}"
 APP_ROOT="/opt/creative-asset-manager"
 ENV_FILE="/etc/creative-asset-manager/production.env"
 VIDEO_TEMP_DIRECTORY="/var/lib/creative-asset-manager/video-proxy"
