@@ -259,5 +259,26 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
 
 
+    def test_missing_ffmpeg_is_configuration_error_and_cleans_work_directory(self):
+        async def factory(*command, **_kwargs):
+            if command[0] == "ffmpeg":
+                raise FileNotFoundError("missing")
+        before = set(Path(self.temp.name).glob("video-proxy-*"))
+        with self.assertRaises(VideoProxyConfigurationError):
+            asyncio.run(self.service(factory).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+        self.assertEqual(set(Path(self.temp.name).glob("video-proxy-*")), before)
+
+    def test_missing_ffprobe_is_configuration_error_and_cleans_work_directory(self):
+        factory = FakeProcessFactory()
+        original = factory.__call__
+        async def missing_probe(*command, **kwargs):
+            if command[0] == "ffprobe":
+                raise FileNotFoundError("missing")
+            return await original(*command, **kwargs)
+        with self.assertRaises(VideoProxyConfigurationError):
+            asyncio.run(self.service(missing_probe).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+
+
 if __name__ == "__main__":
     unittest.main()

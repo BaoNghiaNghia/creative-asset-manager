@@ -1,4 +1,5 @@
 import asyncio
+import copy
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -85,6 +86,41 @@ class VideoSearchIndexCliTest(unittest.TestCase):
         self.assertTrue(result["segments_nested"])
         self.assertTrue(result["aliases_switched"])
         self.assertNotIn("creative-assets-v3-read", (result["read_alias"], result["write_alias"]))
+
+    def assert_incompatible_mapping(self, mutate):
+        target = "creative-assets-video-v3-20260819"
+        mapping = copy.deepcopy(CanonicalIndex.index_definition()["mappings"])
+        mutate(mapping)
+        _Index.mappings[target] = {target: {"mappings": mapping}}
+        with (
+            patch.object(cli, "get_settings", return_value=self.settings),
+            patch.object(cli, "VideoSearchElasticsearchIndex", _Index),
+        ):
+            with self.assertRaisesRegex(ValueError, "incompatible mapping"):
+                self.execute(dry_run=False, apply=True, confirmed=True)
+        self.assertEqual(_Index.switched, [])
+
+    def test_each_canonical_mapping_violation_blocks_alias_switch(self):
+        cases = (
+            lambda m: m["properties"]["segments"].update(type="object"),
+            lambda m: m["properties"]["tenant_id"].update(type="text"),
+            lambda m: m["properties"]["segments"]["properties"]["start_ms"].update(type="integer"),
+            lambda m: m["properties"]["summary"].update(analyzer="standard"),
+            lambda m: m["properties"].pop("source_asset_id"),
+            lambda m: m.update(dynamic=True),
+        )
+        for mutate in cases:
+            with self.subTest(mutate=mutate):
+                self.assert_incompatible_mapping(mutate)
+
+    def test_operator_controls_version_without_generated_date(self):
+        self.args["version"] = "pilot-20260819"
+        with (
+            patch.object(cli, "get_settings", return_value=self.settings),
+            patch.object(cli, "VideoSearchElasticsearchIndex", _Index),
+        ):
+            result = self.execute(dry_run=True, apply=False, confirmed=False)
+        self.assertEqual(result["target_index"], "creative-assets-video-v3-pilot-20260819")
 
     def test_incompatible_mapping_refuses_alias_switch(self):
         target = "creative-assets-video-v3-20260819"

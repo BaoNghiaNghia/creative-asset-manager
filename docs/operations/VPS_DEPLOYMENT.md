@@ -36,8 +36,7 @@ for rollback. Keep the source checkout outside these trees, for example
 ## Host preparation
 
 Install Nginx, PostgreSQL, Python with `venv`, Node.js, npm, rsync, curl, Docker
-Engine and the Docker Compose plugin from trusted repositories. Create the
-nInstall ffmpeg and ffprobe from the distribution trusted package mechanism for the native worker.
+Engine and the Docker Compose plugin from trusted repositories. The native production worker also requires ffmpeg and ffprobe from the distribution trusted package mechanism. Create the
 locked service account and root-owned release/configuration directories:
 
 ```bash
@@ -49,12 +48,29 @@ sudo install -d -o root -g creative-assets -m 0750 /etc/creative-asset-manager
 
 Clone or unpack the release source at `/srv/creative-asset-manager-source`. Do
 not put populated environment files in that checkout.
+## Video runtime preflight
 
-n## Video runtime preflight
-Before any VIDEO activation verify command -v ffmpeg, command -v ffprobe, ffmpeg -version, and ffprobe -version.
-Prepare the native StateDirectory child, never /tmp: sudo install -d -o creative-assets -g creative-assets -m 0750 /var/lib/creative-asset-manager/video-proxy
-Then verify: sudo -u creative-assets test -w /var/lib/creative-asset-manager/video-proxy
-VIDEO_PROXY_MAX_CHUNK_BYTES is 1,500,000,000 bytes plus a 67,108,864-byte working reserve; runtime requires 1,567,108,864 free bytes. This is not Docker volume preallocation.
+Before any VIDEO activation, validate the native worker runtime:
+
+```bash
+command -v ffmpeg
+command -v ffprobe
+ffmpeg -version
+ffprobe -version
+
+sudo install -d
+  -o creative-assets
+  -g creative-assets
+  -m 0750
+  /var/lib/creative-asset-manager/video-proxy
+
+sudo -u creative-assets
+  test -w /var/lib/creative-asset-manager/video-proxy
+```
+
+Do not use /tmp. VIDEO_PROXY_MAX_CHUNK_BYTES is 1,500,000,000 bytes and the working reserve is 67,108,864 bytes; runtime requires at least 1,567,108,864 bytes free. This is not Docker volume preallocation.
+
+
 
 ## Native PostgreSQL
 

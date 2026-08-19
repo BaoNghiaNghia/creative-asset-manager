@@ -83,6 +83,25 @@ class ProductionReleaseGateTest(unittest.TestCase):
             for flag in ("VIDEO_SEARCH_ENABLED=false", "VIDEO_ANALYSIS_ENABLED=false", "VIDEO_PROXY_ENABLED=false"):
                 self.assertIn(flag, values)
 
+    def test_native_video_runtime_configuration_is_documented(self):
+        env = (ROOT / "deploy" / "production.env.example").read_text()
+        for value in (
+            "SEARCH_V3_ENABLED=false", "SEARCH_V3_REQUIRED=true",
+            "ELASTICSEARCH_URL=http://127.0.0.1:9200",
+            "VIDEO_TEMP_DIRECTORY=/var/lib/creative-asset-manager/video-proxy",
+        ):
+            self.assertIn(value, env)
+        compose = (ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml").read_text()
+        self.assertIn('ELASTICSEARCH_URL: "http://elasticsearch:9200"', compose)
+        service = (ROOT / "deploy" / "systemd" / "creative-asset-manager-worker.service").read_text()
+        for value in ("User=creative-assets", "Group=creative-assets", "StateDirectory=creative-asset-manager"):
+            self.assertIn(value, service)
+        docs = (ROOT / "docs" / "operations" / "VPS_DEPLOYMENT.md").read_text()
+        for value in ("ffmpeg", "ffprobe", "/var/lib/creative-asset-manager/video-proxy", "1,567,108,864"):
+            self.assertIn(value, docs)
+        self.assertNotIn("nInstall ffmpeg", docs)
+        self.assertNotIn("n## Video runtime preflight", docs)
+
     def test_gate_environment_is_fail_closed(self):
         workflow = WORKFLOW.read_text()
         required = (
