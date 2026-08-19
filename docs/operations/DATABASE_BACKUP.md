@@ -132,6 +132,61 @@ cam_kind=database_backup_v1
 
 Do not use a JSON sidecar: the folder is limited to six managed backup files.
 
+## DB-BACKUP-2 implementation reference
+
+DB-BACKUP-2 is application code only. It does **not** introduce an operator CLI,
+a systemd timer, or a production deployment; those remain DB-BACKUP-3 work.
+The internal components and their ownership are:
+
+| Component | Responsibility |
+| --- | --- |
+| DatabaseBackupService | Owns staging preflight, host lock, pg_dump, local verification, checksum, and safe staging cleanup. |
+| GoogleDriveAssetStorage | Supplies the existing managed short-lived access-token refresh behavior. No tenant or user credential is read. |
+| GoogleDriveDatabaseBackupStorage | Creates the Drive resumable-upload session, streams fixed 16 MiB chunks, verifies a remote file, lists only marked backups, and refuses unsafe deletes. |
+| DatabaseBackupRetentionService | Applies age pruning before count pruning and protects the newly verified remote file. |
+| DatabaseBackupWorkflow | Holds the host lock through local dump, upload, remote verification, retention, and local cleanup. |
+
+### Required runtime settings
+
+These settings are now accepted by the application, but DB-BACKUP-3 is
+responsible for adding non-secret values to the production environment and for
+invoking the workflow:
+
+    DATABASE_BACKUP_ENABLED=false
+    DATABASE_BACKUP_DRIVE_FOLDER_ID=
+    DATABASE_BACKUP_RETENTION_DAYS=21
+    DATABASE_BACKUP_MAX_FILES=6
+    DATABASE_BACKUP_MIN_FREE_BYTES=16106127360
+    DATABASE_BACKUP_STAGING_DIRECTORY=/var/lib/creative-asset-manager/database-backup
+
+DATABASE_BACKUP_DRIVE_FOLDER_ID must be a pre-created dedicated Drive folder
+ID. The backup adapter does not search Drive by folder name and does not create
+or select a user Drive folder.
+
+### Drive upload and remote verification
+
+A completed local dump is opened as a file and read in bounded 16 MiB chunks.
+Each chunk uses the Google Drive resumable-upload protocol with Content-Range;
+the entire dump is never materialized as one request body. The adapter permits
+only HTTPS Google APIs upload-session URLs.
+
+The remote file is tagged with these safe app properties:
+
+    cam_kind=database_backup_v1
+    cam_sha256=<local SHA-256>
+
+Before retention starts, the workflow fetches the uploaded remote file and
+requires all of the following:
+
+- the returned remote ID is present;
+- remote size equals the verified local size;
+- its parent includes DATABASE_BACKUP_DRIVE_FOLDER_ID; and
+- cam_kind is exactly database_backup_v1.
+
+A credential, upload, response, or verification error stops the workflow before
+retention. The local staging file is cleaned when safe, and previously retained
+Drive backups are left untouched.
+
 ## Retention and safe deletion
 
 Retention runs **only after** a new dump is created, locally verified,

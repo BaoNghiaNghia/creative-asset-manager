@@ -37,6 +37,18 @@ phase. Failures must not create a successful-looking backup or begin retention.
 
 Never use tenant/user Source Drive OAuth. Retention starts only after the new backup has passed remote verification.
 
+### DB-BACKUP-2 acceptance evidence
+
+Focused tests cover managed credential refresh, multi-chunk resumable upload,
+remote size verification, paged managed-file listing, guarded deletion, age
+pruning before count pruning, the six-file cap, and the failure rule that
+retention is not started before remote verification. The workflow also cleans
+verified staging files after remote success or a safe remote failure path.
+
+The implementation deliberately has no command-line entry point yet. Calling
+DatabaseBackupWorkflow directly is internal code, not an approved production
+operation; DB-BACKUP-3 must provide the reviewed CLI and systemd boundary.
+
 ## DB-BACKUP-3 -- CLI and systemd
 
 Implement `database_backup_cli` with `verify-config`, `backup`, `list`,
