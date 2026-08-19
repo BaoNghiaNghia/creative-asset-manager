@@ -146,8 +146,8 @@ class Settings(BaseSettings):
     CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     GEMINI_TIMEOUT_SECONDS: float = 45.0
-    GEMINI_ALLOWED_MODELS: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
-    GEMINI_MODEL_POOL: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
+    GEMINI_ALLOWED_MODELS: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-3.7-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
+    GEMINI_MODEL_POOL: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-3.7-flash,gemini-2.5-flash-lite,gemini-2.5-flash"
     GEMINI_MODEL_LIMITS: str = ""
     GEMINI_MODEL_COOLDOWN_SECONDS: float = 60.0
     GEMINI_PROJECT_QUOTA_SCOPE: str = "default"
@@ -371,6 +371,7 @@ class Settings(BaseSettings):
             "gemini-3.5-flash-lite": GeminiModelLimit(rpm=12, tpm=200000, rpd=400),
             "gemini-3.1-flash-lite": GeminiModelLimit(rpm=12, tpm=200000, rpd=400),
             "gemini-3.6-flash": GeminiModelLimit(rpm=4, tpm=200000, rpd=16),
+            "gemini-3.7-flash": GeminiModelLimit(rpm=5, tpm=250000, rpd=20),
             "gemini-2.5-flash-lite": GeminiModelLimit(rpm=8, tpm=200000, rpd=16),
             "gemini-2.5-flash": GeminiModelLimit(rpm=4, tpm=200000, rpd=16),
         }

@@ -142,10 +142,12 @@ class SettingsTest(unittest.TestCase):
                 "gemini-3.5-flash-lite",
                 "gemini-3.1-flash-lite",
                 "gemini-3.6-flash",
+                "gemini-3.7-flash",
                 "gemini-2.5-flash-lite",
                 "gemini-2.5-flash",
             ),
         )
+        self.assertEqual(defaults.gemini_model_limits["gemini-3.7-flash"], GeminiModelLimit(rpm=5, tpm=250000, rpd=20))
         self.assertEqual(
             defaults.gemini_model_limits["gemini-2.5-flash-lite"],
             GeminiModelLimit(rpm=8, tpm=200000, rpd=16),
