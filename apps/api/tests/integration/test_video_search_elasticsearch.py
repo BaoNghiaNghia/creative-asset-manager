@@ -19,7 +19,7 @@ class VideoSearchElasticsearchIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.prefix = "cam-video-search-" + uuid4().hex[:10]
         self.settings = Settings(
             VIDEO_SEARCH_ENABLED=True,
-            ELASTICSEARCH_V2_ENABLED=True,
+            SEARCH_V3_ENABLED=True,
             ELASTICSEARCH_URL=URL,
             ELASTICSEARCH_INDEX_PREFIX=self.prefix,
         )

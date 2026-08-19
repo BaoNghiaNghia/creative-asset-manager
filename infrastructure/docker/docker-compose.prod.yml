@@ -166,6 +166,9 @@ services:
     cpus: "${CAM_WORKER_CPU_LIMIT:-1.0}"
     mem_limit: "${CAM_WORKER_MEMORY_LIMIT:-2g}"
 
+    volumes:
+      - video-proxy-temp:/var/lib/creative-asset-manager/video-proxy
+
     healthcheck:
       test:
         - CMD
@@ -270,3 +273,4 @@ networks:
 volumes:
   elasticsearch-data:
   inventory-source-data:
+  video-proxy-temp:

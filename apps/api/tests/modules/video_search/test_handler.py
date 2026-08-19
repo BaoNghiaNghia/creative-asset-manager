@@ -46,11 +46,24 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
         self.engine.dispose()
 
     def _settings(self):
-        return SimpleNamespace(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, VIDEO_ANALYSIS_ENABLED=True, VIDEO_PROXY_ENABLED=True, VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS=True, GEMINI_MODEL_LIMITS="model-b:10,10", VIDEO_AI_PROMPT_VERSION="video-search-prompt-v1", VIDEO_AI_ANALYSIS_VERSION="video-search-analysis-v1", VIDEO_CHUNK_SECONDS=30, GEMINI_TIMEOUT_SECONDS=10, GEMINI_PROJECT_QUOTA_SCOPE="scope", GEMINI_MODEL_COOLDOWN_SECONDS=60)
+        return SimpleNamespace(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, VIDEO_ANALYSIS_ENABLED=True, VIDEO_PROXY_ENABLED=True, VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS=True, GEMINI_MODEL_LIMITS="model-b:10,10", VIDEO_AI_PROMPT_VERSION="video-search-prompt-v1", VIDEO_AI_ANALYSIS_VERSION="video-search-analysis-v1", VIDEO_CHUNK_SECONDS=30, GEMINI_TIMEOUT_SECONDS=10, GEMINI_PROJECT_QUOTA_SCOPE="scope", GEMINI_MODEL_COOLDOWN_SECONDS=60, AI_EMERGENCY_STOP_ENABLED=False, GEMINI_EMERGENCY_STOP_ENABLED=False)
 
     def _context(self, asset_id=None):
         asset_id = asset_id or self.asset.id
         return JobHandlerContext(job=ClaimedJob(id="job-a", tenant_id="tenant-a", job_type="video_analyze", entity_type="source_asset", entity_id=asset_id, payload={"source_asset_id": asset_id}, attempt_count=1, lease_owner="worker"), dependencies=WorkerDependencies(session_factory=self.sessions), shutdown_requested=threading.Event(), cancellation_requested=threading.Event(), logger=logging.LoggerAdapter(logging.getLogger(__name__), {}))
+
+    def test_emergency_stop_defers_before_credentials_or_provider_request(self):
+        settings = self._settings()
+        settings.GEMINI_EMERGENCY_STOP_ENABLED = True
+        with (
+            patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver,
+            patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy,
+        ):
+            result = VideoAnalyzeJobHandler(settings)(self._context())
+        self.assertIsInstance(result, DeferredJobOutcome)
+        self.assertEqual(result.reason_code, "video_gemini_emergency_stop")
+        resolver.assert_not_called()
+        proxy.assert_not_called()
 
     def test_one_chunk_success_reserves_before_gemini_and_persists_result(self):
         with self.sessions() as session:

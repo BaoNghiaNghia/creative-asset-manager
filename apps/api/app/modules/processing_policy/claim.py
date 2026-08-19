@@ -14,7 +14,7 @@ from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
 
 
-AI_JOB_TYPES = ("asset_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items")
+AI_JOB_TYPES = ("asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items")
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download")
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export")
 AI_MODEL_SLOT_PAYLOAD_KEY = "_ai_model_start_slot"
@@ -26,6 +26,7 @@ STAGE_POLICY = {
     "source_asset_download": "download_enabled",
     "asset_store": "managed_storage_enabled",
     "asset_analyze": "ai_analysis_enabled",
+    "video_analyze": "ai_analysis_enabled",
     "ai_batch_prepare": "ai_analysis_enabled",
     "ai_batch_submit": "ai_analysis_enabled",
     "ai_batch_poll": "ai_analysis_enabled",

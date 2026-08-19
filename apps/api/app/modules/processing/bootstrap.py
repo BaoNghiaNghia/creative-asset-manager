@@ -61,7 +61,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "asset_store": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "asset_analyze": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_SINGLE_ANALYSIS_ENABLED"),
     "video_analyze": ("PROCESSING_JOBS_ENABLED", "VIDEO_SEARCH_ENABLED", "VIDEO_ANALYSIS_ENABLED", "VIDEO_PROXY_ENABLED"),
-    "video_search_index": ("PROCESSING_JOBS_ENABLED", "VIDEO_SEARCH_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
+    "video_search_index": ("PROCESSING_JOBS_ENABLED", "VIDEO_SEARCH_ENABLED", "SEARCH_V3_ENABLED"),
     "ai_batch_prepare": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
     "ai_batch_submit": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
     "ai_batch_poll": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
@@ -87,7 +87,14 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
     return tuple(
         job_type for job_type, flags in _JOB_GLOBAL_FLAGS.items()
         if enabled(job_type, flags)
-        and not (settings.AI_EMERGENCY_STOP_ENABLED and job_type.startswith(("asset_analyze", "ai_batch_")))
+        and not (
+            settings.AI_EMERGENCY_STOP_ENABLED
+            and job_type.startswith(("asset_analyze", "video_analyze", "ai_batch_"))
+        )
+        and not (
+            settings.GEMINI_EMERGENCY_STOP_ENABLED
+            and job_type == "video_analyze"
+        )
     )
 
 

@@ -45,7 +45,7 @@ class VideoIndexProcessingElasticsearchTest(unittest.TestCase):
         self.settings = Settings(
             PROCESSING_JOBS_ENABLED=True,
             VIDEO_SEARCH_ENABLED=True,
-            ELASTICSEARCH_V2_ENABLED=True,
+            SEARCH_V3_ENABLED=True,
             ELASTICSEARCH_URL=ELASTICSEARCH_URL,
             ELASTICSEARCH_INDEX_PREFIX=self.prefix,
             WORKER_ID=f"video-index-es-{self.marker[:8]}",
@@ -293,7 +293,7 @@ class VideoIndexProcessingElasticsearchTest(unittest.TestCase):
         offline_settings = Settings(
             PROCESSING_JOBS_ENABLED=True,
             VIDEO_SEARCH_ENABLED=True,
-            ELASTICSEARCH_V2_ENABLED=True,
+            SEARCH_V3_ENABLED=True,
             ELASTICSEARCH_URL="http://127.0.0.1:19201",
             ELASTICSEARCH_INDEX_PREFIX=self.prefix,
             WORKER_ID=f"video-index-offline-{self.marker[:8]}",

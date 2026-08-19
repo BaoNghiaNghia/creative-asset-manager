@@ -50,6 +50,9 @@ class VideoSearchElasticsearchIndex:
     async def switch_aliases(self, target_index: str):
         return await self._index.switch_aliases(target_index)
 
+    async def alias_indices(self) -> dict[str, set[str]]:
+        return await self._index.alias_indices()
+
     async def upsert_video_document(self, document: Mapping[str, Any]) -> None:
         identifier = document.get("_id")
         if not isinstance(identifier, str) or not identifier:

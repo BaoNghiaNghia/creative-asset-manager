@@ -54,6 +54,12 @@ class VideoAnalyzeJobHandler:
             settings.VIDEO_ANALYSIS_ENABLED, settings.VIDEO_PROXY_ENABLED,
         )):
             return JobHandlerResult.non_retryable("video_analysis_disabled", "Video analysis is disabled.")
+        if settings.AI_EMERGENCY_STOP_ENABLED or settings.GEMINI_EMERGENCY_STOP_ENABLED:
+            return DeferredJobOutcome(
+                "video_gemini_emergency_stop",
+                "Gemini video analysis is temporarily paused by emergency control.",
+                datetime.now(timezone.utc) + timedelta(seconds=settings.GEMINI_MODEL_COOLDOWN_SECONDS),
+            )
         source_id = context.job.payload.get("source_asset_id")
         if not isinstance(source_id, str) or not source_id or len(source_id) > 255:
             return JobHandlerResult.non_retryable("invalid_video_analysis_job", "video_analyze job requires a source_asset_id.")

@@ -63,6 +63,26 @@ class ProductionReleaseGateTest(unittest.TestCase):
         ):
             self.assertIn(required, source)
 
+    def test_video_proxy_storage_is_worker_only_and_writable_in_the_runtime_image(self):
+        compose = yaml.load(COMPOSE_FILE.read_text(), Loader=yaml.BaseLoader)
+        worker_volumes = compose["services"]["worker"]["volumes"]
+        self.assertIn("video-proxy-temp:/var/lib/creative-asset-manager/video-proxy", worker_volumes)
+        self.assertNotIn("volumes", compose["services"]["api"])
+        self.assertNotIn(
+            "video-proxy-temp:/var/lib/creative-asset-manager/video-proxy",
+            compose["services"]["elasticsearch"].get("volumes", []),
+        )
+        self.assertIn("video-proxy-temp", compose["volumes"])
+        dockerfile = (ROOT / "infrastructure" / "docker" / "backend.Dockerfile").read_text()
+        self.assertIn("/var/lib/creative-asset-manager/video-proxy", dockerfile)
+        self.assertIn("chown -R cam:cam /var/lib/creative-asset-manager", dockerfile)
+        for path in (ROOT / ".env.example", ROOT / "deploy" / "production.env.example"):
+            values = path.read_text()
+            self.assertIn("VIDEO_TEMP_DIRECTORY=/var/lib/creative-asset-manager/video-proxy", values)
+            self.assertNotIn("VIDEO_TEMP_DIRECTORY=/tmp", values)
+            for flag in ("VIDEO_SEARCH_ENABLED=false", "VIDEO_ANALYSIS_ENABLED=false", "VIDEO_PROXY_ENABLED=false"):
+                self.assertIn(flag, values)
+
     def test_gate_environment_is_fail_closed(self):
         workflow = WORKFLOW.read_text()
         required = (

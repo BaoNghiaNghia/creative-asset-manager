@@ -36,7 +36,7 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
         self.settings = Settings(
             PROCESSING_JOBS_ENABLED=True,
             VIDEO_SEARCH_ENABLED=True,
-            ELASTICSEARCH_V2_ENABLED=True,
+            SEARCH_V3_ENABLED=True,
             ELASTICSEARCH_URL="http://test-elasticsearch.invalid",
             WORKER_ID="video-index-runtime-test",
         )

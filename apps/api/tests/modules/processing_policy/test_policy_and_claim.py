@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import Settings
 from app.core.database import Base
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing.bootstrap import globally_enabled_job_types
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
@@ -57,11 +58,11 @@ class ProcessingPolicyTest(unittest.TestCase):
                 idempotency_key=key, payload=payload, next_attempt_at=NOW, provider_key=provider, provider_scope=scope,
             ).id
 
-    def claim(self, worker):
+    def claim(self, worker, allowed_job_types=("asset_analyze", "asset_store")):
         with self.sessions() as session:
             return ProcessingJobService(ProcessingRepository(session)).claim_next(
                 worker_id=worker, lease_seconds=60, now=NOW, enforce_tenant_policy=True,
-                allowed_job_types=("asset_analyze", "asset_store"),
+                allowed_job_types=allowed_job_types,
             )
 
     def test_disabled_and_paused_tenants_are_skipped_without_starvation(self):
@@ -139,6 +140,46 @@ class ProcessingPolicyTest(unittest.TestCase):
             self.assertFalse(service.effective("tenant").effective["pipeline_enabled"])
             service.update("tenant", {"pipeline_enabled": True, "download_enabled": True}, actor_id="admin")
             self.assertTrue(service.effective("tenant").effective["download_enabled"])
+
+    def test_video_analyze_claims_under_ai_policy_and_respects_ai_capacity(self):
+        self.policy("tenant", total=2, ai=1)
+        video = self.job("tenant", "video", kind="video_analyze", provider="gemini", scope="video")
+        self.assertEqual(self.claim("worker", ("video_analyze",)).id, video)
+        self.job("tenant", "second-video", kind="video_analyze", provider="gemini", scope="video")
+        self.assertIsNone(self.claim("worker-two", ("video_analyze",)))
+
+    def test_video_analyze_is_blocked_when_tenant_ai_analysis_is_disabled(self):
+        self.policy("tenant", enabled=True)
+        self.job("tenant", "video-disabled", kind="video_analyze", provider="gemini", scope="video")
+        with self.sessions.begin() as session:
+            session.get(TenantProcessingPolicyModel, "tenant").ai_analysis_enabled = False
+        self.assertIsNone(self.claim("worker", ("video_analyze",)))
+
+    def test_video_index_global_gate_uses_search_v3_not_v2(self):
+        v3_only = Settings(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, SEARCH_V3_ENABLED=True)
+        self.assertIn("video_search_index", globally_enabled_job_types(v3_only))
+        v2_only = Settings(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, ELASTICSEARCH_V2_ENABLED=True)
+        self.assertNotIn("video_search_index", globally_enabled_job_types(v2_only))
+
+    def test_video_analyze_is_excluded_when_ai_or_gemini_emergency_stop_is_on(self):
+        common = dict(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, VIDEO_ANALYSIS_ENABLED=True, VIDEO_PROXY_ENABLED=True)
+        self.assertNotIn("video_analyze", globally_enabled_job_types(Settings(**common, AI_EMERGENCY_STOP_ENABLED=True)))
+        self.assertNotIn("video_analyze", globally_enabled_job_types(Settings(**common, GEMINI_EMERGENCY_STOP_ENABLED=True)))
+
+    def test_runtime_control_blocks_video_analyze_before_provider_request(self):
+        self.policy("tenant")
+        self.job("tenant", "video-runtime-stop", kind="video_analyze", provider="gemini", scope="video")
+        with self.sessions.begin() as session:
+            session.add(AiRuntimeControlModel(control_key="gemini", stopped=True, reason="emergency"))
+        self.assertIsNone(self.claim("worker", ("video_analyze",)))
+
+    def test_video_search_index_remains_tenant_scoped_by_search_v2_policy(self):
+        self.policy("tenant")
+        self.policy("blocked-index")
+        self.job("blocked-index", "video-index-disabled", kind="video_search_index", provider="elasticsearch", scope="search")
+        with self.sessions.begin() as session:
+            session.get(TenantProcessingPolicyModel, "blocked-index").search_v2_enabled = False
+        self.assertIsNone(self.claim("worker-two", ("video_search_index",)))
 
     def test_worker_global_job_types_are_fail_closed(self):
         self.assertEqual(globally_enabled_job_types(Settings()), ())

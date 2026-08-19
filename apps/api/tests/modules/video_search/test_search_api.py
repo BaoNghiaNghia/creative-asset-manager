@@ -21,7 +21,7 @@ class VideoSearchApiTest(unittest.TestCase):
         )
         self.settings = Settings(
             VIDEO_SEARCH_ENABLED=True,
-            ELASTICSEARCH_V2_ENABLED=True,
+            SEARCH_V3_ENABLED=True,
             ELASTICSEARCH_URL="http://elasticsearch.test",
         )
 
@@ -66,6 +66,27 @@ class VideoSearchApiTest(unittest.TestCase):
         self.assertEqual(malformed.status_code, 502)
         self.assertNotIn("elasticsearch.test", malformed.text)
 
+    def test_video_route_uses_v3_not_v2_feature_gate(self):
+        v3_only = Settings(
+            VIDEO_SEARCH_ENABLED=True, ELASTICSEARCH_V2_ENABLED=False,
+            SEARCH_V3_ENABLED=True, ELASTICSEARCH_URL="http://elasticsearch.test",
+        )
+        with (
+            patch("app.modules.video_search.router.get_settings", return_value=v3_only),
+            patch("app.modules.video_search.router.VideoSearchElasticsearchIndex") as index_type,
+        ):
+            index_type.return_value.search = AsyncMock(return_value=response())
+            index_type.return_value.aclose = AsyncMock()
+            self.assertEqual(self.client.post("/api/v1/search/video", json={"query": "horse"}).status_code, 200)
+        v2_only = Settings(
+            VIDEO_SEARCH_ENABLED=True, ELASTICSEARCH_V2_ENABLED=True,
+            SEARCH_V3_ENABLED=False, ELASTICSEARCH_URL="http://elasticsearch.test",
+        )
+        with patch("app.modules.video_search.router.get_settings", return_value=v2_only):
+            unavailable = self.client.post("/api/v1/search/video", json={"query": "horse"})
+        self.assertEqual(unavailable.status_code, 503)
+        self.assertEqual(unavailable.json()["detail"]["code"], "video_search_unavailable")
+
     def test_invalid_query_and_disabled_feature_are_rejected(self):
         with patch("app.modules.video_search.router.get_settings", return_value=self.settings):
             invalid = self.client.post("/api/v1/search/video", json={"query": " "})
@@ -74,7 +95,7 @@ class VideoSearchApiTest(unittest.TestCase):
         self.assertEqual(invalid_limit.status_code, 422)
         disabled_settings = Settings(
             VIDEO_SEARCH_ENABLED=False,
-            ELASTICSEARCH_V2_ENABLED=True,
+            SEARCH_V3_ENABLED=True,
             ELASTICSEARCH_URL="http://elasticsearch.test",
         )
         with patch("app.modules.video_search.router.get_settings", return_value=disabled_settings):

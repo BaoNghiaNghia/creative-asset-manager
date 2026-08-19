@@ -33,7 +33,7 @@ async def video_search(
     settings = get_settings()
     if not (
         settings.VIDEO_SEARCH_ENABLED
-        and settings.ELASTICSEARCH_V2_ENABLED
+        and settings.SEARCH_V3_ENABLED
         and settings.ELASTICSEARCH_URL
     ):
         raise HTTPException(503, detail={"code": "video_search_unavailable", "message": "Video search is unavailable.", "retryable": True})
