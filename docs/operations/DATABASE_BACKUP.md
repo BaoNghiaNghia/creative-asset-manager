@@ -1,6 +1,6 @@
 # Database Backup to Google Drive
 
-**Status:** DESIGN APPROVED / NOT YET IMPLEMENTED
+**Status:** DB-BACKUP-1 IMPLEMENTED / DB-BACKUP-2 THROUGH DB-BACKUP-4 NOT YET IMPLEMENTED
 **Target database size:** < 10 GB
 **Scheduler:** systemd
 **Remote storage:** Google Drive managed storage

@@ -1,6 +1,6 @@
 # Database Backup Implementation Plan
 
-**Status:** PLANNED / NOT IMPLEMENTED
+**Status:** DB-BACKUP-1 IMPLEMENTED / DB-BACKUP-2 THROUGH DB-BACKUP-4 PLANNED
 
 > Future Codex sessions implementing database backup **MUST** first read
 > `AGENTS.md`, [the operations specification](../operations/DATABASE_BACKUP.md),
@@ -23,6 +23,8 @@ describes **how** V1 is expected to be phased. Determine code signatures and
 exact file locations from current source at implementation time.
 
 ## DB-BACKUP-1 -- Core backup service
+
+**Status:** IMPLEMENTED. The local service and focused tests now cover disabled/default configuration, 15 GiB preflight, flock exclusion, custom-format dump, pg_restore verification, streamed SHA-256, and safe cleanup. DB-BACKUP-2 must retain the verified staging file until remote verification succeeds.
 
 Implement configuration, 15 GiB staging preflight, a single-run OS lock,
 custom-format `pg_dump`, `pg_restore --list` verification, SHA-256, and safe
