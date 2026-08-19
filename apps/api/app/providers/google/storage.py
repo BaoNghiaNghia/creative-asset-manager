@@ -112,6 +112,14 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
             ),
         )
 
+    async def get_access_token(self) -> str:
+        """Return a managed-storage token for another managed Google adapter.
+
+        This intentionally exposes only the refreshed short-lived access token;
+        callers never receive the configured refresh token or client secret.
+        """
+        return await self._get_access_token()
+
     async def delete_asset(self, input: DeleteStoredAssetInput) -> None:
         """Delete only a tracked managed-storage object, never a source object."""
         access_token = await self._get_access_token()

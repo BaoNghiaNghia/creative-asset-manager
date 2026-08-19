@@ -82,6 +82,9 @@ class DatabaseBackupServiceTest(unittest.TestCase):
     def test_default_settings_are_disabled_with_the_documented_staging_guard(self):
         settings = Settings()
         self.assertFalse(settings.DATABASE_BACKUP_ENABLED)
+        self.assertEqual(settings.DATABASE_BACKUP_DRIVE_FOLDER_ID, "")
+        self.assertEqual(settings.DATABASE_BACKUP_RETENTION_DAYS, 21)
+        self.assertEqual(settings.DATABASE_BACKUP_MAX_FILES, 6)
         self.assertEqual(settings.DATABASE_BACKUP_MIN_FREE_BYTES, 15 * 1024 * 1024 * 1024)
         self.assertEqual(
             settings.DATABASE_BACKUP_STAGING_DIRECTORY,
@@ -89,6 +92,10 @@ class DatabaseBackupServiceTest(unittest.TestCase):
         )
         with self.assertRaises(ValidationError):
             Settings(DATABASE_BACKUP_MIN_FREE_BYTES=0)
+        with self.assertRaises(ValidationError):
+            Settings(DATABASE_BACKUP_RETENTION_DAYS=0)
+        with self.assertRaises(ValidationError):
+            Settings(DATABASE_BACKUP_MAX_FILES=0)
         with self.assertRaises(ValidationError):
             Settings(DATABASE_BACKUP_STAGING_DIRECTORY="relative-backups")
 

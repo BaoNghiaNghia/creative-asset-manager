@@ -1,6 +1,6 @@
 # Database Backup Implementation Plan
 
-**Status:** DB-BACKUP-1 IMPLEMENTED / DB-BACKUP-2 THROUGH DB-BACKUP-4 PLANNED
+**Status:** DB-BACKUP-1 AND DB-BACKUP-2 IMPLEMENTED / DB-BACKUP-3 AND DB-BACKUP-4 PLANNED
 
 > Future Codex sessions implementing database backup **MUST** first read
 > `AGENTS.md`, [the operations specification](../operations/DATABASE_BACKUP.md),
@@ -33,11 +33,9 @@ phase. Failures must not create a successful-looking backup or begin retention.
 
 ## DB-BACKUP-2 -- Google Drive upload and retention
 
-Reuse/refactor managed Google Drive credential refresh; never use tenant/user
-Source Drive OAuth. Implement dedicated-folder resumable bounded-chunk upload,
-safe remote metadata and size verification, managed-file listing, 21-day age
-pruning, six-file cap, and guarded deletion. Retention starts only after the
-new backup has passed remote verification.
+**Status:** IMPLEMENTED. DB-BACKUP-2 reuses the managed Google credential refresh through a dedicated backup-folder adapter, streams resumable 16 MiB chunks, verifies remote metadata and size, and prunes only managed files after remote verification. It retains 21 days and six files with guarded deletion.
+
+Never use tenant/user Source Drive OAuth. Retention starts only after the new backup has passed remote verification.
 
 ## DB-BACKUP-3 -- CLI and systemd
 

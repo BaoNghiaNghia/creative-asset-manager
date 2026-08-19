@@ -116,7 +116,17 @@ class DatabaseBackupService:
         if not bool(getattr(self._settings, "DATABASE_BACKUP_ENABLED", False)):
             raise DatabaseBackupConfigurationError("Database backup is disabled.")
         with self.exclusive_lock():
-            return self._create_verified_dump_locked()
+            return self.create_verified_dump_locked()
+
+    def create_verified_dump_locked(self) -> VerifiedDatabaseBackup:
+        """Create a dump while the caller owns the exclusive lock.
+
+        DB-BACKUP-2 keeps the lock through remote verification and retention so
+        two host processes cannot interleave their local or Drive lifecycle.
+        """
+        if not bool(getattr(self._settings, "DATABASE_BACKUP_ENABLED", False)):
+            raise DatabaseBackupConfigurationError("Database backup is disabled.")
+        return self._create_verified_dump_locked()
 
     def cleanup_verified_backup(self, backup: VerifiedDatabaseBackup) -> None:
         """Safely remove a verified staging file after a later remote success."""

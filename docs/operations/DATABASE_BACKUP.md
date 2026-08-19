@@ -1,6 +1,6 @@
 # Database Backup to Google Drive
 
-**Status:** DB-BACKUP-1 IMPLEMENTED / DB-BACKUP-2 THROUGH DB-BACKUP-4 NOT YET IMPLEMENTED
+**Status:** DB-BACKUP-1 AND DB-BACKUP-2 IMPLEMENTED / DB-BACKUP-3 AND DB-BACKUP-4 NOT YET IMPLEMENTED
 **Target database size:** < 10 GB
 **Scheduler:** systemd
 **Remote storage:** Google Drive managed storage
@@ -102,7 +102,7 @@ Future code should reuse/refactor existing managed-storage credential refresh
 behavior. A logged-in user's Drive connection is never a production backup
 identity.
 
-Add this future non-secret production configuration:
+DB-BACKUP-2 introduces this non-secret application configuration; DB-BACKUP-3 will add it to the production environment example:
 
 ```dotenv
 DATABASE_BACKUP_DRIVE_FOLDER_ID=
