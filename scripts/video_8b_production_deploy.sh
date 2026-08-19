@@ -25,11 +25,11 @@ cleanup() {
     [[ -n "$path" ]] && rm -f -- "$path"
   done
 }
-trap cleanup EXIT
-
-rollback_if_required() {
+finalize() {
   local status="$?"
-  if [[ "$SWITCHED" == true ]]; then
+  trap - EXIT
+  cleanup
+  if [[ "$status" -ne 0 && "$SWITCHED" == true ]]; then
     printf 'ROLLBACK_REQUIRED=YES\n' >&2
     if sudo "$CAM_DEPLOY" rollback-release; then
       printf 'ROLLBACK_RESULT=PASS\n' >&2
@@ -39,11 +39,17 @@ rollback_if_required() {
   fi
   exit "$status"
 }
-trap rollback_if_required ERR
+trap finalize EXIT
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+validate_inputs() {
+  [[ "$TARGET_COMMIT" =~ ^[0-9A-Fa-f]{40}$ ]] || die 'VIDEO_8B_TARGET_COMMIT must be a 40-character Git SHA.'
+  [[ "$RELEASE_ID" == "${TARGET_COMMIT:0:12}" ]] || die 'VIDEO_8B_RELEASE_ID must match the first 12 target SHA characters.'
+  [[ "$VIDEO_INDEX_VERSION" =~ ^${RELEASE_ID}(-r[2-9][0-9]*)?$ ]] || die 'VIDEO index version must be the release ID or its deterministic -rN suffix.'
 }
 
 require_production_host() {
@@ -118,11 +124,12 @@ require_elasticsearch() {
 }
 
 snapshot_image_aliases() {
+  local prefix="$1"
   local path
   path="$(mktemp)"
   TEMP_FILES+=("$path")
   curl --fail --silent --max-time 5 'http://127.0.0.1:9200/_cat/aliases?format=json&h=alias,index' |
-    "$PYTHON_BIN" -c 'import json,sys; rows=json.load(sys.stdin); print("\n".join(sorted("{} {}".format(row.get("alias", ""), row.get("index", "")) for row in rows if "-video-" not in row.get("alias", ""))))' >"$path" ||
+    "$PYTHON_BIN" -c 'import json,sys; rows=json.load(sys.stdin); print("\n".join(sorted("{} {}".format(row.get("alias", ""), row.get("index", "")) for row in rows if row.get("alias", "") not in {"${prefix}-video-v3-read", "${prefix}-video-v3-write"})))' >"$path" ||
     die 'unable to capture image alias snapshot.'
   printf '%s\n' "$path"
 }
@@ -140,14 +147,18 @@ run_index_provisioning() {
   local target="$prefix-video-v3-$VIDEO_INDEX_VERSION"
   curl --fail --silent --max-time 5 "http://127.0.0.1:9200/$target/_mapping" >/dev/null ||
     die 'VIDEO physical index mapping is unavailable after provisioning.'
+  local count
+  count="$(curl --fail --silent --max-time 5 "http://127.0.0.1:9200/$target/_count" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", -1))')" || die 'VIDEO index count check failed.'
+  [[ "$count" == 0 ]] || die 'VIDEO index is not empty; release switch blocked.'
   local image_aliases_after
-  image_aliases_after="$(snapshot_image_aliases)"
+  image_aliases_after="$(snapshot_image_aliases "$prefix")"
   cmp --silent "$image_aliases_before" "$image_aliases_after" ||
     die 'IMAGE aliases changed while provisioning VIDEO index; release switch blocked.'
 }
 
 main() {
   cd "$SOURCE_ROOT"
+  validate_inputs
   require_production_host
   require_source_checkout
   verify_video_flags_off
@@ -157,7 +168,7 @@ main() {
   local prefix image_aliases_before
   prefix="$(env_value ELASTICSEARCH_INDEX_PREFIX)" || die 'ELASTICSEARCH_INDEX_PREFIX is absent.'
   [[ -n "$prefix" ]] || die 'ELASTICSEARCH_INDEX_PREFIX is empty.'
-  image_aliases_before="$(snapshot_image_aliases)"
+  image_aliases_before="$(snapshot_image_aliases "$prefix")"
   if [[ -e "$APP_ROOT/releases/$RELEASE_ID" ]]; then
     die "immutable release already exists; verify it independently before reuse."
   fi
@@ -165,6 +176,7 @@ main() {
   sudo "$CAM_DEPLOY" check-config "$RELEASE_ID"
   sudo "$CAM_DEPLOY" verify-alembic-head "$RELEASE_ID"
   sudo "$CAM_DEPLOY" migrate "$RELEASE_ID"
+  sudo "$CAM_DEPLOY" seed "$RELEASE_ID"
   run_index_provisioning "$prefix" "$image_aliases_before"
   verify_video_flags_off
   sudo "$CAM_DEPLOY" switch-release "$RELEASE_ID"
