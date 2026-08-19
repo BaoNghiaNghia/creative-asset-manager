@@ -58,14 +58,9 @@ command -v ffprobe
 ffmpeg -version
 ffprobe -version
 
-sudo install -d
-  -o creative-assets
-  -g creative-assets
-  -m 0750
-  /var/lib/creative-asset-manager/video-proxy
+sudo install -d \n  -o creative-assets \n  -g creative-assets \n  -m 0750 \n  /var/lib/creative-asset-manager/video-proxy
 
-sudo -u creative-assets
-  test -w /var/lib/creative-asset-manager/video-proxy
+sudo -u creative-assets \n  test -w /var/lib/creative-asset-manager/video-proxy
 ```
 
 Do not use /tmp. VIDEO_PROXY_MAX_CHUNK_BYTES is 1,500,000,000 bytes and the working reserve is 67,108,864 bytes; runtime requires at least 1,567,108,864 bytes free. This is not Docker volume preallocation.
