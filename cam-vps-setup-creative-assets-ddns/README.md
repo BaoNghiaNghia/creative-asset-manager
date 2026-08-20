@@ -19,22 +19,42 @@ sudo ./00-host-bootstrap.sh
 
 ## 2. DNS
 
-Point the production domain to the VPS before the first deploy.
+Domain production đã được cấu hình mặc định:
+
+```text
+https://creative-assets.ddns.net/
+```
+
+Hostname mà Nginx/Certbot sử dụng:
+
+```text
+creative-assets.ddns.net
+```
+
+Trước khi deploy, kiểm tra domain đang trỏ về đúng public IP của VPS:
+
+```bash
+getent ahosts creative-assets.ddns.net
+curl -4 https://ifconfig.me
+```
+
+Nếu dùng IPv6/AAAA record, đảm bảo IPv6 cũng trỏ đúng VPS hoặc xóa AAAA sai trước khi cấp TLS.
 
 ## 3. First deploy
 
 ```bash
 sudo -E env \
-  CAM_DOMAIN=assets.example.com \
   CAM_EMAIL=you@example.com \
   ./01-first-deploy.sh
 ```
 
+`CAM_DOMAIN` mặc định là `creative-assets.ddns.net`. Script cũng chấp nhận cả `creative-assets.ddns.net` lẫn `https://creative-assets.ddns.net/` nếu bạn override.
+
 Optional custom DB password:
+
 
 ```bash
 sudo -E env \
-  CAM_DOMAIN=assets.example.com \
   CAM_EMAIL=you@example.com \
   CAM_DB_PASSWORD='url-safe-password' \
   ./01-first-deploy.sh
@@ -75,7 +95,7 @@ sudo ./02-update-main.sh
 ## 6. Health
 
 ```bash
-CAM_DOMAIN=assets.example.com ./03-health.sh
+./03-health.sh
 ```
 
 ## Current-source networking note
@@ -116,3 +136,21 @@ sudo deploy/bin/cam-deploy rollback-release
 ```
 
 This never performs `alembic downgrade`.
+
+
+## Domain-related production env
+
+Sau first deploy, các giá trị chính phải là:
+
+```env
+PUBLIC_APP_URL=https://creative-assets.ddns.net
+CORS_ALLOWED_ORIGINS=https://creative-assets.ddns.net
+TRUSTED_HOSTS=creative-assets.ddns.net
+GOOGLE_REDIRECT_URI=https://creative-assets.ddns.net/api/auth/google/callback
+```
+
+Google OAuth Console cũng phải có redirect URI chính xác:
+
+```text
+https://creative-assets.ddns.net/api/auth/google/callback
+```

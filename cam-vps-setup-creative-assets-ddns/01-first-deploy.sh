@@ -4,8 +4,12 @@ umask 027
 
 [[ "${EUID}" -eq 0 ]] || { echo "Run as root: sudo -E $0"; exit 1; }
 
-: "${CAM_DOMAIN:?Set CAM_DOMAIN, e.g. assets.example.com}"
+CAM_DOMAIN_RAW="${CAM_DOMAIN:-https://creative-assets.ddns.net/}"
 : "${CAM_EMAIL:?Set CAM_EMAIL for Let's Encrypt}"
+CAM_DOMAIN="${CAM_DOMAIN_RAW#http://}"
+CAM_DOMAIN="${CAM_DOMAIN#https://}"
+CAM_DOMAIN="${CAM_DOMAIN%%/*}"
+[[ -n "${CAM_DOMAIN}" ]] || { echo "Invalid CAM_DOMAIN"; exit 1; }
 REPO_URL="${CAM_REPO_URL:-https://github.com/BaoNghiaNghia/creative-asset-manager.git}"
 SOURCE_DIR="${CAM_SOURCE_DIR:-/srv/creative-asset-manager-source}"
 ENV_FILE="/etc/creative-asset-manager/production.env"
@@ -15,6 +19,11 @@ DB_USER="${CAM_DB_USER:-cam_app}"
 require() { command -v "$1" >/dev/null 2>&1 || { echo "Missing command: $1"; exit 2; }; }
 for cmd in git python3 node npm docker psql pg_isready nginx certbot ffmpeg ffprobe openssl curl; do require "$cmd"; done
 docker compose version >/dev/null
+
+if [[ ! "${CAM_DOMAIN}" =~ ^([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]]; then
+  echo "ERROR: CAM_DOMAIN must resolve to a valid hostname. Normalized value: ${CAM_DOMAIN}"
+  exit 2
+fi
 
 echo "[1/10] Checkout latest main"
 if [[ -d "${SOURCE_DIR}/.git" ]]; then

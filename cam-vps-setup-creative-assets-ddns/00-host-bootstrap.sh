@@ -81,4 +81,5 @@ NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 
 echo "[8/8] Done"
 echo "HOST_BOOTSTRAP=PASS"
-echo "Next: run 01-first-deploy.sh with CAM_DOMAIN and CAM_EMAIL."
+echo "Default domain: creative-assets.ddns.net"
+echo "Next: run 01-first-deploy.sh with CAM_EMAIL (CAM_DOMAIN is optional)."

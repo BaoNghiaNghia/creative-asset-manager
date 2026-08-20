@@ -2,7 +2,10 @@
 set -Eeuo pipefail
 
 SOURCE_DIR="${CAM_SOURCE_DIR:-/srv/creative-asset-manager-source}"
-DOMAIN="${CAM_DOMAIN:-}"
+DOMAIN_RAW="${CAM_DOMAIN:-https://creative-assets.ddns.net/}"
+DOMAIN="${DOMAIN_RAW#http://}"
+DOMAIN="${DOMAIN#https://}"
+DOMAIN="${DOMAIN%%/*}"
 
 echo "=== Creative Asset Manager health ==="
 echo "timestamp=$(date -Is)"
