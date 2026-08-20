@@ -41,6 +41,39 @@ type ShortcutNotice = {
   message: string;
 };
 
+export function accountAvatarLabel(name: string | undefined, provider: string): string {
+  const initials = name?.trim().slice(0, 2).toUpperCase();
+  return initials || (provider === "sharepoint" ? "S" : "G");
+}
+
+function AccountAvatar({
+  picture,
+  name,
+  provider,
+}: {
+  picture: string | undefined;
+  name: string | undefined;
+  provider: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => setFailed(false), [picture]);
+
+  if (picture && !failed) {
+    return <img
+      className="avatar"
+      src={picture}
+      alt=""
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />;
+  }
+
+  return <div className="avatar" role="img" aria-label="User avatar">
+    {accountAvatarLabel(name, provider)}
+  </div>;
+}
+
 function LoadMoreSentinel({
   enabled,
   loading,
@@ -564,9 +597,11 @@ export default function App() {
               {explorer.viewerSources.map(source => <option key={source.external_source_id} value={source.external_source_id}>{source.display_name}</option>)}
             </select>
           </label>}
-          {explorer.auth.user?.picture
-            ? <img className="avatar" src={explorer.auth.user.picture} alt="" referrerPolicy="no-referrer" />
-            : <div className="avatar">{explorer.auth.user?.name?.slice(0, 2) || (explorer.provider === "sharepoint" ? "S" : "G")}</div>}
+          <AccountAvatar
+            picture={explorer.auth.user?.picture}
+            name={explorer.auth.user?.name}
+            provider={explorer.provider}
+          />
           <button onClick={explorer.logout}>Sign out</button>
         </div> : <div className="header-sources" aria-label="Available cloud sources">
           <span className="google">G</span><b>Google Drive</b>

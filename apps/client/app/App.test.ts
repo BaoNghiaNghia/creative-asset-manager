@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SEARCH_MODE, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
+import { DEFAULT_SEARCH_MODE, accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
 import type { Asset } from "./types";
@@ -7,6 +7,17 @@ import type { Asset } from "./types";
 function asset(overrides: Partial<Asset>): Asset {
   return { provider: "google-drive", id: "item-1", name: "asset", kind: "image", mime_type: "image/jpeg", ...overrides };
 }
+
+describe("Account avatar fallback", () => {
+  it("uses normalized initials when a Google profile image cannot load", () => {
+    expect(accountAvatarLabel("  Bao Nghia  ", "google-drive")).toBe("BA");
+  });
+
+  it("uses the provider marker when the account has no display name", () => {
+    expect(accountAvatarLabel(undefined, "google-drive")).toBe("G");
+    expect(accountAvatarLabel("", "sharepoint")).toBe("S");
+  });
+});
 
 describe("Analyze metadata selection", () => {
   it("enables one imported image", () => {
