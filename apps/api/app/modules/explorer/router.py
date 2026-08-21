@@ -968,6 +968,13 @@ async def thumbnail(
         token, tenant_id_value, resolved_source_id = await _authorized_file_context(
             request, item_id, provider, session, principal, external_source_id
         )
+
+        # All DB-backed authorization reads are complete. Do not hold a
+        # SQLAlchemy pool connection while waiting for or streaming a remote
+        # Google Drive thumbnail. The dependency will safely close again when
+        # the request finishes.
+        session.close()
+
         shared_client = getattr(request.app.state, "google_drive_stream_client", None)
         client, upstream = await open_google_thumbnail(
             token,

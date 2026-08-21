@@ -9,6 +9,7 @@ type Fetcher = typeof fetch;
 // the API database pool from being saturated when the page loads or refreshes.
 const DASHBOARD_REQUEST_CONCURRENCY = 3;
 const DASHBOARD_REQUEST_TIMEOUT_MS = 15_000;
+const DASHBOARD_TOTAL_TIMEOUT_MS = 60_000;
 
 export class AiOperationsApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -18,8 +19,12 @@ export class AiOperationsApiError extends Error {
 
 async function read<T>(url: string, fetcher: Fetcher, parentSignal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
-  const abortFromParent = () => controller.abort();
-  parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  const abortFromParent = () => controller.abort(parentSignal?.reason);
+  if (parentSignal?.aborted) {
+    abortFromParent();
+  } else {
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  }
   const timeout = globalThis.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
@@ -28,7 +33,12 @@ async function read<T>(url: string, fetcher: Fetcher, parentSignal?: AbortSignal
       signal: controller.signal,
     });
   } catch (error) {
-    if (controller.signal.aborted && !parentSignal?.aborted) {
+    if (controller.signal.aborted) {
+      if (parentSignal?.aborted) {
+        const reason = parentSignal.reason;
+        if (reason instanceof Error) throw reason;
+        throw new AiOperationsApiError("Dashboard request was cancelled.", 499);
+      }
       throw new AiOperationsApiError("Dashboard request timed out. Please retry.", 408);
     }
     throw error;
@@ -154,11 +164,17 @@ export async function fetchAiOperationsDashboard(
   signal?: AbortSignal,
 ): Promise<DashboardResult> {
   const dashboardController = new AbortController();
-  const abortFromParent = () => dashboardController.abort();
-  signal?.addEventListener("abort", abortFromParent, { once: true });
+  const abortFromParent = () => dashboardController.abort(signal?.reason);
+  if (signal?.aborted) {
+    abortFromParent();
+  } else {
+    signal?.addEventListener("abort", abortFromParent, { once: true });
+  }
   const dashboardTimeout = globalThis.setTimeout(
-    () => dashboardController.abort(),
-    DASHBOARD_REQUEST_TIMEOUT_MS,
+    () => dashboardController.abort(
+      new AiOperationsApiError("Dashboard loading timed out. Please retry.", 408),
+    ),
+    DASHBOARD_TOTAL_TIMEOUT_MS,
   );
   const requestSignal = dashboardController.signal;
   const range = isoRange(filters.range, now);
