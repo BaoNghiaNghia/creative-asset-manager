@@ -509,6 +509,12 @@ describe("Search Coverage card", () => {
 });
 
 
+  it("does not claim completed stages are shown when pipeline data is empty", () => {
+    const markup = renderToStaticMarkup(<PipelineOverview pipeline={{ generated_at: "2026-08-21T00:00:00Z", latest_source_sync: null, overall: { source_items_discovered: 0, supported_assets: 0, unsupported_assets: 0, completed: 0, active: 0, queued: 0, failed: 0, skipped: 0, indexed_percentage: 0, throughput_today: 0, asset_progress: [] }, stages: [], active_job: null, failure_groups: [], recent_assets: { page: 1, page_size: 25, total: 0, items: [] } }} />);
+    expect(markup).toContain("Hiện chưa có dữ liệu hàng đợi hoặc giai đoạn hoàn tất trong phạm vi đang xem.");
+    expect(markup).not.toContain("Các giai đoạn chỉ hoàn tất được hiển thị ở trên.");
+  });
+
   it("renders the full pipeline flow and current active download", () => {
     const stages = [
       ["source_asset_download", "Download"],

@@ -1,72 +1,19 @@
 name: creative-asset-manager
 
-x-backend-common: &backend-common
-  image: "${CAM_BACKEND_IMAGE:-creative-asset-manager-backend}:${BUILD_COMMIT:-local}"
-
-  env_file:
-    - "${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}"
-
-  environment:
-    APP_ENV: "${APP_ENV:?APP_ENV is required}"
-    PUBLIC_APP_URL: "${PUBLIC_APP_URL:?PUBLIC_APP_URL is required}"
-    CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}"
-    TRUSTED_HOSTS: "${TRUSTED_HOSTS:?TRUSTED_HOSTS is required}"
-    API_DOCS_ENABLED: "${API_DOCS_ENABLED:?API_DOCS_ENABLED is required}"
-    AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:?AUTH_COOKIE_SECURE is required}"
-    BUILD_COMMIT: "${BUILD_COMMIT:-unknown}"
-    ELASTICSEARCH_URL: "http://elasticsearch:9200"
-
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
-
-  networks:
-    - backend
-
-  init: true
-  user: "10001:10001"
-
-  stop_signal: SIGTERM
-  stop_grace_period: 45s
-
-  restart: unless-stopped
-  read_only: true
-
-  security_opt:
-    - no-new-privileges:true
-
-  cap_drop:
-    - ALL
-
-  tmpfs:
-    - /tmp:size=256m,mode=1777
-
-  logging:
-    driver: json-file
-    options:
-      max-size: "10m"
-      max-file: "5"
-
 services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
     restart: unless-stopped
-
     environment:
       discovery.type: "single-node"
       xpack.security.enabled: "false"
       xpack.security.http.ssl.enabled: "false"
       bootstrap.memory_lock: "true"
       ES_JAVA_OPTS: "${ES_JAVA_OPTS:--Xms1g -Xmx1g}"
-
     ports:
       - "127.0.0.1:9200:9200"
-
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
-
-    networks:
-      - backend
-
     ulimits:
       memlock:
         soft: -1
@@ -74,203 +21,12 @@ services:
       nofile:
         soft: 65535
         hard: 65535
-
-    cpus: "${CAM_ELASTICSEARCH_CPU_LIMIT:-2.0}"
-    mem_limit: "${CAM_ELASTICSEARCH_MEMORY_LIMIT:-2g}"
-
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          curl --fail --silent
-          "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s"
-          >/dev/null
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s >/dev/null"]
       interval: 10s
       timeout: 6s
       retries: 12
       start_period: 40s
 
-    stop_grace_period: 60s
-
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-
-  api:
-    <<: *backend-common
-
-    build:
-      context: ../..
-      dockerfile: infrastructure/docker/backend.Dockerfile
-
-    working_dir: /app/apps/api
-
-    command:
-      - python
-      - -m
-      - uvicorn
-      - app.main:app
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8000"
-      - --proxy-headers
-      - --forwarded-allow-ips
-      - "127.0.0.1"
-
-    ports:
-      - "127.0.0.1:8000:8000"
-
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-
-    cpus: "${CAM_API_CPU_LIMIT:-1.0}"
-    mem_limit: "${CAM_API_MEMORY_LIMIT:-1g}"
-
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - >-
-          import os, urllib.request;
-          request = urllib.request.Request(
-              "http://127.0.0.1:8000/ready",
-              headers={"Host": os.environ["TRUSTED_HOSTS"].split(",")[0]},
-          );
-          response = urllib.request.urlopen(request, timeout=5);
-          raise SystemExit(0 if response.status == 200 else 1)
-      interval: 15s
-      timeout: 7s
-      retries: 10
-      start_period: 45s
-
-  worker:
-    <<: *backend-common
-
-    working_dir: /app
-
-    command:
-      - python
-      - /app/apps/worker/main.py
-
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-      api:
-        condition: service_healthy
-
-    cpus: "${CAM_WORKER_CPU_LIMIT:-1.0}"
-    mem_limit: "${CAM_WORKER_MEMORY_LIMIT:-2g}"
-
-    volumes:
-      - video-proxy-temp:/var/lib/creative-asset-manager/video-proxy
-
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - >-
-          import urllib.request;
-          response = urllib.request.urlopen(
-              "http://127.0.0.1:8081/live",
-              timeout=5
-          );
-          raise SystemExit(0 if response.status == 200 else 1)
-      interval: 15s
-      timeout: 7s
-      retries: 10
-      start_period: 45s
-
-  inventory-scheduler:
-    <<: *backend-common
-    profiles:
-      - inventory
-    working_dir: /app
-    command:
-      - python
-      - /app/apps/inventory_scheduler/main.py
-    depends_on:
-      api:
-        condition: service_healthy
-    cpus: "0.25"
-    mem_limit: "256m"
-
-  inventory-worker:
-    <<: *backend-common
-
-    profiles:
-      - inventory
-
-    working_dir: /app
-
-    command:
-      - python
-      - /app/apps/inventory_worker/main.py
-
-    depends_on:
-      api:
-        condition: service_healthy
-
-    cpus: "${CAM_INVENTORY_WORKER_CPU_LIMIT:-0.5}"
-    mem_limit: "${CAM_INVENTORY_WORKER_MEMORY_LIMIT:-512m}"
-    volumes:
-      - inventory-source-data:/var/lib/creative-asset-manager/inventory
-
-
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - >-
-          import urllib.request;
-          response = urllib.request.urlopen(
-              "http://127.0.0.1:8082/live",
-              timeout=5
-          );
-          raise SystemExit(0 if response.status == 200 else 1)
-      interval: 15s
-  migrate:
-    <<: *backend-common
-
-    profiles:
-      - migration
-
-    restart: "no"
-    working_dir: /app/apps/api
-
-    command:
-      - python
-      - -m
-      - alembic
-      - -c
-      - /app/apps/api/alembic.ini
-      - upgrade
-      - head
-
-    depends_on: {}
-
-    cpus: "${CAM_MIGRATE_CPU_LIMIT:-1.0}"
-    mem_limit: "${CAM_MIGRATE_MEMORY_LIMIT:-1g}"
-
-    healthcheck:
-      disable: true
-
-networks:
-  backend:
-    driver: bridge
-
-    ipam:
-      config:
-        - subnet: 172.29.0.0/24
-          gateway: 172.29.0.1
-
 volumes:
   elasticsearch-data:
-  inventory-source-data:
-  video-proxy-temp:

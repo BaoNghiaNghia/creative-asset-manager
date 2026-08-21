@@ -1,149 +1,71 @@
 from __future__ import annotations
 
-import os
-import sys
+import subprocess
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-API_ROOT = ROOT / "apps" / "api"
-if str(API_ROOT) not in sys.path:
-    sys.path.insert(0, str(API_ROOT))
-
-from app.core.config import FEATURE_FLAG_NAMES, Settings
-from app.providers.google.auth import oauth_flow
-from app.providers.microsoft.auth import _settings as microsoft_settings
-
-NGINX = ROOT / "infrastructure" / "nginx" / "creative-asset-manager.conf"
+SCRIPTS = ROOT / "scripts"
+FRONTEND = SCRIPTS / "deploy-cam-frontend.sh"
+BACKEND = SCRIPTS / "cam-rebuild-backend.sh"
 COMPOSE = ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml"
-PRODUCTION_ENV = ROOT / "deploy" / "production.env.example"
-API_SERVICE = ROOT / "deploy" / "systemd" / "creative-asset-manager-api.service"
-WORKER_SERVICE = ROOT / "deploy" / "systemd" / "creative-asset-manager-worker.service"
-IMAGE_WORKER_SERVICE = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker.service"
-VIDEO_WORKER_SERVICE = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
-
-ROLLOUT_FLAGS = (
-    "UNIFIED_ASSET_INGESTION_ENABLED",
-    "CONTENT_DEDUP_ENABLED",
-    "INCREMENTAL_SOURCE_SYNC_ENABLED",
-    "PROCESSING_JOBS_ENABLED",
-    "EXTERNAL_ASSET_DOWNLOADER_ENABLED",
-    "MANAGED_ASSET_STORAGE_ENABLED",
-    "DYNAMIC_AI_METADATA_ENABLED",
-    "AI_SINGLE_ANALYSIS_ENABLED",
-    "AI_BATCH_ANALYSIS_ENABLED",
-    "AI_AUTO_ANALYZE_ENABLED",
-    "SEARCH_PROJECTION_ENABLED",
-    "ELASTICSEARCH_V2_ENABLED",
-    "SEARCH_QUERY_PARSER_V2_ENABLED",
-    "SEARCH_SHADOW_COMPARISON_ENABLED",
-    "ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED",
-    "EXTERNAL_INGESTION_API_ENABLED",
-)
+IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker.service"
+VIDEO_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
 
 
-class VpsDeploymentArtifactTest(unittest.TestCase):
-    def test_nginx_spa_proxy_and_static_cache_contract(self) -> None:
-        config = NGINX.read_text(encoding="utf-8")
-        self.assertIn("server 127.0.0.1:8000;", config)
-        self.assertIn("root /var/www/creative-asset-manager/current;", config)
-        self.assertIn("location /api/", config)
-        self.assertIn("proxy_pass http://creative_asset_manager_api;", config)
-        self.assertIn("proxy_set_header X-Forwarded-Proto https;", config)
-        self.assertIn("try_files $uri $uri/ /index.html;", config)
-        self.assertIn("location /assets/", config)
-        self.assertIn("add_header Cache-Control $cam_cache_control always;", config)
-        self.assertIn('public, max-age=31536000, immutable', config)
-        self.assertIn("location = /build-info.json", config)
-        self.assertIn('no-store, no-cache, must-revalidate', config)
-
-    def test_compose_contains_docker_backend_without_postgres(self) -> None:
-        config = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
-        self.assertEqual(
-            set(config['services']),
-            {'api', 'worker', 'migrate', 'elasticsearch'},
-        )
-        elasticsearch = config['services']['elasticsearch']
-        self.assertEqual(elasticsearch['ports'], ['127.0.0.1:9200:9200'])
-        self.assertEqual(config['services']['api']['ports'], ['127.0.0.1:8000:8000'])
-        self.assertNotIn('ports', config['services']['worker'])
-        self.assertNotIn('postgres', config['services'])
-
-    def test_native_services_use_current_release_and_loopback(self) -> None:
-        api = API_SERVICE.read_text(encoding="utf-8")
-        worker = WORKER_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("WorkingDirectory=/opt/creative-asset-manager/current/apps/api", api)
-        self.assertIn("--host 127.0.0.1 --port 8000", api)
-        self.assertIn("--no-proxy-headers", api)
-        self.assertIn("WorkingDirectory=/opt/creative-asset-manager/current", worker)
-        self.assertIn("apps/worker/main.py", worker)
-        self.assertIn("KillSignal=SIGTERM", worker)
-        self.assertIn("TimeoutStopSec=45s", worker)
-        self.assertIn("WORKER_ROLE=all", PRODUCTION_ENV.read_text(encoding="utf-8"))
-
-    def test_isolated_native_worker_units_define_non_overlapping_roles(self) -> None:
-        image = IMAGE_WORKER_SERVICE.read_text(encoding="utf-8")
-        video = VIDEO_WORKER_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("Environment=WORKER_ROLE=image", image)
-        self.assertIn("Environment=WORKER_HEALTH_PORT=8081", image)
-        self.assertIn("Environment=WORKER_ROLE=video", video)
-        self.assertIn("Environment=WORKER_HEALTH_PORT=8082", video)
-        for service in (image, video):
-            self.assertIn("apps/worker/main.py", service)
-            self.assertIn("KillSignal=SIGTERM", service)
-            self.assertIn("TimeoutStopSec=45s", service)
-
-    def test_rollout_features_are_disabled_in_defaults_and_template(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
-            settings = Settings()
-        for name in FEATURE_FLAG_NAMES:
-            with self.subTest(default=name):
-                self.assertFalse(getattr(settings, name))
-
-        values = {}
-        for raw_line in PRODUCTION_ENV.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                values[key] = value
-        for name in ROLLOUT_FLAGS:
-            with self.subTest(template=name):
-                self.assertEqual(values.get(name), "false")
-
-    def test_production_oauth_callback_urls_are_generated_from_environment(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                "GOOGLE_CLIENT_ID": "test-client",
-                "GOOGLE_CLIENT_SECRET": "test-secret",
-                "GOOGLE_REDIRECT_URI": "https://assets.example.com/api/auth/google/callback",
-            },
-            clear=False,
+class SimplifiedProductionDeploymentTest(unittest.TestCase):
+    def test_only_two_production_deployment_entrypoints_remain(self) -> None:
+        for path in (
+            FRONTEND, BACKEND,
         ):
-            google = oauth_flow()
-        self.assertEqual(
-            google.redirect_uri,
-            "https://assets.example.com/api/auth/google/callback",
-        )
-
-        with patch.dict(
-            os.environ,
-            {
-                "MICROSOFT_CLIENT_ID": "test-client",
-                "MICROSOFT_CLIENT_SECRET": "test-secret",
-                "MICROSOFT_TENANT_ID": "organizations",
-                "MICROSOFT_REDIRECT_URI": "https://assets.example.com/api/auth/microsoft/callback",
-            },
-            clear=False,
+            self.assertTrue(path.is_file(), path)
+        for name in (
+            "build-frontend-release.sh", "deploy-vps.sh", "rollback-vps.sh",
+            "validate-production.sh", "production-release-gate.sh",
         ):
-            _, _, _, redirect_uri = microsoft_settings()
-        self.assertEqual(
-            redirect_uri,
-            "https://assets.example.com/api/auth/microsoft/callback",
-        )
+            self.assertFalse((SCRIPTS / name).exists(), name)
+        self.assertFalse((ROOT / "deploy" / "bin" / "cam-deploy").exists())
+
+    def test_frontend_native_release_contract(self) -> None:
+        source = FRONTEND.read_text()
+        for required in (
+            "set -Eeuo pipefail", "npm --prefix", " ci --no-audit --no-fund",
+            " test", " run typecheck", " run build",
+            "/var/www/creative-asset-manager", "build-info.json",
+            "nginx -t", "systemctl reload nginx", "--rollback",
+        ):
+            self.assertIn(required, source)
+        for forbidden in ("docker compose", "systemctl restart creative-asset-manager-api"):
+            self.assertNotIn(forbidden, source)
+
+    def test_backend_native_systemd_contract(self) -> None:
+        source = BACKEND.read_text()
+        for required in (
+            "/opt/creative-asset-manager", "python3 -m venv",
+            "alembic", "upgrade head", "creative-asset-manager-api.service",
+            "creative-asset-manager-image-worker.service",
+            "creative-asset-manager-video-worker.service",
+            "creative-asset-manager-worker.service", "--rollback",
+        ):
+            self.assertIn(required, source)
+        for forbidden in ("docker compose build api", "docker compose up api", "docker compose up worker", "alembic downgrade"):
+            self.assertNotIn(forbidden, source)
+
+    def test_production_compose_is_elasticsearch_only(self) -> None:
+        config = yaml.safe_load(COMPOSE.read_text())
+        self.assertEqual(set(config["services"]), {"elasticsearch"})
+        self.assertEqual(config["services"]["elasticsearch"]["ports"], ["127.0.0.1:9200:9200"])
+
+    def test_worker_units_have_exclusive_roles(self) -> None:
+        self.assertIn("WORKER_ROLE=image", IMAGE_UNIT.read_text())
+        self.assertIn("WORKER_ROLE=video", VIDEO_UNIT.read_text())
+
+    def test_scripts_have_valid_shell_syntax(self) -> None:
+        for script in (FRONTEND, BACKEND):
+            result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
