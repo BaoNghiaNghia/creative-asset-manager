@@ -709,11 +709,7 @@ cleanup_old_releases() {
   protected_count="${#protected[@]}"
 
 
-  optional_slots=$(
-    (
-      KEEP_RELEASES - protected_count
-    )
-  )
+  optional_slots=$((KEEP_RELEASES - protected_count))
 
 
   if ((optional_slots < 0)); then
@@ -777,11 +773,7 @@ cleanup_old_releases() {
 
     if ((optional_kept < optional_slots)); then
 
-      optional_kept=$(
-        (
-          optional_kept + 1
-        )
-      )
+      optional_kept=$((optional_kept + 1))
 
 
       info \
@@ -811,18 +803,10 @@ cleanup_old_releases() {
     rm -rf -- "$release"
 
 
-    freed_kb=$(
-      (
-        freed_kb + size_kb
-      )
-    )
+    freed_kb=$((freed_kb + size_kb))
 
 
-    removed=$(
-      (
-        removed + 1
-      )
-    )
+    removed=$((removed + 1))
 
   done
 
