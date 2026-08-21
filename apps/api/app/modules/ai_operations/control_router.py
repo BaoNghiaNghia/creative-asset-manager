@@ -146,7 +146,15 @@ def _error(exc: AiOperationsControlError) -> HTTPException:
 
 async def _mutate(tenant_id: str, operation):
     settings = get_settings()
-    registry = build_ai_provider_registry(settings)
+    # AI Operations configuration/control requests must use the same
+    # tenant-scoped Creative Gemini credential boundary as runtime workers.
+    # Without SessionLocal the registry can only see environment credentials,
+    # so a valid Gemini credential stored in the database is incorrectly
+    # reported as "Connection not configured".
+    registry = build_ai_provider_registry(
+        settings,
+        session_factory=SessionLocal,
+    )
     try:
         with SessionLocal() as session:
             service = AiOperationsControlService(
