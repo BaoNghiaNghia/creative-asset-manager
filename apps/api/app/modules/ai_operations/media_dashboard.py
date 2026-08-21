@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.assets.model import SourceAssetModel
 
 IMAGE_JOB_TYPE = "asset_analyze"
 VIDEO_JOB_TYPE = "video_analyze"
@@ -93,11 +94,23 @@ class MediaDashboardService:
                 "current_job_type": active[0].job_type if active else None,
                 "last_successful_claim_at": max(_as_utc(value) for value in claims).isoformat() if claims else None,
             }
+        recent_video = []
+        for job in sorted(by_type[VIDEO_JOB_TYPE], key=lambda row: _as_utc(row.updated_at) or now, reverse=True)[:25]:
+            source = self.session.get(SourceAssetModel, job.entity_id) if job.entity_type == "source_asset" else None
+            recent_video.append({
+                "job_id": job.id, "source_asset_id": job.entity_id,
+                "filename": source.filename if source is not None else None,
+                "status": job.status, "attempt_count": job.attempt_count,
+                "max_attempts": job.max_attempts,
+                "updated_at": (_as_utc(job.updated_at) or now).isoformat(),
+                "error_code": job.last_error_code,
+            })
         return {
             "image": image,
             "video": video,
             "video_indexing": indexing,
             "pipeline": {"image": [image], "video": [video, indexing]},
+            "recent_video": recent_video,
             "workers": [
                 worker("image", (IMAGE_JOB_TYPE,), image_probe),
                 worker("video", (VIDEO_JOB_TYPE, VIDEO_INDEX_JOB_TYPE), video_probe),
