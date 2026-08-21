@@ -5,20 +5,65 @@ import type {
 
 type Fetcher = typeof fetch;
 
+// The dashboard contains several independent aggregates. Keep the browser and
+// the API database pool from being saturated when the page loads or refreshes.
+const DASHBOARD_REQUEST_CONCURRENCY = 3;
+const DASHBOARD_REQUEST_TIMEOUT_MS = 15_000;
+
 export class AiOperationsApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
   }
 }
 
-async function read<T>(url: string, fetcher: Fetcher): Promise<T> {
-  const response = await fetcher(url, { headers: { Accept: "application/json" } });
+async function read<T>(url: string, fetcher: Fetcher, parentSignal?: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort();
+  parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  const timeout = globalThis.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetcher(url, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted && !parentSignal?.aborted) {
+      throw new AiOperationsApiError("Dashboard request timed out. Please retry.", 408);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+    parentSignal?.removeEventListener("abort", abortFromParent);
+  }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { detail?: string | { message?: string } };
     const detail = typeof payload.detail === "string" ? payload.detail : payload.detail?.message;
     throw new AiOperationsApiError(detail || `Request failed (${response.status})`, response.status);
   }
   return response.json() as Promise<T>;
+}
+
+async function settleDashboardCalls(
+  calls: Array<() => Promise<unknown>>,
+): Promise<PromiseSettledResult<unknown>[]> {
+  const settled: PromiseSettledResult<unknown>[] = new Array(calls.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < calls.length) {
+      const index = next++;
+      try {
+        settled[index] = { status: "fulfilled", value: await calls[index]() };
+      } catch (reason) {
+        settled[index] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(DASHBOARD_REQUEST_CONCURRENCY, calls.length) },
+    worker,
+  ));
+  return settled;
 }
 
 function isoRange(days: AiOpsFilters["range"], now: Date): { from: string | null; to: string } {
@@ -106,7 +151,16 @@ export async function fetchAiOperationsDashboard(
   filters: AiOpsFilters,
   fetcher: Fetcher = fetch,
   now = new Date(),
+  signal?: AbortSignal,
 ): Promise<DashboardResult> {
+  const dashboardController = new AbortController();
+  const abortFromParent = () => dashboardController.abort();
+  signal?.addEventListener("abort", abortFromParent, { once: true });
+  const dashboardTimeout = globalThis.setTimeout(
+    () => dashboardController.abort(),
+    DASHBOARD_REQUEST_TIMEOUT_MS,
+  );
+  const requestSignal = dashboardController.signal;
   const range = isoRange(filters.range, now);
   const current = filteredParams(filters, range);
   const todayStart = new Date(now);
@@ -117,20 +171,20 @@ export async function fetchAiOperationsDashboard(
   const jobs = new URLSearchParams(current); jobs.set("page", String(filters.page)); jobs.set("page_size", String(filters.pageSize || 25));
   const usage = new URLSearchParams(current); usage.set("page", String(filters.usagePage || 1)); usage.set("page_size", String(filters.usagePageSize || 25));
   const base = "/api/v1/admin/ai-operations";
-  const calls = [
-    read<AiOpsSummary>(`${base}/summary?${current}`, fetcher),
-    read<AiOpsSummary>(`${base}/summary?${today}`, fetcher),
-    read<AiOpsSummary>(`${base}/summary?${month}`, fetcher),
-    read<{ items: AiOpsDaily[] }>(`${base}/daily?${current}`, fetcher),
-    read<{ items: AiOpsProviderBreakdown[] }>(`${base}/providers?${current}`, fetcher),
-    read<{ items: AiOpsProviderBreakdown[] }>(`${base}/providers?${today}`, fetcher),
-    read<{ items: AiOpsFailure[] }>(`${base}/failures?${current}`, fetcher),
-    read<Page<AiOpsJob>>(`${base}/jobs?${jobs}`, fetcher),
-    read<Page<AiOpsUsage>>(`${base}/usage?${usage}`, fetcher),
-    read<PipelineSnapshot>(base + "/pipeline?recent_page=" + (filters.pipelinePage || 1) + "&recent_page_size=" + (filters.pipelinePageSize || 25), fetcher),
-    read<AiOpsMediaDashboard>(base + "/media-dashboard?video_page=" + (filters.videoPage || 1) + "&video_page_size=25", fetcher),
-  ] as const;
-  const settled = await Promise.allSettled(calls);
+  const calls: Array<() => Promise<unknown>> = [
+    () => read<AiOpsSummary>(base + "/summary?" + current, fetcher, requestSignal),
+    () => read<AiOpsSummary>(base + "/summary?" + today, fetcher, requestSignal),
+    () => read<AiOpsSummary>(base + "/summary?" + month, fetcher, requestSignal),
+    () => read<{ items: AiOpsDaily[] }>(base + "/daily?" + current, fetcher, requestSignal),
+    () => read<{ items: AiOpsProviderBreakdown[] }>(base + "/providers?" + current, fetcher, requestSignal),
+    () => read<{ items: AiOpsProviderBreakdown[] }>(base + "/providers?" + today, fetcher, requestSignal),
+    () => read<{ items: AiOpsFailure[] }>(base + "/failures?" + current, fetcher, requestSignal),
+    () => read<Page<AiOpsJob>>(base + "/jobs?" + jobs, fetcher, requestSignal),
+    () => read<Page<AiOpsUsage>>(base + "/usage?" + usage, fetcher, requestSignal),
+    () => read<PipelineSnapshot>(base + "/pipeline?recent_page=" + (filters.pipelinePage || 1) + "&recent_page_size=" + (filters.pipelinePageSize || 25), fetcher, requestSignal),
+    () => read<AiOpsMediaDashboard>(base + "/media-dashboard?video_page=" + (filters.videoPage || 1) + "&video_page_size=25", fetcher, requestSignal),
+  ];
+  const settled = await settleDashboardCalls(calls);
   const pipelineUnavailable = settled[9]?.status === "rejected"
     && settled[9].reason instanceof AiOperationsApiError
     && settled[9].reason.status === 404;
@@ -142,6 +196,8 @@ export async function fetchAiOperationsDashboard(
   const unauthorized = settled.some(item => item.status === "rejected" && item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status));
   const value = <T,>(index: number, fallback: T): T => settled[index]?.status === "fulfilled"
     ? (settled[index] as PromiseFulfilledResult<T>).value : fallback;
+  globalThis.clearTimeout(dashboardTimeout);
+  signal?.removeEventListener("abort", abortFromParent);
   return {
     unauthorized,
     errors: [...new Set(errors)],
@@ -243,6 +299,9 @@ export const setAiProviderPaused = (provider: AiOpsProvider, paused: boolean, re
 
 export const setTenantAiPaused = (paused: boolean, reason: string, fetcher: Fetcher = fetch) =>
   mutate(`/api/v1/admin/ai-operations/controls/${paused ? "pause" : "resume"}`, "POST", { reason }, fetcher);
+
+export const setVideoAiPaused = (paused: boolean, reason: string, fetcher: Fetcher = fetch) =>
+  mutate("/api/v1/admin/ai-operations/controls/video/" + (paused ? "pause" : "resume"), "POST", { reason }, fetcher);
 
 export const updateAiBudget = (body: object, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-operations/budget", "PATCH", body, fetcher);

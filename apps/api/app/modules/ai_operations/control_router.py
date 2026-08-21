@@ -278,6 +278,38 @@ async def resume_all_ai(
     return {"tenant_id": target, "state": "resumed", "policy": policy, "audit": _audit(principal, "ai_resumed", body.reason)}
 
 
+@router.post("/controls/video/pause")
+async def pause_video_ai(
+    body: AiPauseRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_EMERGENCY_STOP),
+):
+    target = _tenant(principal, tenant_id)
+    policy = await _mutate(
+        target,
+        lambda service: service.set_video_pause(
+            target, paused=True, actor_id=principal.user_id, reason=body.reason,
+        ),
+    )
+    return {"tenant_id": target, "state": "paused", "policy": policy, "audit": _audit(principal, "video_ai_paused", body.reason)}
+
+
+@router.post("/controls/video/resume")
+async def resume_video_ai(
+    body: AiPauseRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_EMERGENCY_STOP),
+):
+    target = _tenant(principal, tenant_id)
+    policy = await _mutate(
+        target,
+        lambda service: service.set_video_pause(
+            target, paused=False, actor_id=principal.user_id, reason=body.reason,
+        ),
+    )
+    return {"tenant_id": target, "state": "resumed", "policy": policy, "audit": _audit(principal, "video_ai_resumed", body.reason)}
+
+
 @router.patch("/controls/defaults")
 async def update_ai_defaults(
     body: AiDefaultsUpdate,

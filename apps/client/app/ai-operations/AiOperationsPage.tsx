@@ -7,7 +7,7 @@ import {
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
-import { fetchAiOperationsConfiguration, setTenantAiPaused, type AiOpsConfiguration } from "../../features/ai_operations";
+import { fetchAiOperationsConfiguration, setTenantAiPaused, setVideoAiPaused, type AiOpsConfiguration } from "../../features/ai_operations";
 import {
   dailyProviderCostChart, dailyStatusChart, failureChart,
   formatCost, formatDuration, modeLabel, providerLabel, providerVolumeChart,
@@ -89,7 +89,7 @@ export function AiOperationsPage() {
     let subscribed = true;
     setLoading(true);
     requests.current.run(signal => fetchAiOperationsDashboard(
-      filters, (url, init) => fetch(url, { ...init, signal }),
+      filters, fetch, undefined, signal,
     )).then(result => {
       if (!subscribed || !result.current) return;
       if ("value" in result) {
@@ -256,49 +256,75 @@ function MediaTypeTabs({ media, onMedia, label }: {
 }
 
 function AiWorkerToggle({ workers }: { workers: NonNullable<AiOpsDashboardData["media"]>["workers"] }) {
-  const [paused, setPaused] = useState<boolean | null>(null);
+  const [imagePaused, setImagePaused] = useState<boolean | null>(null);
+  const [videoPaused, setVideoPaused] = useState<boolean | null>(null);
   const [allowed, setAllowed] = useState(false);
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<"image" | "video" | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
     fetchAiOperationsConfiguration().then(configuration => {
       if (!alive) return;
-      setPaused(aiWorkerIsPaused(configuration.tenant));
+      setImagePaused(aiWorkerIsPaused(configuration.tenant));
+      setVideoPaused(configuration.tenant.video_enabled === false);
       setAllowed(Boolean(configuration.permissions.can_emergency_stop));
-    }).catch(() => { if (alive) setPaused(null); });
+    }).catch(() => {
+      if (!alive) return;
+      setImagePaused(null);
+      setVideoPaused(null);
+    });
     return () => { alive = false; };
   }, []);
 
-  async function toggleImage() {
+  async function toggle(kind: "image" | "video") {
+    const paused = kind === "image" ? imagePaused : videoPaused;
     if (paused === null || !allowed || pending) return;
     const nextPaused = !paused;
-    setPending(true); setError("");
+    setPending(kind);
+    setError("");
     try {
-      await setTenantAiPaused(nextPaused, nextPaused ? "AI image processing paused from Operations dashboard" : "AI image processing resumed from Operations dashboard");
-      setPaused(nextPaused);
+      if (kind === "image") {
+        await setTenantAiPaused(nextPaused, nextPaused
+          ? "AI image processing paused from Operations dashboard"
+          : "AI image processing resumed from Operations dashboard");
+        setImagePaused(nextPaused);
+      } else {
+        await setVideoAiPaused(nextPaused, nextPaused
+          ? "AI video processing paused from Operations dashboard"
+          : "AI video processing resumed from Operations dashboard");
+        setVideoPaused(nextPaused);
+      }
     } catch (reason) {
-      setError(String((reason as Error)?.message || "Could not update image AI processing"));
-    } finally { setPending(false); }
+      setError(String((reason as Error)?.message || "Could not update AI processing"));
+    } finally {
+      setPending(null);
+    }
   }
 
-  const imageRunning = paused === false;
+  const imageEnabled = imagePaused === false;
+  const videoEnabled = videoPaused === false;
   const video = workers.find(worker => worker.role === "video");
-  const videoReady = video?.ready === true;
+  const control = (kind: "image" | "video", enabled: boolean, paused: boolean | null) => (
+    <div className="ops-worker-control">
+      <span>{kind === "image" ? "AI Image" : "AI Video"}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={"Toggle AI " + (kind === "image" ? "Image" : "Video") + " processing"}
+        title={kind === "video" && enabled && video?.ready === false ? "Video worker is not ready" : undefined}
+        disabled={!allowed || paused === null || pending !== null}
+        onClick={() => void toggle(kind)}
+        className={enabled ? "on" : "off"}
+      >
+        <i aria-hidden="true" /><b>{pending === kind ? "Updating..." : enabled ? "Enabled" : "Paused"}</b>
+      </button>
+    </div>
+  );
   return <div className="ops-worker-controls">
-    <div className="ops-worker-control">
-      <span>AI Image</span>
-      <button type="button" role="switch" aria-checked={imageRunning} aria-label="Toggle AI Image processing" disabled={!allowed || paused === null || pending} onClick={() => void toggleImage()} className={imageRunning ? "on" : "off"}>
-        <i aria-hidden="true" /><b>{pending ? "Updating &" : imageRunning ? "Running" : "Paused"}</b>
-      </button>
-    </div>
-    <div className="ops-worker-control">
-      <span>AI Video</span>
-      <button type="button" aria-label="AI Video worker status, managed by deployment" disabled className={videoReady ? "on" : "off"}>
-        <i aria-hidden="true" /><b>{videoReady ? "Ready" : video?.probe === "unavailable" ? "Unavailable" : "Checking &"}</b>
-      </button>
-    </div>
+    {control("image", imageEnabled, imagePaused)}
+    {control("video", videoEnabled, videoPaused)}
     {error && <small className="ops-worker-error" role="alert">{error}</small>}
   </div>;
 }

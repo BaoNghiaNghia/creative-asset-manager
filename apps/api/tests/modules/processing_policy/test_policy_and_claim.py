@@ -106,6 +106,17 @@ class ProcessingPolicyTest(unittest.TestCase):
         storage = self.job("tenant", "storage", kind="asset_store", provider="google_drive", scope="storage")
         self.assertEqual(self.claim("worker").id, storage)
 
+    def test_video_scope_pause_blocks_only_video_analysis(self):
+        self.policy("tenant")
+        with self.sessions.begin() as session:
+            ProcessingPolicyRepository(session).pause_provider(
+                "tenant", "gemini", "video", actor_id="admin", reason="video maintenance"
+            )
+        self.job("tenant", "video", kind="video_analyze", provider="gemini", scope="video")
+        storage = self.job("tenant", "storage", kind="asset_store", provider="google_drive", scope="storage")
+        claimed = self.claim("worker", allowed_job_types=("video_analyze", "asset_store"))
+        self.assertEqual(claimed.id, storage)
+
     def test_concurrent_workers_respect_provider_limit(self):
         self.policy("tenant", total=4, ai=4)
         with self.sessions.begin() as session:

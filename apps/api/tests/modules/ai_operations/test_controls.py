@@ -159,8 +159,17 @@ class AiOperationsControlsTest(unittest.TestCase):
         self.assertTrue(provider.json()["policy"]["processing_paused"])
         provider = self.request("POST", "/api/v1/admin/ai-operations/providers/openai/resume", {"reason": "restored"})
         self.assertFalse(provider.json()["policy"]["processing_paused"])
+        video = self.request("POST", "/api/v1/admin/ai-operations/controls/video/pause", {"reason": "video maintenance"})
+        self.assertEqual(video.status_code, 200)
+        self.assertTrue(video.json()["policy"]["processing_paused"])
+        reloaded = self.request("GET", "/api/v1/admin/ai-operations/configuration", {})
+        self.assertFalse(reloaded.json()["tenant"]["video_enabled"])
+        self.assertTrue(reloaded.json()["tenant"]["ai_enabled"])
+        video = self.request("POST", "/api/v1/admin/ai-operations/controls/video/resume", {"reason": "video restored"})
+        self.assertEqual(video.status_code, 200)
+        self.assertFalse(video.json()["policy"]["processing_paused"])
         with self.factory() as session:
-            self.assertEqual(session.scalar(select(func.count()).select_from(ProcessingPolicyAuditModel)), 4)
+            self.assertEqual(session.scalar(select(func.count()).select_from(ProcessingPolicyAuditModel)), 6)
 
     def test_defaults_validate_model_and_cost_rates(self):
         invalid = self.request("PATCH", "/api/v1/admin/ai-operations/controls/defaults", {

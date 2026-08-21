@@ -89,6 +89,17 @@ class AiOperationsControlService:
         )
         return policy_document(value)
 
+    def set_video_pause(
+        self, tenant_id: str, *, paused: bool, actor_id: str, reason: str,
+    ) -> dict:
+        # Video uses a separate provider scope, so this never pauses Image AI.
+        self._provider("gemini")
+        value = self.policy_service.set_provider_pause(
+            tenant_id, "gemini", "video", paused=paused,
+            actor_id=actor_id, reason=reason,
+        )
+        return policy_document(value)
+
     def update_defaults(
         self, tenant_id: str, *, provider: str, model: str,
         actor_id: str, reason: str,
@@ -222,6 +233,7 @@ class AiOperationsControlService:
         prompt_profile = self.session.scalar(
             prompt_statement.order_by(MetadataProfileModel.created_at.desc()).limit(1)
         )
+        video_policy = self.policies.get_provider(tenant_id, "gemini", "video")
         runtime_stopped, _ = self.governance.runtime_stopped("global")
         return {
             "tenant_id": tenant_id,
@@ -233,6 +245,10 @@ class AiOperationsControlService:
             },
             "tenant": {
                 "ai_enabled": tenant.ai_analysis_enabled,
+                "video_enabled": (
+                    video_policy is None
+                    or (video_policy.processing_enabled and not video_policy.processing_paused)
+                ),
                 "processing_paused": tenant.processing_paused,
                 "default_provider": tenant.default_ai_provider,
                 "default_model": tenant.default_ai_model,

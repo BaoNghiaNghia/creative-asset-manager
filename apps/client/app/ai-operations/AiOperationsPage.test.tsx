@@ -11,6 +11,7 @@ import {
   normalizePipelineSnapshot,
   retryAiOperationsJob,
   retryAiOperationsJobsByError,
+  setVideoAiPaused,
   searchFromFilters,
   type AiOpsDashboardData,
   type AiOpsFilters,
@@ -249,6 +250,17 @@ describe("AI Operations dashboard", () => {
     expect(aiWorkerIsPaused({ ai_enabled: true })).toBe(false);
   });
 
+  it("uses the independent Video control endpoint", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ state: "paused" }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    })) as unknown as typeof fetch;
+    await setVideoAiPaused(true, "video maintenance", fetcher);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/admin/ai-operations/controls/video/pause",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("routes normally and renders navigation without opening a new tab", () => {
     expect(routeForPath("/ai-operations")).toBe("ai-operations");
     expect(routeForPath("/ai-operations/processing")).toBe("ai-operations");
@@ -370,6 +382,23 @@ describe("AI Operations dashboard", () => {
     expect(result.data.daily).toEqual(data.daily);
     expect(result.data.jobs).toEqual(data.jobs);
     expect(result.data.usage).toEqual(data.usage);
+  });
+
+  it("limits dashboard aggregate requests so the API pool is not saturated", async () => {
+    let active = 0;
+    let peak = 0;
+    const fetcher = vi.fn(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      active -= 1;
+      return new Response(JSON.stringify(summary), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    await fetchAiOperationsDashboard(filters, fetcher, new Date("2026-07-22T00:00:00Z"));
+    expect(fetcher).toHaveBeenCalledTimes(11);
+    expect(peak).toBeLessThanOrEqual(3);
   });
 
   it("normalizes a pre-pagination pipeline response without crashing", () => {
