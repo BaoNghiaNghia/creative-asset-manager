@@ -47,7 +47,8 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         for required in (
             'SOURCE_DIR="${CAM_SOURCE_DIR:-$CHECKOUT_ROOT}"',
             "/opt/creative-asset-manager", "python3 -m venv", "--no-cache-dir",
-            "alembic", "upgrade head", "creative-asset-manager-api.service",
+            "alembic", "upgrade head", "wait_for_endpoint",
+            "creative-asset-manager-api.service",
             "creative-asset-manager-image-worker.service",
             "creative-asset-manager-video-worker.service",
             "creative-asset-manager-worker.service", "--rollback",

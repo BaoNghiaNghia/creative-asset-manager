@@ -50,12 +50,23 @@ activate_release() {
 trusted_host() {
   python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"TRUSTED_HOSTS\"].split(\",\")[0].strip())"
 }
+wait_for_endpoint() {
+  local label="$1"; shift
+  local attempt
+  for attempt in {1..30}; do
+    if curl --fail --silent --show-error --max-time 5 "$@" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$label did not become healthy within 30 seconds."
+}
 verify_services() {
   local host; host="$(trusted_host)"
   for service in creative-asset-manager-api.service creative-asset-manager-image-worker.service creative-asset-manager-video-worker.service; do systemctl is-active --quiet "$service" || die "$service is not active."; done
   systemctl is-active --quiet creative-asset-manager-worker.service && die "Legacy all-role worker must be inactive." || true
-  for endpoint in live ready version; do curl --fail --silent --show-error --max-time 10 -H "Host: $host" "http://127.0.0.1:8000/$endpoint" >/dev/null; done
-  for port in 8081 8082; do for endpoint in live health ready; do curl --fail --silent --show-error --max-time 10 "http://127.0.0.1:$port/$endpoint" >/dev/null; done; done
+  for endpoint in live ready version; do wait_for_endpoint "API $endpoint" -H "Host: $host" "http://127.0.0.1:8000/$endpoint"; done
+  for port in 8081 8082; do for endpoint in live health ready; do wait_for_endpoint "worker $port $endpoint" "http://127.0.0.1:$port/$endpoint"; done; done
 }
 restart_services() {
   systemctl restart creative-asset-manager-api.service
