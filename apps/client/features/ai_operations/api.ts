@@ -74,9 +74,11 @@ export function normalizeMediaDashboard(
       image: Array.isArray(source.pipeline?.image) ? source.pipeline.image : [image],
       video: Array.isArray(source.pipeline?.video) ? source.pipeline.video : [video, videoIndexing],
     },
-    recent_video: source.recent_video && typeof source.recent_video === "object" && Array.isArray((source.recent_video as { items?: unknown }).items)
-      ? source.recent_video
-      : { page: 1, page_size: 25, total: 0, items: [] },
+    recent_video: Array.isArray(source.recent_video)
+      ? { page: 1, page_size: 25, total: source.recent_video.length, items: source.recent_video }
+      : source.recent_video && typeof source.recent_video === "object" && Array.isArray((source.recent_video as { items?: unknown }).items)
+        ? source.recent_video
+        : { page: 1, page_size: 25, total: 0, items: [] },
     workers: Array.isArray(source.workers) ? source.workers : [],
     generated_at: typeof source.generated_at === "string" ? source.generated_at : new Date(0).toISOString(),
   };

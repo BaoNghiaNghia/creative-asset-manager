@@ -215,6 +215,11 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(media?.recent_video).toEqual({ page: 1, page_size: 25, total: 0, items: [] });
     expect(media?.video.queued).toBe(0);
     expect(media?.video_indexing.completed).toBe(0);
+    const legacy = normalizeMediaDashboard({
+      recent_video: [{ job_id: "video-job", source_asset_id: "asset", filename: "clip.mp4", status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:00:00Z", error_code: null }],
+    } as unknown as AiOpsDashboardData["media"]);
+    expect(legacy?.recent_video.total).toBe(1);
+    expect(legacy?.recent_video.items[0]?.filename).toBe("clip.mp4");
     expect(() => renderToStaticMarkup(<AiOperationsContent
       data={{ ...data, media }}
       filters={filters}
