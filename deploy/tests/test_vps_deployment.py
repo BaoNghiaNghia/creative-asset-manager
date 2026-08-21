@@ -56,6 +56,10 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         for forbidden in ("docker compose build api", "docker compose up api", "docker compose up worker", "alembic downgrade"):
             self.assertNotIn(forbidden, source)
 
+    def test_alembic_configuration_includes_the_api_module_path(self) -> None:
+        config = (ROOT / "apps" / "api" / "alembic.ini").read_text()
+        self.assertIn("prepend_sys_path = %(here)s", config)
+
     def test_production_compose_is_elasticsearch_only(self) -> None:
         config = yaml.safe_load(COMPOSE.read_text())
         self.assertEqual(set(config["services"]), {"elasticsearch"})
