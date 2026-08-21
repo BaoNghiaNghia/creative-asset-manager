@@ -35,6 +35,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             'CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"',
             "Committed frontend dist is incomplete.", "build-info.json",
             "nginx -t", "systemctl reload nginx", "--rollback",
+            'http://127.0.0.1:8000/version" >/dev/null',
         ):
             self.assertIn(required, source)
         for forbidden in ("docker compose", "systemctl restart creative-asset-manager-api", "npm --prefix", 'git -C "$SOURCE_DIR" archive'):

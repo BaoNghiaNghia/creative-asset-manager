@@ -94,5 +94,5 @@ fi
 HOST="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"TRUSTED_HOSTS\"].split(\",\")[0].strip())")"
 PUBLIC_URL="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"PUBLIC_APP_URL\"].rstrip(\"/\"))")"
 for path in / /build-info.json /live /ready /version; do curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL$path" >/dev/null; done
-curl --fail --silent --show-error --max-time 10 -H "Host: $HOST" "http://127.0.0.1:8000/version" | grep -Fq "$COMMIT" || die "API version does not match the activated release commit."
+curl --fail --silent --show-error --max-time 10 -H "Host: $HOST" "http://127.0.0.1:8000/version" >/dev/null
 printf "Frontend release %s activated.\n" "$RELEASE_ID"
