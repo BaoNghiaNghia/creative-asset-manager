@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CHECKOUT_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
-SOURCE_DIR="${CAM_SOURCE_DIR:-/srv/creative-asset-manager-source}"
+SOURCE_DIR="${CAM_SOURCE_DIR:-$CHECKOUT_ROOT}"
 ENV_FILE="${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}"
 APP_ROOT="${CAM_APP_ROOT:-/opt/creative-asset-manager}"
 REF=""

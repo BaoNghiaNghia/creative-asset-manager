@@ -31,6 +31,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
     def test_frontend_native_release_contract(self) -> None:
         source = FRONTEND.read_text()
         for required in (
+            'SOURCE_DIR="${CAM_SOURCE_DIR:-$CHECKOUT_ROOT}"',
             "set -Eeuo pipefail", 'DIST="$SOURCE_DIR/apps/client/dist"',
             'CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"',
             "Committed frontend dist is incomplete.", "build-info.json",
@@ -44,6 +45,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
     def test_backend_native_systemd_contract(self) -> None:
         source = BACKEND.read_text()
         for required in (
+            'SOURCE_DIR="${CAM_SOURCE_DIR:-$CHECKOUT_ROOT}"',
             "/opt/creative-asset-manager", "python3 -m venv", "--no-cache-dir",
             "alembic", "upgrade head", "creative-asset-manager-api.service",
             "creative-asset-manager-image-worker.service",
