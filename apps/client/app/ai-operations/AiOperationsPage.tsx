@@ -228,7 +228,7 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} media={media} onMedia={onMedia} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} />
+      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} media={media} onMedia={onMedia} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
@@ -354,12 +354,13 @@ function ScanStatusIcon({ status }: { status: string }) {
   </span>;
 }
 
-export function PipelineOverview({ pipeline, media = "image", onMedia = () => undefined, onPage = () => undefined }: {
-  pipeline?: PipelineSnapshot | null; media?: "image" | "video"; onMedia?: (media: "image" | "video") => void;
+export function PipelineOverview({ pipeline, mediaDashboard = null, media = "image", onMedia = () => undefined, onPage = () => undefined }: {
+  pipeline?: PipelineSnapshot | null; mediaDashboard?: AiOpsDashboardData["media"]; media?: "image" | "video"; onMedia?: (media: "image" | "video") => void;
   onPage?: (page: number, pageSize: 25 | 50 | 100) => void;
 }) {
   if (pipeline === undefined) return <DashboardState kind="empty" label="Tổng quan pipeline chưa khả dụng cho đến khi API được cập nhật và khởi động lại." />;
   if (pipeline === null) return <DashboardState kind="empty" label="Chưa có hoạt động pipeline cho workspace này" />;
+  if (media === "video" && mediaDashboard) return <VideoPipelineOverview dashboard={mediaDashboard} media={media} onMedia={onMedia} />;
   const scan = pipeline.latest_source_sync;
   const active = pipeline.active_job;
   const needsAttentionStages = pipeline.stages.filter(stage => stage.needs_attention_assets > 0 || stage.processing_assets > 0 || stage.queued_assets > 0 || stage.waiting_assets > 0);
@@ -398,6 +399,28 @@ export function PipelineOverview({ pipeline, media = "image", onMedia = () => un
     <PipelineRecentAssets recent={pipeline.recent_assets} onPage={onPage} />
   </div>;
 }
+function VideoPipelineOverview({ dashboard, media, onMedia }: {
+  dashboard: NonNullable<AiOpsDashboardData["media"]>; media: "image" | "video"; onMedia: (media: "image" | "video") => void;
+}) {
+  const analysis = dashboard.video;
+  const indexing = dashboard.video_indexing;
+  const stages = [analysis, indexing];
+  return <div className="ops-content pipeline-content">
+    <div className="ops-media-tabs" role="tablist" aria-label="Pipeline media type">
+      {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
+    </div>
+    <section className="pipeline-summary" aria-label="Tóm tắt video pipeline">
+      <PipelineMetric icon="eligible" label="Video analysis" value={analysis.completed} detail="Video AI analyses completed" />
+      <PipelineMetric icon="ready" label="Video indexed" value={indexing.completed} detail="Ready for video search" tone="success" />
+      <PipelineMetric icon="active" label="Đang xử lý" value={analysis.running + indexing.running} detail="Video jobs currently processing" tone="info" />
+      <PipelineMetric icon="queued" label="Đang chờ xử lý" value={analysis.queued + indexing.queued} detail="Video jobs waiting to start or retry" tone="warning" />
+      <PipelineMetric icon="attention" label="Cần xử lý" value={analysis.failed + indexing.failed} detail="Video jobs that need review" tone="attention" />
+    </section>
+    <section className="pipeline-stage-section" aria-label="Video pipeline stages"><header><div><small>VIDEO PIPELINE</small><h2>Phân tích và lập chỉ mục video</h2><p>Video analysis và video indexing là hai giai đoạn độc lập.</p></div></header><div className="pipeline-stage-grid">{stages.map(stage => <article key={stage.key} className={stage.failed ? "attention" : stage.running ? "active" : stage.queued ? "waiting" : "complete"}><header><div><small>GIAI ĐOẠN</small><h2>{stage.label}</h2></div></header><strong>{stage.completed.toLocaleString()}</strong><span>đã hoàn tất</span><dl><div><dt>Đã xếp hàng</dt><dd>{stage.queued.toLocaleString()}</dd></div><div><dt>Đang chạy</dt><dd>{stage.running.toLocaleString()}</dd></div><div><dt>Cần xử lý</dt><dd>{stage.failed.toLocaleString()}</dd></div></dl></article>)}</div></section>
+    <section className="pipeline-queue" aria-label="Hàng đợi video hiện tại"><header><div><small>HÀNG ĐỢI TRỰC TIẾP</small><h2>Phân bổ hàng đợi video</h2><p>Chỉ các job video được tính ở đây; không dùng dữ liệu Image.</p></div><span className="pipeline-queue-total">{(analysis.queued + indexing.queued).toLocaleString()} đang chờ xử lý</span></header></section>
+  </div>;
+}
+
 type PipelineStageState = "attention" | "active" | "waiting" | "complete" | "idle";
 
 function pipelineStageTone(stage: { key: string; queued_assets: number; waiting_assets?: number; processing_assets: number; completed_assets: number; needs_attention_assets: number }, activeJobType?: string): PipelineStageState {
@@ -532,7 +555,10 @@ function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashb
     { label: "Failed", value: primary.failed, detail: "Terminal AI failures", tone: "danger" },
     { label: "Running", value: primary.running, detail: "Currently processing", tone: "info" },
     { label: "Queued", value: primary.queued, detail: primary.eligible_now + " eligible now", tone: "neutral" },
-    ...(media === "video" ? [{ label: "Indexed", value: dashboard.video_indexing.completed, detail: "Video search indexing (not AI)", tone: "neutral" }] : []),
+    ...(media === "video" ? [
+      { label: "Indexed", value: dashboard.video_indexing.completed, detail: "Video search indexing (not AI)", tone: "neutral" },
+      { label: "Video cost", value: "—", detail: "Cost data unavailable", tone: "neutral" },
+    ] : []),
   ];
   return <>
     <section className="ops-kpis" aria-label={media + " AI processing summary"}>{cards.map(card => <article key={card.label} className={"ops-kpi ops-kpi-" + card.tone}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value.toLocaleString()}</strong><small>{card.detail}</small></article>)}</section>
@@ -544,6 +570,15 @@ function Overview({ data, media = "image", onMedia = () => undefined, canManage,
   canManage: boolean; onRefresh: () => void;
 }) {
   const summary = data.summary;
+  if (media === "video" && data.media) {
+    return <div className="ops-content">
+      <div className="ops-media-tabs" role="tablist" aria-label="AI analysis media type">
+        {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
+      </div>
+      <p className="ops-ai-scope-note">Video AI metrics are calculated only from video analysis jobs. Video indexing is displayed separately and is not counted as AI completion, failure, running, or cost.</p>
+      <MediaOverview dashboard={data.media} media="video" />
+    </div>;
+  }
   if (!summary && !data.daily.length) return <DashboardState kind="empty" />;
   const processedToday = (data.today?.completed || 0) + (data.today?.failed || 0);
   const cards = [
