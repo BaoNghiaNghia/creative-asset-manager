@@ -6,6 +6,7 @@ CHECKOUT_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 SOURCE_DIR="${CAM_SOURCE_DIR:-/srv/creative-asset-manager-source}"
 ENV_FILE="${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}"
 WEB_ROOT="${CAM_WEB_ROOT:-/var/www/creative-asset-manager}"
+APP_ROOT="${CAM_APP_ROOT:-/opt/creative-asset-manager}"
 ALLOW_DIRTY=false
 REF=""
 ROLLBACK=false
@@ -30,6 +31,8 @@ done
 if [[ ! -d "$SOURCE_DIR/.git" ]]; then SOURCE_DIR="$CHECKOUT_ROOT"; fi
 SOURCE_DIR="$(realpath -- "$SOURCE_DIR")"
 for command in git rsync nginx systemctl python3 curl; do require "$command"; done
+CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"
+[[ -x "$CONFIG_PYTHON" ]] || die "Active backend Python runtime is unavailable."
 [[ $EUID -eq 0 ]] || die "Run as root so release ownership and Nginx activation are safe."
 [[ -f "$ENV_FILE" ]] || die "Production environment file is missing."
 ENV_HELPER="$SOURCE_DIR/deploy/tools/production_env.py"
@@ -76,7 +79,7 @@ else
   printf "%s\n" "$COMMIT" > "$STAGE/.cam-frontend-release"
   mv -T "$STAGE" "$TARGET"
 fi
-python3 "$ENV_HELPER" check --env-file "$ENV_FILE" --expected-owner-uid 0 --api-root "$SOURCE_DIR/apps/api" >/dev/null
+"$CONFIG_PYTHON" "$ENV_HELPER" check --env-file "$ENV_FILE" --expected-owner-uid 0 --api-root "$SOURCE_DIR/apps/api" >/dev/null
 nginx -t
 OLD=""
 [[ ! -L "$WEB_ROOT/current" ]] || OLD="$(readlink -f -- "$WEB_ROOT/current")"

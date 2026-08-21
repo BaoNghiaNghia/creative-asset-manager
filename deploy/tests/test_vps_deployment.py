@@ -32,6 +32,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         source = FRONTEND.read_text()
         for required in (
             "set -Eeuo pipefail", 'DIST="$SOURCE_DIR/apps/client/dist"',
+            'CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"',
             "Committed frontend dist is incomplete.", "build-info.json",
             "nginx -t", "systemctl reload nginx", "--rollback",
         ):
