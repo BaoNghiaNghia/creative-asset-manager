@@ -12,7 +12,7 @@ ROLLBACK=false
 
 usage() { cat <<'USAGE'
 Usage: sudo scripts/deploy-cam-frontend.sh [--commit SHA|--branch NAME] [--rollback] [--allow-dirty]
-Builds, validates and atomically activates an immutable native Nginx frontend release.
+Validates and atomically activates a committed prebuilt frontend release.
 USAGE
 }
 die() { printf "ERROR: %s\n" "$*" >&2; exit 1; }
@@ -29,7 +29,7 @@ while (($#)); do
 done
 if [[ ! -d "$SOURCE_DIR/.git" ]]; then SOURCE_DIR="$CHECKOUT_ROOT"; fi
 SOURCE_DIR="$(realpath -- "$SOURCE_DIR")"
-for command in git node npm rsync nginx systemctl python3 curl; do require "$command"; done
+for command in git rsync nginx systemctl python3 curl; do require "$command"; done
 [[ $EUID -eq 0 ]] || die "Run as root so release ownership and Nginx activation are safe."
 [[ -f "$ENV_FILE" ]] || die "Production environment file is missing."
 ENV_HELPER="$SOURCE_DIR/deploy/tools/production_env.py"
@@ -47,20 +47,21 @@ fi
 [[ "$ALLOW_DIRTY" == true || -z "$(git -C "$SOURCE_DIR" status --porcelain --untracked-files=normal)" ]] || die "Refusing deployment from a dirty checkout."
 COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify "${REF:-HEAD}^{commit}")"
 RELEASE_ID="$COMMIT"
-BUILD_ROOT="$SOURCE_DIR"
-TEMP_BUILD="$(mktemp -d)"
-cleanup() { [[ -z "$TEMP_BUILD" ]] || rm -rf -- "$TEMP_BUILD"; }
-trap cleanup EXIT
-git -C "$SOURCE_DIR" archive "$COMMIT" | tar -x -C "$TEMP_BUILD"
-BUILD_ROOT="$TEMP_BUILD"
-export BUILD_COMMIT="$COMMIT"
-npm --prefix "$BUILD_ROOT/apps/client" ci --no-audit --no-fund
-npm --prefix "$BUILD_ROOT/apps/client" test
-npm --prefix "$BUILD_ROOT/apps/client" run typecheck
-npm --prefix "$BUILD_ROOT/apps/client" run build
-DIST="$BUILD_ROOT/apps/client/dist"
-[[ -f "$DIST/index.html" && -f "$DIST/build-info.json" ]] || die "Frontend build is incomplete."
-grep -Fq "$COMMIT" "$DIST/build-info.json" || die "build-info.json does not identify the deployed commit."
+DIST="$SOURCE_DIR/apps/client/dist"
+[[ -f "$DIST/index.html" && -f "$DIST/build-info.json" ]] || die "Committed frontend dist is incomplete."
+python3 - "$DIST/build-info.json" <<'PY'
+import json
+import re
+import sys
+
+try:
+    build_info = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError) as exc:
+    raise SystemExit(f"Invalid committed build-info.json: {exc}")
+commit = build_info.get("build_commit")
+if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{7,64}", commit):
+    raise SystemExit("Committed build-info.json has no valid build_commit.")
+PY
 if find "$DIST" -type f \( -name "*.map" -o -name "*.map.gz" \) -print -quit | grep -q .; then die "Source maps are forbidden in production dist."; fi
 if grep -R -E -I -n "https?://localhost(:[0-9]+)?|127\.0\.0\.1|DATABASE_URL|postgres(ql)?://|AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{20,}|refresh_token|access_token|client_secret|BEGIN [A-Z ]*PRIVATE KEY" "$DIST" >/dev/null; then die "Generated dist contains a forbidden endpoint or secret marker."; fi
 RELEASES="$WEB_ROOT/releases"
@@ -75,7 +76,7 @@ else
   printf "%s\n" "$COMMIT" > "$STAGE/.cam-frontend-release"
   mv -T "$STAGE" "$TARGET"
 fi
-python3 "$ENV_HELPER" check --env-file "$ENV_FILE" --expected-owner-uid 0 --api-root "$BUILD_ROOT/apps/api" >/dev/null
+python3 "$ENV_HELPER" check --env-file "$ENV_FILE" --expected-owner-uid 0 --api-root "$SOURCE_DIR/apps/api" >/dev/null
 nginx -t
 OLD=""
 [[ ! -L "$WEB_ROOT/current" ]] || OLD="$(readlink -f -- "$WEB_ROOT/current")"

@@ -31,14 +31,12 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
     def test_frontend_native_release_contract(self) -> None:
         source = FRONTEND.read_text()
         for required in (
-            "set -Eeuo pipefail", "npm --prefix", " ci --no-audit --no-fund",
-            " test", " run typecheck", " run build",
-            "/var/www/creative-asset-manager", "build-info.json",
+            "set -Eeuo pipefail", 'DIST="$SOURCE_DIR/apps/client/dist"',
+            "Committed frontend dist is incomplete.", "build-info.json",
             "nginx -t", "systemctl reload nginx", "--rollback",
-            'git -C "$SOURCE_DIR" archive',
         ):
             self.assertIn(required, source)
-        for forbidden in ("docker compose", "systemctl restart creative-asset-manager-api"):
+        for forbidden in ("docker compose", "systemctl restart creative-asset-manager-api", "npm --prefix", 'git -C "$SOURCE_DIR" archive'):
             self.assertNotIn(forbidden, source)
 
     def test_backend_native_systemd_contract(self) -> None:
