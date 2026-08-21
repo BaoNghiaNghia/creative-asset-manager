@@ -229,7 +229,7 @@ export function AiOperationsContent({
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
       {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} media={media} onMedia={onMedia} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} />
-        : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
+        : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} inventoryPermissions={permissions} />
@@ -539,7 +539,10 @@ function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashb
   </>;
 }
 
-function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; canManage: boolean; onRefresh: () => void }) {
+function Overview({ data, media = "image", onMedia = () => undefined, canManage, onRefresh }: {
+  data: AiOpsDashboardData; media?: "image" | "video"; onMedia?: (media: "image" | "video") => void;
+  canManage: boolean; onRefresh: () => void;
+}) {
   const summary = data.summary;
   if (!summary && !data.daily.length) return <DashboardState kind="empty" />;
   const processedToday = (data.today?.completed || 0) + (data.today?.failed || 0);
@@ -561,7 +564,12 @@ function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; ca
   const localScheduled = summary?.local_rate_limited || 0;
   const quotaScheduled = (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0);
   return <div className="ops-content">
-    <p className="ops-ai-scope-note">These metrics cover AI analysis only. Tải xuống, storage, projection, and indexing are shown in Pipeline Overview.</p>
+    <div className="ops-media-tabs" role="tablist" aria-label="AI analysis media type">
+      {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
+    </div>
+    <p className="ops-ai-scope-note">{media === "image"
+      ? "These metrics cover AI analysis only. Tải xuống, storage, projection, and indexing are shown in Pipeline Overview."
+      : "Video AI temporarily uses the same operations layout as Image AI. Video indexing is shown separately in Pipeline Overview."}</p>
     <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
     {localScheduled > 0 && nextLocalRetry && <section className="ops-quota-notice" role="status" aria-label="AI model scheduling retry status">
       <div><span className="ops-quota-badge">Schedule</span><div><strong>Rate-limit scheduling delay</strong><p>{localScheduled} {localScheduled === 1 ? "analysis is" : "analyses are"} waiting for the next local model-start slot. No provider request was sent.</p></div></div>
