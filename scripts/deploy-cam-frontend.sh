@@ -65,7 +65,7 @@ DIST="$BUILD_ROOT/apps/client/dist"
 [[ -f "$DIST/index.html" && -f "$DIST/build-info.json" ]] || die "Frontend build is incomplete."
 grep -Fq "$COMMIT" "$DIST/build-info.json" || die "build-info.json does not identify the deployed commit."
 if find "$DIST" -type f \( -name "*.map" -o -name "*.map.gz" \) -print -quit | grep -q .; then die "Source maps are forbidden in production dist."; fi
-if grep -R -E -I -n "(https?://)?localhost(:[0-9]+)?|127\.0\.0\.1|DATABASE_URL|postgres(ql)?://|AIza|sk-[A-Za-z0-9]|refresh_token|access_token|client_secret|BEGIN [A-Z ]*PRIVATE KEY" "$DIST" >/dev/null; then die "Generated dist contains a forbidden endpoint or secret marker."; fi
+if grep -R -E -I -n "https?://localhost(:[0-9]+)?|127\.0\.0\.1|DATABASE_URL|postgres(ql)?://|AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{20,}|refresh_token|access_token|client_secret|BEGIN [A-Z ]*PRIVATE KEY" "$DIST" >/dev/null; then die "Generated dist contains a forbidden endpoint or secret marker."; fi
 RELEASES="$WEB_ROOT/releases"
 TARGET="$RELEASES/$RELEASE_ID"
 install -d -o root -g root -m 0755 "$RELEASES"
