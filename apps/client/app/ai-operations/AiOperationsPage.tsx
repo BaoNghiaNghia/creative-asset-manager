@@ -518,18 +518,29 @@ function opsKpiIcon(label: string): string {
   return "▣";
 }
 
-function MediaStageCard({ stage }: { stage: NonNullable<AiOpsDashboardData["media"]>["image"] }) {
-  return <article className="ops-kpi ops-kpi-info">
-    <span className="ops-kpi-title">{stage.label}</span>
-    <strong>{stage.completed.toLocaleString()}</strong>
-    <small>{stage.running} running · {stage.queued} queued · {stage.failed} failed</small>
-  </article>;
+function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashboardData["media"]>; media: "image" | "video" }) {
+  const stages = media === "image" ? dashboard.pipeline.image : dashboard.pipeline.video;
+  const primary = media === "image" ? dashboard.image : dashboard.video;
+  const cards = [
+    { label: "Processed", value: primary.completed, detail: "Completed AI analyses", tone: "success" },
+    { label: "Failed", value: primary.failed, detail: "Terminal AI failures", tone: "danger" },
+    { label: "Running", value: primary.running, detail: "Currently processing", tone: "info" },
+    { label: "Queued", value: primary.queued, detail: primary.eligible_now + " eligible now", tone: "neutral" },
+    ...(media === "video" ? [{ label: "Indexed", value: dashboard.video_indexing.completed, detail: "Video search indexing (not AI)", tone: "neutral" }] : []),
+  ];
+  const chartData = stages.map(stage => ({ label: stage.label, values: { Completed: stage.completed, Failed: stage.failed, Running: stage.running, Queued: stage.queued } }));
+  return <>
+    <section className="ops-kpis" aria-label={media + " AI processing summary"}>{cards.map(card => <article key={card.label} className={"ops-kpi ops-kpi-" + card.tone}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value.toLocaleString()}</strong><small>{card.detail}</small></article>)}</section>
+    <section className="ops-charts">
+      <AccessibleChart title={media === "image" ? "Image AI processing" : "Video pipeline"} description={media === "image" ? "Image analysis outcomes by stage." : "Video analysis and indexing are distinct stages."} data={chartData} />
+      <AccessibleChart title="Stage queue" description="Current queued and running work by stage." data={stages.map(stage => ({ label: stage.label, values: { Queued: stage.queued, Running: stage.running } }))} />
+    </section>
+  </>;
 }
 
 function Overview({ data, media, onMedia, canManage, onRefresh }: { data: AiOpsDashboardData; media: "image" | "video"; onMedia: (value: "image" | "video") => void; canManage: boolean; onRefresh: () => void }) {
   const dashboard = data.media;
   if (!dashboard && !data.summary && !data.daily.length) return <DashboardState kind="empty" />;
-  const selectedStages = dashboard ? (media === "image" ? dashboard.pipeline.image : dashboard.pipeline.video) : [];
   const workers = dashboard?.workers || [];
   return <div className="ops-content">
     <div className="ops-media-tabs" role="tablist" aria-label="Media AI type">
@@ -539,7 +550,7 @@ function Overview({ data, media, onMedia, canManage, onRefresh }: { data: AiOpsD
     <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
     {dashboard?.image.state === "waiting_rate_limit" && media === "image" && <section className="ops-quota-notice" role="status"><div><span className="ops-quota-badge">Schedule</span><div><strong>Waiting for rate limit</strong><p>{dashboard.image.waiting_rate_limit} image analyses will retry automatically. No provider request was sent.</p></div></div></section>}
     {dashboard ? <>
-      <section className="ops-kpis" aria-label={media + " AI processing summary"}>{selectedStages.map(stage => <MediaStageCard key={stage.key} stage={stage} />)}</section>
+      <MediaOverview dashboard={dashboard} media={media} />
       <section className="ops-worker-panels" aria-label="Worker status">{workers.map(worker => <article key={worker.role} className="ops-worker-panel"><strong>{worker.role === "image" ? "Image worker" : "Video worker"}</strong><span>{worker.probe === "available" ? (worker.ready ? "Ready" : "Not ready") : "Health unavailable"}</span><small>{worker.active_jobs} active jobs{worker.current_job_type ? " · " + worker.current_job_type : ""}</small></article>)}</section>
     </> : <LegacyOverview data={data} />}
   </div>;
