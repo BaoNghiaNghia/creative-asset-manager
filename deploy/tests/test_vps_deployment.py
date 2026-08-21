@@ -44,7 +44,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
     def test_backend_native_systemd_contract(self) -> None:
         source = BACKEND.read_text()
         for required in (
-            "/opt/creative-asset-manager", "python3 -m venv",
+            "/opt/creative-asset-manager", "python3 -m venv", "--no-cache-dir",
             "alembic", "upgrade head", "creative-asset-manager-api.service",
             "creative-asset-manager-image-worker.service",
             "creative-asset-manager-video-worker.service",

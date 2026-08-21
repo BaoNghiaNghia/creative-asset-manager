@@ -80,7 +80,7 @@ if [[ ! -e "$TARGET" ]]; then
   install -d -o creative-assets -g creative-assets -m 0750 "$STAGE"
   rsync -a --delete --chown=creative-assets:creative-assets --exclude=.git --exclude=.env --exclude=.env.local --exclude=node_modules --exclude=.venv --exclude=__pycache__ --exclude=.pytest_cache --exclude="*.pyc" "$SOURCE_DIR/" "$STAGE/"
   runuser -u creative-assets -- python3 -m venv "$STAGE/apps/api/.venv"
-  runuser -u creative-assets -- "$STAGE/apps/api/.venv/bin/python" -m pip install --disable-pip-version-check --no-input --requirement "$STAGE/apps/api/requirements.txt" >/dev/null
+  runuser -u creative-assets -- "$STAGE/apps/api/.venv/bin/python" -m pip install --disable-pip-version-check --no-input --no-cache-dir --requirement "$STAGE/apps/api/requirements.txt" >/dev/null
   printf "%s\n" "$COMMIT" > "$STAGE/.cam-release"
   mv -T "$STAGE" "$TARGET"
 fi
