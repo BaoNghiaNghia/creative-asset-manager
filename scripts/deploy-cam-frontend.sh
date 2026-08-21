@@ -48,14 +48,11 @@ fi
 COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify "${REF:-HEAD}^{commit}")"
 RELEASE_ID="$COMMIT"
 BUILD_ROOT="$SOURCE_DIR"
-TEMP_BUILD=""
+TEMP_BUILD="$(mktemp -d)"
 cleanup() { [[ -z "$TEMP_BUILD" ]] || rm -rf -- "$TEMP_BUILD"; }
 trap cleanup EXIT
-if [[ "$COMMIT" != "$(git -C "$SOURCE_DIR" rev-parse HEAD)" ]]; then
-  TEMP_BUILD="$(mktemp -d)"
-  git -C "$SOURCE_DIR" archive "$COMMIT" | tar -x -C "$TEMP_BUILD"
-  BUILD_ROOT="$TEMP_BUILD"
-fi
+git -C "$SOURCE_DIR" archive "$COMMIT" | tar -x -C "$TEMP_BUILD"
+BUILD_ROOT="$TEMP_BUILD"
 export BUILD_COMMIT="$COMMIT"
 npm --prefix "$BUILD_ROOT/apps/client" ci --no-audit --no-fund
 npm --prefix "$BUILD_ROOT/apps/client" test

@@ -35,6 +35,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             " test", " run typecheck", " run build",
             "/var/www/creative-asset-manager", "build-info.json",
             "nginx -t", "systemctl reload nginx", "--rollback",
+            'git -C "$SOURCE_DIR" archive',
         ):
             self.assertIn(required, source)
         for forbidden in ("docker compose", "systemctl restart creative-asset-manager-api"):
