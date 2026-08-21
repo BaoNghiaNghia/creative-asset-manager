@@ -219,7 +219,7 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(len(recent["items"]), 1)
         self.assertEqual(
             recent["items"][0]["thumbnail_url"],
-            f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}",
+            f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}&fallback=video",
         )
 
     def test_metadata_prompt_template_is_exposed_versioned_and_audited(self):

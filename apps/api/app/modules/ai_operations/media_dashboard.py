@@ -104,7 +104,7 @@ class MediaDashboardService:
             external = self.session.get(ExternalSourceModel, source.external_source_id) if source is not None else None
             thumbnail_url = None
             if source is not None and external is not None and external.source_type == "google_drive":
-                thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}"
+                thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
             recent_video.append({
                 "job_id": job.id, "source_asset_id": job.entity_id,
                 "filename": source.filename if source is not None else None,

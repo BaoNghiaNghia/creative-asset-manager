@@ -57,6 +57,17 @@ from app.providers.microsoft.sharepoint import open_media_stream as open_sharepo
 router = APIRouter(prefix="/explorer", tags=["explorer"])
 logger = logging.getLogger(__name__)
 
+_VIDEO_THUMBNAIL_PLACEHOLDER = b"""<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" role="img" aria-label="Video thumbnail unavailable"><rect width="320" height="180" fill="#edf2fb"/><rect x="1" y="1" width="318" height="178" rx="10" fill="none" stroke="#cbd8ed" stroke-width="2"/><circle cx="160" cy="82" r="28" fill="#4163d8"/><path d="M151 66v32l25-16z" fill="#fff"/><text x="160" y="143" text-anchor="middle" fill="#50627f" font-family="Arial, sans-serif" font-size="14">Video preview unavailable</text></svg>"""
+
+
+def _video_thumbnail_placeholder() -> Response:
+    """Return a safe image response when Drive has not generated a video poster."""
+    return Response(
+        content=_VIDEO_THUMBNAIL_PLACEHOLDER,
+        media_type="image/svg+xml",
+        headers={"cache-control": "private, max-age=300", "vary": "Cookie"},
+    )
+
 
 def _require_legacy_admin(principal: CurrentPrincipal) -> None:
     if principal.platform_admin or "search.rebuild" in principal.effective_permissions:
@@ -949,6 +960,7 @@ async def thumbnail(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(ASSETS_READ),
     external_source_id: str | None = Query(None),
+    fallback: str | None = Query(None),
 ):
     if provider != "google-drive":
         raise HTTPException(status_code=404, detail="Thumbnail proxy is unavailable for this provider.")
@@ -987,6 +999,8 @@ async def thumbnail(
             ),
         )
     except GoogleDriveThumbnailUnavailable as exc:
+        if fallback == "video":
+            return _video_thumbnail_placeholder()
         raise HTTPException(status_code=404, detail="Thumbnail is unavailable.") from exc
     except HTTPException:
         raise
