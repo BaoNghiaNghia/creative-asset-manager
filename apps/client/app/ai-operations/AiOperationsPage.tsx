@@ -33,7 +33,7 @@ function TabIcon({ name }: { name: TabIconName }) {
     pipeline: "M4 5h16M4 12h16M4 19h16",
     spark: "M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z",
     processing: "M6 4h12v16H6z M9 8h6M9 12h6M9 16h4",
-    cost: "M12 3v18M16 7.5c0-1.7-1.8-3-4-3s-4 1.3-4 3 1.4 2.6 4 3 4 1.3 4 3-1.8 3-4 3-2.2 0-4-1.3-4-3",
+    cost: "M12 3v18 M16 7.5c0-1.7-1.8-3-4-3s-4 1.3-4 3c0 1.7 1.8 3 4 3s4 1.3 4 3c0 1.7-1.8 3-4 3s-4-1.3-4-3",
     providers: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z M4 7.5l8 4.5 8-4.5 M12 12v9",
     configuration: "M4 7h10M18 7h2M4 17h2M10 17h10 M14 5v4M8 15v4",
   };

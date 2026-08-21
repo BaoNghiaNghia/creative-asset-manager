@@ -53,9 +53,10 @@ class _CachedProvider:
 class RuntimeCreativeGeminiProvider:
     """Runtime tenant credential boundary for Creative Gemini.
 
-    A delegate is created per key fingerprint, so cooldown and quota state cannot
-    cross a credential rotation. The bounded TTL cache avoids retaining a secret
-    indefinitely while preserving in-flight rate-limit coordination.
+    A delegate is created per key fingerprint so a rotated credential never
+    reuses an old HTTP client or in-memory cooldown. Durable Gemini quotas are
+    deliberately keyed by the configured Google-project scope instead: Gemini
+    applies RPD per project, not per API key.
     """
     provider_name = "gemini"
     supports_single = True
@@ -75,7 +76,7 @@ class RuntimeCreativeGeminiProvider:
             credential = self._resolver.resolve(tenant_id)
         except CreativeCredentialError as exc:
             raise AiProviderError("Creative Gemini credential is unavailable.", code=exc.code, retryable=False, status_code=503) from exc
-        scope = f"{self.settings.GEMINI_PROJECT_QUOTA_SCOPE}:{credential.fingerprint[:12]}"
+        scope = self.settings.GEMINI_PROJECT_QUOTA_SCOPE
         _LOGGER.info("creative_gemini_credential_resolved tenant_id=%s credential_source=%s credential_fingerprint_prefix=%s effective_quota_scope=%s model=%s", tenant_id, credential.source, credential.fingerprint[:12], scope, self.default_model)
         return credential
 
@@ -85,7 +86,7 @@ class RuntimeCreativeGeminiProvider:
         if cached is not None and cached.expires_at > now:
             self._providers[credential.fingerprint] = cached
             return cached.provider
-        scope = f"{self.settings.GEMINI_PROJECT_QUOTA_SCOPE}:{credential.fingerprint[:12]}"
+        scope = self.settings.GEMINI_PROJECT_QUOTA_SCOPE
         coordinator = _CredentialQuotaCoordinator(self.session_factory, scope, self.settings.gemini_project_daily_request_limit)
         provider = self._provider_factory(credential.secret, model=self.settings.GEMINI_MODEL, timeout_seconds=self.settings.GEMINI_TIMEOUT_SECONDS, model_pool=self.settings.gemini_model_pool, model_limits=self.settings.gemini_model_limits, cooldown_seconds=self.settings.GEMINI_MODEL_COOLDOWN_SECONDS, quota_coordinator=coordinator)
         self._providers[credential.fingerprint] = _CachedProvider(provider, now + self._cache_ttl)

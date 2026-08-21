@@ -46,6 +46,40 @@ export type DashboardResult = {
   unauthorized: boolean;
 };
 
+const emptyMediaStage = (key: string, label: string): AiOpsMediaDashboard["image"] => ({
+  key, label, queued: 0, eligible_now: 0, running: 0, completed: 0,
+  failed: 0, waiting_rate_limit: 0, state: "idle",
+});
+
+export function normalizeMediaDashboard(
+  value: AiOpsMediaDashboard | null | undefined,
+): AiOpsMediaDashboard | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<AiOpsMediaDashboard>;
+  const image = source.image && typeof source.image === "object"
+    ? { ...emptyMediaStage("asset_analyze", "Image analysis"), ...source.image }
+    : emptyMediaStage("asset_analyze", "Image analysis");
+  const video = source.video && typeof source.video === "object"
+    ? { ...emptyMediaStage("video_analyze", "Video analysis"), ...source.video }
+    : emptyMediaStage("video_analyze", "Video analysis");
+  const videoIndexing = source.video_indexing && typeof source.video_indexing === "object"
+    ? { ...emptyMediaStage("video_search_index", "Video indexing"), ...source.video_indexing }
+    : emptyMediaStage("video_search_index", "Video indexing");
+  return {
+    ...source,
+    image,
+    video,
+    video_indexing: videoIndexing,
+    pipeline: {
+      image: Array.isArray(source.pipeline?.image) ? source.pipeline.image : [image],
+      video: Array.isArray(source.pipeline?.video) ? source.pipeline.video : [video, videoIndexing],
+    },
+    recent_video: Array.isArray(source.recent_video) ? source.recent_video : [],
+    workers: Array.isArray(source.workers) ? source.workers : [],
+    generated_at: typeof source.generated_at === "string" ? source.generated_at : new Date(0).toISOString(),
+  };
+}
+
 export function normalizePipelineSnapshot(value: PipelineSnapshot | null | undefined): PipelineSnapshot | null | undefined {
   if (!value) return value;
   const recent = (value as unknown as { recent_assets?: unknown }).recent_assets;
@@ -121,7 +155,7 @@ export async function fetchAiOperationsDashboard(
       // The pipeline snapshot was introduced after the original AI Operations API.
       // A rolling deployment may briefly serve the prior API; keep AI metrics usable.
       pipeline: pipelineUnavailable ? undefined : normalizePipelineSnapshot(value<PipelineSnapshot | null>(9, null)),
-      media: value<AiOpsMediaDashboard | null>(10, null),
+      media: normalizeMediaDashboard(value<AiOpsMediaDashboard | null>(10, null)),
     },
   };
 }

@@ -76,7 +76,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             path.parent.mkdir()
             path.write_bytes(b"proxy")
             chunk = PreparedVideoChunk(0, path, 0, 1000, 1000, path.stat().st_size, 640, 360)
-            selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope:fp")
+            selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope")
             analysis_result = SimpleNamespace(metadata_json={"summary": "ok"}, usage_json={"tokens": 1}, provider_metadata_json={"analysis_mode": "free_scan", "media_resolution": "MEDIA_RESOLUTION_LOW", "estimated_input_tokens": 8110})
             with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
@@ -87,6 +87,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
                 result = VideoAnalyzeJobHandler(self._settings())(self._context(asset.id))
             self.assertEqual(result.outcome.value, "completed")
             resolver.return_value.resolve.assert_called_once_with("tenant-a")
+            self.assertEqual(planner.call_args.kwargs["quota_scope"], "scope")
             self.assertEqual(planner.return_value.reserve.call_count, 1)
             self.assertEqual(analysis_type.return_value.analyze_chunk.call_count, 1)
             proxy_type.return_value.cleanup.assert_called_once()
@@ -136,7 +137,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             for index in range(3):
                 path = work / f"{index:05d}.mp4"; path.write_bytes(b"proxy")
                 chunks.append(PreparedVideoChunk(index, path, index * 1000, (index + 1) * 1000, 1000, path.stat().st_size, 640, 360))
-            selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope:fp")
+            selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope")
             analysis_result = SimpleNamespace(metadata_json={"summary": "ok"}, usage_json={"tokens": 1}, provider_metadata_json={"analysis_mode": "free_scan", "media_resolution": "MEDIA_RESOLUTION_LOW", "estimated_input_tokens": 8110})
             with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)

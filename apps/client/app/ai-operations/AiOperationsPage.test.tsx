@@ -7,6 +7,7 @@ import {
   cancelAiOperationsJob,
   fetchAiOperationsDashboard,
   filtersFromSearch,
+  normalizeMediaDashboard,
   normalizePipelineSnapshot,
   retryAiOperationsJob,
   retryAiOperationsJobsByError,
@@ -199,6 +200,30 @@ describe("AI Operations date range", () => {
     expect(markup).toContain("Last 3 months");
     expect(markup).toContain("Last 6 months");
     expect(markup).toContain("All time");
+  });
+});
+
+describe("AI Operations media dashboard compatibility", () => {
+  it("normalizes a partial media response before the Video AI view renders", () => {
+    const media = normalizeMediaDashboard({
+      image: {
+        key: "asset_analyze", label: "Image analysis", queued: 1,
+        eligible_now: 1, running: 0, completed: 2, failed: 0,
+        waiting_rate_limit: 0,
+      },
+    } as AiOpsDashboardData["media"]);
+    expect(media?.recent_video).toEqual([]);
+    expect(media?.video.queued).toBe(0);
+    expect(media?.video_indexing.completed).toBe(0);
+    expect(() => renderToStaticMarkup(<AiOperationsContent
+      data={{ ...data, media }}
+      filters={filters}
+      tab="overview"
+      media="video"
+      onTab={noop}
+      onFilters={noop}
+      onRetry={noop}
+    />)).not.toThrow();
   });
 });
 

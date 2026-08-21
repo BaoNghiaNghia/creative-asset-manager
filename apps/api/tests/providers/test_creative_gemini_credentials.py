@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import asyncio
 import unittest
+from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -60,24 +61,60 @@ class CreativeGeminiCredentialTest(unittest.TestCase):
             CreativeGeminiCredentialResolver(self.sessions, Settings(GEMINI_API_KEY="env")).resolve("tenant-a")
         self.assertEqual(missing.exception.code, "creative_credential_encryption_unavailable")
 
-    def test_rotation_creates_a_new_quota_and_cooldown_boundary_without_restart(self):
+    def test_rotation_keeps_the_project_quota_boundary_without_restart(self):
+        settings = Settings(
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=KEY,
+            GEMINI_API_KEY="env-creative-key-0000",
+            GEMINI_MODEL_POOL="model",
+            GEMINI_MODEL_LIMITS='{"model":{"rpm":1,"tpm":1,"rpd":1}}',
+            GEMINI_PROJECT_DAILY_REQUEST_LIMIT=1,
+        )
         captured = []
+
         class FakeProvider:
             provider_name = "gemini"; supports_single = True; supports_batch = True
+
             def __init__(self, key, **kwargs):
-                self.key, self.default_model, self.coordinator = key, kwargs["model"], kwargs["quota_coordinator"]
-        provider = RuntimeCreativeGeminiProvider(self.settings, self.sessions, provider_factory=lambda key, **kwargs: (captured.append((key, kwargs["quota_coordinator"].quota_scope)) or FakeProvider(key, **kwargs)))
-        resolver = CreativeGeminiCredentialResolver(self.sessions, self.settings)
+                self.key = key
+                self.default_model = kwargs["model"]
+                self.coordinator = kwargs["quota_coordinator"]
+
+        provider = RuntimeCreativeGeminiProvider(
+            settings,
+            self.sessions,
+            provider_factory=lambda key, **kwargs: (
+                captured.append((key, kwargs["quota_coordinator"]))
+                or FakeProvider(key, **kwargs)
+            ),
+        )
+        resolver = CreativeGeminiCredentialResolver(self.sessions, settings)
         first = resolver.resolve("tenant-a")
         provider._delegate_for("tenant-a", first)
         with self.sessions() as session:
-            CreativeAiCredentialRepository(session, creative_credential_cipher(self.settings)).replace("tenant-a", secret="creative-rotated-key-5678")
+            CreativeAiCredentialRepository(
+                session, creative_credential_cipher(settings)
+            ).replace("tenant-a", secret="creative-rotated-key-5678")
             session.commit()
         second = resolver.resolve("tenant-a")
         provider._delegate_for("tenant-a", second)
+
         self.assertNotEqual(first.fingerprint, second.fingerprint)
-        self.assertEqual([row[0] for row in captured], ["env-creative-key-0000", "creative-rotated-key-5678"])
-        self.assertNotEqual(captured[0][1], captured[1][1])
+        self.assertEqual(
+            [row[0] for row in captured],
+            ["env-creative-key-0000", "creative-rotated-key-5678"],
+        )
+        self.assertEqual(
+            captured[0][1].quota_scope, settings.GEMINI_PROJECT_QUOTA_SCOPE
+        )
+        self.assertEqual(captured[0][1].quota_scope, captured[1][1].quota_scope)
+
+        now = datetime(2040, 1, 1, tzinfo=timezone.utc)
+        self.assertIsNone(
+            captured[0][1].reserve_request(model="model", rpd=1, now=now)
+        )
+        denied = captured[1][1].reserve_request(model="model", rpd=1, now=now)
+        self.assertIsNotNone(denied)
+        self.assertEqual(denied.reason, "project_rpd_exhausted")
 
     def test_missing_everything_is_explicitly_unavailable(self):
         with self.assertRaises(CreativeCredentialError) as context:

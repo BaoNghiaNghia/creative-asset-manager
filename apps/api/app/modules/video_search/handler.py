@@ -103,7 +103,10 @@ class VideoAnalyzeJobHandler:
         except CreativeCredentialError:
             return JobHandlerResult.non_retryable("video_gemini_credential_unavailable", "Video Gemini credential is unavailable.")
 
-        quota_scope = f"{settings.GEMINI_PROJECT_QUOTA_SCOPE}:{credential.fingerprint[:12]}"
+        # Gemini RPD is applied per Google project, not per API key. Keep the
+        # configured project scope stable across credential rotation and share it
+        # with image analysis.
+        quota_scope = settings.GEMINI_PROJECT_QUOTA_SCOPE
         with context.dependencies.session_factory() as session:
             planner = VideoFreeTierModelPlanner(settings, GeminiProjectQuotaRepository(session), quota_scope=quota_scope)
             decision = planner.select_pinned(model=pinned_model, duration_ms=duration_ms) if pinned_model else planner.select(duration_ms=duration_ms)
