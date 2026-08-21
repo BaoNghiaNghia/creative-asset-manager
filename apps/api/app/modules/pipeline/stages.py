@@ -46,7 +46,7 @@ class ProviderDownloadStage:
         try:
             async with self.resolver.open(tenant_id=tenant_id, pipeline=pipeline) as stream:
                 path, size = await self._bounded_copy(stream.body)
-                mime_type = self._validate(path, stream.content_type)
+                mime_type = self._validate(path, stream.content_type, self._source_asset_mime_type(tenant_id, pipeline.source_asset_id))
             with self.session_factory() as session:
                 source_asset_id = pipeline.source_asset_id
                 if not source_asset_id:
@@ -87,16 +87,37 @@ class ProviderDownloadStage:
             path.unlink(missing_ok=True)
             raise
 
-    def _validate(self, path: Path, declared_type: str) -> str:
+    def _source_asset_mime_type(self, tenant_id: str, source_asset_id: str | None) -> str:
+        if not source_asset_id:
+            return ""
+        with self.session_factory() as session:
+            source_asset = AssetRegistryRepository(session).get_source_asset(tenant_id, source_asset_id)
+            return source_asset.mime_type if source_asset is not None else ""
+
+    @staticmethod
+    def _has_avif_ftyp(header: bytes) -> bool:
+        if len(header) < 16 or header[4:8] != b"ftyp":
+            return False
+        box_size = int.from_bytes(header[:4], "big")
+        if box_size < 16 or box_size > len(header):
+            return False
+        brands = (header[8:12], *(header[offset:offset + 4] for offset in range(16, box_size, 4)))
+        return any(brand in {b"avif", b"avis"} for brand in brands)
+
+    def _validate(self, path: Path, declared_type: str, source_mime_type: str = "") -> str:
         with path.open("rb") as source:
-            header = source.read(32)
+            header = source.read(4096)
         normalized_type = (declared_type or "").strip().lower()
-        avif_signature = (len(header) >= 12 and header[4:8] == bytes(("ftyp"), "ascii") and (bytes(("avif"), "ascii") in header[8:] or bytes(("avis"), "ascii") in header[8:]))
+        normalized_source_type = (source_mime_type or "").strip().lower()
+        avif_signature = self._has_avif_ftyp(header)
         image = (
             header.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a"))
             or (len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP")
-            or (normalized_type == "image/avif" and avif_signature)
+            or avif_signature
         )
+        if normalized_type == "image/avif" or normalized_source_type == "image/avif":
+            if not avif_signature:
+                raise InvalidPipelineContent("invalid AVIF file signature")
         video = len(header) >= 12 and header[4:8] == b"ftyp"
         if image:
             try:
@@ -107,6 +128,8 @@ class ProviderDownloadStage:
                     decoded.verify()
             except (UnidentifiedImageError, OSError) as exc:
                 raise InvalidPipelineContent("image decode validation failed") from exc
+            if avif_signature:
+                return "image/avif"
             return declared_type if declared_type.startswith("image/") else "image/unknown"
         if video:
             return declared_type if declared_type.startswith("video/") else "video/mp4"

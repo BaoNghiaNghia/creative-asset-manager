@@ -2,7 +2,7 @@ import io
 import tempfile
 import unittest
 
-from PIL import Image
+from PIL import Image, features
 
 from app.domain.providers.contracts import (
     OpenStoredAssetInput,
@@ -127,6 +127,19 @@ class AnalysisImagePreparerTest(unittest.IsolatedAsyncioTestCase):
             self.assertLessEqual(prepared.width, 2048)
             self.assertLessEqual(prepared.height, 2048)
             self.assertLessEqual(prepared.width * prepared.height, 4_194_304)
+
+    async def test_real_avif_is_normalized_to_rgb_jpeg(self):
+        self.assertTrue(features.check("avif"))
+        source = io.BytesIO()
+        Image.new("RGBA", (48, 24), (0, 128, 255, 128)).save(source, format="AVIF")
+        result = await AnalysisImagePreparer(FakeStorage(source.getvalue())).prepare(
+            OpenStoredAssetInput(tenant_id="tenant-a", asset_id="asset-avif", remote_file_id="file-avif")
+        )
+        self.assertEqual(result.mime_type, "image/jpeg")
+        with Image.open(io.BytesIO(result.content)) as prepared:
+            self.assertEqual(prepared.format, "JPEG")
+            self.assertEqual(prepared.mode, "RGB")
+            self.assertEqual(prepared.size, (48, 24))
 
     async def test_storage_errors_preserve_safe_classification(self):
         cases = (

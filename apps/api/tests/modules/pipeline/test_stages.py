@@ -62,7 +62,7 @@ class ProviderDownloadStageTest(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
 
-    def pipeline(self, source_type, source_key, external_id, filename):
+    def pipeline(self, source_type, source_key, external_id, filename, mime_type="image/png"):
         with self.sessions() as session:
             assets = AssetRegistryRepository(session)
             source = assets.upsert_external_source(
@@ -70,7 +70,7 @@ class ProviderDownloadStageTest(unittest.TestCase):
             )
             source_asset = assets.upsert_source_asset(
                 tenant_id="tenant-a", external_source_id=source.id,
-                external_asset_id=external_id, filename=filename, mime_type="image/png",
+                external_asset_id=external_id, filename=filename, mime_type=mime_type,
             )
             pipeline = AssetPipelineRepository(session).get_or_create(
                 tenant_id="tenant-a", origin_type="source_asset",
@@ -115,6 +115,23 @@ class ProviderDownloadStageTest(unittest.TestCase):
             self.sessions, BytesResolver(avif("green"), "image/avif")
         ).execute(tenant_id="tenant-a", pipeline=pipeline))
         self.assertIsNotNone(result.asset_id)
+
+    def test_avif_with_generic_response_type_remains_an_image(self):
+        pipeline = self.pipeline("google_drive", "drive", "avif-generic", "one.avif", "image/avif")
+        result = asyncio.run(ProviderDownloadStage(
+            self.sessions, BytesResolver(avif("green"), "application/octet-stream")
+        ).execute(tenant_id="tenant-a", pipeline=pipeline))
+        with self.sessions() as session:
+            asset = AssetRegistryRepository(session).find_linked_asset("tenant-a", result.source_asset_id)
+            self.assertEqual(asset.mime_type, "image/avif")
+
+    def test_malformed_avif_ftyp_is_rejected(self):
+        pipeline = self.pipeline("google_drive", "drive", "bad-avif", "one.avif", "image/avif")
+        malformed = (24).to_bytes(4, "big") + b"ftypavif" + b"0000"
+        with self.assertRaises(ValueError):
+            asyncio.run(ProviderDownloadStage(
+                self.sessions, BytesResolver(malformed, "application/octet-stream")
+            ).execute(tenant_id="tenant-a", pipeline=pipeline))
 
     def test_byte_limit_raises_stable_oversized_error(self):
         pipeline = self.pipeline("google_drive", "drive", "large", "large.png")

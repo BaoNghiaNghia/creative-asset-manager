@@ -7,7 +7,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError, features
 
 from app.domain.providers.contracts import (
     AssetStorageProvider,
@@ -45,6 +45,10 @@ class PreparedAnalysisImage:
     content_hash: str
     width: int
     height: int
+
+
+def avif_decoder_capabilities() -> dict[str, bool]:
+    return {"pillow_avif": bool(features.check("avif")), "libvips_available": _load_vips() is not None}
 
 
 def _load_vips():
@@ -92,6 +96,8 @@ class AnalysisImagePreparer:
                 source_format = (opened.format or "").upper()
                 if source_format not in {"JPEG", "MPO", "PNG", "WEBP", "TIFF", "AVIF", "HEIF", "HEIC", "GIF", "BMP"}:
                     raise AnalysisImageError("Managed asset is not a supported image format.", code="analysis_image_unsupported", retryable=False)
+                if source_format == "AVIF" and not features.check("avif"):
+                    raise AnalysisImageError("No safe AVIF decoder is available.", code="analysis_avif_decoder_unavailable", retryable=False)
                 source_width, source_height = opened.size
                 source_pixels = source_width * source_height
                 if source_width <= 0 or source_height <= 0 or source_width > self.limits.max_source_width or source_height > self.limits.max_source_height:
@@ -102,19 +108,27 @@ class AnalysisImagePreparer:
                 use_vips = source_format not in {"JPEG", "MPO"} and max(source_width, source_height) > max(self.limits.max_width, self.limits.max_height)
                 vips = _load_vips() if use_vips else None
                 if use_vips and vips is not None:
-                    vips_image = vips.Image.thumbnail(source_path, max(self.limits.max_width, self.limits.max_height), size="down")
-                    vips_image = vips_image.autorot()
-                    if vips_image.hasalpha():
-                        vips_image = vips_image.flatten(background=[255, 255, 255])
-                    if vips_image.bands == 1:
-                        vips_image = vips_image.colourspace("srgb")
-                    width, height = vips_image.width, vips_image.height
-                    with tempfile.NamedTemporaryFile(prefix="cam-analysis-ready-", suffix=".jpg", dir=self.temp_dir, delete=False) as output:
-                        output_path = output.name
-                    vips_image.write_to_file(output_path, Q=self.limits.jpeg_quality, optimize_coding=True, interlace=True)
-                    reduced_decode = True
-                    decoder = "libvips"
-                else:
+                    try:
+                        vips_image = vips.Image.thumbnail(source_path, max(self.limits.max_width, self.limits.max_height), size="down")
+                        vips_image = vips_image.autorot()
+                        if vips_image.hasalpha():
+                            vips_image = vips_image.flatten(background=[255, 255, 255])
+                        if vips_image.bands == 1:
+                            vips_image = vips_image.colourspace("srgb")
+                        width, height = vips_image.width, vips_image.height
+                        with tempfile.NamedTemporaryFile(prefix="cam-analysis-ready-", suffix=".jpg", dir=self.temp_dir, delete=False) as output:
+                            output_path = output.name
+                        vips_image.write_to_file(output_path, Q=self.limits.jpeg_quality, optimize_coding=True, interlace=True)
+                        reduced_decode = True
+                        decoder = "libvips"
+                    except Exception:
+                        if source_format != "AVIF" or source_pixels > self.limits.max_decode_pixels // 2:
+                            raise
+                        if output_path is not None:
+                            os.unlink(output_path)
+                            output_path = None
+                        vips = None
+                if not (use_vips and vips is not None):
                     if use_vips and source_pixels > self.limits.max_decode_pixels // 2:
                         raise AnalysisImageError("Safe native decoder is unavailable for this image.", code="analysis_image_decoder_unavailable", retryable=False)
                     decoder = "pillow"
