@@ -228,8 +228,8 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} />
-        : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
+      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} media={media} onMedia={onMedia} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} />
+        : tab === "overview" ? <Overview data={data} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} inventoryPermissions={permissions} />
@@ -354,7 +354,10 @@ function ScanStatusIcon({ status }: { status: string }) {
   </span>;
 }
 
-export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipeline?: PipelineSnapshot | null; onPage?: (page: number, pageSize: 25 | 50 | 100) => void }) {
+export function PipelineOverview({ pipeline, media = "image", onMedia = () => undefined, onPage = () => undefined }: {
+  pipeline?: PipelineSnapshot | null; media?: "image" | "video"; onMedia?: (media: "image" | "video") => void;
+  onPage?: (page: number, pageSize: 25 | 50 | 100) => void;
+}) {
   if (pipeline === undefined) return <DashboardState kind="empty" label="Tổng quan pipeline chưa khả dụng cho đến khi API được cập nhật và khởi động lại." />;
   if (pipeline === null) return <DashboardState kind="empty" label="Chưa có hoạt động pipeline cho workspace này" />;
   const scan = pipeline.latest_source_sync;
@@ -362,6 +365,10 @@ export function PipelineOverview({ pipeline, onPage = () => undefined }: { pipel
   const needsAttentionStages = pipeline.stages.filter(stage => stage.needs_attention_assets > 0 || stage.processing_assets > 0 || stage.queued_assets > 0 || stage.waiting_assets > 0);
   const settledStages = pipeline.stages.filter(stage => !needsAttentionStages.includes(stage) && stage.completed_assets > 0);
   return <div className="ops-content pipeline-content">
+    <div className="ops-media-tabs" role="tablist" aria-label="Pipeline media type">
+      {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
+    </div>
+    {media === "video" && <p className="ops-ai-scope-note">Video pipeline currently uses the same operational layout as Image AI. Video analysis and indexing remain separate processing stages.</p>}
     <section className="pipeline-summary" aria-label="Tóm tắt pipeline">
       <PipelineMetric icon="eligible" label="Ảnh đủ điều kiện" value={pipeline.overall.eligible_assets ?? pipeline.overall.supported_assets} detail="Bản ghi ảnh duy nhất từ các nguồn đang hoạt động" />
       <PipelineMetric icon="ready" label="Sẵn sàng tìm kiếm" value={pipeline.overall.search_ready_assets ?? pipeline.overall.completed} detail={pipeline.overall.indexed_percentage === null ? "Đang tính tiến độ" : String(pipeline.overall.indexed_percentage) + "% ảnh đủ điều kiện"} tone="success" />
@@ -519,7 +526,6 @@ function opsKpiIcon(label: string): string {
 }
 
 function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashboardData["media"]>; media: "image" | "video" }) {
-  const stages = media === "image" ? dashboard.pipeline.image : dashboard.pipeline.video;
   const primary = media === "image" ? dashboard.image : dashboard.video;
   const cards = [
     { label: "Processed", value: primary.completed, detail: "Completed AI analyses", tone: "success" },
@@ -528,56 +534,52 @@ function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashb
     { label: "Queued", value: primary.queued, detail: primary.eligible_now + " eligible now", tone: "neutral" },
     ...(media === "video" ? [{ label: "Indexed", value: dashboard.video_indexing.completed, detail: "Video search indexing (not AI)", tone: "neutral" }] : []),
   ];
-  const chartData = stages.map(stage => ({ label: stage.label, values: { Completed: stage.completed, Failed: stage.failed, Running: stage.running, Queued: stage.queued } }));
   return <>
     <section className="ops-kpis" aria-label={media + " AI processing summary"}>{cards.map(card => <article key={card.label} className={"ops-kpi ops-kpi-" + card.tone}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value.toLocaleString()}</strong><small>{card.detail}</small></article>)}</section>
-    <section className="ops-charts">
-      <AccessibleChart title={media === "image" ? "Image AI processing" : "Video pipeline"} description={media === "image" ? "Image analysis outcomes by stage." : "Video analysis and indexing are distinct stages."} data={chartData} />
-      <AccessibleChart title="Stage queue" description="Current queued and running work by stage." data={stages.map(stage => ({ label: stage.label, values: { Queued: stage.queued, Running: stage.running } }))} />
-    </section>
   </>;
 }
 
-function Overview({ data, media, onMedia, canManage, onRefresh }: { data: AiOpsDashboardData; media: "image" | "video"; onMedia: (value: "image" | "video") => void; canManage: boolean; onRefresh: () => void }) {
-  const dashboard = data.media;
-  if (!dashboard && !data.summary && !data.daily.length) return <DashboardState kind="empty" />;
-  const workers = dashboard?.workers || [];
-  return <div className="ops-content">
-    <div className="ops-media-tabs" role="tablist" aria-label="Media AI type">
-      {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
-    </div>
-    <p className="ops-ai-scope-note">{media === "image" ? "Image AI covers image analysis. Pipeline indexing is shown separately." : "Video AI analysis and video indexing are separate stages. Indexing is not AI completion, failure, running, or cost."}</p>
-    <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
-    {dashboard?.image.state === "waiting_rate_limit" && media === "image" && <section className="ops-quota-notice" role="status"><div><span className="ops-quota-badge">Schedule</span><div><strong>Waiting for rate limit</strong><p>{dashboard.image.waiting_rate_limit} image analyses will retry automatically. No provider request was sent.</p></div></div></section>}
-    {dashboard ? <>
-      <MediaOverview dashboard={dashboard} media={media} />
-      <section className="ops-worker-panels" aria-label="Worker status">{workers.map(worker => <article key={worker.role} className="ops-worker-panel"><strong>{worker.role === "image" ? "Image worker" : "Video worker"}</strong><span>{worker.probe === "available" ? (worker.ready ? "Ready" : "Not ready") : "Health unavailable"}</span><small>{worker.active_jobs} active jobs{worker.current_job_type ? " · " + worker.current_job_type : ""}</small></article>)}</section>
-    </> : <LegacyOverview data={data} />}
-  </div>;
-}
-
-function LegacyOverview({ data }: { data: AiOpsDashboardData }) {
+function Overview({ data, canManage, onRefresh }: { data: AiOpsDashboardData; canManage: boolean; onRefresh: () => void }) {
   const summary = data.summary;
+  if (!summary && !data.daily.length) return <DashboardState kind="empty" />;
+  const processedToday = (data.today?.completed || 0) + (data.today?.failed || 0);
   const cards = [
-    ["Processed today", (data.today?.completed || 0) + (data.today?.failed || 0)],
-    ["Hoàn tất", summary?.completed || 0], ["Failed", summary?.failed || 0],
-    ["Budget blocked", summary?.budget_blocked || 0], ["Đang chạy", summary?.running || 0], ["Currently processing", summary?.running || 0],
-    ["Đã xếp hàng", summary?.queued || 0], ["Chờ bắt đầu", summary?.queued || 0], ["Success rate", ((summary?.success_rate || 0) * 100).toFixed(1) + "%"],
-    ["Estimated cost today", formatCost(data.today?.cost?.estimated_cost_micros, data.today?.cost?.currency)],
-    ["Estimated cost this month", formatCost(data.month?.cost?.estimated_cost_micros, data.month?.cost?.currency)],
+    { label: "Processed today", value: processedToday, detail: "Hoàn tất and failed today", tone: "neutral" },
+    { label: "Hoàn tất", value: summary?.completed || 0, detail: "Finished successfully", tone: "success" },
+    { label: "Failed", value: summary?.failed || 0, detail: "Cần xử lý", tone: "danger" },
+    { label: "Budget blocked", value: summary?.budget_blocked || 0, detail: "Stopped by budget policy", tone: "danger" },
+    { label: "Rate-limit scheduling delay", value: summary?.local_rate_limited || 0, detail: "Locally scheduled model starts", tone: "warning" },
+    { label: "Đang chờ for quota", value: (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0), detail: "Provider quota or cooldown", tone: "warning" },
+    { label: "Đang chạy", value: summary?.running || 0, detail: "Currently processing", tone: "info" },
+    { label: "Đã xếp hàng", value: summary?.queued || 0, detail: "Chờ bắt đầu", tone: "neutral" },
+    { label: "Success rate", value: `${((summary?.success_rate || 0) * 100).toFixed(1)}%`, detail: "Hoàn tất out of terminal jobs", tone: "success" },
+    { label: "Estimated cost today", value: formatCost(data.today?.cost?.estimated_cost_micros, data.today?.cost?.currency), detail: "Projected usage for today", tone: "neutral" },
+    { label: "Estimated cost this month", value: formatCost(data.month?.cost?.estimated_cost_micros, data.month?.cost?.currency), detail: "Projected monthly usage", tone: "neutral" },
   ];
-  const quota = (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0);
-  return <>
-    {quota > 0 && <section className="ops-quota-notice"><strong>Gemini quota or provider cooldown is active</strong><p>{quota} analyses will retry automatically</p><span>Tiếp provider retry</span></section>}
-    <section className="ops-kpis">{cards.map(([label, value]) => <article key={label} className="ops-kpi"><span>{label}</span><strong>{value}</strong></article>)}</section>
+  const nextQuotaRetry = summary?.next_provider_retry_at ?? summary?.next_quota_retry_at;
+  const nextLocalRetry = summary?.next_local_rate_limit_retry_at;
+  const localScheduled = summary?.local_rate_limited || 0;
+  const quotaScheduled = (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0);
+  return <div className="ops-content">
+    <p className="ops-ai-scope-note">These metrics cover AI analysis only. Tải xuống, storage, projection, and indexing are shown in Pipeline Overview.</p>
+    <SearchCoverageCard coverage={data.coverage} canManage={canManage} onRefresh={onRefresh} />
+    {localScheduled > 0 && nextLocalRetry && <section className="ops-quota-notice" role="status" aria-label="AI model scheduling retry status">
+      <div><span className="ops-quota-badge">Schedule</span><div><strong>Rate-limit scheduling delay</strong><p>{localScheduled} {localScheduled === 1 ? "analysis is" : "analyses are"} waiting for the next local model-start slot. No provider request was sent.</p></div></div>
+      <time dateTime={nextLocalRetry}><span>Tiếp local slot</span>{new Date(nextLocalRetry).toLocaleString()}</time>
+    </section>}
+    {quotaScheduled > 0 && nextQuotaRetry && <section className="ops-quota-notice" role="status" aria-label="Gemini quota retry status">
+      <div><span className="ops-quota-badge">Quota</span><div><strong>Gemini quota or provider cooldown is active</strong><p>{quotaScheduled} {quotaScheduled === 1 ? "analysis" : "analyses"} will retry automatically after the provider allows another request.</p></div></div>
+      <time dateTime={nextQuotaRetry}><span>Tiếp provider retry</span>{new Date(nextQuotaRetry).toLocaleString()}</time>
+    </section>}
+    <section className="ops-kpis" aria-label="AI processing summary">{cards.map(card => <article key={card.label} className={`ops-kpi ops-kpi-${card.tone}`}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
     <section className="ops-charts">
-      <AccessibleChart title="Daily processing" description="Completed and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
-      <AccessibleChart title="Daily estimated cost by provider" description="Estimated provider cost." data={dailyProviderCostChart(data.daily)} />
-      <AccessibleChart title="Provider and mode volume" description="Analysis volume." data={providerVolumeChart(data.providers)} />
-      <AccessibleChart title="Failure categories" description="Failure codes." data={failureChart(data.failures)} />
-      <AccessibleChart title="Latency" description="Latency." data={[{ label: "Latency", values: { Average: summary?.latency.average_ms || 0, "p95": summary?.latency.p95_ms || 0 } }]} />
+      <AccessibleChart title="Daily processing" description="Hoàn tất and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
+      <AccessibleChart title="Daily estimated cost by provider" description="Estimated provider cost aggregated by the server for the selected period." data={dailyProviderCostChart(data.daily)} valueLabel={value => formatCost(value)} />
+      <AccessibleChart title="Provider and mode volume" description="Analysis volume grouped by provider and processing mode." data={providerVolumeChart(data.providers)} />
+      <AccessibleChart title="Failure categories" description="Stable internal failure codes; raw exception messages are excluded." data={failureChart(data.failures)} />
+      <AccessibleChart title="Latency" description="Average and p95 provider latency for the selected period." data={[{ label: "Latency", values: { Average: summary?.latency.average_ms || 0, "p95": summary?.latency.p95_ms || 0 } }]} valueLabel={value => `${Math.round(value)} ms`} />
     </section>
-  </>;
+  </div>;
 }
 
 export function pageFilters(filters: AiOpsFilters, page: number): AiOpsFilters {
