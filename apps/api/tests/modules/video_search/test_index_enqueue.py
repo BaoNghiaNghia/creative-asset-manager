@@ -24,5 +24,8 @@ class IndexEnqueueTest(unittest.TestCase):
   self.assertEqual(len(jobs),3)
   self.assertEqual({job.entity_id for job in jobs},{a.id,b.id,c.id})
   self.assertEqual({job.payload_json["analysis_run_id"] for job in jobs},{a.id,b.id,c.id})
+  self.assertEqual({job.priority for job in jobs},{10})
+  self.assertEqual({job.provider_key for job in jobs},{"elasticsearch"})
+  self.assertEqual({job.provider_scope for job in jobs},{"video"})
   self.assertEqual(len({job.idempotency_key for job in jobs}),3)
 if __name__=="__main__":unittest.main()
