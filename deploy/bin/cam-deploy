@@ -18,9 +18,11 @@ CAM_ENV_FILE="${CAM_ENV_FILE:-/etc/creative-asset-manager/production.env}"
 CAM_SERVICE_USER="${CAM_SERVICE_USER:-creative-assets}"
 CAM_SERVICE_GROUP="${CAM_SERVICE_GROUP:-creative-assets}"
 CAM_API_SERVICE="${CAM_API_SERVICE:-creative-asset-manager-api.service}"
-CAM_WORKER_SERVICE="${CAM_WORKER_SERVICE:-creative-asset-manager-worker.service}"
+CAM_IMAGE_WORKER_SERVICE="${CAM_IMAGE_WORKER_SERVICE:-creative-asset-manager-image-worker.service}"
+CAM_VIDEO_WORKER_SERVICE="${CAM_VIDEO_WORKER_SERVICE:-creative-asset-manager-video-worker.service}"
 CAM_API_HEALTH_URL="${CAM_API_HEALTH_URL:-http://127.0.0.1:8000}"
-CAM_WORKER_HEALTH_URL="${CAM_WORKER_HEALTH_URL:-http://127.0.0.1:8081}"
+CAM_IMAGE_WORKER_HEALTH_URL="${CAM_IMAGE_WORKER_HEALTH_URL:-http://127.0.0.1:8081}"
+CAM_VIDEO_WORKER_HEALTH_URL="${CAM_VIDEO_WORKER_HEALTH_URL:-http://127.0.0.1:8082}"
 CAM_HEALTH_ATTEMPTS="${CAM_HEALTH_ATTEMPTS:-30}"
 CAM_HEALTH_INTERVAL_SECONDS="${CAM_HEALTH_INTERVAL_SECONDS:-2}"
 
@@ -317,8 +319,9 @@ restart_api() {
 
 restart_worker() {
     require_root
-    log "Requesting graceful worker restart via SIGTERM/systemd."
-    quiet_run "Worker graceful restart" systemctl restart "$CAM_WORKER_SERVICE"
+    log "Requesting graceful image and video worker restarts via SIGTERM/systemd."
+    quiet_run "Image worker graceful restart" systemctl restart "$CAM_IMAGE_WORKER_SERVICE"
+    quiet_run "Video worker graceful restart" systemctl restart "$CAM_VIDEO_WORKER_SERVICE"
 }
 
 wait_for_url() {
@@ -347,17 +350,26 @@ processing_enabled() {
         --name PROCESSING_JOBS_ENABLED >/dev/null 2>&1
 }
 
+verify_worker_instance_health() {
+    local name="$1"
+    local health_url="$2"
+    wait_for_url "$health_url/live" || die "$name worker liveness check failed."
+    wait_for_url "$health_url/health" || die "$name worker health endpoint failed."
+    if processing_enabled; then
+        wait_for_url "$health_url/ready" || die "Enabled $name worker is not ready."
+    fi
+}
+
 verify_worker_health() {
     require_root
     require_command curl
     require_command python3
-    wait_for_url "$CAM_WORKER_HEALTH_URL/live" || die "Worker liveness check failed."
-    wait_for_url "$CAM_WORKER_HEALTH_URL/health" || die "Worker health endpoint failed."
+    verify_worker_instance_health "Image" "$CAM_IMAGE_WORKER_HEALTH_URL"
+    verify_worker_instance_health "Video" "$CAM_VIDEO_WORKER_HEALTH_URL"
     if processing_enabled; then
-        wait_for_url "$CAM_WORKER_HEALTH_URL/ready" || die "Enabled worker is not ready."
-        log "Worker liveness, health and readiness checks passed."
+        log "Image and video worker liveness, health and readiness checks passed."
     else
-        log "Worker liveness and health checks passed; processing is disabled by policy."
+        log "Image and video worker liveness and health checks passed; processing is disabled by policy."
     fi
 }
 
@@ -423,11 +435,14 @@ print_diagnostics() {
     log "previous_release=$(safe_release_name "$CAM_PREVIOUS_LINK")"
     log "frontend_release=$(safe_release_name "$CAM_WEB_CURRENT_LINK")"
     log "api_service=$(service_state "$CAM_API_SERVICE")"
-    log "worker_service=$(service_state "$CAM_WORKER_SERVICE")"
+    log "image_worker_service=$(service_state "$CAM_IMAGE_WORKER_SERVICE")"
+    log "video_worker_service=$(service_state "$CAM_VIDEO_WORKER_SERVICE")"
     log "api_live_http=$(http_status "$CAM_API_HEALTH_URL/live")"
     log "api_ready_http=$(http_status "$CAM_API_HEALTH_URL/ready")"
-    log "worker_live_http=$(http_status "$CAM_WORKER_HEALTH_URL/live")"
-    log "worker_ready_http=$(http_status "$CAM_WORKER_HEALTH_URL/ready")"
+    log "image_worker_live_http=$(http_status "$CAM_IMAGE_WORKER_HEALTH_URL/live")"
+    log "image_worker_ready_http=$(http_status "$CAM_IMAGE_WORKER_HEALTH_URL/ready")"
+    log "video_worker_live_http=$(http_status "$CAM_VIDEO_WORKER_HEALTH_URL/live")"
+    log "video_worker_ready_http=$(http_status "$CAM_VIDEO_WORKER_HEALTH_URL/ready")"
     log "elasticsearch_http=$(http_status http://127.0.0.1:9200/_cluster/health)"
     if pg_isready -q -h 127.0.0.1 -p 5432 2>/dev/null; then
         log "postgresql=available"
@@ -458,9 +473,9 @@ Commands:
   switch-frontend-release RELEASE_ID      Atomically switch Nginx static files
   switch-release RELEASE_ID               Switch application and frontend symlinks
   restart-api                             Restart the native API service
-  restart-worker                          Gracefully restart the native worker
+  restart-worker                          Gracefully restart the native image and video workers
   verify-api                              Verify API /live and /ready
-  verify-worker                           Verify worker health and conditional readiness
+  verify-worker                           Verify image/video worker health and conditional readiness
   rollback-release                        Switch to previous release; never downgrade DB
   diagnostics                             Print bounded, secret-free operational status
 USAGE

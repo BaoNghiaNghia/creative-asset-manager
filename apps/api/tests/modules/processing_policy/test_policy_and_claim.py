@@ -14,6 +14,7 @@ from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing.bootstrap import globally_enabled_job_types
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
+from app.modules.processing.worker_roles import IMAGE_WORKER_JOB_TYPES, VIDEO_WORKER_JOB_TYPES
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel, TenantProcessingPolicyModel
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService, TenantPolicyCache
@@ -180,6 +181,32 @@ class ProcessingPolicyTest(unittest.TestCase):
         with self.sessions.begin() as session:
             session.get(TenantProcessingPolicyModel, "blocked-index").search_v2_enabled = False
         self.assertIsNone(self.claim("worker-two", ("video_search_index",)))
+
+    def test_role_allowlists_claim_only_their_own_jobs(self):
+        self.policy("tenant", total=4, ai=4)
+        image = self.job("tenant", "image-index", kind="asset_index", provider="elasticsearch", scope="search")
+        video = self.job("tenant", "video-index", kind="video_search_index", provider="elasticsearch", scope="search")
+        self.assertEqual(self.claim("video-worker", VIDEO_WORKER_JOB_TYPES).id, video)
+        self.assertEqual(self.claim("image-worker", IMAGE_WORKER_JOB_TYPES).id, image)
+
+    def test_image_and_video_roles_share_tenant_capacity_with_separate_provider_scopes(self):
+        self.policy("tenant", total=2, ai=2)
+        with self.sessions.begin() as session:
+            repository = ProcessingPolicyRepository(session)
+            repository.get_or_create_provider("tenant", "gemini", "ai")
+            repository.get_or_create_provider("tenant", "gemini", "video")
+        image = self.job("tenant", "image-ai", kind="asset_analyze", provider="gemini", scope="ai")
+        video = self.job("tenant", "video-ai", kind="video_analyze", provider="gemini", scope="video")
+        self.assertEqual(self.claim("image-worker", IMAGE_WORKER_JOB_TYPES).id, image)
+        self.assertEqual(self.claim("video-worker", VIDEO_WORKER_JOB_TYPES).id, video)
+
+    def test_video_claim_bypasses_older_image_backlog(self):
+        self.policy("tenant", total=4, ai=4)
+        self.job("tenant", "older-image", kind="asset_index", provider="elasticsearch", scope="search")
+        video = self.job("tenant", "newer-video", kind="video_search_index", provider="elasticsearch", scope="search")
+        claimed = self.claim("video-worker", VIDEO_WORKER_JOB_TYPES)
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, video)
 
     def test_worker_global_job_types_are_fail_closed(self):
         self.assertEqual(globally_enabled_job_types(Settings()), ())

@@ -47,6 +47,10 @@ from app.modules.storage.managed_cleanup_scheduler import ManagedStorageCleanupS
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
+from app.modules.processing.worker_roles import (
+    enabled_job_types_for_role,
+    runs_operational_schedulers,
+)
 from app.modules.source_sync.handler import SourceSyncJobHandler
 from app.modules.source_sync.scheduler import SourceSyncScheduler
 from app.providers.ai.factory import build_ai_provider_registry
@@ -127,8 +131,8 @@ def configure_worker_logging(level: str) -> logging.Logger:
     return logger
 
 
-def default_worker_id() -> str:
-    return f"{socket.gethostname()}-{os.getpid()}"
+def default_worker_id(role: str = "all") -> str:
+    return f"creativeasset-{role}-{socket.gethostname()}-{os.getpid()}"
 
 
 def probe_database(session_factory: Callable[[], Session]) -> None:
@@ -144,11 +148,23 @@ def build_worker_runtime(
     dependency_closers: tuple[Callable[[], Any], ...] = (),
     resources: Mapping[str, Any] | None = None,
 ) -> WorkerRuntime:
-    worker_id = settings.WORKER_ID or default_worker_id()
+    worker_role = settings.WORKER_ROLE
+    worker_id = settings.WORKER_ID or default_worker_id(worker_role)
+    allowed_job_types = enabled_job_types_for_role(
+        worker_role, globally_enabled_job_types(settings)
+    )
     probe_database(session_factory)
-    if settings.PROCESSING_JOBS_ENABLED and settings.RETENTION_CLEANUP_ENABLED:
+    if (
+        runs_operational_schedulers(worker_role)
+        and settings.PROCESSING_JOBS_ENABLED
+        and settings.RETENTION_CLEANUP_ENABLED
+    ):
         RetentionCleanupScheduler(session_factory, settings).schedule_known_tenants()
-    if settings.PROCESSING_JOBS_ENABLED and settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED:
+    if (
+        runs_operational_schedulers(worker_role)
+        and settings.PROCESSING_JOBS_ENABLED
+        and settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED
+    ):
         ManagedStorageCleanupScheduler(session_factory, settings).schedule_known_tenants()
     storage_provider = build_managed_storage_provider(settings)
     storage_configured = not isinstance(
@@ -189,13 +205,14 @@ def build_worker_runtime(
     return WorkerRuntime(
         config=WorkerRuntimeConfig(
             worker_id=worker_id,
+            worker_role=worker_role,
             enabled=settings.PROCESSING_JOBS_ENABLED,
             lease_seconds=settings.WORKER_LEASE_SECONDS,
             heartbeat_seconds=settings.WORKER_HEARTBEAT_SECONDS,
             idle_poll_seconds=settings.WORKER_IDLE_POLL_SECONDS,
             drain_timeout_seconds=settings.WORKER_DRAIN_TIMEOUT_SECONDS,
             enforce_tenant_policy=True,
-            allowed_job_types=globally_enabled_job_types(settings),
+            allowed_job_types=allowed_job_types,
         ),
         dependencies=dependencies,
         registry=build_handler_registry(
@@ -249,10 +266,11 @@ def run_worker(
             settings.WORKER_HEALTH_PORT,
         )
         health_server.start()
-        source_sync_scheduler = SourceSyncScheduler(
-            session_factory, settings, logger=worker_logger,
-        )
-        source_sync_scheduler.start()
+        if runs_operational_schedulers(runtime.config.worker_role):
+            source_sync_scheduler = SourceSyncScheduler(
+                session_factory, settings, logger=worker_logger,
+            )
+            source_sync_scheduler.start()
 
         if install_signal_handlers:
             def stop(_signum: int, _frame: object) -> None:
@@ -269,7 +287,9 @@ def run_worker(
         worker_logger.info(
             "worker_configuration",
             extra={
+                "worker_role": runtime.config.worker_role,
                 "worker_id": runtime.config.worker_id,
+                "allowed_job_types": runtime.config.allowed_job_types,
                 "processing_enabled": runtime.config.enabled,
                 "health_host": settings.WORKER_HEALTH_HOST,
                 "health_port": settings.WORKER_HEALTH_PORT,

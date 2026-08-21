@@ -3,7 +3,7 @@
 This deployment is intentionally hybrid:
 
 - native Nginx serves an immutable frontend release and terminates TLS;
-- the API and worker run as native systemd services;
+- the API, image worker and video worker run as native systemd services;
 - PostgreSQL runs natively on `127.0.0.1:5432`;
 - Docker Compose runs only Elasticsearch on `127.0.0.1:9200`;
 - only Nginx ports 80 and 443 are public.
@@ -58,9 +58,14 @@ command -v ffprobe
 ffmpeg -version
 ffprobe -version
 
-sudo install -d \n  -o creative-assets \n  -g creative-assets \n  -m 0750 \n  /var/lib/creative-asset-manager/video-proxy
+sudo install -d \
+  -o creative-assets \
+  -g creative-assets \
+  -m 0750 \
+  /var/lib/creative-asset-manager/video-proxy
 
-sudo -u creative-assets \n  test -w /var/lib/creative-asset-manager/video-proxy
+sudo -u creative-assets \
+  test -w /var/lib/creative-asset-manager/video-proxy
 ```
 
 Do not use /tmp. VIDEO_PROXY_MAX_CHUNK_BYTES is 1,500,000,000 bytes and the working reserve is 67,108,864 bytes; runtime requires at least 1,567,108,864 bytes free. This is not Docker volume preallocation.
@@ -163,13 +168,17 @@ the first release has been switched:
 ```bash
 cd /srv/creative-asset-manager-source
 sudo install -o root -g root -m 0644 deploy/systemd/creative-asset-manager-api.service /etc/systemd/system/
-sudo install -o root -g root -m 0644 deploy/systemd/creative-asset-manager-worker.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 deploy/systemd/creative-asset-manager-image-worker.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 deploy/systemd/creative-asset-manager-video-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo install -o root -g root -m 0644 infrastructure/nginx/creative-asset-manager.conf /etc/nginx/sites-available/creative-asset-manager.conf
 sudo ln -s /etc/nginx/sites-available/creative-asset-manager.conf /etc/nginx/sites-enabled/creative-asset-manager.conf
 sudo nginx -t
 sudo systemctl reload nginx
-sudo systemctl enable creative-asset-manager-api.service creative-asset-manager-worker.service
+# Stop the legacy all-role worker before enabling isolated workers.
+sudo systemctl stop creative-asset-manager-worker.service
+sudo systemctl disable creative-asset-manager-worker.service
+sudo systemctl enable creative-asset-manager-api.service creative-asset-manager-image-worker.service creative-asset-manager-video-worker.service
 sudo deploy/bin/cam-deploy restart-api
 sudo deploy/bin/cam-deploy restart-worker
 sudo deploy/bin/cam-deploy verify-api
@@ -177,13 +186,32 @@ sudo deploy/bin/cam-deploy verify-worker
 ```
 
 The API binds `127.0.0.1:8000`; application middleware trusts proxy headers only
-from Nginx loopback. Worker health binds `127.0.0.1:8081`. A worker with
+from Nginx loopback. Image worker health binds `127.0.0.1:8081` and video worker health binds `127.0.0.1:8082`. A worker with
 `PROCESSING_JOBS_ENABLED=false` intentionally returns 503 from `/ready`, so the
 worker verifier requires liveness/health and only requires readiness when the
 flag is enabled.
 
 Nginx terminates TLS, handles SPA fallback, caches immutable `/assets/`, and
 proxies `/api/`, `/live`, `/ready` and `/version`.
+
+## Isolated processing workers
+
+Production keeps one PostgreSQL processing queue and one set of tenant/provider policy counters. The image worker claims every non-video job; the video worker claims only video_analyze and video_search_index. An image backlog therefore cannot starve video indexing.
+
+Status and logs:
+
+    sudo systemctl status creative-asset-manager-image-worker.service
+    sudo systemctl status creative-asset-manager-video-worker.service
+    sudo journalctl -u creative-asset-manager-image-worker.service -f
+    sudo journalctl -u creative-asset-manager-video-worker.service -f
+    sudo deploy/bin/cam-deploy restart-worker
+    sudo deploy/bin/cam-deploy verify-worker
+
+Migration must stop and disable creative-asset-manager-worker.service before enabling both isolated services. Roll back without changing durable jobs by running:
+
+    sudo systemctl disable --now creative-asset-manager-image-worker.service
+    sudo systemctl disable --now creative-asset-manager-video-worker.service
+    sudo systemctl enable --now creative-asset-manager-worker.service
 
 ## Validation
 
@@ -194,7 +222,7 @@ bash -n deploy/bin/cam-deploy
 apps/api/.venv/bin/python -m unittest deploy.tests.test_production_env -v
 docker compose --file infrastructure/docker/docker-compose.prod.yml config --quiet
 docker compose --file infrastructure/docker/docker-compose.prod.yml config --services
-systemd-analyze verify deploy/systemd/creative-asset-manager-api.service deploy/systemd/creative-asset-manager-worker.service
+systemd-analyze verify deploy/systemd/creative-asset-manager-api.service deploy/systemd/creative-asset-manager-image-worker.service deploy/systemd/creative-asset-manager-video-worker.service
 ```
 
 Compose service output must contain only `elasticsearch`. The direct systemd
@@ -213,14 +241,14 @@ ss -ltn
 curl --fail --silent https://assets.example.com/live >/dev/null
 ```
 
-Confirm 8000, 8081, 5432 and 9200 listen only on `127.0.0.1`. `diagnostics`
+Confirm 8000, 8081, 8082, 5432 and 9200 listen only on `127.0.0.1`. `diagnostics`
 prints release IDs, service states, HTTP status codes and dependency availability
 only. It never prints the environment, URLs, logs, payloads or provider errors.
 
 ## Rollback
 
 Rollback switches both application and frontend to the recorded previous
-release, gracefully restarts the worker, restarts the API and verifies health:
+release, gracefully restarts both isolated workers, restarts the API and verifies health:
 
 ```bash
 cd /srv/creative-asset-manager-source

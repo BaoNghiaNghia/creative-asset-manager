@@ -219,6 +219,7 @@ class Settings(BaseSettings):
 
 
     WORKER_ID: str | None = None
+    WORKER_ROLE: str = "all"
     WORKER_LEASE_SECONDS: int = 60
     WORKER_HEARTBEAT_SECONDS: float = 15.0
     WORKER_IDLE_POLL_SECONDS: float = 2.0
@@ -571,6 +572,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AUTH_SELF_SIGNUP_DEFAULT_ROLE cannot grant administration"
             )
+        return normalized
+
+    @field_validator("WORKER_ROLE")
+    @classmethod
+    def validate_worker_role(cls, value: str) -> str:
+        normalized = value.strip().casefold()
+        if normalized not in {"all", "image", "video"}:
+            raise ValueError("WORKER_ROLE must be one of: all, image, video")
         return normalized
 
     @field_validator("WORKER_LOG_LEVEL")

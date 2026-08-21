@@ -470,6 +470,8 @@ class WorkerBootstrapTest(unittest.TestCase):
         fake_runtime = SimpleNamespace(
             config=SimpleNamespace(
                 worker_id="worker-a",
+                worker_role="all",
+                allowed_job_types=(),
                 enabled=True,
                 lease_seconds=60,
                 heartbeat_seconds=15,

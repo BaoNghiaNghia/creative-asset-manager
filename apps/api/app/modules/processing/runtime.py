@@ -26,6 +26,7 @@ from app.modules.processing.service import ProcessingJobService
 @dataclass(frozen=True, slots=True)
 class WorkerRuntimeConfig:
     worker_id: str
+    worker_role: str = "all"
     enabled: bool = False
     lease_seconds: int = 60
     heartbeat_seconds: float = 15.0
@@ -37,6 +38,8 @@ class WorkerRuntimeConfig:
     def __post_init__(self) -> None:
         if not self.worker_id:
             raise ValueError("worker_id is required")
+        if self.worker_role not in {"all", "image", "video"}:
+            raise ValueError("worker_role must be one of: all, image, video")
         if self.lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
         if not 0 < self.heartbeat_seconds < self.lease_seconds:

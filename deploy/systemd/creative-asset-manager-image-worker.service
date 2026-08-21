@@ -1,0 +1,45 @@
+[Unit]
+Description=Creative Asset Manager image and general processing worker
+Documentation=file:/opt/creative-asset-manager/current/docs/operations/VPS_DEPLOYMENT.md
+Wants=network-online.target
+After=network-online.target postgresql.service docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=creative-assets
+Group=creative-assets
+WorkingDirectory=/opt/creative-asset-manager/current
+EnvironmentFile=/etc/creative-asset-manager/production.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=WORKER_ROLE=image
+Environment=WORKER_HEALTH_PORT=8081
+ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
+ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python /opt/creative-asset-manager/current/apps/worker/main.py
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=60s
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StateDirectory=creative-asset-manager
+StateDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

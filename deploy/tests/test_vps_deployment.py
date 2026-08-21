@@ -22,6 +22,8 @@ COMPOSE = ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml"
 PRODUCTION_ENV = ROOT / "deploy" / "production.env.example"
 API_SERVICE = ROOT / "deploy" / "systemd" / "creative-asset-manager-api.service"
 WORKER_SERVICE = ROOT / "deploy" / "systemd" / "creative-asset-manager-worker.service"
+IMAGE_WORKER_SERVICE = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker.service"
+VIDEO_WORKER_SERVICE = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
 
 ROLLOUT_FLAGS = (
     "UNIFIED_ASSET_INGESTION_ENABLED",
@@ -80,6 +82,19 @@ class VpsDeploymentArtifactTest(unittest.TestCase):
         self.assertIn("apps/worker/main.py", worker)
         self.assertIn("KillSignal=SIGTERM", worker)
         self.assertIn("TimeoutStopSec=45s", worker)
+        self.assertIn("WORKER_ROLE=all", PRODUCTION_ENV.read_text(encoding="utf-8"))
+
+    def test_isolated_native_worker_units_define_non_overlapping_roles(self) -> None:
+        image = IMAGE_WORKER_SERVICE.read_text(encoding="utf-8")
+        video = VIDEO_WORKER_SERVICE.read_text(encoding="utf-8")
+        self.assertIn("Environment=WORKER_ROLE=image", image)
+        self.assertIn("Environment=WORKER_HEALTH_PORT=8081", image)
+        self.assertIn("Environment=WORKER_ROLE=video", video)
+        self.assertIn("Environment=WORKER_HEALTH_PORT=8082", video)
+        for service in (image, video):
+            self.assertIn("apps/worker/main.py", service)
+            self.assertIn("KillSignal=SIGTERM", service)
+            self.assertIn("TimeoutStopSec=45s", service)
 
     def test_rollout_features_are_disabled_in_defaults_and_template(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
