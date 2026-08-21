@@ -195,6 +195,7 @@ export function AiOperationsContent({
     ...data.providers.map(item => item.model || ""), ...data.usage.items.map(item => item.model || ""),
   ].filter(Boolean))].sort(), [data]);
   const profiles = useMemo(() => [...new Set(data.usage.items.map(item => item.metadata_profile || "").filter(Boolean))].sort(), [data]);
+  const hasMediaTabs = tab === "pipeline" || tab === "overview";
   if (unauthorized) return <DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} />;
   return <>
     <header className="ops-header">
@@ -215,6 +216,7 @@ export function AiOperationsContent({
       {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}><TabIcon name={item.icon} /><span>{item.label}</span></button>)}
     </nav>
     <div className="ops-query-bar">
+      {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : "AI analysis media type"} />}
       <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
       <details className="ops-export-menu">
         <summary>Export data</summary>
@@ -243,6 +245,14 @@ export function aiWorkerIsPaused(tenant: Pick<AiOpsConfiguration["tenant"], "ai_
   // `processing_paused` belongs to the general Creative processing pipeline and
   // must not drive this AI-only control after a page reload.
   return !tenant.ai_enabled;
+}
+
+function MediaTypeTabs({ media, onMedia, label }: {
+  media: "image" | "video"; onMedia: (media: "image" | "video") => void; label: string;
+}) {
+  return <div className="ops-media-tabs" role="tablist" aria-label={label}>
+    {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
+  </div>;
 }
 
 function AiWorkerToggle() {
@@ -366,10 +376,6 @@ export function PipelineOverview({ pipeline, mediaDashboard = null, media = "ima
   const needsAttentionStages = pipeline.stages.filter(stage => stage.needs_attention_assets > 0 || stage.processing_assets > 0 || stage.queued_assets > 0 || stage.waiting_assets > 0);
   const settledStages = pipeline.stages.filter(stage => !needsAttentionStages.includes(stage) && stage.completed_assets > 0);
   return <div className="ops-content pipeline-content">
-    <div className="ops-media-tabs" role="tablist" aria-label="Pipeline media type">
-      {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
-    </div>
-    {media === "video" && <p className="ops-ai-scope-note">Video pipeline currently uses the same operational layout as Image AI. Video analysis and indexing remain separate processing stages.</p>}
     <section className="pipeline-summary" aria-label="Tóm tắt pipeline">
       <PipelineMetric icon="eligible" label="Ảnh đủ điều kiện" value={pipeline.overall.eligible_assets ?? pipeline.overall.supported_assets} detail="Bản ghi ảnh duy nhất từ các nguồn đang hoạt động" />
       <PipelineMetric icon="ready" label="Sẵn sàng tìm kiếm" value={pipeline.overall.search_ready_assets ?? pipeline.overall.completed} detail={pipeline.overall.indexed_percentage === null ? "Đang tính tiến độ" : String(pipeline.overall.indexed_percentage) + "% ảnh đủ điều kiện"} tone="success" />
@@ -406,9 +412,6 @@ function VideoPipelineOverview({ dashboard, media, onMedia }: {
   const indexing = dashboard.video_indexing;
   const stages = [analysis, indexing];
   return <div className="ops-content pipeline-content">
-    <div className="ops-media-tabs" role="tablist" aria-label="Pipeline media type">
-      {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
-    </div>
     <section className="pipeline-summary" aria-label="Tóm tắt video pipeline">
       <PipelineMetric icon="eligible" label="Video analysis" value={analysis.completed} detail="Video AI analyses completed" />
       <PipelineMetric icon="ready" label="Video indexed" value={indexing.completed} detail="Ready for video search" tone="success" />
@@ -573,9 +576,6 @@ function Overview({ data, media = "image", onMedia = () => undefined, canManage,
   const summary = data.summary;
   if (media === "video" && data.media) {
     return <div className="ops-content">
-      <div className="ops-media-tabs" role="tablist" aria-label="AI analysis media type">
-        {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
-      </div>
       <p className="ops-ai-scope-note">Video AI metrics are calculated only from video analysis jobs. Video indexing is displayed separately and is not counted as AI completion, failure, running, or cost.</p>
       <MediaOverview dashboard={data.media} media="video" />
     </div>;
@@ -600,9 +600,6 @@ function Overview({ data, media = "image", onMedia = () => undefined, canManage,
   const localScheduled = summary?.local_rate_limited || 0;
   const quotaScheduled = (summary?.quota_deferred || 0) + (summary?.provider_cooldown_deferred || 0);
   return <div className="ops-content">
-    <div className="ops-media-tabs" role="tablist" aria-label="AI analysis media type">
-      {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
-    </div>
     <p className="ops-ai-scope-note">{media === "image"
       ? "These metrics cover AI analysis only. Tải xuống, storage, projection, and indexing are shown in Pipeline Overview."
       : "Video AI temporarily uses the same operations layout as Image AI. Video indexing is shown separately in Pipeline Overview."}</p>

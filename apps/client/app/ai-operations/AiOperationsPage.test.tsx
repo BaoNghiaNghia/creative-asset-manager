@@ -227,6 +227,17 @@ describe("AI Operations media dashboard compatibility", () => {
   });
 });
 
+describe("AI Operations media tab placement", () => {
+  it("places Image AI and Video AI before the filters for pipeline and AI analysis", () => {
+    const markup = render("overview");
+    const queryBar = markup.slice(markup.indexOf("ops-query-bar"), markup.indexOf("ops-partial-error"));
+    expect(queryBar.indexOf("Image AI")).toBeGreaterThanOrEqual(0);
+    expect(queryBar.indexOf("Image AI")).toBeLessThan(queryBar.indexOf("Last 1 month"));
+    expect(queryBar.indexOf("Video AI")).toBeLessThan(queryBar.indexOf("Last 1 month"));
+    expect(render("processing")).not.toContain("Pipeline media type");
+  });
+});
+
 describe("AI Operations dashboard", () => {
   it("restores the AI worker toggle from the persisted AI policy, not the general pipeline pause", () => {
     expect(aiWorkerIsPaused({ ai_enabled: false })).toBe(true);

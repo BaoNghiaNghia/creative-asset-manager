@@ -18,7 +18,9 @@ export function FolderNoteDrawer({ folderId, folderName, provider, externalSourc
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
   const saveTimer = useRef<number | null>(null);
+  const copiedTimer = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -32,7 +34,10 @@ export function FolderNoteDrawer({ folderId, folderName, provider, externalSourc
       .catch(value => { if (value.name !== "AbortError") setError(value.message); });
     return () => controller.abort();
   }, [folderId, provider, externalSourceId]);
-  useEffect(() => () => { if (saveTimer.current) window.clearTimeout(saveTimer.current); }, []);
+  useEffect(() => () => {
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    if (copiedTimer.current) window.clearTimeout(copiedTimer.current);
+  }, []);
   useEffect(() => { if (editing) textareaRef.current?.focus(); }, [editing]);
   async function save(content = draft) {
     if (!canManage || saving) return;
@@ -50,6 +55,17 @@ export function FolderNoteDrawer({ folderId, folderName, provider, externalSourc
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => { void save(value); }, 1000);
   }
+  async function copyNote() {
+    if (note === null) return;
+    try {
+      await navigator.clipboard.writeText(draft);
+      setCopied(true);
+      if (copiedTimer.current) window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Unable to copy note.");
+    }
+  }
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); onClose(); }
@@ -59,9 +75,8 @@ export function FolderNoteDrawer({ folderId, folderName, provider, externalSourc
   });
   return <div className="folder-note-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="folder-note-drawer" role="dialog" aria-modal="true" aria-label={"Folder note for " + folderName}>
-      <header><div><small>PRODUCT NOTE</small><strong>{folderName}</strong>{note?.is_inherited && <em>Note for {note.note_owner_folder_name}</em>}</div><button type="button" onClick={onClose} aria-label="Close note">x</button></header>
+      <header><div><small>PRODUCT NOTE</small><strong>{folderName}</strong>{note?.is_inherited && <em>Note for {note.note_owner_folder_name}</em>}</div><div className="folder-note-actions"><button type="button" className="folder-note-copy" disabled={note === null} onClick={() => void copyNote()}>{copied ? "Copied" : "Copy"}</button>{canManage && <button type="button" className="folder-note-edit" disabled={saving || note === null} onClick={() => editing ? void save() : setEditing(true)}>{editing ? (saving ? "Saving..." : "Save") : (draft ? "Edit" : "+ Add")}</button>}<button type="button" className="folder-note-close" onClick={onClose} aria-label="Close note">x</button></div></header>
       {error ? <p className="folder-note-error" role="alert">{error}</p> : note === null ? <p className="folder-note-loading">Loading note...</p> : editing ? <textarea ref={textareaRef} value={draft} maxLength={50000} onChange={event => scheduleSave(event.target.value)} placeholder="Write a Markdown note..." aria-label="Folder Markdown note" /> : <div className="folder-note-rendered">{draft ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{draft}</ReactMarkdown> : <p>No note yet.</p>}</div>}
-      <footer>{canManage && <button type="button" className="primary" disabled={saving || note === null} onClick={() => editing ? void save() : setEditing(true)}>{editing ? (saving ? "Saving..." : "Save note") : (draft ? "Edit note" : "+ Add note")}</button>}</footer>
     </aside>
   </div>;
 }
