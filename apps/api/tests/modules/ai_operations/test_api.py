@@ -217,9 +217,47 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(recent["page_size"], 25)
         self.assertEqual(recent["total"], 26)
         self.assertEqual(len(recent["items"]), 1)
+        self.assertEqual(recent["items"][0]["location"], "Google Drive")
         self.assertEqual(
             recent["items"][0]["thumbnail_url"],
             f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}&fallback=video",
+        )
+
+    def test_media_dashboard_resolves_video_location_from_synced_folders(self):
+        with self.factory() as session:
+            external = session.get(ExternalSourceModel, self.external_source_id)
+            external.display_name = "Creative Drive"
+            video = session.get(SourceAssetModel, self.source_asset_id)
+            video.filename = "clip.mp4"
+            video.source_metadata = {"parents": ["campaigns"]}
+            session.add_all([
+                SourceAssetModel(
+                    tenant_id="tenant-a", external_source_id=self.external_source_id,
+                    external_asset_id="campaigns", filename="Campaigns",
+                    source_metadata={"parents": ["spring"]},
+                ),
+                SourceAssetModel(
+                    tenant_id="tenant-a", external_source_id=self.external_source_id,
+                    external_asset_id="spring", filename="Spring",
+                    source_metadata={},
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="video_analyze",
+                    entity_type="source_asset", entity_id=self.source_asset_id,
+                    idempotency_key="video-location", status="completed", payload_json={},
+                ),
+            ])
+            session.commit()
+        probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
+        with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(
+            "app.modules.ai_operations.media_dashboard._probe_worker", probe,
+        ):
+            response = self.client.get("/api/v1/admin/ai-operations/media-dashboard")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["recent_video"]["items"][0]["location"],
+            "Creative Drive / Spring / Campaigns",
         )
 
     def test_metadata_prompt_template_is_exposed_versioned_and_audited(self):

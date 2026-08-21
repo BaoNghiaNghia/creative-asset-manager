@@ -140,7 +140,7 @@ export type AiOpsWorkerStatus = {
 export type AiOpsMediaDashboard = {
   image: AiOpsMediaStage; video: AiOpsMediaStage; video_indexing: AiOpsMediaStage;
   pipeline: { image: AiOpsMediaStage[]; video: AiOpsMediaStage[] };
-  recent_video: Page<{ job_id: string; source_asset_id: string; filename: string | null; thumbnail_url: string | null; status: string; attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null }>;
+  recent_video: Page<{ job_id: string; source_asset_id: string; filename: string | null; location: string | null; thumbnail_url: string | null; status: string; attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null }>;
   workers: AiOpsWorkerStatus[]; generated_at: string;
 };
 
