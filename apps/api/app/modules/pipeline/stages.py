@@ -14,7 +14,8 @@ from app.domain.providers.contracts import AssetDownloadStream, AssetStorageProv
 from app.modules.assets.content_dedup_service import ContentDeduplicationService
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.handlers import DownloadStageResult
-from app.modules.pipeline.mime_types import SourceContentTooLarge
+from app.modules.ai_metadata.image_codecs import register_heif_decoder
+from app.modules.pipeline.mime_types import SourceContentTooLarge, normalize_source_mime_type
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.storage.repository import ManagedStorageRepository
 from app.modules.storage.service import ManagedAssetStorageService
@@ -95,31 +96,57 @@ class ProviderDownloadStage:
             return source_asset.mime_type if source_asset is not None else ""
 
     @staticmethod
-    def _has_avif_ftyp(header: bytes) -> bool:
+    def _read_ftyp_brands(header: bytes) -> tuple[bytes, ...]:
+        """Read the ISO-BMFF major and compatible brands from a complete ftyp box."""
         if len(header) < 16 or header[4:8] != b"ftyp":
-            return False
+            return ()
         box_size = int.from_bytes(header[:4], "big")
         if box_size < 16 or box_size > len(header):
-            return False
-        brands = (header[8:12], *(header[offset:offset + 4] for offset in range(16, box_size, 4)))
-        return any(brand in {b"avif", b"avis"} for brand in brands)
+            return ()
+        return (header[8:12], *(header[offset:offset + 4] for offset in range(16, box_size, 4)))
+
+    @classmethod
+    def _detect_iso_bmff_image_type(cls, header: bytes, source_mime_type: str = "") -> str | None:
+        brands = set(cls._read_ftyp_brands(header))
+        if not brands:
+            return None
+        if brands & {b"avif", b"avis"}:
+            return "image/avif"
+        # HEIF major/compatible brands recognised by pillow-heif's Pillow plugin.
+        heif_brands = {b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs", b"msf1"}
+        if brands & heif_brands:
+            return "image/heic" if normalize_source_mime_type(source_mime_type).startswith("image/heic") else "image/heif"
+        # mif1 is the generic HEIF base brand. It is safe only with a trusted
+        # SourceAsset HEIF-family declaration; by itself it must not reclassify
+        # arbitrary ISO-BMFF files as image content.
+        if b"mif1" in brands and normalize_source_mime_type(source_mime_type) in {
+            "image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence",
+        }:
+            return "image/heic" if normalize_source_mime_type(source_mime_type).startswith("image/heic") else "image/heif"
+        return None
 
     def _validate(self, path: Path, declared_type: str, source_mime_type: str = "") -> str:
         with path.open("rb") as source:
             header = source.read(4096)
-        normalized_type = (declared_type or "").strip().lower()
-        normalized_source_type = (source_mime_type or "").strip().lower()
-        avif_signature = self._has_avif_ftyp(header)
+        normalized_type = normalize_source_mime_type(declared_type)
+        normalized_source_type = normalize_source_mime_type(source_mime_type)
+        bmff_image_type = self._detect_iso_bmff_image_type(header, normalized_source_type)
         image = (
             header.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a"))
             or (len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP")
-            or avif_signature
+            or bmff_image_type is not None
         )
-        if normalized_type == "image/avif" or normalized_source_type == "image/avif":
-            if not avif_signature:
-                raise InvalidPipelineContent("invalid AVIF file signature")
+        expected_bmff_image = normalized_source_type in {
+            "image/avif", "image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence",
+        }
+        if expected_bmff_image and bmff_image_type is None:
+            raise InvalidPipelineContent("declared image content has an invalid ISO-BMFF image signature")
+        # Only after known image brands have been excluded may a generic ftyp
+        # container continue through the video path.
         video = len(header) >= 12 and header[4:8] == b"ftyp"
         if image:
+            if bmff_image_type in {"image/heic", "image/heif"} and not register_heif_decoder():
+                raise InvalidPipelineContent("HEIF image decoder is unavailable")
             try:
                 with Image.open(path) as decoded:
                     width, height = decoded.size
@@ -128,11 +155,11 @@ class ProviderDownloadStage:
                     decoded.verify()
             except (UnidentifiedImageError, OSError) as exc:
                 raise InvalidPipelineContent("image decode validation failed") from exc
-            if avif_signature:
-                return "image/avif"
-            return declared_type if declared_type.startswith("image/") else "image/unknown"
+            if bmff_image_type is not None:
+                return bmff_image_type
+            return normalized_type if normalized_type.startswith("image/") else "image/unknown"
         if video:
-            return declared_type if declared_type.startswith("video/") else "video/mp4"
+            return normalized_type if normalized_type.startswith("video/") else "video/mp4"
         raise InvalidPipelineContent("unsupported file signature")
 
     @staticmethod

@@ -2,6 +2,8 @@ from pathlib import Path
 
 _IMAGE_MIME_BY_EXTENSION = {
     ".avif": "image/avif",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
     ".bmp": "image/bmp",
     ".gif": "image/gif",
     ".jpeg": "image/jpeg",

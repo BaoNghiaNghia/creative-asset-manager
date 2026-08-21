@@ -43,9 +43,9 @@ export function AccessibleChart({ title, description, data, valueLabel = String 
             </rect>;
           })}
           {(data.length <= 12 || groupIndex % Math.ceil(data.length / 12) === 0) && <text
-            x={groupIndex * groupWidth + groupWidth / 2} y={plotHeight + 19}
+            x={groupIndex * groupWidth + groupWidth / 2} y={plotHeight + 17}
             textAnchor="middle" className="ops-chart-label"
-          >{shortLabel(item.label)}</text>}
+          >{chartLabelLines(item.label).map((line, lineIndex) => <tspan key={line} x={groupIndex * groupWidth + groupWidth / 2} dy={lineIndex ? 10 : 0}>{line}</tspan>)}</text>}
         </g>)}
       </svg>
       <details className="ops-chart-table">
@@ -66,12 +66,12 @@ function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
 
-function shortLabel(value: string): string {
+function chartLabelLines(value: string): string[] {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return new Date(`${value}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    return [new Date(value + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })];
   }
   const [provider, model, mode] = value.split(" \u00b7 ");
-  if (mode) return `${provider.replace("Google ", "")} / ${model} / ${mode}`;
-  if (model) return `${provider.replace("Google ", "")} / ${model}`;
-  return value.length > 16 ? `${value.slice(0, 15)}...` : value;
+  if (mode) return [provider.replace("Google ", ""), model, mode];
+  if (model) return [provider.replace("Google ", ""), model];
+  return [value.length > 18 ? value.slice(0, 17) + "..." : value];
 }

@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageOps, UnidentifiedImageError, features
 
+from app.modules.ai_metadata.image_codecs import image_decoder_capabilities, register_heif_decoder
+
 from app.domain.providers.contracts import (
     AssetStorageProvider,
     OpenStoredAssetInput,
@@ -48,7 +50,31 @@ class PreparedAnalysisImage:
 
 
 def avif_decoder_capabilities() -> dict[str, bool]:
-    return {"pillow_avif": bool(features.check("avif")), "libvips_available": _load_vips() is not None}
+    """Backward-compatible codec diagnostic used by existing operations tooling."""
+    capabilities = image_decoder_capabilities()
+    return {
+        "pillow_avif": capabilities["avif"],
+        "heic": capabilities["heic"],
+        "heif": capabilities["heif"],
+        "libvips_available": capabilities["libvips"],
+    }
+
+
+def _looks_like_heif(path: str) -> bool:
+    try:
+        with open(path, "rb") as source:
+            header = source.read(64)
+    except OSError:
+        return False
+    if len(header) < 16 or header[4:8] != b"ftyp":
+        return False
+    box_size = int.from_bytes(header[:4], "big")
+    if box_size < 16 or box_size > len(header):
+        return False
+    brands = {header[8:12], *(header[index:index + 4] for index in range(16, box_size, 4))}
+    if brands & {b"avif", b"avis"}:
+        return False
+    return bool(brands & {b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1"})
 
 
 def _load_vips():
@@ -92,12 +118,19 @@ class AnalysisImagePreparer:
             await stream.close()
             stream = None
 
+            # Register the HEIF Pillow opener exactly once before probing bytes.
+            # It is a bundled Python wheel dependency, not a system-libvips requirement.
+            heif_decoder_available = register_heif_decoder()
+            if not heif_decoder_available and _looks_like_heif(source_path):
+                raise AnalysisImageError("No safe HEIF decoder is available.", code="analysis_heif_decoder_unavailable", retryable=False)
             with Image.open(source_path) as opened:
                 source_format = (opened.format or "").upper()
                 if source_format not in {"JPEG", "MPO", "PNG", "WEBP", "TIFF", "AVIF", "HEIF", "HEIC", "GIF", "BMP"}:
                     raise AnalysisImageError("Managed asset is not a supported image format.", code="analysis_image_unsupported", retryable=False)
                 if source_format == "AVIF" and not features.check("avif"):
                     raise AnalysisImageError("No safe AVIF decoder is available.", code="analysis_avif_decoder_unavailable", retryable=False)
+                if source_format in {"HEIF", "HEIC"} and not heif_decoder_available:
+                    raise AnalysisImageError("No safe HEIF decoder is available.", code="analysis_heif_decoder_unavailable", retryable=False)
                 source_width, source_height = opened.size
                 source_pixels = source_width * source_height
                 if source_width <= 0 or source_height <= 0 or source_width > self.limits.max_source_width or source_height > self.limits.max_source_height:

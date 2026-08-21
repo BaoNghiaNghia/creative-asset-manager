@@ -133,6 +133,21 @@ class ProviderDownloadStageTest(unittest.TestCase):
                 self.sessions, BytesResolver(malformed, "application/octet-stream")
             ).execute(tenant_id="tenant-a", pipeline=pipeline))
 
+    def test_iso_bmff_image_brand_detection_precedes_video_detection(self):
+        avif_header = (20).to_bytes(4, "big") + b"ftypavif" + b"0000" + b"mif1"
+        heic_header = (20).to_bytes(4, "big") + b"ftypheic" + b"0000" + b"mif1"
+        heif_header = (20).to_bytes(4, "big") + b"ftypmif1" + b"0000" + b"heic"
+        mp4_header = (20).to_bytes(4, "big") + b"ftypisom" + b"0000" + b"mp41"
+        self.assertEqual(ProviderDownloadStage._detect_iso_bmff_image_type(avif_header, "image/avif"), "image/avif")
+        self.assertEqual(ProviderDownloadStage._detect_iso_bmff_image_type(heic_header, "image/heic"), "image/heic")
+        self.assertEqual(ProviderDownloadStage._detect_iso_bmff_image_type(heif_header, "image/heif"), "image/heif")
+        self.assertIsNone(ProviderDownloadStage._detect_iso_bmff_image_type(mp4_header, "video/mp4"))
+
+    def test_generic_mif1_requires_a_declared_heif_source(self):
+        header = (20).to_bytes(4, "big") + b"ftypmif1" + b"0000" + b"mif1"
+        self.assertIsNone(ProviderDownloadStage._detect_iso_bmff_image_type(header, "application/octet-stream"))
+        self.assertEqual(ProviderDownloadStage._detect_iso_bmff_image_type(header, "image/heif"), "image/heif")
+
     def test_byte_limit_raises_stable_oversized_error(self):
         pipeline = self.pipeline("google_drive", "drive", "large", "large.png")
         stage = ProviderDownloadStage(

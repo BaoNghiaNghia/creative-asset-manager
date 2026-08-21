@@ -201,7 +201,7 @@ export function AiOperationsContent({
     <header className="ops-header">
       <div><small>OPERATIONS</small><h1>Processing Operations</h1><p>Pipeline progress, AI analysis, usage and cost for the current tenant.</p></div>
       <div className="ops-header-actions">
-        <AiWorkerToggle />
+        <AiWorkerToggle workers={data.media?.workers ?? []} />
         <label className="ops-refresh-control"><span>Auto-refresh</span><select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
           {AUTO_REFRESH_SECONDS.map(seconds => <option key={seconds} value={seconds}>{seconds ? `${seconds}s` : "Off"}</option>)}
         </select></label>
@@ -255,7 +255,7 @@ function MediaTypeTabs({ media, onMedia, label }: {
   </div>;
 }
 
-function AiWorkerToggle() {
+function AiWorkerToggle({ workers }: { workers: NonNullable<AiOpsDashboardData["media"]>["workers"] }) {
   const [paused, setPaused] = useState<boolean | null>(null);
   const [allowed, setAllowed] = useState(false);
   const [pending, setPending] = useState(false);
@@ -271,27 +271,38 @@ function AiWorkerToggle() {
     return () => { alive = false; };
   }, []);
 
-  async function toggle() {
+  async function toggleImage() {
     if (paused === null || !allowed || pending) return;
     const nextPaused = !paused;
     setPending(true); setError("");
     try {
-      await setTenantAiPaused(nextPaused, nextPaused ? "AI processing paused from Operations dashboard" : "AI processing resumed from Operations dashboard");
+      await setTenantAiPaused(nextPaused, nextPaused ? "AI image processing paused from Operations dashboard" : "AI image processing resumed from Operations dashboard");
       setPaused(nextPaused);
     } catch (reason) {
-      setError(String((reason as Error)?.message || "Could not update AI processing"));
+      setError(String((reason as Error)?.message || "Could not update image AI processing"));
     } finally { setPending(false); }
   }
 
-  const running = paused === false;
-  return <div className="ops-worker-control">
-    <span>AI processing</span>
-    <button type="button" role="switch" aria-checked={running} aria-label="Toggle AI processing" disabled={!allowed || paused === null || pending} onClick={() => void toggle()} className={running ? "on" : "off"}>
-      <i aria-hidden="true" /><b>{pending ? "Updating…" : running ? "Running" : "Paused"}</b>
-    </button>
-    {error && <small role="alert">{error}</small>}
+  const imageRunning = paused === false;
+  const video = workers.find(worker => worker.role === "video");
+  const videoReady = video?.ready === true;
+  return <div className="ops-worker-controls">
+    <div className="ops-worker-control">
+      <span>AI Image</span>
+      <button type="button" role="switch" aria-checked={imageRunning} aria-label="Toggle AI Image processing" disabled={!allowed || paused === null || pending} onClick={() => void toggleImage()} className={imageRunning ? "on" : "off"}>
+        <i aria-hidden="true" /><b>{pending ? "Updating &" : imageRunning ? "Running" : "Paused"}</b>
+      </button>
+    </div>
+    <div className="ops-worker-control">
+      <span>AI Video</span>
+      <button type="button" aria-label="AI Video worker status, managed by deployment" disabled className={videoReady ? "on" : "off"}>
+        <i aria-hidden="true" /><b>{videoReady ? "Ready" : video?.probe === "unavailable" ? "Unavailable" : "Checking &"}</b>
+      </button>
+    </div>
+    {error && <small className="ops-worker-error" role="alert">{error}</small>}
   </div>;
 }
+
 export function handleTabKeyDown(event: React.KeyboardEvent<HTMLElement>, active: AiOpsTab, onTab: (tab: AiOpsTab) => void) {
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
