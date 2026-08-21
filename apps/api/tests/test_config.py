@@ -46,6 +46,11 @@ class SettingsTest(unittest.TestCase):
             with self.subTest(flag=name):
                 self.assertIs(getattr(settings, name), False)
 
+    def test_video_proxy_source_limit_has_a_conservative_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings()
+        self.assertEqual(settings.VIDEO_PROXY_MAX_SOURCE_BYTES, 1_500_000_000)
+
     def test_search_v3_safety_defaults_are_conservative(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             settings = Settings()

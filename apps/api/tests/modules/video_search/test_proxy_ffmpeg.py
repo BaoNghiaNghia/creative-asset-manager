@@ -43,7 +43,7 @@ class VideoProxyRealFfmpegTest(unittest.TestCase):
         return stdout
 
     def _settings(self, chunk_seconds=20):
-        return SimpleNamespace(VIDEO_TEMP_DIRECTORY=str(self.root / "proxies"), VIDEO_PROXY_MAX_WIDTH=1280, VIDEO_PROXY_MAX_HEIGHT=720, VIDEO_PROXY_FPS=15, VIDEO_PROXY_VIDEO_BITRATE_KBPS=1500, VIDEO_PROXY_AUDIO_BITRATE_KBPS=64, VIDEO_CHUNK_SECONDS=chunk_seconds, VIDEO_PROXY_MAX_CHUNK_BYTES=100_000_000)
+        return SimpleNamespace(VIDEO_TEMP_DIRECTORY=str(self.root / "proxies"), VIDEO_PROXY_MAX_WIDTH=1280, VIDEO_PROXY_MAX_HEIGHT=720, VIDEO_PROXY_FPS=15, VIDEO_PROXY_VIDEO_BITRATE_KBPS=1500, VIDEO_PROXY_AUDIO_BITRATE_KBPS=64, VIDEO_CHUNK_SECONDS=chunk_seconds, VIDEO_PROXY_MAX_CHUNK_BYTES=100_000_000, VIDEO_PROXY_MAX_SOURCE_BYTES=100_000_000)
 
     async def _fixture(self, width, height, duration):
         path = self.root / f"source-{width}x{height}-{duration}.mp4"
@@ -72,6 +72,9 @@ class VideoProxyRealFfmpegTest(unittest.TestCase):
     def _prepare(self, width, height, duration, *, chunk_seconds=20):
         async def scenario():
             fixture = await self._fixture(width, height, duration)
+            with self.sessions() as session:
+                session.get(SourceAssetModel, "asset-a").size_bytes = fixture.stat().st_size
+                session.commit()
             chunks = await self._service(fixture, chunk_seconds=chunk_seconds).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self._fingerprint())
             return chunks, [await self._probe(chunk.path) for chunk in chunks]
         return asyncio.run(scenario())

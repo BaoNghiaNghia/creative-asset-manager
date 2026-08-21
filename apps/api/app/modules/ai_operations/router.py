@@ -281,11 +281,13 @@ def pipeline_summary(
 async def media_dashboard(
     principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
     tenant_id: str | None = Query(default=None),
+    video_page: int = Query(default=1, ge=1),
+    video_page_size: int = Query(default=25, ge=1, le=100),
 ):
     target = tenant_id or principal.active_tenant_id
     require_tenant_scope(principal, target)
     with SessionLocal() as session:
-        return await MediaDashboardService(session, get_settings()).snapshot(target)
+        return await MediaDashboardService(session, get_settings()).snapshot(target, video_page=video_page, video_page_size=video_page_size)
 
 
 @router.get("/summary")

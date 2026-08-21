@@ -22,6 +22,7 @@ from app.modules.video_search.proxy import (
     VideoProxyConfigurationError,
     VideoProxyPreparationService,
     VideoProxyProcessError,
+    VideoProxySourceError,
     VideoProxySourceChangedError,
     VideoProxyStorageError,
 )
@@ -226,6 +227,8 @@ class VideoAnalyzeJobHandler:
             return self._cancel(context, run_id)
         except VideoProxySourceChangedError:
             return self._non_retry(context, run_id, None, "video_source_changed", "Video source changed during proxy preparation.")
+        except VideoProxySourceError:
+            return self._non_retry(context, run_id, None, "video_proxy_source_invalid", "Video source could not be prepared safely.")
         except VideoProxyConfigurationError:
             return self._non_retry(context, run_id, current_chunk_id, "video_proxy_configuration_error", "Video proxy preparation is not configured.")
         except (VideoProxyStorageError, VideoProxyProcessError):

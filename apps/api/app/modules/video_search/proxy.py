@@ -44,6 +44,10 @@ class VideoProxyProcessError(VideoProxyPreparationError):
     pass
 
 
+class VideoProxySourceError(VideoProxyPreparationError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedVideoChunk:
     chunk_index: int
@@ -61,11 +65,10 @@ DiskUsageProvider = Callable[[str | os.PathLike[str]], Any]
 
 
 class VideoProxyPreparationService:
-    """Transcode one provider stream into independently playable local chunks.
+    """Materialize one provider stream in an owned ephemeral directory, then transcode it.
 
-    The original is deliberately never materialized: provider blocks are copied to
-    FFmpeg's stdin with ``drain`` backpressure and only derived MP4 chunks exist on
-    the configured transient filesystem.
+    The seekable source and derived MP4 chunks live only under VIDEO_TEMP_DIRECTORY
+    and are removed together after analysis completes or fails.
     """
 
     _STDERR_TAIL_BYTES = 16 * 1024
@@ -100,52 +103,44 @@ class VideoProxyPreparationService:
             raise VideoProxySourceChangedError("source asset fingerprint changed before proxy preparation")
 
         root = self._configured_root()
-        runtime_reserve = self._storage_safety_reserve()
-        preflight_required = self._preflight_required_free_space(runtime_reserve)
-        self._ensure_free_space(root, preflight_required)
+        source_limit = self._max_source_bytes()
+        expected_source_size = self._expected_source_size(source_asset, source_limit)
+        output_reserve = self._output_storage_requirement()
+        self._ensure_free_space(root, self._preflight_required_free_space(expected_source_size, output_reserve))
         working_directory = Path(tempfile.mkdtemp(prefix="video-proxy-", dir=root))
+        source_path = self._source_path(working_directory, source_asset.mime_type)
         process: Any | None = None
         stderr_task: asyncio.Task[bytes] | None = None
         storage_task: asyncio.Task[None] | None = None
         stop_monitor = asyncio.Event()
         storage_failed = asyncio.Event()
         try:
-            command = self._ffmpeg_command(working_directory)
+            await self._materialize_source(
+                tenant_id=tenant_id,
+                source_asset_id=source_asset_id,
+                source_path=source_path,
+                expected_size=expected_source_size,
+                maximum_size=source_limit,
+                root=root,
+                output_reserve=output_reserve,
+                size_is_authoritative=source_asset.size_bytes is not None,
+            )
+            command = self._ffmpeg_command(working_directory, source_path)
             try:
                 process = await self._create_subprocess_exec(
                     *command,
-                    stdin=asyncio.subprocess.PIPE,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.PIPE,
                 )
             except (FileNotFoundError, PermissionError) as exc:
                 raise VideoProxyConfigurationError("FFmpeg executable is unavailable") from exc
-            if process.stdin is None or process.stderr is None:
-                raise VideoProxyProcessError("FFmpeg did not expose stdin and stderr pipes")
+            if process.stderr is None:
+                raise VideoProxyProcessError("FFmpeg did not expose a stderr pipe")
             stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
             storage_task = asyncio.create_task(
-                self._monitor_storage(process, root, runtime_reserve, stop_monitor, storage_failed)
+                self._monitor_storage(process, root, output_reserve, stop_monitor, storage_failed)
             )
-            try:
-                async with self._resolver.open(
-                    tenant_id=tenant_id, source_asset_id=source_asset_id, range_header=None
-                ) as stream:
-                    async for block in stream.body:
-                        if storage_failed.is_set():
-                            raise VideoProxyStorageError("insufficient free space while creating video proxy")
-                        if not isinstance(block, bytes):
-                            raise VideoProxyProcessError("provider stream emitted a non-bytes block")
-                        process.stdin.write(block)
-                        await process.stdin.drain()
-            except asyncio.CancelledError:
-                await self._close_stdin(process)
-                await self._terminate_process(process)
-                raise
-            except Exception:
-                await self._close_stdin(process)
-                await self._terminate_process(process)
-                raise
-            await self._close_stdin(process)
             await process.wait()
             if storage_failed.is_set():
                 raise VideoProxyStorageError("insufficient free space while creating video proxy")
@@ -160,7 +155,6 @@ class VideoProxyPreparationService:
             return chunks
         except asyncio.CancelledError:
             if process is not None:
-                await self._close_stdin(process)
                 await self._terminate_process(process)
             self._remove_working_directory(working_directory)
             raise
@@ -176,6 +170,46 @@ class VideoProxyPreparationService:
             if stderr_task is not None:
                 await self._cancel_task(stderr_task)
 
+    async def _materialize_source(
+        self,
+        *,
+        tenant_id: str,
+        source_asset_id: str,
+        source_path: Path,
+        expected_size: int,
+        maximum_size: int,
+        root: Path,
+        output_reserve: int,
+        size_is_authoritative: bool,
+    ) -> None:
+        written = 0
+        try:
+            async with self._resolver.open(
+                tenant_id=tenant_id, source_asset_id=source_asset_id, range_header=None
+            ) as stream:
+                with source_path.open("xb") as destination:
+                    async for block in stream.body:
+                        if not isinstance(block, bytes):
+                            raise VideoProxySourceError("provider stream emitted a non-bytes block")
+                        next_size = written + len(block)
+                        if next_size > maximum_size:
+                            raise VideoProxySourceError("video source exceeds configured maximum size")
+                        self._ensure_free_space(root, output_reserve)
+                        destination.write(block)
+                        written = next_size
+        except VideoProxyPreparationError:
+            raise
+        except OSError as exc:
+            raise VideoProxyStorageError("cannot materialize video source locally") from exc
+        if written <= 0:
+            raise VideoProxySourceError("video source is empty")
+        if size_is_authoritative and written != expected_size:
+            raise VideoProxySourceError("video source size does not match source metadata")
+
+    @staticmethod
+    def _source_path(directory: Path, mime_type: str | None) -> Path:
+        suffix = ".mov" if mime_type == "video/quicktime" else ".mp4"
+        return directory / ("source" + suffix)
     def _configured_root(self) -> Path:
         raw = getattr(self._settings, "VIDEO_TEMP_DIRECTORY", "")
         if not isinstance(raw, str) or not raw.strip():
@@ -189,16 +223,41 @@ class VideoProxyPreparationService:
             raise VideoProxyConfigurationError("VIDEO_TEMP_DIRECTORY is not writable")
         return root.resolve()
 
+    def _max_source_bytes(self) -> int:
+        configured = getattr(self._settings, "VIDEO_PROXY_MAX_SOURCE_BYTES", self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES)
+        maximum = int(configured)
+        if maximum <= 0:
+            raise VideoProxyConfigurationError("VIDEO_PROXY_MAX_SOURCE_BYTES must be positive")
+        return maximum
+
     def _storage_safety_reserve(self) -> int:
         maximum = int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES)
         if maximum <= 0:
             raise VideoProxyConfigurationError("VIDEO_PROXY_MAX_CHUNK_BYTES must be positive")
         return min(maximum, self._WORKING_RESERVE_BYTES)
 
-    def _preflight_required_free_space(self, runtime_reserve: int | None = None) -> int:
+    def _output_storage_requirement(self) -> int:
         maximum = int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES)
-        reserve = self._storage_safety_reserve() if runtime_reserve is None else runtime_reserve
-        return maximum + reserve
+        if maximum <= 0:
+            raise VideoProxyConfigurationError("VIDEO_PROXY_MAX_CHUNK_BYTES must be positive")
+        return maximum + self._storage_safety_reserve()
+
+    def _expected_source_size(self, source: SourceAssetModel, maximum: int) -> int:
+        size = source.size_bytes
+        if isinstance(size, int) and not isinstance(size, bool) and size >= 0:
+            if size > maximum:
+                raise VideoProxySourceError("video source exceeds configured maximum size")
+            return size
+        return maximum
+
+    def _preflight_required_free_space(
+        self, expected_source_size: int | None = None, output_requirement: int | None = None
+    ) -> int:
+        source_bytes = self._max_source_bytes() if expected_source_size is None else expected_source_size
+        output_bytes = self._output_storage_requirement() if output_requirement is None else output_requirement
+        if source_bytes < 0 or output_bytes < 0:
+            raise VideoProxyConfigurationError("video proxy storage requirements must be non-negative")
+        return source_bytes + output_bytes
 
     def _ensure_free_space(self, root: Path, required: int) -> None:
         try:
@@ -220,7 +279,7 @@ class VideoProxyPreparationService:
         asset = self._load_source_asset(tenant_id, source_asset_id)
         return build_video_source_fingerprint(asset) if asset is not None else None
 
-    def _ffmpeg_command(self, directory: Path) -> tuple[str, ...]:
+    def _ffmpeg_command(self, directory: Path, source_path: Path | None = None) -> tuple[str, ...]:
         max_width = int(self._settings.VIDEO_PROXY_MAX_WIDTH)
         max_height = int(self._settings.VIDEO_PROXY_MAX_HEIGHT)
         fps = int(self._settings.VIDEO_PROXY_FPS)
@@ -234,7 +293,7 @@ class VideoProxyPreparationService:
         scale = f"scale=w='min(iw,{max_width})':h='min(ih,{max_height})':force_original_aspect_ratio=decrease:force_divisible_by=2"
         force_keyframes = f"expr:gte(t,n_forced*{chunk_seconds})"
         return (
-            "ffmpeg", "-hide_banner", "-nostdin", "-y", "-i", "pipe:0",
+            "ffmpeg", "-hide_banner", "-nostdin", "-y", "-i", str(source_path or directory / "source.mp4"),
             "-map", "0:v:0", "-map", "0:a?", "-vf", scale, "-r", str(fps),
             "-c:v", "libx264", "-b:v", f"{video_bitrate}k", "-c:a", "aac",
             "-b:a", f"{audio_bitrate}k", "-force_key_frames", force_keyframes,
@@ -362,10 +421,12 @@ class VideoProxyPreparationService:
 
     @staticmethod
     def cleanup_prepared_chunks(chunks: tuple[PreparedVideoChunk, ...] | list[PreparedVideoChunk]) -> None:
-        """Legacy compatibility cleanup without recursive deletion."""
+        """Legacy compatibility cleanup for callers that still own prepared chunks."""
         for path in (chunk.path for chunk in chunks):
             path.unlink(missing_ok=True)
         for parent in {chunk.path.parent for chunk in chunks}:
+            for source in ("source.mp4", "source.mov", "source.bin"):
+                (parent / source).unlink(missing_ok=True)
             try:
                 parent.rmdir()
             except OSError:

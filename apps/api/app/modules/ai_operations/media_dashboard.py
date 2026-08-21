@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.assets.model import SourceAssetModel
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 
 IMAGE_JOB_TYPE = "asset_analyze"
 VIDEO_JOB_TYPE = "video_analyze"
@@ -69,7 +69,7 @@ class MediaDashboardService:
         self.session = session
         self.settings = settings
 
-    async def snapshot(self, tenant_id: str) -> dict:
+    async def snapshot(self, tenant_id: str, *, video_page: int = 1, video_page_size: int = 25) -> dict:
         now = datetime.now(timezone.utc)
         rows = list(self.session.scalars(select(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == tenant_id,
@@ -94,12 +94,21 @@ class MediaDashboardService:
                 "current_job_type": active[0].job_type if active else None,
                 "last_successful_claim_at": max(_as_utc(value) for value in claims).isoformat() if claims else None,
             }
+        ordered_video = sorted(by_type[VIDEO_JOB_TYPE], key=lambda row: _as_utc(row.updated_at) or now, reverse=True)
+        video_page = max(1, video_page)
+        video_page_size = min(100, max(1, video_page_size))
+        offset = (video_page - 1) * video_page_size
         recent_video = []
-        for job in sorted(by_type[VIDEO_JOB_TYPE], key=lambda row: _as_utc(row.updated_at) or now, reverse=True)[:25]:
+        for job in ordered_video[offset:offset + video_page_size]:
             source = self.session.get(SourceAssetModel, job.entity_id) if job.entity_type == "source_asset" else None
+            external = self.session.get(ExternalSourceModel, source.external_source_id) if source is not None else None
+            thumbnail_url = None
+            if source is not None and external is not None and external.source_type == "google_drive":
+                thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}"
             recent_video.append({
                 "job_id": job.id, "source_asset_id": job.entity_id,
                 "filename": source.filename if source is not None else None,
+                "thumbnail_url": thumbnail_url,
                 "status": job.status, "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,
                 "updated_at": (_as_utc(job.updated_at) or now).isoformat(),
@@ -110,7 +119,7 @@ class MediaDashboardService:
             "video": video,
             "video_indexing": indexing,
             "pipeline": {"image": [image], "video": [video, indexing]},
-            "recent_video": recent_video,
+            "recent_video": {"page": video_page, "page_size": video_page_size, "total": len(ordered_video), "items": recent_video},
             "workers": [
                 worker("image", (IMAGE_JOB_TYPE,), image_probe),
                 worker("video", (VIDEO_JOB_TYPE, VIDEO_INDEX_JOB_TYPE), video_probe),

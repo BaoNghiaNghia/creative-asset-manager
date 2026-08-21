@@ -74,7 +74,9 @@ export function normalizeMediaDashboard(
       image: Array.isArray(source.pipeline?.image) ? source.pipeline.image : [image],
       video: Array.isArray(source.pipeline?.video) ? source.pipeline.video : [video, videoIndexing],
     },
-    recent_video: Array.isArray(source.recent_video) ? source.recent_video : [],
+    recent_video: source.recent_video && typeof source.recent_video === "object" && Array.isArray((source.recent_video as { items?: unknown }).items)
+      ? source.recent_video
+      : { page: 1, page_size: 25, total: 0, items: [] },
     workers: Array.isArray(source.workers) ? source.workers : [],
     generated_at: typeof source.generated_at === "string" ? source.generated_at : new Date(0).toISOString(),
   };
@@ -124,7 +126,7 @@ export async function fetchAiOperationsDashboard(
     read<Page<AiOpsJob>>(`${base}/jobs?${jobs}`, fetcher),
     read<Page<AiOpsUsage>>(`${base}/usage?${usage}`, fetcher),
     read<PipelineSnapshot>(base + "/pipeline?recent_page=" + (filters.pipelinePage || 1) + "&recent_page_size=" + (filters.pipelinePageSize || 25), fetcher),
-    read<AiOpsMediaDashboard>(base + "/media-dashboard", fetcher),
+    read<AiOpsMediaDashboard>(base + "/media-dashboard?video_page=" + (filters.videoPage || 1) + "&video_page_size=25", fetcher),
   ] as const;
   const settled = await Promise.allSettled(calls);
   const pipelineUnavailable = settled[9]?.status === "rejected"
@@ -178,6 +180,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
     usagePageSize: [25, 50, 100].includes(Number(params.get("usage_page_size"))) ? Number(params.get("usage_page_size")) as 25 | 50 | 100 : 25,
     pipelinePage: params.has("pipeline_page") ? Math.max(1, Number(params.get("pipeline_page")) || 1) : undefined,
     pipelinePageSize: params.has("pipeline_page_size") && [25, 50, 100].includes(Number(params.get("pipeline_page_size"))) ? Number(params.get("pipeline_page_size")) as 25 | 50 | 100 : undefined,
+    videoPage: params.has("video_page") ? Math.max(1, Number(params.get("video_page")) || 1) : undefined,
   };
 }
 
@@ -195,6 +198,7 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSec
   if ((filters.usagePageSize || 25) !== 25) params.set("usage_page_size", String(filters.usagePageSize));
   if ((filters.pipelinePage || 1) > 1) params.set("pipeline_page", String(filters.pipelinePage));
   if ((filters.pipelinePageSize || 25) !== 25) params.set("pipeline_page_size", String(filters.pipelinePageSize));
+  if ((filters.videoPage || 1) > 1) params.set("video_page", String(filters.videoPage));
   if (tab !== "overview") params.set("tab", tab);
   if (media === "video") params.set("media", media);
   if (refreshSeconds) params.set("refresh", String(refreshSeconds));

@@ -19,6 +19,7 @@ from app.modules.video_search.proxy import (
     VideoProxyConfigurationError,
     VideoProxyPreparationService,
     VideoProxySourceChangedError,
+    VideoProxySourceError,
     VideoProxyStorageError,
     VideoProxyProcessError,
 )
@@ -67,7 +68,7 @@ class FakeProcessFactory:
 
 
 class FakeResolver:
-    def __init__(self, blocks=(b"a", b"b", b"c"), error=None):
+    def __init__(self, blocks=(b"a" * 20,), error=None):
         self.blocks, self.error, self.open_calls = blocks, error, []
     @asynccontextmanager
     async def open(self, **kwargs):
@@ -98,17 +99,32 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         with self.sessions() as session: return build_video_source_fingerprint(session.get(SourceAssetModel, "asset-a"))
     def service(self, factory=None, resolver=None, settings=None, free=10**9):
         return VideoProxyPreparationService(self.sessions, settings or self.settings(), content_resolver=resolver or FakeResolver(), create_subprocess_exec=factory or FakeProcessFactory(), disk_usage=lambda _path: SimpleNamespace(free=free), storage_poll_seconds=.001)
-    def test_streams_many_blocks_to_ffmpeg_stdin_and_builds_safe_command(self):
+    def test_streams_many_blocks_to_seekable_source_file_and_builds_safe_command(self):
         factory, resolver = FakeProcessFactory(), FakeResolver(tuple(bytes([n]) for n in range(20)))
         service = self.service(factory, resolver)
         chunks = asyncio.run(service.prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
         command = factory.calls[0][0]
-        self.assertEqual(len(factory.ffmpeg.stdin.writes), 20); self.assertEqual(factory.ffmpeg.stdin.drains, 20)
+        self.assertIs(factory.calls[0][1]["stdin"], asyncio.subprocess.DEVNULL)
         self.assertEqual(resolver.open_calls[0]["range_header"], None)
-        self.assertIn("pipe:0", command); self.assertIn("libx264", command); self.assertIn("aac", command)
+        self.assertNotIn("pipe:0", command); self.assertIn("libx264", command); self.assertIn("aac", command)
+        source_path = Path(command[command.index("-i") + 1])
+        self.assertEqual(source_path.read_bytes(), bytes(range(20)))
         self.assertIn("0:a?", command); self.assertIn("-segment_time", command); self.assertNotIn("Authorization", " ".join(command))
         self.assertEqual(chunks[0].source_start_ms, 0); self.assertEqual(chunks[0].source_end_ms, 1250); self.assertTrue(chunks[0].path.exists())
-        service.cleanup_prepared_chunks(chunks); self.assertFalse(chunks[0].path.exists())
+        service.cleanup(chunks); self.assertFalse(chunks[0].path.exists()); self.assertFalse(chunks[0].path.parent.exists())
+    def test_quicktime_uses_a_private_mov_source_path(self):
+        with self.sessions() as session:
+            asset = session.get(SourceAssetModel, "asset-a")
+            asset.mime_type = "video/quicktime"
+            asset.filename = "clip.mov"
+            session.commit()
+        factory = FakeProcessFactory()
+        chunks = asyncio.run(self.service(factory).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+        command = factory.calls[0][0]
+        self.assertTrue(command[command.index("-i") + 1].endswith("source.mov"))
+        self.assertNotIn("pipe:0", command)
+        self.service().cleanup(chunks)
+
     def test_multiple_chunks_have_independent_files_and_contiguous_timeline(self):
         factory = FakeProcessFactory()
         original = factory.__call__
@@ -127,7 +143,7 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertEqual([chunk.chunk_index for chunk in chunks], [0, 1])
         self.assertTrue(all(chunk.path.exists() and chunk.size_bytes > 0 for chunk in chunks))
         self.assertEqual(chunks[0].source_end_ms, chunks[1].source_start_ms)
-        service.cleanup_prepared_chunks(chunks)
+        service.cleanup(chunks)
 
     def test_command_uses_input_aware_scale_and_segment_mp4_options(self):
         service = self.service()
@@ -143,7 +159,8 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
     def test_storage_preflight_and_runtime_thresholds_are_separate(self):
         service = self.service(settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=1000))
         self.assertEqual(service._storage_safety_reserve(), 1000)
-        self.assertEqual(service._preflight_required_free_space(), 2000)
+        self.assertEqual(service._output_storage_requirement(), 2000)
+        self.assertEqual(service._preflight_required_free_space(20), 2020)
         service._ensure_free_space(Path(self.temp.name), 1000)
 
     def test_configuration_and_storage_preflight_fail_before_ffmpeg(self):
@@ -162,17 +179,31 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         factory = FakeProcessFactory()
         with self.assertRaisesRegex(RuntimeError, "provider failed"):
             asyncio.run(self.service(factory, FakeResolver(error=RuntimeError("provider failed"))).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
-        self.assertTrue(factory.ffmpeg.terminated); self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+        self.assertIsNone(factory.ffmpeg); self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
     def test_oversize_chunk_is_rejected_and_cleaned(self):
         factory = FakeProcessFactory()
         with self.assertRaises(VideoProxyChunkTooLargeError):
-            asyncio.run(self.service(factory, settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=3), free=10**9).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+            asyncio.run(self.service(factory, settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=3, VIDEO_PROXY_MAX_SOURCE_BYTES=100), free=10**9).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
     def test_exact_chunk_size_limit_is_rejected_and_cleaned(self):
         factory = FakeProcessFactory()
         with self.assertRaises(VideoProxyChunkTooLargeError):
-            asyncio.run(self.service(factory, settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=5), free=10**9).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+            asyncio.run(self.service(factory, settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=5, VIDEO_PROXY_MAX_SOURCE_BYTES=100), free=10**9).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+    def test_truncated_source_is_rejected_and_cleaned(self):
+        factory = FakeProcessFactory()
+        with self.assertRaises(VideoProxySourceError):
+            asyncio.run(self.service(factory, FakeResolver((b"short",))).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+        self.assertIsNone(factory.ffmpeg)
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+
+    def test_source_limit_is_enforced_and_cleaned(self):
+        factory = FakeProcessFactory()
+        with self.assertRaises(VideoProxySourceError):
+            asyncio.run(self.service(factory, FakeResolver((b"a" * 21,)), settings=self.settings(VIDEO_PROXY_MAX_SOURCE_BYTES=20)).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
+        self.assertIsNone(factory.ffmpeg)
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+
     def test_process_failure_is_reported_and_cleaned(self):
         factory = FakeProcessFactory()
         original = factory.__call__
@@ -232,10 +263,10 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         service = VideoProxyPreparationService(self.sessions, self.settings(), content_resolver=DelayedResolver(), create_subprocess_exec=factory, disk_usage=disk_usage, storage_poll_seconds=.001)
         with self.assertRaises(VideoProxyStorageError):
             asyncio.run(service.prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
-        self.assertTrue(factory.ffmpeg.terminated)
+        self.assertIsNone(factory.ffmpeg)
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
 
-    def test_cancellation_terminates_process_and_cleans_working_directory(self):
+    def test_cancellation_before_ffmpeg_creation_cleans_working_directory(self):
         entered = asyncio.Event()
         class SlowResolver(FakeResolver):
             @asynccontextmanager
@@ -255,7 +286,7 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await task
         asyncio.run(cancel())
-        self.assertTrue(factory.ffmpeg.terminated)
+        self.assertIsNone(factory.ffmpeg)
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
 
 

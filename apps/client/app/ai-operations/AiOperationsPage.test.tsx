@@ -212,7 +212,7 @@ describe("AI Operations media dashboard compatibility", () => {
         waiting_rate_limit: 0,
       },
     } as AiOpsDashboardData["media"]);
-    expect(media?.recent_video).toEqual([]);
+    expect(media?.recent_video).toEqual({ page: 1, page_size: 25, total: 0, items: [] });
     expect(media?.video.queued).toBe(0);
     expect(media?.video_indexing.completed).toBe(0);
     expect(() => renderToStaticMarkup(<AiOperationsContent

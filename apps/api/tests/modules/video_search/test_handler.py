@@ -19,7 +19,7 @@ from app.modules.video_search.handler import VideoAnalyzeJobHandler
 from app.modules.video_search.model import VideoAnalysisRunModel, VideoMetadataProfileModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.video_search.repository import VideoSearchRepository
-from app.modules.video_search.proxy import PreparedVideoChunk, VideoProxyConfigurationError
+from app.modules.video_search.proxy import PreparedVideoChunk, VideoProxyConfigurationError, VideoProxySourceError
 from app.modules.video_search.scheduler import VideoModelSelection
 
 
@@ -376,6 +376,31 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
         planner.assert_not_called()
         proxy.assert_not_called()
 
+
+    def test_invalid_proxy_source_terminalizes_fresh_run_without_gemini(self):
+        with self.sessions() as session:
+            assets = AssetRegistryRepository(session)
+            source = assets.upsert_external_source(tenant_id="tenant-a", source_key="source-invalid-proxy", source_type="google_drive")
+            asset = assets.upsert_source_asset(tenant_id="tenant-a", external_source_id=source.id, external_asset_id="asset-invalid-proxy", filename="fresh.mp4", mime_type="video/mp4", size_bytes=10, provider_checksum="fresh-invalid", provider_version="v1", source_metadata={})
+            session.commit()
+        selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope:fp")
+        with (
+            patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver,
+            patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner,
+            patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type,
+            patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type,
+        ):
+            resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
+            planner.return_value.select.return_value = selection
+            proxy_type.return_value.prepare = AsyncMock(side_effect=VideoProxySourceError("source size mismatch"))
+            result = VideoAnalyzeJobHandler(self._settings())(self._context(asset.id))
+        self.assertEqual(result.outcome.value, "non_retryable_failure")
+        self.assertEqual(result.error_code, "video_proxy_source_invalid")
+        analysis_type.return_value.analyze_chunk.assert_not_called()
+        with self.sessions() as session:
+            run = session.scalar(select(VideoAnalysisRunModel).where(VideoAnalysisRunModel.source_asset_id == asset.id))
+            self.assertIsNotNone(run)
+            self.assertEqual(run.status, "failed")
 
     def test_proxy_configuration_error_terminalizes_fresh_run_without_gemini(self):
         with self.sessions() as session:

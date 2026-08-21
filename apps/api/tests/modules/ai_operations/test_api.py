@@ -46,12 +46,14 @@ class AiOperationsApiTest(unittest.TestCase):
             session.add_all([profile, asset, other_asset, source])
             session.flush()
             self.asset_id = asset.id
+            self.external_source_id = source.id
             source_asset = SourceAssetModel(
                 tenant_id="tenant-a", external_source_id=source.id,
                 external_asset_id="drive-item",
             )
             session.add(source_asset)
             session.flush()
+            self.source_asset_id = source_asset.id
             session.add(AssetSourceLinkModel(
                 tenant_id="tenant-a", asset_id=asset.id, source_asset_id=source_asset.id,
             ))
@@ -193,6 +195,32 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual([stage["key"] for stage in document["pipeline"]["video"]], ["video_analyze", "video_search_index"])
         self.assertEqual(len(document["workers"]), 2)
         self.assertNotIn("127.0.0.1", str(document))
+
+    def test_media_dashboard_paginates_video_jobs_and_returns_safe_thumbnail_proxy(self):
+        with self.factory() as session:
+            for index in range(26):
+                session.add(ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="video_analyze",
+                    entity_type="source_asset", entity_id=self.source_asset_id,
+                    idempotency_key=f"video-page-{index}", status="completed",
+                    payload_json={}, updated_at=self.now - timedelta(seconds=index),
+                ))
+            session.commit()
+        probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
+        with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(
+            "app.modules.ai_operations.media_dashboard._probe_worker", probe,
+        ):
+            response = self.client.get("/api/v1/admin/ai-operations/media-dashboard?video_page=2&video_page_size=25")
+        self.assertEqual(response.status_code, 200)
+        recent = response.json()["recent_video"]
+        self.assertEqual(recent["page"], 2)
+        self.assertEqual(recent["page_size"], 25)
+        self.assertEqual(recent["total"], 26)
+        self.assertEqual(len(recent["items"]), 1)
+        self.assertEqual(
+            recent["items"][0]["thumbnail_url"],
+            f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}",
+        )
 
     def test_metadata_prompt_template_is_exposed_versioned_and_audited(self):
         with patch("app.modules.ai_operations.control_router.SessionLocal", self.factory):
