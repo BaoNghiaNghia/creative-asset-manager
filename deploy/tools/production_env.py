@@ -180,10 +180,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             command,
             env=child_environment(values),
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
             check=False,
         )
+        if result.returncode:
+            output = result.stdout[-4000:]
+            for value in sorted(values.values(), key=len, reverse=True):
+                if len(value) >= 4:
+                    output = output.replace(value, "[redacted]")
+            print("ERROR: production command failed.", file=sys.stderr)
+            if output.strip():
+                print(output, file=sys.stderr)
         return result.returncode
     except SafeConfigurationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
