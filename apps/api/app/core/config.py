@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     PROXY_HEADERS_ENABLED: bool = False
     PROXY_TRUSTED_IPS: str = "127.0.0.1,::1"
     HEALTHCHECK_TIMEOUT_SECONDS: float = 2.0
+    # API-only worker health probes; browsers never access worker ports directly.
+    IMAGE_WORKER_HEALTH_URL: str = "http://127.0.0.1:8081"
+    VIDEO_WORKER_HEALTH_URL: str = "http://127.0.0.1:8082"
     DATABASE_URL: str | None = None
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10

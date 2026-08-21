@@ -2,7 +2,7 @@ import csv
 import io
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -172,6 +172,27 @@ class AiOperationsApiTest(unittest.TestCase):
         defaults.update(params)
         with patch("app.modules.ai_operations.router.SessionLocal", self.factory):
             return self.client.get(path, params=defaults)
+
+    def test_media_dashboard_separates_image_video_and_indexing(self):
+        with self.factory() as session:
+            session.add_all([
+                ProcessingJobModel(tenant_id="tenant-a", job_type="video_analyze", entity_type="video_analysis_run", entity_id="video-run", idempotency_key="video-analysis", status="processing", payload_json={}),
+                ProcessingJobModel(tenant_id="tenant-a", job_type="video_search_index", entity_type="video_analysis_run", entity_id="video-run", idempotency_key="video-index", status="completed", payload_json={}),
+            ])
+            session.commit()
+        probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
+        with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(
+            "app.modules.ai_operations.media_dashboard._probe_worker", probe,
+        ):
+            response = self.client.get("/api/v1/admin/ai-operations/media-dashboard")
+        self.assertEqual(response.status_code, 200)
+        document = response.json()
+        self.assertEqual(document["image"]["label"], "Image analysis")
+        self.assertEqual(document["video"]["running"], 1)
+        self.assertEqual(document["video_indexing"]["completed"], 1)
+        self.assertEqual([stage["key"] for stage in document["pipeline"]["video"]], ["video_analyze", "video_search_index"])
+        self.assertEqual(len(document["workers"]), 2)
+        self.assertNotIn("127.0.0.1", str(document))
 
     def test_metadata_prompt_template_is_exposed_versioned_and_audited(self):
         with patch("app.modules.ai_operations.control_router.SessionLocal", self.factory):

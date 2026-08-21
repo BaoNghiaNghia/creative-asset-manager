@@ -127,6 +127,21 @@ export type AiOpsUsage = {
 
 export type Page<T> = { page: number; page_size: number; total: number; items: T[] };
 
+export type AiOpsMediaStage = {
+  key: string; label: string; queued: number; eligible_now: number; running: number;
+  completed: number; failed: number; waiting_rate_limit: number; state?: "idle" | "running" | "waiting_rate_limit";
+};
+export type AiOpsWorkerStatus = {
+  role: "image" | "video"; live: boolean | null; ready: boolean | null;
+  probe: "available" | "unavailable"; active_jobs: number;
+  current_job_type: string | null; last_successful_claim_at: string | null;
+};
+export type AiOpsMediaDashboard = {
+  image: AiOpsMediaStage; video: AiOpsMediaStage; video_indexing: AiOpsMediaStage;
+  pipeline: { image: AiOpsMediaStage[]; video: AiOpsMediaStage[] };
+  workers: AiOpsWorkerStatus[]; generated_at: string;
+};
+
 export type AiOpsDashboardData = {
   summary: AiOpsSummary | null;
   today: AiOpsSummary | null;
@@ -139,6 +154,7 @@ export type AiOpsDashboardData = {
   usage: Page<AiOpsUsage>;
   coverage?: AiOpsSearchCoverage | null;
   pipeline?: PipelineSnapshot | null;
+  media?: AiOpsMediaDashboard | null;
 };
 
 export type AiOpsAudit = { actor: string; action: string; reason: string; timestamp: string };

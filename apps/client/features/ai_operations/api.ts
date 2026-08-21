@@ -1,6 +1,6 @@
 import type {
   AiOpsDaily, AiOpsDashboardData, AiOpsFailure, AiOpsFilters, AiOpsJob,
-  AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page, PipelineSnapshot,
+  AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page, PipelineSnapshot, AiOpsMediaDashboard,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -90,12 +90,16 @@ export async function fetchAiOperationsDashboard(
     read<Page<AiOpsJob>>(`${base}/jobs?${jobs}`, fetcher),
     read<Page<AiOpsUsage>>(`${base}/usage?${usage}`, fetcher),
     read<PipelineSnapshot>(base + "/pipeline?recent_page=" + (filters.pipelinePage || 1) + "&recent_page_size=" + (filters.pipelinePageSize || 25), fetcher),
+    read<AiOpsMediaDashboard>(base + "/media-dashboard", fetcher),
   ] as const;
   const settled = await Promise.allSettled(calls);
   const pipelineUnavailable = settled[9]?.status === "rejected"
     && settled[9].reason instanceof AiOperationsApiError
     && settled[9].reason.status === 404;
-  const errors = settled.flatMap((item, index) => item.status === "rejected" && !(index === 9 && pipelineUnavailable)
+  // This additive endpoint may be absent during a rolling backend deployment.
+  const mediaUnavailable = settled[10]?.status === "rejected";
+  const errors = settled.flatMap((item, index) => item.status === "rejected"
+    && !(index === 9 && pipelineUnavailable) && !(index === 10 && mediaUnavailable)
     ? [String(item.reason?.message || "Request failed")] : []);
   const unauthorized = settled.some(item => item.status === "rejected" && item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status));
   const value = <T,>(index: number, fallback: T): T => settled[index]?.status === "fulfilled"
@@ -117,6 +121,7 @@ export async function fetchAiOperationsDashboard(
       // The pipeline snapshot was introduced after the original AI Operations API.
       // A rolling deployment may briefly serve the prior API; keep AI metrics usable.
       pipeline: pipelineUnavailable ? undefined : normalizePipelineSnapshot(value<PipelineSnapshot | null>(9, null)),
+      media: value<AiOpsMediaDashboard | null>(10, null),
     },
   };
 }
@@ -142,7 +147,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
   };
 }
 
-export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSeconds = 0): string {
+export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSeconds = 0, media: "image" | "video" = "image"): string {
   const params = new URLSearchParams();
   if (filters.range !== 90) params.set("range", filters.range === 0 ? "all" : String(filters.range));
   if (filters.provider) params.set("provider", filters.provider);
@@ -157,6 +162,7 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSec
   if ((filters.pipelinePage || 1) > 1) params.set("pipeline_page", String(filters.pipelinePage));
   if ((filters.pipelinePageSize || 25) !== 25) params.set("pipeline_page_size", String(filters.pipelinePageSize));
   if (tab !== "overview") params.set("tab", tab);
+  if (media === "video") params.set("media", media);
   if (refreshSeconds) params.set("refresh", String(refreshSeconds));
   return params.toString();
 }

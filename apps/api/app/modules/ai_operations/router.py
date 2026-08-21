@@ -11,6 +11,7 @@ from app.core.database import SessionLocal
 from app.modules.ai_operations.export import EXPORT_COLUMNS, audit_export, csv_stream, export_rows
 from app.modules.ai_operations.queries import AiOperationsRepository
 from app.modules.ai_operations.pipeline import PipelineOperationsRepository
+from app.modules.ai_operations.media_dashboard import MediaDashboardService
 from app.modules.ai_operations.coverage import SearchCoverageSummaryService
 from app.modules.ai_operations.schema import AiOperationsFilters, ManagedStorageCleanupRequest, ManagedStorageSelfIngestionRepairRequest, SearchCoverageAuditRequest, SearchCoverageRepairRequest
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
@@ -274,6 +275,17 @@ def pipeline_summary(
         return PipelineOperationsRepository(session).snapshot(
             target, recent_page=recent_page, recent_page_size=recent_page_size,
         )
+
+
+@router.get("/media-dashboard")
+async def media_dashboard(
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+    tenant_id: str | None = Query(default=None),
+):
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    with SessionLocal() as session:
+        return await MediaDashboardService(session, get_settings()).snapshot(target)
 
 
 @router.get("/summary")
