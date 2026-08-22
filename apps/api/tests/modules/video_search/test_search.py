@@ -110,6 +110,19 @@ class VideoSearchQueryTest(unittest.TestCase):
         )
         self.assertEqual(item["duration_ms"], 30000)
         self.assertEqual(item["web_url"], "https://drive.example/file")
+        self.assertEqual(
+            item["thumbnail_url"],
+            "/api/explorer/thumbnail/external-a?provider=google-drive&external_source_id=source-a&fallback=video",
+        )
+
+    def test_thumbnail_proxy_fallback_supports_existing_documents_without_thumbnail(self):
+        value = response()
+        value["hits"]["hits"][0]["_source"]["thumbnail_url"] = None
+        item = parse_video_search_response(value)["items"][0]
+        self.assertEqual(
+            item["thumbnail_url"],
+            "/api/explorer/thumbnail/external-a?provider=google-drive&external_source_id=source-a&fallback=video",
+        )
 
     def test_adapter_search_uses_dedicated_video_read_alias(self):
         async def verify():

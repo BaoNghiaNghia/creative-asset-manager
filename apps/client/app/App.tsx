@@ -9,7 +9,7 @@ import { useVideoSearch } from "./hooks/useVideoSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
-import { SearchGuide, SearchControls } from "./components/SearchControls";
+import { SearchControls } from "./components/SearchControls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
 import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, SidebarIcon, sourceFolderBrand } from "./components/Icons";
@@ -195,6 +195,8 @@ export default function App() {
   const [searchMediaMode, setSearchMediaMode] = useState<SearchMediaMode>(
     () => parseSearchMediaMode(new URLSearchParams(window.location.search).get("media")),
   );
+  const [imageResultsExpanded, setImageResultsExpanded] = useState(true);
+  const [videoResultsExpanded, setVideoResultsExpanded] = useState(true);
   const imageSearchEnabled = searchIncludesImages(searchMediaMode);
   const videoSearchEnabled = searchIncludesVideos(searchMediaMode);
   const explorer = useDriveExplorer(imageSearchEnabled);
@@ -622,8 +624,6 @@ export default function App() {
                   ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
               </div>}
             </div>
-            {imageSearchEnabled && explorer.searchV3.active && <SearchGuide capabilities={explorer.searchV3.capabilities} />}
-            {searchMediaMode === "all" && explorer.searchV3.active && <small className="search-guide-scope">Advanced filters apply to image results.</small>}
           </div>
           {searchBusy && <small className="search-waiting" role="status" aria-live="polite">
             {searchMediaMode === "all"
@@ -820,7 +820,8 @@ export default function App() {
 
           <div id="search-results">
           {searchMediaMode === "videos" && explorer.query.trim() ? videoResults : <>
-          {searchMediaMode === "all" && explorer.query.trim() && <h2 className="mixed-search-heading">Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></h2>}
+          {searchMediaMode === "all" && explorer.query.trim() && <h2 className="mixed-search-heading"><button type="button" className="mixed-search-toggle" aria-expanded={imageResultsExpanded} aria-controls="mixed-image-results" onClick={() => setImageResultsExpanded(value => !value)}><span>Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></span><i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i></button></h2>}
+          <div id="mixed-image-results" hidden={searchMediaMode === "all" && Boolean(explorer.query.trim()) && !imageResultsExpanded}>
                     {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
 
           {explorer.searchError && <div className="search-warning" role="alert">
@@ -875,9 +876,10 @@ export default function App() {
             onClearFilter={() => explorer.setVisibilityFilter("all")}
             onOpen={explorer.open}
           />}
+          </div>
           {searchMediaMode === "all" && explorer.query.trim() && <section className="mixed-search-section" aria-label="Video results">
-            <h2>Videos <small>{videoSearch.loading ? "Searching..." : videoSearch.total + " results"}</small></h2>
-            {videoResults}
+            <h2><button type="button" className="mixed-search-toggle" aria-expanded={videoResultsExpanded} aria-controls="mixed-video-results" onClick={() => setVideoResultsExpanded(value => !value)}><span>Videos <small>{videoSearch.loading ? "Searching..." : videoSearch.total + " results"}</small></span><i aria-hidden="true">{videoResultsExpanded ? "−" : "+"}</i></button></h2>
+            <div id="mixed-video-results" hidden={!videoResultsExpanded}>{videoResults}</div>
           </section>}
           </>}
           </div>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import quote, urlencode
 
 VIDEO_SEGMENT_FIELDS = (
     "segments.summary^4",
@@ -22,6 +23,16 @@ VIDEO_SEGMENT_FIELDS = (
 
 class VideoSearchResponseError(ValueError):
     pass
+
+
+def _thumbnail_url(source: Mapping[str, Any]) -> str | None:
+    source_type = source.get("source_type")
+    external_source_id = source.get("external_source_id")
+    external_asset_id = source.get("external_asset_id")
+    if source_type in {"google_drive", "google-drive"} and isinstance(external_source_id, str) and isinstance(external_asset_id, str):
+        query = urlencode({"provider": "google-drive", "external_source_id": external_source_id, "fallback": "video"})
+        return f"/api/explorer/thumbnail/{quote(external_asset_id, safe='')}?{query}"
+    return source.get("thumbnail_url") if isinstance(source.get("thumbnail_url"), str) else None
 
 
 def build_video_search_query(
@@ -176,7 +187,7 @@ def parse_video_search_response(response: Mapping[str, Any]) -> dict[str, Any]:
             "external_source_id": source.get("external_source_id") if isinstance(source.get("external_source_id"), str) else None,
             "external_asset_id": source.get("external_asset_id") if isinstance(source.get("external_asset_id"), str) else None,
             "web_url": source.get("web_url") if isinstance(source.get("web_url"), str) else None,
-            "thumbnail_url": source.get("thumbnail_url") if isinstance(source.get("thumbnail_url"), str) else None,
+            "thumbnail_url": _thumbnail_url(source),
             "score": _number(hit.get("_score")),
             "best_match": best,
             "matches": matches,

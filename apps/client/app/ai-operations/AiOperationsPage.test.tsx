@@ -221,6 +221,18 @@ describe("AI Operations media dashboard compatibility", () => {
     } as unknown as AiOpsDashboardData["media"]);
     expect(legacy?.recent_video.total).toBe(1);
     expect(legacy?.recent_video.items[0]?.filename).toBe("clip.mp4");
+    const processingMarkup = renderToStaticMarkup(<AiOperationsContent
+      data={{ ...data, media: legacy }}
+      filters={filters}
+      tab="processing"
+      media="video"
+      onTab={noop}
+      onFilters={noop}
+      onRetry={noop}
+    />);
+    expect(processingMarkup).toContain("Video processing jobs");
+    expect(processingMarkup).toContain("clip.mp4");
+    expect(processingMarkup).toContain("Video processing page numbers");
     expect(() => renderToStaticMarkup(<AiOperationsContent
       data={{ ...data, media }}
       filters={filters}
@@ -286,7 +298,9 @@ describe("AI Operations media tab placement", () => {
     expect(queryBar.indexOf("Image AI")).toBeGreaterThanOrEqual(0);
     expect(queryBar.indexOf("Image AI")).toBeLessThan(queryBar.indexOf("Last 1 month"));
     expect(queryBar.indexOf("Video AI")).toBeLessThan(queryBar.indexOf("Last 1 month"));
-    expect(render("processing")).not.toContain("Pipeline media type");
+    const processing = render("processing");
+    expect(processing).toContain("Processing media type");
+    expect(processing.indexOf("Image AI")).toBeLessThan(processing.indexOf("Last 1 month"));
   });
 });
 
@@ -665,7 +679,7 @@ describe("Search Coverage card", () => {
       latest_source_sync: { mode: "full", status: "completed", pages_count: 2, items_seen_count: 8, jobs_created_count: 4, started_at: "2026-07-27T00:00:00Z", completed_at: "2026-07-27T00:01:00Z", duration_ms: 60_000, error_code: null },
       overall: { source_items_discovered: 8, supported_assets: 3, unsupported_assets: 5, completed: 1, active: 1, queued: 1, failed: 0, skipped: 0, indexed_percentage: 33.3, throughput_today: 1, asset_progress: [{ key: "discovered", count: 1 }, { key: "downloaded", count: 0 }, { key: "stored", count: 0 }, { key: "analyzed", count: 1 }, { key: "projection_built", count: 0 }, { key: "indexed", count: 1 }] },
       stages, active_job: { stage: "Download", job_type: "source_asset_download", status: "processing", filename: "nurse.jpg", provider: "google_drive", attempt_count: 1, max_attempts: 5, started_at: "2026-07-27T00:00:00Z", elapsed_ms: 1_000, message: "Downloading from Google Drive" },
-      failure_groups: [], skipped_breakdown: [{ category: "folders_non_images", count: 5 }], recent_assets: { page: 2, page_size: 25, total: 60, items: [{ asset_id: "asset-1", filename: "nurse.jpg", state: "search_pending", stage_statuses: { download: "completed", store: "completed", analyze: "completed", projection: "completed", index: "pending" }, updated_at: "2026-07-27T00:00:00Z", error_code: null }] },
+      failure_groups: [], skipped_breakdown: [{ category: "folders_non_images", count: 5 }], recent_assets: { page: 2, page_size: 25, total: 60, items: [{ asset_id: "asset-1", filename: "nurse.jpg", thumbnail_url: "/api/explorer/thumbnail/drive-item?provider=google-drive", state: "search_pending", stage_statuses: { download: "completed", store: "completed", analyze: "completed", projection: "completed", index: "pending" }, updated_at: "2026-07-27T00:00:00Z", error_code: null }] },
     }} />);
     expect(markup).toContain("scan-status-icon completed");
     expect(markup).toContain("Lập chỉ mục tìm kiếm");
@@ -684,6 +698,8 @@ describe("Search Coverage card", () => {
     expect(markup).not.toContain("<dd>Pipeline item</dd>");
     expect(markup).toContain("Hiển thị 26-50 trên tổng số 60 tài sản logic");
     expect(markup).toContain("Pipeline asset pagination");
+    expect(markup).toContain("pipeline-asset-thumbnail");
+    expect(markup).toContain("/api/explorer/thumbnail/drive-item?provider=google-drive");
     expect(markup).toContain("Sẵn sàng");
     expect(markup).toContain("Các giai đoạn đang hoạt động");
     expect(markup).toContain("Cần xử lý");

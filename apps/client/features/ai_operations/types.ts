@@ -261,5 +261,5 @@ export type PipelineSnapshot = {
   skipped_breakdown?: Array<{ category: string; count: number }>;
   diagnostics?: { decommissioned_sources_excluded: number; raw_attempts: Record<string, { total_attempts: number; completed_attempts: number; failed_attempts: number }> };
   definitions?: { snapshot: string; attempt_diagnostics: string };
-  recent_assets: Page<{ asset_id: string | null; filename: string; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
+  recent_assets: Page<{ asset_id: string | null; filename: string; thumbnail_url?: string | null; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
 };

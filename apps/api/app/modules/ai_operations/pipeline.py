@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote, urlencode
 
 from sqlalchemy import and_, case, func, literal, select
 from sqlalchemy.orm import Session
@@ -54,10 +55,16 @@ class PipelineOperationsRepository:
         return select(
             SourceAssetModel.id.label("logical_id"), SourceAssetModel.filename.label("filename"),
             SourceAssetModel.mime_type.label("mime_type"), SourceAssetModel.updated_at.label("source_updated_at"),
+            SourceAssetModel.external_asset_id.label("external_asset_id"),
+            SourceAssetModel.external_source_id.label("external_source_id"),
+            ExternalSourceModel.source_type.label("source_type"),
             AssetPipelineModel.id.label("pipeline_id"), AssetPipelineModel.asset_id.label("asset_id"),
             AssetPipelineModel.state.label("pipeline_state"), AssetPipelineModel.last_error_code.label("pipeline_error_code"),
             AssetPipelineModel.last_error_message.label("pipeline_error_message"), AssetPipelineModel.updated_at.label("pipeline_updated_at"),
-        ).select_from(SourceAssetModel).outerjoin(AssetPipelineModel, and_(
+        ).select_from(SourceAssetModel).join(ExternalSourceModel, and_(
+            ExternalSourceModel.tenant_id == SourceAssetModel.tenant_id,
+            ExternalSourceModel.id == SourceAssetModel.external_source_id,
+        )).outerjoin(AssetPipelineModel, and_(
             AssetPipelineModel.tenant_id == SourceAssetModel.tenant_id,
             AssetPipelineModel.source_asset_id == SourceAssetModel.id,
         )).where(
@@ -170,7 +177,14 @@ class PipelineOperationsRepository:
     def _recent_assets(self, logical, *, page: int, page_size: int) -> dict[str, Any]:
         total = int(self.session.scalar(select(func.count()).select_from(logical)) or 0)
         rows = self.session.execute(select(logical).order_by(func.coalesce(logical.c.pipeline_updated_at, logical.c.source_updated_at).desc(), logical.c.logical_id.desc()).offset((page - 1) * page_size).limit(page_size)).mappings().all()
-        return {"page": page, "page_size": page_size, "total": total, "items": [{"asset_id": row["asset_id"], "filename": row["filename"] or "Untitled source asset", "state": row["pipeline_state"] or "discovered", "stage_statuses": self._asset_stage_statuses(row["pipeline_state"] or "discovered"), "updated_at": row["pipeline_updated_at"] or row["source_updated_at"], "error_code": row["pipeline_error_code"]} for row in rows]}
+        items = []
+        for row in rows:
+            thumbnail_url = None
+            if row["source_type"] == "google_drive":
+                query = urlencode({"provider": "google-drive", "external_source_id": row["external_source_id"]})
+                thumbnail_url = f"/api/explorer/thumbnail/{quote(str(row['external_asset_id']), safe='')}?{query}"
+            items.append({"asset_id": row["asset_id"], "filename": row["filename"] or "Untitled source asset", "thumbnail_url": thumbnail_url, "state": row["pipeline_state"] or "discovered", "stage_statuses": self._asset_stage_statuses(row["pipeline_state"] or "discovered"), "updated_at": row["pipeline_updated_at"] or row["source_updated_at"], "error_code": row["pipeline_error_code"]})
+        return {"page": page, "page_size": page_size, "total": total, "items": items}
 
     def snapshot(self, tenant_id: str, *, recent_page: int = 1, recent_page_size: int = 25) -> dict[str, Any]:
         recent_page, recent_page_size, now = max(1, recent_page), recent_page_size if recent_page_size in {25, 50, 100} else 25, datetime.now(timezone.utc)

@@ -50,6 +50,10 @@ class VideoSearchApiTest(unittest.TestCase):
         self.assertEqual(item["best_match"]["start_ms"], 12000)
         self.assertEqual(item["matches"][0]["end_ms"], 18500)
         self.assertEqual(item["web_url"], "https://drive.example/file")
+        self.assertEqual(
+            item["thumbnail_url"],
+            "/api/explorer/thumbnail/external-a?provider=google-drive&external_source_id=source-a&fallback=video",
+        )
         query = index_type.return_value.search.await_args.args[0]
         self.assertEqual(query["query"]["bool"]["filter"], [{"term": {"tenant_id": "tenant-a"}}])
         index_type.return_value.aclose.assert_awaited_once()

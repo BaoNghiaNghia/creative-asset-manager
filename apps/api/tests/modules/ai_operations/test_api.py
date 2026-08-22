@@ -370,6 +370,10 @@ class AiOperationsApiTest(unittest.TestCase):
         store = next(item for item in value["stages"] if item["key"] == "asset_store")
         self.assertEqual(store["completed_assets"], 1)
         self.assertEqual(value["active_job"]["job_type"], "source_asset_download")
+        self.assertEqual(
+            value["recent_assets"]["items"][0]["thumbnail_url"],
+            f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}",
+        )
         self.assertNotIn("payload_json", str(value))
 
     def test_pipeline_snapshot_deduplicates_retries_skips_and_decommissioned_sources(self):

@@ -1287,7 +1287,6 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .search-mode-tabs button:focus-visible{outline:3px solid #2f68db44;outline-offset:2px}
 .mixed-search-heading,.mixed-search-section h2{display:flex;align-items:baseline;gap:8px;margin:22px 34px 10px;font-size:16px;color:#162b4a}
 .mixed-search-heading small,.mixed-search-section h2 small{color:#718198;font-size:12px;font-weight:600}
+.mixed-search-toggle{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;border:0;padding:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.mixed-search-toggle>span{display:flex;align-items:baseline;gap:8px}.mixed-search-toggle>i{display:grid;width:27px;height:27px;place-items:center;border:1px solid #d8e1ef;border-radius:7px;background:#f7f9fd;color:#315fc5;font-size:17px;font-style:normal;line-height:1}.mixed-search-toggle:hover>i{border-color:#adc1e8;background:#edf3ff}.mixed-search-toggle:focus-visible{border-radius:6px;outline:3px solid #2f68db44;outline-offset:4px}
 .mixed-search-section{padding-top:1px}
 @media(max-width:640px){.search-mode-tabs{margin:8px 0 0}.mixed-search-heading,.mixed-search-section h2{margin-left:16px;margin-right:16px}}
-
-.search-guide-scope{display:block;margin-top:6px;color:#718198;font-size:11px;font-weight:600}

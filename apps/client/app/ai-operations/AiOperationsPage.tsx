@@ -195,7 +195,7 @@ export function AiOperationsContent({
     ...data.providers.map(item => item.model || ""), ...data.usage.items.map(item => item.model || ""),
   ].filter(Boolean))].sort(), [data]);
   const profiles = useMemo(() => [...new Set(data.usage.items.map(item => item.metadata_profile || "").filter(Boolean))].sort(), [data]);
-  const hasMediaTabs = tab === "pipeline" || tab === "overview";
+  const hasMediaTabs = tab === "pipeline" || tab === "overview" || tab === "processing";
   if (unauthorized) return <DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} />;
   return <>
     <header className="ops-header">
@@ -216,7 +216,7 @@ export function AiOperationsContent({
       {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}><TabIcon name={item.icon} /><span>{item.label}</span></button>)}
     </nav>
     <div className="ops-query-bar">
-      {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : "AI analysis media type"} />}
+      {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : tab === "processing" ? "Processing media type" : "AI analysis media type"} />}
       <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
       <details className="ops-export-menu">
         <summary>Export data</summary>
@@ -232,7 +232,7 @@ export function AiOperationsContent({
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
       {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} media={media} onMedia={onMedia} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
-        : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} />
+        : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} inventoryPermissions={permissions} />
         : <ConfigurationTab />}
@@ -528,6 +528,12 @@ function PipelineAssetIcon({ filename }: { filename: string }) {
   return <span className={"pipeline-asset-icon " + kind} aria-hidden="true"><svg viewBox="0 0 24 24"><path d={paths[kind]} /></svg></span>;
 }
 
+function PipelineAssetThumbnail({ filename, thumbnailUrl }: { filename: string; thumbnailUrl?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (!thumbnailUrl || failed) return <PipelineAssetIcon filename={filename} />;
+  return <span className="pipeline-asset-thumbnail"><img src={thumbnailUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /></span>;
+}
+
 function pipelineStageLabel(label: string): string {
   const normalized = label.replaceAll("_", " ").toLowerCase();
   return ({
@@ -574,7 +580,7 @@ function PipelineRecentAssets({ recent, onPage }: { recent: PipelineSnapshot["re
   const page = Math.min(recent.page, pages);
   const first = (page - 1) * recent.page_size + 1;
   const last = Math.min(page * recent.page_size, recent.total);
-  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Tiến độ tài sản gần đây</h2><p>Hiển thị {first}-{last} trên tổng số {recent.total} tài sản logic. Chọn tên để xem chi tiết.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Số mục mỗi trang<select aria-label="Số mục pipeline mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Tài sản</th><th>Giai đoạn hiện tại</th><th>Tải xuống</th><th>Lưu trữ</th><th>Phân tích AI</th><th>Tìm kiếm</th><th>Lập chỉ mục</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetIcon filename={item.filename} /><div>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)} title={item.filename}>{pipelineAssetTitle(item.filename)}</a> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small>{pipelineAssetKind(item.filename) === "asset" ? "Asset ID" : pipelineAssetKind(item.filename)}</small></div></div></td><td><PipelineCurrentState state={item.state} /></td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
+  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Tiến độ tài sản gần đây</h2><p>Hiển thị {first}-{last} trên tổng số {recent.total} tài sản logic. Chọn tên để xem chi tiết.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Số mục mỗi trang<select aria-label="Số mục pipeline mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Tài sản</th><th>Giai đoạn hiện tại</th><th>Tải xuống</th><th>Lưu trữ</th><th>Phân tích AI</th><th>Tìm kiếm</th><th>Lập chỉ mục</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetThumbnail filename={item.filename} thumbnailUrl={item.thumbnail_url} /><div>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)} title={item.filename}>{pipelineAssetTitle(item.filename)}</a> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small>{pipelineAssetKind(item.filename) === "asset" ? "Asset ID" : pipelineAssetKind(item.filename)}</small></div></div></td><td><PipelineCurrentState state={item.state} /></td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
 }
 
 function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: string; label: string; value: number; detail: string; tone?: string }) {
@@ -734,7 +740,12 @@ function ProcessingFailureGroupRetry({
   </section>;
 }
 
-function Processing({ data, filters, permissions, onFilters, onActionAccepted }: { data: AiOpsDashboardData; filters: AiOpsFilters; permissions: string[]; onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void }) {
+function Processing({ data, filters, permissions, onFilters, onActionAccepted, media = "image", onVideoPage = () => undefined }: {
+  data: AiOpsDashboardData; filters: AiOpsFilters; permissions: string[];
+  onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void;
+  media?: "image" | "video"; onVideoPage?: (page: number, pageSize: 25 | 50 | 100) => void;
+}) {
+  if (media === "video") return <VideoProcessing media={data.media} onPage={onVideoPage} />;
   const usageByJob = new Map(data.usage.items.filter(item => item.job_id).map(item => [item.job_id!, item]));
   if (!data.jobs.items.length) return <DashboardState kind="empty" label="No processing jobs in this period" />;
   const pages = Math.max(1, Math.ceil(data.jobs.total / data.jobs.page_size));
@@ -773,6 +784,41 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted }:
           </div></td>
         </tr>;
       })}</tbody>
+    </table></div>
+  </div>;
+}
+
+function VideoProcessing({ media, onPage }: {
+  media: AiOpsDashboardData["media"]; onPage: (page: number, pageSize: 25 | 50 | 100) => void;
+}) {
+  const recent = media?.recent_video;
+  if (!recent?.items.length) return <DashboardState kind="empty" label="No video processing jobs in this period" />;
+  const pages = Math.max(1, Math.ceil(recent.total / recent.page_size));
+  const currentPage = Math.min(Math.max(1, recent.page), pages);
+  const first = (currentPage - 1) * recent.page_size + 1;
+  const last = Math.min(currentPage * recent.page_size, recent.total);
+  return <div className="ops-content">
+    <div className="ops-table-heading">
+      <div><h2>Video processing jobs</h2><p>Showing {first}-{last} of {recent.total}</p></div>
+      <div className="ops-pagination" aria-label="Video processing pagination">
+        <label>Items per page<select aria-label="Video items per page" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <nav aria-label="Video processing page numbers">
+          <button type="button" aria-label="Previous video page" disabled={currentPage <= 1} onClick={() => onPage(currentPage - 1, recent.page_size as 25 | 50 | 100)}>Previous</button>
+          {visiblePages(currentPage, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" aria-hidden="true" key={"ellipsis-" + index}>...</span> : <button type="button" key={entry} aria-label={"Video page " + entry} aria-current={entry === currentPage ? "page" : undefined} className={entry === currentPage ? "active" : ""} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}
+          <button type="button" aria-label="Next video page" disabled={currentPage >= pages} onClick={() => onPage(currentPage + 1, recent.page_size as 25 | 50 | 100)}>Next</button>
+        </nav>
+      </div>
+    </div>
+    <div className="ops-table-scroll"><table className="ops-data-table">
+      <caption className="sr-only">Video processing jobs</caption>
+      <thead><tr>{["Status", "Video", "Attempts", "Updated", "Error"].map(value => <th key={value}>{value}</th>)}</tr></thead>
+      <tbody>{recent.items.map(job => <tr key={job.job_id}>
+        <td><StatusText status={job.status} /></td>
+        <td><b>{job.filename || job.source_asset_id}</b><small>{job.location || job.source_asset_id}</small></td>
+        <td>{job.attempt_count}/{job.max_attempts}</td>
+        <td><time dateTime={job.updated_at}>{new Date(job.updated_at).toLocaleString()}</time></td>
+        <td><code>{job.error_code || "-"}</code></td>
+      </tr>)}</tbody>
     </table></div>
   </div>;
 }
