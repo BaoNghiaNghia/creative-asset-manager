@@ -63,8 +63,11 @@ ThumbnailKey = tuple[str, str, str, str]
 
 thumbnail_cache = AsyncSingleFlightTTLCache(
     ByteSizeTTLCache[ThumbnailKey, CachedThumbnail](
-        max_entries=4096,
-        max_bytes=256 * 1024 * 1024,
+        # Keep the server-side thumbnail working set bounded. 128 MiB is
+        # enough for a large active folder while leaving headroom for the
+        # API process, preview cache, database pool, and transient decoding.
+        max_entries=2048,
+        max_bytes=128 * 1024 * 1024,
         ttl_seconds=3600,
         size_of=lambda value: len(value.content),
     )

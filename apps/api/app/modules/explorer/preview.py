@@ -11,8 +11,10 @@ PREVIEW_CACHE_VERSION = "v2"
 PreviewCacheKey = tuple[str, str, str, str, str]
 
 _preview_cache: ByteSizeTTLCache[PreviewCacheKey, bytes] = ByteSizeTTLCache(
-    max_entries=2048,
-    max_bytes=256 * 1024 * 1024,
+    # Preview conversions are larger than ordinary thumbnails, so keep a
+    # smaller bounded working set and let LRU eviction control memory.
+    max_entries=1024,
+    max_bytes=128 * 1024 * 1024,
     ttl_seconds=3600,
     size_of=len,
 )
