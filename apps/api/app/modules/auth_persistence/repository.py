@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth_persistence.encryption import TokenCipher, TokenEncryptionError
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
+from app.modules.authorization.principal_cache import principal_cache
 from app.modules.auth_persistence.model import AuthAuditEventModel, AuthSessionModel, OAuthConnectionModel, OAuthTransactionModel, TenantMembershipModel, TenantModel, UserModel
 
 def utcnow():
@@ -268,6 +269,7 @@ class AuthPersistenceRepository:
         row.revoked_at = now
         self.audit("session_revoked", tenant_id=row.tenant_id, provider=provider, connection_id=row.connection_id, session_id_hash=row.session_id_hash)
         self.session.flush()
+        principal_cache.invalidate_session(row.session_id_hash)
         return True
 
     def rotate_session_active_tenant(
@@ -323,6 +325,8 @@ class AuthPersistenceRepository:
             },
         )
         self.session.flush()
+        principal_cache.invalidate_session(current.session_id_hash)
+        principal_cache.invalidate_user(user_id)
         return replacement_id, replacement
 
     def claim_refresh(self, *, tenant_id: str, connection_id: str, owner: str, lease_seconds: int) -> bool:

@@ -80,6 +80,19 @@ class BoundedTTLCache(Generic[K, V]):
                 self._entries.pop(key, None)
             return len(keys)
 
+    def invalidate_matching(
+        self, predicate: Callable[[K, V], bool]
+    ) -> int:
+        with self._lock:
+            keys = [
+                key
+                for key, (_expires_at, value) in self._entries.items()
+                if predicate(key, value)
+            ]
+            for key in keys:
+                self._entries.pop(key, None)
+            return len(keys)
+
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
@@ -155,6 +168,19 @@ class ByteSizeTTLCache(BoundedTTLCache[K, V]):
     def invalidate_where(self, predicate: Callable[[K], bool]) -> int:
         with self._lock:
             keys = [key for key in self._entries if predicate(key)]
+            for key in keys:
+                self._remove_locked(key)
+            return len(keys)
+
+    def invalidate_matching(
+        self, predicate: Callable[[K, V], bool]
+    ) -> int:
+        with self._lock:
+            keys = [
+                key
+                for key, (_expires_at, value) in self._entries.items()
+                if predicate(key, value)
+            ]
             for key in keys:
                 self._remove_locked(key)
             return len(keys)

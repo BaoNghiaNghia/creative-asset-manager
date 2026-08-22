@@ -19,6 +19,7 @@ from app.modules.auth_persistence.tenant_membership import (
     TenantMembershipService,
 )
 from app.modules.authorization.platform_admin import PlatformAdminService
+from app.modules.authorization.principal_cache import principal_cache
 from app.modules.authorization.service import TenantAuthorizationService
 from app.providers.google.auth import (
     SESSION_COOKIE as GOOGLE_SESSION_COOKIE,
@@ -131,6 +132,12 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
     if cloud_session.user_id is None:
         raise authorization_error(401, "authentication_required", "Application session is required")
 
+    cached = principal_cache.get(
+        cloud_session.session_id_hash, cloud_session.active_tenant_id
+    )
+    if cached is not None:
+        return cached
+
     with SessionLocal() as database:
         application_user = database.get(UserModel, cloud_session.user_id)
         if application_user is None:
@@ -183,7 +190,7 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
         authorization_source = "durable_platform_admin"
     elif compatibility_admin:
         authorization_source = "deprecated_processing_admin_allowlist"
-    return CurrentPrincipal(
+    principal = CurrentPrincipal(
         user_id=application_user.id,
         active_tenant_id=tenant_context.tenant_id,
         membership_id=tenant_context.membership_id or "",
@@ -194,6 +201,8 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
         session_id=cloud_session.session_id_hash,
         authorization_source=authorization_source,
     )
+    principal_cache.put(principal)
+    return principal
 
 
 def require_permission(permission_key: str):

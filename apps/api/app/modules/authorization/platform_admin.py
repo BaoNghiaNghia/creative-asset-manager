@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth_persistence.model import AuthAuditEventModel, UserModel, utcnow
 from app.modules.authorization.model import PlatformAdminAssignmentModel
+from app.modules.authorization.principal_cache import principal_cache
 
 
 class PlatformAdminService:
@@ -54,6 +55,7 @@ class PlatformAdminService:
             )
         )
         self.session.flush()
+        principal_cache.invalidate_user(user_id)
         return row
 
     def revoke(
@@ -82,4 +84,5 @@ class PlatformAdminService:
             )
         )
         self.session.flush()
+        principal_cache.invalidate_user(user_id)
         return True

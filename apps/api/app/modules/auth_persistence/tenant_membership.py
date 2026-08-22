@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.modules.authorization.principal_cache import principal_cache
 from app.modules.auth_persistence.model import (
     AuthAuditEventModel,
     AuthSessionModel,
@@ -156,6 +157,7 @@ class TenantMembershipService:
         membership.status = "suspended"
         membership.updated_at = utcnow()
         self.session.flush()
+        principal_cache.invalidate_user(user_id)
         return membership
 
     def remove_member(
@@ -165,6 +167,7 @@ class TenantMembershipService:
         membership.status = "removed"
         membership.updated_at = utcnow()
         self.session.flush()
+        principal_cache.invalidate_user(user_id)
         return membership
 
     def restore_member(
@@ -175,6 +178,7 @@ class TenantMembershipService:
         membership.joined_at = membership.joined_at or utcnow()
         membership.updated_at = utcnow()
         self.session.flush()
+        principal_cache.invalidate_user(user_id)
         return membership
 
     def select_active_tenant(
@@ -201,6 +205,7 @@ class TenantMembershipService:
             detail_json={"membership_id": membership.id},
         ))
         self.session.flush()
+        principal_cache.invalidate_session(session_id_hash)
         return TenantContext(user_id, tenant_id, membership.id)
 
     def resolve_active_tenant(self, cloud_session) -> TenantContext:

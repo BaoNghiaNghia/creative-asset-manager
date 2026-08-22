@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth_persistence.model import AuthAuditEventModel, TenantMembershipModel
 from app.modules.auth_persistence.tenant_membership import TenantAccessError, TenantMembershipService
+from app.modules.authorization.principal_cache import principal_cache
 from app.modules.authorization.model import MembershipRoleModel, PermissionModel, RoleModel, RolePermissionModel
 
 _KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{1,127}$")
@@ -101,6 +102,7 @@ class TenantAuthorizationService:
             if assignment is None:
                 raise
         self._audit("tenant_role_assigned", tenant_id, actor_id, membership.id, role.id, reason)
+        principal_cache.invalidate_tenant(tenant_id)
         return assignment
 
     def remove_role(self, *, tenant_id: str, membership_id: str, role_id: str, actor_id: str | None = None, reason: str | None = None) -> bool:
@@ -115,6 +117,7 @@ class TenantAuthorizationService:
         self.session.delete(assignment)
         self._audit("tenant_role_removed", tenant_id, actor_id, membership_id, role_id, reason)
         self.session.flush()
+        principal_cache.invalidate_tenant(tenant_id)
         return True
 
     def create_custom_role(self, *, tenant_id: str, role_key: str, name: str, permission_keys: set[str], description: str | None = None, actor_id: str | None = None, reason: str | None = None) -> RoleModel:
@@ -145,6 +148,7 @@ class TenantAuthorizationService:
             self.session.add(RolePermissionModel(role_id=role.id, permission_id=permission.id))
         self._audit("tenant_custom_role_created", tenant_id, actor_id, None, role.id, reason)
         self.session.flush()
+        principal_cache.invalidate_tenant(tenant_id)
         return role
 
     def delete_role(self, *, tenant_id: str, role_id: str, actor_id: str | None = None, reason: str | None = None) -> bool:
@@ -156,6 +160,7 @@ class TenantAuthorizationService:
         self.session.delete(role)
         self._audit("tenant_custom_role_deleted", tenant_id, actor_id, None, role.id, reason)
         self.session.flush()
+        principal_cache.invalidate_tenant(tenant_id)
         return True
 
     def _compatible_active_records(self, tenant_id: str, membership_id: str, role_id: str):

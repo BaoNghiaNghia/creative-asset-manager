@@ -13,6 +13,7 @@ from app.modules.auth_persistence.model import (
     UserModel,
 )
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
+from app.modules.authorization.principal_cache import principal_cache
 from app.modules.authorization.model import (
     MembershipRoleModel,
     PermissionModel,
@@ -338,6 +339,7 @@ class TenantAccessAdminService:
             },
         )
         self.session.flush()
+        principal_cache.invalidate_tenant(tenant_id)
         return role
 
     def delete_custom_role(

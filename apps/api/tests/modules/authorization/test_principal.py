@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.common.cache import BoundedTTLCache
 from app.core.config import Settings
 from app.core.database import Base
 from app.modules.auth_persistence.model import (
@@ -19,6 +20,7 @@ from app.modules.auth_persistence.model import (
 from app.modules.auth_persistence.repository import PersistentCloudSession, digest
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
 from app.modules.authorization.model import RoleModel
+from app.modules.authorization.principal_cache import principal_cache
 from app.modules.authorization.platform_admin import PlatformAdminService
 from app.modules.authorization.principal import (
     require_all_permissions,
@@ -34,6 +36,7 @@ from app.modules.authorization.service import TenantAuthorizationService
 
 class CurrentPrincipalTest(unittest.TestCase):
     def setUp(self):
+        principal_cache.clear()
         self.engine = create_engine(
             "sqlite:///:memory:",
             connect_args={"check_same_thread": False},
@@ -81,6 +84,7 @@ class CurrentPrincipalTest(unittest.TestCase):
         self.request = SimpleNamespace(cookies={})
 
     def tearDown(self):
+        principal_cache.clear()
         self.engine.dispose()
 
     def assign(self, role_key):
@@ -142,6 +146,68 @@ class CurrentPrincipalTest(unittest.TestCase):
                 ),
                 (401, "authentication_required"),
             )
+
+    def test_repeated_resolution_uses_cached_principal_and_tenant_key(self):
+        self.assign("viewer")
+        first = self.load()
+        with patch(
+            "app.modules.authorization.principal.SessionLocal",
+            side_effect=AssertionError("principal DB resolution should be cached"),
+        ):
+            with (
+                patch(
+                    "app.modules.authorization.principal.get_google_session",
+                    return_value=self.cloud,
+                ),
+                patch(
+                    "app.modules.authorization.principal.get_microsoft_session",
+                    return_value=None,
+                ),
+            ):
+                second = require_authenticated_principal(self.request)
+        self.assertIs(second, first)
+
+        self.cloud.active_tenant_id = "different-tenant"
+        self.assertEqual(
+            self.error_code(self.load),
+            (403, "tenant_membership_required"),
+        )
+
+    def test_expired_principal_re_resolves_and_fails_closed(self):
+        self.assign("viewer")
+        clock = [100.0]
+        original = principal_cache._cache
+        principal_cache._cache = BoundedTTLCache(
+            max_entries=8, ttl_seconds=20, clock=lambda: clock[0]
+        )
+        try:
+            self.load()
+            with self.factory() as database:
+                database.get(UserModel, self.user.id).status = "disabled"
+                database.commit()
+            clock[0] += 21
+            self.assertEqual(self.error_code(self.load), (403, "user_disabled"))
+        finally:
+            principal_cache._cache = original
+
+    def test_role_change_invalidates_cached_permissions(self):
+        self.assign("viewer")
+        viewer = self.load()
+        self.assertEqual(viewer.effective_roles, {"viewer"})
+        self.assign("operator")
+        updated = self.load()
+        self.assertEqual(updated.effective_roles, {"viewer", "operator"})
+
+    def test_session_invalidation_removes_cached_principal(self):
+        self.assign("viewer")
+        first = self.load()
+        self.assertEqual(
+            principal_cache.invalidate_session(first.session_id), 1
+        )
+        with self.factory() as database:
+            database.get(UserModel, self.user.id).status = "disabled"
+            database.commit()
+        self.assertEqual(self.error_code(self.load), (403, "user_disabled"))
 
     def test_authenticated_active_user_and_external_identity(self):
         self.assign("viewer")
@@ -259,6 +325,7 @@ class CurrentPrincipalTest(unittest.TestCase):
             settings=Settings(PROCESSING_POLICY_ADMIN_IDS="google-subject")
         )
         self.assertFalse(default_principal.platform_admin)
+        principal_cache.invalidate_session(default_principal.session_id)
         compatible = self.load(
             settings=Settings(
                 PROCESSING_POLICY_ADMIN_IDS="google-subject",
