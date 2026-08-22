@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.database import get_db
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
-from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.assets.model import ExternalSourceModel
+from app.modules.authorization.folder_scope import ViewerFolderScopeService
+from app.modules.authorization.principal import CurrentPrincipal, is_pure_viewer, require_permission
 from app.modules.video_search.elasticsearch import VideoSearchElasticsearchIndex
 from app.modules.video_search.search import (
     VideoSearchResponseError,
@@ -20,11 +25,62 @@ VIDEO_SEARCH_READ = require_permission("search.read")
 class VideoSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     limit: int = Field(default=20, ge=1, le=100)
+    external_source_id: str | None = Field(default=None, min_length=1, max_length=36)
+
+
+def _authorized_video_scope(
+    *,
+    external_source_id: str | None,
+    principal: CurrentPrincipal,
+    session: Session,
+) -> tuple[str | None, set[str] | None]:
+    source_id = (external_source_id or "").strip() or None
+    if is_pure_viewer(principal) and source_id is None:
+        raise HTTPException(
+            422,
+            detail={
+                "code": "viewer_source_context_required",
+                "message": "Select a source before searching videos.",
+            },
+        )
+    if source_id is None:
+        return None, None
+    source_exists = session.scalar(
+        select(ExternalSourceModel.id).where(
+            ExternalSourceModel.id == source_id,
+            ExternalSourceModel.tenant_id == principal.active_tenant_id,
+        )
+    )
+    if source_exists is None:
+        raise HTTPException(
+            403,
+            detail={
+                "code": "video_search_source_denied",
+                "message": "The selected source is unavailable.",
+            },
+        )
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(
+        tenant_id=principal.active_tenant_id,
+        membership_id=principal.membership_id,
+        roles=principal.effective_roles,
+        external_source_id=source_id,
+    )
+    return (
+        source_id,
+        scope_service.allowed_source_asset_ids(
+            tenant_id=principal.active_tenant_id,
+            access=access,
+        )
+        if access.restricted
+        else None,
+    )
 
 
 @router.post("/video")
 async def video_search(
     body: VideoSearchRequest,
+    session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(VIDEO_SEARCH_READ),
 ):
     query = " ".join(body.query.split())
@@ -37,6 +93,11 @@ async def video_search(
         and settings.ELASTICSEARCH_URL
     ):
         raise HTTPException(503, detail={"code": "video_search_unavailable", "message": "Video search is unavailable.", "retryable": True})
+    external_source_id, allowed_source_asset_ids = _authorized_video_scope(
+        external_source_id=body.external_source_id,
+        principal=principal,
+        session=session,
+    )
     index = VideoSearchElasticsearchIndex(
         ElasticsearchV3Config(
             settings.ELASTICSEARCH_URL,
@@ -49,6 +110,8 @@ async def video_search(
             query=query,
             tenant_id=principal.active_tenant_id,
             limit=body.limit,
+            external_source_id=external_source_id,
+            allowed_source_asset_ids=allowed_source_asset_ids,
         ))
         return parse_video_search_response(response)
     except ElasticsearchV3RequestError as exc:

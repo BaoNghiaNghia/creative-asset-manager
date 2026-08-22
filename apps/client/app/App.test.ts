@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SEARCH_MODE, accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
+import { DEFAULT_SEARCH_MEDIA_MODE, parseSearchMediaMode, searchIncludesImages, searchIncludesVideos, accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
 import type { Asset } from "./types";
@@ -144,6 +144,18 @@ describe("Search suggestion curation", () => {
 
 describe("Video search mode", () => {
   it("defaults to the existing Images search mode", () => {
-    expect(DEFAULT_SEARCH_MODE).toBe("images");
+    expect(DEFAULT_SEARCH_MEDIA_MODE).toBe("all");
+  });
+});
+
+describe("Search media mode", () => {
+  it("defaults invalid or missing URL values to All and includes both pipelines", () => {
+    expect(DEFAULT_SEARCH_MEDIA_MODE).toBe("all");
+    expect(parseSearchMediaMode(null)).toBe("all");
+    expect(parseSearchMediaMode("invalid")).toBe("all");
+    expect(searchIncludesImages("all")).toBe(true);
+    expect(searchIncludesVideos("all")).toBe(true);
+    expect(searchIncludesVideos("images")).toBe(false);
+    expect(searchIncludesImages("videos")).toBe(false);
   });
 });

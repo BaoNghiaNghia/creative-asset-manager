@@ -1,11 +1,13 @@
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import app
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
+from app.modules.authorization.folder_scope import ViewerFolderAccess
 from app.modules.video_search.search import VideoSearchResponseError
 from tests.modules.video_search.test_search import response
 
@@ -51,6 +53,84 @@ class VideoSearchApiTest(unittest.TestCase):
         query = index_type.return_value.search.await_args.args[0]
         self.assertEqual(query["query"]["bool"]["filter"], [{"term": {"tenant_id": "tenant-a"}}])
         index_type.return_value.aclose.assert_awaited_once()
+
+    def test_unowned_source_is_rejected_before_elasticsearch(self):
+        from app.modules.video_search.router import _authorized_video_scope
+
+        session = Mock()
+        session.scalar.return_value = None
+        principal = CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id=None, authorization_source="tenant_rbac",
+        )
+        with self.assertRaises(HTTPException) as raised:
+            _authorized_video_scope(
+                external_source_id="source-from-another-tenant",
+                principal=principal,
+                session=session,
+            )
+        self.assertEqual(raised.exception.status_code, 403)
+
+    def test_pure_viewer_requires_source_and_is_limited_to_authorized_assets(self):
+        from app.modules.video_search.router import _authorized_video_scope
+
+        principal = CurrentPrincipal(
+            user_id="viewer-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id=None, authorization_source="tenant_rbac",
+        )
+        with self.assertRaises(HTTPException) as raised:
+            _authorized_video_scope(
+                external_source_id=None,
+                principal=principal,
+                session=Mock(),
+            )
+        self.assertEqual(raised.exception.status_code, 422)
+
+        session = Mock()
+        session.scalar.return_value = "source-a"
+        with patch("app.modules.video_search.router.ViewerFolderScopeService") as scope_type:
+            scope_type.return_value.access.return_value = ViewerFolderAccess(
+                restricted=True, source_id="source-a", folder_ids=frozenset({"folder-a"}),
+            )
+            scope_type.return_value.allowed_source_asset_ids.return_value = {"asset-in-folder-a"}
+            source_id, allowed_ids = _authorized_video_scope(
+                external_source_id="source-a",
+                principal=principal,
+                session=session,
+            )
+        self.assertEqual(source_id, "source-a")
+        self.assertEqual(allowed_ids, {"asset-in-folder-a"})
+
+    def test_video_route_uses_server_authorized_source_scope(self):
+        with (
+            patch("app.modules.video_search.router.get_settings", return_value=self.settings),
+            patch(
+                "app.modules.video_search.router._authorized_video_scope",
+                return_value=("source-a", {"asset-a"}),
+            ) as authorized_scope,
+            patch("app.modules.video_search.router.VideoSearchElasticsearchIndex") as index_type,
+        ):
+            index_type.return_value.search = AsyncMock(return_value=response())
+            index_type.return_value.aclose = AsyncMock()
+            result = self.client.post(
+                "/api/v1/search/video",
+                json={"query": "horse riding", "external_source_id": "source-a"},
+            )
+        self.assertEqual(result.status_code, 200)
+        authorized_scope.assert_called_once()
+        filters = index_type.return_value.search.await_args.args[0]["query"]["bool"]["filter"]
+        self.assertEqual(
+            filters,
+            [
+                {"term": {"tenant_id": "tenant-a"}},
+                {"term": {"external_source_id": "source-a"}},
+                {"terms": {"source_asset_id": ["asset-a"]}},
+            ],
+        )
 
     def test_unavailable_and_malformed_elasticsearch_responses_are_safe(self):
         with (

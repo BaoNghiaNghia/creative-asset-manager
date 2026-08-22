@@ -162,6 +162,40 @@ class ViewerFolderScopeService:
                 allowed.add((str(asset_id), str(source.id)))
         return allowed
 
+    def allowed_source_asset_ids(self, *, tenant_id: str, access: ViewerFolderAccess) -> set[str]:
+        """Resolve scoped folders to source assets without per-result checks."""
+        if not access.restricted or not access.source_id:
+            return set()
+        parents_by_external_id = self._parent_map(
+            tenant_id=tenant_id,
+            external_source_id=access.source_id,
+        )
+        if parents_by_external_id is None:
+            return set()
+        rows = self.session.execute(
+            select(SourceAssetModel.id, SourceAssetModel.external_asset_id).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id == access.source_id,
+                SourceAssetModel.deleted_at.is_(None),
+            )
+        ).all()
+        allowed: set[str] = set()
+        for source_asset_id, external_asset_id in rows:
+            pending = list(
+                parents_by_external_id.get(str(external_asset_id), ())
+            )
+            visited: set[str] = set()
+            while pending:
+                parent = pending.pop()
+                if parent in visited:
+                    continue
+                visited.add(parent)
+                if parent in access.folder_ids:
+                    allowed.add(str(source_asset_id))
+                    break
+                pending.extend(parents_by_external_id.get(parent, ()))
+        return allowed
+
     def allowed_internal_asset_ids(self, *, tenant_id: str, access: ViewerFolderAccess) -> set[str]:
         """Resolve selected external folders to internal assets for index search."""
         return {

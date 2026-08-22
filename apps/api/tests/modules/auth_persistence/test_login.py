@@ -19,6 +19,7 @@ from app.modules.auth_persistence.model import (
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
 from app.modules.authorization.model import MembershipRoleModel, RoleModel
 from app.modules.authorization.seed import seed_tenant_rbac
+from app.modules.authorization.service import TenantAuthorizationService
 
 
 class ApplicationLoginServiceTest(unittest.TestCase):
@@ -119,6 +120,61 @@ class ApplicationLoginServiceTest(unittest.TestCase):
         self.assertEqual(captured.exception.code, "self_signup_disabled")
         self.assertEqual(
             self.session.scalar(select(func.count()).select_from(UserModel)), 0
+        )
+
+    def test_preprovisioned_active_member_can_link_verified_google_identity(self):
+        user = UserModel(
+            primary_email="viewer@example.com",
+            display_name=None,
+            avatar_url=None,
+            status="active",
+        )
+        self.session.add(user)
+        self.session.flush()
+        membership = self.memberships.add_member(
+            tenant_id=self.tenant.id,
+            user_id=user.id,
+            status="active",
+        )
+        viewer_role = self.session.scalar(
+            select(RoleModel).where(
+                RoleModel.tenant_id == self.tenant.id,
+                RoleModel.role_key == "viewer",
+            )
+        )
+        TenantAuthorizationService(self.session).assign_role(
+            tenant_id=self.tenant.id,
+            membership_id=membership.id,
+            role_id=viewer_role.id,
+            reason="Pre-provision Viewer",
+        )
+        self.session.commit()
+
+        login = ApplicationLoginService(
+            self.session,
+            Settings(
+                AUTH_SELF_SIGNUP_ENABLED=False,
+                AUTH_DEFAULT_TENANT_ID=self.tenant.id,
+            ),
+        ).resolve(
+            provider="google",
+            provider_subject="viewer-google-subject",
+            provider_email="viewer@example.com",
+            display_name="Viewer",
+            provider_metadata={"email_verified": True},
+        )
+        self.session.commit()
+
+        self.assertTrue(login.first_login)
+        self.assertEqual(login.user.id, user.id)
+        self.assertEqual(login.active_tenant_id, self.tenant.id)
+        self.assertEqual(
+            self.session.scalar(
+                select(UserIdentityModel).where(
+                    UserIdentityModel.provider_subject == "viewer-google-subject"
+                )
+            ).user_id,
+            user.id,
         )
 
     def test_allowed_and_denied_email_domains(self):

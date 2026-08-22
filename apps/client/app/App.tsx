@@ -23,8 +23,22 @@ import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
 import type { Asset, SearchSuggestion } from "./types";
 
 const visibilityFilters = ["all", "public", "draft"] as const;
-export const DEFAULT_SEARCH_MODE = "images" as const;
-type SearchMode = typeof DEFAULT_SEARCH_MODE | "videos";
+export const DEFAULT_SEARCH_MEDIA_MODE = "all" as const;
+export type SearchMediaMode = typeof DEFAULT_SEARCH_MEDIA_MODE | "images" | "videos";
+
+export function parseSearchMediaMode(value: string | null): SearchMediaMode {
+  return value === "images" || value === "videos" || value === "all"
+    ? value
+    : DEFAULT_SEARCH_MEDIA_MODE;
+}
+
+export function searchIncludesImages(mode: SearchMediaMode): boolean {
+  return mode === "all" || mode === "images";
+}
+
+export function searchIncludesVideos(mode: SearchMediaMode): boolean {
+  return mode === "all" || mode === "videos";
+}
 
 type ExplorerClipboard = {
   items: Asset[];
@@ -178,10 +192,21 @@ export function curateSearchSuggestions(query: string, values: SearchSuggestion[
 }
 
 export default function App() {
-  const [searchMode, setSearchMode] = useState<SearchMode>(DEFAULT_SEARCH_MODE);
-  const explorer = useDriveExplorer(searchMode);
-  const videoSearch = useVideoSearch(explorer.auth.authenticated, searchMode === "videos", explorer.query);
-  const searchBusy = searchMode === "videos" ? videoSearch.loading : explorer.searching;
+  const [searchMediaMode, setSearchMediaMode] = useState<SearchMediaMode>(
+    () => parseSearchMediaMode(new URLSearchParams(window.location.search).get("media")),
+  );
+  const imageSearchEnabled = searchIncludesImages(searchMediaMode);
+  const videoSearchEnabled = searchIncludesVideos(searchMediaMode);
+  const explorer = useDriveExplorer(imageSearchEnabled);
+  const videoSearch = useVideoSearch({
+    authenticated: explorer.auth.authenticated,
+    enabled: videoSearchEnabled,
+    query: explorer.query,
+    provider: explorer.provider,
+    externalSourceId: explorer.activeExternalSourceId,
+  });
+  const searchBusy = explorer.query.trim().length > 0
+    && ((imageSearchEnabled && explorer.searching) || (videoSearchEnabled && videoSearch.loading));
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
   const [playbackItem, setPlaybackItem] = useState<VideoSearchItem | null>(null);
@@ -209,10 +234,25 @@ export default function App() {
   const autoAppendAttemptsRef = useRef(0);
   const autoAppendKeyRef = useRef("");
   const suggestions = curateSearchSuggestions(explorer.query, explorer.searchV3.suggestions);
-  const showSuggestions = searchMode === "images" && !suggestionsDismissed
+  const showSuggestions = imageSearchEnabled && !suggestionsDismissed
     && explorer.searchV3.active
     && explorer.query.trim().length >= 2
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
+  useEffect(() => {
+    const restoreMediaMode = () => {
+      setSearchMediaMode(parseSearchMediaMode(new URLSearchParams(window.location.search).get("media")));
+    };
+    window.addEventListener("popstate", restoreMediaMode);
+    return () => window.removeEventListener("popstate", restoreMediaMode);
+  }, []);
+
+  function selectSearchMediaMode(mode: SearchMediaMode) {
+    setSearchMediaMode(mode);
+    const params = new URLSearchParams(window.location.search);
+    params.set("media", mode);
+    window.history.replaceState({}, "", window.location.pathname + "?" + params.toString());
+  }
+
   useEffect(() => {
     const folder = explorer.path.at(-1);
     if (!folder || folder.id === "root") { setFolderNoteSummary(""); setFolderNoteAvailable(false); return; }
@@ -474,6 +514,15 @@ export default function App() {
     });
   }
 
+  const videoResults = <>
+    {videoSearch.error && <div className="search-warning" role="alert"><span>{videoSearch.error}</span></div>}
+    {videoSearch.loading
+      ? <AssetGridSkeleton />
+      : videoSearch.items.length
+        ? <VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} />
+        : <div className="state">No videos matched this search.</div>}
+  </>;
+
   return <main
     className={["shell", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
     style={{ "--sidebar-width": sidebar.width + "px" } as CSSProperties}
@@ -538,8 +587,8 @@ export default function App() {
                 onKeyDown={handleSearchKeyDown}
                 placeholder={!explorer.auth.authenticated
                   ? "Connect Google Drive or SharePoint to search"
-                  : "Search this folder and subfolders"}
-                aria-label="Search folders and files in this folder and all subfolders"
+                  : searchMediaMode === "all" ? "Search images & videos" : searchMediaMode === "videos" ? "Search videos" : "Search images"}
+                aria-label="Search images and videos"
                 aria-autocomplete="list"
                 aria-expanded={showSuggestions}
                 aria-controls={showSuggestions ? "asset-search-suggestions" : undefined}
@@ -573,18 +622,31 @@ export default function App() {
                   ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
               </div>}
             </div>
-            {searchMode === "images" && explorer.searchV3.active && <SearchGuide capabilities={explorer.searchV3.capabilities} />}
+            {imageSearchEnabled && explorer.searchV3.active && <SearchGuide capabilities={explorer.searchV3.capabilities} />}
+            {searchMediaMode === "all" && explorer.searchV3.active && <small className="search-guide-scope">Advanced filters apply to image results.</small>}
           </div>
           {searchBusy && <small className="search-waiting" role="status" aria-live="polite">
-            Đang tìm kiếm…
+            {searchMediaMode === "all"
+              ? explorer.searching && videoSearch.loading
+                ? "Searching images & videos..."
+                : explorer.searching
+                  ? "Searching images..."
+                  : "Searching videos..."
+              : "Searching..."}
           </small>}
-          {searchMode === "images" && explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
+          {imageSearchEnabled && explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
             {"T\u00ecm ki\u1ebfm ho\u00e0n t\u1ea5t trong "}{formatSearchDuration(explorer.searchDurationMs)}
           </small>}
         </div>
-        <div className="search-mode-tabs" role="tablist" aria-label="Search content type">
-          <button type="button" role="tab" id="search-mode-images" aria-selected={searchMode === "images"} aria-controls="search-results" className={searchMode === "images" ? "active" : ""} onClick={() => setSearchMode("images")}>Images</button>
-          <button type="button" role="tab" id="search-mode-videos" aria-selected={searchMode === "videos"} aria-controls="search-results" className={searchMode === "videos" ? "active" : ""} onClick={() => setSearchMode("videos")}>Videos</button>
+        <div className="search-mode-tabs" role="radiogroup" aria-label="Search media type">
+          {(["all", "images", "videos"] as SearchMediaMode[]).map(mode => <button
+            key={mode}
+            type="button"
+            role="radio"
+            aria-checked={searchMediaMode === mode}
+            className={searchMediaMode === mode ? "active" : ""}
+            onClick={() => selectSearchMediaMode(mode)}
+          >{mode === "all" ? "All" : mode === "images" ? "Images" : "Videos"}</button>)}
         </div>
         {explorer.applicationAuthenticated ? <div className="account">
           {explorer.pureViewer && explorer.viewerSources.length > 1 && explorer.activeExternalSourceId && <label>
@@ -712,23 +774,25 @@ export default function App() {
                   ><EtsyLogo /><span className="etsy-external-mark" aria-hidden="true">⟶</span></a> : null;
                 })()}
               </h1>
-              <small>{searchMode === "videos"
-                ? videoSearch.loading
-                  ? "Searching indexed videos..."
-                  : explorer.query.trim()
-                    ? videoSearch.total + " video result" + (videoSearch.total === 1 ? "" : "s")
-                    : "Search indexed video metadata"
-                : explorer.searching
-                  ? "Searching with Search V3..."
-                  : explorer.searchComplete
-                    ? "Completed · " + explorer.visibleItems.length + " results"
-                    : explorer.query
-                      ? explorer.visibleItems.length + " results in this folder and subfolders"
-                      : !explorer.visibilityFilterReady
-                        ? "Loading asset labels…"
-                        : explorer.visibilityFilter === "all"
-                          ? explorer.items.length + " items"
-                          : explorer.visibleItems.length + " items shown"}</small>
+              <small>{!explorer.query.trim()
+                ? !explorer.visibilityFilterReady
+                  ? "Loading asset labels"
+                  : explorer.visibilityFilter === "all"
+                    ? explorer.items.length + " items"
+                    : explorer.visibleItems.length + " items shown"
+                : searchMediaMode === "all"
+                  ? searchBusy
+                    ? "Searching images & videos..."
+                    : explorer.visibleItems.length + " images / " + videoSearch.total + " videos"
+                  : searchMediaMode === "videos"
+                    ? videoSearch.loading
+                      ? "Searching indexed videos..."
+                      : videoSearch.total + " video result" + (videoSearch.total === 1 ? "" : "s")
+                    : explorer.searching
+                      ? "Searching with Search V3..."
+                      : explorer.searchComplete
+                        ? "Completed: " + explorer.visibleItems.length + " results"
+                        : explorer.visibleItems.length + " results"}</small>
             </span>
             <div className="title-actions">
               <div className="visibility-filter" role="group" aria-label="Filter assets by visibility">
@@ -754,12 +818,10 @@ export default function App() {
             </div>
           </div>
 
-          <div id="search-results" role="tabpanel" aria-labelledby={searchMode === "images" ? "search-mode-images" : "search-mode-videos"}>
-          {searchMode === "videos" ? <>
-            {videoSearch.error && <div className="search-warning" role="alert"><span>{videoSearch.error}</span></div>}
-            {videoSearch.loading ? <AssetGridSkeleton /> : !explorer.query.trim() ? <div className="state">Search indexed videos by filename, scene, speech, or visible text.</div> : videoSearch.items.length ? <VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} /> : <div className="state">No videos matched this search.</div>}
-          </> : <>
-          {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
+          <div id="search-results">
+          {searchMediaMode === "videos" && explorer.query.trim() ? videoResults : <>
+          {searchMediaMode === "all" && explorer.query.trim() && <h2 className="mixed-search-heading">Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></h2>}
+                    {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
 
           {explorer.searchError && <div className="search-warning" role="alert">
             <span>{explorer.searchError} Showing the current folder contents.</span>
@@ -813,9 +875,13 @@ export default function App() {
             onClearFilter={() => explorer.setVisibilityFilter("all")}
             onOpen={explorer.open}
           />}
+          {searchMediaMode === "all" && explorer.query.trim() && <section className="mixed-search-section" aria-label="Video results">
+            <h2>Videos <small>{videoSearch.loading ? "Searching..." : videoSearch.total + " results"}</small></h2>
+            {videoResults}
+          </section>}
           </>}
           </div>
-          {searchMode === "images" && explorer.selected.size > 0 && <div className="bulk">
+          {(!explorer.query.trim() || imageSearchEnabled) && explorer.selected.size > 0 && <div className="bulk">
             <b>{explorer.selected.size} selected</b>
             <button
               type="button"

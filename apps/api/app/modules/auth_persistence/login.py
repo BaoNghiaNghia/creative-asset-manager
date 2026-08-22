@@ -66,7 +66,8 @@ class ApplicationLoginService:
             provider_subject,
         )
 
-        invited_user = None
+        provisioned_user = None
+        activate_invitation = False
         accept_existing_invitation = False
         admission = "existing_identity"
 
@@ -85,23 +86,28 @@ class ApplicationLoginService:
                 )
             )
         else:
-            invited_user = self._find_unlinked_invited_user(
+            provisioned_user = self._find_unlinked_provisioned_user(
                 provider=provider,
                 provider_email=provider_email,
                 provider_metadata=provider_metadata,
             )
 
-            if invited_user is None:
+            if provisioned_user is None:
                 self._require_signup_admission(provider_email)
                 admission = "self_signup"
             else:
-                admission = "invitation"
+                activate_invitation = self._has_invited_membership(provisioned_user)
+                admission = (
+                    "invitation"
+                    if activate_invitation
+                    else "preprovisioned_member"
+                )
 
         # Identity creation/linking, invitation activation and role assignment
         # are performed in one database savepoint.
         with self.session.begin_nested():
-            if existing is None and invited_user is not None:
-                user = invited_user
+            if existing is None and provisioned_user is not None:
+                user = provisioned_user
 
                 identity = self.identities.link_identity_to_user(
                     user_id=user.id,
@@ -146,7 +152,7 @@ class ApplicationLoginService:
                     )
 
             if (
-                invited_user is not None
+                activate_invitation
                 or accept_existing_invitation
             ):
                 self._activate_invited_memberships(
@@ -229,7 +235,7 @@ class ApplicationLoginService:
 
         return normalize_email(provider_email)
 
-    def _find_unlinked_invited_user(
+    def _find_unlinked_provisioned_user(
         self,
         *,
         provider: str,
@@ -245,9 +251,9 @@ class ApplicationLoginService:
         if not verified_email:
             return None
 
-        invited_user_ids = (
+        provisioned_user_ids = (
             select(TenantMembershipModel.user_id)
-            .where(TenantMembershipModel.status == "invited")
+            .where(TenantMembershipModel.status.in_(("invited", "active")))
         )
 
         identity_exists = (
@@ -260,7 +266,7 @@ class ApplicationLoginService:
             self.session.scalars(
                 select(UserModel)
                 .where(
-                    UserModel.id.in_(invited_user_ids),
+                    UserModel.id.in_(provisioned_user_ids),
                     UserModel.primary_email == verified_email,
                     UserModel.status == "active",
                     ~identity_exists,
@@ -280,6 +286,16 @@ class ApplicationLoginService:
             )
 
         return candidates[0] if candidates else None
+
+    def _has_invited_membership(self, user: UserModel) -> bool:
+        return self.session.scalar(
+            select(TenantMembershipModel.id)
+            .where(
+                TenantMembershipModel.user_id == user.id,
+                TenantMembershipModel.status == "invited",
+            )
+            .limit(1)
+        ) is not None
 
     def _has_matching_invitation(
         self,

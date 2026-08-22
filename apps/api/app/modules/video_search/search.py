@@ -24,7 +24,14 @@ class VideoSearchResponseError(ValueError):
     pass
 
 
-def build_video_search_query(*, query: str, tenant_id: str, limit: int) -> dict[str, Any]:
+def build_video_search_query(
+    *,
+    query: str,
+    tenant_id: str,
+    limit: int,
+    external_source_id: str | None = None,
+    allowed_source_asset_ids: set[str] | None = None,
+) -> dict[str, Any]:
     nested_query = {
         "nested": {
             "path": "segments",
@@ -57,6 +64,16 @@ def build_video_search_query(*, query: str, tenant_id: str, limit: int) -> dict[
             },
         }
     }
+    filters: list[dict[str, Any]] = [{"term": {"tenant_id": tenant_id}}]
+    if external_source_id:
+        filters.append({"term": {"external_source_id": external_source_id}})
+    if allowed_source_asset_ids is not None:
+        filters.append(
+            {"terms": {"source_asset_id": sorted(allowed_source_asset_ids)}}
+            if allowed_source_asset_ids
+            else {"term": {"source_asset_id": "__no_authorized_video_assets__"}}
+        )
+
     return {
         "size": limit,
         "track_total_hits": True,
@@ -76,7 +93,7 @@ def build_video_search_query(*, query: str, tenant_id: str, limit: int) -> dict[
         },
         "query": {
             "bool": {
-                "filter": [{"term": {"tenant_id": tenant_id}}],
+                "filter": filters,
                 "must": [nested_query],
                 "should": [
                     {
