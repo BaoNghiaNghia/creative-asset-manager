@@ -405,3 +405,7 @@ def export(business_date: date, principal: CurrentPrincipal = Depends(require_pe
         code = str(exc)
         status = 409 if code == "inventory_daily_run_not_finalized" else 422
         raise HTTPException(status, detail={"code": code}) from exc
+
+
+from app.modules.inventory.daily_sheet.router import router as daily_sheet_router
+router.include_router(daily_sheet_router)

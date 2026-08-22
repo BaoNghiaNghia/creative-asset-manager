@@ -1120,3 +1120,27 @@ Trong 7–14 ngày:
 - Chạy scheduler trong một process chuyên biệt để tránh job trùng khi scale API.
 - Excel là output có thể tái tạo, không phải nguồn sự thật.
 - Rollout bằng feature flag và shadow mode trước khi thay quy trình hiện tại.
+
+
+## Daily Google Sheets inventory automation
+
+Daily Sheets automation is tenant-scoped and independent from the Inventory image pipeline. New tenants retain image_pipeline_enabled=true and daily_sheet_automation_enabled=false until an Inventory finalizer validates and enables the daily workflow.
+
+The native scheduler uses the tenant timezone (normally Asia/Ho_Chi_Minh):
+
+- 05:50: clone the previous business day's working spreadsheet into the configured archive date folder, verify the configured source ranges, then reset only the allowlisted ranges.
+- 07:00: compare the completed D and D-1 snapshots by normalized warehouse and SKU using decimal quantities, then write absolute quantities into the configured target cells.
+- The legacy image workflow keeps its existing 16:30-17:10 schedule when image_pipeline_enabled is enabled.
+
+Safety rules:
+
+- Only native Google Sheets are accepted for the working, template, and target files. Legacy .xlsx or .xlsm automation is intentionally deferred; convert the operational workbook to a native Google Sheet first.
+- The connected Google account must be re-authorized with the https://www.googleapis.com/auth/spreadsheets scope.
+- Source, reset, target SKU, and target quantity ranges are validated before enablement. Reset ranges cannot overlap protected source or target ranges.
+- A snapshot is verified before reset. Snapshot copies use tenant/date/source app properties so retries reuse the same copy.
+- Reconciliation writes absolute values, records hashes and status, and is safe to retry after a crash. A missing D-1 snapshot requires an explicit baseline action.
+- Google requests use bounded retry for 429 and transient 5xx/network errors. OAuth secrets, access tokens, and spreadsheet contents are not written to logs.
+
+Configure and operate the workflow from **Inventory > Settings**. Save the file IDs, schedule, timezone, and versioned JSON mapping; run **Validate** before enabling. Operators can preview reconciliation without writes, run a protected snapshot/reset or reconciliation, and select the latest completed snapshot as a baseline. All manual write operations require the Inventory finalize permission and an explicit UI confirmation.
+
+The daily scheduler process must already be enabled through the existing Inventory scheduler deployment controls. No separate cron process is required.

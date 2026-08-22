@@ -25,12 +25,13 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 # Read/write source management is required for Explorer uploads, moves, and deletes.
 DRIVE_WRITE_SCOPE = "https://www.googleapis.com/auth/drive"
+GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 IDENTITY_SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
-DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_WRITE_SCOPE]
+DRIVE_SCOPES = [*IDENTITY_SCOPES, DRIVE_WRITE_SCOPE, GOOGLE_SHEETS_SCOPE]
 SCOPES = DRIVE_SCOPES
 SESSION_COOKIE = "cam_google_session"
 OAUTH_BINDING_COOKIE = "cam_oauth_binding"

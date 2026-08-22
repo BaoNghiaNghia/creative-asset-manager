@@ -852,6 +852,7 @@ class InventoryDailySheetSnapshotModel(Base):
     __tablename__ = "inventory_daily_sheet_snapshots"
     __table_args__ = (
         UniqueConstraint("tenant_id", "business_date", name="uq_inventory_sheet_snapshot_tenant_date"),
+        UniqueConstraint("tenant_id", "id", name="uq_inventory_sheet_snapshot_tenant_id"),
         ForeignKeyConstraint(
             ["tenant_id", "external_source_id"],
             ["external_sources.tenant_id", "external_sources.id"],
@@ -905,7 +906,7 @@ class InventoryDailySheetReconciliationModel(Base):
         ),
         UniqueConstraint("tenant_id", "id", name="uq_inventory_sheet_reconcile_tenant_id"),
         CheckConstraint(
-            "status IN ('pending','planning','writing','completed','awaiting_baseline','retryable_failure','terminal_failure')",
+            "status IN ('pending','planning','writing','completed','awaiting_baseline','baseline','retryable_failure','terminal_failure')",
             name="ck_inventory_sheet_reconcile_status",
         ),
         Index("ix_inventory_sheet_reconcile_status", "tenant_id", "status", "business_date"),
@@ -914,7 +915,7 @@ class InventoryDailySheetReconciliationModel(Base):
     tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     business_date: Mapped[date] = mapped_column(Date, nullable=False)
     current_snapshot_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
-    previous_snapshot_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    previous_snapshot_id: Mapped[str | None] = mapped_column(ENTITY_ID)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     valid_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

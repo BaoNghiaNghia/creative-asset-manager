@@ -86,6 +86,7 @@ class InventoryDrivePoller:
                 )
                 .where(
                     InventorySettingsModel.enabled.is_(True),
+                    InventorySettingsModel.image_pipeline_enabled.is_(True),
                     InventoryProcessingControlModel.enabled.is_(True),
                     InventoryProcessingControlModel.paused.is_(False),
                 )
@@ -136,7 +137,7 @@ class InventoryDrivePoller:
         self, binding: InventorySettingsModel
     ) -> InventoryPollSummary:
         summary = InventoryPollSummary(bindings=1)
-        if not (self.automation_enabled and self.poller_enabled and binding.enabled):
+        if not (self.automation_enabled and self.poller_enabled and binding.enabled and binding.image_pipeline_enabled):
             return summary
         control = self.session.scalar(
             select(InventoryProcessingControlModel).where(

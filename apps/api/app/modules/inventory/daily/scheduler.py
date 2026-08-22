@@ -1,71 +1,102 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timezone
-from typing import Callable
-
-from sqlalchemy import select
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
-
-from app.modules.inventory.daily.service import INVENTORY_TIMEZONE, InventoryDailyRunService
+from app.modules.inventory.daily.service import InventoryDailyRunService
 from app.modules.inventory.daily.report import DailyReportNotFinalized, InventoryDailyReportService
+from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
 from app.modules.inventory.persistence_model import InventorySettingsModel
 
 logger = logging.getLogger(__name__)
 
+def _configured_time(value: str, fallback: time) -> time:
+    try:
+        hour, minute = (int(part) for part in value.split(":", 1))
+        return time(hour, minute)
+    except (AttributeError, TypeError, ValueError):
+        return fallback
 
 class InventoryDailyScheduler:
-    """A small, independently deployable Inventory scheduler.
+    """Persisted, tenant-aware scheduler for legacy image and daily-sheet workflows."""
 
-    It is deliberately not a worker handler and uses persisted daily-event
-    idempotency keys so restarts and concurrent scheduler processes are safe.
-    """
-
-    def __init__(self, session_factory: sessionmaker[Session], service: InventoryDailyRunService | None = None, report_service: InventoryDailyReportService | None = None, *, allowed_tenant_ids: frozenset[str] | None = None):
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        service: InventoryDailyRunService | None = None,
+        report_service: InventoryDailyReportService | None = None,
+        sheet_service: InventoryDailySheetService | None = None,
+        *,
+        allowed_tenant_ids: frozenset[str] | None = None,
+    ):
         self.session_factory = session_factory
         self.service = service or InventoryDailyRunService(session_factory)
         self.report_service = report_service or InventoryDailyReportService(session_factory)
+        self.sheet_service = sheet_service or InventoryDailySheetService(session_factory)
         self.allowed_tenant_ids = allowed_tenant_ids
 
     def run_once(self, now: datetime | None = None) -> int:
         moment = now or datetime.now(timezone.utc)
-        local = moment.astimezone(INVENTORY_TIMEZONE)
-        due: list[str] = []
-        if local.time() >= time(16, 30):
-            due.append("completeness_check")
-        if local.time() >= time(16, 50):
-            due.append("preclose_check")
-        finalize = local.time() >= time(17, 0)
-        report = local.time() >= time(17, 10)
-        if not due and not finalize and not report:
-            return 0
         with self.session_factory() as session:
-            tenants = list(session.scalars(
-                select(InventorySettingsModel.tenant_id).where(InventorySettingsModel.enabled.is_(True))
+            settings_rows = list(session.scalars(
+                select(InventorySettingsModel).where(
+                    InventorySettingsModel.enabled.is_(True),
+                    or_(
+                        InventorySettingsModel.image_pipeline_enabled.is_(True),
+                        InventorySettingsModel.daily_sheet_automation_enabled.is_(True),
+                    ),
+                ).order_by(InventorySettingsModel.tenant_id)
             ))
+            for row in settings_rows:
+                session.expunge(row)
         count = 0
-        for tenant_id in tenants:
+        for settings in settings_rows:
+            tenant_id = settings.tenant_id
             if self.allowed_tenant_ids is not None and tenant_id not in self.allowed_tenant_ids:
                 continue
             try:
-                for checkpoint in due:
-                    self.service.evaluate(tenant_id, local.date(), checkpoint=checkpoint)
-                    count += 1
-                if finalize:
-                    try:
-                        self.service.finalize(tenant_id, local.date(), actor_id="inventory-scheduler")
-                        count += 1
-                    except Exception as exc:
-                        # A not-ready day is normal at 17:00; retain its audit
-                        # snapshot and continue other tenants.
-                        if type(exc).__name__ != "DailyRunBlocked":
-                            raise
-                if report:
-                    try:
-                        self.report_service.generate(tenant_id, local.date())
-                        count += 1
-                    except (LookupError, DailyReportNotFinalized):
-                        pass
+                try:
+                    local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
+                except Exception:
+                    local = moment.astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
+                business_date = local.date() - timedelta(days=1)
+                if settings.daily_sheet_automation_enabled:
+                    snapshot_due = local.time() >= _configured_time(settings.daily_snapshot_time_local, time(5, 50))
+                    reconcile_due = local.time() >= _configured_time(settings.daily_reconcile_time_local, time(7, 0))
+                    if snapshot_due:
+                        snapshot = self.sheet_service.snapshot_and_reset(tenant_id, business_date)
+                        if snapshot.status == "completed":
+                            count += 1
+                            if reconcile_due:
+                                self.sheet_service.reconcile(tenant_id, business_date)
+                                count += 1
+                if settings.image_pipeline_enabled:
+                    count += self._run_legacy(tenant_id, local)
             except Exception:
                 logger.exception("inventory_daily_scheduler_tenant_failed", extra={"tenant_id": tenant_id})
+        return count
+
+    def _run_legacy(self, tenant_id: str, local: datetime) -> int:
+        count = 0
+        due = []
+        if local.time() >= time(16, 30): due.append("completeness_check")
+        if local.time() >= time(16, 50): due.append("preclose_check")
+        for checkpoint in due:
+            self.service.evaluate(tenant_id, local.date(), checkpoint=checkpoint)
+            count += 1
+        if local.time() >= time(17, 0):
+            try:
+                self.service.finalize(tenant_id, local.date(), actor_id="inventory-scheduler")
+                count += 1
+            except Exception as exc:
+                if type(exc).__name__ != "DailyRunBlocked":
+                    raise
+        if local.time() >= time(17, 10):
+            try:
+                self.report_service.generate(tenant_id, local.date())
+                count += 1
+            except (LookupError, DailyReportNotFinalized):
+                pass
         return count

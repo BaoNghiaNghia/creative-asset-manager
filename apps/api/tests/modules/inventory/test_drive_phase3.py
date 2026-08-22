@@ -190,7 +190,7 @@ class InventoryDrivePhase3Test(unittest.IsolatedAsyncioTestCase):
 
     async def test_pagination_mime_filter_folder_and_repeated_version(self):
         supported = self.node("jpeg")
-        unsupported = self.node("heic", "image/heic")
+        unsupported = self.node("pdf", "application/pdf")
         folder = AssetNode(
             id="folder", name="nested", kind="folder",
             mime_type="application/vnd.google-apps.folder",
@@ -470,10 +470,10 @@ class InventoryDrivePhase3Test(unittest.IsolatedAsyncioTestCase):
             ("png", "image/png"),
             ("webp", "image/webp"),
             ("avif", "image/avif"),
-        )
-        unsupported = (
             ("heic", "image/heic"),
             ("heif", "image/heif"),
+        )
+        unsupported = (
             ("pdf", "application/pdf"),
         )
         nodes = [

@@ -37,6 +37,15 @@ class InventorySettingsInput(InventorySchema):
     backup_folder_id: str | None = None
     old_image_archive_folder_id: str | None = None
     excel_template_file_id: str | None = None
+    image_pipeline_enabled: bool = True
+    daily_sheet_automation_enabled: bool = False
+    daily_working_spreadsheet_file_id: str | None = None
+    daily_archive_root_folder_id: str | None = None
+    daily_template_spreadsheet_file_id: str | None = None
+    daily_target_spreadsheet_file_id: str | None = None
+    daily_snapshot_time_local: str = Field(default="05:50", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    daily_reconcile_time_local: str = Field(default="07:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    daily_sheet_config_json: dict = Field(default_factory=dict)
     timezone: str = "Asia/Ho_Chi_Minh"
     auto_approve_confidence: Decimal = Field(default=Decimal("0.95"), ge=0, le=1)
     review_confidence: Decimal = Field(default=Decimal("0.70"), ge=0, le=1)
