@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.video_search.model import VideoAnalysisRunModel
 
 IMAGE_JOB_TYPE = "asset_analyze"
 VIDEO_JOB_TYPE = "video_analyze"
@@ -187,10 +188,24 @@ class MediaDashboardService:
             page_sources,
             {source_id: external for source_id, external in external_sources.items() if external is not None},
         )
+        source_ids = {source.id for source in page_sources}
+        latest_runs: dict[str, VideoAnalysisRunModel] = {}
+        if source_ids:
+            runs = self.session.scalars(
+                select(VideoAnalysisRunModel)
+                .where(
+                    VideoAnalysisRunModel.tenant_id == tenant_id,
+                    VideoAnalysisRunModel.source_asset_id.in_(source_ids),
+                )
+                .order_by(VideoAnalysisRunModel.updated_at.desc(), VideoAnalysisRunModel.id.desc())
+            )
+            for run in runs:
+                latest_runs.setdefault(run.source_asset_id, run)
         recent_video = []
         for job in page_jobs:
             source = self.session.get(SourceAssetModel, job.entity_id) if job.entity_type == "source_asset" else None
             external = external_sources.get(source.external_source_id) if source is not None else None
+            run = latest_runs.get(source.id) if source is not None else None
             thumbnail_url = None
             if source is not None and external is not None and external.source_type == "google_drive":
                 thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
@@ -199,6 +214,8 @@ class MediaDashboardService:
                 "filename": source.filename if source is not None else None,
                 "location": locations.get(source.id) if source is not None else None,
                 "thumbnail_url": thumbnail_url,
+                "completed_chunks": run.completed_chunks if run is not None else 0,
+                "total_chunks": run.total_chunks if run is not None else 0,
                 "status": job.status, "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,
                 "updated_at": (_as_utc(job.updated_at) or now).isoformat(),

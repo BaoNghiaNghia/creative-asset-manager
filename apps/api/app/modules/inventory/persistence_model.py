@@ -115,6 +115,8 @@ class InventorySettingsModel(Base):
         TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    image_pipeline_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    daily_sheet_automation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     external_source_id: Mapped[str] = mapped_column(String(36), nullable=False)
     inbox_folder_id: Mapped[str] = mapped_column(String(2048), nullable=False)
     processed_folder_id: Mapped[str | None] = mapped_column(String(2048))
@@ -123,6 +125,13 @@ class InventorySettingsModel(Base):
     backup_folder_id: Mapped[str | None] = mapped_column(String(2048))
     old_image_archive_folder_id: Mapped[str | None] = mapped_column(String(2048))
     excel_template_file_id: Mapped[str | None] = mapped_column(String(2048))
+    daily_working_spreadsheet_file_id: Mapped[str | None] = mapped_column(String(2048))
+    daily_archive_root_folder_id: Mapped[str | None] = mapped_column(String(2048))
+    daily_template_spreadsheet_file_id: Mapped[str | None] = mapped_column(String(2048))
+    daily_target_spreadsheet_file_id: Mapped[str | None] = mapped_column(String(2048))
+    daily_snapshot_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="05:50")
+    daily_reconcile_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="07:00")
+    daily_sheet_config_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Ho_Chi_Minh")
     auto_approve_confidence: Mapped[Decimal] = mapped_column(
         CONFIDENCE, nullable=False, default=Decimal("0.950000")
@@ -837,3 +846,87 @@ class InventoryExportModel(Base):
         default=inventory_utcnow, onupdate=inventory_utcnow,
     )
 
+
+
+class InventoryDailySheetSnapshotModel(Base):
+    __tablename__ = "inventory_daily_sheet_snapshots"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_date", name="uq_inventory_sheet_snapshot_tenant_date"),
+        ForeignKeyConstraint(
+            ["tenant_id", "external_source_id"],
+            ["external_sources.tenant_id", "external_sources.id"],
+            ondelete="RESTRICT",
+            name="fk_inventory_sheet_snapshot_tenant_source",
+        ),
+        CheckConstraint(
+            "status IN ('pending','cloning','cloned','resetting','completed','retryable_failure','terminal_failure')",
+            name="ck_inventory_sheet_snapshot_status",
+        ),
+        Index("ix_inventory_sheet_snapshot_status", "tenant_id", "status", "business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    external_source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_spreadsheet_file_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    source_modified_time_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_modified_time_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_data_hash: Mapped[str | None] = mapped_column(String(64))
+    archive_folder_id: Mapped[str | None] = mapped_column(String(2048))
+    snapshot_file_id: Mapped[str | None] = mapped_column(String(2048))
+    snapshot_data_hash: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cloned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reset_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reset_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
+
+
+class InventoryDailySheetReconciliationModel(Base):
+    __tablename__ = "inventory_daily_sheet_reconciliations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_date", name="uq_inventory_sheet_reconcile_tenant_date"),
+        ForeignKeyConstraint(
+            ["tenant_id", "current_snapshot_id"],
+            ["inventory_daily_sheet_snapshots.tenant_id", "inventory_daily_sheet_snapshots.id"],
+            ondelete="RESTRICT",
+            name="fk_inventory_sheet_reconcile_current",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "previous_snapshot_id"],
+            ["inventory_daily_sheet_snapshots.tenant_id", "inventory_daily_sheet_snapshots.id"],
+            ondelete="RESTRICT",
+            name="fk_inventory_sheet_reconcile_previous",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_inventory_sheet_reconcile_tenant_id"),
+        CheckConstraint(
+            "status IN ('pending','planning','writing','completed','awaiting_baseline','retryable_failure','terminal_failure')",
+            name="ck_inventory_sheet_reconcile_status",
+        ),
+        Index("ix_inventory_sheet_reconcile_status", "tenant_id", "status", "business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    current_snapshot_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    previous_snapshot_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    valid_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    changed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    invalid_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    plan_hash: Mapped[str | None] = mapped_column(String(64))
+    target_before_hash: Mapped[str | None] = mapped_column(String(64))
+    target_after_hash: Mapped[str | None] = mapped_column(String(64))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    summary_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)

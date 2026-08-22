@@ -59,11 +59,11 @@ class ProcessingPolicyTest(unittest.TestCase):
                 idempotency_key=key, payload=payload, next_attempt_at=NOW, provider_key=provider, provider_scope=scope,
             ).id
 
-    def claim(self, worker, allowed_job_types=("asset_analyze", "asset_store")):
+    def claim(self, worker, allowed_job_types=("asset_analyze", "asset_store"), *, worker_role="all"):
         with self.sessions() as session:
             return ProcessingJobService(ProcessingRepository(session)).claim_next(
                 worker_id=worker, lease_seconds=60, now=NOW, enforce_tenant_policy=True,
-                allowed_job_types=allowed_job_types,
+                allowed_job_types=allowed_job_types, worker_role=worker_role,
             )
 
     def test_disabled_and_paused_tenants_are_skipped_without_starvation(self):
@@ -160,12 +160,12 @@ class ProcessingPolicyTest(unittest.TestCase):
         self.job("tenant", "second-video", kind="video_analyze", provider="gemini", scope="video")
         self.assertIsNone(self.claim("worker-two", ("video_analyze",)))
 
-    def test_video_analyze_is_blocked_when_tenant_ai_analysis_is_disabled(self):
+    def test_video_analyze_remains_enabled_when_image_ai_is_disabled(self):
         self.policy("tenant", enabled=True)
-        self.job("tenant", "video-disabled", kind="video_analyze", provider="gemini", scope="video")
+        video = self.job("tenant", "video-enabled", kind="video_analyze", provider="gemini", scope="video")
         with self.sessions.begin() as session:
             session.get(TenantProcessingPolicyModel, "tenant").ai_analysis_enabled = False
-        self.assertIsNone(self.claim("worker", ("video_analyze",)))
+        self.assertEqual(self.claim("worker", ("video_analyze",)).id, video)
 
     def test_video_index_global_gate_uses_search_v3_not_v2(self):
         v3_only = Settings(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, SEARCH_V3_ENABLED=True)
@@ -208,8 +208,44 @@ class ProcessingPolicyTest(unittest.TestCase):
             repository.get_or_create_provider("tenant", "gemini", "video")
         image = self.job("tenant", "image-ai", kind="asset_analyze", provider="gemini", scope="ai")
         video = self.job("tenant", "video-ai", kind="video_analyze", provider="gemini", scope="video")
-        self.assertEqual(self.claim("image-worker", IMAGE_WORKER_JOB_TYPES).id, image)
-        self.assertEqual(self.claim("video-worker", VIDEO_WORKER_JOB_TYPES).id, video)
+        all_ai = IMAGE_WORKER_JOB_TYPES + VIDEO_WORKER_JOB_TYPES
+        self.assertEqual(self.claim("image-worker", all_ai, worker_role="image").id, image)
+        self.assertEqual(self.claim("video-worker", all_ai, worker_role="video").id, video)
+
+    def test_video_worker_borrows_image_when_video_is_paused(self):
+        self.policy("tenant", total=2, ai=2)
+        with self.sessions.begin() as session:
+            ProcessingPolicyRepository(session).pause_provider(
+                "tenant", "gemini", "video", actor_id="admin", reason="image only"
+            )
+        image = self.job("tenant", "borrow-image", kind="asset_analyze", provider="gemini", scope="ai")
+        self.job("tenant", "paused-video", kind="video_analyze", provider="gemini", scope="video")
+        all_ai = IMAGE_WORKER_JOB_TYPES + VIDEO_WORKER_JOB_TYPES
+        claimed = self.claim("video-worker", all_ai, worker_role="video")
+        self.assertEqual(claimed.id, image)
+
+    def test_image_worker_borrows_video_when_image_is_paused(self):
+        self.policy("tenant", total=2, ai=2)
+        with self.sessions.begin() as session:
+            session.get(TenantProcessingPolicyModel, "tenant").ai_analysis_enabled = False
+        self.job("tenant", "paused-image", kind="asset_analyze", provider="gemini", scope="ai")
+        video = self.job("tenant", "borrow-video", kind="video_analyze", provider="gemini", scope="video")
+        all_ai = IMAGE_WORKER_JOB_TYPES + VIDEO_WORKER_JOB_TYPES
+        claimed = self.claim("image-worker", all_ai, worker_role="image")
+        self.assertEqual(claimed.id, video)
+
+    def test_both_ai_media_controls_paused_block_both_worker_roles(self):
+        self.policy("tenant", total=2, ai=2)
+        with self.sessions.begin() as session:
+            session.get(TenantProcessingPolicyModel, "tenant").ai_analysis_enabled = False
+            ProcessingPolicyRepository(session).pause_provider(
+                "tenant", "gemini", "video", actor_id="admin", reason="all AI paused"
+            )
+        self.job("tenant", "paused-image", kind="asset_analyze", provider="gemini", scope="ai")
+        self.job("tenant", "paused-video", kind="video_analyze", provider="gemini", scope="video")
+        all_ai = IMAGE_WORKER_JOB_TYPES + VIDEO_WORKER_JOB_TYPES
+        self.assertIsNone(self.claim("image-worker", all_ai, worker_role="image"))
+        self.assertIsNone(self.claim("video-worker", all_ai, worker_role="video"))
 
     def test_video_claim_bypasses_older_image_backlog(self):
         self.policy("tenant", total=4, ai=4)

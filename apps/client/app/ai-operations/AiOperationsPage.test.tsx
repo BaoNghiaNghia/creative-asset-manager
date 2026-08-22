@@ -217,7 +217,7 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(media?.video.queued).toBe(0);
     expect(media?.video_indexing.completed).toBe(0);
     const legacy = normalizeMediaDashboard({
-      recent_video: [{ job_id: "video-job", source_asset_id: "asset", filename: "clip.mp4", status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:00:00Z", error_code: null }],
+      recent_video: [{ job_id: "video-job", source_asset_id: "asset", filename: "clip.mp4", location: "Google Drive / Campaigns", thumbnail_url: "/api/explorer/thumbnail/asset", completed_chunks: 2, total_chunks: 5, status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:00:00Z", error_code: null }],
     } as unknown as AiOpsDashboardData["media"]);
     expect(legacy?.recent_video.total).toBe(1);
     expect(legacy?.recent_video.items[0]?.filename).toBe("clip.mp4");
@@ -232,6 +232,10 @@ describe("AI Operations media dashboard compatibility", () => {
     />);
     expect(processingMarkup).toContain("Video processing jobs");
     expect(processingMarkup).toContain("clip.mp4");
+    expect(processingMarkup).toContain("Google Drive / Campaigns");
+    expect(processingMarkup).toContain("/api/explorer/thumbnail/asset");
+    expect(processingMarkup).toContain("Segments");
+    expect(processingMarkup).toContain("2/5");
     expect(processingMarkup).toContain("Video processing page numbers");
     expect(() => renderToStaticMarkup(<AiOperationsContent
       data={{ ...data, media }}

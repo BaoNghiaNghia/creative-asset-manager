@@ -48,6 +48,7 @@ from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
 from app.modules.processing.worker_roles import (
+    borrowable_job_types_for_role,
     enabled_job_types_for_role,
     runs_operational_schedulers,
 )
@@ -150,9 +151,9 @@ def build_worker_runtime(
 ) -> WorkerRuntime:
     worker_role = settings.WORKER_ROLE
     worker_id = settings.WORKER_ID or default_worker_id(worker_role)
-    allowed_job_types = enabled_job_types_for_role(
-        worker_role, globally_enabled_job_types(settings)
-    )
+    enabled_job_types = globally_enabled_job_types(settings)
+    allowed_job_types = enabled_job_types_for_role(worker_role, enabled_job_types)
+    borrowed_job_types = borrowable_job_types_for_role(worker_role, enabled_job_types)
     probe_database(session_factory)
     if (
         runs_operational_schedulers(worker_role)
@@ -213,6 +214,7 @@ def build_worker_runtime(
             drain_timeout_seconds=settings.WORKER_DRAIN_TIMEOUT_SECONDS,
             enforce_tenant_policy=True,
             allowed_job_types=allowed_job_types,
+            borrowed_job_types=borrowed_job_types,
         ),
         dependencies=dependencies,
         registry=build_handler_registry(

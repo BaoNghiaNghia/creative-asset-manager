@@ -95,7 +95,7 @@ class AiOperationsControlsTest(unittest.TestCase):
         with (
             patch("app.modules.ai_operations.control_router.SessionLocal", self.factory),
             patch("app.modules.ai_operations.control_router.get_settings", return_value=self.settings),
-            patch("app.modules.ai_operations.control_router.build_ai_provider_registry", side_effect=lambda _settings: self._registry()),
+            patch("app.modules.ai_operations.control_router.build_ai_provider_registry", side_effect=lambda _settings, **_kwargs: self._registry()),
         ):
             return self.client.request(method, path, json=body, params=params)
 

@@ -10,9 +10,12 @@ from app.core.config import Settings
 from app.domain.processing.types import JOB_TYPES
 from app.modules.processing.bootstrap import build_worker_runtime, default_worker_id
 from app.modules.processing.worker_roles import (
+    IMAGE_AI_JOB_TYPES,
     IMAGE_WORKER_JOB_TYPES,
+    VIDEO_AI_JOB_TYPES,
     VIDEO_WORKER_JOB_TYPES,
     allowed_job_types_for_role,
+    borrowable_job_types_for_role,
 )
 
 
@@ -49,6 +52,12 @@ class WorkerRoleTest(unittest.TestCase):
         self.assertNotIn("asset_analyze", allowed)
         self.assertNotIn("asset_index", allowed)
         self.assertNotIn("search_projection_build", allowed)
+
+    def test_dedicated_roles_only_borrow_peer_ai_work(self) -> None:
+        enabled = JOB_TYPES
+        self.assertEqual(borrowable_job_types_for_role("image", enabled), VIDEO_AI_JOB_TYPES)
+        self.assertEqual(borrowable_job_types_for_role("video", enabled), IMAGE_AI_JOB_TYPES)
+        self.assertEqual(borrowable_job_types_for_role("all", enabled), ())
 
     def test_default_worker_ids_include_the_role(self) -> None:
         self.assertTrue(default_worker_id("image").startswith("creativeasset-image-"))

@@ -811,10 +811,14 @@ function VideoProcessing({ media, onPage }: {
     </div>
     <div className="ops-table-scroll"><table className="ops-data-table">
       <caption className="sr-only">Video processing jobs</caption>
-      <thead><tr>{["Status", "Video", "Attempts", "Updated", "Error"].map(value => <th key={value}>{value}</th>)}</tr></thead>
+      <thead><tr>{["Status", "Video", "Segments", "Attempts", "Updated", "Error"].map(value => <th key={value}>{value}</th>)}</tr></thead>
       <tbody>{recent.items.map(job => <tr key={job.job_id}>
         <td><StatusText status={job.status} /></td>
-        <td><b>{job.filename || job.source_asset_id}</b><small>{job.location || job.source_asset_id}</small></td>
+        <td><div className="video-processing-title">
+          <PipelineAssetThumbnail filename={job.filename || job.source_asset_id} thumbnailUrl={job.thumbnail_url} />
+          <span><b>{job.filename || job.source_asset_id}</b><small>{job.location || job.source_asset_id}</small></span>
+        </div></td>
+        <td title="Completed processing segments / total segments">{job.total_chunks ? (job.completed_chunks || 0) + "/" + job.total_chunks : "—"}</td>
         <td>{job.attempt_count}/{job.max_attempts}</td>
         <td><time dateTime={job.updated_at}>{new Date(job.updated_at).toLocaleString()}</time></td>
         <td><code>{job.error_code || "-"}</code></td>

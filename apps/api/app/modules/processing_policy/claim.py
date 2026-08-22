@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, exists, func, or_, select, true, update
+from sqlalchemy import and_, exists, false, func, or_, select, true, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -12,6 +12,10 @@ from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
+from app.modules.processing.worker_roles import (
+    IMAGE_AI_JOB_TYPES, IMAGE_WORKER_JOB_TYPES,
+    VIDEO_AI_JOB_TYPES, VIDEO_WORKER_JOB_TYPES,
+)
 
 
 AI_JOB_TYPES = ("asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items")
@@ -26,7 +30,7 @@ STAGE_POLICY = {
     "source_asset_download": "download_enabled",
     "asset_store": "managed_storage_enabled",
     "asset_analyze": "ai_analysis_enabled",
-    "video_analyze": "ai_analysis_enabled",
+    "video_analyze": "pipeline_enabled",
     "ai_batch_prepare": "ai_analysis_enabled",
     "ai_batch_submit": "ai_analysis_enabled",
     "ai_batch_poll": "ai_analysis_enabled",
@@ -46,13 +50,14 @@ class TenantAwareJobClaimer:
         self.settings = settings or get_settings()
 
     def claim(self, *, worker_id: str, lease_seconds: int, now: datetime,
-              allowed_job_types: tuple[str, ...]) -> ProcessingJobModel | None:
+              allowed_job_types: tuple[str, ...], worker_role: str = "all") -> ProcessingJobModel | None:
         if not allowed_job_types:
             return None
         excluded_ai_scopes: set[tuple[str, str | None]] = set()
         while True:
             eligibility = self._eligibility(
-                now, allowed_job_types, excluded_ai_scopes=excluded_ai_scopes
+                now, allowed_job_types, excluded_ai_scopes=excluded_ai_scopes,
+                worker_role=worker_role,
             )
             statement = (
                 select(ProcessingJobModel)
@@ -222,6 +227,7 @@ class TenantAwareJobClaimer:
     def _eligibility(
         self, now: datetime, allowed_job_types: tuple[str, ...],
         *, excluded_ai_scopes: set[tuple[str, str | None]] | None = None,
+        worker_role: str = "all",
     ):
         policy_conditions = [
             TenantProcessingPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
@@ -268,10 +274,58 @@ class TenantAwareJobClaimer:
             self._base_eligibility(now),
             scope_available,
             ProcessingJobModel.job_type.in_(allowed_job_types),
+            self._worker_role_available(worker_role),
             self._runtime_control_available(),
             exists(select(TenantProcessingPolicyModel.tenant_id).where(*policy_conditions)),
             or_(ProcessingJobModel.provider_key.is_(None), ~provider_blocked),
         )
+
+    @staticmethod
+    def _worker_role_available(worker_role: str):
+        role = worker_role.strip().casefold()
+        if role == "all":
+            return true()
+        image_enabled = exists(
+            select(TenantProcessingPolicyModel.tenant_id)
+            .where(
+                TenantProcessingPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
+                TenantProcessingPolicyModel.ai_analysis_enabled.is_(True),
+            )
+            .correlate_except(TenantProcessingPolicyModel)
+        )
+        video_paused = exists(
+            select(TenantProviderPolicyModel.id)
+            .where(
+                TenantProviderPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
+                TenantProviderPolicyModel.provider_key == "gemini",
+                TenantProviderPolicyModel.provider_scope == "video",
+                or_(
+                    TenantProviderPolicyModel.processing_enabled.is_(False),
+                    TenantProviderPolicyModel.processing_paused.is_(True),
+                    TenantProviderPolicyModel.emergency_stop.is_(True),
+                ),
+            )
+            .correlate_except(TenantProviderPolicyModel)
+        )
+        if role == "image":
+            return or_(
+                ProcessingJobModel.job_type.in_(IMAGE_WORKER_JOB_TYPES),
+                and_(
+                    ProcessingJobModel.job_type.in_(VIDEO_AI_JOB_TYPES),
+                    ~image_enabled,
+                    ~video_paused,
+                ),
+            )
+        if role == "video":
+            return or_(
+                ProcessingJobModel.job_type.in_(VIDEO_WORKER_JOB_TYPES),
+                and_(
+                    ProcessingJobModel.job_type.in_(IMAGE_AI_JOB_TYPES),
+                    image_enabled,
+                    video_paused,
+                ),
+            )
+        return false()
 
     @staticmethod
     def _base_eligibility(now: datetime):

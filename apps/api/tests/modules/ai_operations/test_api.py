@@ -23,6 +23,7 @@ from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.source_sync.model import SourceSyncRunModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel
+from app.modules.video_search.model import VideoAnalysisRunModel
 
 
 class AiOperationsApiTest(unittest.TestCase):
@@ -210,6 +211,15 @@ class AiOperationsApiTest(unittest.TestCase):
                     idempotency_key=f"video-page-{index}", status="completed",
                     payload_json={}, updated_at=self.now - timedelta(seconds=index),
                 ))
+            session.add(VideoAnalysisRunModel(
+                tenant_id="tenant-a", source_asset_id=self.source_asset_id,
+                source_fingerprint="f" * 64, video_metadata_profile_id="video-profile",
+                metadata_profile="video", metadata_profile_version="v1",
+                prompt_version="p1", analysis_version="a1", ai_provider="gemini",
+                ai_model="gemini-flash", idempotency_key="r" * 64,
+                status="analyzing", chunk_seconds=30, total_chunks=5,
+                completed_chunks=2,
+            ))
             session.commit()
         probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
         with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(
@@ -227,6 +237,8 @@ class AiOperationsApiTest(unittest.TestCase):
             recent["items"][0]["thumbnail_url"],
             f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}&fallback=video",
         )
+        self.assertEqual(recent["items"][0]["completed_chunks"], 2)
+        self.assertEqual(recent["items"][0]["total_chunks"], 5)
 
     def test_media_dashboard_resolves_video_location_from_synced_folders(self):
         with self.factory() as session:
