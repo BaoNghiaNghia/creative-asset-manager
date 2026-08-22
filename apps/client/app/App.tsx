@@ -820,7 +820,7 @@ export default function App() {
 
           <div id="search-results">
           {searchMediaMode === "videos" && explorer.query.trim() ? videoResults : <>
-          {searchMediaMode === "all" && explorer.query.trim() && <h2 className="mixed-search-heading"><button type="button" className="mixed-search-toggle" aria-expanded={imageResultsExpanded} aria-controls="mixed-image-results" onClick={() => setImageResultsExpanded(value => !value)}><span>Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></span><i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i></button></h2>}
+          {searchMediaMode === "all" && explorer.query.trim() && <h2 className="mixed-search-heading"><button type="button" className="mixed-search-toggle" aria-expanded={imageResultsExpanded} aria-controls="mixed-image-results" onClick={() => setImageResultsExpanded(value => !value)}><i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i><span>Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></span></button></h2>}
           <div id="mixed-image-results" hidden={searchMediaMode === "all" && Boolean(explorer.query.trim()) && !imageResultsExpanded}>
                     {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
 
@@ -878,7 +878,7 @@ export default function App() {
           />}
           </div>
           {searchMediaMode === "all" && explorer.query.trim() && <section className="mixed-search-section" aria-label="Video results">
-            <h2><button type="button" className="mixed-search-toggle" aria-expanded={videoResultsExpanded} aria-controls="mixed-video-results" onClick={() => setVideoResultsExpanded(value => !value)}><span>Videos <small>{videoSearch.loading ? "Searching..." : videoSearch.total + " results"}</small></span><i aria-hidden="true">{videoResultsExpanded ? "−" : "+"}</i></button></h2>
+            <h2><button type="button" className="mixed-search-toggle" aria-expanded={videoResultsExpanded} aria-controls="mixed-video-results" onClick={() => setVideoResultsExpanded(value => !value)}><i aria-hidden="true">{videoResultsExpanded ? "−" : "+"}</i><span>Videos <small>{videoSearch.loading ? "Searching..." : videoSearch.total + " results"}</small></span></button></h2>
             <div id="mixed-video-results" hidden={!videoResultsExpanded}>{videoResults}</div>
           </section>}
           </>}

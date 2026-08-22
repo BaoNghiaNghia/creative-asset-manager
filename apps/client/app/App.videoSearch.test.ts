@@ -25,6 +25,8 @@ describe("video search UI wiring", () => {
     expect(source).toContain('aria-controls="mixed-video-results"');
     expect(source).toContain("setImageResultsExpanded(value => !value)");
     expect(source).toContain("setVideoResultsExpanded(value => !value)");
+    expect(source).toContain('<i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i><span>Images');
+    expect(source).toContain('<i aria-hidden="true">{videoResultsExpanded ? "−" : "+"}</i><span>Videos');
   });
 
 
