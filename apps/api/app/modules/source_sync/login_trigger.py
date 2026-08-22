@@ -9,6 +9,10 @@ from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
+from app.modules.explorer.cache import (
+    invalidate_drive_listings,
+    invalidate_drive_source,
+)
 from app.modules.authorization.folder_scope_cache import (
     viewer_folder_hierarchy_cache,
     viewer_folder_remote_parent_cache,
@@ -143,6 +147,12 @@ class GoogleLoginSyncScheduler:
             tenant_id=tenant_id, external_source_id=source.id
         )
         viewer_folder_remote_parent_cache.invalidate(
+            tenant_id=tenant_id, external_source_id=source.id
+        )
+        invalidate_drive_source(
+            tenant_id=tenant_id, external_source_id=source.id
+        )
+        invalidate_drive_listings(
             tenant_id=tenant_id, external_source_id=source.id
         )
 

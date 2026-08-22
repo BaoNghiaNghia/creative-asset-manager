@@ -7,7 +7,7 @@ from app.providers.google.drive import GoogleDriveThumbnailUnavailable
 
 
 def test_video_thumbnail_returns_safe_image_when_drive_has_no_poster() -> None:
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()), headers={})
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()), headers={}, query_params={})
     principal = SimpleNamespace(active_tenant_id="tenant-a")
 
     with patch(
@@ -22,7 +22,7 @@ def test_video_thumbnail_returns_safe_image_when_drive_has_no_poster() -> None:
                 request=request,
                 item_id="video-a",
                 provider="google-drive",
-                session=SimpleNamespace(),
+                session=SimpleNamespace(close=lambda: None),
                 principal=principal,
                 external_source_id="source-a",
                 fallback="video",

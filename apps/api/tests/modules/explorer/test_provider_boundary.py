@@ -1,9 +1,11 @@
 import ast
+import asyncio
 import inspect
 import unittest
 from unittest.mock import patch
 
 from app.modules.authorization.folder_scope import ViewerFolderAccess
+from app.modules.explorer.cache import drive_listing_cache, invalidate_drive_listings
 from app.modules.explorer.schema import AssetNode
 from app.modules.explorer.service import ExplorerService
 
@@ -12,6 +14,7 @@ class FakeExplorerProvider:
     def __init__(self, parent: AssetNode, children: list[AssetNode]):
         self.parent = parent
         self.children = children
+        self.page_calls = 0
 
     async def __aenter__(self):
         return self
@@ -38,6 +41,8 @@ class FakeExplorerProvider:
         page_token: str | None = None,
         page_size: int = 100,
     ) -> tuple[list[AssetNode], str | None]:
+        self.page_calls += 1
+        await asyncio.sleep(0)
         children = await self.list_children(parent_id, folders_only=folders_only)
         offset = int(page_token or "0")
         page = children[offset:offset + page_size]
@@ -46,6 +51,12 @@ class FakeExplorerProvider:
 
 
 class ExplorerProviderBoundaryTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        drive_listing_cache.clear()
+
+    def tearDown(self):
+        drive_listing_cache.clear()
+
     def test_explorer_service_has_no_concrete_cloud_provider_import(self) -> None:
         tree = ast.parse(inspect.getsource(inspect.getmodule(ExplorerService)))
         imports = {
@@ -86,6 +97,50 @@ class ExplorerProviderBoundaryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing.parent, parent)
         self.assertEqual(listing.children, [child])
         schedule_index.assert_called_once()
+
+    async def test_drive_listing_cache_and_singleflight_are_source_scoped(self) -> None:
+        parent = AssetNode(
+            id="root", name="My Drive", kind="folder",
+            mime_type="application/vnd.google-apps.folder",
+        )
+        child = AssetNode(
+            id="file-1", name="asset.png", kind="image",
+            mime_type="image/png", parent_id="root",
+        )
+        provider = FakeExplorerProvider(parent, [child])
+        service = ExplorerService(lambda _provider, _token: provider)
+
+        with patch("app.modules.explorer.service.schedule_metadata_index") as schedule:
+            schedule.side_effect = lambda coroutine: coroutine.close()
+            first, second = await asyncio.gather(
+                service.list_folder(
+                    "root", "token", tenant_id="tenant-a",
+                    external_source_id="source-a",
+                ),
+                service.list_folder(
+                    "root", "token", tenant_id="tenant-a",
+                    external_source_id="source-a",
+                ),
+            )
+            third = await service.list_folder(
+                "root", "token", tenant_id="tenant-a",
+                external_source_id="source-a",
+            )
+        self.assertEqual(provider.page_calls, 1)
+        self.assertEqual(first.children[0].id, second.children[0].id)
+        self.assertEqual(third.children[0].id, "file-1")
+
+        invalidate_drive_listings(
+            tenant_id="tenant-a", external_source_id="source-a",
+            parent_id="root",
+        )
+        with patch("app.modules.explorer.service.schedule_metadata_index") as schedule:
+            schedule.side_effect = lambda coroutine: coroutine.close()
+            await service.list_folder(
+                "root", "token", tenant_id="tenant-a",
+                external_source_id="source-a",
+            )
+        self.assertEqual(provider.page_calls, 2)
 
     async def test_interactive_listing_returns_only_requested_page(self) -> None:
         parent = AssetNode(id="root", name="My Drive", kind="folder", mime_type="application/vnd.google-apps.folder")

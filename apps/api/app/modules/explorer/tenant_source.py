@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.assets.model import ExternalSourceModel
+from app.modules.explorer.cache import DriveSourceMetadata, drive_source_cache
 from app.providers.google.auth import get_connection_access_token
 
 
@@ -30,71 +31,69 @@ class TenantSourceResolver:
         external_source_id: str | None = None,
         require_drive_write_scope: bool = False,
     ) -> TenantSourceAccess:
-        statement = select(ExternalSourceModel).where(
-            ExternalSourceModel.tenant_id == tenant_id,
-            ExternalSourceModel.source_type == "google_drive",
-        )
-        if external_source_id:
-            statement = statement.where(ExternalSourceModel.id == external_source_id)
-        sources = [
-            source
-            for source in self.session.scalars(
-                statement.order_by(ExternalSourceModel.created_at)
+        cache_key = (tenant_id, external_source_id or "")
+        cached = drive_source_cache.get(cache_key)
+        if cached is None:
+            statement = select(ExternalSourceModel).where(
+                ExternalSourceModel.tenant_id == tenant_id,
+                ExternalSourceModel.source_type == "google_drive",
             )
-            if isinstance((source.source_metadata or {}).get("oauth_connection_id"), str)
-            and (source.source_metadata or {}).get("oauth_connection_id")
-        ]
-        if not sources:
-            raise HTTPException(
-                status_code=404,
-                detail="No Google Drive source is configured for this workspace.",
-            )
-        if len(sources) > 1 and not external_source_id:
-            defaults = [
+            if external_source_id:
+                statement = statement.where(ExternalSourceModel.id == external_source_id)
+            sources = [
                 source
-                for source in sources
-                if bool((source.source_metadata or {}).get("is_default"))
-            ]
-            if len(defaults) == 1:
-                sources = defaults
-            elif not defaults:
-                # Legacy workspaces may predate the default-source flag. All
-                # candidates are already tenant-scoped, so choose the most
-                # recently connected source deterministically rather than
-                # leaving Explorer unusable after an upgrade.
-                sources = [max(
-                    sources,
-                    key=lambda source: (source.updated_at, source.created_at, source.id),
-                )]
-            else:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Multiple Google Drive sources are marked as default. Reconnect the intended Drive source.",
+                for source in self.session.scalars(
+                    statement.order_by(ExternalSourceModel.created_at)
                 )
-        if len(sources) != 1:
-            raise HTTPException(
-                status_code=404,
-                detail="The selected Google Drive source is unavailable.",
+                if isinstance((source.source_metadata or {}).get("oauth_connection_id"), str)
+                and (source.source_metadata or {}).get("oauth_connection_id")
+            ]
+            if not sources:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No Google Drive source is configured for this workspace.",
+                )
+            if len(sources) > 1 and not external_source_id:
+                defaults = [
+                    source
+                    for source in sources
+                    if bool((source.source_metadata or {}).get("is_default"))
+                ]
+                if len(defaults) == 1:
+                    sources = defaults
+                elif not defaults:
+                    sources = [max(
+                        sources,
+                        key=lambda source: (source.updated_at, source.created_at, source.id),
+                    )]
+                else:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Multiple Google Drive sources are marked as default. Reconnect the intended Drive source.",
+                    )
+            if len(sources) != 1:
+                raise HTTPException(
+                    status_code=404,
+                    detail="The selected Google Drive source is unavailable.",
+                )
+            source = sources[0]
+            source_id = str(source.id)
+            metadata = dict(source.source_metadata or {})
+            connection_id = str(metadata["oauth_connection_id"])
+            account_id = str(metadata.get("provider_account_id") or connection_id)
+            cached = DriveSourceMetadata(
+                external_source_id=source_id,
+                oauth_connection_id=connection_id,
+                provider_account_id=account_id,
             )
-        source = sources[0]
+            drive_source_cache.put(cache_key, cached)
 
-        # Materialize every value needed after the database read before
-        # releasing the ORM connection.
-        source_id = str(source.id)
-        metadata = dict(source.source_metadata or {})
-        connection_id = str(metadata["oauth_connection_id"])
-        account_id = str(metadata.get("provider_account_id") or connection_id)
-
-        # Release the resolver DB connection before nested credential lookup.
-        #
-        # get_connection_access_token() uses auth_repository(), which opens a
-        # second SessionLocal from the same SQLAlchemy pool. Keeping this
-        # session checked out while awaiting that lookup can self-starve the
-        # pool when many thumbnail requests arrive concurrently.
-        #
-        # SQLAlchemy Session.close() resets the session; callers may use the
-        # same Session object again and it will check out a fresh connection.
+        # Always release the resolver DB connection before the nested
+        # credential lookup, including cache hits.
         self.session.close()
+        source_id = cached.external_source_id
+        connection_id = cached.oauth_connection_id
+        account_id = cached.provider_account_id
 
         token = (
             await get_connection_access_token(

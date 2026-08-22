@@ -1,35 +1,55 @@
 from __future__ import annotations
 
 import io
-import threading
-from collections import OrderedDict
 
 from PIL import Image, ImageOps, features
 
+from app.common.cache import ByteSizeTTLCache, CacheMetrics
+
 AVIF_DECODER_AVAILABLE = features.check("avif")
-_PREVIEW_CACHE_MAX_ITEMS = 128
-_cache: OrderedDict[tuple[str, str, str, str], bytes] = OrderedDict()
-_cache_lock = threading.Lock()
+PREVIEW_CACHE_VERSION = "v2"
+PreviewCacheKey = tuple[str, str, str, str, str]
+
+_preview_cache: ByteSizeTTLCache[PreviewCacheKey, bytes] = ByteSizeTTLCache(
+    max_entries=2048,
+    max_bytes=256 * 1024 * 1024,
+    ttl_seconds=3600,
+    size_of=len,
+)
 
 
 class PreviewConversionError(RuntimeError):
     pass
 
 
-def preview_cache_get(key: tuple[str, str, str, str]) -> bytes | None:
-    with _cache_lock:
-        value = _cache.get(key)
-        if value is not None:
-            _cache.move_to_end(key)
-        return value
+def preview_cache_get(key: PreviewCacheKey) -> bytes | None:
+    return _preview_cache.get(key)
 
 
-def preview_cache_put(key: tuple[str, str, str, str], value: bytes) -> None:
-    with _cache_lock:
-        _cache[key] = value
-        _cache.move_to_end(key)
-        while len(_cache) > _PREVIEW_CACHE_MAX_ITEMS:
-            _cache.popitem(last=False)
+def preview_cache_put(key: PreviewCacheKey, value: bytes) -> None:
+    _preview_cache.put(key, value)
+
+
+def preview_cache_invalidate(
+    *, tenant_id: str, external_source_id: str, item_id: str | None = None
+) -> int:
+    return _preview_cache.invalidate_where(
+        lambda key: key[1] == tenant_id
+        and key[2] == external_source_id
+        and (item_id is None or key[3] == item_id)
+    )
+
+
+def preview_cache_clear() -> None:
+    _preview_cache.clear()
+
+
+def preview_cache_total_bytes() -> int:
+    return _preview_cache.total_bytes
+
+
+def preview_cache_metrics() -> CacheMetrics:
+    return _preview_cache.metrics()
 
 
 def convert_avif_to_webp(content: bytes) -> bytes:

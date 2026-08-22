@@ -17,6 +17,11 @@ from app.core.config import Settings
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.source_sync.repository import SourceSyncRepository
 from app.modules.explorer.breadcrumb import location_breadcrumb_cache
+from app.modules.explorer.cache import (
+    invalidate_drive_listings,
+    invalidate_thumbnail,
+)
+from app.modules.explorer.preview import preview_cache_invalidate
 from app.providers.google.internal_files import is_cam_managed_file
 
 
@@ -29,6 +34,15 @@ def _invalidate_viewer_folder_hierarchy(*, tenant_id: str, external_source_id: s
         tenant_id=tenant_id, external_source_id=external_source_id
     )
     location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=external_source_id)
+    invalidate_drive_listings(
+        tenant_id=tenant_id, external_source_id=external_source_id
+    )
+    invalidate_thumbnail(
+        tenant_id=tenant_id, external_source_id=external_source_id
+    )
+    preview_cache_invalidate(
+        tenant_id=tenant_id, external_source_id=external_source_id
+    )
 
 
 def _datetime(value: str | None) -> datetime | None:

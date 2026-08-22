@@ -15,6 +15,13 @@ from app.core.database import get_db
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.explorer.cache import (
+    CachedThumbnail,
+    invalidate_drive_listings,
+    invalidate_thumbnail,
+    thumbnail_cache,
+    thumbnail_negative_cache,
+)
 from app.modules.explorer.indexing import get_index_status, start_index_job
 from app.modules.explorer.folder_notes import FolderNoteModel, resolve_note_owner_from_nodes
 from app.modules.explorer.schema import (
@@ -31,7 +38,14 @@ from app.modules.explorer.schema import (
 from app.modules.explorer.service import ExplorerService
 from app.modules.explorer.breadcrumb import location_breadcrumb_cache, resolve_breadcrumb
 from app.modules.explorer.media_types import infer_media_type
-from app.modules.explorer.preview import PreviewConversionError, convert_avif_to_webp, preview_cache_get, preview_cache_put
+from app.modules.explorer.preview import (
+    PREVIEW_CACHE_VERSION,
+    PreviewConversionError,
+    convert_avif_to_webp,
+    preview_cache_get,
+    preview_cache_invalidate,
+    preview_cache_put,
+)
 from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.authorization.folder_scope import (
@@ -790,6 +804,11 @@ async def upload_file(
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    invalidate_drive_listings(
+        tenant_id=tenant_id,
+        external_source_id=resolved_source_id,
+        parent_id=parent_id,
+    )
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 
@@ -829,6 +848,9 @@ async def create_folder(
     except httpx.HTTPError as exc:
         raise _provider_error(exc, "Google Drive could not create the folder.") from exc
     viewer_folder_hierarchy_cache.invalidate(tenant_id=tenant_id, external_source_id=source_id)
+    invalidate_drive_listings(
+        tenant_id=tenant_id, external_source_id=source_id, parent_id=parent_id
+    )
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 
@@ -874,6 +896,17 @@ async def update_text_file(
         raise
     except httpx.HTTPError as exc:
         raise _provider_error(exc, "Google Drive could not update the text file.") from exc
+    invalidate_drive_listings(
+        tenant_id=tenant_id,
+        external_source_id=source_id,
+        parent_id=current.parent_id or "root",
+    )
+    invalidate_thumbnail(
+        tenant_id=tenant_id, external_source_id=source_id, item_id=item_id
+    )
+    preview_cache_invalidate(
+        tenant_id=tenant_id, external_source_id=source_id, item_id=item_id
+    )
     return {"id": node.id, "name": node.name, "kind": node.kind}
 
 @router.delete("/items/{item_id}")
@@ -907,6 +940,21 @@ async def delete_item(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
     location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
+    invalidate_drive_listings(
+        tenant_id=tenant_id,
+        external_source_id=resolved_source_id,
+        parent_id=current.parent_id or "root",
+    )
+    invalidate_thumbnail(
+        tenant_id=tenant_id,
+        external_source_id=resolved_source_id,
+        item_id=item_id,
+    )
+    preview_cache_invalidate(
+        tenant_id=tenant_id,
+        external_source_id=resolved_source_id,
+        item_id=item_id,
+    )
     return {"deleted": True, "id": item_id}
 
 @router.post("/items/{item_id}/copy")
@@ -934,6 +982,11 @@ async def copy_item(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
     location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
+    invalidate_drive_listings(
+        tenant_id=tenant_id,
+        external_source_id=resolved_source_id,
+        parent_id=destination_parent_id,
+    )
     return {"id": node.id, "parent_id": node.parent_id, "name": node.name}
 
 @router.post("/items/{item_id}/move")
@@ -956,6 +1009,9 @@ async def move_item(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
     location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
+    invalidate_drive_listings(
+        tenant_id=tenant_id, external_source_id=resolved_source_id
+    )
     return {"id": node.id, "parent_id": node.parent_id}
 
 @router.get("/thumbnail/{item_id}")
@@ -970,58 +1026,99 @@ async def thumbnail(
 ):
     if provider != "google-drive":
         raise HTTPException(status_code=404, detail="Thumbnail proxy is unavailable for this provider.")
+    cache_key = None
+    negative_cache_hit = False
     try:
-        # Only the short DB/auth phase is gated. Once authorization completes,
-        # the slot is immediately released and remote thumbnail streaming can
-        # continue concurrently without consuming SQLAlchemy pool capacity.
+        # Authentication and item authorization always precede every cache
+        # lookup. The DB connection is released before any remote I/O.
         async with _thumbnail_auth_gate:
             token, tenant_id_value, resolved_source_id = await _authorized_file_context(
                 request, item_id, provider, session, principal, external_source_id
             )
-
-            # All DB-backed authorization reads are complete. Do not hold a
-            # SQLAlchemy pool connection while waiting for or streaming a
-            # remote Google Drive thumbnail.
             session.close()
 
-        shared_client = getattr(request.app.state, "google_drive_stream_client", None)
-        client, upstream = await open_google_thumbnail(
-            token,
+        # Cache identity must be server-controlled. Do not use a client
+        # query parameter as the version component because arbitrary ?v=
+        # values can fragment the cache and defeat request coalescing.
+        #
+        # Until a trusted provider/source version is available here, rely on
+        # the bounded one-hour TTL plus explicit mutation/source-sync
+        # invalidation.
+        cache_version = ""
+        cache_key = (
+            str(tenant_id_value),
+            str(resolved_source_id),
             item_id,
-            cache_key=(str(tenant_id_value), str(resolved_source_id), item_id),
-            http_client=shared_client,
+            cache_version,
         )
-        passthrough_headers = {
-            name: value
-            for name in ("content-length", "etag", "last-modified")
-            if (value := upstream.headers.get(name))
-        }
-        passthrough_headers.update(
+        if thumbnail_negative_cache.get(cache_key):
+            # Do not refresh the negative-cache TTL merely because the
+            # browser requested the same unavailable thumbnail again.
+            negative_cache_hit = True
+            raise GoogleDriveThumbnailUnavailable(item_id)
+
+        shared_client = getattr(request.app.state, "google_drive_stream_client", None)
+
+        async def load_thumbnail() -> CachedThumbnail:
+            client = None
+            upstream = None
+            try:
+                client, upstream = await open_google_thumbnail(
+                    token,
+                    item_id,
+                    cache_key=(
+                        str(tenant_id_value),
+                        str(resolved_source_id),
+                        item_id,
+                    ),
+                    http_client=shared_client,
+                )
+                content = bytearray()
+                async for chunk in upstream.aiter_raw():
+                    content.extend(chunk)
+                    if len(content) > 16 * 1024 * 1024:
+                        raise ValueError("Thumbnail response is too large")
+                headers = tuple(
+                    (name, value)
+                    for name in ("etag", "last-modified")
+                    if (value := upstream.headers.get(name))
+                )
+                return CachedThumbnail(
+                    content=bytes(content),
+                    content_type=upstream.headers.get("content-type") or "image/jpeg",
+                    headers=headers,
+                )
+            finally:
+                if client is not None and upstream is not None:
+                    await close_google_thumbnail(
+                        client, upstream, client is not shared_client
+                    )
+
+        cached = await thumbnail_cache.get_or_load(cache_key, load_thumbnail)
+        headers = dict(cached.headers)
+        headers.update(
             {
                 "cache-control": "private, max-age=3600, stale-while-revalidate=300",
                 "vary": "Cookie",
             }
         )
-        return StreamingResponse(
-            upstream.aiter_raw(),
-            status_code=upstream.status_code,
-            media_type=upstream.headers.get("content-type") or "image/jpeg",
-            headers=passthrough_headers,
-            background=BackgroundTask(
-                close_google_thumbnail,
-                client,
-                upstream,
-                client is not shared_client,
-            ),
+        return Response(
+            content=cached.content,
+            media_type=cached.content_type,
+            headers=headers,
         )
     except GoogleDriveThumbnailUnavailable as exc:
+        # Cache only a fresh upstream "thumbnail unavailable" result.
+        # A cache hit must not extend its own 60-second negative TTL.
+        if cache_key is not None and not negative_cache_hit:
+            thumbnail_negative_cache.put(cache_key, True)
         if fallback == "video":
             return _video_thumbnail_placeholder()
         raise HTTPException(status_code=404, detail="Thumbnail is unavailable.") from exc
     except HTTPException:
         raise
     except (httpx.HTTPError, PermissionError, ValueError) as exc:
-        raise _provider_error(exc, "Unable to stream google-drive thumbnail") from exc
+        raise _provider_error(exc, "Unable to load google-drive thumbnail") from exc
 
 
 @router.get("/preview/{item_id}")
@@ -1074,7 +1171,13 @@ async def preview(
             })
         etag = upstream.headers.get("etag") or ""
         modified = upstream.headers.get("last-modified") or ""
-        cache_key = (str(tenant_id), str(resolved_source_id), item_id, etag + "|" + modified)
+        cache_key = (
+            PREVIEW_CACHE_VERSION,
+            str(tenant_id),
+            str(resolved_source_id),
+            item_id,
+            etag + "|" + modified,
+        )
         cached = preview_cache_get(cache_key)
         if cached is None:
             content = bytearray()

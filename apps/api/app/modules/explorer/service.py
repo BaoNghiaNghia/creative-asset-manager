@@ -11,6 +11,7 @@ from app.modules.ai_metadata.normalizer import MetadataNormalizer
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.assets.status_service import AssetProcessingStatusService
 
+from app.modules.explorer.cache import drive_listing_cache
 from app.modules.explorer.provider_contract import SourceProviderFactory
 from app.modules.explorer.schema import AssetNode, FolderListing, SearchRequest, SearchResponse
 from app.modules.explorer.breadcrumb import resolve_breadcrumb
@@ -160,16 +161,44 @@ class ExplorerService:
         page_size: int = 100,
     ) -> FolderListing:
         if access_token:
-            async with self.provider_factory(provider, access_token) as client:
-                parent, page = await asyncio.gather(
-                    client.get_node(parent_id),
-                    client.list_children_page(
-                        parent_id,
-                        page_token=page_token,
-                        page_size=page_size,
-                    ),
+            async def load_provider_page():
+                async with self.provider_factory(provider, access_token) as client:
+                    loaded_parent, page = await asyncio.gather(
+                        client.get_node(parent_id),
+                        client.list_children_page(
+                            parent_id,
+                            page_token=page_token,
+                            page_size=page_size,
+                        ),
+                    )
+                loaded_children, loaded_next_token = page
+                return (
+                    loaded_parent.model_copy(deep=True),
+                    tuple(item.model_copy(deep=True) for item in loaded_children),
+                    loaded_next_token,
                 )
-                children, next_page_token = page
+
+            if (
+                provider == "google-drive"
+                and tenant_id
+                and external_source_id
+            ):
+                snapshot = await drive_listing_cache.get_or_load(
+                    (
+                        tenant_id,
+                        external_source_id,
+                        parent_id,
+                        page_token or "",
+                        page_size,
+                        "children",
+                    ),
+                    load_provider_page,
+                )
+            else:
+                snapshot = await load_provider_page()
+            parent = snapshot[0].model_copy(deep=True)
+            children = [item.model_copy(deep=True) for item in snapshot[1]]
+            next_page_token = snapshot[2]
         elif provider == "google-drive":
             parent = (
                 AssetNode(id="root", name="My Drive", kind="folder", mime_type=FOLDER, has_children=True)
