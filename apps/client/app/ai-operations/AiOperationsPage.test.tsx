@@ -231,6 +231,52 @@ describe("AI Operations media dashboard compatibility", () => {
       onRetry={noop}
     />)).not.toThrow();
   });
+
+
+  it("renders Image-style pagination for recent videos", () => {
+    const media = normalizeMediaDashboard({
+      recent_video: {
+        page: 1,
+        page_size: 25,
+        total: 3_226,
+        items: [{
+          job_id: "video-job",
+          source_asset_id: "asset",
+          filename: "clip.mp4",
+          location: "Google Drive / Campaigns",
+          thumbnail_url: "/api/explorer/thumbnail/asset",
+          status: "completed",
+          attempt_count: 1,
+          max_attempts: 5,
+          updated_at: "2026-08-21T00:00:00Z",
+          error_code: null,
+        }],
+      },
+    } as unknown as AiOpsDashboardData["media"]);
+    const pipeline = {
+      generated_at: "2026-08-21T00:00:00Z",
+      latest_source_sync: null,
+      overall: {
+        source_items_discovered: 0, supported_assets: 0, unsupported_assets: 0,
+        completed: 0, active: 0, queued: 0, failed: 0, skipped: 0,
+        indexed_percentage: 0, throughput_today: 0, asset_progress: [],
+      },
+      stages: [], active_job: null, failure_groups: [],
+      recent_assets: { page: 1, page_size: 25, total: 0, items: [] },
+    } as NonNullable<AiOpsDashboardData["pipeline"]>;
+    const markup = renderToStaticMarkup(<PipelineOverview
+      pipeline={pipeline}
+      mediaDashboard={media}
+      media="video"
+    />);
+    expect(markup).toContain("Số mục mỗi trang");
+    expect(markup).toContain("Số video mỗi trang");
+    expect(markup).toContain('aria-label="Video page numbers"');
+    expect(markup).toContain('aria-current="page"');
+    expect(markup).toContain(">130<");
+    expect(markup).toContain("...");
+    expect(markup).toContain("/api/explorer/thumbnail/asset");
+  });
 });
 
 describe("AI Operations media tab placement", () => {
@@ -277,6 +323,14 @@ describe("AI Operations dashboard", () => {
     expect(new URLSearchParams(query).get("tab")).toBe("processing");
     const markup = renderToStaticMarkup(<AiOperationsFilters filters={filters} models={["gpt-test"]} profiles={["catalog"]} onChange={noop} />);
     for (const label of ["Date range", "Provider", "Model", "Processing mode", "Metadata profile"]) expect(markup).toContain(label);
+  });
+
+  it("preserves Video pagination and page size in URL state", () => {
+    const videoFilters = { ...filters, videoPage: 3, videoPageSize: 50 as const };
+    const query = searchFromFilters(videoFilters, "pipeline", 0, "video");
+    expect(new URLSearchParams(query).get("video_page")).toBe("3");
+    expect(new URLSearchParams(query).get("video_page_size")).toBe("50");
+    expect(filtersFromSearch(query)).toEqual(videoFilters);
   });
 
   it("renders all KPI cards and accessible chart/table equivalents", () => {
@@ -399,6 +453,19 @@ describe("AI Operations dashboard", () => {
     await fetchAiOperationsDashboard(filters, fetcher, new Date("2026-07-22T00:00:00Z"));
     expect(fetcher).toHaveBeenCalledTimes(11);
     expect(peak).toBeLessThanOrEqual(3);
+  });
+
+  it("requests the selected Video page size from the media dashboard API", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(summary), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    })) as unknown as typeof fetch;
+    await fetchAiOperationsDashboard(
+      { ...filters, videoPage: 3, videoPageSize: 50 },
+      fetcher,
+      new Date("2026-07-22T00:00:00Z"),
+    );
+    const urls = vi.mocked(fetcher).mock.calls.map(call => String(call[0]));
+    expect(urls).toContain("/api/v1/admin/ai-operations/media-dashboard?video_page=3&video_page_size=50");
   });
 
   it("normalizes a pre-pagination pipeline response without crashing", () => {

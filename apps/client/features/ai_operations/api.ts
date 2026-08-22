@@ -198,7 +198,7 @@ export async function fetchAiOperationsDashboard(
     () => read<Page<AiOpsJob>>(base + "/jobs?" + jobs, fetcher, requestSignal),
     () => read<Page<AiOpsUsage>>(base + "/usage?" + usage, fetcher, requestSignal),
     () => read<PipelineSnapshot>(base + "/pipeline?recent_page=" + (filters.pipelinePage || 1) + "&recent_page_size=" + (filters.pipelinePageSize || 25), fetcher, requestSignal),
-    () => read<AiOpsMediaDashboard>(base + "/media-dashboard?video_page=" + (filters.videoPage || 1) + "&video_page_size=25", fetcher, requestSignal),
+    () => read<AiOpsMediaDashboard>(base + "/media-dashboard?video_page=" + (filters.videoPage || 1) + "&video_page_size=" + (filters.videoPageSize || 25), fetcher, requestSignal),
   ];
   const settled = await settleDashboardCalls(calls);
   const pipelineUnavailable = settled[9]?.status === "rejected"
@@ -255,6 +255,7 @@ export function filtersFromSearch(search: string): AiOpsFilters {
     pipelinePage: params.has("pipeline_page") ? Math.max(1, Number(params.get("pipeline_page")) || 1) : undefined,
     pipelinePageSize: params.has("pipeline_page_size") && [25, 50, 100].includes(Number(params.get("pipeline_page_size"))) ? Number(params.get("pipeline_page_size")) as 25 | 50 | 100 : undefined,
     videoPage: params.has("video_page") ? Math.max(1, Number(params.get("video_page")) || 1) : undefined,
+    videoPageSize: params.has("video_page_size") && [25, 50, 100].includes(Number(params.get("video_page_size"))) ? Number(params.get("video_page_size")) as 25 | 50 | 100 : undefined,
   };
 }
 
@@ -273,6 +274,7 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSec
   if ((filters.pipelinePage || 1) > 1) params.set("pipeline_page", String(filters.pipelinePage));
   if ((filters.pipelinePageSize || 25) !== 25) params.set("pipeline_page_size", String(filters.pipelinePageSize));
   if ((filters.videoPage || 1) > 1) params.set("video_page", String(filters.videoPage));
+  if ((filters.videoPageSize || 25) !== 25) params.set("video_page_size", String(filters.videoPageSize));
   if (tab !== "overview") params.set("tab", tab);
   if (media === "video") params.set("media", media);
   if (refreshSeconds) params.set("refresh", String(refreshSeconds));

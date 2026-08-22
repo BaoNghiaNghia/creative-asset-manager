@@ -15,6 +15,7 @@ export type AiOpsFilters = {
   pipelinePage?: number;
   pipelinePageSize?: 25 | 50 | 100;
   videoPage?: number;
+  videoPageSize?: 25 | 50 | 100;
 };
 
 export type AiOpsCost = {
