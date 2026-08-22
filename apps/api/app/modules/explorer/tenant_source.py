@@ -77,9 +77,25 @@ class TenantSourceResolver:
                 detail="The selected Google Drive source is unavailable.",
             )
         source = sources[0]
-        metadata = source.source_metadata or {}
+
+        # Materialize every value needed after the database read before
+        # releasing the ORM connection.
+        source_id = str(source.id)
+        metadata = dict(source.source_metadata or {})
         connection_id = str(metadata["oauth_connection_id"])
         account_id = str(metadata.get("provider_account_id") or connection_id)
+
+        # Release the resolver DB connection before nested credential lookup.
+        #
+        # get_connection_access_token() uses auth_repository(), which opens a
+        # second SessionLocal from the same SQLAlchemy pool. Keeping this
+        # session checked out while awaiting that lookup can self-starve the
+        # pool when many thumbnail requests arrive concurrently.
+        #
+        # SQLAlchemy Session.close() resets the session; callers may use the
+        # same Session object again and it will check out a fresh connection.
+        self.session.close()
+
         token = (
             await get_connection_access_token(
                 connection_id,
@@ -89,7 +105,7 @@ class TenantSourceResolver:
             else await get_connection_access_token(connection_id)
         )
         return TenantSourceAccess(
-            external_source_id=source.id,
+            external_source_id=source_id,
             provider_account_id=account_id,
             access_token=token,
         )

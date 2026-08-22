@@ -57,6 +57,12 @@ from app.providers.microsoft.sharepoint import open_media_stream as open_sharepo
 router = APIRouter(prefix="/explorer", tags=["explorer"])
 logger = logging.getLogger(__name__)
 
+# Browser HTTP/2 can start every visible thumbnail concurrently. Keep the
+# DB-backed authorization phase well below the API SQLAlchemy pool ceiling so
+# thumbnails cannot starve normal API traffic.
+_THUMBNAIL_AUTH_CONCURRENCY = 6
+_thumbnail_auth_gate = asyncio.Semaphore(_THUMBNAIL_AUTH_CONCURRENCY)
+
 _VIDEO_THUMBNAIL_PLACEHOLDER = b"""<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" role="img" aria-label="Video thumbnail unavailable"><rect width="320" height="180" fill="#edf2fb"/><rect x="1" y="1" width="318" height="178" rx="10" fill="none" stroke="#cbd8ed" stroke-width="2"/><circle cx="160" cy="82" r="28" fill="#4163d8"/><path d="M151 66v32l25-16z" fill="#fff"/><text x="160" y="143" text-anchor="middle" fill="#50627f" font-family="Arial, sans-serif" font-size="14">Video preview unavailable</text></svg>"""
 
 
@@ -965,15 +971,18 @@ async def thumbnail(
     if provider != "google-drive":
         raise HTTPException(status_code=404, detail="Thumbnail proxy is unavailable for this provider.")
     try:
-        token, tenant_id_value, resolved_source_id = await _authorized_file_context(
-            request, item_id, provider, session, principal, external_source_id
-        )
+        # Only the short DB/auth phase is gated. Once authorization completes,
+        # the slot is immediately released and remote thumbnail streaming can
+        # continue concurrently without consuming SQLAlchemy pool capacity.
+        async with _thumbnail_auth_gate:
+            token, tenant_id_value, resolved_source_id = await _authorized_file_context(
+                request, item_id, provider, session, principal, external_source_id
+            )
 
-        # All DB-backed authorization reads are complete. Do not hold a
-        # SQLAlchemy pool connection while waiting for or streaming a remote
-        # Google Drive thumbnail. The dependency will safely close again when
-        # the request finishes.
-        session.close()
+            # All DB-backed authorization reads are complete. Do not hold a
+            # SQLAlchemy pool connection while waiting for or streaming a
+            # remote Google Drive thumbnail.
+            session.close()
 
         shared_client = getattr(request.app.state, "google_drive_stream_client", None)
         client, upstream = await open_google_thumbnail(
