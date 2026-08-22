@@ -8,6 +8,11 @@ from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.modules.ai_operations.cache import (
+    cached_ai_operations_async,
+    cached_ai_operations_read,
+    filters_cache_key,
+)
 from app.modules.ai_operations.export import EXPORT_COLUMNS, audit_export, csv_stream, export_rows
 from app.modules.ai_operations.queries import AiOperationsRepository
 from app.modules.ai_operations.pipeline import PipelineOperationsRepository
@@ -106,6 +111,18 @@ def _read(filters: AiOperationsFilters, operation):
     with SessionLocal() as session:
         return operation(AiOperationsRepository(session), filters)
 
+
+def _cached_read(
+    name: str,
+    filters: AiOperationsFilters,
+    operation,
+    *extra: object,
+):
+    return cached_ai_operations_read(
+        name,
+        filters_cache_key(filters) + tuple(extra),
+        lambda: _read(filters, operation),
+    )
 
 
 def _projection_version() -> str:
@@ -262,6 +279,17 @@ def repair_coverage(
         return {"repair": result.to_document(), "progress": SearchCoverageSummaryService(session, projection_version=_projection_version()).repair_jobs(tenant_id=target)}
 
 
+def _pipeline_snapshot(
+    tenant_id: str, recent_page: int, recent_page_size: int
+):
+    with SessionLocal() as session:
+        return PipelineOperationsRepository(session).snapshot(
+            tenant_id,
+            recent_page=recent_page,
+            recent_page_size=recent_page_size,
+        )
+
+
 @router.get("/pipeline")
 def pipeline_summary(
     principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
@@ -271,10 +299,11 @@ def pipeline_summary(
 ):
     target = tenant_id or principal.active_tenant_id
     require_tenant_scope(principal, target)
-    with SessionLocal() as session:
-        return PipelineOperationsRepository(session).snapshot(
-            target, recent_page=recent_page, recent_page_size=recent_page_size,
-        )
+    return cached_ai_operations_read(
+        "pipeline",
+        (target, recent_page, recent_page_size),
+        lambda: _pipeline_snapshot(target, recent_page, recent_page_size),
+    )
 
 
 @router.get("/media-dashboard")
@@ -286,20 +315,33 @@ async def media_dashboard(
 ):
     target = tenant_id or principal.active_tenant_id
     require_tenant_scope(principal, target)
-    with SessionLocal() as session:
-        return await MediaDashboardService(session, get_settings()).snapshot(target, video_page=video_page, video_page_size=video_page_size)
+    async def load():
+        with SessionLocal() as session:
+            return await MediaDashboardService(
+                session, get_settings()
+            ).snapshot(
+                target,
+                video_page=video_page,
+                video_page_size=video_page_size,
+            )
+
+    return await cached_ai_operations_async(
+        "media-dashboard",
+        (target, video_page, video_page_size),
+        load,
+    )
 
 
 @router.get("/summary")
 def summary(filters: AiOperationsFilters = Depends(common_filters)):
-    return _read(filters, lambda repository, value: repository.summary(value))
+    return _cached_read("summary", filters, lambda repository, value: repository.summary(value))
 
 
 @router.get("/daily")
 def daily(filters: AiOperationsFilters = Depends(common_filters)):
     return {
         "period": {"from": filters.from_at, "to": filters.to_at},
-        "items": _read(filters, lambda repository, value: repository.daily(value)),
+        "items": _cached_read("daily", filters, lambda repository, value: repository.daily(value)),
     }
 
 
@@ -307,7 +349,7 @@ def daily(filters: AiOperationsFilters = Depends(common_filters)):
 def providers(filters: AiOperationsFilters = Depends(common_filters)):
     return {
         "period": {"from": filters.from_at, "to": filters.to_at},
-        "items": _read(filters, lambda repository, value: repository.providers(value)),
+        "items": _cached_read("providers", filters, lambda repository, value: repository.providers(value)),
     }
 
 
@@ -315,7 +357,7 @@ def providers(filters: AiOperationsFilters = Depends(common_filters)):
 def failures(filters: AiOperationsFilters = Depends(common_filters)):
     return {
         "period": {"from": filters.from_at, "to": filters.to_at},
-        "items": _read(filters, lambda repository, value: repository.failures(value)),
+        "items": _cached_read("failures", filters, lambda repository, value: repository.failures(value)),
     }
 
 
@@ -325,9 +367,14 @@ def jobs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
 ):
-    return _read(
+    return _cached_read(
+        "jobs",
         filters,
-        lambda repository, value: repository.jobs(value, page=page, page_size=page_size),
+        lambda repository, value: repository.jobs(
+            value, page=page, page_size=page_size
+        ),
+        page,
+        page_size,
     )
 
 
@@ -337,9 +384,14 @@ def usage(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
 ):
-    return _read(
+    return _cached_read(
+        "usage",
         filters,
-        lambda repository, value: repository.usage(value, page=page, page_size=page_size),
+        lambda repository, value: repository.usage(
+            value, page=page, page_size=page_size
+        ),
+        page,
+        page_size,
     )
 
 @router.get("/exports/{export_type}.csv")

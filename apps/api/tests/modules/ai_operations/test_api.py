@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.main import app
 from app.modules.ai_batch.model import AiBatchJobModel
+from app.modules.ai_operations.cache import ai_operations_caches
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
 from app.modules.assets.model import (
@@ -26,6 +27,8 @@ from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 
 class AiOperationsApiTest(unittest.TestCase):
     def setUp(self):
+        for cache in ai_operations_caches.values():
+            cache.clear()
         self.engine = create_engine(
             "sqlite:///:memory:", connect_args={"check_same_thread": False},
             poolclass=StaticPool,
@@ -163,6 +166,8 @@ class AiOperationsApiTest(unittest.TestCase):
         )
 
     def tearDown(self):
+        for cache in ai_operations_caches.values():
+            cache.clear()
         app.dependency_overrides.clear()
         self.engine.dispose()
 

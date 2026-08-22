@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cloud_account import cloud_account_id
 from app.core.database import get_db
+from app.modules.tag.cache import tag_catalog_cache
 from app.modules.tag.schema import AssignTagsRequest, MetadataResponse, Tag
 from app.modules.tag.service import TagService, UnknownTagError
 
@@ -11,7 +12,14 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 
 @router.get("", response_model=list[Tag])
 def tags(session: Session = Depends(get_db)):
-    return TagService(session).list_tags()
+    cached = tag_catalog_cache.get("system")
+    if cached is not None:
+        return [tag.model_copy(deep=True) for tag in cached]
+    values = TagService(session).list_tags()
+    tag_catalog_cache.put(
+        "system", tuple(tag.model_copy(deep=True) for tag in values)
+    )
+    return values
 
 
 @router.post("/assign", response_model=MetadataResponse)
