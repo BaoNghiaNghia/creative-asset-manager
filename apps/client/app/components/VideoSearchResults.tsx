@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { buildVideoPlaybackUrl, playbackSeekSeconds } from "../utils/videoPlayback";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 
 export function formatVideoTimestamp(milliseconds: number): string {
@@ -45,10 +46,139 @@ function VideoThumbnail({ item }: { item: VideoSearchItem }) {
   </div>;
 }
 
+type SequenceFrameTask = { controller: AbortController; started: boolean; cancelled: boolean; run: (signal: AbortSignal) => Promise<void> };
+
+export function createSequenceFrameQueue(limit = 2) {
+  let active = 0;
+  const pending: SequenceFrameTask[] = [];
+
+  function drain() {
+    while (active < limit && pending.length) {
+      const task = pending.shift();
+      if (!task || task.cancelled) continue;
+      task.started = true;
+      active += 1;
+      void task.run(task.controller.signal).catch(() => undefined).finally(() => {
+        active -= 1;
+        drain();
+      });
+    }
+  }
+
+  return {
+    enqueue(run: SequenceFrameTask["run"]) {
+      const task: SequenceFrameTask = { controller: new AbortController(), started: false, cancelled: false, run };
+      pending.push(task);
+      drain();
+      return () => {
+        task.cancelled = true;
+        task.controller.abort();
+        if (!task.started) {
+          const index = pending.indexOf(task);
+          if (index >= 0) pending.splice(index, 1);
+        }
+      };
+    },
+    activeCount: () => active,
+    pendingCount: () => pending.filter(task => !task.cancelled).length,
+  };
+}
+
+const sequenceFrameQueue = createSequenceFrameQueue();
+
+function waitForVideoEvent(video: HTMLVideoElement, name: "loadedmetadata" | "loadeddata" | "seeked", signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      video.removeEventListener(name, done);
+      video.removeEventListener("error", failed);
+      signal.removeEventListener("abort", aborted);
+    };
+    const done = () => { cleanup(); resolve(); };
+    const failed = () => { cleanup(); reject(new Error("Video frame is unavailable")); };
+    const aborted = () => { cleanup(); reject(new DOMException("Aborted", "AbortError")); };
+    if (signal.aborted) return aborted();
+    video.addEventListener(name, done, { once: true });
+    video.addEventListener("error", failed, { once: true });
+    signal.addEventListener("abort", aborted, { once: true });
+  });
+}
+
+export async function captureVideoSequenceFrames(mediaUrl: string, startTimesMs: number[], signal: AbortSignal, elements?: { video: HTMLVideoElement; canvas: HTMLCanvasElement }): Promise<string[]> {
+  const video = elements?.video ?? document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+  try {
+    const metadataReady = waitForVideoEvent(video, "loadedmetadata", signal);
+    video.src = mediaUrl;
+    video.load();
+    await metadataReady;
+    if (video.readyState < 2) await waitForVideoEvent(video, "loadeddata", signal);
+
+    const width = Math.max(1, Math.min(240, video.videoWidth || 240));
+    const height = Math.max(1, Math.round(width * ((video.videoHeight || 135) / (video.videoWidth || 240))));
+    const canvas = elements?.canvas ?? document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Video frame canvas is unavailable");
+
+    const frames: string[] = [];
+    for (const startMs of startTimesMs) {
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      const target = playbackSeekSeconds(startMs, video.duration);
+      if (Math.abs(video.currentTime - target) > 0.01) {
+        const seeked = waitForVideoEvent(video, "seeked", signal);
+        video.currentTime = target;
+        await seeked;
+      }
+      context.drawImage(video, 0, 0, width, height);
+      frames.push(canvas.toDataURL("image/jpeg", 0.76));
+    }
+    return frames;
+  } finally {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+  }
+}
+
 function VideoSequenceStrip({ item, onOpen }: { item: VideoSearchItem; onOpen: (item: VideoSearchItem) => void }) {
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [inViewport, setInViewport] = useState(false);
+  const [frames, setFrames] = useState<string[]>([]);
+  const mediaUrl = buildVideoPlaybackUrl(item);
+  const frameKey = item.matches.map(match => match.start_ms).join(":");
+
+  useEffect(() => {
+    const target = stripRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") {
+      setInViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      setInViewport(true);
+      observer.disconnect();
+    }, { rootMargin: "160px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    setFrames([]);
+    if (!inViewport || !mediaUrl || !item.matches.length) return;
+    let mounted = true;
+    const cancel = sequenceFrameQueue.enqueue(async signal => {
+      const captured = await captureVideoSequenceFrames(mediaUrl, item.matches.map(match => match.start_ms), signal);
+      if (mounted && !signal.aborted) setFrames(captured);
+    });
+    return () => { mounted = false; cancel(); };
+  }, [frameKey, inViewport, item.analysis_run_id, mediaUrl]);
+
   if (!item.matches.length) return null;
 
-  return <div className="video-sequence-strip" aria-label={"Matching sequences for " + item.filename}>
+  return <div ref={stripRef} className="video-sequence-strip" aria-label={"Matching sequences for " + item.filename} aria-busy={Boolean(mediaUrl) && frames.length !== item.matches.length}>
     {item.matches.map((match, index) => {
       const timestamp = formatVideoTimestamp(match.start_ms);
       return <button
@@ -59,7 +189,7 @@ function VideoSequenceStrip({ item, onOpen }: { item: VideoSearchItem; onOpen: (
         aria-label={"Open sequence " + (index + 1) + " at " + timestamp}
         title={match.summary || "Sequence at " + timestamp}
       >
-        {item.thumbnail_url ? <img src={item.thumbnail_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span aria-hidden="true">Play</span>}
+        {frames[index] ? <img src={frames[index]} alt="" /> : <span aria-hidden="true">Frame</span>}
         <b>{timestamp}</b>
       </button>;
     })}
