@@ -156,3 +156,31 @@ class DailySheetSchedulerTest(unittest.TestCase):
         self.assertEqual(0, scheduler.run_once(moment))
         self.assertEqual(1, scheduler.run_once(moment))
         self.assertEqual(2, sheets.calls)
+
+
+    def test_v3_scheduler_ignores_tenant_when_daily_automation_is_disabled(self):
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_sheet_automation_enabled = False
+            settings.daily_sheet_config_json = {
+                "version": 3,
+                "mode": "gemini_sheet_agent",
+                "source": {"sheet": "Daily", "range": "A1:H40"},
+                "agent": {"apply_mode": "shadow"},
+            }
+
+        class Sheets:
+            def snapshot_and_reset(self, *_args, **_kwargs):
+                raise AssertionError("disabled scheduler must not plan")
+
+            def reconcile(self, *_args, **_kwargs):
+                raise AssertionError("disabled scheduler must not reconcile")
+
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=Sheets())
+
+        self.assertEqual(
+            0,
+            scheduler.run_once(datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)),
+        )

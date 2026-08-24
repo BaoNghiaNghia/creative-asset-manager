@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 import tempfile
 
 import pytest
@@ -13,7 +14,10 @@ from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
 from app.modules.inventory.daily_sheet.google_client import GOOGLE_SHEETS_SCOPE, NATIVE_SPREADSHEET_MIME
 from app.modules.inventory.daily_sheet.parser import DailyCountSheetValidationError, DailySheetValidationError
-from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
+from app.modules.inventory.daily_sheet.service import (
+    DailySheetConfigurationError,
+    InventoryDailySheetService,
+)
 from app.modules.inventory.persistence_model import (
     InventoryDailySheetReconciliationModel,
     InventoryDailySheetSnapshotModel,
@@ -823,3 +827,75 @@ def test_snapshot_and_reset_routes_v3_to_injected_agent_without_legacy_snapshot(
     result = worker.snapshot_and_reset("tenant-a", date(2030, 8, 9))
     assert result.status == "shadow"
     assert agent.calls == [("tenant-a", date(2030, 8, 9), True)]
+
+
+def test_manual_v3_plan_works_while_daily_automation_is_disabled(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_sheet_automation_enabled = False
+        settings.daily_archive_root_folder_id = None
+        settings.daily_sheet_config_json = {
+            "version": 3,
+            "mode": "gemini_sheet_agent",
+            "source": {"sheet": "Daily", "range": "A1:H4"},
+            "agent": {"apply_mode": "shadow"},
+        }
+
+    class Agent:
+        def __init__(self):
+            self.calls = []
+
+        def plan_agent_run(self, tenant_id, business_date, *, dry_run):
+            self.calls.append((tenant_id, business_date, dry_run))
+            return SimpleNamespace(status="shadow")
+
+    agent = Agent()
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: (_ for _ in ()).throw(
+            AssertionError("manual planning must not enter the legacy Google flow")
+        ),
+        token_resolver=lambda _connection: "token",
+    )
+
+    def build_agent_service(**kwargs):
+        manual_context = kwargs["context_provider"]("tenant-a")
+        assert manual_context.config.agent.apply_mode == "shadow"
+        return agent
+
+    with patch(
+        "app.modules.inventory.daily_sheet.agent.service.build_daily_sheet_agent_service",
+        side_effect=build_agent_service,
+    ):
+        result = worker.plan_agent_run("tenant-a", date(2030, 8, 9), dry_run=True)
+
+    assert result.status == "shadow"
+    assert worker.is_agent_v3_configured("tenant-a") is True
+    assert agent.calls == [("tenant-a", date(2030, 8, 9), True)]
+
+
+def test_scheduler_oriented_snapshot_still_requires_daily_automation_enabled(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_sheet_automation_enabled = False
+        settings.daily_archive_root_folder_id = None
+        settings.daily_sheet_config_json = {
+            "version": 3,
+            "mode": "gemini_sheet_agent",
+            "source": {"sheet": "Daily", "range": "A1:H4"},
+            "agent": {"apply_mode": "shadow"},
+        }
+
+    class Agent:
+        def plan_agent_run(self, *_args, **_kwargs):
+            raise AssertionError("disabled scheduler must not plan")
+
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: FakeGoogle(),
+        token_resolver=lambda _connection: "token",
+        agent_service=Agent(),
+    )
+
+    with pytest.raises(DailySheetConfigurationError, match="automation is disabled"):
+        worker.snapshot_and_reset("tenant-a", date(2030, 8, 9))

@@ -116,9 +116,53 @@ def validate_config(principal: CurrentPrincipal = Depends(require_permission(INV
 
 @router.post("/snapshot/run")
 def run_snapshot(body: RunRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
-    try: row = _service().snapshot_and_reset(principal.active_tenant_id, _business_date(principal.active_tenant_id, body.business_date))
-    except Exception as exc: raise HTTPException(409, detail={"code": getattr(exc, "code", type(exc).__name__), "message": str(exc)}) from exc
+    service = _service()
+    try:
+        if service.is_agent_v3_configured(principal.active_tenant_id):
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "gemini_sheet_agent_use_plan_endpoint",
+                    "message": "Use /daily-sheet/agent/plan for Gemini Sheet Agent V3.",
+                },
+            )
+        row = service.snapshot_and_reset(
+            principal.active_tenant_id,
+            _business_date(principal.active_tenant_id, body.business_date),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            409,
+            detail={"code": getattr(exc, "code", type(exc).__name__), "message": str(exc)},
+        ) from exc
     return {"id": row.id, "business_date": row.business_date, "status": row.status, "snapshot_file_id": row.snapshot_file_id}
+
+@router.post("/agent/plan")
+def plan_agent_run(body: RunRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
+    service = _service()
+    try:
+        if not service.is_agent_v3_configured(principal.active_tenant_id):
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "gemini_sheet_agent_not_configured",
+                    "message": "Gemini Sheet Agent V3 is not configured.",
+                },
+            )
+        return service.plan_agent_run(
+            principal.active_tenant_id,
+            _business_date(principal.active_tenant_id, body.business_date),
+            dry_run=True,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            409,
+            detail={"code": getattr(exc, "code", type(exc).__name__), "message": str(exc)},
+        ) from exc
 
 @router.post("/reconcile/run")
 def run_reconcile(body: RunRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):

@@ -460,14 +460,20 @@ class InventoryDailySheetService:
             from app.modules.inventory.daily_sheet.agent.service import build_daily_sheet_agent_service
             self.agent_service = build_daily_sheet_agent_service(
                 session_factory=self.session_factory,
-                context_provider=self._context,
+                context_provider=lambda tenant_id: self._context(
+                    tenant_id, require_enabled=False
+                ),
                 client_factory=self.client_factory,
                 token_resolver=self.token_resolver,
             )
         return self.agent_service
 
+    def is_agent_v3_configured(self, tenant_id: str) -> bool:
+        context = self._context(tenant_id, require_enabled=False)
+        return isinstance(context.config, GeminiSheetAgentConfig)
+
     def plan_agent_run(self, tenant_id: str, business_date: date, *, dry_run: bool = True):
-        context = self._context(tenant_id)
+        context = self._context(tenant_id, require_enabled=False)
         if not isinstance(context.config, GeminiSheetAgentConfig):
             raise DailySheetConfigurationError("Gemini Sheet Agent V3 is not configured.")
         return self._agent().plan_agent_run(tenant_id, business_date, dry_run=dry_run)
