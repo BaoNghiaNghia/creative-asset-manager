@@ -105,6 +105,92 @@ def test_deterministic_quantity_does_not_invoke_semantic_fallback():
     assert calls == []
 
 
+def _confident_quantity(raw: str, value: str, unit: str):
+    return {
+        "status": "parsed",
+        "raw": raw,
+        "canonical_value": value,
+        "canonical_unit": unit,
+        "confidence": 1,
+        "requires_review": False,
+        "warnings": [],
+    }
+
+
+def test_blank_authoritative_quantity_never_calls_gemini_or_attaches_suggestion():
+    calls = []
+    rows = [HEADERS, [25, "Material", "Category", "", "", "", "", ""]]
+    with pytest.raises(DailyCountSheetValidationError) as captured:
+        parse_daily_count_records(
+            config(),
+            {"values": rows},
+            quantity_semantic_analyzer=lambda payload: calls.append(payload)
+            or _confident_quantity("", "0", "count"),
+        )
+
+    error = captured.value.errors[0]
+    assert error["code"] == "blank_authoritative_quantity"
+    assert "semantic_suggestion" not in error
+    assert calls == []
+
+
+def test_unmatched_parenthesis_cannot_be_auto_accepted_at_full_confidence():
+    calls = []
+    rows = [HEADERS, [25, "Material", "Category", "", "", "", "", "5g)"]]
+    with pytest.raises(DailyCountSheetValidationError) as captured:
+        parse_daily_count_records(
+            config(),
+            {"values": rows},
+            quantity_semantic_analyzer=lambda payload: calls.append(payload)
+            or _confident_quantity("5g)", "5", "g"),
+        )
+
+    assert calls
+    assert captured.value.errors[0]["code"] == "unmatched_quantity_parenthesis"
+    assert captured.value.errors[0]["semantic_suggestion"]["confidence"] == 1
+
+
+def test_suspected_shifted_quantity_cannot_be_auto_accepted_at_full_confidence():
+    calls = []
+    rows = [
+        HEADERS,
+        [28, "Kem trứng", "Topping", "1(350", "5g)", "", "", "10"],
+    ]
+    with pytest.raises(DailyCountSheetValidationError) as captured:
+        parse_daily_count_records(
+            config(),
+            {"values": rows},
+            quantity_semantic_analyzer=lambda payload: calls.append(payload)
+            or _confident_quantity(str(payload["raw"]), "350.5", "g"),
+        )
+
+    codes = {error["code"] for error in captured.value.errors}
+    assert "suspected_shifted_quantity" in codes
+    assert "unmatched_quantity_parenthesis" in codes
+    assert len(calls) == 2
+
+
+def test_non_structural_unfamiliar_quantity_can_use_safe_semantic_fallback():
+    calls = []
+    rows = [
+        HEADERS,
+        [25, "Material", "Category", "", "", "", "", "approximately 700ml"],
+    ]
+    records, warnings = parse_daily_count_records(
+        config(),
+        {"values": rows},
+        quantity_semantic_analyzer=lambda payload: calls.append(payload)
+        or _confident_quantity("approximately 700ml", "700", "ml"),
+    )
+
+    quantity = records[("main", "25")].quantity
+    assert quantity.canonical_value == Decimal("700")
+    assert quantity.canonical_unit == "ml"
+    assert quantity.parse_status == "gemini_validated"
+    assert calls[0]["deterministic_error"] == "unsupported_quantity_unit"
+    assert warnings[0]["code"] == "quantity_semantic_fallback"
+
+
 def test_unknown_quantity_invokes_semantic_fallback_but_unknown_package_still_blocks():
     calls = []
     rows = [HEADERS, [25, "Material", "Category", "", "", "", "", "1 crate"]]

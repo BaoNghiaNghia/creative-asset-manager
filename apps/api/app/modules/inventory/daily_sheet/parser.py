@@ -139,6 +139,17 @@ _LITER_SHORTHAND = re.compile(r"^(?P<liters>[0-9]+)l(?P<tenths>[0-9])$", re.IGNO
 _CONTAINER = re.compile(r"^(?P<label>[0-9]+)\((?P<amount>[^()]+)\)$")
 _PACKAGE_ATOM = re.compile(r"^(?P<number>[0-9]+(?:[.,][0-9]+)?)\s*(?P<package>[^0-9+;()]+)$")
 
+# Missing evidence is never sent to Gemini. Structural corruption may be
+# explained by Gemini for review, but can never authorize a parsed quantity.
+_QUANTITY_SEMANTIC_SKIP_CODES = frozenset({"blank_authoritative_quantity"})
+_QUANTITY_SEMANTIC_HARD_BLOCK_CODES = frozenset({
+    "blank_authoritative_quantity",
+    "suspected_shifted_quantity",
+    "unmatched_quantity_parenthesis",
+    "incompatible_quantity_units",
+    "unknown_package_conversion",
+})
+
 
 def _quantity_atom(raw: str) -> InventoryQuantityComponent:
     value = raw.strip().lower().replace(" ", "")
@@ -369,7 +380,10 @@ def parse_daily_count_records(
                     code = "suspected_shifted_quantity"
                 cell_address = f"{_column_letters(index)}{offset}"
                 proposal = None
-                if quantity_semantic_analyzer:
+                if (
+                    quantity_semantic_analyzer
+                    and code not in _QUANTITY_SEMANTIC_SKIP_CODES
+                ):
                     nearby = [{
                         "semantic": nearby_semantic,
                         "cell": f"{_column_letters(indexes[nearby_semantic])}{offset}",
@@ -385,10 +399,7 @@ def parse_daily_count_records(
                         },
                         "deterministic_error": code,
                     })
-                mandatory_review = code in {
-                    "suspected_shifted_quantity", "incompatible_quantity_units",
-                    "unknown_package_conversion", "blank_authoritative_quantity",
-                }
+                mandatory_review = code in _QUANTITY_SEMANTIC_HARD_BLOCK_CODES
                 if (
                     isinstance(proposal, Mapping)
                     and proposal.get("status") == "parsed"
