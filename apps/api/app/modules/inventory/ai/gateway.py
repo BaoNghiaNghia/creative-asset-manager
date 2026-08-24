@@ -38,10 +38,11 @@ class DisabledInventoryAiGateway:
 class RuntimeInventoryGeminiGateway:
     """Inventory-only Gemini REST boundary resolving the current tenant key per call."""
 
-    def __init__(self, resolver: InventoryGeminiCredentialResolver, *, timeout_seconds: float = 45.0, request: Callable[..., Mapping[str, Any]] | None = None):
+    def __init__(self, resolver: InventoryGeminiCredentialResolver, *, timeout_seconds: float = 45.0, request: Callable[..., Mapping[str, Any]] | None = None, text_request: Callable[..., Mapping[str, Any]] | None = None):
         self.resolver = resolver
         self.timeout_seconds = timeout_seconds
         self._request = request or self._request_gemini
+        self._text_request = text_request or self._request_gemini_text
 
     def analyze(self, *, tenant_id: str, image_bytes: bytes, image_mime_type: str, prompt: str, schema: Mapping[str, Any], provider: str, model: str) -> InventoryAiGatewayResult:
         if provider != "gemini":
@@ -60,6 +61,41 @@ class RuntimeInventoryGeminiGateway:
         if not isinstance(extracted, Mapping):
             raise InventoryAiGatewayError("inventory_gemini_invalid_response", retryable=False)
         return InventoryAiGatewayResult(raw_response_json=dict(payload), extracted_json=dict(extracted))
+
+    def analyze_structured_text(self, *, tenant_id: str, prompt: str, schema: Mapping[str, Any], provider: str, model: str) -> InventoryAiGatewayResult:
+        if provider != "gemini":
+            raise InventoryAiGatewayError("inventory_ai_provider_unsupported", retryable=False)
+        try:
+            secret = self.resolver.resolve(tenant_id)
+            payload = self._text_request(secret, prompt, schema, model)
+        except InventoryCredentialError as exc:
+            raise InventoryAiGatewayError(str(exc), retryable=False) from exc
+        except httpx.TimeoutException as exc:
+            raise InventoryAiGatewayError("inventory_gemini_transport_error", retryable=True) from exc
+        except httpx.HTTPError as exc:
+            raise InventoryAiGatewayError("inventory_gemini_transport_error", retryable=True) from exc
+        extracted = payload.get("extracted_json") if isinstance(payload, Mapping) else None
+        if not isinstance(extracted, Mapping):
+            raise InventoryAiGatewayError("inventory_gemini_invalid_response", retryable=False)
+        return InventoryAiGatewayResult(raw_response_json=dict(payload), extracted_json=dict(extracted))
+
+    def _request_gemini_text(self, secret: str, prompt: str, schema: Mapping[str, Any], model: str) -> Mapping[str, Any]:
+        response = httpx.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            headers={"x-goog-api-key": secret},
+            json={"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json", "responseSchema": dict(schema)}},
+            timeout=self.timeout_seconds,
+        )
+        if response.status_code >= 400:
+            raise InventoryAiGatewayError("inventory_gemini_request_failed", retryable=response.status_code >= 500 or response.status_code == 429)
+        raw = response.json()
+        try:
+            text = raw["candidates"][0]["content"]["parts"][0]["text"]
+            import json
+            extracted = json.loads(text)
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise InventoryAiGatewayError("inventory_gemini_invalid_response", retryable=False) from exc
+        return {"provider_response": raw, "extracted_json": extracted}
 
     def _request_gemini(self, secret: str, image_bytes: bytes, image_mime_type: str, prompt: str, schema: Mapping[str, Any], model: str) -> Mapping[str, Any]:
         response = httpx.post(

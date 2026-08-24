@@ -26,6 +26,7 @@ def client_for(current):
 def test_daily_sheet_manual_routes_require_finalize_permission():
     client = client_for(principal({"inventory.read"}))
     assert client.post("/api/inventory/daily-sheet/validate-config").status_code == 403
+    assert client.post("/api/inventory/daily-sheet/discover", json={"working_spreadsheet_file_id": "sheet"}).status_code == 403
     assert client.post("/api/inventory/daily-sheet/snapshot/run", json={}).status_code == 403
     assert client.post("/api/inventory/daily-sheet/reconcile/run", json={"dry_run": True}).status_code == 403
 
@@ -34,11 +35,15 @@ def test_daily_sheet_manual_routes_forward_tenant_date_and_dry_run():
     service = Mock()
     service.snapshot_and_reset.return_value = Mock(id="snapshot", business_date=date(2030, 8, 9), status="completed", snapshot_file_id="copy")
     service.reconcile.return_value = {"status": "dry_run", "writes": 0}
+    service.discover.return_value = {"spreadsheet_id": "sheet", "tabs": [], "warnings": []}
     client = client_for(principal({"inventory.read", "inventory.finalize"}))
     with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
         snapshot = client.post("/api/inventory/daily-sheet/snapshot/run", json={"business_date": "2030-08-09"})
         preview = client.post("/api/inventory/daily-sheet/reconcile/run", json={"business_date": "2030-08-09", "dry_run": True})
+        discovery = client.post("/api/inventory/daily-sheet/discover", json={"working_spreadsheet_file_id": "sheet"})
     assert snapshot.status_code == 200
     assert preview.status_code == 200
+    assert discovery.status_code == 200
     service.snapshot_and_reset.assert_called_once_with("tenant-a", date(2030, 8, 9))
     service.reconcile.assert_called_once_with("tenant-a", date(2030, 8, 9), dry_run=True)
+    service.discover.assert_called_once_with("tenant-a", "sheet")

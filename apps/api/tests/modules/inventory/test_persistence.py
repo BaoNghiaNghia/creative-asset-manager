@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 from app.core.database import Base
+from app.modules.assets import model as assets_model  # noqa: F401
+from app.modules.auth_persistence import model as auth_model  # noqa: F401
 from app.modules.inventory import persistence_model  # noqa: F401
 
 
@@ -30,7 +32,7 @@ class InventoryPersistenceMetadataTest(unittest.TestCase):
             name
             for name in Base.metadata.tables
             if name.startswith("inventory_")
-            and name not in {"inventory_jobs", "inventory_processing_controls", "inventory_ai_controls", "inventory_review_events", "inventory_daily_run_events", "inventory_ai_credentials", "inventory_ai_credential_audits", "inventory_daily_sheet_snapshots", "inventory_daily_sheet_reconciliations"}
+            and name not in {"inventory_jobs", "inventory_processing_controls", "inventory_ai_controls", "inventory_review_events", "inventory_daily_run_events", "inventory_ai_credentials", "inventory_ai_credential_audits", "inventory_daily_sheet_snapshots", "inventory_daily_sheet_reconciliations", "inventory_material_external_identities", "inventory_material_package_conversions", "inventory_material_candidates"}
         }
         self.assertEqual(inventory_tables, PHASE2_TABLES)
         for table_name in PHASE2_TABLES:
@@ -41,6 +43,27 @@ class InventoryPersistenceMetadataTest(unittest.TestCase):
         for table_name in PHASE2_TABLES:
             for foreign_key in Base.metadata.tables[table_name].foreign_keys:
                 self.assertIn(foreign_key.column.table.name, allowed)
+
+
+    def test_dynamic_material_registry_metadata_is_tenant_scoped(self) -> None:
+        registry_tables = {
+            "inventory_material_external_identities",
+            "inventory_material_package_conversions",
+            "inventory_material_candidates",
+        }
+        for table_name in registry_tables:
+            table = Base.metadata.tables[table_name]
+            self.assertIn("tenant_id", table.c)
+        identity = Base.metadata.tables["inventory_material_external_identities"]
+        self.assertTrue(any(
+            set(constraint.columns.keys()) == {"tenant_id", "source_type", "source_id", "external_key"}
+            for constraint in identity.constraints
+        ))
+        conversion = Base.metadata.tables["inventory_material_package_conversions"]
+        self.assertTrue(any(
+            set(constraint.columns.keys()) == {"tenant_id", "item_id", "normalized_package"}
+            for constraint in conversion.constraints
+        ))
 
     def test_migration_only_changes_phase2_inventory_tables(self) -> None:
         migration = (
@@ -57,3 +80,18 @@ class InventoryPersistenceMetadataTest(unittest.TestCase):
             "source_assets",
         ):
             self.assertNotIn(forbidden, migration)
+
+
+    def test_material_candidate_fk_restricts_deleting_referenced_material(self) -> None:
+        table = Base.metadata.tables["inventory_material_candidates"]
+        constraint = next(
+            item for item in table.foreign_key_constraints
+            if item.name == "fk_inventory_material_candidate_item"
+        )
+        self.assertEqual(constraint.ondelete, "RESTRICT")
+        migration = (
+            Path(__file__).resolve().parents[5]
+            / "database/migrations/versions/0051_inventory_material_registry.py"
+        ).read_text()
+        self.assertIn('ondelete="RESTRICT",name="fk_inventory_material_candidate_item"', migration)
+        self.assertNotIn('ondelete="SET NULL",name="fk_inventory_material_candidate_item"', migration)

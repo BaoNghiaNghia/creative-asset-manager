@@ -90,12 +90,14 @@ def upgrade() -> None:
     )
     op.create_index("ix_inventory_sheet_reconcile_status", "inventory_daily_sheet_reconciliations", ["tenant_id", "status", "business_date"])
 
-    # Drop defaults after existing rows have been backfilled.
-    op.alter_column("inventory_settings", "image_pipeline_enabled", server_default=None)
-    op.alter_column("inventory_settings", "daily_sheet_automation_enabled", server_default=None)
-    op.alter_column("inventory_settings", "daily_snapshot_time_local", server_default=None)
-    op.alter_column("inventory_settings", "daily_reconcile_time_local", server_default=None)
-    op.alter_column("inventory_settings", "daily_sheet_config_json", server_default=None)
+    # SQLite cannot drop column defaults without rebuilding the table. Keeping
+    # these development-only defaults is harmless; PostgreSQL production drops them.
+    if op.get_bind().dialect.name != "sqlite":
+        op.alter_column("inventory_settings", "image_pipeline_enabled", server_default=None)
+        op.alter_column("inventory_settings", "daily_sheet_automation_enabled", server_default=None)
+        op.alter_column("inventory_settings", "daily_snapshot_time_local", server_default=None)
+        op.alter_column("inventory_settings", "daily_reconcile_time_local", server_default=None)
+        op.alter_column("inventory_settings", "daily_sheet_config_json", server_default=None)
 
 
 def downgrade() -> None:

@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
-from app.modules.inventory.daily_sheet.config import DailySheetConfig
+from app.modules.inventory.daily_sheet.config import parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
+from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.permissions import INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
 from app.modules.inventory.persistence_model import InventorySettingsModel
 
@@ -25,6 +26,9 @@ class DailySheetSettingsRequest(BaseModel):
     timezone: str = "Asia/Ho_Chi_Minh"
     config: dict = Field(default_factory=dict)
 
+class DiscoveryRequest(BaseModel):
+    working_spreadsheet_file_id: str = Field(min_length=1, max_length=2048)
+
 class RunRequest(BaseModel):
     business_date: date | None = None
     dry_run: bool = False
@@ -33,7 +37,9 @@ class BaselineRequest(BaseModel):
     snapshot_id: str
 
 def _service() -> InventoryDailySheetService:
-    return InventoryDailySheetService(SessionLocal)
+    return InventoryDailySheetService(
+        SessionLocal, semantic_analyzer=build_daily_sheet_semantic_analyzer(session_factory=SessionLocal)
+    )
 
 def _business_date(tenant_id: str, supplied: date | None) -> date:
     if supplied: return supplied
@@ -65,7 +71,7 @@ def get_configuration(principal: CurrentPrincipal = Depends(require_permission(I
 @router.put("/configuration")
 def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
     try:
-        if body.config: DailySheetConfig.model_validate(body.config)
+        if body.config: parse_daily_sheet_config(body.config)
         ZoneInfo(body.timezone)
     except Exception as exc:
         raise HTTPException(422, detail={"code": "invalid_daily_sheet_configuration", "message": str(exc)}) from exc
@@ -96,6 +102,13 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
 @router.get("/status")
 def get_status(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
     return _service().status(principal.active_tenant_id)
+
+@router.post("/discover")
+def discover_workbook(body: DiscoveryRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
+    try:
+        return _service().discover(principal.active_tenant_id, body.working_spreadsheet_file_id)
+    except Exception as exc:
+        raise HTTPException(422, detail={"code": getattr(exc, "code", type(exc).__name__), "message": str(exc)}) from exc
 
 @router.post("/validate-config")
 def validate_config(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):

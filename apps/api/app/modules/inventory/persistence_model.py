@@ -253,6 +253,11 @@ class InventoryItemModel(Base):
     fraction_unit: Mapped[str | None] = mapped_column(String(64))
     conversion_factor: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False, default=Decimal("1"))
     category: Mapped[str | None] = mapped_column(String(255))
+    canonical_dimension: Mapped[str | None] = mapped_column(String(32))
+    preferred_unit: Mapped[str | None] = mapped_column(String(64))
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -281,6 +286,68 @@ class InventoryItemAliasModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow
     )
+
+
+class InventoryMaterialExternalIdentityModel(Base):
+    __tablename__ = "inventory_material_external_identities"
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "item_id"], ["inventory_items.tenant_id", "inventory_items.id"], ondelete="CASCADE", name="fk_inventory_material_identity_item"),
+        UniqueConstraint("tenant_id", "source_type", "source_id", "external_key", name="uq_inventory_material_identity_external"),
+        Index("ix_inventory_material_identity_item", "tenant_id", "item_id"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    item_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="google_sheet")
+    source_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    external_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    last_seen_name: Mapped[str | None] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
+
+
+class InventoryMaterialPackageConversionModel(Base):
+    __tablename__ = "inventory_material_package_conversions"
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "item_id"], ["inventory_items.tenant_id", "inventory_items.id"], ondelete="CASCADE", name="fk_inventory_material_conversion_item"),
+        UniqueConstraint("tenant_id", "item_id", "normalized_package", name="uq_inventory_material_conversion_package"),
+        CheckConstraint("canonical_value > 0", name="ck_inventory_material_conversion_positive"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    item_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    package_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    normalized_package: Mapped[str] = mapped_column(String(128), nullable=False)
+    canonical_value: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
+    canonical_unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    approved_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
+class InventoryMaterialCandidateModel(Base):
+    __tablename__ = "inventory_material_candidates"
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "suggested_item_id"], ["inventory_items.tenant_id", "inventory_items.id"], ondelete="RESTRICT", name="fk_inventory_material_candidate_item"),
+        UniqueConstraint("tenant_id", "source_id", "external_key", "raw_name", name="uq_inventory_material_candidate_source"),
+        CheckConstraint("status IN ('new_material','possible_rename','ambiguous','ignored','approved','rejected')", name="ck_inventory_material_candidate_status"),
+        Index("ix_inventory_material_candidate_queue", "tenant_id", "status", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    source_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    sheet: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_row: Mapped[int] = mapped_column(Integer, nullable=False)
+    external_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    suggested_item_id: Mapped[str | None] = mapped_column(ENTITY_ID)
+    suggested_canonical_name: Mapped[str | None] = mapped_column(String(512))
+    confidence: Mapped[Decimal | None] = mapped_column(CONFIDENCE)
+    reasons_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    context_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
 
 
 class InventoryDocumentModel(Base):

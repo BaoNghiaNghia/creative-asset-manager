@@ -96,6 +96,10 @@ def daily_sheet_db():
     for name in (
         "tenants", "external_sources", "oauth_connections", "inventory_settings",
         "inventory_daily_sheet_snapshots", "inventory_daily_sheet_reconciliations",
+        "inventory_items", "inventory_item_aliases",
+        "inventory_material_external_identities",
+        "inventory_material_package_conversions",
+        "inventory_material_candidates",
     ):
         Base.metadata.tables[name].create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
@@ -304,3 +308,202 @@ def test_status_exposes_business_schedule_and_safe_drive_links(daily_sheet_db):
     assert result["working_spreadsheet_url"].endswith("/working/edit")
     assert result["last_snapshot"]["snapshot_url"].endswith("/snapshot/edit")
     assert result["last_snapshot"]["archive_folder_url"].endswith("/archive-date")
+
+V2_HEADERS = ["STT", "Tên Nguyên Liệu / Vật Tư", "Phân Loại", "SL Đầu Ca / Nhận", "SL Sử Dụng Pha Chế", "Nhập Hàng", "SL Huỷ / Hư Hỏng", "Tồn Cuối Ca"]
+V2_RANGE = "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!A1:H1000"
+V2_CONFIG = {
+    "version": 2, "mode": "daily_count_sheet",
+    "source": {
+        "sheet": "Bảng Kiểm Kê Nguyên Liệu Vật Tư", "range": "A1:H1000", "header_row": 1,
+        "item_row": {"strategy": "numeric_key", "key_column": "STT"},
+        "columns": dict(zip(("item_key", "name", "category", "opening", "used", "inbound", "waste", "closing"), V2_HEADERS, strict=True)),
+        "warehouse": "main",
+    },
+    "stock": {"authoritative_column": "closing"},
+    "reset": {"mode": "clear_entry_columns", "entry_columns": ["used", "inbound", "waste", "closing"]},
+    "reconciliation": {"mode": "report_only"},
+}
+
+
+class FakeGoogleV2(FakeGoogle):
+    def __init__(self):
+        super().__init__()
+        self.values[("working", V2_RANGE)] = [V2_HEADERS, [25, "Khúc bạch tảng", "Topping", "14", "", "", "", "14"]]
+
+    def spreadsheet_metadata(self, file_id):
+        return {
+            "spreadsheetId": file_id,
+            "properties": {"title": "Bảng Kiểm Kê Nguyên Liệu Vật Tư", "timeZone": "America/Los_Angeles"},
+            "sheets": [{"properties": {"sheetId": 1, "title": "Bảng Kiểm Kê Nguyên Liệu Vật Tư"}}],
+        }
+
+
+def configure_v2(sessions):
+    with sessions.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_sheet_config_json = V2_CONFIG
+        settings.timezone = "Asia/Ho_Chi_Minh"
+
+
+def test_v2_validation_returns_structured_timezone_warning(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    report = service(daily_sheet_db, FakeGoogleV2()).validate_configuration("tenant-a")
+    assert report["valid"] is True
+    assert report["errors"] == []
+    assert any(item["code"] == "workbook_timezone_mismatch" for item in report["warnings"])
+
+
+def test_v2_report_only_compares_immutable_snapshots_without_writes(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    google = FakeGoogleV2()
+    google.values[("snapshot-current", V2_RANGE)] = [V2_HEADERS, [25, "Khúc bạch tảng", "Topping", "", "", "", "", "14"]]
+    google.values[("snapshot-previous", V2_RANGE)] = [V2_HEADERS, [25, "Khúc bạch tảng", "Topping", "", "", "", "", "10"]]
+    with daily_sheet_db.begin() as session:
+        session.add_all([
+            InventoryDailySheetSnapshotModel(
+                tenant_id="tenant-a", business_date=date(2030, 8, 9), external_source_id="source-a",
+                source_spreadsheet_file_id="working", snapshot_file_id="snapshot-current", status="completed",
+            ),
+            InventoryDailySheetSnapshotModel(
+                tenant_id="tenant-a", business_date=date(2030, 8, 8), external_source_id="source-a",
+                source_spreadsheet_file_id="working", snapshot_file_id="snapshot-previous", status="completed",
+            ),
+        ])
+    result = service(daily_sheet_db, google).reconcile("tenant-a", date(2030, 8, 9), dry_run=True)
+    assert result["writes"] == 0
+    assert result["changed_count"] == 1
+    assert result["variances"][0]["variance"] == "4"
+    assert google.update_calls == []
+
+
+def test_discovery_is_read_only_and_prefills_real_columns(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    google = FakeGoogleV2()
+    google.values[("working", "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!A1:AZ80")] = google.values[("working", V2_RANGE)]
+    result = service(daily_sheet_db, google).discover("tenant-a", "working")
+    assert result["tabs"][0]["candidate_columns"]["item_key"] == "STT"
+    assert result["tabs"][0]["row_counts"]["ITEM"] == 1
+    assert result["warnings"][0]["code"] == "workbook_timezone_mismatch"
+    assert google.update_calls == []
+    assert google.clear_calls == 0
+
+def test_v2_clear_entry_columns_only_targets_item_business_cells(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    google = FakeGoogleV2()
+    worker = service(daily_sheet_db, google)
+    worker._reset_v2(google, worker._context("tenant-a"))
+    expected = {
+        "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!E2",
+        "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!F2",
+        "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!G2",
+        "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!H2",
+    }
+    assert expected.issubset({key[1] for key in google.values if key[0] == "working"})
+    assert "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!A2" not in expected
+    assert "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!B2" not in expected
+    assert "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!C2" not in expected
+
+
+def test_v2_carry_forward_is_explicit_and_uses_closing_raw_value(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    with daily_sheet_db.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_sheet_config_json = {
+            **V2_CONFIG,
+            "reset": {"mode": "carry_forward", "clear_columns": ["used", "inbound", "waste", "closing"]},
+        }
+    google = FakeGoogleV2()
+    worker = service(daily_sheet_db, google)
+    worker._reset_v2(google, worker._context("tenant-a"))
+    updates = [item for call in google.update_calls for item in call]
+    assert updates == [{
+        "range": "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!D2",
+        "majorDimension": "ROWS",
+        "values": [["14"]],
+    }]
+
+
+def test_v2_report_only_run_persists_candidate_and_semantic_trace_without_google_writes(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    google = FakeGoogleV2()
+    google.values[("snapshot-current", V2_RANGE)] = [
+        V2_HEADERS, [77, "Completely New Material", "New Category", "", "", "", "", "14"]
+    ]
+    google.values[("snapshot-previous", V2_RANGE)] = [
+        V2_HEADERS, [77, "Completely New Material", "New Category", "", "", "", "", "10"]
+    ]
+    with daily_sheet_db.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_sheet_automation_enabled = False
+        session.add_all([
+            InventoryDailySheetSnapshotModel(
+                tenant_id="tenant-a", business_date=date(2030, 8, 9),
+                external_source_id="source-a", source_spreadsheet_file_id="working",
+                snapshot_file_id="snapshot-current", status="completed",
+            ),
+            InventoryDailySheetSnapshotModel(
+                tenant_id="tenant-a", business_date=date(2030, 8, 8),
+                external_source_id="source-a", source_spreadsheet_file_id="working",
+                snapshot_file_id="snapshot-previous", status="completed",
+            ),
+        ])
+    result = service(daily_sheet_db, google).reconcile(
+        "tenant-a", date(2030, 8, 9), dry_run=False
+    )
+    assert result["status"] == "completed"
+    assert result["writes"] == 0
+    assert google.update_calls == []
+    trace = result["semantic_snapshot"]["current"][0]
+    assert trace["sheet"] == "Bảng Kiểm Kê Nguyên Liệu Vật Tư"
+    assert trace["spreadsheet_file_id"] == "snapshot-current"
+    assert trace["row"] == 2
+    assert trace["source_cells"] == ["H2"]
+    assert trace["raw_quantity"] == "14"
+    assert len(trace["source_hash"]) == 64
+    with daily_sheet_db() as session:
+        from app.modules.inventory.persistence_model import InventoryMaterialCandidateModel
+        candidate = session.scalar(select(InventoryMaterialCandidateModel))
+        assert candidate is not None
+        assert candidate.sheet == "Bảng Kiểm Kê Nguyên Liệu Vật Tư"
+        reconciliation = session.scalar(select(InventoryDailySheetReconciliationModel))
+        assert reconciliation.summary_json["writes"] == 0
+
+
+def test_v2_reset_relevant_schema_drift_is_semantically_explained_but_validation_blocks_reset(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    google = FakeGoogleV2()
+    drifted_headers = list(V2_HEADERS[:-1])
+    drifted_headers.insert(3, V2_HEADERS[-1])
+    google.values[("working", V2_RANGE)] = [
+        drifted_headers, [25, "Khúc bạch tảng", "Topping", "14", "", "", "", ""]
+    ]
+
+    class SemanticAnalyzer:
+        def match_material(self, _payload):
+            return None
+        def analyze_quantity(self, _tenant_id, _payload):
+            return None
+        def analyze_schema(self, tenant_id, payload):
+            assert tenant_id == "tenant-a"
+            assert payload["actual_headers"][3] == V2_HEADERS[-1]
+            assert payload["layout_drift"] is True
+            return {
+                "status": "mapped",
+                "mapping": dict(V2_CONFIG["source"]["columns"]),
+                "confidence": 0.99,
+                "requires_review": True,
+                "reset_relevant_changed": True,
+                "changes": ["closing header renamed and moved"],
+            }
+
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "token",
+        semantic_analyzer=SemanticAnalyzer(),
+    )
+    report = worker.validate_configuration("tenant-a")
+    assert report["valid"] is False
+    assert any(error["code"] == "reset_schema_mapping_approval_required" for error in report["errors"])
+    assert google.update_calls == []
+    assert google.clear_calls == 0

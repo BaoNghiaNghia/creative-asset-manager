@@ -27,6 +27,7 @@ from app.modules.inventory.permissions import (
     INVENTORY_REVIEW_PERMISSION,
 )
 from app.modules.inventory.review.service import InventoryReviewService
+from app.modules.inventory.materials import MaterialRegistry
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 _CREDENTIAL_LOGGER = logging.getLogger("cam.inventory.credentials_api")
@@ -209,6 +210,84 @@ def replace_ai_credential(
         principal.active_tenant_id, principal.actor_id,
     )
     return _credential_view(metadata, source="configuration")
+
+class MaterialApprovalRequest(BaseModel):
+    item_id: str | None = None
+    canonical_name: str | None = Field(default=None, max_length=512)
+    preferred_unit: str | None = Field(default=None, max_length=64)
+    canonical_dimension: str | None = Field(default=None, max_length=32)
+
+
+def _material_view(row):
+    return {
+        "material_id": row.id, "canonical_name": row.name, "category": row.category,
+        "canonical_dimension": row.canonical_dimension, "preferred_unit": row.preferred_unit or row.base_unit,
+        "active": row.active, "first_seen_at": row.first_seen_at, "last_seen_at": row.last_seen_at,
+        "metadata": row.metadata_json,
+    }
+
+
+def _material_candidate_view(row):
+    return {
+        "id": row.id, "status": row.status, "sheet": row.sheet, "source_row": row.source_row,
+        "sheet_item_key": row.external_key, "raw_name": row.raw_name, "category": row.category,
+        "suggested_item_id": row.suggested_item_id, "suggested_canonical_name": row.suggested_canonical_name,
+        "confidence": float(row.confidence or 0), "reasons": row.reasons_json,
+    }
+
+
+@router.get("/materials")
+def list_materials(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
+    with SessionLocal() as session:
+        registry = MaterialRegistry(session)
+        return {"items": registry.describe_materials(principal.active_tenant_id)}
+
+
+@router.get("/materials/candidates")
+def list_material_candidates(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
+    with SessionLocal() as session:
+        registry = MaterialRegistry(session)
+        return {"items": [_material_candidate_view(row) for row in registry.list_candidates(principal.active_tenant_id)]}
+
+
+@router.post("/materials/candidates/{candidate_id}/approve")
+def approve_material_candidate(candidate_id: str, body: MaterialApprovalRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION))):
+    with SessionLocal() as session:
+        try:
+            item = MaterialRegistry(session).approve(principal.active_tenant_id, candidate_id, actor_id=principal.actor_id, item_id=body.item_id, canonical_name=body.canonical_name, preferred_unit=body.preferred_unit, canonical_dimension=body.canonical_dimension)
+            session.commit()
+            return _material_view(item)
+        except LookupError as exc:
+            raise HTTPException(404, detail={"code": str(exc)}) from exc
+        except ValueError as exc:
+            raise HTTPException(409, detail={"code": str(exc)}) from exc
+
+
+@router.post("/materials/candidates/{candidate_id}/reject")
+def reject_material_candidate(candidate_id: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION))):
+    from app.modules.inventory.persistence_model import InventoryMaterialCandidateModel
+    with SessionLocal() as session:
+        row = session.scalar(select(InventoryMaterialCandidateModel).where(
+            InventoryMaterialCandidateModel.tenant_id == principal.active_tenant_id,
+            InventoryMaterialCandidateModel.id == candidate_id,
+        ))
+        if row is None:
+            raise HTTPException(404, detail={"code": "material_candidate_not_found"})
+        row.status = "rejected"
+        session.commit()
+    return {"status": "rejected"}
+
+
+@router.post("/materials/candidates/{candidate_id}/ignore")
+def ignore_material_candidate(candidate_id: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION))):
+    from app.modules.inventory.persistence_model import InventoryMaterialCandidateModel
+    with SessionLocal() as session:
+        row = session.scalar(select(InventoryMaterialCandidateModel).where(InventoryMaterialCandidateModel.tenant_id == principal.active_tenant_id, InventoryMaterialCandidateModel.id == candidate_id))
+        if row is None:
+            raise HTTPException(404, detail={"code": "material_candidate_not_found"})
+        row.status = "ignored"; session.commit()
+    return {"status": "ignored"}
+
 
 class CorrectRequest(BaseModel):
     values: dict = Field(default_factory=dict)

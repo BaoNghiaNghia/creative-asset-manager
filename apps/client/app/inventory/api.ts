@@ -60,12 +60,52 @@ export type InventoryDailySheetStatus = {
     completed_at:string|null;
   };
 };
+export type InventoryDailySheetValidation = {
+  valid:boolean;
+  errors:Array<Record<string,unknown>>;
+  warnings:Array<Record<string,unknown>>;
+  checks:Array<Record<string,unknown>>;
+};
+export type InventoryDailySheetDiscovery = {
+  spreadsheet_id:string;
+  title:string;
+  timezone:string;
+  warnings:Array<Record<string,unknown>>;
+  tabs:Array<{
+    title:string;
+    sheet_id:number;
+    headers:string[];
+    detected_header_row:number|null;
+    sample_item_rows:Array<Record<string,unknown>>;
+    item_count:number;
+    materials:Array<Record<string,unknown>>;
+    new_material_candidates:Array<Record<string,unknown>>;
+    possible_renames:Array<Record<string,unknown>>;
+    anomalies:Array<Record<string,unknown>>;
+    unit_package_warnings:Array<Record<string,unknown>>;
+    row_counts:Record<string,number>;
+    formula_presence:boolean;
+    candidate_columns:Record<string,string>;
+  }>;
+};
 export const inventoryDailySheetApi = {
   getConfiguration:()=>request<InventoryDailySheetConfiguration|null>("/daily-sheet/configuration"),
   updateConfiguration:(body:InventoryDailySheetConfiguration)=>request<InventoryDailySheetConfiguration>("/daily-sheet/configuration",{method:"PUT",body:JSON.stringify(body)}),
   getStatus:()=>request<InventoryDailySheetStatus>("/daily-sheet/status"),
-  validateConfiguration:()=>request<{valid:boolean;checks:Array<Record<string,unknown>>}>("/daily-sheet/validate-config",{method:"POST"}),
+  validateConfiguration:()=>request<InventoryDailySheetValidation>("/daily-sheet/validate-config",{method:"POST"}),
+  discover:(working_spreadsheet_file_id:string)=>request<InventoryDailySheetDiscovery>("/daily-sheet/discover",{method:"POST",body:JSON.stringify({working_spreadsheet_file_id})}),
   runSnapshot:(business_date?:string)=>request<Record<string,unknown>>("/daily-sheet/snapshot/run",{method:"POST",body:JSON.stringify({business_date:business_date||null})}),
   runReconciliation:(dry_run:boolean,business_date?:string)=>request<Record<string,unknown>>("/daily-sheet/reconcile/run",{method:"POST",body:JSON.stringify({business_date:business_date||null,dry_run})}),
   setBaseline:(snapshot_id:string)=>request<Record<string,unknown>>("/daily-sheet/baseline",{method:"POST",body:JSON.stringify({snapshot_id})}),
+};
+
+
+export type InventoryMaterial={material_id:string;canonical_name:string;category:string|null;canonical_dimension:string|null;preferred_unit:string|null;active:boolean;first_seen_at:string|null;last_seen_at:string|null;metadata:Record<string,unknown>;sheet_keys:string[];aliases:string[];package_conversions:Array<{package_name:string;canonical_value:string;canonical_unit:string}>};
+export type InventoryMaterialCandidate={id:string;status:"new_material"|"possible_rename"|"ambiguous";sheet:string;source_row:number;sheet_item_key:string;raw_name:string;category:string|null;suggested_item_id:string|null;suggested_canonical_name:string|null;confidence:number;reasons:string[]};
+export const inventoryMaterialApi={
+  list:()=>request<{items:InventoryMaterial[]}>("/materials"),
+  candidates:()=>request<{items:InventoryMaterialCandidate[]}>("/materials/candidates"),
+  approve:(id:string,body:{item_id?:string;canonical_name?:string;preferred_unit?:string;canonical_dimension?:string})=>request<InventoryMaterial>(`/materials/candidates/${encodeURIComponent(id)}/approve`,{method:"POST",body:JSON.stringify(body)}),
+  ignore:(id:string)=>request<{status:string}>(`/materials/candidates/${encodeURIComponent(id)}/ignore`,{method:"POST"}),
+  reject:(id:string)=>request<{status:string}>(`/materials/candidates/${encodeURIComponent(id)}/reject`,{method:"POST"}),
 };

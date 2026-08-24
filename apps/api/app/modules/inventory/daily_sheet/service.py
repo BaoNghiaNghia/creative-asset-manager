@@ -1,6 +1,6 @@
 from __future__ import annotations
 import asyncio, logging, time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable
@@ -9,10 +9,11 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel
-from app.modules.inventory.daily_sheet.config import DailySheetConfig, normalize_sku
+from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetConfig, DailySheetAnyConfig, DailySheetConfig, normalize_identifier, normalize_sku, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient, require_sheets_scope
-from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailySheetValidationError, StockRecord, build_variances, canonical_hash, parse_stock_records, value_blocks
+from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailyCountSheetValidationError, DailySheetValidationError, StockRecord, build_daily_count_variances, build_variances, canonical_hash, _normalized_header, classify_daily_count_row, parse_daily_count_records, parse_stock_records, value_blocks
 from app.modules.inventory.persistence_model import InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel, inventory_utcnow
+from app.modules.inventory.materials import MaterialRegistry, MaterialResolution
 from app.providers.google.auth import get_connection_access_token
 
 logger = logging.getLogger("cam.inventory.daily_sheet")
@@ -29,7 +30,7 @@ class SheetContext:
     archive_root_id: str
     template_file_id: str | None
     target_file_id: str
-    config: DailySheetConfig
+    config: DailySheetAnyConfig
     scopes: tuple[str, ...]
 
 def _parse_time(value: Any) -> datetime | None:
@@ -47,11 +48,20 @@ def _quantity_hash(blocks: list[dict[str, Any]]) -> str | None:
     return canonical_hash(normalized)
 
 class InventoryDailySheetService:
-    def __init__(self, session_factory: sessionmaker[Session], *, client_factory: Callable = GoogleSheetsInventoryClient, token_resolver: Callable = get_connection_access_token, clock: Callable = lambda: datetime.now(timezone.utc)):
+    def __init__(
+        self, session_factory: sessionmaker[Session], *,
+        client_factory: Callable = GoogleSheetsInventoryClient,
+        token_resolver: Callable = get_connection_access_token,
+        clock: Callable = lambda: datetime.now(timezone.utc),
+        material_semantic_matcher: Callable | None = None,
+        semantic_analyzer: Any | None = None,
+    ):
         self.session_factory = session_factory
         self.client_factory = client_factory
         self.token_resolver = token_resolver
         self.clock = clock
+        self.semantic_analyzer = semantic_analyzer
+        self.material_semantic_matcher = material_semantic_matcher or (semantic_analyzer.match_material if semantic_analyzer else None)
 
     def _lock(self, session: Session, key: str) -> None:
         if session.bind is not None and session.bind.dialect.name == "postgresql":
@@ -65,7 +75,7 @@ class InventoryDailySheetService:
             if not settings.daily_working_spreadsheet_file_id or not settings.daily_archive_root_folder_id or not settings.daily_sheet_config_json:
                 raise DailySheetConfigurationError("Daily Google Sheet configuration is incomplete.")
             try:
-                config = DailySheetConfig.model_validate(settings.daily_sheet_config_json)
+                config = parse_daily_sheet_config(settings.daily_sheet_config_json)
             except Exception as exc:
                 raise DailySheetConfigurationError("Daily Google Sheet mapping is invalid.") from exc
             if config.reset.mode == "restore_template" and not settings.daily_template_spreadsheet_file_id:
@@ -91,44 +101,217 @@ class InventoryDailySheetService:
                 str(settings.daily_working_spreadsheet_file_id),
                 str(settings.daily_archive_root_folder_id),
                 settings.daily_template_spreadsheet_file_id,
-                settings.daily_target_spreadsheet_file_id or str(settings.daily_working_spreadsheet_file_id),
+                self._target_file_id(settings, config),
                 config, tuple(connection.scopes_json or ()),
             )
         require_sheets_scope(list(context.scopes))
         return context
+
+    @staticmethod
+    def _source_ranges(config: DailySheetAnyConfig) -> list[str]:
+        return [config.source.a1_range] if isinstance(config, DailyCountSheetConfig) else [item.a1_range for item in config.source_ranges]
+
+    @staticmethod
+    def _target_file_id(settings: InventorySettingsModel, config: DailySheetAnyConfig) -> str:
+        if isinstance(config, DailyCountSheetConfig) and config.reconciliation.mode == "target_table":
+            return str(config.reconciliation.target_spreadsheet_file_id)
+        return settings.daily_target_spreadsheet_file_id or str(settings.daily_working_spreadsheet_file_id)
 
     def _token(self, connection_id: str) -> str:
         value = self.token_resolver(connection_id)
         return asyncio.run(value) if hasattr(value, "__await__") else str(value)
 
     def validate_configuration(self, tenant_id: str) -> dict[str, Any]:
+        errors: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
+        checks: list[dict[str, Any]] = []
         try:
             context = self._context(tenant_id, require_enabled=False)
             with self.client_factory(self._token(context.connection_id)) as google:
-                google.validate_native_spreadsheet(context.working_file_id)
+                working = google.validate_native_spreadsheet(context.working_file_id)
+                checks.append({"code": "native_working_spreadsheet", "ok": True})
+                if (working.get("capabilities") or {}).get("canEdit") is False:
+                    errors.append({"code": "working_spreadsheet_not_editable"})
                 archive = google.drive_file(context.archive_root_id)
                 if archive.get("mimeType") != "application/vnd.google-apps.folder":
-                    raise DailySheetConfigurationError("Archive root must be a Google Drive folder.")
+                    errors.append({"code": "archive_root_not_folder"})
                 if (archive.get("capabilities") or {}).get("canAddChildren") is False:
-                    raise DailySheetConfigurationError("Archive root is not writable.")
-                google.spreadsheet_metadata(context.working_file_id)
-                source_values = google.batch_get_values(
-                    context.working_file_id,
-                    [item.a1_range for item in context.config.source_ranges],
-                )
-                parse_stock_records(context.config, source_values)
-                google.validate_native_spreadsheet(context.target_file_id)
-                google.batch_get_values(context.target_file_id, [item.sku_range for item in context.config.targets])
+                    errors.append({"code": "archive_root_not_writable"})
+                metadata = google.spreadsheet_metadata(context.working_file_id)
+                if isinstance(context.config, DailyCountSheetConfig):
+                    tabs = {str(item.get("properties", {}).get("title") or "") for item in metadata.get("sheets", [])}
+                    if context.config.source.sheet not in tabs:
+                        errors.append({"code": "configured_sheet_missing", "sheet": context.config.source.sheet})
+                    source_values = google.batch_get_values(context.working_file_id, self._source_ranges(context.config))
+                    records = {}
+                    try:
+                        records, parse_warnings = parse_daily_count_records(
+                            context.config, source_values[0] if source_values else {},
+                            quantity_semantic_analyzer=(
+                                lambda payload: self.semantic_analyzer.analyze_quantity(tenant_id, payload)
+                            ) if self.semantic_analyzer else None,
+                            schema_semantic_analyzer=(
+                                lambda payload: self.semantic_analyzer.analyze_schema(tenant_id, payload)
+                            ) if self.semantic_analyzer else None,
+                        )
+                        warnings.extend(parse_warnings)
+                        if any(
+                            warning.get("code") == "schema_mapping_proposed"
+                            and (
+                                warning.get("requires_review")
+                                or warning.get("reset_relevant_changed")
+                            )
+                            for warning in parse_warnings
+                        ):
+                            errors.append({"code": "reset_schema_mapping_approval_required"})
+                        checks.append({"code": "daily_count_rows", "ok": True})
+                    except DailyCountSheetValidationError as exc:
+                        errors.extend(exc.errors)
+                        warnings.extend(exc.warnings)
+                    if source_values:
+                        rows = list(source_values[0].get("values") or [])
+                        if len(rows) >= context.config.source.header_row:
+                            header = rows[context.config.source.header_row - 1]
+                            positions = {_normalized_header(value): index for index, value in enumerate(header)}
+                            protected = []
+                            escaped_sheet = context.config.source.sheet.replace("'", "''")
+                            for semantic in ("item_key", "name", "category"):
+                                index = positions.get(_normalized_header(getattr(context.config.source.columns, semantic)))
+                                if index is not None:
+                                    column = self._a1_column(index)
+                                    protected.append(f"'{escaped_sheet}'!{column}{context.config.source.header_row}:{column}1048576")
+                            if any(_overlaps(reset_range, identity_range) for reset_range in context.config.reset.ranges for identity_range in protected):
+                                errors.append({"code": "reset_overlaps_identity_columns"})
+                    workbook_timezone = str((metadata.get("properties") or {}).get("timeZone") or "")
+                    if workbook_timezone and workbook_timezone != self._inventory_timezone(tenant_id):
+                        warnings.append({"code": "workbook_timezone_mismatch", "workbook_timezone": workbook_timezone, "inventory_timezone": self._inventory_timezone(tenant_id)})
+                    if context.config.reconciliation.mode == "target_table":
+                        google.validate_native_spreadsheet(context.target_file_id)
+                        target_blocks = google.batch_get_values(context.target_file_id, [item.item_key_range for item in context.config.reconciliation.targets])
+                        available_by_warehouse = {
+                            normalize_identifier(target.warehouse): {str(row[0]).strip() for row in block.get("values", []) if row and str(row[0]).strip()}
+                            for target, block in zip(context.config.reconciliation.targets, target_blocks, strict=True)
+                        }
+                        missing = [
+                            record.item_key for record in records.values()
+                            if record.item_key not in available_by_warehouse.get(record.warehouse, set())
+                        ]
+                        errors.extend({"code": "target_item_mapping_missing", "item_key": item_key} for item_key in missing)
+                else:
+                    source_values = google.batch_get_values(context.working_file_id, self._source_ranges(context.config))
+                    parse_stock_records(context.config, source_values)
+                    google.validate_native_spreadsheet(context.target_file_id)
+                    google.batch_get_values(context.target_file_id, [item.sku_range for item in context.config.targets])
                 if context.template_file_id:
                     google.validate_native_spreadsheet(context.template_file_id)
-                    google.batch_get_values(
-                        context.template_file_id,
-                        context.config.reset.ranges,
-                        value_render_option="FORMULA",
-                    )
-            return {"valid": True, "checks": [{"code": "configuration", "ok": True}]}
+                    google.batch_get_values(context.template_file_id, context.config.reset.ranges, value_render_option="FORMULA")
+            checks.extend({"code": error["code"], "ok": False} for error in errors)
+            return {"valid": not errors, "errors": errors, "warnings": warnings, "checks": checks}
         except Exception as exc:
-            return {"valid": False, "checks": [{"code": getattr(exc, "code", "invalid_configuration"), "ok": False, "message": str(exc)}]}
+            error = {"code": getattr(exc, "code", "invalid_configuration"), "message": str(exc)}
+            return {"valid": False, "errors": [error], "warnings": warnings, "checks": checks + [{**error, "ok": False}]}
+
+    def _inventory_timezone(self, tenant_id: str) -> str:
+        with self.session_factory() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id))
+            return settings.timezone if settings else "Asia/Ho_Chi_Minh"
+
+    def discover(self, tenant_id: str, spreadsheet_id: str) -> dict[str, Any]:
+        if not spreadsheet_id.strip():
+            raise DailySheetConfigurationError("Working spreadsheet ID is required.")
+        with self.session_factory() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id))
+            if settings is None:
+                raise DailySheetConfigurationError("Inventory settings are required.")
+            source = session.scalar(select(ExternalSourceModel).where(
+                ExternalSourceModel.tenant_id == tenant_id,
+                ExternalSourceModel.id == settings.external_source_id,
+                ExternalSourceModel.source_type == "google_drive",
+            ))
+            if source is None:
+                raise DailySheetConfigurationError("Configured tenant Google Drive source was not found.")
+            connection_id = str((source.source_metadata or {}).get("oauth_connection_id") or "")
+            connection = session.scalar(select(OAuthConnectionModel).where(
+                OAuthConnectionModel.tenant_id == tenant_id,
+                OAuthConnectionModel.id == connection_id,
+                OAuthConnectionModel.provider == "google",
+                OAuthConnectionModel.status == "active",
+            ))
+            if connection is None:
+                raise DailySheetConfigurationError("Reconnect Google account.")
+            scopes = tuple(connection.scopes_json or ())
+            inventory_timezone = settings.timezone
+        require_sheets_scope(list(scopes))
+        with self.client_factory(self._token(connection_id)) as google:
+            google.validate_native_spreadsheet(spreadsheet_id)
+            metadata = google.spreadsheet_metadata(spreadsheet_id)
+            tabs: list[dict[str, Any]] = []
+            for tab in metadata.get("sheets", []):
+                properties = tab.get("properties") or {}
+                title = str(properties.get("title") or "")
+                escaped = title.replace("'", "''")
+                value_ranges = google.batch_get_values(spreadsheet_id, [f"'{escaped}'!A1:AZ80"], value_render_option="FORMULA")
+                rows = list(value_ranges[0].get("values") or []) if value_ranges else []
+                header_row = self._detect_header_row(rows)
+                headers = list(rows[header_row - 1]) if header_row else []
+                positions = {_normalized_header(value): index for index, value in enumerate(headers)}
+                key_index = positions.get(_normalized_header("STT"), 0)
+                name_index = positions.get(_normalized_header("Tên Nguyên Liệu / Vật Tư"), 1)
+                counts = {"ITEM": 0, "SECTION": 0, "TOTAL": 0, "EMPTY": 0}
+                samples: list[dict[str, Any]] = []
+                materials: list[dict[str, Any]] = []
+                category_index = positions.get(_normalized_header("Phân Loại"), 2)
+                if header_row:
+                    with self.session_factory() as registry_session:
+                        registry = MaterialRegistry(registry_session)
+                        for row_number, row in enumerate(rows[header_row:], start=header_row + 1):
+                            kind = classify_daily_count_row(row, key_index=key_index, name_index=name_index)
+                            counts[kind] = counts.get(kind, 0) + 1
+                            if kind != "ITEM":
+                                continue
+                            item_key = str(row[key_index]).strip() if key_index < len(row) else ""
+                            raw_name = str(row[name_index]).strip() if name_index < len(row) else ""
+                            category = str(row[category_index]).strip() if category_index < len(row) else None
+                            resolution = registry.resolve(
+                                tenant_id, source_id=spreadsheet_id, external_key=item_key,
+                                raw_name=raw_name, category=category, source_row=row_number, sheet=title,
+                                semantic_matcher=self.material_semantic_matcher,
+                                context={
+                                    "source_cells": [f"{self._a1_column(name_index)}{row_number}"],
+                                    "nearby_rows": rows[max(header_row, row_number - 3):row_number + 2],
+                                },
+                            )
+                            material = {"row": row_number, "item_key": item_key, "name": raw_name, "category": category, "resolution": resolution.to_dict()}
+                            materials.append(material)
+                            if len(samples) < 5:
+                                samples.append({"row": row_number, "item_key": item_key, "name": raw_name})
+                formulas = any(isinstance(cell, str) and cell.startswith("=") for row in rows for cell in row)
+                unresolved = [item for item in materials if item["resolution"]["requires_review"]]
+                tabs.append({"title": title, "sheet_id": properties.get("sheetId"), "headers": headers, "detected_header_row": header_row, "sample_item_rows": samples, "item_count": counts["ITEM"], "materials": materials, "new_material_candidates": [item for item in unresolved if item["resolution"]["status"] == "new_material"], "possible_renames": [item for item in unresolved if item["resolution"]["status"] == "possible_rename"], "anomalies": [item for item in unresolved if item["resolution"]["status"] == "ambiguous"], "unit_package_warnings": [], "row_counts": counts, "formula_presence": formulas, "candidate_columns": self._candidate_columns(headers)})
+        workbook_timezone = str((metadata.get("properties") or {}).get("timeZone") or "")
+        warnings = []
+        if workbook_timezone and workbook_timezone != inventory_timezone:
+            warnings.append({"code": "workbook_timezone_mismatch", "workbook_timezone": workbook_timezone, "inventory_timezone": inventory_timezone})
+        return {"spreadsheet_id": spreadsheet_id, "title": (metadata.get("properties") or {}).get("title"), "timezone": workbook_timezone, "tabs": tabs, "warnings": warnings}
+
+    @staticmethod
+    def _detect_header_row(rows: list[list[Any]]) -> int | None:
+        for index, row in enumerate(rows[:20], start=1):
+            normalized = {_normalized_header(value) for value in row}
+            if _normalized_header("STT") in normalized and _normalized_header("Tên Nguyên Liệu / Vật Tư") in normalized:
+                return index
+        return None
+
+    @staticmethod
+    def _candidate_columns(headers: list[Any]) -> dict[str, str]:
+        expected = {
+            "item_key": "STT", "name": "Tên Nguyên Liệu / Vật Tư", "category": "Phân Loại",
+            "opening": "SL Đầu Ca / Nhận", "used": "SL Sử Dụng Pha Chế", "inbound": "Nhập Hàng",
+            "waste": "SL Huỷ / Hư Hỏng", "closing": "Tồn Cuối Ca",
+        }
+        available = {_normalized_header(value): str(value) for value in headers}
+        return {key: available[_normalized_header(value)] for key, value in expected.items() if _normalized_header(value) in available}
+
 
     def _claim_snapshot(self, tenant_id: str, business_date: date, context: SheetContext):
         with self.session_factory() as session:
@@ -203,8 +386,10 @@ class InventoryDailySheetService:
             with self.client_factory(self._token(context.connection_id)) as google:
                 source_meta = google.validate_native_spreadsheet(context.working_file_id)
                 before = _parse_time(source_meta.get("modifiedTime"))
-                source_values = google.batch_get_values(context.working_file_id, [item.a1_range for item in context.config.source_ranges])
+                source_values = google.batch_get_values(context.working_file_id, self._source_ranges(context.config))
                 source_hash = canonical_hash(value_blocks(source_values))
+                if isinstance(context.config, DailyCountSheetConfig):
+                    parse_daily_count_records(context.config, source_values[0] if source_values else {})
                 snapshot_id = row.snapshot_file_id
                 if not snapshot_id:
                     folder = google.ensure_archive_folder(context.archive_root_id, tenant_id=tenant_id, business_date=business_date.isoformat())
@@ -223,7 +408,7 @@ class InventoryDailySheetService:
                         persisted.status = "cloned"
                         persisted.cloned_at = inventory_utcnow()
                         session.commit()
-                snapshot_values = google.batch_get_values(snapshot_id, [item.a1_range for item in context.config.source_ranges])
+                snapshot_values = google.batch_get_values(snapshot_id, self._source_ranges(context.config))
                 snapshot_hash = canonical_hash(value_blocks(snapshot_values))
                 if snapshot_hash != source_hash:
                     raise DailySheetValidationError("snapshot_verification_mismatch")
@@ -262,6 +447,9 @@ class InventoryDailySheetService:
             raise
 
     def _reset_and_verify(self, google, context: SheetContext) -> None:
+        if isinstance(context.config, DailyCountSheetConfig):
+            self._reset_v2(google, context)
+            return
         if context.config.reset.mode == "clear_ranges":
             google.batch_clear_values(context.working_file_id, context.config.reset.ranges)
             reset = google.batch_get_values(context.working_file_id, context.config.reset.ranges)
@@ -275,8 +463,55 @@ class InventoryDailySheetService:
         if canonical_hash(value_blocks(restored)) != canonical_hash(value_blocks(template)):
             raise DailySheetValidationError("reset_verification_failed")
 
+    def _reset_v2(self, google, context: SheetContext) -> None:
+        config = context.config
+        if config.reset.mode == "restore_template":
+            template = google.batch_get_values(str(context.template_file_id), config.reset.ranges, value_render_option="FORMULA")
+            updates = [{"range": target, "majorDimension": "ROWS", "values": block.get("values", [])} for target, block in zip(config.reset.ranges, template, strict=True)]
+            google.batch_update_values(context.working_file_id, updates)
+            restored = google.batch_get_values(context.working_file_id, config.reset.ranges, value_render_option="FORMULA")
+            if canonical_hash(value_blocks(restored)) != canonical_hash(value_blocks(template)):
+                raise DailySheetValidationError("reset_verification_failed")
+            return
+        source = google.batch_get_values(context.working_file_id, [config.source.a1_range])
+        block = source[0] if source else {}
+        rows = list(block.get("values") or [])
+        records, _warnings = parse_daily_count_records(config, block)
+        header = rows[config.source.header_row - 1]
+        positions = {_normalized_header(value): index for index, value in enumerate(header)}
+        semantic_indexes = {semantic: positions[_normalized_header(heading)] for semantic, heading in config.source.columns.model_dump().items()}
+        sheet = config.source.sheet.replace("'", "''")
+        clear_columns = config.reset.entry_columns if config.reset.mode == "clear_entry_columns" else config.reset.clear_columns
+        clear_ranges = [
+            f"'{sheet}'!{self._a1_column(semantic_indexes[semantic])}{record.source_row}"
+            for record in records.values() for semantic in clear_columns
+        ]
+        if config.reset.mode == "carry_forward":
+            updates = [{
+                "range": f"'{sheet}'!{self._a1_column(semantic_indexes[config.reset.carry_forward_to])}{record.source_row}",
+                "majorDimension": "ROWS", "values": [[record.quantity.raw]],
+            } for record in records.values()]
+            if updates:
+                google.batch_update_values(context.working_file_id, updates)
+        if clear_ranges:
+            google.batch_clear_values(context.working_file_id, clear_ranges)
+            cleared = google.batch_get_values(context.working_file_id, clear_ranges)
+            if any(str(cell).strip() for item in cleared for row in (item.get("values") or []) for cell in row):
+                raise DailySheetValidationError("reset_verification_failed")
+
+    @staticmethod
+    def _a1_column(index: int) -> str:
+        result = ""
+        value = index + 1
+        while value:
+            value, remainder = divmod(value - 1, 26)
+            result = chr(65 + remainder) + result
+        return result
+
     def reconcile(self, tenant_id: str, business_date: date, *, dry_run: bool = False):
-        context = self._context(tenant_id)
+        context = self._context(tenant_id, require_enabled=False)
+        if isinstance(context.config, DailyCountSheetConfig):
+            return self._reconcile_v2(tenant_id, business_date, context, dry_run=dry_run)
         if not dry_run:
             with self.session_factory() as session:
                 completed = session.scalar(select(InventoryDailySheetReconciliationModel).where(
@@ -292,8 +527,8 @@ class InventoryDailySheetService:
             if not dry_run: self._await_baseline(tenant_id, business_date, current.id)
             return {"status": "awaiting_baseline", "error_code": "missing_previous_snapshot", "writes": 0}
         with self.client_factory(self._token(context.connection_id)) as google:
-            current_records = parse_stock_records(context.config, google.batch_get_values(str(current.snapshot_file_id), [item.a1_range for item in context.config.source_ranges]))
-            previous_records = parse_stock_records(context.config, google.batch_get_values(str(previous.snapshot_file_id), [item.a1_range for item in context.config.source_ranges]))
+            current_records = parse_stock_records(context.config, google.batch_get_values(str(current.snapshot_file_id), self._source_ranges(context.config)))
+            previous_records = parse_stock_records(context.config, google.batch_get_values(str(previous.snapshot_file_id), self._source_ranges(context.config)))
             variances = build_variances(current_records, previous_records)
             target_records = dict(current_records)
             for key, previous_record in previous_records.items():
@@ -324,6 +559,272 @@ class InventoryDailySheetService:
             session.commit()
         logger.info("inventory_daily_sheet_reconcile_completed", extra={"tenant_id": tenant_id, "business_date": str(business_date), "reconciliation_id": reconciliation_id, "row_count": len(current_records), "changed_count": summary["changed_count"]})
         return summary
+
+    def _reconcile_v2(self, tenant_id: str, business_date: date, context: SheetContext, *, dry_run: bool) -> dict[str, Any]:
+        if not dry_run:
+            with self.session_factory() as session:
+                completed = session.scalar(select(InventoryDailySheetReconciliationModel).where(
+                    InventoryDailySheetReconciliationModel.tenant_id == tenant_id,
+                    InventoryDailySheetReconciliationModel.business_date == business_date,
+                    InventoryDailySheetReconciliationModel.status == "completed",
+                ))
+                if completed is not None:
+                    return dict(completed.summary_json)
+        current, previous = self._snapshots(tenant_id, business_date)
+        if current is None:
+            raise DailySheetValidationError("current_snapshot_incomplete")
+        if previous is None:
+            if not dry_run:
+                self._await_baseline(tenant_id, business_date, current.id)
+            return {"status": "awaiting_baseline", "error_code": "missing_previous_snapshot", "writes": 0}
+        with self.client_factory(self._token(context.connection_id)) as google:
+            current_values = google.batch_get_values(str(current.snapshot_file_id), [context.config.source.a1_range])
+            previous_values = google.batch_get_values(str(previous.snapshot_file_id), [context.config.source.a1_range])
+            with self.session_factory() as registry_session:
+                registry = MaterialRegistry(registry_session)
+
+                def package_conversions(**row):
+                    resolution = registry.resolve(
+                        tenant_id, source_id=context.working_file_id,
+                        external_key=row["item_key"], raw_name=row["item_name"],
+                        category=row["category"], source_row=row["source_row"], sheet=row["sheet"],
+                    )
+                    return (
+                        registry.approved_package_conversions(tenant_id, resolution.material_id)
+                        if resolution.material_id else {}
+                    )
+
+                quantity_analyzer = (
+                    lambda payload: self.semantic_analyzer.analyze_quantity(tenant_id, payload)
+                ) if self.semantic_analyzer else None
+                schema_analyzer = (
+                    lambda payload: self.semantic_analyzer.analyze_schema(tenant_id, payload)
+                ) if self.semantic_analyzer else None
+                current_records, current_warnings = parse_daily_count_records(
+                    context.config, current_values[0] if current_values else {},
+                    package_conversion_resolver=package_conversions,
+                    quantity_semantic_analyzer=quantity_analyzer,
+                    schema_semantic_analyzer=schema_analyzer,
+                )
+                previous_records, previous_warnings = parse_daily_count_records(
+                    context.config, previous_values[0] if previous_values else {},
+                    package_conversion_resolver=package_conversions,
+                    quantity_semantic_analyzer=quantity_analyzer,
+                    schema_semantic_analyzer=schema_analyzer,
+                )
+                target_records = dict(current_records)
+                current_records, current_semantics, unresolved = self._resolve_material_records(
+                    registry, tenant_id, context.working_file_id, str(current.snapshot_file_id),
+                    current_records, persist=not dry_run,
+                    new_material_policy=context.config.new_material_policy,
+                    sheet=context.config.source.sheet,
+                )
+                previous_records, previous_semantics, _ = self._resolve_material_records(
+                    registry, tenant_id, context.working_file_id, str(previous.snapshot_file_id),
+                    previous_records, persist=False, use_semantic_matcher=False,
+                    new_material_policy="review_required",
+                    sheet=context.config.source.sheet,
+                )
+                if not dry_run:
+                    registry_session.commit()
+            variances, compare_warnings = build_daily_count_variances(
+                current_records, previous_records,
+                name_change_policy=context.config.reconciliation.name_change_policy,
+            )
+            serialized = [{**item,
+                "previous_canonical_quantity": format(item["previous_canonical_quantity"], "f") if item["previous_canonical_quantity"] is not None else None,
+                "current_canonical_quantity": format(item["current_canonical_quantity"], "f") if item["current_canonical_quantity"] is not None else None,
+                "variance": format(item["variance"], "f") if item["variance"] is not None else None,
+            } for item in variances]
+            summary = {
+                "status": "dry_run" if dry_run else "planned", "item_count": len(current_records),
+                "row_count": len(current_records), "valid_count": len(current_records), "invalid_count": 0,
+                "changed_count": sum(item["variance"] != 0 for item in variances),
+                "unit_counts": {unit: sum(record.quantity.canonical_unit == unit for record in current_records.values()) for unit in ("count", "g", "ml")},
+                "warnings": current_warnings + previous_warnings + compare_warnings,
+                "variances": serialized, "writes": 0,
+                "semantic_snapshot": {
+                    "current": current_semantics,
+                    "previous": previous_semantics,
+                    "unresolved_materials": unresolved,
+                },
+            }
+            summary["plan_hash"] = canonical_hash(summary)
+            if unresolved and context.config.new_material_policy == "block":
+                raise DailyCountSheetValidationError([
+                    {"code": "material_resolution_blocked", "item_key": item["sheet_item_key"], "status": item["status"]}
+                    for item in unresolved
+                ])
+            if dry_run:
+                return summary
+            updates: list[dict[str, Any]] = []
+            before: list[dict[str, Any]] = []
+            desired_hash = canonical_hash([])
+            if context.config.reconciliation.mode == "target_table":
+                if unresolved and context.config.new_material_policy != "ignore":
+                    raise DailyCountSheetValidationError([
+                        {"code": "material_resolution_required", "item_key": item["sheet_item_key"], "status": item["status"]}
+                        for item in unresolved
+                    ])
+                records_for_write = target_records
+                if context.config.new_material_policy == "ignore":
+                    ignored_keys = {item["sheet_item_key"] for item in unresolved}
+                    records_for_write = {
+                        key: record for key, record in target_records.items()
+                        if record.item_key not in ignored_keys
+                    }
+                updates = self._daily_count_target_updates(google, context, records_for_write)
+                before = google.batch_get_values(context.target_file_id, [item["range"] for item in updates])
+                desired_hash = canonical_hash([item["values"][0] for item in updates])
+            reconciliation_id, completed = self._claim_reconciliation(
+                tenant_id, business_date, current.id, previous.id, summary,
+                summary["plan_hash"], canonical_hash(value_blocks(before)),
+            )
+            if completed:
+                return completed
+            if updates:
+                current_hash = canonical_hash([block.get("values", [[]])[0] if block.get("values") else [] for block in before])
+                if current_hash != desired_hash:
+                    google.batch_update_values(context.target_file_id, updates)
+                    summary["writes"] = len(updates)
+                verified = google.batch_get_values(context.target_file_id, [item["range"] for item in updates])
+                verified_hash = canonical_hash([block.get("values", [[]])[0] if block.get("values") else [] for block in verified])
+                if verified_hash != desired_hash:
+                    self._fail_reconciliation(reconciliation_id)
+                    raise DailySheetValidationError("target_verification_failed")
+        summary["status"] = "completed"
+        with self.session_factory() as session:
+            row = session.get(InventoryDailySheetReconciliationModel, reconciliation_id)
+            row.status = "completed"; row.target_after_hash = desired_hash
+            row.completed_at = inventory_utcnow(); row.summary_json = summary
+            row.error_code = row.error_message = None
+            session.commit()
+        return summary
+
+    def _resolve_material_records(
+        self, registry: MaterialRegistry, tenant_id: str, source_id: str,
+        snapshot_file_id: str, records: dict, *, persist: bool,
+        use_semantic_matcher: bool = True,
+        new_material_policy: str = "review_required",
+        sheet: str,
+    ):
+        resolved_records: dict = {}
+        semantic_records: list[dict[str, Any]] = []
+        unresolved: list[dict[str, Any]] = []
+        for source_key, record in records.items():
+            resolution = registry.resolve(
+                tenant_id, source_id=source_id, external_key=record.item_key,
+                raw_name=record.item_name, category=record.category,
+                source_row=record.source_row, sheet=sheet,
+                semantic_matcher=self.material_semantic_matcher if use_semantic_matcher else None,
+                context={"source_cells": list(record.source_cells), "raw_quantity": record.quantity.raw},
+            )
+            semantic = {
+                "material_id": resolution.material_id,
+                "sheet_item_key": record.item_key,
+                "raw_name": record.item_name,
+                "category": record.category,
+                "raw_quantity": record.quantity.raw,
+                "canonical_value": format(record.quantity.canonical_value, "f"),
+                "canonical_unit": record.quantity.canonical_unit,
+                "spreadsheet_file_id": snapshot_file_id,
+                "sheet": sheet,
+                "row": record.source_row,
+                "source_cells": list(record.source_cells),
+                "source_hash": canonical_hash({
+                    "file": snapshot_file_id, "row": record.source_row,
+                    "name": record.item_name, "quantity": record.quantity.raw,
+                }),
+                "interpretation_source": resolution.interpretation_source,
+                "confidence": float(resolution.confidence),
+                "resolution": resolution.to_dict(),
+            }
+            semantic_records.append(semantic)
+            if (
+                persist
+                and resolution.status == "new_material"
+                and resolution.interpretation_source == "gemini"
+                and resolution.confidence >= Decimal("0.98")
+                and new_material_policy == "auto_register_high_confidence"
+            ):
+                candidate = registry.queue_candidate(
+                    tenant_id, source_id=source_id, external_key=record.item_key,
+                    raw_name=record.item_name, category=record.category,
+                    source_row=record.source_row, sheet=sheet,
+                    resolution=resolution, context=semantic,
+                )
+                registry.session.flush()
+                material = registry.approve(
+                    tenant_id, candidate.id, actor_id="policy:auto_register_high_confidence",
+                    canonical_name=resolution.suggested_canonical_name,
+                    preferred_unit=record.quantity.canonical_unit,
+                    canonical_dimension={
+                        "count": "count", "g": "mass", "ml": "volume",
+                    }.get(record.quantity.canonical_unit, "other"),
+                )
+                resolution = MaterialResolution(
+                    "matched", material.id, record.item_name, material.name,
+                    record.category, resolution.confidence,
+                    ("auto_registered_high_confidence",), False, "gemini",
+                )
+                semantic["material_id"] = material.id
+                semantic["resolution"] = resolution.to_dict()
+            if resolution.requires_review:
+                unresolved.append({
+                    "status": resolution.status, "material_id": resolution.material_id,
+                    "sheet_item_key": record.item_key, "raw_name": record.item_name,
+                    "confidence": float(resolution.confidence),
+                })
+                if persist and new_material_policy in {"review_required", "auto_register_high_confidence"}:
+                    registry.queue_candidate(
+                        tenant_id, source_id=source_id, external_key=record.item_key,
+                        raw_name=record.item_name, category=record.category,
+                        source_row=record.source_row, sheet=sheet,
+                        resolution=resolution, context=semantic,
+                    )
+            elif persist and resolution.material_id:
+                registry.observe_match(
+                    tenant_id, source_id=source_id, external_key=record.item_key,
+                    raw_name=record.item_name, material_id=resolution.material_id,
+                )
+            identity = resolution.material_id or f"unresolved:{record.item_key}"
+            target_key = (record.warehouse, identity)
+            if target_key in resolved_records:
+                unresolved.append({
+                    "status": "ambiguous", "material_id": resolution.material_id,
+                    "sheet_item_key": record.item_key, "raw_name": record.item_name,
+                    "confidence": float(resolution.confidence),
+                })
+                target_key = source_key
+            resolved_records[target_key] = replace(record, item_key=identity)
+        return resolved_records, semantic_records, unresolved
+
+    def _daily_count_target_updates(self, google, context: SheetContext, records):
+        config = context.config
+        blocks = google.batch_get_values(context.target_file_id, [target.item_key_range for target in config.reconciliation.targets])
+        targets = {normalize_identifier(target.warehouse): (target, block) for target, block in zip(config.reconciliation.targets, blocks, strict=True)}
+        updates: list[dict[str, Any]] = []
+        missing: list[str] = []
+        for record in records.values():
+            pair = targets.get(record.warehouse)
+            if pair is None:
+                missing.append(record.item_key); continue
+            target, block = pair
+            match = A1_ROWS.fullmatch(target.item_key_range)
+            if match is None:
+                raise DailySheetConfigurationError("Target item key range requires explicit row bounds.")
+            first_row = int(match.group(2))
+            row_map = {str(row[0]).strip(): first_row + offset for offset, row in enumerate(block.get("values") or []) if row}
+            row_number = row_map.get(record.item_key)
+            if row_number is None:
+                missing.append(record.item_key); continue
+            sheet_prefix = target.item_key_range.split("!", 1)[0]
+            updates.append({"range": f"{sheet_prefix}!{target.quantity_column}{row_number}", "majorDimension": "ROWS", "values": [[format(record.quantity.canonical_value, "f")]]})
+            if target.unit_column:
+                updates.append({"range": f"{sheet_prefix}!{target.unit_column}{row_number}", "majorDimension": "ROWS", "values": [[record.quantity.canonical_unit]]})
+        if missing:
+            raise DailyCountSheetValidationError([{"code": "target_item_mapping_missing", "item_key": key} for key in missing])
+        return sorted(updates, key=lambda item: item["range"])
 
     def _snapshots(self, tenant_id, business_date):
         with self.session_factory() as session:

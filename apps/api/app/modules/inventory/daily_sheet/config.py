@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -129,3 +129,104 @@ class DailySheetConfig(DailySheetModel):
             if any(_overlaps(reset_range, candidate) for candidate in protected):
                 raise ValueError("reset ranges cannot overlap source or target ranges")
         return self
+
+class DailyCountItemRowConfig(DailySheetModel):
+    strategy: Literal["numeric_key"] = "numeric_key"
+    key_column: str = "STT"
+
+class DailyCountColumnsConfig(DailySheetModel):
+    item_key: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    category: str = Field(min_length=1, max_length=255)
+    opening: str = Field(min_length=1, max_length=255)
+    used: str = Field(min_length=1, max_length=255)
+    inbound: str = Field(min_length=1, max_length=255)
+    waste: str = Field(min_length=1, max_length=255)
+    closing: str = Field(min_length=1, max_length=255)
+
+class DailyCountSourceConfig(DailySheetModel):
+    sheet: str = Field(min_length=1, max_length=255)
+    range: str = Field(min_length=1, max_length=512)
+    header_row: int = Field(default=1, ge=1)
+    item_row: DailyCountItemRowConfig = Field(default_factory=DailyCountItemRowConfig)
+    columns: DailyCountColumnsConfig
+    warehouse: str = Field(default="main", min_length=1, max_length=255)
+
+    @property
+    def a1_range(self) -> str:
+        if "!" in self.range:
+            return validate_a1(self.range)
+        sheet = self.sheet.replace("'", "''")
+        return validate_a1(f"'{sheet}'!{self.range}")
+
+class DailyCountStockConfig(DailySheetModel):
+    authoritative_column: Literal["closing"] = "closing"
+
+class DailyCountResetConfig(DailySheetModel):
+    mode: Literal["restore_template", "clear_entry_columns", "carry_forward"]
+    ranges: list[str] = Field(default_factory=list)
+    entry_columns: list[Literal["opening", "used", "inbound", "waste", "closing"]] = Field(default_factory=list)
+    carry_forward_from: Literal["closing"] = "closing"
+    carry_forward_to: Literal["opening"] = "opening"
+    clear_columns: list[Literal["used", "inbound", "waste", "closing"]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_reset(self):
+        self.ranges = [validate_a1(value) for value in self.ranges]
+        if self.mode == "restore_template" and not self.ranges:
+            raise ValueError("restore_template requires ranges")
+        if self.mode == "clear_entry_columns" and not self.entry_columns:
+            raise ValueError("clear_entry_columns requires entry_columns")
+        if self.mode == "carry_forward" and not self.clear_columns:
+            raise ValueError("carry_forward requires clear_columns")
+        return self
+
+class DailyCountTargetConfig(DailySheetModel):
+    warehouse: str = Field(min_length=1, max_length=255)
+    sheet: str = Field(min_length=1, max_length=255)
+    item_key_range: str = Field(min_length=1, max_length=512)
+    quantity_column: str = Field(min_length=1, max_length=8)
+    unit_column: str | None = Field(default=None, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        self.item_key_range = validate_a1(self.item_key_range if "!" in self.item_key_range else f"{self.sheet}!{self.item_key_range}")
+        for name in ("quantity_column", "unit_column"):
+            value = getattr(self, name)
+            if value is not None:
+                value = value.strip().upper()
+                if not _COLUMN_RE.fullmatch(value):
+                    raise ValueError(f"{name} must be an A1 column")
+                setattr(self, name, value)
+        return self
+
+class DailyCountReconciliationConfig(DailySheetModel):
+    mode: Literal["report_only", "target_table"] = "report_only"
+    target_spreadsheet_file_id: str | None = None
+    targets: list[DailyCountTargetConfig] = Field(default_factory=list)
+    name_change_policy: Literal["warn", "reject"] = "warn"
+    missing_item_policy: Literal["report", "reject"] = "report"
+
+    @model_validator(mode="after")
+    def validate_mode(self):
+        if self.mode == "target_table" and (not self.target_spreadsheet_file_id or not self.targets):
+            raise ValueError("target_table requires target_spreadsheet_file_id and targets")
+        return self
+
+class DailyCountSheetConfig(DailySheetModel):
+    version: Literal[2] = 2
+    mode: Literal["daily_count_sheet"] = "daily_count_sheet"
+    source: DailyCountSourceConfig
+    stock: DailyCountStockConfig = Field(default_factory=DailyCountStockConfig)
+    reset: DailyCountResetConfig
+    reconciliation: DailyCountReconciliationConfig = Field(default_factory=DailyCountReconciliationConfig)
+    new_material_policy: Literal["review_required", "auto_register_high_confidence", "ignore", "block"] = "review_required"
+
+DailySheetAnyConfig: TypeAlias = DailySheetConfig | DailyCountSheetConfig
+
+def parse_daily_sheet_config(value: object) -> DailySheetAnyConfig:
+    if isinstance(value, (DailySheetConfig, DailyCountSheetConfig)):
+        return value
+    if isinstance(value, dict) and value.get("version") == 2:
+        return DailyCountSheetConfig.model_validate(value)
+    return DailySheetConfig.model_validate(value)

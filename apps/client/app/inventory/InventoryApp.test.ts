@@ -1,11 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import { routeForPath } from "../AppRoute";
-import { inventoryApi } from "./api";
+import { inventoryApi, inventoryMaterialApi } from "./api";
 
 describe("Inventory routes and API boundary", () => {
   it("resolves all six Inventory routes without changing Creative routes", () => {
-    for (const path of ["/inventory", "/inventory/inbox", "/inventory/review", "/inventory/daily", "/inventory/reports", "/inventory/settings"]) expect(routeForPath(path)).toBe("inventory");
+    for (const path of ["/inventory", "/inventory/inbox", "/inventory/review", "/inventory/materials", "/inventory/daily", "/inventory/reports", "/inventory/settings"]) expect(routeForPath(path)).toBe("inventory");
     expect(routeForPath("/")).toBe("explorer");
+  });
+  it("uses the tenant Inventory API boundary for the material registry", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    await inventoryMaterialApi.list();
+    await inventoryMaterialApi.candidates();
+    expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
+      "/api/inventory/materials",
+      "/api/inventory/materials/candidates",
+    ]);
+    vi.unstubAllGlobals();
   });
   it("uses only the Inventory API prefix for daily operations", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "run", blockers: [] }) });
