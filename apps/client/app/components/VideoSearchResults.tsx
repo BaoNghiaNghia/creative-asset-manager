@@ -45,6 +45,27 @@ function VideoThumbnail({ item }: { item: VideoSearchItem }) {
   </div>;
 }
 
+function VideoSequenceStrip({ item, onOpen }: { item: VideoSearchItem; onOpen: (item: VideoSearchItem) => void }) {
+  if (!item.matches.length) return null;
+
+  return <div className="video-sequence-strip" aria-label={"Matching sequences for " + item.filename}>
+    {item.matches.map((match, index) => {
+      const timestamp = formatVideoTimestamp(match.start_ms);
+      return <button
+        type="button"
+        className="video-sequence-thumbnail"
+        key={match.start_ms + ":" + match.end_ms + ":" + index}
+        onClick={() => onOpen({ ...item, best_match: match })}
+        aria-label={"Open sequence " + (index + 1) + " at " + timestamp}
+        title={match.summary || "Sequence at " + timestamp}
+      >
+        {item.thumbnail_url ? <img src={item.thumbnail_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span aria-hidden="true">Play</span>}
+        <b>{timestamp}</b>
+      </button>;
+    })}
+  </div>;
+}
+
 export function VideoSearchResults({
   items,
   onOpen,
@@ -72,6 +93,8 @@ export function VideoSearchResults({
               <span>{item.matches.length} matching segment{item.matches.length === 1 ? "" : "s"}</span>
             </div>
           </header>
+
+          <VideoSequenceStrip item={item} onOpen={onOpen} />
 
           <div className="video-search-best-match">
             <b>Best match - {timestamp}</b>
