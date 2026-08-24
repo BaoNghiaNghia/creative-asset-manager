@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import date
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -13,7 +14,13 @@ from app.modules.inventory.daily_sheet.agent.executor import (
     EditPlanVerificationError, GoogleSheetEditPlanExecutor, StaleEditPlan, plan_hash,
 )
 from app.modules.inventory.daily_sheet.agent.guard import SheetAgentSafetyGuard
-from app.modules.inventory.daily_sheet.agent.planner import GeminiSheetAgentPlanner, SheetAgentUnavailable
+from app.modules.inventory.daily_sheet.agent.planner import (
+    PLANNER_INSTRUCTIONS,
+    GeminiSheetAgentPlanner,
+    SheetAgentUnavailable,
+    bind_authoritative_source,
+    build_cell_evidence,
+)
 from app.modules.inventory.daily_sheet.agent.service import (
     InventoryDailySheetAgentService, SheetAgentApplyNotAllowed,
 )
@@ -21,7 +28,13 @@ from app.modules.inventory.daily_sheet.agent.snapshot import build_workbook_snap
 from app.modules.inventory.daily_sheet.config import GeminiSheetAgentConfig, parse_daily_sheet_config
 
 
-def snapshot(*, closing="12", formula=None, modified="2026-08-24T00:00:00Z"):
+def snapshot(
+    *,
+    closing="12",
+    formula=None,
+    modified="2026-08-24T00:00:00Z",
+    requested_range="'Daily'!A1:H4",
+):
     raw = [
         ["STT", "Material", "Category", "Opening", "Used", "Inbound", "Waste", "Closing"],
         ["1", "Milk", "Dairy", "", "2", "1", "", closing],
@@ -41,7 +54,7 @@ def snapshot(*, closing="12", formula=None, modified="2026-08-24T00:00:00Z"):
                 "protectedRanges": [{"range": {"sheetId": 7, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 8}, "warningOnly": False}],
             }],
         },
-        requested_range="'Daily'!A1:H4",
+        requested_range=requested_range,
         raw_block={"values": raw},
         formula_block={"values": formulas},
     )
@@ -491,3 +504,131 @@ def test_planner_failure_produces_no_write():
     with pytest.raises(RuntimeError, match="provider_failed"):
         service.plan_agent_run("tenant-a", date(2026, 8, 24), dry_run=False)
     assert executor.calls == []
+
+
+def _enabled_control():
+    return SimpleNamespace(
+        enabled=True,
+        emergency_stop=False,
+        provider="gemini",
+        allowed_models_json=["gemini-test"],
+    )
+
+
+def test_planner_rebinds_gemini_source_to_authoritative_snapshot_before_hash():
+    book = snapshot(requested_range="'Daily'!A1:Z80")
+    proposal = make_plan(book, [op(cell="D2")])
+    proposal.source = PlanSource(
+        spreadsheet_file_id="gemini-selected-workbook",
+        source_hash="0" * 64,
+        sheet="Gemini Selected Sheet",
+        range="A1:H22",
+    )
+    proposal_hash = plan_hash(proposal)
+    planner, _gateway = planner_for(
+        _enabled_control(), proposal.model_dump(mode="json")
+    )
+
+    final_plan, _model = planner.plan(
+        tenant_id="tenant-a",
+        business_date="2026-08-24",
+        snapshot=book,
+        business_goal=["safe rollover"],
+    )
+
+    assert final_plan.source == PlanSource(
+        spreadsheet_file_id=book.spreadsheet_file_id,
+        source_hash=book.source_hash,
+        sheet=book.sheet_title,
+        range=book.requested_range,
+    )
+    assert final_plan.operations[0].cell == "D2"
+    assert plan_hash(final_plan) != proposal_hash
+
+    result = agent_service(
+        "shadow", final_plan, book, FakeExecutor()
+    ).plan_agent_run("tenant-a", date(2026, 8, 24), dry_run=True)
+    assert result.plan_hash == plan_hash(final_plan)
+
+
+def test_rebinding_does_not_make_out_of_range_operation_safe():
+    book = snapshot(requested_range="'Daily'!A1:Z80")
+    proposal = make_plan(book, [op(cell="AA81", copy_from=None)])
+    rebound = bind_authoritative_source(proposal, book)
+
+    result = SheetAgentSafetyGuard().validate(
+        tenant_id="tenant-a",
+        plan=rebound,
+        snapshot=book,
+        allowed_range="'Daily'!A1:Z80",
+        max_operations=200,
+        allow_structure_changes=False,
+        allow_formula_changes=False,
+    )
+
+    assert "target_out_of_range:carry" in result.errors
+    assert rebound.operations[0].cell == "AA81"
+
+
+def test_cell_evidence_uses_exact_a1_addresses_and_omits_empty_trailing_cells():
+    book = snapshot(
+        formula="=H2",
+        requested_range="'Daily'!A1:Z80",
+    )
+
+    cells = build_cell_evidence(book)
+    by_address = {item["cell"]: item for item in cells}
+
+    assert by_address["A1"] == {"cell": "A1", "value": "STT", "formula": None}
+    assert by_address["D2"] == {"cell": "D2", "value": "", "formula": "=H2"}
+    assert by_address["H2"]["value"] == "12"
+    assert by_address["D3"] == {"cell": "D3", "value": "", "formula": None}
+    assert len(cells) == 24
+    assert all(not item["cell"].startswith("Z") for item in cells)
+
+
+def test_planner_payload_uses_cell_evidence_instead_of_parallel_matrices():
+    book = snapshot(formula="=H2", requested_range="'Daily'!A1:Z80")
+    response = make_plan(book, []).model_dump(mode="json")
+    planner, gateway = planner_for(_enabled_control(), response)
+
+    planner.plan(
+        tenant_id="tenant-a",
+        business_date="2026-08-24",
+        snapshot=book,
+        business_goal=["safe rollover"],
+    )
+
+    payload = json.loads(gateway.calls[0]["prompt"].split("INPUT:\n", 1)[1])
+    assert payload["snapshot"]["requested_range"] == "'Daily'!A1:Z80"
+    assert not ({"raw_values", "formulas", "coordinates"} & payload["snapshot"].keys())
+    assert {item["cell"] for item in payload["cell_evidence"]} >= {"A1", "D2", "H2"}
+
+
+def test_planner_prompt_requires_grounded_a1_and_material_source_identity():
+    assert "issue.cells" in PLANNER_INSTRUCTIONS
+    assert "operation.cell" in PLANNER_INSTRUCTIONS
+    assert "operation.evidence_cells" in PLANNER_INSTRUCTIONS
+    assert "operation.copy_from" in PLANNER_INSTRUCTIONS
+    assert "supplied cell_evidence" in PLANNER_INSTRUCTIONS
+    assert "Never calculate an A1 address from an array position" in PLANNER_INSTRUCTIONS
+    assert "exact workbook material/item identity value" in PLANNER_INSTRUCTIONS
+    assert "do not substitute the canonical material name" in PLANNER_INSTRUCTIONS
+
+
+def test_missing_closing_evidence_does_not_create_operations():
+    book = snapshot(closing="", requested_range="'Daily'!A1:Z80")
+    proposal = make_plan(book, [], status="review_required", requires_review=True)
+    planner, _gateway = planner_for(
+        _enabled_control(), proposal.model_dump(mode="json")
+    )
+
+    final_plan, _model = planner.plan(
+        tenant_id="tenant-a",
+        business_date="2026-08-24",
+        snapshot=book,
+        business_goal=["safe rollover"],
+    )
+
+    assert final_plan.operations == []
+    assert final_plan.source.range == "'Daily'!A1:Z80"
