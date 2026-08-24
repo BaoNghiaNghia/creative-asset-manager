@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, Callable
 
 import base64
+import json
 
 import httpx
 
@@ -79,31 +81,88 @@ class RuntimeInventoryGeminiGateway:
             raise InventoryAiGatewayError("inventory_gemini_invalid_response", retryable=False)
         return InventoryAiGatewayResult(raw_response_json=dict(payload), extracted_json=dict(extracted))
 
-    def _request_gemini_text(self, secret: str, prompt: str, schema: Mapping[str, Any], model: str) -> Mapping[str, Any]:
-        response = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            headers={"x-goog-api-key": secret},
-            json={"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json", "responseSchema": dict(schema)}},
-            timeout=self.timeout_seconds,
-        )
-        if response.status_code >= 400:
-            raise InventoryAiGatewayError("inventory_gemini_request_failed", retryable=response.status_code >= 500 or response.status_code == 429)
-        raw = response.json()
+    @staticmethod
+    def _generation_config(schema: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "responseMimeType": "application/json",
+            "responseJsonSchema": deepcopy(dict(schema)),
+        }
+
+    @staticmethod
+    def _raise_provider_status(status_code: int) -> None:
+        if status_code < 400:
+            return
+        if status_code == 400:
+            code, retryable = "inventory_gemini_invalid_request", False
+        elif status_code in {401, 403}:
+            code, retryable = "inventory_gemini_auth_or_permission_error", False
+        elif status_code == 404:
+            code, retryable = "inventory_gemini_model_not_found", False
+        elif status_code == 429:
+            code, retryable = "inventory_gemini_rate_limited", True
+        else:
+            code = "inventory_gemini_request_failed"
+            retryable = status_code >= 500
+        raise InventoryAiGatewayError(code, retryable=retryable)
+
+    @staticmethod
+    def _structured_result(response: httpx.Response) -> Mapping[str, Any]:
+        RuntimeInventoryGeminiGateway._raise_provider_status(response.status_code)
         try:
+            raw = response.json()
             text = raw["candidates"][0]["content"]["parts"][0]["text"]
-            import json
             extracted = json.loads(text)
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise InventoryAiGatewayError("inventory_gemini_invalid_response", retryable=False) from exc
-        return {"provider_response": raw, "extracted_json": extracted}
+            raise InventoryAiGatewayError(
+                "inventory_gemini_invalid_response", retryable=False
+            ) from exc
+        if not isinstance(extracted, Mapping):
+            raise InventoryAiGatewayError(
+                "inventory_gemini_invalid_response", retryable=False
+            )
+        return {"provider_response": raw, "extracted_json": dict(extracted)}
 
-    def _request_gemini(self, secret: str, image_bytes: bytes, image_mime_type: str, prompt: str, schema: Mapping[str, Any], model: str) -> Mapping[str, Any]:
+    def _request_gemini_text(
+        self, secret: str, prompt: str, schema: Mapping[str, Any], model: str
+    ) -> Mapping[str, Any]:
         response = httpx.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             headers={"x-goog-api-key": secret},
-            json={"contents": [{"role": "user", "parts": [{"text": prompt}, {"inlineData": {"mimeType": image_mime_type, "data": base64.b64encode(image_bytes).decode("ascii")}}]}], "generationConfig": {"responseMimeType": "application/json", "responseSchema": dict(schema)}},
+            json={
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": self._generation_config(schema),
+            },
             timeout=self.timeout_seconds,
         )
-        if response.status_code >= 400:
-            raise InventoryAiGatewayError("inventory_gemini_request_failed", retryable=response.status_code >= 500 or response.status_code == 429)
-        return response.json()
+        return self._structured_result(response)
+
+    def _request_gemini(
+        self,
+        secret: str,
+        image_bytes: bytes,
+        image_mime_type: str,
+        prompt: str,
+        schema: Mapping[str, Any],
+        model: str,
+    ) -> Mapping[str, Any]:
+        response = httpx.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            headers={"x-goog-api-key": secret},
+            json={
+                "contents": [{
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inlineData": {
+                                "mimeType": image_mime_type,
+                                "data": base64.b64encode(image_bytes).decode("ascii"),
+                            }
+                        },
+                    ],
+                }],
+                "generationConfig": self._generation_config(schema),
+            },
+            timeout=self.timeout_seconds,
+        )
+        return self._structured_result(response)
