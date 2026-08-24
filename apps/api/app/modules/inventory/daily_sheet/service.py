@@ -3,13 +3,14 @@ import asyncio, logging, time
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import re
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel
-from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetConfig, DailySheetAnyConfig, DailySheetConfig, normalize_identifier, normalize_sku, parse_daily_sheet_config
+from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetConfig, DailySheetAnyConfig, DailySheetConfig, GeminiSheetAgentConfig, normalize_identifier, normalize_sku, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient, require_sheets_scope
 from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailyCountSheetValidationError, DailySheetValidationError, StockRecord, build_daily_count_variances, build_variances, canonical_hash, _normalized_header, classify_daily_count_row, parse_daily_count_records, parse_stock_records, value_blocks
 from app.modules.inventory.persistence_model import InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel, inventory_utcnow
@@ -55,6 +56,7 @@ class InventoryDailySheetService:
         clock: Callable = lambda: datetime.now(timezone.utc),
         material_semantic_matcher: Callable | None = None,
         semantic_analyzer: Any | None = None,
+        agent_service: Any | None = None,
     ):
         self.session_factory = session_factory
         self.client_factory = client_factory
@@ -62,6 +64,62 @@ class InventoryDailySheetService:
         self.clock = clock
         self.semantic_analyzer = semantic_analyzer
         self.material_semantic_matcher = material_semantic_matcher or (semantic_analyzer.match_material if semantic_analyzer else None)
+        self.agent_service = agent_service
+
+    def _parse_v2_runtime(
+        self,
+        tenant_id: str,
+        context: SheetContext,
+        value_range: dict[str, Any],
+    ) -> tuple[dict[tuple[str, str], Any], list[dict[str, Any]]]:
+        """Parse V2 rows with the same read-only runtime dependencies everywhere."""
+        conversion_cache: dict[tuple[str, str, str], dict[str, tuple[Decimal, str]]] = {}
+
+        def package_conversions(**row):
+            key = (str(row["item_key"]), str(row["item_name"]), str(row["category"]))
+            if key not in conversion_cache:
+                # Registry lookup is read-only and closes before any semantic request.
+                with self.session_factory() as session:
+                    registry = MaterialRegistry(session)
+                    resolution = registry.resolve(
+                        tenant_id,
+                        source_id=context.working_file_id,
+                        external_key=row["item_key"],
+                        raw_name=row["item_name"],
+                        category=row["category"],
+                        source_row=row["source_row"],
+                        sheet=row["sheet"],
+                    )
+                    conversion_cache[key] = (
+                        registry.approved_package_conversions(tenant_id, resolution.material_id)
+                        if resolution.material_id else {}
+                    )
+            return conversion_cache[key]
+
+        return parse_daily_count_records(
+            context.config,
+            value_range,
+            package_conversion_resolver=package_conversions,
+            quantity_semantic_analyzer=(
+                lambda payload: self.semantic_analyzer.analyze_quantity(tenant_id, payload)
+            ) if self.semantic_analyzer else None,
+            schema_semantic_analyzer=(
+                lambda payload: self.semantic_analyzer.analyze_schema(tenant_id, payload)
+            ) if self.semantic_analyzer else None,
+        )
+
+    @staticmethod
+    def _google_cell_equivalent(expected: Any, actual: Any) -> bool:
+        """Compare a carry-forward cell without changing its business value."""
+        expected_text = str(expected).strip()
+        actual_text = str(actual).strip()
+        numeric = re.compile(r"^[+-]?\d+(?:[.,]\d+)?$")
+        if numeric.fullmatch(expected_text) and numeric.fullmatch(actual_text):
+            try:
+                return Decimal(expected_text.replace(",", ".")) == Decimal(actual_text.replace(",", "."))
+            except Exception:
+                pass
+        return expected_text == actual_text
 
     def _lock(self, session: Session, key: str) -> None:
         if session.bind is not None and session.bind.dialect.name == "postgresql":
@@ -72,13 +130,19 @@ class InventoryDailySheetService:
             settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id, InventorySettingsModel.enabled.is_(True)))
             if settings is None or (require_enabled and not settings.daily_sheet_automation_enabled):
                 raise DailySheetConfigurationError("Daily Google Sheet automation is disabled.")
-            if not settings.daily_working_spreadsheet_file_id or not settings.daily_archive_root_folder_id or not settings.daily_sheet_config_json:
+            if not settings.daily_working_spreadsheet_file_id or not settings.daily_sheet_config_json:
                 raise DailySheetConfigurationError("Daily Google Sheet configuration is incomplete.")
             try:
                 config = parse_daily_sheet_config(settings.daily_sheet_config_json)
             except Exception as exc:
                 raise DailySheetConfigurationError("Daily Google Sheet mapping is invalid.") from exc
-            if config.reset.mode == "restore_template" and not settings.daily_template_spreadsheet_file_id:
+            if not isinstance(config, GeminiSheetAgentConfig) and not settings.daily_archive_root_folder_id:
+                raise DailySheetConfigurationError("Daily Google Sheet archive configuration is incomplete.")
+            if (
+                not isinstance(config, GeminiSheetAgentConfig)
+                and config.reset.mode == "restore_template"
+                and not settings.daily_template_spreadsheet_file_id
+            ):
                 raise DailySheetConfigurationError("Template spreadsheet is required.")
             source = session.scalar(select(ExternalSourceModel).where(
                 ExternalSourceModel.tenant_id == tenant_id,
@@ -99,7 +163,7 @@ class InventoryDailySheetService:
             context = SheetContext(
                 tenant_id, settings.external_source_id, connection_id,
                 str(settings.daily_working_spreadsheet_file_id),
-                str(settings.daily_archive_root_folder_id),
+                str(settings.daily_archive_root_folder_id or ""),
                 settings.daily_template_spreadsheet_file_id,
                 self._target_file_id(settings, config),
                 config, tuple(connection.scopes_json or ()),
@@ -109,7 +173,7 @@ class InventoryDailySheetService:
 
     @staticmethod
     def _source_ranges(config: DailySheetAnyConfig) -> list[str]:
-        return [config.source.a1_range] if isinstance(config, DailyCountSheetConfig) else [item.a1_range for item in config.source_ranges]
+        return [config.source.a1_range] if isinstance(config, (DailyCountSheetConfig, GeminiSheetAgentConfig)) else [item.a1_range for item in config.source_ranges]
 
     @staticmethod
     def _target_file_id(settings: InventorySettingsModel, config: DailySheetAnyConfig) -> str:
@@ -132,27 +196,43 @@ class InventoryDailySheetService:
                 checks.append({"code": "native_working_spreadsheet", "ok": True})
                 if (working.get("capabilities") or {}).get("canEdit") is False:
                     errors.append({"code": "working_spreadsheet_not_editable"})
-                archive = google.drive_file(context.archive_root_id)
-                if archive.get("mimeType") != "application/vnd.google-apps.folder":
-                    errors.append({"code": "archive_root_not_folder"})
-                if (archive.get("capabilities") or {}).get("canAddChildren") is False:
-                    errors.append({"code": "archive_root_not_writable"})
+                if not isinstance(context.config, GeminiSheetAgentConfig):
+                    archive = google.drive_file(context.archive_root_id)
+                    if archive.get("mimeType") != "application/vnd.google-apps.folder":
+                        errors.append({"code": "archive_root_not_folder"})
+                    if (archive.get("capabilities") or {}).get("canAddChildren") is False:
+                        errors.append({"code": "archive_root_not_writable"})
                 metadata = google.spreadsheet_metadata(context.working_file_id)
-                if isinstance(context.config, DailyCountSheetConfig):
+                if isinstance(context.config, GeminiSheetAgentConfig):
+                    tabs = {
+                        str(item.get("properties", {}).get("title") or "")
+                        for item in metadata.get("sheets", [])
+                    }
+                    if context.config.source.sheet not in tabs:
+                        errors.append({
+                            "code": "configured_sheet_missing",
+                            "sheet": context.config.source.sheet,
+                        })
+                    else:
+                        google.batch_get_values(
+                            context.working_file_id,
+                            [context.config.source.a1_range],
+                        )
+                        google.batch_get_values(
+                            context.working_file_id,
+                            [context.config.source.a1_range],
+                            value_render_option="FORMULA",
+                        )
+                        checks.append({"code": "gemini_sheet_agent_source", "ok": True})
+                elif isinstance(context.config, DailyCountSheetConfig):
                     tabs = {str(item.get("properties", {}).get("title") or "") for item in metadata.get("sheets", [])}
                     if context.config.source.sheet not in tabs:
                         errors.append({"code": "configured_sheet_missing", "sheet": context.config.source.sheet})
                     source_values = google.batch_get_values(context.working_file_id, self._source_ranges(context.config))
                     records = {}
                     try:
-                        records, parse_warnings = parse_daily_count_records(
-                            context.config, source_values[0] if source_values else {},
-                            quantity_semantic_analyzer=(
-                                lambda payload: self.semantic_analyzer.analyze_quantity(tenant_id, payload)
-                            ) if self.semantic_analyzer else None,
-                            schema_semantic_analyzer=(
-                                lambda payload: self.semantic_analyzer.analyze_schema(tenant_id, payload)
-                            ) if self.semantic_analyzer else None,
+                        records, parse_warnings = self._parse_v2_runtime(
+                            tenant_id, context, source_values[0] if source_values else {}
                         )
                         warnings.extend(parse_warnings)
                         if any(
@@ -375,8 +455,42 @@ class InventoryDailySheetService:
                     session.commit()
             raise
 
+    def _agent(self):
+        if self.agent_service is None:
+            from app.modules.inventory.daily_sheet.agent.service import build_daily_sheet_agent_service
+            self.agent_service = build_daily_sheet_agent_service(
+                session_factory=self.session_factory,
+                context_provider=self._context,
+                client_factory=self.client_factory,
+                token_resolver=self.token_resolver,
+            )
+        return self.agent_service
+
+    def plan_agent_run(self, tenant_id: str, business_date: date, *, dry_run: bool = True):
+        context = self._context(tenant_id)
+        if not isinstance(context.config, GeminiSheetAgentConfig):
+            raise DailySheetConfigurationError("Gemini Sheet Agent V3 is not configured.")
+        return self._agent().plan_agent_run(tenant_id, business_date, dry_run=dry_run)
+
+    def apply_agent_plan(self, tenant_id: str, plan, *, expected_plan_hash: str, expected_source_hash: str):
+        context = self._context(tenant_id)
+        if not isinstance(context.config, GeminiSheetAgentConfig):
+            raise DailySheetConfigurationError("Gemini Sheet Agent V3 is not configured.")
+        return self._agent().apply_agent_plan(
+            tenant_id,
+            plan,
+            expected_plan_hash=expected_plan_hash,
+            expected_source_hash=expected_source_hash,
+        )
+
     def snapshot_and_reset(self, tenant_id: str, business_date: date):
         context = self._context(tenant_id)
+        if isinstance(context.config, GeminiSheetAgentConfig):
+            return self.plan_agent_run(
+                tenant_id,
+                business_date,
+                dry_run=context.config.agent.apply_mode != "auto",
+            )
         row, claimed = self._claim_snapshot(tenant_id, business_date, context)
         if not claimed: return row
         started = time.monotonic()
@@ -389,7 +503,15 @@ class InventoryDailySheetService:
                 source_values = google.batch_get_values(context.working_file_id, self._source_ranges(context.config))
                 source_hash = canonical_hash(value_blocks(source_values))
                 if isinstance(context.config, DailyCountSheetConfig):
-                    parse_daily_count_records(context.config, source_values[0] if source_values else {})
+                    _records, parse_warnings = self._parse_v2_runtime(
+                        tenant_id, context, source_values[0] if source_values else {}
+                    )
+                    if any(
+                        warning.get("code") == "schema_mapping_proposed"
+                        and (warning.get("requires_review") or warning.get("reset_relevant_changed"))
+                        for warning in parse_warnings
+                    ):
+                        raise DailySheetValidationError("reset_schema_mapping_approval_required")
                 snapshot_id = row.snapshot_file_id
                 if not snapshot_id:
                     folder = google.ensure_archive_folder(context.archive_root_id, tenant_id=tenant_id, business_date=business_date.isoformat())
@@ -476,7 +598,13 @@ class InventoryDailySheetService:
         source = google.batch_get_values(context.working_file_id, [config.source.a1_range])
         block = source[0] if source else {}
         rows = list(block.get("values") or [])
-        records, _warnings = parse_daily_count_records(config, block)
+        records, parse_warnings = self._parse_v2_runtime(context.tenant_id, context, block)
+        if any(
+            warning.get("code") == "schema_mapping_proposed"
+            and (warning.get("requires_review") or warning.get("reset_relevant_changed"))
+            for warning in parse_warnings
+        ):
+            raise DailySheetValidationError("reset_schema_mapping_approval_required")
         header = rows[config.source.header_row - 1]
         positions = {_normalized_header(value): index for index, value in enumerate(header)}
         semantic_indexes = {semantic: positions[_normalized_header(heading)] for semantic, heading in config.source.columns.model_dump().items()}
@@ -493,6 +621,16 @@ class InventoryDailySheetService:
             } for record in records.values()]
             if updates:
                 google.batch_update_values(context.working_file_id, updates)
+                carried = google.batch_get_values(
+                    context.working_file_id, [update["range"] for update in updates]
+                )
+                if len(carried) != len(updates) or any(
+                    not block.get("values")
+                    or not block["values"][0]
+                    or not self._google_cell_equivalent(update["values"][0][0], block["values"][0][0])
+                    for update, block in zip(updates, carried, strict=False)
+                ):
+                    raise DailySheetValidationError("reset_verification_failed")
         if clear_ranges:
             google.batch_clear_values(context.working_file_id, clear_ranges)
             cleared = google.batch_get_values(context.working_file_id, clear_ranges)
@@ -510,6 +648,12 @@ class InventoryDailySheetService:
 
     def reconcile(self, tenant_id: str, business_date: date, *, dry_run: bool = False):
         context = self._context(tenant_id, require_enabled=False)
+        if isinstance(context.config, GeminiSheetAgentConfig):
+            return {
+                "status": "report_only",
+                "business_date": business_date.isoformat(),
+                "writes": 0,
+            }
         if isinstance(context.config, DailyCountSheetConfig):
             return self._reconcile_v2(tenant_id, business_date, context, dry_run=dry_run)
         if not dry_run:
@@ -580,38 +724,14 @@ class InventoryDailySheetService:
         with self.client_factory(self._token(context.connection_id)) as google:
             current_values = google.batch_get_values(str(current.snapshot_file_id), [context.config.source.a1_range])
             previous_values = google.batch_get_values(str(previous.snapshot_file_id), [context.config.source.a1_range])
+            current_records, current_warnings = self._parse_v2_runtime(
+                tenant_id, context, current_values[0] if current_values else {}
+            )
+            previous_records, previous_warnings = self._parse_v2_runtime(
+                tenant_id, context, previous_values[0] if previous_values else {}
+            )
             with self.session_factory() as registry_session:
                 registry = MaterialRegistry(registry_session)
-
-                def package_conversions(**row):
-                    resolution = registry.resolve(
-                        tenant_id, source_id=context.working_file_id,
-                        external_key=row["item_key"], raw_name=row["item_name"],
-                        category=row["category"], source_row=row["source_row"], sheet=row["sheet"],
-                    )
-                    return (
-                        registry.approved_package_conversions(tenant_id, resolution.material_id)
-                        if resolution.material_id else {}
-                    )
-
-                quantity_analyzer = (
-                    lambda payload: self.semantic_analyzer.analyze_quantity(tenant_id, payload)
-                ) if self.semantic_analyzer else None
-                schema_analyzer = (
-                    lambda payload: self.semantic_analyzer.analyze_schema(tenant_id, payload)
-                ) if self.semantic_analyzer else None
-                current_records, current_warnings = parse_daily_count_records(
-                    context.config, current_values[0] if current_values else {},
-                    package_conversion_resolver=package_conversions,
-                    quantity_semantic_analyzer=quantity_analyzer,
-                    schema_semantic_analyzer=schema_analyzer,
-                )
-                previous_records, previous_warnings = parse_daily_count_records(
-                    context.config, previous_values[0] if previous_values else {},
-                    package_conversion_resolver=package_conversions,
-                    quantity_semantic_analyzer=quantity_analyzer,
-                    schema_semantic_analyzer=schema_analyzer,
-                )
                 target_records = dict(current_records)
                 current_records, current_semantics, unresolved = self._resolve_material_records(
                     registry, tenant_id, context.working_file_id, str(current.snapshot_file_id),

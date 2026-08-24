@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 
 import pytest
@@ -10,9 +12,17 @@ from app.core.database import Base
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
 from app.modules.inventory.daily_sheet.google_client import GOOGLE_SHEETS_SCOPE, NATIVE_SPREADSHEET_MIME
-from app.modules.inventory.daily_sheet.parser import DailySheetValidationError
+from app.modules.inventory.daily_sheet.parser import DailyCountSheetValidationError, DailySheetValidationError
 from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
-from app.modules.inventory.persistence_model import InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel
+from app.modules.inventory.persistence_model import (
+    InventoryDailySheetReconciliationModel,
+    InventoryDailySheetSnapshotModel,
+    InventoryItemModel,
+    InventoryMaterialCandidateModel,
+    InventoryMaterialExternalIdentityModel,
+    InventoryMaterialPackageConversionModel,
+    InventorySettingsModel,
+)
 
 
 CONFIG = {
@@ -337,6 +347,13 @@ class FakeGoogleV2(FakeGoogle):
             "sheets": [{"properties": {"sheetId": 1, "title": "Bảng Kiểm Kê Nguyên Liệu Vật Tư"}}],
         }
 
+    def copy_spreadsheet(self, source_id, **_kwargs):
+        self.copy_calls += 1
+        self.values[("snapshot", V2_RANGE)] = [
+            list(row) for row in self.values[(source_id, V2_RANGE)]
+        ]
+        return {"id": "snapshot"}
+
 
 def configure_v2(sessions):
     with sessions.begin() as session:
@@ -351,6 +368,19 @@ def test_v2_validation_returns_structured_timezone_warning(daily_sheet_db):
     assert report["valid"] is True
     assert report["errors"] == []
     assert any(item["code"] == "workbook_timezone_mismatch" for item in report["warnings"])
+
+
+def test_v2_deterministic_row_parses_through_snapshot_and_reset(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    google = FakeGoogleV2()
+    worker = service(daily_sheet_db, google)
+
+    assert worker.validate_configuration("tenant-a")["valid"] is True
+    result = worker.snapshot_and_reset("tenant-a", date(2030, 8, 9))
+
+    assert result.status == "completed"
+    assert google.copy_calls == 1
+    assert google.clear_calls == 1
 
 
 def test_v2_report_only_compares_immutable_snapshots_without_writes(daily_sheet_db):
@@ -505,5 +535,291 @@ def test_v2_reset_relevant_schema_drift_is_semantically_explained_but_validation
     report = worker.validate_configuration("tenant-a")
     assert report["valid"] is False
     assert any(error["code"] == "reset_schema_mapping_approval_required" for error in report["errors"])
+    with pytest.raises(DailySheetValidationError, match="reset_schema_mapping_approval_required"):
+        worker._reset_v2(google, worker._context("tenant-a"))
     assert google.update_calls == []
     assert google.clear_calls == 0
+
+
+def _configure_carry_forward(sessions):
+    configure_v2(sessions)
+    with sessions.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_sheet_config_json = {
+            **V2_CONFIG,
+            "reset": {
+                "mode": "carry_forward",
+                "clear_columns": ["used", "inbound", "waste", "closing"],
+            },
+        }
+
+
+def test_v2_carry_forward_verifies_opening_before_clear(daily_sheet_db):
+    _configure_carry_forward(daily_sheet_db)
+
+    class RecordingGoogle(FakeGoogleV2):
+        def __init__(self):
+            super().__init__()
+            self.events = []
+
+        def batch_update_values(self, file_id, updates):
+            self.events.append("opening_write")
+            return super().batch_update_values(file_id, updates)
+
+        def batch_get_values(self, file_id, ranges, **kwargs):
+            if ranges == ["'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!D2"]:
+                self.events.append("opening_verify")
+            return super().batch_get_values(file_id, ranges, **kwargs)
+
+        def batch_clear_values(self, file_id, ranges):
+            self.events.append("clear")
+            return super().batch_clear_values(file_id, ranges)
+
+    google = RecordingGoogle()
+    worker = service(daily_sheet_db, google)
+    worker._reset_v2(google, worker._context("tenant-a"))
+
+    assert google.events.index("opening_write") < google.events.index("opening_verify")
+    assert google.events.index("opening_verify") < google.events.index("clear")
+    assert google.clear_calls == 1
+
+
+def test_v2_failed_carry_forward_verification_never_clears(daily_sheet_db):
+    _configure_carry_forward(daily_sheet_db)
+
+    class MismatchedGoogle(FakeGoogleV2):
+        def batch_get_values(self, file_id, ranges, **kwargs):
+            if ranges == ["'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!D2"]:
+                return [{"range": ranges[0], "values": [["wrong value"]]}]
+            return super().batch_get_values(file_id, ranges, **kwargs)
+
+    google = MismatchedGoogle()
+    worker = service(daily_sheet_db, google)
+    with pytest.raises(DailySheetValidationError, match="reset_verification_failed"):
+        worker._reset_v2(google, worker._context("tenant-a"))
+
+    assert google.clear_calls == 0
+    assert google.values[("working", V2_RANGE)][1][7] == "14"
+
+
+def test_v2_carry_forward_numeric_google_rendering_is_equivalent(daily_sheet_db):
+    _configure_carry_forward(daily_sheet_db)
+
+    class NumericRenderingGoogle(FakeGoogleV2):
+        def batch_update_values(self, file_id, updates):
+            rendered = [
+                {**update, "values": [[int(update["values"][0][0])]]}
+                for update in updates
+            ]
+            return super().batch_update_values(file_id, rendered)
+
+    google = NumericRenderingGoogle()
+    worker = service(daily_sheet_db, google)
+    worker._reset_v2(google, worker._context("tenant-a"))
+
+    assert google.clear_calls == 1
+    assert google.values[("working", "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!D2")] == [[14]]
+
+
+def test_v2_carry_forward_structured_raw_text_is_verified_unchanged(daily_sheet_db):
+    _configure_carry_forward(daily_sheet_db)
+    raw = "1(238,5g); 2(299,4g)"
+    google = FakeGoogleV2()
+    google.values[("working", V2_RANGE)][1][7] = raw
+    worker = service(daily_sheet_db, google)
+    worker._reset_v2(google, worker._context("tenant-a"))
+
+    assert google.clear_calls == 1
+    assert google.values[("working", "'Bảng Kiểm Kê Nguyên Liệu Vật Tư'!D2")] == [[raw]]
+
+
+def test_v2_runtime_uses_approved_package_conversion_in_validation_and_reset(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    with daily_sheet_db.begin() as session:
+        material = InventoryItemModel(
+            tenant_id="tenant-a", sku="MATERIAL-25", name="Khúc bạch tảng",
+            base_unit="g", preferred_unit="g", canonical_dimension="mass",
+        )
+        session.add(material)
+        session.flush()
+        session.add_all([
+            InventoryMaterialExternalIdentityModel(
+                tenant_id="tenant-a", item_id=material.id, source_type="google_sheet",
+                source_id="working", external_key="25", last_seen_name="Khúc bạch tảng",
+            ),
+            InventoryMaterialPackageConversionModel(
+                tenant_id="tenant-a", item_id=material.id,
+                package_name="Bich", normalized_package="bich",
+                canonical_value=Decimal("1000"), canonical_unit="g", approved_by="admin",
+            ),
+        ])
+    google = FakeGoogleV2()
+    google.values[("working", V2_RANGE)][1][7] = "2 bich + 300g"
+    worker = service(daily_sheet_db, google)
+
+    assert worker.validate_configuration("tenant-a")["valid"] is True
+    worker._reset_v2(google, worker._context("tenant-a"))
+
+    assert google.clear_calls == 1
+    with daily_sheet_db() as session:
+        assert session.scalar(select(InventoryMaterialCandidateModel)) is None
+
+
+def test_v2_runtime_semantic_quantity_fallback_is_shared_by_validation_and_reset(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    calls = []
+
+    class SemanticAnalyzer:
+        def match_material(self, _payload):
+            return None
+
+        def analyze_schema(self, _tenant_id, _payload):
+            return None
+
+        def analyze_quantity(self, tenant_id, payload):
+            calls.append((tenant_id, payload["raw"]))
+            return {
+                "status": "parsed", "raw": payload["raw"],
+                "canonical_value": "700", "canonical_unit": "ml",
+                "confidence": 1, "requires_review": False, "warnings": [],
+            }
+
+    google = FakeGoogleV2()
+    google.values[("working", V2_RANGE)][1][7] = "approximately 700ml"
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "token",
+        semantic_analyzer=SemanticAnalyzer(),
+    )
+
+    assert worker.validate_configuration("tenant-a")["valid"] is True
+    worker._reset_v2(google, worker._context("tenant-a"))
+
+    assert calls == [
+        ("tenant-a", "approximately 700ml"),
+        ("tenant-a", "approximately 700ml"),
+    ]
+    assert google.clear_calls == 1
+
+
+def test_v2_runtime_blank_authoritative_value_never_calls_semantic_or_clears(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    calls = []
+
+    class SemanticAnalyzer:
+        def match_material(self, _payload):
+            return None
+
+        def analyze_schema(self, _tenant_id, _payload):
+            return None
+
+        def analyze_quantity(self, tenant_id, payload):
+            calls.append((tenant_id, payload))
+            return None
+
+    google = FakeGoogleV2()
+    google.values[("working", V2_RANGE)][1][7] = ""
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "token",
+        semantic_analyzer=SemanticAnalyzer(),
+    )
+
+    with pytest.raises(DailyCountSheetValidationError):
+        worker._reset_v2(google, worker._context("tenant-a"))
+
+    assert calls == []
+    assert google.clear_calls == 0
+
+
+def test_v2_runtime_structural_hard_block_cannot_be_bypassed_before_reset(daily_sheet_db):
+    configure_v2(daily_sheet_db)
+    calls = []
+
+    class SemanticAnalyzer:
+        def match_material(self, _payload):
+            return None
+
+        def analyze_schema(self, _tenant_id, _payload):
+            return None
+
+        def analyze_quantity(self, tenant_id, payload):
+            calls.append((tenant_id, payload["deterministic_error"]))
+            return {
+                "status": "parsed", "raw": payload["raw"],
+                "canonical_value": "350.5", "canonical_unit": "g",
+                "confidence": 1, "requires_review": False, "warnings": [],
+            }
+
+    google = FakeGoogleV2()
+    google.values[("working", V2_RANGE)][1][3:8] = ["1(350", "5g)", "", "", "10"]
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "token",
+        semantic_analyzer=SemanticAnalyzer(),
+    )
+
+    with pytest.raises(DailyCountSheetValidationError) as captured:
+        worker._reset_v2(google, worker._context("tenant-a"))
+
+    assert "suspected_shifted_quantity" in {error["code"] for error in captured.value.errors}
+    assert google.clear_calls == 0
+
+
+def test_v3_configuration_does_not_require_legacy_archive(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_archive_root_folder_id = None
+        settings.daily_sheet_config_json = {
+            "version": 3,
+            "mode": "gemini_sheet_agent",
+            "source": {"sheet": "Daily", "range": "A1:H4"},
+        }
+
+    class V3Google(FakeGoogle):
+        def drive_file(self, file_id):
+            raise AssertionError("V3 validation must not inspect a legacy archive folder")
+        def spreadsheet_metadata(self, file_id):
+            return {
+                "properties": {"title": "Daily", "timeZone": "Asia/Ho_Chi_Minh"},
+                "sheets": [{"properties": {"title": "Daily", "sheetId": 1}}],
+            }
+
+    google = V3Google()
+    google.values[("working", "'Daily'!A1:H4")] = [["STT", "Material"], ["1", "Milk"]]
+    report = service(daily_sheet_db, google).validate_configuration("tenant-a")
+    assert report["valid"] is True
+    assert {"code": "gemini_sheet_agent_source", "ok": True} in report["checks"]
+
+
+def test_snapshot_and_reset_routes_v3_to_injected_agent_without_legacy_snapshot(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_archive_root_folder_id = None
+        settings.daily_sheet_config_json = {
+            "version": 3,
+            "mode": "gemini_sheet_agent",
+            "source": {"sheet": "Daily", "range": "A1:H4"},
+            "agent": {"apply_mode": "shadow"},
+        }
+
+    class Agent:
+        def __init__(self):
+            self.calls = []
+        def plan_agent_run(self, tenant_id, business_date, *, dry_run):
+            self.calls.append((tenant_id, business_date, dry_run))
+            return SimpleNamespace(status="shadow")
+
+    agent = Agent()
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: (_ for _ in ()).throw(AssertionError("legacy Google flow called")),
+        token_resolver=lambda _connection: "token",
+        agent_service=agent,
+    )
+    result = worker.snapshot_and_reset("tenant-a", date(2030, 8, 9))
+    assert result.status == "shadow"
+    assert agent.calls == [("tenant-a", date(2030, 8, 9), True)]

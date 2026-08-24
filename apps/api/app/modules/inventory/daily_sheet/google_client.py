@@ -187,7 +187,7 @@ class GoogleSheetsInventoryClient:
 
     def spreadsheet_metadata(self, spreadsheet_id: str) -> dict[str, Any]:
         return self._request("GET", f"{self.SHEETS}/{spreadsheet_id}", params={
-            "fields": "spreadsheetId,properties(title,timeZone),sheets.properties",
+            "fields": "spreadsheetId,properties(title,timeZone),sheets(properties,merges,protectedRanges(range,warningOnly,description))",
         })
 
     def batch_get_values(self, spreadsheet_id: str, ranges: list[str], *, value_render_option: str = "UNFORMATTED_VALUE") -> list[dict[str, Any]]:

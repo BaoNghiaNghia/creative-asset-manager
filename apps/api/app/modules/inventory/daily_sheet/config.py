@@ -222,11 +222,59 @@ class DailyCountSheetConfig(DailySheetModel):
     reconciliation: DailyCountReconciliationConfig = Field(default_factory=DailyCountReconciliationConfig)
     new_material_policy: Literal["review_required", "auto_register_high_confidence", "ignore", "block"] = "review_required"
 
-DailySheetAnyConfig: TypeAlias = DailySheetConfig | DailyCountSheetConfig
+class SheetAgentSourceConfig(DailySheetModel):
+    sheet: str = Field(min_length=1, max_length=255)
+    range: str = Field(min_length=1, max_length=512)
+
+    @property
+    def a1_range(self) -> str:
+        if "!" in self.range:
+            return validate_a1(self.range)
+        sheet = self.sheet.replace("'", "''")
+        return validate_a1(f"'{sheet}'!{self.range}")
+
+
+class SheetAgentConfig(DailySheetModel):
+    apply_mode: Literal["shadow", "review", "auto"] = "shadow"
+    business_goal: list[str] = Field(
+        default_factory=lambda: [
+            "Preserve final inventory as next-day opening inventory",
+            "Clear daily transaction/input values after verified carry-forward",
+            "Preserve workbook identity, labels, formatting and formulas",
+        ],
+        min_length=1,
+    )
+
+
+class SheetAgentSafetyConfig(DailySheetModel):
+    max_edit_operations: int = Field(default=200, ge=1, le=1000)
+    allow_structure_changes: bool = False
+    allow_formula_changes: bool = False
+    require_review_for_repairs: bool = True
+    require_review_for_material_changes: bool = True
+
+
+class SheetAgentReconciliationConfig(DailySheetModel):
+    mode: Literal["report_only"] = "report_only"
+
+
+class GeminiSheetAgentConfig(DailySheetModel):
+    version: Literal[3] = 3
+    mode: Literal["gemini_sheet_agent"] = "gemini_sheet_agent"
+    source: SheetAgentSourceConfig
+    agent: SheetAgentConfig = Field(default_factory=SheetAgentConfig)
+    safety: SheetAgentSafetyConfig = Field(default_factory=SheetAgentSafetyConfig)
+    reconciliation: SheetAgentReconciliationConfig = Field(default_factory=SheetAgentReconciliationConfig)
+
+
+DailySheetAnyConfig: TypeAlias = DailySheetConfig | DailyCountSheetConfig | GeminiSheetAgentConfig
+
 
 def parse_daily_sheet_config(value: object) -> DailySheetAnyConfig:
-    if isinstance(value, (DailySheetConfig, DailyCountSheetConfig)):
+    if isinstance(value, (DailySheetConfig, DailyCountSheetConfig, GeminiSheetAgentConfig)):
         return value
+    if isinstance(value, dict) and value.get("version") == 3:
+        return GeminiSheetAgentConfig.model_validate(value)
     if isinstance(value, dict) and value.get("version") == 2:
         return DailyCountSheetConfig.model_validate(value)
     return DailySheetConfig.model_validate(value)

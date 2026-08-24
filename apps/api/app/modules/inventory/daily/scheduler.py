@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 from app.modules.inventory.daily.service import InventoryDailyRunService
 from app.modules.inventory.daily.report import DailyReportNotFinalized, InventoryDailyReportService
 from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
+from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.persistence_model import InventorySettingsModel
 
 logger = logging.getLogger(__name__)
@@ -34,8 +35,20 @@ class InventoryDailyScheduler:
         self.session_factory = session_factory
         self.service = service or InventoryDailyRunService(session_factory)
         self.report_service = report_service or InventoryDailyReportService(session_factory)
-        self.sheet_service = sheet_service or InventoryDailySheetService(session_factory)
+        if sheet_service is not None:
+            self.sheet_service = sheet_service
+        else:
+            semantic_analyzer = build_daily_sheet_semantic_analyzer(
+                session_factory=session_factory
+            )
+            self.sheet_service = InventoryDailySheetService(
+                session_factory, semantic_analyzer=semantic_analyzer
+            )
         self.allowed_tenant_ids = allowed_tenant_ids
+        # V1/V2 use persisted daily records. V3 has no persistence migration in
+        # its first release, so suppress repeated successful planning within the
+        # long-lived scheduler process while still retrying failures.
+        self._completed_v3_plans: set[tuple[str, date]] = set()
 
     def run_once(self, now: datetime | None = None) -> int:
         moment = now or datetime.now(timezone.utc)
@@ -66,12 +79,26 @@ class InventoryDailyScheduler:
                     snapshot_due = local.time() >= _configured_time(settings.daily_snapshot_time_local, time(5, 50))
                     reconcile_due = local.time() >= _configured_time(settings.daily_reconcile_time_local, time(7, 0))
                     if snapshot_due:
-                        snapshot = self.sheet_service.snapshot_and_reset(tenant_id, business_date)
-                        if snapshot.status == "completed":
-                            count += 1
-                            if reconcile_due:
-                                self.sheet_service.reconcile(tenant_id, business_date)
+                        is_v3 = (
+                            isinstance(settings.daily_sheet_config_json, dict)
+                            and settings.daily_sheet_config_json.get("version") == 3
+                        )
+                        if is_v3:
+                            plan_key = (tenant_id, business_date)
+                            if plan_key not in self._completed_v3_plans:
+                                self.sheet_service.snapshot_and_reset(tenant_id, business_date)
+                                self._completed_v3_plans.add(plan_key)
+                                # Shadow/review generate plans only; auto remains guard-gated.
                                 count += 1
+                        else:
+                            snapshot = self.sheet_service.snapshot_and_reset(
+                                tenant_id, business_date
+                            )
+                            if snapshot.status == "completed":
+                                count += 1
+                                if reconcile_due:
+                                    self.sheet_service.reconcile(tenant_id, business_date)
+                                    count += 1
                 if settings.image_pipeline_enabled:
                     count += self._run_legacy(tenant_id, local)
             except Exception:
