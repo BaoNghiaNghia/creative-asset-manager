@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.modules.inventory.daily_sheet.agent.contracts import (
-    EditOperation, EditPlan, MaterialAction, PlanSource,
+    EditOperation, EditPlan, MaterialAction, PlanIssue, PlanSource,
 )
 from app.modules.inventory.daily_sheet.agent.executor import (
     EditPlanVerificationError, GoogleSheetEditPlanExecutor, StaleEditPlan, plan_hash,
@@ -194,6 +194,19 @@ def test_copy_provenance_preserves_structured_numeric_text_exactly():
     assert "transformed_value:carry" in result.review_reasons
 
 
+def test_coherent_compound_quantity_is_faithfully_copied_without_review():
+    raw_quantity = "1(238,5g); 2(299,4g)"
+    book = snapshot(closing=raw_quantity)
+    result = guard_plan(make_plan(book, [op(value=raw_quantity)]), book)
+    assert result.accepted
+    assert not result.requires_review
+
+
+def test_material_action_schema_exposes_grounding_cells():
+    properties = MaterialAction.model_json_schema()["properties"]
+    assert {"source_key_cell", "source_name", "source_name_cell"} <= properties.keys()
+
+
 def test_copy_provenance_allows_json_number_for_numeric_sheet_value():
     book = snapshot(closing="14")
     result = guard_plan(make_plan(book, [op(value=14)]), book)
@@ -216,22 +229,78 @@ def test_guard_requires_review_for_unproven_set():
     assert "unproven_set:carry" in result.review_reasons
 
 
-def test_guard_validates_tenant_material_match():
+def test_guard_validates_grounded_tenant_material_match():
     book = snapshot()
-    action = MaterialAction(action="MATCH_EXISTING", source_key="milk", material_id="material-1")
+    action = MaterialAction(
+        action="MATCH_EXISTING",
+        source_key="1",
+        source_key_cell="A2",
+        source_name="Milk",
+        source_name_cell="B2",
+        material_id="material-1",
+    )
     guard = SheetAgentSafetyGuard(
         material_validator=lambda tenant, material: (tenant, material) == ("tenant-a", "material-1")
     )
-    assert guard_plan(make_plan(book, [], material_actions=[action]), book, guard).accepted
+    result = guard_plan(make_plan(book, [], material_actions=[action]), book, guard)
+    assert result.accepted and not result.requires_review
+
     bad = action.model_copy(update={"material_id": "tenant-b-material"})
-    assert not guard_plan(make_plan(book, [], material_actions=[bad]), book, guard).accepted
+    assert "invalid_material_match:1" in guard_plan(
+        make_plan(book, [], material_actions=[bad]), book, guard
+    ).errors
+
+
+@pytest.mark.parametrize(
+    "update,error",
+    [
+        ({"source_key": "wrong"}, "material_source_key_mismatch:wrong"),
+        ({"source_key_cell": "Z99"}, "material_source_key_cell_invalid:1"),
+        ({"source_name": "Wrong"}, "material_source_name_mismatch:1"),
+        ({"source_name_cell": "Z99"}, "material_source_name_cell_invalid:1"),
+        ({"source_name_cell": None}, "material_source_name_incomplete:1"),
+    ],
+)
+def test_guard_rejects_invalid_material_identity_grounding(update, error):
+    book = snapshot()
+    action = MaterialAction(
+        action="MATCH_EXISTING",
+        source_key="1",
+        source_key_cell="A2",
+        source_name="Milk",
+        source_name_cell="B2",
+        material_id="material-1",
+    ).model_copy(update=update)
+    guard = SheetAgentSafetyGuard(material_validator=lambda tenant, material: True)
+    assert error in guard_plan(
+        make_plan(book, [], material_actions=[action]), book, guard
+    ).errors
+
+
+def test_match_existing_requires_source_key_cell():
+    book = snapshot()
+    action = MaterialAction(
+        action="MATCH_EXISTING", source_key="1", material_id="material-1"
+    )
+    guard = SheetAgentSafetyGuard(material_validator=lambda tenant, material: True)
+    assert "material_source_key_cell_missing:1" in guard_plan(
+        make_plan(book, [], material_actions=[action]), book, guard
+    ).errors
 
 
 @pytest.mark.parametrize("action", ["NEW_MATERIAL", "POSSIBLE_RENAME", "AMBIGUOUS"])
-def test_guard_routes_material_changes_to_review(action):
+def test_guard_routes_grounded_material_changes_to_review(action):
     book = snapshot()
-    material = MaterialAction(action=action, source_key="new")
-    assert guard_plan(make_plan(book, [], material_actions=[material]), book).requires_review
+    material = MaterialAction(
+        action=action,
+        source_key="1",
+        source_key_cell="A2",
+        source_name="Milk",
+        source_name_cell="B2",
+    )
+    result = guard_plan(make_plan(book, [], material_actions=[material]), book)
+    assert result.accepted and result.requires_review
+    assert f"material_{action.lower()}:1" in result.review_reasons
 
 
 @pytest.mark.parametrize("status,accepted,review", [
@@ -632,3 +701,120 @@ def test_missing_closing_evidence_does_not_create_operations():
 
     assert final_plan.operations == []
     assert final_plan.source.range == "'Daily'!A1:Z80"
+
+
+def test_planner_policy_distinguishes_coherent_compound_split_and_blank():
+    assert 'P12 = "1(238,5g); 2(299,4g)"' in PLANNER_INSTRUCTIONS
+    assert "is not an issue merely because it is compound" in PLANNER_INSTRUCTIONS
+    assert 'P12 = "1(350"' in PLANNER_INSTRUCTIONS
+    assert 'Q12 = "5g)"' in PLANNER_INSTRUCTIONS
+    assert "suspected adjacent-cell split" in PLANNER_INSTRUCTIONS
+    assert "require review" in PLANNER_INSTRUCTIONS
+    assert "Blank is not zero" in PLANNER_INSTRUCTIONS
+    assert "R12 = blank is unknown/missing and is never zero" in PLANNER_INSTRUCTIONS
+    assert "Complexity of formatting alone does not" in PLANNER_INSTRUCTIONS
+
+
+def test_planner_policy_defines_status_and_internal_semantic_checklist():
+    assert "Plan status semantics: ready" in PLANNER_INSTRUCTIONS
+    assert "Informational issues with requires_review=false do not promote status" in PLANNER_INSTRUCTIONS
+    assert "header semantics" in PLANNER_INSTRUCTIONS
+    assert "item rows versus section/total rows" in PLANNER_INSTRUCTIONS
+    assert "material/catalog resolution" in PLANNER_INSTRUCTIONS
+    assert "do not reveal reasoning" in PLANNER_INSTRUCTIONS
+
+
+def production_shaped_snapshot():
+    raw = [
+        ["Item key", "Section", "Material name", "Opening", "Used", "Inbound", "Fragment", "Closing"],
+        ["M-001", "Primary", "Known material", "1(312g); 2(303,2g)", "", "", "", ""],
+        ["", "TOTAL", "", "", "", "", "", ""],
+        ["M-002", "Primary", "Unresolved material", "", "", "1(350", "5g)", ""],
+        ["", "SECTION TOTAL", "", "", "", "", "", ""],
+    ]
+    return build_workbook_snapshot(
+        spreadsheet_file_id="production-shaped-sheet",
+        file_metadata={"name": "Inventory", "modifiedTime": "2026-08-24T00:00:00Z"},
+        spreadsheet_metadata={
+            "properties": {"title": "Inventory", "timeZone": "Asia/Ho_Chi_Minh"},
+            "sheets": [{"properties": {"title": "Daily", "sheetId": 9}}],
+        },
+        requested_range="'Daily'!A1:Z80",
+        raw_block={"values": raw},
+        formula_block={"values": deepcopy(raw)},
+    )
+
+
+def test_production_shaped_semantic_acceptance_is_grounded_and_shadow_only():
+    book = production_shaped_snapshot()
+    proposal = EditPlan(
+        status="review_required",
+        requires_review=True,
+        source=PlanSource(
+            spreadsheet_file_id="gemini-cannot-select-source",
+            source_hash="0" * 64,
+            sheet="Other",
+            range="A1:H5",
+        ),
+        operations=[],
+        issues=[
+            PlanIssue(
+                type="suspected_split_cell",
+                cells=["F4", "G4"],
+                message="Adjacent fragments require review",
+                requires_review=True,
+            ),
+            PlanIssue(
+                type="missing_closing_quantity",
+                cells=["H2", "H4"],
+                message="Closing evidence is blank",
+                requires_review=True,
+            ),
+        ],
+        material_actions=[
+            MaterialAction(
+                action="NEW_MATERIAL",
+                source_key="M-002",
+                source_key_cell="A4",
+                source_name="Unresolved material",
+                source_name_cell="C4",
+                requires_review=True,
+            )
+        ],
+    )
+    final_plan = bind_authoritative_source(proposal, book)
+    guard = SheetAgentSafetyGuard().validate(
+        tenant_id="tenant-a",
+        plan=final_plan,
+        snapshot=book,
+        allowed_range="'Daily'!A1:Z80",
+        max_operations=200,
+        allow_structure_changes=False,
+        allow_formula_changes=False,
+    )
+    assert final_plan.source.spreadsheet_file_id == book.spreadsheet_file_id
+    assert final_plan.source.source_hash == book.source_hash
+    assert final_plan.source.range == "'Daily'!A1:Z80"
+    assert final_plan.operations == []
+    assert final_plan.issues[0].cells == ["F4", "G4"]
+    assert all("compound" not in issue.type for issue in final_plan.issues)
+    assert guard.accepted and guard.requires_review
+
+    executor = FakeExecutor()
+    production_config = parse_daily_sheet_config({
+        "version": 3,
+        "mode": "gemini_sheet_agent",
+        "source": {"sheet": "Daily", "range": "A1:Z80"},
+        "agent": {"apply_mode": "shadow"},
+    })
+    service = InventoryDailySheetAgentService(
+        planner=FakePlanner(final_plan),
+        snapshot_loader=lambda tenant: book,
+        executor_factory=lambda tenant, loader: executor,
+        config_loader=lambda tenant: production_config,
+        guard=SheetAgentSafetyGuard(),
+    )
+    result = service.plan_agent_run("tenant-a", date(2026, 8, 24), dry_run=True)
+    assert result.status == "review_required"
+    assert result.operation_count == 0
+    assert executor.calls == []

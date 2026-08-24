@@ -35,6 +35,9 @@ class PlanIssue(AgentContract):
 class MaterialAction(AgentContract):
     action: Literal["MATCH_EXISTING", "NEW_MATERIAL", "POSSIBLE_RENAME", "AMBIGUOUS"]
     source_key: str = ""
+    source_key_cell: str | None = None
+    source_name: str | None = None
+    source_name_cell: str | None = None
     material_id: str | None = None
     suggested_name: str | None = None
     reason: str = ""

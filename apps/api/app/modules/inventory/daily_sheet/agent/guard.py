@@ -25,6 +25,12 @@ def _equivalent(left, right) -> bool:
         return Decimal(left_text.replace(",", ".")) == Decimal(right_text.replace(",", "."))
     except (InvalidOperation, ValueError):
         return left_text == right_text
+def _identity_matches(expected: str, actual) -> bool:
+    if actual is None or isinstance(actual, bool):
+        return False
+    return expected == str(actual)
+
+
 def _inside_grid_range(value: str, *, sheet_id: int | None, column: int, row: int) -> bool:
     try:
         payload = json.loads(value)
@@ -84,6 +90,22 @@ class SheetAgentSafetyGuard:
                             if source_value in (None, "") and str(operation.value).strip() in {"0", "0.0"}: errors.append(f"blank_to_zero:{operation.operation_id}")
                 else: reviews.append(f"unproven_set:{operation.operation_id}")
         for action in plan.material_actions:
+            action_key = action.source_key or action.action.lower()
+            if action.source_key_cell is None:
+                if action.action == "MATCH_EXISTING": errors.append(f"material_source_key_cell_missing:{action_key}")
+                else: reviews.append(f"material_source_key_cell_missing:{action_key}")
+            else:
+                try: grounded_key = snapshot_cell(snapshot, action.source_key_cell)
+                except KeyError: errors.append(f"material_source_key_cell_invalid:{action_key}")
+                else:
+                    if not _identity_matches(action.source_key, grounded_key): errors.append(f"material_source_key_mismatch:{action_key}")
+            if (action.source_name is None) != (action.source_name_cell is None):
+                errors.append(f"material_source_name_incomplete:{action_key}")
+            elif action.source_name_cell is not None:
+                try: grounded_name = snapshot_cell(snapshot, action.source_name_cell)
+                except KeyError: errors.append(f"material_source_name_cell_invalid:{action_key}")
+                else:
+                    if not _identity_matches(action.source_name, grounded_name): errors.append(f"material_source_name_mismatch:{action_key}")
             if action.action == "MATCH_EXISTING":
                 if not action.material_id or self.material_validator is None or not self.material_validator(tenant_id, action.material_id): errors.append(f"invalid_material_match:{action.source_key}")
             else: reviews.append(f"material_{action.action.lower()}:{action.source_key}")
