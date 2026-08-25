@@ -392,12 +392,17 @@ touch "$LOG_FILE"
 chmod 0640 "$LOG_FILE"
 
 
+# Preserve the caller's terminal streams before mirroring deployment output.
+# Keeping the terminal file descriptors explicit avoids losing progress/error
+# output when the script is run through sudo, SSH, or another wrapper.
+exec 3>&1 4>&2
+
 # Mirror stdout + stderr to:
 #
-# 1. current SSH terminal
+# 1. current terminal
 # 2. deployment log
 #
-exec > >(tee -a "$LOG_FILE") 2>&1
+exec > >(tee -a "$LOG_FILE" >&3) 2> >(tee -a "$LOG_FILE" >&4)
 
 
 progress 5 "Validating deployment environment"
@@ -852,10 +857,14 @@ wait_for_endpoint() {
       >/dev/null 2>&1
     then
 
+      info "$label is healthy (attempt $attempt/30)"
+
       return 0
 
     fi
 
+
+    info "Waiting for $label (attempt $attempt/30)"
 
     sleep 1
 

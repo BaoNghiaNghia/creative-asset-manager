@@ -46,8 +46,13 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         source = BACKEND.read_text()
         for required in (
             'SOURCE_DIR="${CAM_SOURCE_DIR:-$CHECKOUT_ROOT}"',
-            "/opt/creative-asset-manager", "python3 -m venv", "--no-cache-dir",
+            "/opt/creative-asset-manager", "python3", "-m venv", "--no-cache-dir",
             "alembic", "upgrade head", "wait_for_endpoint",
+            'exec 3>&1 4>&2',
+            'tee -a "$LOG_FILE" >&3',
+            'tee -a "$LOG_FILE" >&4',
+            'Waiting for $label (attempt $attempt/30)',
+            '$label is healthy (attempt $attempt/30)',
             "creative-asset-manager-api.service",
             "creative-asset-manager-image-worker.service",
             "creative-asset-manager-video-worker.service",
