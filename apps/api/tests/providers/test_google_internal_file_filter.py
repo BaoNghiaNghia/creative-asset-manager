@@ -92,6 +92,39 @@ class GoogleInternalFileFilterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0][1]["supportsAllDrives"], "true")
         self.assertEqual(calls[0][1]["includeItemsFromAllDrives"], "true")
 
+    async def test_reconciliation_requests_newest_modified_files_first(self) -> None:
+        calls: list[tuple[str, dict | None]] = []
+        responses = [{
+            "files": [
+                _item(
+                    "new-video",
+                    name="new.mp4",
+                    mimeType="video/mp4",
+                    modifiedTime="2026-08-25T12:00:00Z",
+                ),
+                _item(
+                    "older-image",
+                    name="old.png",
+                    modifiedTime="2026-08-24T12:00:00Z",
+                ),
+            ]
+        }]
+        with patch(
+            "app.providers.google.incremental.httpx.AsyncClient",
+            lambda **kwargs: _Client(responses, calls, **kwargs),
+        ):
+            page = await list_drive_changes(
+                "token-not-logged",
+                ListSourceChangesInput("source-a", reconciliation=True),
+            )
+
+        self.assertEqual(calls[0][0], "/files")
+        self.assertEqual(calls[0][1]["orderBy"], "modifiedTime desc,name")
+        self.assertEqual(
+            [change.external_asset_id for change in page.changes],
+            ["new-video", "older-image"],
+        )
+
     async def test_incremental_internal_update_uses_safe_delete_transition(self) -> None:
         calls: list[tuple[str, dict | None]] = []
         responses = [{

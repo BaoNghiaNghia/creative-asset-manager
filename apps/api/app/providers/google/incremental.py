@@ -71,6 +71,11 @@ async def list_drive_changes(
                 "fields": f"nextPageToken,files({FILE_FIELDS})",
                 "pageSize": input.page_size,
                 "spaces": "drive",
+                # Drive otherwise returns files in an arbitrary order. A full
+                # reconciliation must discover the most recently changed
+                # images and videos first so they enter the processing queue
+                # before the older backlog.
+                "orderBy": "modifiedTime desc,name",
                 "supportsAllDrives": "true",
                 "includeItemsFromAllDrives": "true",
             }
