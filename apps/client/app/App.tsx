@@ -215,6 +215,7 @@ export default function App() {
   const initialDetailsAssetId = new URLSearchParams(window.location.search).get("asset");
   const [detailsAssetId, setDetailsAssetId] = useState<string | null>(initialDetailsAssetId);
   const [detailsItem, setDetailsItem] = useState<Asset | null>(null);
+  const [detailsVideoAnalysis, setDetailsVideoAnalysis] = useState<VideoSearchItem | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => Boolean(initialDetailsAssetId || new URLSearchParams(window.location.search).get("details")));
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
@@ -393,6 +394,7 @@ export default function App() {
   function openDetails(item: Asset) {
     setDetailsOpen(true);
     setDetailsItem(item);
+    setDetailsVideoAnalysis(null);
     setDetailsAssetId(item.internal_asset_id || null);
     const params = new URLSearchParams(window.location.search);
     params.set("details", "1");
@@ -413,13 +415,14 @@ export default function App() {
       external_source_id: item.external_source_id || undefined,
     });
     setDetailsAssetId(null);
+    setDetailsVideoAnalysis(item);
     const params = new URLSearchParams(window.location.search);
     params.set("details", "1");
     params.delete("asset");
     window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
   function closeDetails() {
-    setDetailsOpen(false); setDetailsItem(null); setDetailsAssetId(null);
+    setDetailsOpen(false); setDetailsItem(null); setDetailsAssetId(null); setDetailsVideoAnalysis(null);
     const params = new URLSearchParams(window.location.search); params.delete("asset"); params.delete("details");
     window.history.replaceState({}, "", window.location.pathname + (params.toString() ? "?" + params : ""));
   }
@@ -968,6 +971,7 @@ export default function App() {
     {detailsOpen && explorer.auth.authenticated && <AssetDetailsPanel
       item={detailsItem}
       assetId={detailsAssetId}
+      videoAnalysis={detailsVideoAnalysis}
       metadata={detailsItem ? explorer.metadataByItem[detailsItem.id] : undefined}
       onPreview={setPreviewItem}
       onClose={closeDetails}

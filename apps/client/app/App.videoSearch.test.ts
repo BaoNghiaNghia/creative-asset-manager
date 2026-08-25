@@ -18,6 +18,12 @@ describe("video search UI wiring", () => {
     expect(source).toContain('searchMediaMode === "videos" && explorer.query.trim() ? videoResults');
     expect(source).toContain('(!explorer.query.trim() || imageSearchEnabled) && explorer.selected.size');
   });
+  it("keeps the selected video analysis payload available to the details panel", () => {
+    expect(source).toContain("detailsVideoAnalysis");
+    expect(source).toContain("setDetailsVideoAnalysis(item)");
+    expect(source).toContain("videoAnalysis={detailsVideoAnalysis}");
+  });
+
   it("allows image and video result groups to collapse independently", () => {
     expect(source).toContain("imageResultsExpanded");
     expect(source).toContain("videoResultsExpanded");

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Asset, AssetDetails, AssetMetadata } from "../types";
+import type { VideoSearchItem, VideoSearchMatch } from "../hooks/useVideoSearch";
 import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
 import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { AssetStatusBadge } from "./AssetStatusBadge";
@@ -14,6 +15,7 @@ type Props = {
   item: Asset | null;
   assetId?: string | null;
   metadata?: AssetMetadata;
+  videoAnalysis?: VideoSearchItem | null;
   onClose: () => void;
   onPreview?: (item: Asset) => void;
   onDelete?: () => void;
@@ -22,12 +24,12 @@ type Props = {
   canManageContent?: boolean;
 };
 
-type Section = "details" | "activity" | "metadata" | "history" | "jobs";
+type Section = "details" | "activity" | "analysis" | "metadata" | "history" | "jobs";
 
 type ActivityTone = "success" | "warning" | "danger" | "neutral";
 type ActivityEntry = { id: string; title: string; detail: string; category: string; tone: ActivityTone; at?: string };
 
-export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview, onDelete, onMove, onOpenFolder, canManageContent = false }: Props) {
+export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onClose, onPreview, onDelete, onMove, onOpenFolder, canManageContent = false }: Props) {
   const [data, setData] = useState<AssetDetails | null>(null);
   const [section, setSection] = useState<Section>("details");
   const [coreDetailsError, setCoreDetailsError] = useState("");
@@ -108,8 +110,12 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
   const sourceProvider = provider === "sharepoint" ? "sharepoint" : "google-drive";
   const kind = item?.kind === "folder" ? "folder" : inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), displayName);
   const fileType = getFileType(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), kind);
-  const tabs: Section[] = data ? ["details", "activity", "metadata", "history", "jobs"] : ["details", "activity"];
-  const activity = useMemo(() => buildActivity(item, data), [item, data]);
+  const tabs: Section[] = data
+    ? ["details", "activity", "metadata", "history", "jobs"]
+    : videoAnalysis
+      ? ["details", "activity", "analysis"]
+      : ["details", "activity"];
+  const activity = useMemo(() => buildActivity(item, data, videoAnalysis), [item, data, videoAnalysis]);
 
   return <><aside className="asset-details asset-inspector" aria-label="File information">
     <header className="asset-inspector-header">
@@ -117,7 +123,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
       <div><small>{provider === "sharepoint" ? "SharePoint" : "Google Drive"}</small><h2 title={displayName}>{displayName}</h2></div>
       <button onClick={onClose} aria-label="Close file information" title="Close">×</button>
     </header>
-    <nav aria-label="File information sections">{tabs.map(name => <button key={name} className={section === name ? "active" : ""} aria-current={section === name ? "page" : undefined} onClick={() => setSection(name)}>{name}</button>)}</nav>
+    <nav aria-label="File information sections">{tabs.map(name => <button key={name} className={section === name ? "active" : ""} aria-current={section === name ? "page" : undefined} onClick={() => setSection(name)}>{name === "analysis" ? "AI analysis" : name}</button>)}</nav>
     {coreDetailsError && !data && !item && <div className="panel-error" role="alert">{coreDetailsError}</div>}
     {notice && <div className="panel-notice" role="status">{notice}</div>}
     {loading && <div className="panel-loading" role="status" aria-label="Loading file information"><span className="panel-loading-spinner" aria-hidden="true" /></div>}
@@ -125,6 +131,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, onClose, onPreview,
     {!loading && (item || data) && <div className="asset-details-body">
       {section === "details" && <FriendlyDetails item={item} data={data} metadata={metadata} provider={provider} onPreview={onPreview} onOpenFolder={onOpenFolder} locationNodes={locationNodes} locationStatus={locationStatus} locationLoading={locationLoading} canManageContent={canManageContent} />}
       {section === "activity" && <Activity entries={activity} />}
+      {section === "analysis" && videoAnalysis && <VideoAnalysisDetails analysis={videoAnalysis} />}
       {section === "metadata" && data && <>
         <Summary analysis={data.active_analysis} />
         <h3 className="panel-section-title">Metadata document</h3>
@@ -327,7 +334,7 @@ function Summary({ analysis }: { analysis: Record<string, any> | null }) {
   return <div className="analysis-summary"><p><b>{analysis.metadata_profile}</b> v{analysis.metadata_profile_version}</p><p>{analysis.ai_provider || "provider"} / {analysis.ai_model || "model pending"}</p><p>Prompt {analysis.prompt_version} · Pipeline {analysis.pipeline_version}</p><p>Status: {analysis.status}{analysis.processing_stage ? " · " + analysis.processing_stage : ""}</p></div>;
 }
 
-export function buildActivity(item: Asset | null, data: AssetDetails | null): ActivityEntry[] {
+export function buildActivity(item: Asset | null, data: AssetDetails | null, videoAnalysis?: VideoSearchItem | null): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
   if (item?.modified_at) entries.push({
     id: "modified", title: "File updated", category: "Source file", tone: "neutral",
@@ -347,7 +354,45 @@ export function buildActivity(item: Asset | null, data: AssetDetails | null): Ac
     });
   });
   data?.jobs.slice(0, 20).forEach((job, index) => entries.push(describeJobActivity(job, index)));
+  if (videoAnalysis) entries.push({
+    id: `video-analysis-${videoAnalysis.analysis_run_id}`,
+    title: "Video AI analysis available",
+    category: "AI analysis",
+    tone: "success",
+    detail: `${videoAnalysis.matches.length} matching segment${videoAnalysis.matches.length === 1 ? "" : "s"} are available. Best match starts at ${formatVideoTimestamp(videoAnalysis.best_match.start_ms)}.`,
+  });
   return entries.sort((left, right) => Date.parse(right.at || "") - Date.parse(left.at || ""));
+}
+
+export function VideoAnalysisDetails({ analysis }: { analysis: VideoSearchItem }) {
+  return <section className="video-analysis-details" aria-label="Video AI analysis">
+    <div className="video-analysis-summary">
+      <small>BEST MATCH · {formatVideoTimestamp(analysis.best_match.start_ms)}</small>
+      <h3>{analysis.best_match.summary || "Analyzed video segment"}</h3>
+      {analysis.best_match.visual_description && <p>{analysis.best_match.visual_description}</p>}
+      {analysis.best_match.speech && <p><b>Speech:</b> {analysis.best_match.speech}</p>}
+    </div>
+    <div className="video-analysis-heading">
+      <h3>Matching segments</h3>
+      <span>{analysis.matches.length}</span>
+    </div>
+    <ol className="video-analysis-segments">{analysis.matches.map((match, index) => <li key={`${match.start_ms}-${match.end_ms}-${index}`}>
+      <div><b>{formatVideoTimestamp(match.start_ms)}–{formatVideoTimestamp(match.end_ms)}</b><small>{formatConfidence(match)}</small></div>
+      <strong>{match.summary || "Analyzed segment"}</strong>
+      {match.visual_description && <p>{match.visual_description}</p>}
+      {match.speech && <p><b>Speech:</b> {match.speech}</p>}
+    </li>)}</ol>
+  </section>;
+}
+
+export function formatVideoTimestamp(value: number): string {
+  const seconds = Math.max(0, Math.floor(value / 1_000));
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function formatConfidence(match: VideoSearchMatch): string {
+  return Number.isFinite(match.confidence) ? `${Math.round(match.confidence * 100)}% confidence` : "";
 }
 
 function describeJobActivity(job: Record<string, any>, index: number): ActivityEntry {

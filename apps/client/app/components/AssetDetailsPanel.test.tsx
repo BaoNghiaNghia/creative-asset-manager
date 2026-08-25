@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset, AssetMetadata } from "../types";
-import { AssetDetailsPanel, buildActivity, formatBytes, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl, resolveLocation } from "./AssetDetailsPanel";
+import { AssetDetailsPanel, VideoAnalysisDetails, buildActivity, formatBytes, formatVideoTimestamp, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl, resolveLocation } from "./AssetDetailsPanel";
+import type { VideoSearchItem } from "../hooks/useVideoSearch";
 
 const item: Asset = {
   provider: "google-drive",
@@ -76,6 +77,28 @@ describe("Asset details inspector", () => {
     expect(markup).toContain("Select a file or folder");
     expect(markup).toContain('aria-label="File information"');
     expect(markup).toContain('aria-label="Close file information"');
+  });
+
+  it("exposes video search AI analysis in the inspector and activity timeline", () => {
+    const videoAnalysis: VideoSearchItem = {
+      source_asset_id: "source-video-1", analysis_run_id: "run-1", filename: "dad.mp4",
+      mime_type: "video/mp4", duration_ms: 12_000, source_type: "google_drive",
+      external_source_id: "source-1", external_asset_id: "drive-video-1", web_url: null,
+      thumbnail_url: null, score: 4.2,
+      best_match: { start_ms: 3_000, end_ms: 6_000, summary: "A family together", visual_description: "Four people in a living room.", speech: "", confidence: 0.9, score: 4.2 },
+      matches: [
+        { start_ms: 3_000, end_ms: 6_000, summary: "A family together", visual_description: "Four people in a living room.", speech: "Hello", confidence: 0.9, score: 4.2 },
+      ],
+    };
+    const videoItem: Asset = { ...item, id: "drive-video-1", name: "dad.mp4", kind: "video", mime_type: "video/mp4" };
+    const markup = renderToStaticMarkup(<AssetDetailsPanel item={videoItem} videoAnalysis={videoAnalysis} onClose={noop} />);
+    expect(markup).toContain("AI analysis");
+    const analysisMarkup = renderToStaticMarkup(<VideoAnalysisDetails analysis={videoAnalysis} />);
+    for (const value of ["BEST MATCH · 00:03", "A family together", "Four people in a living room.", "Speech:", "Hello", "90% confidence"]) expect(analysisMarkup).toContain(value);
+    const entries = buildActivity(videoItem, null, videoAnalysis);
+    const videoEntry = entries.find(entry => entry.title === "Video AI analysis available");
+    expect(videoEntry?.detail).toContain("Best match starts at 00:03");
+    expect(formatVideoTimestamp(65_000)).toBe("01:05");
   });
 
   it("uses a source preview when a detail panel was opened without an Explorer item", () => {
