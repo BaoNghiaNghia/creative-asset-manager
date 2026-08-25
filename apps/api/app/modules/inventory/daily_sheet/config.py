@@ -267,12 +267,42 @@ class GeminiSheetAgentConfig(DailySheetModel):
     reconciliation: SheetAgentReconciliationConfig = Field(default_factory=SheetAgentReconciliationConfig)
 
 
-DailySheetAnyConfig: TypeAlias = DailySheetConfig | DailyCountSheetConfig | GeminiSheetAgentConfig
+class ToolSheetAgentSourceConfig(DailySheetModel):
+    spreadsheet_file_id: str | None = Field(default=None, min_length=1, max_length=2048)
+    allowed_sheets: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_allowed_sheets(self):
+        normalized = [value.strip() for value in self.allowed_sheets]
+        if any(not value for value in normalized) or len(set(normalized)) != len(normalized):
+            raise ValueError("allowed_sheets must contain unique non-empty sheet titles")
+        self.allowed_sheets = normalized
+        return self
+
+
+class ToolSheetAgentRuntimeConfig(DailySheetModel):
+    apply_mode: Literal["shadow"] = "shadow"
+    max_tool_rounds: int = Field(default=8, ge=1, le=20)
+    max_read_calls: int = Field(default=24, ge=1, le=100)
+    max_read_cells: int = Field(default=12000, ge=1, le=50000)
+    max_edit_operations: int = Field(default=200, ge=1, le=1000)
+
+
+class GeminiToolSheetAgentConfig(DailySheetModel):
+    version: Literal[4] = 4
+    mode: Literal["gemini_tool_sheet_agent"] = "gemini_tool_sheet_agent"
+    source: ToolSheetAgentSourceConfig = Field(default_factory=ToolSheetAgentSourceConfig)
+    agent: ToolSheetAgentRuntimeConfig = Field(default_factory=ToolSheetAgentRuntimeConfig)
+
+
+DailySheetAnyConfig: TypeAlias = DailySheetConfig | DailyCountSheetConfig | GeminiSheetAgentConfig | GeminiToolSheetAgentConfig
 
 
 def parse_daily_sheet_config(value: object) -> DailySheetAnyConfig:
-    if isinstance(value, (DailySheetConfig, DailyCountSheetConfig, GeminiSheetAgentConfig)):
+    if isinstance(value, (DailySheetConfig, DailyCountSheetConfig, GeminiSheetAgentConfig, GeminiToolSheetAgentConfig)):
         return value
+    if isinstance(value, dict) and value.get("version") == 4:
+        return GeminiToolSheetAgentConfig.model_validate(value)
     if isinstance(value, dict) and value.get("version") == 3:
         return GeminiSheetAgentConfig.model_validate(value)
     if isinstance(value, dict) and value.get("version") == 2:

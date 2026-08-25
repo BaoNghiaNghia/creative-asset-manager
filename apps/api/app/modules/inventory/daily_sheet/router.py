@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
-from app.modules.inventory.daily_sheet.config import parse_daily_sheet_config
+from app.modules.inventory.daily_sheet.config import GeminiToolSheetAgentConfig, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.permissions import INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
@@ -32,6 +32,10 @@ class DiscoveryRequest(BaseModel):
 class RunRequest(BaseModel):
     business_date: date | None = None
     dry_run: bool = False
+
+class V4RunRequest(BaseModel):
+    business_date: date | None = None
+    apply_mode: str = "shadow"
 
 class BaselineRequest(BaseModel):
     snapshot_id: str
@@ -70,8 +74,10 @@ def get_configuration(principal: CurrentPrincipal = Depends(require_permission(I
 
 @router.put("/configuration")
 def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
+    parsed_config = None
     try:
-        if body.config: parse_daily_sheet_config(body.config)
+        if body.config:
+            parsed_config = parse_daily_sheet_config(body.config)
         ZoneInfo(body.timezone)
     except Exception as exc:
         raise HTTPException(422, detail={"code": "invalid_daily_sheet_configuration", "message": str(exc)}) from exc
@@ -89,7 +95,7 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
         row.daily_sheet_config_json = body.config
         row.timezone = body.timezone
         session.commit()
-    if body.daily_sheet_automation_enabled:
+    if body.daily_sheet_automation_enabled and not isinstance(parsed_config, GeminiToolSheetAgentConfig):
         report = _service().validate_configuration(principal.active_tenant_id)
         if not report["valid"]:
             raise HTTPException(422, detail={"code": "daily_sheet_validation_failed", "report": report})
@@ -118,6 +124,14 @@ def validate_config(principal: CurrentPrincipal = Depends(require_permission(INV
 def run_snapshot(body: RunRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
     service = _service()
     try:
+        if service.is_agent_v4_configured(principal.active_tenant_id):
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "gemini_tool_sheet_agent_use_run_endpoint",
+                    "message": "Use /daily-sheet/agent-v4/run for Gemini Tool Sheet Agent V4.",
+                },
+            )
         if service.is_agent_v3_configured(principal.active_tenant_id):
             raise HTTPException(
                 409,
@@ -155,6 +169,30 @@ def plan_agent_run(body: RunRequest, principal: CurrentPrincipal = Depends(requi
             principal.active_tenant_id,
             _business_date(principal.active_tenant_id, body.business_date),
             dry_run=True,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            409,
+            detail={"code": getattr(exc, "code", type(exc).__name__), "message": str(exc)},
+        ) from exc
+
+@router.post("/agent-v4/run")
+def run_agent_v4(
+    body: V4RunRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION)),
+):
+    service = _service()
+    try:
+        if not service.is_agent_v4_configured(principal.active_tenant_id):
+            raise HTTPException(
+                409,
+                detail={"code": "gemini_tool_sheet_agent_not_configured"},
+            )
+        return service.run_agent_v4_shadow(
+            principal.active_tenant_id,
+            _business_date(principal.active_tenant_id, body.business_date),
         )
     except HTTPException:
         raise

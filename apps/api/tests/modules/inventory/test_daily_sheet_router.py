@@ -39,6 +39,7 @@ def test_daily_sheet_manual_routes_forward_tenant_date_and_dry_run():
     service.reconcile.return_value = {"status": "dry_run", "writes": 0}
     service.discover.return_value = {"spreadsheet_id": "sheet", "tabs": [], "warnings": []}
     service.is_agent_v3_configured.return_value = False
+    service.is_agent_v4_configured.return_value = False
     client = client_for(principal({"inventory.read", "inventory.finalize"}))
     with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
         snapshot = client.post("/api/inventory/daily-sheet/snapshot/run", json={"business_date": "2030-08-09"})
@@ -82,6 +83,7 @@ def test_v3_manual_plan_forces_dry_run_and_returns_agent_result():
 def test_v3_snapshot_run_rejects_before_accessing_legacy_row_fields():
     service = Mock()
     service.is_agent_v3_configured.return_value = True
+    service.is_agent_v4_configured.return_value = False
     client = client_for(principal({"inventory.read", "inventory.finalize"}))
 
     with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
@@ -132,3 +134,72 @@ def test_v3_shadow_configuration_stays_shadow_and_automation_disabled():
     assert response.status_code == 200
     assert row.daily_sheet_automation_enabled is False
     assert row.daily_sheet_config_json["agent"]["apply_mode"] == "shadow"
+
+
+def test_v4_manual_endpoint_forces_shadow_and_ignores_automation_flag():
+    service = Mock()
+    service.is_agent_v4_configured.return_value = True
+    service.run_agent_v4_shadow.return_value = {
+        "version": 4,
+        "mode": "gemini_tool_sheet_agent",
+        "apply_mode": "shadow",
+        "status": "shadow",
+        "tenant_id": "tenant-a",
+        "spreadsheet_file_id": "sheet-1",
+        "business_date": "2030-08-09",
+        "tool_rounds": 2,
+        "read_calls": 1,
+        "read_cells": 4,
+        "plan_hash": "a" * 64,
+        "staged": {"status": "ready", "operations": [], "issues": [], "material_actions": []},
+        "writes": 0,
+    }
+    client = client_for(principal({"inventory.read", "inventory.finalize"}))
+    with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
+        response = client.post(
+            "/api/inventory/daily-sheet/agent-v4/run",
+            json={"business_date": "2030-08-09", "apply_mode": "auto"},
+        )
+    assert response.status_code == 200
+    assert response.json()["apply_mode"] == "shadow"
+    assert response.json()["writes"] == 0
+    service.run_agent_v4_shadow.assert_called_once_with(
+        "tenant-a", date(2030, 8, 9)
+    )
+
+
+def test_v4_configuration_cannot_enable_scheduler():
+    row = SimpleNamespace(
+        image_pipeline_enabled=True,
+        daily_sheet_automation_enabled=True,
+        daily_working_spreadsheet_file_id="working",
+        daily_archive_root_folder_id=None,
+        daily_template_spreadsheet_file_id=None,
+        daily_target_spreadsheet_file_id=None,
+        daily_snapshot_time_local="05:50",
+        daily_reconcile_time_local="07:00",
+        timezone="Asia/Ho_Chi_Minh",
+        daily_sheet_config_json={},
+    )
+    session = MagicMock()
+    session.__enter__.return_value = session
+    session.scalar.return_value = row
+    client = client_for(principal({"inventory.read", "inventory.finalize"}))
+    config = {
+        "version": 4,
+        "mode": "gemini_tool_sheet_agent",
+        "source": {"allowed_sheets": ["Daily"]},
+        "agent": {"apply_mode": "shadow"},
+    }
+    with patch("app.modules.inventory.daily_sheet.router.SessionLocal", return_value=session):
+        response = client.put(
+            "/api/inventory/daily-sheet/configuration",
+            json={
+                "daily_sheet_automation_enabled": True,
+                "working_spreadsheet_file_id": "working",
+                "config": config,
+            },
+        )
+    assert response.status_code == 200
+    assert row.daily_sheet_automation_enabled is False
+    assert row.daily_sheet_config_json["version"] == 4

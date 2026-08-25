@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel
-from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetConfig, DailySheetAnyConfig, DailySheetConfig, GeminiSheetAgentConfig, normalize_identifier, normalize_sku, parse_daily_sheet_config
+from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetConfig, DailySheetAnyConfig, DailySheetConfig, GeminiSheetAgentConfig, GeminiToolSheetAgentConfig, normalize_identifier, normalize_sku, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient, require_sheets_scope
 from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailyCountSheetValidationError, DailySheetValidationError, StockRecord, build_daily_count_variances, build_variances, canonical_hash, _normalized_header, classify_daily_count_row, parse_daily_count_records, parse_stock_records, value_blocks
 from app.modules.inventory.persistence_model import InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel, inventory_utcnow
@@ -57,6 +57,7 @@ class InventoryDailySheetService:
         material_semantic_matcher: Callable | None = None,
         semantic_analyzer: Any | None = None,
         agent_service: Any | None = None,
+        agent_v4_service: Any | None = None,
     ):
         self.session_factory = session_factory
         self.client_factory = client_factory
@@ -65,6 +66,7 @@ class InventoryDailySheetService:
         self.semantic_analyzer = semantic_analyzer
         self.material_semantic_matcher = material_semantic_matcher or (semantic_analyzer.match_material if semantic_analyzer else None)
         self.agent_service = agent_service
+        self.agent_v4_service = agent_v4_service
 
     def _parse_v2_runtime(
         self,
@@ -136,10 +138,10 @@ class InventoryDailySheetService:
                 config = parse_daily_sheet_config(settings.daily_sheet_config_json)
             except Exception as exc:
                 raise DailySheetConfigurationError("Daily Google Sheet mapping is invalid.") from exc
-            if not isinstance(config, GeminiSheetAgentConfig) and not settings.daily_archive_root_folder_id:
+            if not isinstance(config, (GeminiSheetAgentConfig, GeminiToolSheetAgentConfig)) and not settings.daily_archive_root_folder_id:
                 raise DailySheetConfigurationError("Daily Google Sheet archive configuration is incomplete.")
             if (
-                not isinstance(config, GeminiSheetAgentConfig)
+                not isinstance(config, (GeminiSheetAgentConfig, GeminiToolSheetAgentConfig))
                 and config.reset.mode == "restore_template"
                 and not settings.daily_template_spreadsheet_file_id
             ):
@@ -203,7 +205,23 @@ class InventoryDailySheetService:
                     if (archive.get("capabilities") or {}).get("canAddChildren") is False:
                         errors.append({"code": "archive_root_not_writable"})
                 metadata = google.spreadsheet_metadata(context.working_file_id)
-                if isinstance(context.config, GeminiSheetAgentConfig):
+                if isinstance(context.config, GeminiToolSheetAgentConfig):
+                    if (
+                        context.config.source.spreadsheet_file_id
+                        and context.config.source.spreadsheet_file_id != context.working_file_id
+                    ):
+                        errors.append({"code": "spreadsheet_not_authorized"})
+                    tabs = {
+                        str(item.get("properties", {}).get("title") or "")
+                        for item in metadata.get("sheets", [])
+                    }
+                    missing = set(context.config.source.allowed_sheets) - tabs
+                    errors.extend(
+                        {"code": "configured_sheet_missing", "sheet": sheet}
+                        for sheet in sorted(missing)
+                    )
+                    checks.append({"code": "gemini_tool_sheet_agent_metadata", "ok": not missing})
+                elif isinstance(context.config, GeminiSheetAgentConfig):
                     tabs = {
                         str(item.get("properties", {}).get("title") or "")
                         for item in metadata.get("sheets", [])
@@ -468,6 +486,29 @@ class InventoryDailySheetService:
             )
         return self.agent_service
 
+    def _agent_v4(self):
+        if self.agent_v4_service is None:
+            from app.modules.inventory.daily_sheet.agent_v4.service import build_daily_sheet_v4_service
+            self.agent_v4_service = build_daily_sheet_v4_service(
+                session_factory=self.session_factory,
+                context_provider=lambda tenant_id: self._context(
+                    tenant_id, require_enabled=False
+                ),
+                client_factory=self.client_factory,
+                token_resolver=self.token_resolver,
+            )
+        return self.agent_v4_service
+
+    def is_agent_v4_configured(self, tenant_id: str) -> bool:
+        context = self._context(tenant_id, require_enabled=False)
+        return isinstance(context.config, GeminiToolSheetAgentConfig)
+
+    def run_agent_v4_shadow(self, tenant_id: str, business_date: date):
+        context = self._context(tenant_id, require_enabled=False)
+        if not isinstance(context.config, GeminiToolSheetAgentConfig):
+            raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
+        return self._agent_v4().run_shadow(tenant_id, business_date)
+
     def is_agent_v3_configured(self, tenant_id: str) -> bool:
         context = self._context(tenant_id, require_enabled=False)
         return isinstance(context.config, GeminiSheetAgentConfig)
@@ -491,6 +532,8 @@ class InventoryDailySheetService:
 
     def snapshot_and_reset(self, tenant_id: str, business_date: date):
         context = self._context(tenant_id)
+        if isinstance(context.config, GeminiToolSheetAgentConfig):
+            raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is manual shadow-only.")
         if isinstance(context.config, GeminiSheetAgentConfig):
             return self.plan_agent_run(
                 tenant_id,
@@ -654,7 +697,7 @@ class InventoryDailySheetService:
 
     def reconcile(self, tenant_id: str, business_date: date, *, dry_run: bool = False):
         context = self._context(tenant_id, require_enabled=False)
-        if isinstance(context.config, GeminiSheetAgentConfig):
+        if isinstance(context.config, (GeminiSheetAgentConfig, GeminiToolSheetAgentConfig)):
             return {
                 "status": "report_only",
                 "business_date": business_date.isoformat(),

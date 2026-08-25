@@ -28,6 +28,18 @@ class InventoryAiGatewayResult:
     estimated_cost_micros: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class InventoryGeminiToolCall:
+    name: str
+    arguments: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class InventoryGeminiToolTurn:
+    content: Mapping[str, Any]
+    calls: tuple[InventoryGeminiToolCall, ...]
+
+
 class InventoryAiGateway(Protocol):
     def analyze(self, *, tenant_id: str, image_bytes: bytes, image_mime_type: str, prompt: str, schema: Mapping[str, Any], provider: str, model: str) -> InventoryAiGatewayResult: ...
 
@@ -80,6 +92,51 @@ class RuntimeInventoryGeminiGateway:
         if not isinstance(extracted, Mapping):
             raise InventoryAiGatewayError("inventory_gemini_invalid_response", retryable=False)
         return InventoryAiGatewayResult(raw_response_json=dict(payload), extracted_json=dict(extracted))
+
+    def generate_tool_turn(
+        self,
+        *,
+        tenant_id: str,
+        contents: list[Mapping[str, Any]],
+        function_declarations: list[Mapping[str, Any]],
+        provider: str,
+        model: str,
+    ) -> InventoryGeminiToolTurn:
+        if provider != "gemini":
+            raise InventoryAiGatewayError("inventory_ai_provider_unsupported", retryable=False)
+        try:
+            secret = self.resolver.resolve(tenant_id)
+            response = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                headers={"x-goog-api-key": secret},
+                json={
+                    "contents": deepcopy(contents),
+                    "tools": [{"functionDeclarations": deepcopy(function_declarations)}],
+                    "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
+                },
+                timeout=self.timeout_seconds,
+            )
+            self._raise_provider_status(response.status_code)
+            raw = response.json()
+            content = raw["candidates"][0]["content"]
+            parts = content.get("parts") or []
+            calls = tuple(
+                InventoryGeminiToolCall(
+                    name=str(part["functionCall"]["name"]),
+                    arguments=dict(part["functionCall"].get("args") or {}),
+                )
+                for part in parts
+                if isinstance(part, Mapping) and isinstance(part.get("functionCall"), Mapping)
+            )
+        except InventoryCredentialError as exc:
+            raise InventoryAiGatewayError(str(exc), retryable=False) from exc
+        except httpx.TimeoutException as exc:
+            raise InventoryAiGatewayError("inventory_gemini_transport_error", retryable=True) from exc
+        except httpx.HTTPError as exc:
+            raise InventoryAiGatewayError("inventory_gemini_transport_error", retryable=True) from exc
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise InventoryAiGatewayError("inventory_gemini_invalid_response", retryable=False) from exc
+        return InventoryGeminiToolTurn(content=dict(content), calls=calls)
 
     @staticmethod
     def _generation_config(schema: Mapping[str, Any]) -> dict[str, Any]:
