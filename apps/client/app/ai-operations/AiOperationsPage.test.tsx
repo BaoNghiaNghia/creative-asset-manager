@@ -249,6 +249,47 @@ describe("AI Operations media dashboard compatibility", () => {
   });
 
 
+  it("renders Video AI charts from video analytics without borrowing Image cost", () => {
+    const media = normalizeMediaDashboard({
+      analytics: {
+        daily: [{
+          date: "2026-08-21", requested: 3, completed: 2, failed: 1,
+          estimated_cost_micros: 0, provider_reported_cost_micros: 0,
+          reconciled_cost_micros: 0, provider_estimated_cost_micros: {},
+          average_latency_ms: 1200, p95_latency_ms: 1800,
+        }],
+        providers: [{
+          provider: "gemini", model: "gemini-video", processing_mode: "single",
+          count: 3, completed: 2, failed: 1, success_rate: 2 / 3,
+          average_latency_ms: 1200, p95_latency_ms: 1800,
+          input_units: 0, output_units: 0, estimated_cost_micros: 0,
+          provider_reported_cost_micros: 0, reconciled_cost_micros: 0, currency: "USD",
+        }],
+        failures: [{ source: "video_analyze", error_code: "video_provider_failed", count: 1 }],
+        latency: { average_ms: 1200, p95_ms: 1800 },
+        cost_available: false,
+      },
+    } as unknown as AiOpsDashboardData["media"]);
+    const markup = renderToStaticMarkup(<AiOperationsContent
+      data={{ ...data, media }}
+      filters={filters}
+      tab="overview"
+      media="video"
+      onTab={noop}
+      onFilters={noop}
+      onRetry={noop}
+    />);
+
+    expect(markup).toContain("Daily processing");
+    expect(markup).toContain("Daily estimated cost by provider");
+    expect(markup).toContain("Provider and mode volume");
+    expect(markup).toContain("Failure categories");
+    expect(markup).toContain("Latency");
+    expect(markup).toContain("gemini-video");
+    expect(markup).toContain("video_provider_failed");
+    expect(markup).toContain("Video AI cost is not recorded by the current worker.");
+  });
+
   it("renders Image-style pagination for recent videos", () => {
     const media = normalizeMediaDashboard({
       recent_video: {
@@ -483,7 +524,11 @@ describe("AI Operations dashboard", () => {
       new Date("2026-07-22T00:00:00Z"),
     );
     const urls = vi.mocked(fetcher).mock.calls.map(call => String(call[0]));
-    expect(urls).toContain("/api/v1/admin/ai-operations/media-dashboard?video_page=3&video_page_size=50");
+    const mediaUrl = urls.find(url => url.startsWith("/api/v1/admin/ai-operations/media-dashboard?"));
+    expect(mediaUrl).toContain("video_page=3");
+    expect(mediaUrl).toContain("video_page_size=50");
+    expect(mediaUrl).toContain("from=");
+    expect(mediaUrl).toContain("to=");
   });
 
   it("normalizes a pre-pagination pipeline response without crashing", () => {

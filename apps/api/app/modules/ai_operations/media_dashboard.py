@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from math import ceil
 
 import httpx
 from sqlalchemy import select
@@ -24,6 +25,110 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def _percentile(values: list[int], percentile: float) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, ceil(len(ordered) * percentile) - 1))
+    return ordered[index]
+
+
+def _video_analytics(
+    runs: list[VideoAnalysisRunModel],
+    *,
+    from_at: datetime,
+    to_at: datetime,
+    provider: str | None = None,
+    model: str | None = None,
+    processing_mode: str | None = None,
+    metadata_profile: str | None = None,
+    status: str | None = None,
+) -> dict:
+    daily: dict[str, Counter] = defaultdict(Counter)
+    providers: dict[tuple[str, str | None], Counter] = defaultdict(Counter)
+    provider_latencies: dict[tuple[str, str | None], list[int]] = defaultdict(list)
+    latencies: list[int] = []
+    failure_counts = Counter()
+
+    for run in runs:
+        if provider and run.ai_provider != provider:
+            continue
+        if model and run.ai_model != model:
+            continue
+        if processing_mode and processing_mode != "single":
+            continue
+        if metadata_profile and run.metadata_profile != metadata_profile:
+            continue
+        if status and run.status != status:
+            continue
+        occurred_at = _as_utc(run.completed_at) or _as_utc(run.updated_at)
+        if run.status not in _TERMINAL or occurred_at is None or not (from_at <= occurred_at < to_at):
+            continue
+        daily[occurred_at.date().isoformat()][run.status] += 1
+        provider_key = (run.ai_provider or "unknown", run.ai_model)
+        providers[provider_key]["count"] += 1
+        providers[provider_key][run.status] += 1
+        if run.status == "failed":
+            failure_counts[run.last_error_code or "video_analysis_failed"] += 1
+        started_at = _as_utc(run.started_at)
+        if started_at is not None and occurred_at >= started_at:
+            latency = int((occurred_at - started_at).total_seconds() * 1000)
+            latencies.append(latency)
+            provider_latencies[provider_key].append(latency)
+
+    return {
+        "daily": [
+            {
+                "date": date,
+                "requested": counts["completed"] + counts["failed"],
+                "completed": counts["completed"],
+                "failed": counts["failed"],
+                "estimated_cost_micros": 0,
+                "provider_reported_cost_micros": 0,
+                "reconciled_cost_micros": 0,
+                "provider_estimated_cost_micros": {},
+                "average_latency_ms": 0,
+                "p95_latency_ms": 0,
+            }
+            for date, counts in sorted(daily.items())
+        ],
+        "providers": [
+            {
+                "provider": provider,
+                "model": model,
+                "processing_mode": "single",
+                "count": counts["count"],
+                "completed": counts["completed"],
+                "failed": counts["failed"],
+                "success_rate": counts["completed"] / counts["count"] if counts["count"] else 0,
+                "average_latency_ms": (
+                    sum(provider_latencies[(provider, model)]) / len(provider_latencies[(provider, model)])
+                    if provider_latencies[(provider, model)] else 0
+                ),
+                "p95_latency_ms": _percentile(provider_latencies[(provider, model)], 0.95),
+                "input_units": 0,
+                "output_units": 0,
+                "estimated_cost_micros": 0,
+                "provider_reported_cost_micros": 0,
+                "reconciled_cost_micros": 0,
+                "currency": "USD",
+            }
+            for (provider, model), counts in sorted(
+                providers.items(), key=lambda item: (item[0][0], item[0][1] or "")
+            )
+        ],
+        "failures": [
+            {"source": "video_analyze", "error_code": code, "count": count}
+            for code, count in sorted(failure_counts.items())
+        ],
+        "latency": {
+            "average_ms": sum(latencies) / len(latencies) if latencies else 0,
+            "p95_ms": _percentile(latencies, 0.95),
+        },
+        "cost_available": False,
+    }
 
 
 def _parent_ids(source: SourceAssetModel) -> tuple[str, ...]:
@@ -142,8 +247,23 @@ class MediaDashboardService:
         self.session = session
         self.settings = settings
 
-    async def snapshot(self, tenant_id: str, *, video_page: int = 1, video_page_size: int = 25) -> dict:
+    async def snapshot(
+        self,
+        tenant_id: str,
+        *,
+        video_page: int = 1,
+        video_page_size: int = 25,
+        from_at: datetime | None = None,
+        to_at: datetime | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        processing_mode: str | None = None,
+        metadata_profile: str | None = None,
+        status: str | None = None,
+    ) -> dict:
         now = datetime.now(timezone.utc)
+        to_at = _as_utc(to_at) or now
+        from_at = _as_utc(from_at) or datetime(1970, 1, 1, tzinfo=timezone.utc)
         rows = list(self.session.scalars(select(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == tenant_id,
             ProcessingJobModel.job_type.in_((IMAGE_JOB_TYPE, VIDEO_JOB_TYPE, VIDEO_INDEX_JOB_TYPE)),
@@ -201,6 +321,9 @@ class MediaDashboardService:
             )
             for run in runs:
                 latest_runs.setdefault(run.source_asset_id, run)
+        analytics_runs = list(self.session.scalars(select(VideoAnalysisRunModel).where(
+            VideoAnalysisRunModel.tenant_id == tenant_id,
+        )))
         recent_video = []
         for job in page_jobs:
             source = self.session.get(SourceAssetModel, job.entity_id) if job.entity_type == "source_asset" else None
@@ -231,5 +354,15 @@ class MediaDashboardService:
                 worker("image", (IMAGE_JOB_TYPE,), image_probe),
                 worker("video", (VIDEO_JOB_TYPE, VIDEO_INDEX_JOB_TYPE), video_probe),
             ],
+            "analytics": _video_analytics(
+                analytics_runs,
+                from_at=from_at,
+                to_at=to_at,
+                provider=provider,
+                model=model,
+                processing_mode=processing_mode,
+                metadata_profile=metadata_profile,
+                status=status,
+            ),
             "generated_at": now.isoformat(),
         }

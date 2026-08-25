@@ -199,9 +199,11 @@ function VideoSequenceStrip({ item, onOpen }: { item: VideoSearchItem; onOpen: (
 export function VideoSearchResults({
   items,
   onOpen,
+  onDetails,
 }: {
   items: VideoSearchItem[];
   onOpen: (item: VideoSearchItem) => void;
+  onDetails: (item: VideoSearchItem) => void;
 }) {
   return <div className="video-search-grid" aria-label="Video search results">
     {items.map((item) => {
@@ -214,6 +216,13 @@ export function VideoSearchResults({
         key={item.analysis_run_id}
         aria-label={"Video result: " + item.filename}
       >
+        <button
+          type="button"
+          className="video-search-detail"
+          onClick={() => onDetails(item)}
+          aria-label={"View details for " + item.filename}
+          title="View details"
+        >i</button>
         <VideoThumbnail item={item} />
         <div className="video-search-card-body">
           <header className="video-search-card-header">

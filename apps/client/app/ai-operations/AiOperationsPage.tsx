@@ -626,6 +626,25 @@ function Overview({ data, media = "image", onMedia = () => undefined, canManage,
     return <div className="ops-content">
       <p className="ops-ai-scope-note">Video AI metrics are calculated only from video analysis jobs. Video indexing is displayed separately and is not counted as AI completion, failure, running, or cost.</p>
       <MediaOverview dashboard={data.media} media="video" />
+      <section className="ops-charts" aria-label="Video AI analytics">
+        <AccessibleChart title="Daily processing" description="Completed and failed video analyses by UTC day." data={dailyStatusChart(data.media.analytics.daily)} />
+        <AccessibleChart
+          title="Daily estimated cost by provider"
+          description={data.media.analytics.cost_available
+            ? "Estimated Video AI provider cost for the selected period."
+            : "Video AI cost is not recorded by the current worker."}
+          data={data.media.analytics.cost_available ? dailyProviderCostChart(data.media.analytics.daily) : []}
+          valueLabel={value => formatCost(value)}
+        />
+        <AccessibleChart title="Provider and mode volume" description="Video analysis volume grouped by provider and processing mode." data={providerVolumeChart(data.media.analytics.providers)} />
+        <AccessibleChart title="Failure categories" description="Stable Video AI failure codes; raw exception messages are excluded." data={failureChart(data.media.analytics.failures)} />
+        <AccessibleChart
+          title="Latency"
+          description="Average and p95 Video AI latency for the selected period."
+          data={[{ label: "Latency", values: { Average: data.media.analytics.latency.average_ms, p95: data.media.analytics.latency.p95_ms } }]}
+          valueLabel={value => `${Math.round(value)} ms`}
+        />
+      </section>
     </div>;
   }
   if (!summary && !data.daily.length) return <DashboardState kind="empty" />;

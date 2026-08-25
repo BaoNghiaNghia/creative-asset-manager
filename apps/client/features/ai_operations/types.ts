@@ -138,9 +138,18 @@ export type AiOpsWorkerStatus = {
   probe: "available" | "unavailable"; active_jobs: number;
   current_job_type: string | null; last_successful_claim_at: string | null;
 };
+export type AiOpsVideoAnalytics = {
+  daily: AiOpsDaily[];
+  providers: AiOpsProviderBreakdown[];
+  failures: AiOpsFailure[];
+  latency: { average_ms: number; p95_ms: number };
+  cost_available: boolean;
+};
+
 export type AiOpsMediaDashboard = {
   image: AiOpsMediaStage; video: AiOpsMediaStage; video_indexing: AiOpsMediaStage;
   pipeline: { image: AiOpsMediaStage[]; video: AiOpsMediaStage[] };
+  analytics: AiOpsVideoAnalytics;
   recent_video: Page<{ job_id: string; source_asset_id: string; filename: string | null; location: string | null; thumbnail_url: string | null; completed_chunks?: number; total_chunks?: number; status: string; attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null }>;
   workers: AiOpsWorkerStatus[]; generated_at: string;
 };

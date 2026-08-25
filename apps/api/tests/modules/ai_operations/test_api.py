@@ -202,6 +202,84 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(len(document["workers"]), 2)
         self.assertNotIn("127.0.0.1", str(document))
 
+    def test_media_dashboard_returns_video_only_analytics_for_selected_period(self):
+        with self.factory() as session:
+            session.add_all([
+                VideoAnalysisRunModel(
+                    tenant_id="tenant-a", source_asset_id=self.source_asset_id,
+                    source_fingerprint="1" * 64, video_metadata_profile_id="video-profile",
+                    metadata_profile="video", metadata_profile_version="v1",
+                    prompt_version="p1", analysis_version="a1", ai_provider="gemini",
+                    ai_model="gemini-video", idempotency_key="1" * 63 + "a",
+                    status="completed", chunk_seconds=30, total_chunks=1,
+                    completed_chunks=1, started_at=self.now - timedelta(seconds=10),
+                    completed_at=self.now - timedelta(seconds=2),
+                    updated_at=self.now - timedelta(seconds=2),
+                ),
+                VideoAnalysisRunModel(
+                    tenant_id="tenant-a", source_asset_id=self.source_asset_id,
+                    source_fingerprint="2" * 64, video_metadata_profile_id="video-profile",
+                    metadata_profile="video", metadata_profile_version="v1",
+                    prompt_version="p2", analysis_version="a1", ai_provider="gemini",
+                    ai_model="gemini-video", idempotency_key="2" * 63 + "b",
+                    status="failed", chunk_seconds=30, total_chunks=1,
+                    completed_chunks=0, started_at=self.now - timedelta(seconds=20),
+                    completed_at=self.now - timedelta(seconds=1),
+                    updated_at=self.now - timedelta(seconds=1),
+                    last_error_code="video_provider_failed",
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="video_analyze",
+                    entity_type="source_asset", entity_id=self.source_asset_id,
+                    idempotency_key="video-analytics-failure", status="failed",
+                    last_error_code="video_provider_failed", payload_json={},
+                    completed_at=self.now - timedelta(seconds=1),
+                    updated_at=self.now - timedelta(seconds=1),
+                ),
+            ])
+            session.commit()
+        probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
+        with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(
+            "app.modules.ai_operations.media_dashboard._probe_worker", probe,
+        ):
+            response = self.client.get(
+                "/api/v1/admin/ai-operations/media-dashboard",
+                params={
+                    "from": (self.now - timedelta(days=1)).isoformat(),
+                    "to": (self.now + timedelta(seconds=1)).isoformat(),
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        analytics = response.json()["analytics"]
+        self.assertEqual(analytics["daily"][0]["completed"], 1)
+        self.assertEqual(analytics["daily"][0]["failed"], 1)
+        self.assertEqual(analytics["providers"][0]["provider"], "gemini")
+        self.assertEqual(analytics["providers"][0]["model"], "gemini-video")
+        self.assertEqual(analytics["providers"][0]["count"], 2)
+        self.assertEqual(analytics["failures"], [{
+            "source": "video_analyze",
+            "error_code": "video_provider_failed",
+            "count": 1,
+        }])
+        self.assertGreater(analytics["latency"]["average_ms"], 0)
+        self.assertFalse(analytics["cost_available"])
+
+        with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(
+            "app.modules.ai_operations.media_dashboard._probe_worker", probe,
+        ):
+            filtered = self.client.get(
+                "/api/v1/admin/ai-operations/media-dashboard",
+                params={
+                    "from": (self.now - timedelta(days=1)).isoformat(),
+                    "to": (self.now + timedelta(seconds=1)).isoformat(),
+                    "provider": "openai",
+                },
+            )
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(filtered.json()["analytics"]["daily"], [])
+        self.assertEqual(filtered.json()["analytics"]["providers"], [])
+
     def test_media_dashboard_paginates_video_jobs_and_returns_safe_thumbnail_proxy(self):
         with self.factory() as session:
             for index in range(26):

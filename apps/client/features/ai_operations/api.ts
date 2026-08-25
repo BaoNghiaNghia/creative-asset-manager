@@ -129,6 +129,18 @@ export function normalizeMediaDashboard(
       image: Array.isArray(source.pipeline?.image) ? source.pipeline.image : [image],
       video: Array.isArray(source.pipeline?.video) ? source.pipeline.video : [video, videoIndexing],
     },
+    analytics: source.analytics && typeof source.analytics === "object"
+      ? {
+          daily: Array.isArray(source.analytics.daily) ? source.analytics.daily : [],
+          providers: Array.isArray(source.analytics.providers) ? source.analytics.providers : [],
+          failures: Array.isArray(source.analytics.failures) ? source.analytics.failures : [],
+          latency: {
+            average_ms: Number(source.analytics.latency?.average_ms) || 0,
+            p95_ms: Number(source.analytics.latency?.p95_ms) || 0,
+          },
+          cost_available: source.analytics.cost_available === true,
+        }
+      : { daily: [], providers: [], failures: [], latency: { average_ms: 0, p95_ms: 0 }, cost_available: false },
     recent_video: Array.isArray(source.recent_video)
       ? { page: 1, page_size: 25, total: source.recent_video.length, items: source.recent_video }
       : source.recent_video && typeof source.recent_video === "object" && Array.isArray((source.recent_video as { items?: unknown }).items)
@@ -186,6 +198,7 @@ export async function fetchAiOperationsDashboard(
   const month = filteredParams(filters, { from: monthStart.toISOString(), to: now.toISOString() });
   const jobs = new URLSearchParams(current); jobs.set("page", String(filters.page)); jobs.set("page_size", String(filters.pageSize || 25));
   const usage = new URLSearchParams(current); usage.set("page", String(filters.usagePage || 1)); usage.set("page_size", String(filters.usagePageSize || 25));
+  const media = new URLSearchParams(current); media.set("video_page", String(filters.videoPage || 1)); media.set("video_page_size", String(filters.videoPageSize || 25));
   const base = "/api/v1/admin/ai-operations";
   const calls: Array<() => Promise<unknown>> = [
     () => read<AiOpsSummary>(base + "/summary?" + current, fetcher, requestSignal),
@@ -198,7 +211,7 @@ export async function fetchAiOperationsDashboard(
     () => read<Page<AiOpsJob>>(base + "/jobs?" + jobs, fetcher, requestSignal),
     () => read<Page<AiOpsUsage>>(base + "/usage?" + usage, fetcher, requestSignal),
     () => read<PipelineSnapshot>(base + "/pipeline?recent_page=" + (filters.pipelinePage || 1) + "&recent_page_size=" + (filters.pipelinePageSize || 25), fetcher, requestSignal),
-    () => read<AiOpsMediaDashboard>(base + "/media-dashboard?video_page=" + (filters.videoPage || 1) + "&video_page_size=" + (filters.videoPageSize || 25), fetcher, requestSignal),
+    () => read<AiOpsMediaDashboard>(base + "/media-dashboard?" + media, fetcher, requestSignal),
   ];
   const settled = await settleDashboardCalls(calls);
   const pipelineUnavailable = settled[9]?.status === "rejected"

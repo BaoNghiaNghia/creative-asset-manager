@@ -308,13 +308,11 @@ def pipeline_summary(
 
 @router.get("/media-dashboard")
 async def media_dashboard(
-    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
-    tenant_id: str | None = Query(default=None),
+    filters: AiOperationsFilters = Depends(common_filters),
     video_page: int = Query(default=1, ge=1),
     video_page_size: int = Query(default=25, ge=1, le=100),
 ):
-    target = tenant_id or principal.active_tenant_id
-    require_tenant_scope(principal, target)
+    target = filters.tenant_id
     async def load():
         with SessionLocal() as session:
             return await MediaDashboardService(
@@ -323,11 +321,18 @@ async def media_dashboard(
                 target,
                 video_page=video_page,
                 video_page_size=video_page_size,
+                from_at=filters.from_at,
+                to_at=filters.to_at,
+                provider=filters.provider,
+                model=filters.model,
+                processing_mode=filters.processing_mode,
+                metadata_profile=filters.metadata_profile,
+                status=filters.status,
             )
 
     return await cached_ai_operations_async(
         "media-dashboard",
-        (target, video_page, video_page_size),
+        filters_cache_key(filters) + (video_page, video_page_size),
         load,
     )
 

@@ -399,6 +399,25 @@ export default function App() {
     if (item.internal_asset_id) params.set("asset", item.internal_asset_id); else params.delete("asset");
     window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
+  function openVideoDetails(item: VideoSearchItem) {
+    setDetailsOpen(true);
+    setDetailsItem({
+      provider: item.source_type?.includes("sharepoint") ? "sharepoint" : "google-drive",
+      id: item.external_asset_id || item.source_asset_id,
+      name: item.filename,
+      kind: "video",
+      mime_type: item.mime_type,
+      thumbnail_url: item.thumbnail_url || undefined,
+      web_url: item.web_url || undefined,
+      source_asset_id: item.source_asset_id,
+      external_source_id: item.external_source_id || undefined,
+    });
+    setDetailsAssetId(null);
+    const params = new URLSearchParams(window.location.search);
+    params.set("details", "1");
+    params.delete("asset");
+    window.history.replaceState({}, "", window.location.pathname + "?" + params);
+  }
   function closeDetails() {
     setDetailsOpen(false); setDetailsItem(null); setDetailsAssetId(null);
     const params = new URLSearchParams(window.location.search); params.delete("asset"); params.delete("details");
@@ -521,7 +540,7 @@ export default function App() {
     {videoSearch.loading
       ? <AssetGridSkeleton />
       : videoSearch.items.length
-        ? <VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} />
+        ? <VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} onDetails={openVideoDetails} />
         : <div className="state">No videos matched this search.</div>}
   </>;
 

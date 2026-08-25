@@ -14,7 +14,7 @@ describe("video search UI wiring", () => {
   it("renders independent video results in All mode and keeps video-only isolated", () => {
     expect(source).toContain('searchMediaMode === "all" && explorer.query.trim()');
     expect(source).toContain('mixed-search-section');
-    expect(source).toContain('<VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} />');
+    expect(source).toContain('<VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} onDetails={openVideoDetails} />');
     expect(source).toContain('searchMediaMode === "videos" && explorer.query.trim() ? videoResults');
     expect(source).toContain('(!explorer.query.trim() || imageSearchEnabled) && explorer.selected.size');
   });
