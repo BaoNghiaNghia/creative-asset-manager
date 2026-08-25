@@ -419,7 +419,7 @@ class V4WorkbookToolHost:
             if operation.copy_from:
                 source = self._reference_evidence(operation.copy_from)
                 references.append(operation.copy_from)
-                if operation.provenance == "exact_copy" and operation.value != source.raw_value:
+                if operation.type == "set_cell" and operation.provenance == "exact_copy" and operation.value != source.raw_value:
                     if source.raw_value in (None, "") and operation.value in (0, "0"):
                         raise V4AgentSafetyError("blank_is_not_zero")
                     transformed = True
@@ -446,6 +446,52 @@ class V4WorkbookToolHost:
             "requires_review": staged.requires_review,
             "operation_count": len(staged.operations),
             "writes": 0,
+        }
+
+    def apply_staged(self) -> dict[str, Any]:
+        """Apply only a ready, revalidated V4 plan; sets verify before clears."""
+        if self.staged is None:
+            raise V4AgentSafetyError("staged_edits_required")
+        if self.staged.status != "ready" or self.staged.requires_review:
+            return {"status": self.staged.status, "writes": 0, "set_count": 0, "clear_count": 0, "verification_status": "not_executed"}
+        references = list(self.assessment_references)
+        for operation in self.staged.operations:
+            references.extend(operation.evidence)
+            if operation.copy_from is not None:
+                references.append(operation.copy_from)
+        self._assert_evidence_fresh(references)
+
+        def target(operation) -> str:
+            return f"'{operation.sheet.replace(chr(39), chr(39) * 2)}'!{operation.cell}"
+
+        set_operations = [item for item in self.staged.operations if item.type == "set_cell"]
+        clear_operations = [item for item in self.staged.operations if item.type == "clear_cell"]
+        set_ranges = [target(item) for item in set_operations]
+        if set_operations:
+            self.google.batch_update_values(
+                self.spreadsheet_file_id,
+                [{"range": item, "majorDimension": "ROWS", "values": [[operation.value]]}
+                 for item, operation in zip(set_ranges, set_operations, strict=True)],
+            )
+            observed = self.google.batch_get_values(self.spreadsheet_file_id, set_ranges)
+            for expected, block in zip(set_operations, observed, strict=True):
+                values = block.get("values") or []
+                actual = values[0][0] if values and values[0] else None
+                if str(actual).strip() != str(expected.value).strip():
+                    raise V4AgentSafetyError("set_readback_verification_failed")
+
+        clear_ranges = [target(item) for item in clear_operations]
+        if clear_ranges:
+            self.google.batch_clear_values(self.spreadsheet_file_id, clear_ranges)
+            observed = self.google.batch_get_values(self.spreadsheet_file_id, clear_ranges)
+            if any((block.get("values") or []) for block in observed):
+                raise V4AgentSafetyError("clear_readback_verification_failed")
+        return {
+            "status": "completed",
+            "writes": len(set_operations) + len(clear_operations),
+            "set_count": len(set_operations),
+            "clear_count": len(clear_operations),
+            "verification_status": "verified",
         }
 
     def execute(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:

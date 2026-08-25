@@ -21,7 +21,7 @@ from .tools import V4AgentSafetyError, V4WorkbookToolHost, function_declarations
 logger = logging.getLogger("cam.inventory.daily_sheet.agent_v4")
 
 V4_PROMPT_VERSION = "inventory-sheet-tool-agent-v4-1"
-V4_HIGH_LEVEL_GOAL = """Act as an investigative Inventory workbook operator in a shadow-only environment.
+V4_HIGH_LEVEL_GOAL = """Act as an investigative Inventory workbook operator in a safety-controlled environment.
 Start with workbook metadata, then read enough exact cell evidence to understand the workbook's own labels, structure, formulas, values, operational rows and field relationships.
 Do not assume the first range is sufficient, and do not assume fixed headers, columns, rows or ranges.
 Inspect row-local anomalies and relationships. Distinguish blank from zero, coherent raw structured values from structurally suspicious data, and missing evidence from evidence that no action is required.
@@ -31,7 +31,7 @@ Use exact_copy provenance whenever a value is copied without transformation. Cit
 Before stage_edits, call submit_workbook_assessment. If more evidence is needed, read it and submit an updated complete assessment before staging.
 Perform a silent completeness check, then call stage_edits exactly once. A ready no-op plan requires a grounded assessment explaining why no action or review is needed.
 Preserve formulas, protected or merged structure, workbook labels and exact raw quantity representations.
-The host is shadow-only and will not mutate the workbook.
+The host enforces evidence revalidation and mechanical safeguards before any configured live write.
 Do not expose hidden chain-of-thought, credentials, API requests or full sensitive provider responses."""
 
 
@@ -79,7 +79,15 @@ class InventoryDailySheetV4Service:
         value = self.token_resolver(connection_id)
         return asyncio.run(value) if hasattr(value, "__await__") else str(value)
 
-    def run_shadow(self, tenant_id: str, business_date: date) -> V4AgentRunResult:
+    def run(self, tenant_id: str, business_date: date) -> V4AgentRunResult:
+        context = self.context_provider(tenant_id)
+        return self.run_shadow(tenant_id, business_date, apply_mode=context.config.agent.apply_mode)
+
+    def run_shadow(
+        self, tenant_id: str, business_date: date, *, apply_mode: str = "shadow"
+    ) -> V4AgentRunResult:
+        if apply_mode not in {"shadow", "review", "auto"}:
+            raise V4AgentSafetyError("invalid_apply_mode")
         context = self.context_provider(tenant_id)
         config = context.config
         configured_file_id = config.source.spreadsheet_file_id
@@ -97,7 +105,7 @@ class InventoryDailySheetV4Service:
                             {
                                 "prompt_version": V4_PROMPT_VERSION,
                                 "business_date": business_date.isoformat(),
-                                "apply_mode": "shadow",
+                                "apply_mode": apply_mode,
                                 "spreadsheet_file_id": context.working_file_id,
                                 "allowed_sheets": config.source.allowed_sheets,
                                 "business_goal": config.agent.business_goal,
@@ -163,15 +171,28 @@ class InventoryDailySheetV4Service:
                     separators=(",", ":"),
                 ).encode("utf-8")
             ).hexdigest()
+            execution = (
+                host.apply_staged()
+                if apply_mode == "auto"
+                else {"status": "shadow", "writes": 0, "set_count": 0, "clear_count": 0, "verification_status": "not_executed"}
+            )
             status = (
                 "blocked"
                 if host.staged.status == "blocked"
                 else "review_required"
                 if host.staged.requires_review or host.staged.status == "review_required"
+                else "completed"
+                if execution["status"] == "completed"
                 else "shadow"
             )
+            run_id = hashlib.sha256(
+                f"inventory-v4:{tenant_id}:{business_date.isoformat()}:{digest}".encode(
+                    "utf-8"
+                )
+            ).hexdigest()
             result = V4AgentRunResult(
                 status=status,
+                run_id=run_id,
                 tenant_id=tenant_id,
                 spreadsheet_file_id=context.working_file_id,
                 business_date=business_date.isoformat(),
@@ -192,10 +213,12 @@ class InventoryDailySheetV4Service:
                     if item["tool"] == "read_range"
                 ],
                 tool_trace=host.tool_trace,
+                writes=execution["writes"],
             )
             logger.info(
-                "inventory_sheet_agent_v4_shadow_completed",
+                "inventory_sheet_agent_v4_completed",
                 extra={
+                    "run_id": run_id,
                     "tenant_id": tenant_id,
                     "spreadsheet_id": context.working_file_id,
                     "business_date": business_date.isoformat(),
@@ -212,7 +235,7 @@ class InventoryDailySheetV4Service:
                     "plan_hash": digest,
                     "status": status,
                     "model": model,
-                    "writes": 0,
+                    "writes": execution["writes"],
                 },
             )
             return result

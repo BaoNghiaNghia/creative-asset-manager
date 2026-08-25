@@ -136,14 +136,14 @@ def test_v3_shadow_configuration_stays_shadow_and_automation_disabled():
     assert row.daily_sheet_config_json["agent"]["apply_mode"] == "shadow"
 
 
-def test_v4_manual_endpoint_forces_shadow_and_ignores_automation_flag():
+def test_v4_manual_endpoint_uses_configured_live_execution_path():
     service = Mock()
     service.is_agent_v4_configured.return_value = True
-    service.run_agent_v4_shadow.return_value = {
+    service.run_agent_v4.return_value = {
         "version": 4,
         "mode": "gemini_tool_sheet_agent",
-        "apply_mode": "shadow",
-        "status": "shadow",
+        "apply_mode": "auto",
+        "status": "completed",
         "tenant_id": "tenant-a",
         "spreadsheet_file_id": "sheet-1",
         "business_date": "2030-08-09",
@@ -152,26 +152,25 @@ def test_v4_manual_endpoint_forces_shadow_and_ignores_automation_flag():
         "read_cells": 4,
         "plan_hash": "a" * 64,
         "staged": {"status": "ready", "operations": [], "issues": [], "material_actions": []},
-        "writes": 0,
+        "writes": 1,
     }
     client = client_for(principal({"inventory.read", "inventory.finalize"}))
     with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
         response = client.post(
             "/api/inventory/daily-sheet/agent-v4/run",
-            json={"business_date": "2030-08-09", "apply_mode": "auto"},
+            json={"business_date": "2030-08-09"},
         )
     assert response.status_code == 200
-    assert response.json()["apply_mode"] == "shadow"
-    assert response.json()["writes"] == 0
-    service.run_agent_v4_shadow.assert_called_once_with(
+    assert response.json()["apply_mode"] == "auto"
+    assert response.json()["writes"] == 1
+    service.run_agent_v4.assert_called_once_with(
         "tenant-a", date(2030, 8, 9)
     )
 
-
-def test_v4_configuration_cannot_enable_scheduler():
+def test_v4_configuration_enables_scheduler_only_for_auto_mode():
     row = SimpleNamespace(
         image_pipeline_enabled=True,
-        daily_sheet_automation_enabled=True,
+        daily_sheet_automation_enabled=False,
         daily_working_spreadsheet_file_id="working",
         daily_archive_root_folder_id=None,
         daily_template_spreadsheet_file_id=None,
@@ -184,14 +183,19 @@ def test_v4_configuration_cannot_enable_scheduler():
     session = MagicMock()
     session.__enter__.return_value = session
     session.scalar.return_value = row
+    service = Mock()
+    service.validate_configuration.return_value = {"valid": True}
     client = client_for(principal({"inventory.read", "inventory.finalize"}))
     config = {
         "version": 4,
         "mode": "gemini_tool_sheet_agent",
         "source": {"allowed_sheets": ["Daily"]},
-        "agent": {"apply_mode": "shadow"},
+        "agent": {"apply_mode": "auto"},
     }
-    with patch("app.modules.inventory.daily_sheet.router.SessionLocal", return_value=session):
+    with (
+        patch("app.modules.inventory.daily_sheet.router.SessionLocal", return_value=session),
+        patch("app.modules.inventory.daily_sheet.router._service", return_value=service),
+    ):
         response = client.put(
             "/api/inventory/daily-sheet/configuration",
             json={
@@ -201,5 +205,6 @@ def test_v4_configuration_cannot_enable_scheduler():
             },
         )
     assert response.status_code == 200
-    assert row.daily_sheet_automation_enabled is False
+    assert row.daily_sheet_automation_enabled is True
     assert row.daily_sheet_config_json["version"] == 4
+    service.validate_configuration.assert_called_once_with("tenant-a")

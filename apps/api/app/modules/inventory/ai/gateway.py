@@ -25,7 +25,7 @@ class InventoryAiGatewayResult:
     extracted_json: Mapping[str, Any]
     provider_request_id: str | None = None
     usage_json: Mapping[str, Any] = field(default_factory=dict)
-    estimated_cost_micros: int = 0
+    estimated_cost_micros: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

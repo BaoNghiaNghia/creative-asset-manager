@@ -93,8 +93,9 @@ class StagedEdits(V4Contract):
 class V4AgentRunResult(V4Contract):
     version: Literal[4] = 4
     mode: Literal["gemini_tool_sheet_agent"] = "gemini_tool_sheet_agent"
-    apply_mode: Literal["shadow"] = "shadow"
-    status: Literal["shadow", "review_required", "blocked"]
+    apply_mode: Literal["shadow", "review", "auto"] = "shadow"
+    status: Literal["shadow", "completed", "review_required", "blocked"]
+    run_id: str | None = Field(default=None, min_length=64, max_length=64)
     tenant_id: str
     spreadsheet_file_id: str
     business_date: str
@@ -108,4 +109,4 @@ class V4AgentRunResult(V4Contract):
     catalog_read: bool = False
     ranges_read: list[str] = Field(default_factory=list)
     tool_trace: list[dict[str, Any]] = Field(default_factory=list)
-    writes: Literal[0] = 0
+    writes: int = 0

@@ -281,7 +281,7 @@ class ToolSheetAgentSourceConfig(DailySheetModel):
 
 
 class ToolSheetAgentRuntimeConfig(DailySheetModel):
-    apply_mode: Literal["shadow"] = "shadow"
+    apply_mode: Literal["shadow", "review", "auto"] = "shadow"
     max_tool_rounds: int = Field(default=8, ge=1, le=20)
     max_read_calls: int = Field(default=24, ge=1, le=100)
     max_read_cells: int = Field(default=12000, ge=1, le=50000)

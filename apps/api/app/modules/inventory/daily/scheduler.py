@@ -49,6 +49,7 @@ class InventoryDailyScheduler:
         # its first release, so suppress repeated successful planning within the
         # long-lived scheduler process while still retrying failures.
         self._completed_v3_plans: set[tuple[str, date]] = set()
+        self._completed_v4_runs: set[tuple[str, date]] = set()
 
     def run_once(self, now: datetime | None = None) -> int:
         moment = now or datetime.now(timezone.utc)
@@ -83,12 +84,22 @@ class InventoryDailyScheduler:
                             isinstance(settings.daily_sheet_config_json, dict)
                             and settings.daily_sheet_config_json.get("version") == 3
                         )
-                        if is_v3:
+                        is_v4 = (
+                            isinstance(settings.daily_sheet_config_json, dict)
+                            and settings.daily_sheet_config_json.get("version") == 4
+                        )
+                        if is_v4:
+                            run_key = (tenant_id, business_date)
+                            if run_key not in self._completed_v4_runs:
+                                result = self.sheet_service.run_agent_v4(tenant_id, business_date)
+                                if result.status == "completed":
+                                    self._completed_v4_runs.add(run_key)
+                                    count += 1
+                        elif is_v3:
                             plan_key = (tenant_id, business_date)
                             if plan_key not in self._completed_v3_plans:
                                 self.sheet_service.snapshot_and_reset(tenant_id, business_date)
                                 self._completed_v3_plans.add(plan_key)
-                                # Shadow/review generate plans only; auto remains guard-gated.
                                 count += 1
                         else:
                             snapshot = self.sheet_service.snapshot_and_reset(

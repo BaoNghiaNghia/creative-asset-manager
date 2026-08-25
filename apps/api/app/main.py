@@ -39,7 +39,7 @@ from app.providers.google.drive import create_stream_client
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    settings = get_settings()
+    settings = _app.state.settings
     google_drive_stream_client = create_stream_client()
     _app.state.google_drive_stream_client = google_drive_stream_client
     shadow_started = False
@@ -66,6 +66,7 @@ async def lifespan(_app: FastAPI):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    # Lifespan uses this exact resolved Settings instance.
     api = FastAPI(
         title="Creative Asset Manager API",
         version=settings.APP_VERSION,
@@ -74,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url="/redoc" if settings.API_DOCS_ENABLED else None,
         openapi_url="/openapi.json" if settings.API_DOCS_ENABLED else None,
     )
+    api.state.settings = settings
     api.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=list(settings.trusted_hosts),

@@ -44,6 +44,22 @@ class AppSmokeTest(unittest.TestCase):
         paths = {getattr(route, "path", "") for route in api.routes}
         self.assertIn("/api/inventory/configuration/ai-credential", paths)
 
+    def test_lifespan_uses_the_settings_attached_to_that_app_instance(self) -> None:
+        from app.core.config import Settings
+        from app.main import create_app
+
+        settings = Settings(INVENTORY_AUTOMATION_ENABLED=False, APP_VERSION="test-settings")
+        with (
+            patch("app.main.init_database") as init_database,
+            patch("app.main.dispose_database"),
+            patch("app.main.SHADOW_SEARCH.start"),
+            patch("app.main.SHADOW_SEARCH.shutdown", new_callable=AsyncMock),
+        ):
+            with TestClient(create_app(settings)):
+                pass
+
+        init_database.assert_called_once_with(settings)
+
 
 
 if __name__ == "__main__":

@@ -147,7 +147,17 @@ class InventoryDocumentAnalyzer:
             analysis = session.scalar(select(InventoryAiAnalysisModel).where(InventoryAiAnalysisModel.tenant_id == tenant_id, InventoryAiAnalysisModel.id == analysis_id))
             page = session.scalar(select(InventoryDocumentPageModel).where(InventoryDocumentPageModel.tenant_id == tenant_id, InventoryDocumentPageModel.id == page_id))
             if analysis is None or page is None: raise RuntimeError("inventory_ai_result_target_missing")
-            analysis.status = "succeeded"; analysis.validation_status = "valid"; analysis.raw_result_json = dict(result.raw_response_json); analysis.extracted_json = extracted; analysis.provider_request_id = result.provider_request_id; analysis.usage_json = dict(result.usage_json); analysis.estimated_cost_micros = max(0, int(result.estimated_cost_micros)); analysis.completed_at = inventory_utcnow()
+            analysis.status = "succeeded"
+            analysis.validation_status = "valid"
+            analysis.raw_result_json = dict(result.raw_response_json)
+            analysis.extracted_json = extracted
+            analysis.provider_request_id = result.provider_request_id
+            analysis.usage_json = dict(result.usage_json)
+            if result.estimated_cost_micros is not None:
+                analysis.estimated_cost_micros = max(
+                    0, int(result.estimated_cost_micros)
+                )
+            analysis.completed_at = inventory_utcnow()
             page.analysis_status = "completed"
             InventoryJobRepository(session, (INVENTORY_DOCUMENT_NORMALIZE_JOB,)).create_job(tenant_id=tenant_id, job_type=INVENTORY_DOCUMENT_NORMALIZE_JOB, entity_type="inventory_ai_analysis", entity_id=analysis.id, idempotency_key=f"inventory-document-normalize:{analysis.id}", payload={"analysis_id": analysis.id})
             session.commit()

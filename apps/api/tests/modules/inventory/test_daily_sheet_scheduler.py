@@ -158,6 +158,42 @@ class DailySheetSchedulerTest(unittest.TestCase):
         self.assertEqual(2, sheets.calls)
 
 
+    def test_v4_scheduler_uses_only_the_live_v4_executor_and_retries_failures(self):
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_sheet_config_json = {
+                "version": 4,
+                "mode": "gemini_tool_sheet_agent",
+                "source": {"allowed_sheets": ["Daily"]},
+                "agent": {"apply_mode": "auto"},
+            }
+
+        class Sheets:
+            def __init__(self):
+                self.calls = 0
+
+            def run_agent_v4(self, tenant_id, business_date):
+                self.calls += 1
+                if self.calls == 1:
+                    return SimpleNamespace(status="review_required")
+                return SimpleNamespace(status="completed")
+
+            def snapshot_and_reset(self, *_args, **_kwargs):
+                raise AssertionError("V4 must not enter legacy snapshot/reset")
+
+            def reconcile(self, *_args, **_kwargs):
+                raise AssertionError("V4 must not enter legacy reconciliation")
+
+        sheets = Sheets()
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
+        moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(0, scheduler.run_once(moment))
+        self.assertEqual(1, scheduler.run_once(moment))
+        self.assertEqual(0, scheduler.run_once(moment))
+        self.assertEqual(2, sheets.calls)
+
     def test_v3_scheduler_ignores_tenant_when_daily_automation_is_disabled(self):
         with self.sessions.begin() as session:
             settings = session.scalar(select(InventorySettingsModel).where(

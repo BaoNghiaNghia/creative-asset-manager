@@ -194,14 +194,24 @@ def test_v4_config_defaults_shadow_and_has_no_fixed_range():
     assert not hasattr(config.source, "range")
 
 
-@pytest.mark.parametrize("apply_mode", ["auto", "review", "enabled"])
-def test_v4_config_rejects_non_shadow_apply_modes(apply_mode):
+@pytest.mark.parametrize("apply_mode", ["shadow", "review", "auto"])
+def test_v4_config_accepts_explicit_guarded_apply_modes(apply_mode):
+    assert parse_daily_sheet_config(
+        {
+            "version": 4,
+            "mode": "gemini_tool_sheet_agent",
+            "agent": {"apply_mode": apply_mode},
+        }
+    ).agent.apply_mode == apply_mode
+
+
+def test_v4_config_rejects_unknown_apply_mode():
     with pytest.raises(Exception):
         parse_daily_sheet_config(
             {
                 "version": 4,
                 "mode": "gemini_tool_sheet_agent",
-                "agent": {"apply_mode": apply_mode},
+                "agent": {"apply_mode": "enabled"},
             }
         )
 
@@ -568,6 +578,8 @@ def test_real_v4_service_tool_loop_is_shadow_and_does_not_call_legacy_parsers():
         result = service.run_shadow("tenant-a", date(2030, 8, 9))
     assert result.status == "shadow"
     assert result.apply_mode == "shadow"
+    assert result.run_id is not None
+    assert len(result.run_id) == 64
     assert result.writes == 0
     assert google.mutation_calls == []
     assert google.closed is True
@@ -1177,3 +1189,74 @@ def test_v41_bad_sequence_stage_without_assessment_fails_closed():
         )
     assert google.mutation_calls == []
     assert google.closed is True
+
+
+
+def test_v4_live_executor_revalidates_then_sets_verifies_and_clears():
+    google = FakeGoogle()
+
+    def update(_sheet, updates):
+        google.mutation_calls.append("update")
+        for item in updates:
+            google.values[item["range"]] = deepcopy(item["values"])
+            google.formulas[item["range"]] = deepcopy(item["values"])
+
+    def clear(_sheet, ranges):
+        google.mutation_calls.append("clear")
+        for item in ranges:
+            google.values[item] = []
+            google.formulas[item] = []
+
+    google.batch_update_values = update
+    google.batch_clear_values = clear
+    tools = V4WorkbookToolHost(
+        tenant_id="tenant-a",
+        spreadsheet_file_id="sheet-1",
+        allowed_sheets=["Arbitrary"],
+        google=google,
+        session_factory=SessionFactory(),
+        max_read_calls=20,
+        max_read_cells=100,
+        max_edit_operations=20,
+    )
+    c7, d7, c8 = tools.read_range(
+        {"sheet": "Arbitrary", "a1_range": "C7:D8"}
+    )["cells"][:3]
+    submit_grounded_assessment(tools, c7)
+    tools.stage_edits(
+        {
+            "status": "ready",
+            "operations": [
+                {
+                    "operation_id": "copy",
+                    "type": "set_cell",
+                    "sheet": "Arbitrary",
+                    "cell": "C8",
+                    "value": "alpha",
+                    "evidence": [reference(c8), reference(c7)],
+                    "provenance": "exact_copy",
+                    "copy_from": reference(c7),
+                },
+                {
+                    "operation_id": "clear",
+                    "type": "clear_cell",
+                    "sheet": "Arbitrary",
+                    "cell": "D7",
+                    "evidence": [reference(d7)],
+                    "provenance": "exact_copy",
+                    "copy_from": reference(d7),
+                },
+            ],
+        }
+    )
+
+    result = tools.apply_staged()
+
+    assert result == {
+        "status": "completed",
+        "writes": 2,
+        "set_count": 1,
+        "clear_count": 1,
+        "verification_status": "verified",
+    }
+    assert google.mutation_calls == ["update", "clear"]

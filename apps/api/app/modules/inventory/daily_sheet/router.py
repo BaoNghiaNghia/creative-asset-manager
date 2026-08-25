@@ -95,7 +95,9 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
         row.daily_sheet_config_json = body.config
         row.timezone = body.timezone
         session.commit()
-    if body.daily_sheet_automation_enabled and not isinstance(parsed_config, GeminiToolSheetAgentConfig):
+    if body.daily_sheet_automation_enabled:
+        if isinstance(parsed_config, GeminiToolSheetAgentConfig) and parsed_config.agent.apply_mode != "auto":
+            raise HTTPException(422, detail={"code": "gemini_tool_sheet_agent_scheduler_requires_auto_mode"})
         report = _service().validate_configuration(principal.active_tenant_id)
         if not report["valid"]:
             raise HTTPException(422, detail={"code": "daily_sheet_validation_failed", "report": report})
@@ -190,7 +192,7 @@ def run_agent_v4(
                 409,
                 detail={"code": "gemini_tool_sheet_agent_not_configured"},
             )
-        return service.run_agent_v4_shadow(
+        return service.run_agent_v4(
             principal.active_tenant_id,
             _business_date(principal.active_tenant_id, body.business_date),
         )

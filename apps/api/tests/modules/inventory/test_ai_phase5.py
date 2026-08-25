@@ -103,6 +103,25 @@ class InventoryAiPhase5Test(unittest.TestCase):
             self.assertEqual(row.estimated_cost_micros, 7)
         self.assertEqual(gateway.calls, 1)
 
+    def test_success_without_provider_cost_preserves_reserved_budget_cost(self):
+        page = self.page()
+        self.control()
+        gateway = FakeGateway(self.result(cost=None))
+
+        InventoryDocumentAnalyzer(
+            self.sessions,
+            prepared_storage=InventoryPreparedStorage(self.root),
+            gateway=gateway,
+            enabled=True,
+            estimated_cost_micros=7,
+        ).execute(self.job(page))
+
+        with self.sessions() as session:
+            row = session.scalar(select(InventoryAiAnalysisModel))
+            self.assertEqual(row.status, "succeeded")
+            self.assertEqual(row.estimated_cost_micros, 7)
+        self.assertEqual(gateway.calls, 1)
+
     def test_unprepared_cross_tenant_disabled_and_stop_never_call_provider(self):
         gateway = FakeGateway(self.result())
         blocked = self.page(prepared=False); self.control()

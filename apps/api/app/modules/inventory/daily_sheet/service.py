@@ -517,6 +517,12 @@ class InventoryDailySheetService:
             raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
         return self._agent_v4().run_shadow(tenant_id, business_date)
 
+    def run_agent_v4(self, tenant_id: str, business_date: date):
+        context = self._context(tenant_id, require_enabled=False)
+        if not isinstance(context.config, GeminiToolSheetAgentConfig):
+            raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
+        return self._agent_v4().run(tenant_id, business_date)
+
     def is_agent_v3_configured(self, tenant_id: str) -> bool:
         context = self._context(tenant_id, require_enabled=False)
         return isinstance(context.config, GeminiSheetAgentConfig)
