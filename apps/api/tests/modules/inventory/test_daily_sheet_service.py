@@ -799,6 +799,179 @@ def test_v3_configuration_does_not_require_legacy_archive(daily_sheet_db):
     assert {"code": "gemini_sheet_agent_source", "ok": True} in report["checks"]
 
 
+V4_CONFIG = {
+    "version": 4,
+    "mode": "gemini_tool_sheet_agent",
+    "source": {
+        "spreadsheet_file_id": "working",
+        "allowed_sheets": ["Arbitrary"],
+    },
+}
+
+
+def configure_v4(
+    sessions,
+    *,
+    spreadsheet_file_id="working",
+    allowed_sheets=("Arbitrary",),
+    automation_enabled=False,
+    stale_template=False,
+):
+    with sessions.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_sheet_automation_enabled = automation_enabled
+        settings.daily_archive_root_folder_id = None
+        settings.daily_template_spreadsheet_file_id = (
+            "stale-legacy-template" if stale_template else None
+        )
+        settings.daily_sheet_config_json = {
+            **V4_CONFIG,
+            "source": {
+                "spreadsheet_file_id": spreadsheet_file_id,
+                "allowed_sheets": list(allowed_sheets),
+            },
+        }
+
+
+class V4ValidationGoogle(FakeGoogle):
+    def __init__(self, *, sheets=("Arbitrary",)):
+        super().__init__()
+        self.sheets = tuple(sheets)
+        self.validated_file_ids = []
+        self.metadata_calls = []
+
+    def validate_native_spreadsheet(self, file_id):
+        self.validated_file_ids.append(file_id)
+        return super().validate_native_spreadsheet(file_id)
+
+    def drive_file(self, _file_id):
+        raise AssertionError("V4 validation must not inspect a legacy archive")
+
+    def spreadsheet_metadata(self, file_id):
+        self.metadata_calls.append(file_id)
+        return {
+            "properties": {
+                "title": "V4 workbook",
+                "timeZone": "Asia/Ho_Chi_Minh",
+            },
+            "sheets": [
+                {"properties": {"title": title, "sheetId": index + 1}}
+                for index, title in enumerate(self.sheets)
+            ],
+        }
+
+    def batch_get_values(self, *_args, **_kwargs):
+        raise AssertionError("V4 validation must not read legacy source/template ranges")
+
+
+def test_v4_validation_requires_only_working_sheet_and_allowed_tabs(daily_sheet_db):
+    configure_v4(daily_sheet_db)
+    google = V4ValidationGoogle()
+
+    with patch(
+        "app.modules.inventory.daily_sheet.service.parse_stock_records",
+        side_effect=AssertionError("legacy parser called"),
+    ), patch.object(
+        InventoryDailySheetService,
+        "_parse_v2_runtime",
+        side_effect=AssertionError("V2 parser called"),
+    ):
+        report = service(daily_sheet_db, google).validate_configuration("tenant-a")
+
+    assert report["valid"] is True
+    assert report["errors"] == []
+    assert google.validated_file_ids == ["working"]
+    assert google.metadata_calls == ["working"]
+    assert {"code": "gemini_tool_sheet_agent_metadata", "ok": True} in report["checks"]
+
+
+def test_v4_validation_reports_missing_allowed_sheet(daily_sheet_db):
+    configure_v4(daily_sheet_db, allowed_sheets=("Arbitrary", "Missing"))
+    report = service(
+        daily_sheet_db,
+        V4ValidationGoogle(sheets=("Arbitrary",)),
+    ).validate_configuration("tenant-a")
+
+    assert report["valid"] is False
+    assert {"code": "configured_sheet_missing", "sheet": "Missing"} in report["errors"]
+
+
+def test_v4_validation_rejects_different_configured_spreadsheet(daily_sheet_db):
+    configure_v4(daily_sheet_db, spreadsheet_file_id="different-working-file")
+    report = service(
+        daily_sheet_db,
+        V4ValidationGoogle(),
+    ).validate_configuration("tenant-a")
+
+    assert report["valid"] is False
+    assert {"code": "spreadsheet_not_authorized"} in report["errors"]
+
+
+def test_v4_validation_ignores_stale_legacy_template(daily_sheet_db):
+    configure_v4(daily_sheet_db, stale_template=True)
+    google = V4ValidationGoogle()
+    report = service(daily_sheet_db, google).validate_configuration("tenant-a")
+
+    assert report["valid"] is True
+    assert google.validated_file_ids == ["working"]
+
+
+def test_v4_manual_shadow_runs_while_daily_automation_is_disabled(daily_sheet_db):
+    configure_v4(daily_sheet_db, automation_enabled=False)
+
+    class AgentV4:
+        def __init__(self):
+            self.calls = []
+
+        def run_shadow(self, tenant_id, business_date):
+            self.calls.append((tenant_id, business_date))
+            return SimpleNamespace(status="shadow", writes=0)
+
+    agent = AgentV4()
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: (_ for _ in ()).throw(
+            AssertionError("legacy Google validation called")
+        ),
+        token_resolver=lambda _connection: "token",
+        agent_v4_service=agent,
+    )
+
+    result = worker.run_agent_v4_shadow("tenant-a", date(2030, 8, 9))
+
+    assert result.status == "shadow"
+    assert result.writes == 0
+    assert agent.calls == [("tenant-a", date(2030, 8, 9))]
+
+
+def test_v4_snapshot_rejects_manual_shadow_mode_and_reconcile_is_report_only(
+    daily_sheet_db,
+):
+    configure_v4(daily_sheet_db, automation_enabled=True)
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: (_ for _ in ()).throw(
+            AssertionError("legacy Google flow called")
+        ),
+        token_resolver=lambda _connection: "token",
+    )
+
+    with pytest.raises(DailySheetConfigurationError, match="manual shadow-only"):
+        worker.snapshot_and_reset("tenant-a", date(2030, 8, 9))
+
+    context = worker._context("tenant-a")
+    with pytest.raises(DailySheetConfigurationError, match="manual shadow-only"):
+        worker._source_ranges(context.config)
+    with pytest.raises(DailySheetConfigurationError, match="manual shadow-only"):
+        worker._reset_and_verify(None, context)
+
+    assert worker.reconcile("tenant-a", date(2030, 8, 9)) == {
+        "status": "report_only",
+        "business_date": "2030-08-09",
+        "writes": 0,
+    }
+
+
 def test_snapshot_and_reset_routes_v3_to_injected_agent_without_legacy_snapshot(daily_sheet_db):
     with daily_sheet_db.begin() as session:
         settings = session.scalar(select(InventorySettingsModel))

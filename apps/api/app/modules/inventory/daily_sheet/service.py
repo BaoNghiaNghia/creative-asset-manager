@@ -175,6 +175,10 @@ class InventoryDailySheetService:
 
     @staticmethod
     def _source_ranges(config: DailySheetAnyConfig) -> list[str]:
+        if isinstance(config, GeminiToolSheetAgentConfig):
+            raise DailySheetConfigurationError(
+                "Gemini Tool Sheet Agent V4 is manual shadow-only."
+            )
         return [config.source.a1_range] if isinstance(config, (DailyCountSheetConfig, GeminiSheetAgentConfig)) else [item.a1_range for item in config.source_ranges]
 
     @staticmethod
@@ -198,7 +202,11 @@ class InventoryDailySheetService:
                 checks.append({"code": "native_working_spreadsheet", "ok": True})
                 if (working.get("capabilities") or {}).get("canEdit") is False:
                     errors.append({"code": "working_spreadsheet_not_editable"})
-                if not isinstance(context.config, GeminiSheetAgentConfig):
+                uses_legacy_snapshot_flow = not isinstance(
+                    context.config,
+                    (GeminiSheetAgentConfig, GeminiToolSheetAgentConfig),
+                )
+                if uses_legacy_snapshot_flow:
                     archive = google.drive_file(context.archive_root_id)
                     if archive.get("mimeType") != "application/vnd.google-apps.folder":
                         errors.append({"code": "archive_root_not_folder"})
@@ -300,7 +308,7 @@ class InventoryDailySheetService:
                     parse_stock_records(context.config, source_values)
                     google.validate_native_spreadsheet(context.target_file_id)
                     google.batch_get_values(context.target_file_id, [item.sku_range for item in context.config.targets])
-                if context.template_file_id:
+                if uses_legacy_snapshot_flow and context.template_file_id:
                     google.validate_native_spreadsheet(context.template_file_id)
                     google.batch_get_values(context.template_file_id, context.config.reset.ranges, value_render_option="FORMULA")
             checks.extend({"code": error["code"], "ok": False} for error in errors)
@@ -618,6 +626,10 @@ class InventoryDailySheetService:
             raise
 
     def _reset_and_verify(self, google, context: SheetContext) -> None:
+        if isinstance(context.config, GeminiToolSheetAgentConfig):
+            raise DailySheetConfigurationError(
+                "Gemini Tool Sheet Agent V4 is manual shadow-only."
+            )
         if isinstance(context.config, DailyCountSheetConfig):
             self._reset_v2(google, context)
             return
