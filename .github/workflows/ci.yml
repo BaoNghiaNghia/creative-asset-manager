@@ -37,10 +37,13 @@ jobs:
           npm test 2>&1 | tee ../../artifacts/frontend/tests.log
       - name: Production build matches committed dist
         run: |
+          set -o pipefail
           test -f dist/build-info.json
           export BUILD_COMMIT="$(node -e 'const value=require("./dist/build-info.json").build_commit; process.stdout.write(value)')"
           export BUILD_UTC_TIMESTAMP="$(node -e 'const value=require("./dist/build-info.json").build_utc_timestamp; process.stdout.write(value)')"
-          npm run build
+          npm run build 2>&1 | tee ../../artifacts/frontend/build.log
+          git diff -- dist > ../../artifacts/frontend/dist.diff
+          git status --porcelain --untracked-files=all -- dist > ../../artifacts/frontend/dist-status.txt
           git diff --exit-code -- dist
           test -z "$(git status --porcelain --untracked-files=all -- dist)"
       - name: Upload frontend failure diagnostics
