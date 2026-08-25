@@ -21,16 +21,18 @@ from .tools import V4AgentSafetyError, V4WorkbookToolHost, function_declarations
 logger = logging.getLogger("cam.inventory.daily_sheet.agent_v4")
 
 V4_PROMPT_VERSION = "inventory-sheet-tool-agent-v4-1"
-V4_HIGH_LEVEL_GOAL = """Inspect the authorized workbook using tools and stage a safe end-of-day Inventory workbook update.
-Infer all workbook and business semantics from exact cell evidence; Python has no business-schema knowledge.
-Read adaptively and never assume fixed headers, columns, rows, or ranges.
-Preserve formulas, protected/merged structure, workbook labels and exact raw quantity representations.
-Blank is unknown and is never zero.
-Use exact_copy provenance whenever a value is copied without transformation.
-Cite the exact evidence hash returned by a read tool for every edit, issue, and material action.
-Use the tenant material catalog only when needed. MATCH_EXISTING must name an exact catalog material_id; all other material actions require review.
-Call stage_edits exactly once when sufficient evidence has been gathered. The host is shadow-only and will not mutate the workbook.
-Do not return prose, credentials, API requests, or hidden reasoning."""
+V4_HIGH_LEVEL_GOAL = """Act as an investigative Inventory workbook operator in a shadow-only environment.
+Start with workbook metadata, then read enough exact cell evidence to understand the workbook's own labels, structure, formulas, values, operational rows and field relationships.
+Do not assume the first range is sufficient, and do not assume fixed headers, columns, rows or ranges.
+Inspect row-local anomalies and relationships. Distinguish blank from zero, coherent raw structured values from structurally suspicious data, and missing evidence from evidence that no action is required.
+When material or item identities are relevant to the configured business goal, inspect the tenant material catalog before finalizing. Do not perform fuzzy matching outside the model; MATCH_EXISTING must cite an exact active catalog material_id.
+Never invent a value. When evidence required for a safe workflow is missing, report an issue or uncertainty and do not stage destructive clears.
+Use exact_copy provenance whenever a value is copied without transformation. Cite the exact evidence hash returned by a read tool for every assessment observation, edit, issue and material action.
+Before stage_edits, call submit_workbook_assessment. If more evidence is needed, read it and submit an updated complete assessment before staging.
+Perform a silent completeness check, then call stage_edits exactly once. A ready no-op plan requires a grounded assessment explaining why no action or review is needed.
+Preserve formulas, protected or merged structure, workbook labels and exact raw quantity representations.
+The host is shadow-only and will not mutate the workbook.
+Do not expose hidden chain-of-thought, credentials, API requests or full sensitive provider responses."""
 
 
 class V4AgentUnavailable(RuntimeError):
@@ -98,6 +100,7 @@ class InventoryDailySheetV4Service:
                                 "apply_mode": "shadow",
                                 "spreadsheet_file_id": context.working_file_id,
                                 "allowed_sheets": config.source.allowed_sheets,
+                                "business_goal": config.agent.business_goal,
                                 "limits": {
                                     "max_tool_rounds": config.agent.max_tool_rounds,
                                     "max_read_calls": config.agent.max_read_calls,
@@ -177,6 +180,18 @@ class InventoryDailySheetV4Service:
                 read_cells=host.read_cells,
                 plan_hash=digest,
                 staged=host.staged,
+                tools_called=[item["tool"] for item in host.tool_trace],
+                assessment_present=host.assessment is not None,
+                catalog_read=any(
+                    item["tool"] == "get_material_catalog"
+                    for item in host.tool_trace
+                ),
+                ranges_read=[
+                    item["range"]
+                    for item in host.tool_trace
+                    if item["tool"] == "read_range"
+                ],
+                tool_trace=host.tool_trace,
             )
             logger.info(
                 "inventory_sheet_agent_v4_shadow_completed",
@@ -188,6 +203,12 @@ class InventoryDailySheetV4Service:
                     "read_calls": host.read_calls,
                     "read_cells": host.read_cells,
                     "operation_count": len(host.staged.operations),
+                    "tools_called": [item["tool"] for item in host.tool_trace],
+                    "assessment_present": host.assessment is not None,
+                    "catalog_read": any(
+                        item["tool"] == "get_material_catalog"
+                        for item in host.tool_trace
+                    ),
                     "plan_hash": digest,
                     "status": status,
                     "model": model,

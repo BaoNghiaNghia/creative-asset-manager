@@ -286,6 +286,16 @@ class ToolSheetAgentRuntimeConfig(DailySheetModel):
     max_read_calls: int = Field(default=24, ge=1, le=100)
     max_read_cells: int = Field(default=12000, ge=1, le=50000)
     max_edit_operations: int = Field(default=200, ge=1, le=1000)
+    business_goal: list[str] = Field(
+        default_factory=lambda: [
+            "Understand the workbook from its labels, structure, formulas and exact values.",
+            "Never invent missing values; treat blank evidence as unknown rather than zero.",
+            "Report missing or structurally suspicious evidence instead of silently repairing it.",
+            "Use the approved material catalog when material identity is relevant to the task.",
+            "Stage only evidence-backed shadow operations and preserve workbook structure.",
+        ],
+        min_length=1,
+    )
 
 
 class GeminiToolSheetAgentConfig(DailySheetModel):

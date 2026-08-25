@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.inventory.persistence_model import InventoryItemModel
 
-from .contracts import CellEvidence, EvidenceReference, StagedEdits
+from .contracts import (
+    CellEvidence,
+    EvidenceReference,
+    StagedEdits,
+    WorkbookAssessment,
+)
 
 
 _CELL_RE = re.compile(r"^(?P<column>[A-Z]+)(?P<row>[1-9][0-9]*)$")
@@ -116,7 +121,10 @@ class V4WorkbookToolHost:
         self.read_calls = 0
         self.read_cells = 0
         self.ledger: dict[tuple[str, str], CellEvidence] = {}
+        self.assessment: WorkbookAssessment | None = None
+        self.assessment_references: list[EvidenceReference] = []
         self.staged: StagedEdits | None = None
+        self.tool_trace: list[dict[str, Any]] = []
         self._metadata: dict[str, Any] | None = None
         self._modified_time: str | None = None
 
@@ -274,6 +282,26 @@ class V4WorkbookToolHost:
             raise V4AgentSafetyError("missing_or_invalid_evidence")
         return evidence
 
+    def submit_workbook_assessment(
+        self, arguments: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        assessment = WorkbookAssessment.model_validate(dict(arguments))
+        references: list[EvidenceReference] = []
+        for observation in assessment.observations:
+            references.extend(observation.evidence)
+        for uncertainty in assessment.uncertainties:
+            references.extend(uncertainty.evidence)
+        for reference in references:
+            self._reference_evidence(reference)
+        self.assessment = assessment
+        self.assessment_references = references
+        return {
+            "accepted": True,
+            "grounded_observations": len(assessment.observations),
+            "uncertainties": len(assessment.uncertainties),
+            "additional_reads_needed": assessment.additional_reads_needed,
+        }
+
     def _target_within_grid(self, sheet: str, cell: str) -> bool:
         if self._metadata is None:
             self._metadata_payload()
@@ -352,11 +380,23 @@ class V4WorkbookToolHost:
     def stage_edits(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
         if self.staged is not None:
             raise V4AgentSafetyError("stage_edits_already_called")
+        if self.assessment is None:
+            raise V4AgentSafetyError("assessment_required")
+        if self.assessment.additional_reads_needed:
+            raise V4AgentSafetyError("assessment_incomplete")
         staged = StagedEdits.model_validate(dict(arguments))
+        if (
+            staged.status == "ready"
+            and not staged.operations
+            and not staged.issues
+            and not staged.material_actions
+            and not self.assessment.observations
+        ):
+            raise V4AgentSafetyError("grounded_assessment_required")
         if len(staged.operations) > self.max_edit_operations:
             raise V4AgentLimitExceeded("edit_operation_limit_exceeded")
         targets: set[tuple[str, str]] = set()
-        references: list[EvidenceReference] = []
+        references: list[EvidenceReference] = list(self.assessment_references)
         transformed = staged.requires_review or staged.status == "review_required"
         set_operations = []
         clear_operations = []
@@ -414,12 +454,43 @@ class V4WorkbookToolHost:
             "read_range": self.read_range,
             "read_cells": self.read_cells,
             "get_material_catalog": self.get_material_catalog,
+            "submit_workbook_assessment": self.submit_workbook_assessment,
             "stage_edits": self.stage_edits,
         }
         handler = handlers.get(name)
         if handler is None:
             raise V4AgentSafetyError("unknown_tool")
-        return handler(arguments)
+        result = handler(arguments)
+        trace: dict[str, Any] = {"tool": name}
+        if name == "read_range":
+            trace.update(
+                {
+                    "sheet": result["sheet"],
+                    "range": result["range"],
+                    "cells": len(result["cells"]),
+                }
+            )
+        elif name == "read_cells":
+            trace.update(
+                {
+                    "sheet": result["sheet"],
+                    "cells": len(result["cells"]),
+                }
+            )
+        elif name == "get_material_catalog":
+            trace["count"] = len(result["materials"])
+        elif name == "submit_workbook_assessment":
+            trace.update(
+                {
+                    "observations": result["grounded_observations"],
+                    "uncertainties": result["uncertainties"],
+                    "additional_reads_needed": result["additional_reads_needed"],
+                }
+            )
+        elif name == "stage_edits":
+            trace["operation_count"] = result["operation_count"]
+        self.tool_trace.append(trace)
+        return result
 
 
 def function_declarations() -> list[dict[str, Any]]:
@@ -461,8 +532,13 @@ def function_declarations() -> list[dict[str, Any]]:
             "parameters": {"type": "object", "properties": {}},
         },
         {
+            "name": "submit_workbook_assessment",
+            "description": "Submit a grounded workbook assessment before staging. Cite only evidence returned by read tools.",
+            "parametersJsonSchema": WorkbookAssessment.model_json_schema(),
+        },
+        {
             "name": "stage_edits",
-            "description": "Submit the authoritative evidence-backed shadow edit plan. This never writes Google Sheets.",
+            "description": "Submit the authoritative evidence-backed shadow edit plan after assessment. This never writes Google Sheets.",
             "parametersJsonSchema": StagedEdits.model_json_schema(),
         },
     ]

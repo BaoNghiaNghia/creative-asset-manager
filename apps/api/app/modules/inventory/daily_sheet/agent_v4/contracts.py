@@ -23,6 +23,26 @@ class EvidenceReference(V4Contract):
     evidence_hash: str = Field(min_length=64, max_length=64)
 
 
+class WorkbookAssessmentObservation(V4Contract):
+    code: str = Field(min_length=1, max_length=128)
+    conclusion: str = Field(min_length=1)
+    evidence: list[EvidenceReference] = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class WorkbookAssessmentUncertainty(V4Contract):
+    code: str = Field(min_length=1, max_length=128)
+    message: str = Field(min_length=1)
+    evidence: list[EvidenceReference] = Field(default_factory=list)
+
+
+class WorkbookAssessment(V4Contract):
+    summary: str = Field(min_length=1)
+    observations: list[WorkbookAssessmentObservation] = Field(default_factory=list)
+    uncertainties: list[WorkbookAssessmentUncertainty] = Field(default_factory=list)
+    additional_reads_needed: bool = False
+
+
 class StagedEditOperation(V4Contract):
     operation_id: str = Field(min_length=1, max_length=128)
     type: Literal["set_cell", "clear_cell"]
@@ -83,4 +103,9 @@ class V4AgentRunResult(V4Contract):
     read_cells: int
     plan_hash: str
     staged: StagedEdits
+    tools_called: list[str] = Field(default_factory=list)
+    assessment_present: bool = False
+    catalog_read: bool = False
+    ranges_read: list[str] = Field(default_factory=list)
+    tool_trace: list[dict[str, Any]] = Field(default_factory=list)
     writes: Literal[0] = 0
