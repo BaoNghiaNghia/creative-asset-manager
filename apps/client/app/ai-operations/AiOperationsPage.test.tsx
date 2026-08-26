@@ -35,6 +35,7 @@ import {
   ProcessingJobAction,
   StatusText,
 } from "./AiOperationsPage";
+import { InventoryDailyOverview } from "./InventoryDailyTab";
 
 const noop = () => undefined;
 const filters: AiOpsFilters = {
@@ -176,7 +177,7 @@ const data: AiOpsDashboardData = {
   },
 };
 
-function render(tab: "overview" | "processing" | "cost" = "overview", overrides = {}) {
+function render(tab: "overview" | "processing" | "inventory" | "cost" = "overview", overrides = {}) {
   return renderToStaticMarkup(<AiOperationsContent
     data={data}
     filters={filters}
@@ -349,6 +350,69 @@ describe("AI Operations media tab placement", () => {
   });
 });
 
+describe("Inventory Daily tab", () => {
+  it("places Inventory in the Operations tabs and removes unrelated AI filters", () => {
+    const markup = render("inventory");
+    expect(markup).toContain("Inventory Daily");
+    expect(markup).toContain("Đang tải dữ liệu Inventory hằng ngày");
+    expect(markup).not.toContain("Last 1 month");
+    expect(markup).not.toContain("Export data");
+  });
+
+  it("renders daily status, scheduler, snapshot and reconciliation data", () => {
+    const markup = renderToStaticMarkup(<InventoryDailyOverview
+      status={{
+        enabled: true,
+        configured: true,
+        operational_state: "healthy",
+        image_pipeline_enabled: true,
+        timezone: "Asia/Ho_Chi_Minh",
+        working_business_date: "2026-08-26",
+        snapshot_time: "05:50",
+        reconcile_time: "07:00",
+        next_snapshot_at: "2026-08-27T05:50:00+07:00",
+        next_reconciliation_at: "2026-08-27T07:00:00+07:00",
+        working_spreadsheet_url: "https://docs.google.com/spreadsheets/d/workbook",
+        last_snapshot: {
+          id: "snapshot-1",
+          business_date: "2026-08-26",
+          status: "completed",
+          snapshot_file_id: "file-1",
+          snapshot_url: "https://docs.google.com/spreadsheets/d/snapshot",
+          archive_folder_url: null,
+          error_code: null,
+          completed_at: "2026-08-26T05:51:00+07:00",
+        },
+        last_reconciliation: {
+          id: "reconcile-1",
+          business_date: "2026-08-26",
+          previous_business_date: "2026-08-25",
+          status: "completed",
+          summary: { row_count: 206, changed_count: 4, invalid_count: 0 },
+          error_code: null,
+          completed_at: "2026-08-26T07:02:00+07:00",
+        },
+      }}
+      run={{
+        id: "run-1",
+        business_date: "2026-08-26",
+        status: "ready",
+        ready: true,
+        finalized: false,
+        forced: false,
+        blockers: [],
+        report: {},
+        finalized_at: null,
+        finalized_by: null,
+      }}
+    />);
+    for (const value of ["Inventory hằng ngày", "2026-08-26", "Sẵn sàng", "206", "4 thay đổi", "Snapshot gần nhất", "Đối soát gần nhất", "05:50 / 07:00", "Không có blocker"]) {
+      expect(markup).toContain(value);
+    }
+    expect(markup).toContain("https://docs.google.com/spreadsheets/d/workbook");
+  });
+});
+
 describe("AI Operations dashboard", () => {
   it("restores the AI worker toggle from the persisted AI policy, not the general pipeline pause", () => {
     expect(aiWorkerIsPaused({ ai_enabled: false })).toBe(true);
@@ -455,6 +519,7 @@ describe("AI Operations dashboard", () => {
     expect(styles).toContain("@media(max-width:1500px)");
     expect(styles).toContain("grid-template-columns:minmax(150px,.82fr)");
     expect(styles).toContain(".ops-table-scroll{max-width:100%;overflow:auto");
+    expect(styles).toContain(".ops-header-actions .ops-refresh-control{width:152px!important;max-width:152px!important");
     const markup = render("processing").toLowerCase();
     for (const secret of ["api_key", "signed_url", "provider_request_id", "sk-"]) expect(markup).not.toContain(secret);
   });

@@ -7,6 +7,7 @@ import {
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
+import { InventoryDailyTab } from "./InventoryDailyTab";
 import { fetchAiOperationsConfiguration, setTenantAiPaused, setVideoAiPaused, type AiOpsConfiguration } from "../../features/ai_operations";
 import {
   dailyProviderCostChart, dailyStatusChart, failureChart,
@@ -17,22 +18,24 @@ import {
   shouldAutoRefresh, type AutoRefreshSeconds,
 } from "./requestCoordinator";
 
-export type AiOpsTab = "pipeline" | "overview" | "processing" | "cost" | "providers" | "configuration";
+export type AiOpsTab = "pipeline" | "overview" | "processing" | "inventory" | "cost" | "providers" | "configuration";
 const tabs: Array<{ id: AiOpsTab; label: string; icon: TabIconName }> = [
   { id: "pipeline", label: "Pipeline overview", icon: "pipeline" },
   { id: "overview", label: "AI analysis", icon: "spark" },
   { id: "processing", label: "Processing", icon: "processing" },
+  { id: "inventory", label: "Inventory Daily", icon: "inventory" },
   { id: "cost", label: "Cost & Usage", icon: "cost" },
   { id: "providers", label: "Providers", icon: "providers" },
   { id: "configuration", label: "Configuration", icon: "configuration" },
 ];
-type TabIconName = "pipeline" | "spark" | "processing" | "cost" | "providers" | "configuration";
+type TabIconName = "pipeline" | "spark" | "processing" | "inventory" | "cost" | "providers" | "configuration";
 
 function TabIcon({ name }: { name: TabIconName }) {
   const paths: Record<TabIconName, string> = {
     pipeline: "M4 5h16M4 12h16M4 19h16",
     spark: "M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z",
     processing: "M6 4h12v16H6z M9 8h6M9 12h6M9 16h4",
+    inventory: "M4 7l8-4 8 4-8 4-8-4z M4 12l8 4 8-4 M4 17l8 4 8-4",
     cost: "M12 3v18 M16 7.5c0-1.7-1.8-3-4-3s-4 1.3-4 3c0 1.7 1.8 3 4 3s4 1.3 4 3c0 1.7-1.8 3-4 3s-4-1.3-4-3",
     providers: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z M4 7.5l8 4.5 8-4.5 M12 12v9",
     configuration: "M4 7h10M18 7h2M4 17h2M10 17h10 M14 5v4M8 15v4",
@@ -215,7 +218,7 @@ export function AiOperationsContent({
     <nav className="ops-tabs" aria-label="Processing Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
       {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}><TabIcon name={item.icon} /><span>{item.label}</span></button>)}
     </nav>
-    <div className="ops-query-bar">
+    {tab !== "inventory" && <div className="ops-query-bar">
       {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : tab === "processing" ? "Processing media type" : "AI analysis media type"} />}
       <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
       <details className="ops-export-menu">
@@ -224,13 +227,13 @@ export function AiOperationsContent({
           {(["daily", "usage", "failures", "jobs"] as const).map(kind => <a key={kind} href={aiOperationsExportUrl(kind, filters)}>Export {kind} CSV</a>)}
         </nav>
       </details>
-    </div>
-    {errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
+    </div>}
+    {tab !== "inventory" && errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} media={media} onMedia={onMedia} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
+      {tab === "inventory" ? <InventoryDailyTab /> : loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} media={media} onMedia={onMedia} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
