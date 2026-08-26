@@ -307,9 +307,10 @@
 @media (min-width: 901px) {
   .ops-tabs {
     display:grid;
-    grid-template-columns:repeat(6,minmax(0,1fr));
+    grid-template-columns:repeat(7,minmax(130px,1fr));
     width:100%;
-    overflow:visible;
+    overflow-x:auto;
+    overflow-y:hidden;
   }
   .ops-tabs button {
     justify-content:center;

@@ -520,6 +520,7 @@ describe("AI Operations dashboard", () => {
     expect(styles).toContain("grid-template-columns:minmax(150px,.82fr)");
     expect(styles).toContain(".ops-table-scroll{max-width:100%;overflow:auto");
     expect(styles).toContain(".ops-header-actions .ops-refresh-control{width:152px!important;max-width:152px!important");
+    expect(styles).toContain("grid-template-columns:repeat(7,minmax(130px,1fr))");
     const markup = render("processing").toLowerCase();
     for (const secret of ["api_key", "signed_url", "provider_request_id", "sk-"]) expect(markup).not.toContain(secret);
   });
