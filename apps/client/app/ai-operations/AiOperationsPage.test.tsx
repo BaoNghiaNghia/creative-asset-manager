@@ -410,6 +410,8 @@ describe("Inventory Daily tab", () => {
       expect(markup).toContain(value);
     }
     expect(markup).toContain("https://docs.google.com/spreadsheets/d/workbook");
+    expect(markup.match(/aria-haspopup="dialog"/g)).toHaveLength(2);
+    expect(markup).not.toContain('href="/inventory/daily"');
   });
 });
 

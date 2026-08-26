@@ -7,6 +7,7 @@ import {
   type InventoryDailyRun,
   type InventoryDailySheetStatus,
 } from "../inventory/api";
+import { InventoryApp, type InventoryPage } from "../inventory/InventoryApp";
 
 type InventoryDailyState = {
   status: InventoryDailySheetStatus;
@@ -51,11 +52,21 @@ export function InventoryDailyTab() {
 }
 
 export function InventoryDailyOverview({ status, run, onRefresh = () => undefined }: InventoryDailyState & { onRefresh?: () => void }) {
+  const [modalPage, setModalPage] = useState<InventoryPage | null>(null);
   const reconciliation = status.last_reconciliation;
   const snapshot = status.last_snapshot;
   const summary = reconciliation?.summary || {};
   const blockers = run?.blockers || [];
   const healthy = status.operational_state === "healthy";
+
+  useEffect(() => {
+    if (!modalPage) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setModalPage(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [modalPage]);
 
   return <div className="ops-content ops-inventory-daily">
     <div className="ops-section-heading">
@@ -93,8 +104,14 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
 
     <div className="ops-inventory-links">
       {status.working_spreadsheet_url ? <a href={status.working_spreadsheet_url} target="_blank" rel="noreferrer">Mở Google Sheet đang xử lý</a> : null}
-      <a href="/inventory/daily">Mở Daily Inventory</a>
-      <a href="/inventory/settings">Cấu hình Inventory</a>
+      <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("daily")}>Mở Daily Inventory</button>
+      <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("settings")}>Cấu hình Inventory</button>
     </div>
+    {modalPage ? <div className="ops-inventory-modal-backdrop" role="presentation" onMouseDown={() => setModalPage(null)}>
+      <section className="ops-inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title" onMouseDown={event => event.stopPropagation()}>
+        <header><div><span>OPERATIONS</span><h2 id="inventory-modal-title">Inventory</h2></div><button type="button" autoFocus aria-label="Đóng Inventory" onClick={() => setModalPage(null)}>×</button></header>
+        <InventoryApp key={modalPage} embedded initialPage={modalPage} />
+      </section>
+    </div> : null}
   </div>;
 }
