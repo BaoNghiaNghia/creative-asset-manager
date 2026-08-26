@@ -164,10 +164,10 @@ export function InventoryDailySheetSettings() {
   };
 
   return <section className="inventory-sheet-settings inventory-settings-redesign">
-    <header className="inventory-settings-hero">
+    <div className="inventory-settings-hero">
       <div><p className="inventory-kicker">THIẾT LẬP INVENTORY</p><h2>Tự động hóa kiểm kho hằng ngày</h2><p>Quản lý file Google Sheet, lịch chạy và quy tắc xử lý Inventory V4.1.</p></div>
       <span className={arming === "blocked" ? "inventory-blocked" : "inventory-ready"}>{arming === "enabled" ? "ĐANG TỰ ĐỘNG" : arming === "ready" ? "SẴN SÀNG BẬT" : "CHƯA SẴN SÀNG"}</span>
-    </header>
+    </div>
 
     <div className="inventory-settings-summary" aria-label="Tóm tắt cấu hình Inventory">
       <article><span>Phiên bản</span><strong>{isV4 ? "Inventory V4.1" : isV2 ? "Kiểm kho hằng ngày" : "Legacy"}</strong><small>{isV4 ? "Gemini Tool Agent" : "Cấu hình tương thích"}</small></article>

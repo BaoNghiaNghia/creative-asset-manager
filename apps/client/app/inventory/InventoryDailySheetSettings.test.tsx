@@ -20,6 +20,8 @@ describe("InventoryDailySheetSettings", () => {
     expect(markup).toContain("Kiểm kho hằng ngày");
     expect(markup).toContain("Quét workbook");
     expect(markup).toContain("CHƯA SẴN SÀNG");
+    expect(markup).toContain('<div class="inventory-settings-hero">');
+    expect(markup).not.toContain('<header class="inventory-settings-hero">');
     expect(markup).toContain("Thao tác thủ công");
     expect(markup).toContain("Cấu hình JSON nâng cao");
   });

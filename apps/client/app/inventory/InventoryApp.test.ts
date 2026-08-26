@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { routeForPath } from "../AppRoute";
 import { inventoryApi, inventoryMaterialApi } from "./api";
-import { InventoryApp } from "./InventoryApp";
+import { InventoryApp, formatInventoryMaterialDate } from "./InventoryApp";
 
 describe("Inventory routes and API boundary", () => {
   it("renders Inventory navigation as embedded modal content without the standalone header", () => {
@@ -27,6 +27,18 @@ describe("Inventory routes and API boundary", () => {
       "/api/inventory/materials/candidates",
     ]);
     vi.unstubAllGlobals();
+  });
+  it("presents the Materials workspace in Vietnamese with compact guidance", () => {
+    const markup = renderToStaticMarkup(createElement(InventoryApp as any, { embedded: true, initialPage: "materials" }));
+    expect(markup).toContain("Nguyên vật liệu");
+    expect(markup).toContain("Danh sách vật tư chuẩn");
+    expect(markup).toContain("Hàng đợi xem xét");
+    expect(markup).toContain("Tìm theo tên, nhóm hoặc mã");
+    expect(markup).not.toContain("Canonical materials");
+  });
+  it("formats material timestamps for Vietnamese users", () => {
+    expect(formatInventoryMaterialDate(null)).toBe("Chưa có dữ liệu");
+    expect(formatInventoryMaterialDate("invalid")).toBe("invalid");
   });
   it("uses only the Inventory API prefix for daily operations", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "run", blockers: [] }) });
