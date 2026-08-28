@@ -101,6 +101,8 @@ class InventoryDailyScheduler:
                 "429", "rate_limit", "rate limit", "timeout", "timed out",
                 "temporarily unavailable", "connection reset", "network",
                 "google_transport", "service unavailable", "502", "503", "504",
+                "inventory_sheet_agent_v4_missing_tool_call",
+                "inventory_sheet_agent_v4_round_limit",
             ))
             or any(value in name for value in ("timeout", "connection", "transport"))
         )

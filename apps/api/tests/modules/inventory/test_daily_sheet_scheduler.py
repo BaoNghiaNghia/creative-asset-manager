@@ -308,6 +308,16 @@ class DailySheetSchedulerTest(unittest.TestCase):
             self.assertEqual("retry", job.status)
             self.assertGreater(job.next_attempt_at.replace(tzinfo=timezone.utc), moment)
 
+    def test_v4_gemini_protocol_failures_are_retryable(self):
+        for code in (
+            "inventory_sheet_agent_v4_missing_tool_call",
+            "inventory_sheet_agent_v4_round_limit",
+        ):
+            with self.subTest(code=code):
+                self.assertTrue(
+                    InventoryDailyScheduler._retryable_v4_error(RuntimeError(code))
+                )
+
     def test_v4_permanent_failure_is_terminal_without_hot_loop(self):
         self._enable_v4()
 
