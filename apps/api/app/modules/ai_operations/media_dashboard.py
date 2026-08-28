@@ -490,6 +490,17 @@ class MediaDashboardService:
             for source_id in source_ids
             if source_id in latest_video_runs
         }
+        latest_index_jobs: dict[str, ProcessingJobModel] = {}
+        for index_job in sorted(
+            by_type[VIDEO_INDEX_JOB_TYPE],
+            key=lambda row: (
+                _as_utc(row.updated_at) or datetime(1970, 1, 1, tzinfo=timezone.utc),
+                row.id,
+            ),
+            reverse=True,
+        ):
+            if index_job.entity_type == "video_analysis_run":
+                latest_index_jobs.setdefault(index_job.entity_id, index_job)
         logical_asset_ids: dict[str, str] = {}
         if source_ids:
             links = self.session.execute(
@@ -523,6 +534,7 @@ class MediaDashboardService:
             source = self.session.get(SourceAssetModel, job.entity_id) if job.entity_type == "source_asset" else None
             external = external_sources.get(source.external_source_id) if source is not None else None
             run = latest_runs.get(source.id) if source is not None else None
+            index_job = latest_index_jobs.get(run.id) if run is not None else None
             thumbnail_url = None
             if source is not None and external is not None and external.source_type == "google_drive":
                 thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
@@ -540,6 +552,29 @@ class MediaDashboardService:
                 "max_attempts": job.max_attempts,
                 "updated_at": (_as_utc(job.updated_at) or now).isoformat(),
                 "error_code": job.last_error_code,
+                "steps": [
+                    {
+                        "key": VIDEO_JOB_TYPE,
+                        "label": "Video analysis",
+                        "status": job.status,
+                        "attempt_count": job.attempt_count,
+                        "max_attempts": job.max_attempts,
+                        "updated_at": (_as_utc(job.updated_at) or now).isoformat(),
+                        "error_code": job.last_error_code,
+                    },
+                    {
+                        "key": VIDEO_INDEX_JOB_TYPE,
+                        "label": "Video indexing",
+                        "status": index_job.status if index_job is not None else "not_started",
+                        "attempt_count": index_job.attempt_count if index_job is not None else 0,
+                        "max_attempts": index_job.max_attempts if index_job is not None else 0,
+                        "updated_at": (
+                            (_as_utc(index_job.updated_at) or now).isoformat()
+                            if index_job is not None else None
+                        ),
+                        "error_code": index_job.last_error_code if index_job is not None else None,
+                    },
+                ],
             })
         return {
             "image": image,

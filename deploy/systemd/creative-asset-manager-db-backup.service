@@ -1,0 +1,26 @@
+[Unit]
+Description=Creative Asset Manager managed PostgreSQL backup
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=creative-assets
+Group=creative-assets
+WorkingDirectory=/opt/creative-asset-manager/current/apps/api
+EnvironmentFile=/etc/creative-asset-manager/production.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python -m app.operations.database_backup_cli backup
+TimeoutStartSec=4h
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/creative-asset-manager/database-backup
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+ProtectKernelTunables=true
+ProtectControlGroups=true

@@ -1,0 +1,11 @@
+[Unit]
+Description=Tuesday and Friday Creative Asset Manager database backup
+
+[Timer]
+OnCalendar=Tue,Fri *-*-* 22:00:00 Asia/Ho_Chi_Minh
+Persistent=true
+AccuracySec=1min
+Unit=creative-asset-manager-db-backup.service
+
+[Install]
+WantedBy=timers.target

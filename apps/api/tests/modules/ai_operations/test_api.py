@@ -294,14 +294,23 @@ class AiOperationsApiTest(unittest.TestCase):
                     idempotency_key=f"video-page-{index}", status="completed",
                     payload_json={}, updated_at=self.now - timedelta(seconds=index),
                 ))
-            session.add(VideoAnalysisRunModel(
+            run = VideoAnalysisRunModel(
                 tenant_id="tenant-a", source_asset_id=self.source_asset_id,
                 source_fingerprint="f" * 64, video_metadata_profile_id="video-profile",
                 metadata_profile="video", metadata_profile_version="v1",
                 prompt_version="p1", analysis_version="a1", ai_provider="gemini",
                 ai_model="gemini-flash", idempotency_key="r" * 64,
-                status="analyzing", chunk_seconds=30, total_chunks=5,
+                status="completed", chunk_seconds=30, total_chunks=5,
                 completed_chunks=2, duration_ms=None,
+            )
+            session.add(run)
+            session.flush()
+            session.add(ProcessingJobModel(
+                tenant_id="tenant-a", job_type="video_search_index",
+                entity_type="video_analysis_run", entity_id=run.id,
+                idempotency_key="video-index-page", status="completed",
+                attempt_count=1, max_attempts=5, payload_json={"analysis_run_id": run.id},
+                updated_at=self.now + timedelta(seconds=1),
             ))
             session.commit()
         probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
@@ -347,6 +356,10 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(recent["items"][0]["total_chunks"], 5)
         self.assertEqual(recent["items"][0]["duration_ms"], 65_000)
         self.assertEqual(recent["items"][0]["asset_id"], self.asset_id)
+        self.assertEqual(
+            [(step["key"], step["status"]) for step in recent["items"][0]["steps"]],
+            [("video_analyze", "completed"), ("video_search_index", "completed")],
+        )
         for key in ("status", "provider", "model", "mode", "profile", "date"):
             self.assertEqual(filtered[key].status_code, 200)
             self.assertEqual(filtered[key].json()["recent_video"]["total"], 0, key)
