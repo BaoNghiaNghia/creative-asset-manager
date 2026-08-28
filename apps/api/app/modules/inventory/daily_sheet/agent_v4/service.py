@@ -219,7 +219,7 @@ class InventoryDailySheetV4Service:
                 ranges_read=[
                     item["range"]
                     for item in host.tool_trace
-                    if item["tool"] == "read_range"
+                    if item["tool"] == "read_range" and item.get("range")
                 ],
                 tool_trace=host.tool_trace,
                 writes=execution["writes"],

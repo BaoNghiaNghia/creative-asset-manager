@@ -304,6 +304,11 @@ def test_correctable_tool_error_is_returned_to_agent_and_retry_can_succeed():
         "accepted": False,
         "error": "invalid_a1_range",
     }
+    assert [
+        item["range"]
+        for item in tools.tool_trace
+        if item["tool"] == "read_range" and item.get("range")
+    ] == ["'Arbitrary'!C7:D8"]
 
 
 def test_authorization_error_remains_terminal_through_tool_dispatch():
