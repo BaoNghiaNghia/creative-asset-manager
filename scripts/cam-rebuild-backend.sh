@@ -18,6 +18,7 @@ ENV_FILE="${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}
 APP_ROOT="${CAM_APP_ROOT:-/opt/creative-asset-manager}"
 
 KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-4}"
+KEEP_LOGS="${CAM_BACKEND_DEPLOY_LOG_KEEP:-20}"
 
 LOCK_FILE="${CAM_BACKEND_DEPLOY_LOCK_FILE:-/run/lock/creative-asset-manager-backend-deploy.lock}"
 
@@ -35,6 +36,7 @@ ALLOW_DIRTY=false
 CLEANUP_RELEASES=true
 
 STAGE=""
+TARGET=""
 LOG_FILE=""
 
 START_TS="$(date +%s)"
@@ -70,8 +72,12 @@ Options:
       Keep approximately N backend releases.
       Default: 4
 
+  --keep-logs N
+      Keep the N newest backend deployment logs.
+      Default: 20
+
   --no-cleanup
-      Do not remove old backend releases after deployment.
+      Skip pre-deploy and post-deploy disk cleanup.
 
   -h, --help
       Show this help.
@@ -281,6 +287,16 @@ while (($#)); do
       shift
       ;;
 
+    --keep-logs)
+
+      [[ $# -ge 2 ]] \
+        || die "--keep-logs requires N"
+
+      KEEP_LOGS="$2"
+
+      shift 2
+      ;;
+
     -h|--help)
 
       usage
@@ -309,6 +325,12 @@ done
 
 ((KEEP_RELEASES >= 2)) \
   || die "--keep-releases must be at least 2."
+
+[[ "$KEEP_LOGS" =~ ^[0-9]+$ ]] \
+  || die "--keep-logs must be an integer."
+
+((KEEP_LOGS >= 1)) \
+  || die "--keep-logs must be at least 1."
 
 
 if [[ ! -d "$SOURCE_DIR/.git" ]]; then
@@ -339,6 +361,7 @@ for command in \
   wc \
   date \
   dirname \
+  df \
   sleep
 do
 
@@ -412,6 +435,7 @@ info "Source directory: $SOURCE_DIR"
 info "Application root: $APP_ROOT"
 info "Production env: $ENV_FILE"
 info "Release retention: $KEEP_RELEASES"
+info "Deployment log retention: $KEEP_LOGS"
 info "Deployment log: $LOG_FILE"
 
 
@@ -539,7 +563,7 @@ release_from_path() {
   esac
 
 
-  [[ "$sha" =~ ^[0-9a-fA-F]{40}$ ]] \
+  [[ "$sha" =~ ^[0-9a-fA-F]{40}(-[A-Za-z0-9][A-Za-z0-9._-]*)?$ ]] \
     || return 1
 
 
@@ -573,6 +597,7 @@ cleanup_old_releases() {
 
   local release=""
   local base=""
+  local stage=""
 
   local size_kb=0
   local removed=0
@@ -598,6 +623,50 @@ cleanup_old_releases() {
 
   [[ -d "$RELEASES" ]] \
     || return 0
+
+
+  # A failed or interrupted deploy can leave a complete source tree and
+  # virtualenv under .<release>.new.<pid>. The global deploy lock guarantees
+  # that no other deployment can own one while this cleanup is running.
+  for stage in "$RELEASES"/.*.new.*; do
+
+    [[ -d "$stage" && ! -L "$stage" ]] \
+      || continue
+
+
+    base="${stage##*/}"
+
+
+    [[ "$base" =~ ^\.[0-9a-fA-F]{40}(-[A-Za-z0-9][A-Za-z0-9._-]*)?\.new\.[0-9]+$ ]] \
+      || continue
+
+
+    [[ -z "${STAGE:-}" || "$stage" != "$STAGE" ]] \
+      || continue
+
+
+    size_kb="$(
+      du -sk -- "$stage" \
+        2>/dev/null \
+        | awk '{print $1}' \
+        || true
+    )"
+
+
+    [[ "$size_kb" =~ ^[0-9]+$ ]] \
+      || size_kb=0
+
+
+    info \
+      "Removing incomplete backend stage: $base (~$((size_kb / 1024)) MiB)"
+
+
+    rm -rf -- "$stage"
+
+
+    freed_kb=$((freed_kb + size_kb))
+
+  done
 
 
   protect_release() {
@@ -653,6 +722,11 @@ cleanup_old_releases() {
     protect_release "$previous_target"
 
   fi
+
+
+  # If the requested release already exists, never remove it during the
+  # pre-deploy cleanup pass.
+  protect_release "${TARGET:-}"
 
 
   #
@@ -745,7 +819,7 @@ cleanup_old_releases() {
       base="${release##*/}"
 
 
-      [[ "$base" =~ ^[0-9a-fA-F]{40}$ ]] \
+      [[ "$base" =~ ^[0-9a-fA-F]{40}(-[A-Za-z0-9][A-Za-z0-9._-]*)?$ ]] \
         || continue
 
 
@@ -818,6 +892,107 @@ cleanup_old_releases() {
 
   info \
     "Backend release cleanup complete: removed=$removed freed~=$((freed_kb / 1024))MiB keep=$KEEP_RELEASES protected=$protected_count"
+}
+
+
+cleanup_deploy_logs() {
+  local log=""
+  local kept=0
+  local removed=0
+  local -a ordered_logs=()
+
+
+  [[ -d "$LOG_DIR" ]] \
+    || return 0
+
+
+  while IFS= read -r log; do
+
+    [[ -n "$log" ]] \
+      && ordered_logs+=("$log")
+
+  done < <(
+
+    for log in "$LOG_DIR"/backend-deploy-*.log; do
+
+      [[ -f "$log" && ! -L "$log" ]] \
+        || continue
+
+
+      printf '%s\t%s\n' \
+        "$(stat -c '%Y' -- "$log")" \
+        "$log"
+
+    done \
+      | sort -nr \
+      | awk -F '\t' '{print $2}'
+
+  )
+
+
+  for log in "${ordered_logs[@]}"; do
+
+    if [[ "$log" == "$LOG_FILE" ]] || ((kept < KEEP_LOGS)); then
+
+      kept=$((kept + 1))
+
+      continue
+
+    fi
+
+
+    info "Removing old backend deployment log: ${log##*/}"
+
+
+    rm -f -- "$log"
+
+
+    removed=$((removed + 1))
+
+  done
+
+
+  info \
+    "Backend deployment log cleanup complete: removed=$removed keep=$KEEP_LOGS"
+}
+
+
+report_disk_usage() {
+  local label="$1"
+  local stats=""
+
+
+  stats="$(
+    df -Pk -- "$APP_ROOT" \
+      | awk 'NR == 2 {printf "used=%dMiB available=%dMiB capacity=%s", $3 / 1024, $4 / 1024, $5}'
+  )"
+
+
+  info "$label disk usage: $stats"
+}
+
+
+cleanup_backend_disk() {
+  local phase="$1"
+
+
+  if ! $CLEANUP_RELEASES; then
+
+    info "$phase disk cleanup skipped (--no-cleanup)"
+
+    return 0
+
+  fi
+
+
+  report_disk_usage "$phase before cleanup"
+
+
+  cleanup_old_releases
+  cleanup_deploy_logs
+
+
+  report_disk_usage "$phase after cleanup"
 }
 
 
@@ -1016,6 +1191,16 @@ if $ROLLBACK; then
     "Rollback target: $ROLLBACK_TARGET"
 
 
+  progress 25 \
+    "Running pre-rollback disk cleanup"
+
+
+  TARGET="$ROLLBACK_TARGET"
+
+
+  cleanup_backend_disk "Pre-rollback"
+
+
   progress 50 \
     "Activating previous backend release"
 
@@ -1044,7 +1229,7 @@ if $ROLLBACK; then
     "Cleaning obsolete backend releases"
 
 
-  cleanup_old_releases
+  cleanup_backend_disk "Post-rollback"
 
 
   progress 100 \
@@ -1137,6 +1322,13 @@ install \
   -g root \
   -m 0755 \
   "$RELEASES"
+
+
+progress 20 \
+  "Running pre-deploy disk cleanup"
+
+
+cleanup_backend_disk "Pre-deploy"
 
 
 #
@@ -1430,7 +1622,7 @@ progress 98 \
   "Cleaning obsolete backend releases"
 
 
-cleanup_old_releases
+cleanup_backend_disk "Post-deploy"
 
 
 #

@@ -37,7 +37,7 @@ sudo scripts/cam-rebuild-backend.sh --commit SHA
 sudo scripts/cam-rebuild-backend.sh --rollback
 ```
 
-The backend script creates an immutable native release under `/opt/creative-asset-manager/releases/<commit>`, creates the API virtualenv, validates the root-owned environment without printing values, verifies one Alembic head, runs only `alembic upgrade head`, atomically switches `current`, and restarts native API/image/video services. It never builds frontend files and never uses Docker for API or workers.
+The backend script runs disk cleanup before and after deployment, creates an immutable native release under `/opt/creative-asset-manager/releases/<commit>`, creates the API virtualenv, validates the root-owned environment without printing values, verifies one Alembic head, runs only `alembic upgrade head`, atomically switches `current`, and restarts native API/image/video services. Cleanup removes interrupted staging directories, expires old deployment logs, and prunes old standard or `SHA-suffix` releases while always preserving `current`, `previous`, the requested target, and any release still used by a running backend service. Configure retention with `--keep-releases`, `--keep-logs`, `CAM_BACKEND_RELEASE_KEEP`, and `CAM_BACKEND_DEPLOY_LOG_KEEP`; use `--no-cleanup` only for diagnostics. It never builds frontend files and never uses Docker for API or workers.
 
 ## One-time split-worker migration
 
