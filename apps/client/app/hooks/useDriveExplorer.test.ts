@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import driveExplorerSource from "./useDriveExplorer.ts?raw";
 import {
   apiErrorMessage,
   appendUniqueFolderPage,
@@ -151,5 +152,23 @@ describe("appendUniqueFolderPage", () => {
 
     expect(appendUniqueFolderPage(existing, incoming).map(item => item.id))
       .toEqual(["one", "two", "three"]);
+  });
+});
+
+
+describe("breadcrumb sidebar hydration", () => {
+  it("loads complete folder lists for every expanded breadcrumb level", () => {
+    expect(driveExplorerSource).toContain(
+      "void refreshTreePath(nextPath, source, treeSourceId, requestSequence, controller.signal)",
+    );
+    expect(driveExplorerSource).toContain(
+      "await Promise.all(nodes.map(async node =>",
+    );
+  });
+
+  it("does not cache a reconstructed path as a complete folder listing", () => {
+    expect(driveExplorerSource).not.toContain(
+      "treeFolderCache.current.set(folderCacheKey(source, parent.id), merged)",
+    );
   });
 });

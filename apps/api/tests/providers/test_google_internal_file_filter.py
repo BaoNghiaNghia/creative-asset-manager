@@ -55,6 +55,27 @@ class GoogleInternalFileFilterTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(candidate.source_metadata["app_properties"]["cam_asset_id"], "a")
 
+    def test_candidate_normalizes_modern_image_extensions_to_canonical_mime(self) -> None:
+        cases = (
+            ("photo.avif", "application/octet-stream", "image/avif"),
+            ("PHOTO.HEIC", None, "image/heic"),
+            ("scan.heif", "binary/octet-stream", "image/heif"),
+        )
+        for filename, reported_mime, expected in cases:
+            with self.subTest(filename=filename):
+                mapped = _candidate(
+                    _item("modern", name=filename, mimeType=reported_mime),
+                    "source-a",
+                )
+                self.assertEqual(mapped.mime_type, expected)
+
+    def test_candidate_preserves_non_modern_drive_mime(self) -> None:
+        mapped = _candidate(
+            _item("png", name="photo.png", mimeType="image/png"),
+            "source-a",
+        )
+        self.assertEqual(mapped.mime_type, "image/png")
+
     def test_detector_only_recognizes_cam_markers(self) -> None:
         self.assertFalse(is_cam_managed_file(_item("user", {"custom": "value"})))
         self.assertFalse(is_cam_managed_file(_item("partial", {"cam_tenant_id": "t"})))

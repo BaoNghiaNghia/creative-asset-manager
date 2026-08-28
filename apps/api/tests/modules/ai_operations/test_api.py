@@ -54,6 +54,7 @@ class AiOperationsApiTest(unittest.TestCase):
             source_asset = SourceAssetModel(
                 tenant_id="tenant-a", external_source_id=source.id,
                 external_asset_id="drive-item",
+                filename="inventory-photo.avif", mime_type="image/avif",
             )
             session.add(source_asset)
             session.flush()
@@ -282,6 +283,9 @@ class AiOperationsApiTest(unittest.TestCase):
 
     def test_media_dashboard_paginates_video_jobs_and_returns_safe_thumbnail_proxy(self):
         with self.factory() as session:
+            source = session.get(SourceAssetModel, self.source_asset_id)
+            source.source_metadata = {"video_duration_ms": "65000"}
+            source.mime_type = "video/mp4"
             for index in range(26):
                 session.add(ProcessingJobModel(
                     tenant_id="tenant-a", job_type="video_analyze",
@@ -296,7 +300,7 @@ class AiOperationsApiTest(unittest.TestCase):
                 prompt_version="p1", analysis_version="a1", ai_provider="gemini",
                 ai_model="gemini-flash", idempotency_key="r" * 64,
                 status="analyzing", chunk_seconds=30, total_chunks=5,
-                completed_chunks=2,
+                completed_chunks=2, duration_ms=None,
             ))
             session.commit()
         probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
@@ -304,6 +308,28 @@ class AiOperationsApiTest(unittest.TestCase):
             "app.modules.ai_operations.media_dashboard._probe_worker", probe,
         ):
             response = self.client.get("/api/v1/admin/ai-operations/media-dashboard?video_page=2&video_page_size=25")
+            filtered = {
+                "status": self.client.get("/api/v1/admin/ai-operations/media-dashboard?status=failed"),
+                "provider": self.client.get("/api/v1/admin/ai-operations/media-dashboard?provider=openai"),
+                "model": self.client.get("/api/v1/admin/ai-operations/media-dashboard?model=wrong-model"),
+                "mode": self.client.get("/api/v1/admin/ai-operations/media-dashboard?processing_mode=batch"),
+                "profile": self.client.get("/api/v1/admin/ai-operations/media-dashboard?metadata_profile=wrong-profile"),
+                "date": self.client.get(
+                    "/api/v1/admin/ai-operations/media-dashboard",
+                    params={
+                        "from": (self.now + timedelta(days=1)).isoformat(),
+                        "to": (self.now + timedelta(days=2)).isoformat(),
+                    },
+                ),
+                "matching": self.client.get(
+                    "/api/v1/admin/ai-operations/media-dashboard",
+                    params={
+                        "provider": "gemini", "model": "gemini-flash",
+                        "processing_mode": "single", "metadata_profile": "video",
+                        "status": "completed",
+                    },
+                ),
+            }
         self.assertEqual(response.status_code, 200)
         recent = response.json()["recent_video"]
         self.assertEqual(recent["page"], 2)
@@ -311,12 +337,20 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(recent["total"], 26)
         self.assertEqual(len(recent["items"]), 1)
         self.assertEqual(recent["items"][0]["location"], "Google Drive")
+        self.assertEqual(recent["items"][0]["mime_type"], "video/mp4")
         self.assertEqual(
             recent["items"][0]["thumbnail_url"],
             f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}&fallback=video",
         )
         self.assertEqual(recent["items"][0]["completed_chunks"], 2)
         self.assertEqual(recent["items"][0]["total_chunks"], 5)
+        self.assertEqual(recent["items"][0]["duration_ms"], 65_000)
+        self.assertEqual(recent["items"][0]["asset_id"], self.asset_id)
+        for key in ("status", "provider", "model", "mode", "profile", "date"):
+            self.assertEqual(filtered[key].status_code, 200)
+            self.assertEqual(filtered[key].json()["recent_video"]["total"], 0, key)
+        self.assertEqual(filtered["matching"].status_code, 200)
+        self.assertEqual(filtered["matching"].json()["recent_video"]["total"], 26)
 
     def test_media_dashboard_resolves_video_location_from_synced_folders(self):
         with self.factory() as session:
@@ -460,6 +494,7 @@ class AiOperationsApiTest(unittest.TestCase):
         store = next(item for item in value["stages"] if item["key"] == "asset_store")
         self.assertEqual(store["completed_assets"], 1)
         self.assertEqual(value["active_job"]["job_type"], "source_asset_download")
+        self.assertEqual(value["recent_assets"]["items"][0]["mime_type"], "image/jpeg")
         self.assertEqual(
             value["recent_assets"]["items"][0]["thumbnail_url"],
             f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}",
@@ -551,6 +586,12 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertIn(2_000, [item["processing_duration_ms"] for item in all_jobs["items"]])
         analysis_job = next(item for item in all_jobs["items"] if item["entity_id"] == self.analysis_ids[1])
         self.assertEqual(analysis_job["asset_id"], self.asset_id)
+        self.assertEqual(analysis_job["filename"], "inventory-photo.avif")
+        self.assertEqual(analysis_job["mime_type"], "image/avif")
+        self.assertEqual(
+            analysis_job["thumbnail_url"],
+            f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}",
+        )
         serialized = str(jobs)
         self.assertNotIn("signed_url", serialized)
         self.assertNotIn("credential", serialized)

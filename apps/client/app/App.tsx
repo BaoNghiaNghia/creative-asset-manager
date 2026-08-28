@@ -646,6 +646,16 @@ export default function App() {
                   ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
               </div>}
             </div>
+            <div className="search-mode-tabs" role="radiogroup" aria-label="Search media type">
+              {(["all", "images", "videos"] as SearchMediaMode[]).map(mode => <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={searchMediaMode === mode}
+                className={searchMediaMode === mode ? "active" : ""}
+                onClick={() => selectSearchMediaMode(mode)}
+              >{mode === "all" ? "All" : mode === "images" ? "Images" : "Videos"}</button>)}
+            </div>
           </div>
           {searchBusy && <small className="search-waiting" role="status" aria-live="polite">
             {searchMediaMode === "all"
@@ -659,16 +669,6 @@ export default function App() {
           {imageSearchEnabled && explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
             {"T\u00ecm ki\u1ebfm ho\u00e0n t\u1ea5t trong "}{formatSearchDuration(explorer.searchDurationMs)}
           </small>}
-        </div>
-        <div className="search-mode-tabs" role="radiogroup" aria-label="Search media type">
-          {(["all", "images", "videos"] as SearchMediaMode[]).map(mode => <button
-            key={mode}
-            type="button"
-            role="radio"
-            aria-checked={searchMediaMode === mode}
-            className={searchMediaMode === mode ? "active" : ""}
-            onClick={() => selectSearchMediaMode(mode)}
-          >{mode === "all" ? "All" : mode === "images" ? "Images" : "Videos"}</button>)}
         </div>
         {explorer.applicationAuthenticated ? <div className="account">
           {explorer.pureViewer && explorer.viewerSources.length > 1 && explorer.activeExternalSourceId && <label>
@@ -975,7 +975,14 @@ export default function App() {
       metadata={detailsItem ? explorer.metadataByItem[detailsItem.id] : undefined}
       onPreview={setPreviewItem}
       onClose={closeDetails}
-      onOpenFolder={(folderId) => void explorer.openFolder(folderId)}
+      onOpenFolder={(folderId, ancestors) => void explorer.openFolder(folderId, ancestors.map(node => ({
+        provider: explorer.provider,
+        id: node.id,
+        name: node.name,
+        kind: "folder" as const,
+        mime_type: "application/vnd.google-apps.folder",
+        external_source_id: detailsItem?.external_source_id || explorer.activeExternalSourceId || undefined,
+      })))}
       canManageContent={explorer.provider === "google-drive" && !explorer.pureViewer}
       onDelete={() => setConfirm({ message: "Delete this file from Google Drive?", run: () => { setConfirm(null); void explorer.deleteItem(detailsItem?.id || "").catch(reason => console.error(reason)); } })}
       onMove={() => { const destination = window.prompt("Enter destination folder ID"); if (destination && detailsItem) setConfirm({ message: "Move this file to the selected folder?", run: () => { setConfirm(null); void explorer.moveItem(detailsItem.id, destination).catch(() => undefined); } }); }}

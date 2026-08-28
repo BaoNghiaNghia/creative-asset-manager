@@ -65,6 +65,12 @@ class BaseSourceAdapter:
     ) -> list[AssetNode]:
         return await self.client.children(parent_id, folders_only=folders_only)
 
+    async def search_folders(self, value: str, *, limit: int = 50) -> list[AssetNode]:
+        searcher = getattr(self.client, "search_folders", None)
+        if searcher is None:
+            return []
+        return await searcher(value, limit=limit)
+
     async def list_children_page(
         self,
         parent_id: str,

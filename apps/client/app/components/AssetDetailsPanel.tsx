@@ -20,7 +20,7 @@ type Props = {
   onPreview?: (item: Asset) => void;
   onDelete?: () => void;
   onMove?: () => void;
-  onOpenFolder?: (id: string) => void;
+  onOpenFolder?: (id: string, ancestors: Array<{ id: string; name: string }>) => void;
   canManageContent?: boolean;
 };
 
@@ -172,7 +172,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
   />}</>;
 }
 
-function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFolder, locationNodes, locationStatus, locationLoading, canManageContent }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void; onOpenFolder?: (id: string) => void; locationNodes: Array<{ id: string; name: string }>; locationStatus: "available" | "unavailable" | null; locationLoading: boolean; canManageContent: boolean }) {
+function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFolder, locationNodes, locationStatus, locationLoading, canManageContent }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void; onOpenFolder?: (id: string, ancestors: Array<{ id: string; name: string }>) => void; locationNodes: Array<{ id: string; name: string }>; locationStatus: "available" | "unavailable" | null; locationLoading: boolean; canManageContent: boolean }) {
   const source = data?.sources[0] || {};
   const assetRecord = data?.asset || {};
   const inferredKind = inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), item?.name || stringValue(source.filename));

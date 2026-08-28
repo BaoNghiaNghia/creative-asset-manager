@@ -66,6 +66,7 @@ class AiAnalysisService:
         settings: Settings,
         projection_builder: SearchProjectionBuilder | None = None,
         validator: MetadataDocumentValidator | None = None,
+        allow_unstored_source: bool = False,
     ):
         self.session_factory = session_factory
         self.storage_provider = storage_provider
@@ -73,6 +74,7 @@ class AiAnalysisService:
         self.settings = settings
         self.projection_builder = projection_builder or SearchProjectionBuilder()
         self.validator = validator or MetadataDocumentValidator()
+        self.allow_unstored_source = allow_unstored_source
         self.logger = logging.getLogger("cam.ai_rate_limit")
 
     async def analyze(
@@ -170,7 +172,12 @@ class AiAnalysisService:
                         "Single-asset analysis currently supports images only.",
                     )
 
-                if storage is None or storage.status != "stored" or not storage.remote_file_id:
+                stored = (
+                    storage is not None
+                    and storage.status == "stored"
+                    and bool(storage.remote_file_id)
+                )
+                if not stored and not self.allow_unstored_source:
                     repository.fail_analysis(
                         analysis_id,
                         error_code="managed_asset_not_stored",
@@ -187,7 +194,7 @@ class AiAnalysisService:
                 open_input = OpenStoredAssetInput(
                     tenant_id=tenant_id,
                     asset_id=asset.id,
-                    remote_file_id=storage.remote_file_id,
+                    remote_file_id=(storage.remote_file_id if stored else "source-asset"),
                     content_type=asset.mime_type,
                     size_bytes=asset.size_bytes,
                 )

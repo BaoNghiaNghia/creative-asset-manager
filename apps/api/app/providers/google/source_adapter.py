@@ -65,7 +65,10 @@ class GoogleDriveSourceAdapter(BaseSourceAdapter):
             await self._media_closer(client, response)
 
         return AssetDownloadStream(
-            body=response.aiter_raw(),
+            # Drive may apply transparent HTTP content encoding (for example,
+            # gzip) even when the media itself is AVIF/HEIC. Consumers need
+            # the decoded file bytes, not the transfer-encoded wire payload.
+            body=response.aiter_bytes(),
             close=close,
             status_code=response.status_code,
             content_type=response.headers.get(

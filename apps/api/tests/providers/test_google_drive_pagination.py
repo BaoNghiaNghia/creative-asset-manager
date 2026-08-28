@@ -31,6 +31,27 @@ class GoogleDrivePaginationTest(unittest.IsolatedAsyncioTestCase):
             "parents": ["folder-1"],
         }
 
+    async def test_search_folders_uses_bounded_drive_name_query(self) -> None:
+        folder = {
+            "id": "folder-asin",
+            "name": "4347749385",
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": ["amazon-root"],
+        }
+        client, requests = await self._client_with_pages([{"files": [folder]}])
+
+        nodes = await client.search_folders(" 4347749385 ", limit=999)
+
+        self.assertEqual([(node.id, node.name, node.kind) for node in nodes], [
+            ("folder-asin", "4347749385", "folder"),
+        ])
+        self.assertEqual(len(requests), 1)
+        params = requests[0].url.params
+        self.assertEqual(params["pageSize"], "100")
+        self.assertEqual(params["orderBy"], "name")
+        self.assertIn("name contains '4347749385'", params["q"])
+        self.assertIn("mimeType = 'application/vnd.google-apps.folder'", params["q"])
+
     async def test_children_page_makes_one_bounded_request(self) -> None:
         client, requests = await self._client_with_pages([
             {"files": [self._file("one")], "nextPageToken": "next-page"},

@@ -11,6 +11,7 @@ from app.modules.authorization.folder_scope_cache import (
     viewer_folder_remote_parent_cache,
 )
 from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type, is_eligible_video_source_asset
+from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.video_search.enqueue import enqueue_video_analysis_job
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.core.config import Settings
@@ -47,6 +48,10 @@ def _invalidate_viewer_folder_hierarchy(*, tenant_id: str, external_source_id: s
 
 def _datetime(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
+
+
+def initial_source_asset_download_key(source_asset_id: str) -> str:
+    return f"source-asset-download:{source_asset_id}:initial-import-v2"
 
 
 @dataclass(frozen=True)
@@ -92,6 +97,7 @@ class SourceSyncService:
             cursor = self.repository.get_cursor(tenant_id, source_id, "changes")
         pages = changes_count = jobs_created = 0
         has_more = True
+        pipelines = AssetPipelineRepository(self.repository.session)
 
         while pages < max_pages and has_more:
             if continue_check is not None and not continue_check():
@@ -173,6 +179,9 @@ class SourceSyncService:
                         or is_supported_google_drive_image_mime_type(candidate.mime_type)
                     )
                     content_maybe_changed = existing is None or (new_marker is not None and old_marker != new_marker)
+                    never_imported = pipelines.get_by_origin(
+                        tenant_id, "source_asset", source_asset.id
+                    ) is None
                     video_content_changed = existing is None or old_video_fingerprint != build_video_source_fingerprint(source_asset)
                     if is_video and video_content_changed:
                         created = int(enqueue_video_analysis_job(
@@ -185,16 +194,30 @@ class SourceSyncService:
                         not is_folder
                         and not is_video
                         and is_download_supported
-                        and content_maybe_changed
+                        and (content_maybe_changed or never_imported)
                         and not (was_deleted and old_marker == new_marker)
                     ):
                         before = self.processing.count_jobs()
+                        initial_key = initial_source_asset_download_key(source_asset.id)
+                        initial_job_exists = self.processing.get_job_by_key(
+                            tenant_id, initial_key
+                        ) is not None
+                        initial_import = never_imported and (
+                            existing is None
+                            or not content_maybe_changed
+                            or not initial_job_exists
+                        )
+                        idempotency_key = (
+                            initial_key
+                            if initial_import
+                            else f"source-asset-download:{source_asset.id}:{new_marker or candidate.source_modified_at or 'unknown'}"
+                        )
                         self.processing.create_job(
                             tenant_id=tenant_id,
                             job_type="source_asset_download",
                             entity_type="source_asset",
                             entity_id=source_asset.id,
-                            idempotency_key=f"source-asset-download:{source_asset.id}:{new_marker or candidate.source_modified_at or 'unknown'}",
+                            idempotency_key=idempotency_key,
                             payload={"source_asset_id": source_asset.id},
                             provider_key=source.source_type,
                             provider_scope="source",

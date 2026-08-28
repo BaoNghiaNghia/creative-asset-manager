@@ -206,6 +206,25 @@ class GoogleDriveClient:
         )
         return map_drive_file(data)
 
+    async def search_folders(self, value: str, *, limit: int = 50):
+        """Search folder names directly in Drive without crawling the tree."""
+        normalized = " ".join(value.split())
+        if not normalized:
+            return []
+        escaped = normalized.replace("\\", "\\\\").replace("'", "\\'")
+        data = await self._get(
+            "/files",
+            {
+                "q": f"mimeType = '{FOLDER_MIME}' and name contains '{escaped}' and trashed = false",
+                "fields": f"nextPageToken,files({FIELDS})",
+                "pageSize": max(1, min(limit, 100)),
+                "orderBy": "name",
+                "supportsAllDrives": "true",
+                "includeItemsFromAllDrives": "true",
+            },
+        )
+        return [map_drive_file(item) for item in data.get("files", [])[:limit]]
+
     async def children_page(
         self,
         parent_id: str,

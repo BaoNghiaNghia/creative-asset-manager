@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.processing.repository import ProcessingRepository
+from app.modules.source_sync.service import initial_source_asset_download_key
+from app.providers.google.incremental import normalize_drive_file_mime_type
 
 
 def _canonical_source(sources: list[ExternalSourceModel], counts: dict[str, int]) -> ExternalSourceModel:
@@ -183,9 +187,121 @@ def repair_google_drive_duplicates(
     }
 
 
+def backfill_google_drive_modern_images(
+    *,
+    tenant_id: str,
+    apply: bool = False,
+    session_factory: Callable[[], Session] = SessionLocal,
+) -> dict[str, object]:
+    """Normalize and enqueue previously skipped AVIF/HEIC/HEIF source assets."""
+    if not tenant_id:
+        raise ValueError("tenant_id is required")
+
+    with session_factory() as session:
+        modern_name = or_(
+            func.lower(SourceAssetModel.filename).like("%.avif"),
+            func.lower(SourceAssetModel.filename).like("%.heic"),
+            func.lower(SourceAssetModel.filename).like("%.heif"),
+        )
+        assets = list(session.scalars(
+            select(SourceAssetModel)
+            .join(
+                ExternalSourceModel,
+                (ExternalSourceModel.tenant_id == SourceAssetModel.tenant_id)
+                & (ExternalSourceModel.id == SourceAssetModel.external_source_id),
+            )
+            .where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.deleted_at.is_(None),
+                ExternalSourceModel.source_type == "google_drive",
+                modern_name,
+            )
+            .order_by(SourceAssetModel.id)
+        ))
+        asset_ids = [asset.id for asset in assets]
+        pipelines = {
+            pipeline.origin_id: pipeline
+            for pipeline in session.scalars(
+                select(AssetPipelineModel).where(
+                    AssetPipelineModel.tenant_id == tenant_id,
+                    AssetPipelineModel.origin_type == "source_asset",
+                    AssetPipelineModel.origin_id.in_(asset_ids or [""]),
+                )
+            )
+        }
+        keys = {asset.id: initial_source_asset_download_key(asset.id) for asset in assets}
+        existing_keys = set(session.scalars(
+            select(ProcessingJobModel.idempotency_key).where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.idempotency_key.in_(list(keys.values()) or [""]),
+            )
+        ))
+        would_normalize = 0
+        eligible = 0
+        already_imported = 0
+        would_enqueue = 0
+        processing = ProcessingRepository(session)
+        jobs_before = processing.count_jobs()
+
+        for asset in assets:
+            canonical_mime = normalize_drive_file_mime_type(asset.filename, asset.mime_type)
+            if canonical_mime != asset.mime_type:
+                would_normalize += 1
+                if apply:
+                    asset.mime_type = canonical_mime
+
+            pipeline = pipelines.get(asset.id)
+            imported = pipeline is not None and pipeline.asset_id is not None
+            retryable_unimported = (
+                pipeline is None
+                or (
+                    pipeline.asset_id is None
+                    and pipeline.state in {"discovered", "download_failed"}
+                )
+            )
+            if imported:
+                already_imported += 1
+            if not retryable_unimported:
+                continue
+            eligible += 1
+            key = keys[asset.id]
+            if key in existing_keys:
+                continue
+            would_enqueue += 1
+            if apply:
+                processing.create_job(
+                    tenant_id=tenant_id,
+                    job_type="source_asset_download",
+                    entity_type="source_asset",
+                    entity_id=asset.id,
+                    idempotency_key=key,
+                    payload={"source_asset_id": asset.id},
+                    provider_key="google_drive",
+                    provider_scope="source",
+                )
+
+        if apply:
+            session.commit()
+        else:
+            session.rollback()
+        jobs_created = processing.count_jobs() - jobs_before if apply else 0
+
+    return {
+        "tenant_id": tenant_id,
+        "dry_run": not apply,
+        "matched": len(assets),
+        "mime_normalized": would_normalize if apply else 0,
+        "would_normalize_mime": would_normalize,
+        "eligible_unimported": eligible,
+        "already_imported": already_imported,
+        "would_enqueue": would_enqueue,
+        "jobs_created": jobs_created,
+    }
+
+
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="Creative Asset Manager source operations")
-    value.add_argument("command", choices=("google-drive:repair-duplicates",))
+    value.add_argument("command", choices=("google-drive:repair-duplicates", "google-drive:backfill-modern-images"))
     value.add_argument("--tenant-id", required=True)
     value.add_argument("--apply", action="store_true")
     return value
@@ -193,10 +309,16 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = parser().parse_args()
-    result = repair_google_drive_duplicates(
-        tenant_id=args.tenant_id,
-        apply=args.apply,
-    )
+    if args.command == "google-drive:backfill-modern-images":
+        result = backfill_google_drive_modern_images(
+            tenant_id=args.tenant_id,
+            apply=args.apply,
+        )
+    else:
+        result = repair_google_drive_duplicates(
+            tenant_id=args.tenant_id,
+            apply=args.apply,
+        )
     print(json.dumps(result, sort_keys=True))
     return 0
 

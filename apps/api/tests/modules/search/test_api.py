@@ -15,7 +15,8 @@ from app.main import app
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.folder_scope import ViewerFolderScopeModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
-from app.modules.assets.model import ExternalSourceModel
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.explorer.schema import AssetNode
 from app.modules.search.router import _live_suggestion_hits, _search_generation, _search_scope_filters, _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
 from app.modules.search.governance_model import SearchIndexRecordModel
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
@@ -149,6 +150,120 @@ class SearchV3ApiTest(unittest.TestCase):
         }}]
         with self.factory() as session:
             self.assertEqual(_live_suggestion_hits(session, "tenant-a", hits), [])
+
+    def test_folder_search_returns_matching_asin_folder_only_for_active_tenant_and_source(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="operator-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id=None, authorization_source="tenant_rbac",
+        )
+        with self.factory() as session:
+            session.add_all([
+                ExternalSourceModel(
+                    id="source-a", tenant_id="tenant-a", source_type="google_drive",
+                    source_key="drive-a", source_metadata={},
+                ),
+                ExternalSourceModel(
+                    id="source-b", tenant_id="tenant-b", source_type="google_drive",
+                    source_key="drive-b", source_metadata={},
+                ),
+            ])
+            session.flush()
+            session.add_all([
+                SourceAssetModel(
+                    tenant_id="tenant-a", external_source_id="source-a", external_asset_id="folder-asin",
+                    filename="4347749385", mime_type="application/vnd.google-apps.folder",
+                    source_metadata={"is_folder": True},
+                ),
+                SourceAssetModel(
+                    tenant_id="tenant-a", external_source_id="source-a", external_asset_id="file-asin",
+                    filename="4347749385.jpg", mime_type="image/jpeg", source_metadata={},
+                ),
+                SourceAssetModel(
+                    tenant_id="tenant-a", external_source_id="source-a", external_asset_id="folder-dad",
+                    filename="Dad", mime_type="application/vnd.google-apps.folder",
+                    source_metadata={"is_folder": True},
+                ),
+                SourceAssetModel(
+                    tenant_id="tenant-b", external_source_id="source-b", external_asset_id="other-folder-asin",
+                    filename="4347749385", mime_type="application/vnd.google-apps.folder",
+                    source_metadata={"is_folder": True},
+                ),
+            ])
+            session.commit()
+
+        with patch("app.modules.search.router.SessionLocal", self.factory):
+            response = self.client.get(
+                "/api/v1/search/folders?q=4347749385&source_provider=google-drive&external_source_id=source-a"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["total"], 1)
+        non_asin = self.client.get(
+            "/api/v1/search/folders?q=dad&source_provider=google-drive&external_source_id=source-a"
+        )
+        self.assertEqual(non_asin.status_code, 200)
+        self.assertEqual(non_asin.json(), {"items": [], "total": 0})
+        self.assertEqual(response.json()["items"], [{
+            "provider": "google-drive",
+            "id": "folder-asin",
+            "external_source_id": "source-a",
+            "name": "4347749385",
+            "kind": "folder",
+            "mime_type": "application/vnd.google-apps.folder",
+            "modified_at": None,
+            "web_url": "https://drive.google.com/open?id=folder-asin",
+            "ancestor_ids": [],
+            "ancestor_names": [],
+            "has_children": True,
+        }])
+
+    def test_folder_search_falls_back_to_live_drive_when_index_has_no_folder(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="operator-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id=None, authorization_source="tenant_rbac",
+        )
+
+        class FakeProvider:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def search_folders(self, value, *, limit):
+                self.query = value
+                self.limit = limit
+                return [AssetNode(
+                    provider="google-drive",
+                    id="folder-live-asin",
+                    name="4347749385",
+                    kind="folder",
+                    mime_type="application/vnd.google-apps.folder",
+                    web_url="https://drive.google.com/open?id=folder-live-asin",
+                )]
+
+        async def source_context(*_args, **_kwargs):
+            return "tenant-token", "account-a", "tenant-a", "source-a"
+
+        provider = FakeProvider()
+        with (
+            patch("app.modules.search.router.SessionLocal", self.factory),
+            patch("app.modules.search.router._source_context", source_context),
+            patch("app.modules.search.router.create_source_provider", return_value=provider),
+        ):
+            response = self.client.get(
+                "/api/v1/search/folders?q=4347749385&source_provider=google-drive&external_source_id=source-a"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(provider.query, "4347749385")
+        self.assertEqual(response.json()["total"], 1)
+        self.assertEqual(response.json()["items"][0]["id"], "folder-live-asin")
+        self.assertEqual(response.json()["items"][0]["kind"], "folder")
 
     def test_capabilities_never_advertise_a_legacy_generation(self):
         with patch("app.modules.search.router.SessionLocal", self.factory), patch("app.modules.search.router.get_settings", return_value=Settings()):

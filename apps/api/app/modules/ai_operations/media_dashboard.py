@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.video_search.model import VideoAnalysisRunModel
 
 IMAGE_JOB_TYPE = "asset_analyze"
@@ -203,6 +203,59 @@ def _video_locations(
     return locations
 
 
+def _video_duration_ms(source: SourceAssetModel | None, run: VideoAnalysisRunModel | None) -> int | None:
+    if run is not None and run.duration_ms is not None:
+        return run.duration_ms
+    metadata = source.source_metadata if source is not None and isinstance(source.source_metadata, dict) else {}
+    for key in ("video_duration_ms", "duration_ms"):
+        try:
+            value = int(metadata.get(key))
+        except (TypeError, ValueError):
+            continue
+        if value >= 0:
+            return value
+    return None
+
+
+def _video_job_matches_filters(
+    job: ProcessingJobModel,
+    run: VideoAnalysisRunModel | None,
+    *,
+    now: datetime,
+    from_at: datetime,
+    to_at: datetime,
+    provider: str | None,
+    model: str | None,
+    processing_mode: str | None,
+    metadata_profile: str | None,
+    status: str | None,
+) -> bool:
+    updated_at = _as_utc(job.updated_at)
+    if updated_at is None or not (from_at <= updated_at < to_at):
+        return False
+    retry_at = _as_utc(job.next_attempt_at)
+    if status == "waiting":
+        if job.status not in _QUEUED or retry_at is None or retry_at <= now:
+            return False
+    elif status == "queued":
+        if job.status not in _QUEUED or (retry_at is not None and retry_at > now):
+            return False
+    elif status == "running":
+        if job.status not in _RUNNING:
+            return False
+    elif status and job.status != status:
+        return False
+    if provider and (run.ai_provider if run is not None else job.provider_key) != provider:
+        return False
+    if model and (run is None or run.ai_model != model):
+        return False
+    if processing_mode and processing_mode != "single":
+        return False
+    if metadata_profile and (run is None or run.metadata_profile != metadata_profile):
+        return False
+    return True
+
+
 def _stage(key: str, label: str, rows: list[ProcessingJobModel], now: datetime) -> dict:
     counts = Counter(row.status for row in rows)
     waiting_rate_limit = sum(
@@ -287,7 +340,38 @@ class MediaDashboardService:
                 "current_job_type": active[0].job_type if active else None,
                 "last_successful_claim_at": max(_as_utc(value) for value in claims).isoformat() if claims else None,
             }
-        ordered_video = sorted(by_type[VIDEO_JOB_TYPE], key=lambda row: _as_utc(row.updated_at) or now, reverse=True)
+        video_jobs = by_type[VIDEO_JOB_TYPE]
+        video_source_ids = {
+            job.entity_id for job in video_jobs if job.entity_type == "source_asset"
+        }
+        latest_video_runs: dict[str, VideoAnalysisRunModel] = {}
+        if video_source_ids:
+            runs = self.session.scalars(
+                select(VideoAnalysisRunModel)
+                .where(
+                    VideoAnalysisRunModel.tenant_id == tenant_id,
+                    VideoAnalysisRunModel.source_asset_id.in_(video_source_ids),
+                )
+                .order_by(VideoAnalysisRunModel.updated_at.desc(), VideoAnalysisRunModel.id.desc())
+            )
+            for run in runs:
+                latest_video_runs.setdefault(run.source_asset_id, run)
+        filtered_video = [
+            job for job in video_jobs
+            if _video_job_matches_filters(
+                job,
+                latest_video_runs.get(job.entity_id),
+                now=now,
+                from_at=from_at,
+                to_at=to_at,
+                provider=provider,
+                model=model,
+                processing_mode=processing_mode,
+                metadata_profile=metadata_profile,
+                status=status,
+            )
+        ]
+        ordered_video = sorted(filtered_video, key=lambda row: _as_utc(row.updated_at) or now, reverse=True)
         video_page = max(1, video_page)
         video_page_size = min(100, max(1, video_page_size))
         offset = (video_page - 1) * video_page_size
@@ -309,18 +393,21 @@ class MediaDashboardService:
             {source_id: external for source_id, external in external_sources.items() if external is not None},
         )
         source_ids = {source.id for source in page_sources}
-        latest_runs: dict[str, VideoAnalysisRunModel] = {}
+        latest_runs = {
+            source_id: latest_video_runs[source_id]
+            for source_id in source_ids
+            if source_id in latest_video_runs
+        }
+        logical_asset_ids: dict[str, str] = {}
         if source_ids:
-            runs = self.session.scalars(
-                select(VideoAnalysisRunModel)
-                .where(
-                    VideoAnalysisRunModel.tenant_id == tenant_id,
-                    VideoAnalysisRunModel.source_asset_id.in_(source_ids),
+            links = self.session.execute(
+                select(AssetSourceLinkModel.source_asset_id, AssetSourceLinkModel.asset_id).where(
+                    AssetSourceLinkModel.tenant_id == tenant_id,
+                    AssetSourceLinkModel.source_asset_id.in_(source_ids),
                 )
-                .order_by(VideoAnalysisRunModel.updated_at.desc(), VideoAnalysisRunModel.id.desc())
             )
-            for run in runs:
-                latest_runs.setdefault(run.source_asset_id, run)
+            for source_asset_id, asset_id in links:
+                logical_asset_ids.setdefault(source_asset_id, asset_id)
         analytics_runs = list(self.session.scalars(select(VideoAnalysisRunModel).where(
             VideoAnalysisRunModel.tenant_id == tenant_id,
         )))
@@ -334,9 +421,12 @@ class MediaDashboardService:
                 thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
             recent_video.append({
                 "job_id": job.id, "source_asset_id": job.entity_id,
+                "asset_id": logical_asset_ids.get(job.entity_id),
                 "filename": source.filename if source is not None else None,
+                "mime_type": source.mime_type if source is not None else None,
                 "location": locations.get(source.id) if source is not None else None,
                 "thumbnail_url": thumbnail_url,
+                "duration_ms": _video_duration_ms(source, run),
                 "completed_chunks": run.completed_chunks if run is not None else 0,
                 "total_chunks": run.total_chunks if run is not None else 0,
                 "status": job.status, "attempt_count": job.attempt_count,

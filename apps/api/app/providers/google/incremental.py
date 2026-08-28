@@ -15,6 +15,19 @@ from app.providers.google.internal_files import is_cam_managed_file
 logger = logging.getLogger(__name__)
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
+MODERN_IMAGE_MIME_BY_EXTENSION = {
+    ".avif": "image/avif",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+}
+
+
+def normalize_drive_file_mime_type(filename: str | None, mime_type: str | None) -> str | None:
+    name = str(filename or "").strip().lower()
+    for extension, canonical in MODERN_IMAGE_MIME_BY_EXTENSION.items():
+        if name.endswith(extension):
+            return canonical
+    return mime_type
 FILE_FIELDS = (
     "id,name,mimeType,parents,size,createdTime,modifiedTime,trashed,"
     "md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,webViewLink,appProperties,videoMediaMetadata(width,height,durationMillis)"
@@ -28,7 +41,7 @@ def _candidate(item: dict, source_id: str) -> ExternalAssetCandidate:
         source_id=source_id,
         external_asset_id=item["id"],
         filename=item.get("name"),
-        mime_type=item.get("mimeType"),
+        mime_type=normalize_drive_file_mime_type(item.get("name"), item.get("mimeType")),
         size_bytes=int(item["size"]) if item.get("size") else None,
         source_created_at=item.get("createdTime"),
         source_modified_at=item.get("modifiedTime"),

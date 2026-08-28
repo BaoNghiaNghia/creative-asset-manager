@@ -1,8 +1,10 @@
+import gzip
 import unittest
 
 from app.domain.providers.contracts import (
     AssetSourceProvider,
     GetSourceAssetInput,
+    OpenSourceAssetInput,
     SourceChangePage,
     ListSourceChangesInput,
 )
@@ -38,6 +40,53 @@ class FakeCloudClient:
 
 
 class SourceAdapterTest(unittest.IsolatedAsyncioTestCase):
+    async def test_google_download_decodes_http_content_encoding(self) -> None:
+        avif_bytes = b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00avifmif1"
+        encoded_bytes = gzip.compress(avif_bytes)
+
+        class FakeResponse:
+            status_code = 200
+            headers = {
+                "content-type": "image/avif",
+                "content-encoding": "gzip",
+            }
+
+            async def aiter_bytes(self):
+                yield avif_bytes
+
+            async def aiter_raw(self):
+                yield encoded_bytes
+
+        response = FakeResponse()
+        closed = False
+
+        async def media_opener(token, item_id, range_header):
+            self.assertEqual(token, "token")
+            self.assertEqual(item_id, "google-avif-1")
+            self.assertIsNone(range_header)
+            return object(), response
+
+        async def media_closer(_client, actual_response):
+            nonlocal closed
+            self.assertIs(actual_response, response)
+            closed = True
+
+        adapter = GoogleDriveSourceAdapter(
+            "token",
+            media_opener=media_opener,
+            media_closer=media_closer,
+        )
+
+        stream = await adapter.open_download_stream(
+            OpenSourceAssetInput("google-source-1", "google-avif-1")
+        )
+        downloaded = b"".join([chunk async for chunk in stream.body])
+        await stream.close()
+
+        self.assertEqual(downloaded, avif_bytes)
+        self.assertNotEqual(downloaded, encoded_bytes)
+        self.assertTrue(closed)
+
     async def test_google_adapter_maps_existing_node_to_candidate(self) -> None:
         node = AssetNode(
             id="google-file-1",

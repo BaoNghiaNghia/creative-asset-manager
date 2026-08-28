@@ -219,6 +219,60 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.jobs_created, 0)
         self.assertEqual(self.processing.count_jobs(), 1)
 
+    async def test_unchanged_supported_legacy_asset_without_pipeline_is_enqueued_once(self) -> None:
+        legacy = self.assets.upsert_source_asset(
+            tenant_id="tenant-a",
+            external_source_id=self.source.id,
+            external_asset_id="legacy-avif",
+            filename="legacy.avif",
+            mime_type="image/avif",
+            provider_checksum="hash-v1",
+        )
+        self.session.commit()
+        unchanged = candidate(
+            "legacy-avif", name="legacy.avif", mime_type="image/avif", checksum="hash-v1"
+        )
+
+        first = await self.service.sync_source(
+            tenant_id="tenant-a", source_id=self.source.id,
+            provider=FakeProvider([SourceChangePage((SourceChange("updated", "legacy-avif", unchanged),), "c1")]),
+        )
+        repeated = await self.service.sync_source(
+            tenant_id="tenant-a", source_id=self.source.id,
+            provider=FakeProvider([SourceChangePage((SourceChange("updated", "legacy-avif", unchanged),), "c2")]),
+        )
+
+        jobs = list(self.session.scalars(select(ProcessingJobModel)))
+        self.assertEqual((first.jobs_created, repeated.jobs_created), (1, 0))
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(
+            jobs[0].idempotency_key,
+            f"source-asset-download:{legacy.id}:initial-import-v2",
+        )
+
+    async def test_changed_legacy_asset_without_pipeline_keeps_one_stable_initial_job(self) -> None:
+        self.assets.upsert_source_asset(
+            tenant_id="tenant-a", external_source_id=self.source.id,
+            external_asset_id="legacy-heic", filename="legacy.heic",
+            mime_type="image/heic", provider_checksum="old-hash",
+        )
+        self.session.commit()
+        changed = candidate(
+            "legacy-heic", name="legacy.heic", mime_type="image/heic", checksum="new-hash"
+        )
+
+        first = await self.service.sync_source(
+            tenant_id="tenant-a", source_id=self.source.id,
+            provider=FakeProvider([SourceChangePage((SourceChange("updated", "legacy-heic", changed),), "c1")]),
+        )
+        repeated = await self.service.sync_source(
+            tenant_id="tenant-a", source_id=self.source.id,
+            provider=FakeProvider([SourceChangePage((SourceChange("updated", "legacy-heic", changed),), "c2")]),
+        )
+
+        self.assertEqual((first.jobs_created, repeated.jobs_created), (1, 0))
+        self.assertEqual(self.processing.count_jobs(), 1)
+
     async def test_source_change_invalidates_viewer_hierarchy_cache(self) -> None:
         with patch(
             "app.modules.source_sync.service._invalidate_viewer_folder_hierarchy"
@@ -328,6 +382,8 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
             ("png", "image/png", False),
             ("webp", "image/webp", False),
             ("avif", "image/avif", False),
+            ("heic", "image/heic", False),
+            ("heif", "image/heif", False),
             ("folder", "application/vnd.google-apps.folder", True),
             ("shortcut", "application/vnd.google-apps.shortcut", False),
             ("video", "video/mp4", False),
@@ -356,12 +412,12 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.changes, len(mime_types))
-        self.assertEqual(result.jobs_created, 4)
+        self.assertEqual(result.jobs_created, 6)
         self.assertEqual(
             self.session.scalar(select(func.count()).select_from(SourceAssetModel)),
             len(mime_types),
         )
-        self.assertEqual(self.processing.count_jobs(), 4)
+        self.assertEqual(self.processing.count_jobs(), 6)
 
     async def test_feature_flag_preserves_existing_behavior(self) -> None:
         disabled = SourceSyncService(self.repository, self.processing, enabled=False)

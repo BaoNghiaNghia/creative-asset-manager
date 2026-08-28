@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.processing.model import ProcessingJobModel
-from app.operations.source_cli import repair_google_drive_duplicates
+from app.operations.source_cli import backfill_google_drive_modern_images, repair_google_drive_duplicates
 
 
 class SourceCliTest(unittest.TestCase):
@@ -109,6 +109,46 @@ class SourceCliTest(unittest.TestCase):
         duplicate_metadata = self.session.get(ExternalSourceModel, duplicate.id).source_metadata
         self.assertFalse(duplicate_metadata["is_default"])
         self.assertEqual(duplicate_metadata["canonical_source_id"], canonical.id)
+
+
+    def test_modern_image_backfill_is_dry_run_safe_and_apply_is_idempotent(self):
+        source = self.source("modern-images", default=True)
+        assets = []
+        for filename, reported_mime, canonical_mime in (
+            ("one.avif", "application/octet-stream", "image/avif"),
+            ("two.HEIC", None, "image/heic"),
+            ("three.heif", "binary/octet-stream", "image/heif"),
+        ):
+            asset = self.add_asset(source, filename)
+            asset.filename = filename
+            asset.mime_type = reported_mime
+            assets.append((asset, canonical_mime))
+        png = self.add_asset(source, "four.png")
+        png.filename = "four.png"
+        png.mime_type = "image/png"
+        self.session.commit()
+
+        dry_run = backfill_google_drive_modern_images(
+            tenant_id="tenant-a", session_factory=lambda: Session(self.engine, expire_on_commit=False),
+        )
+        self.assertEqual(dry_run["matched"], 3)
+        self.assertEqual(dry_run["would_enqueue"], 3)
+        self.assertEqual(dry_run["jobs_created"], 0)
+        self.assertEqual(self.session.scalar(select(func.count()).select_from(ProcessingJobModel)), 0)
+
+        first = backfill_google_drive_modern_images(
+            tenant_id="tenant-a", apply=True, session_factory=lambda: Session(self.engine, expire_on_commit=False),
+        )
+        second = backfill_google_drive_modern_images(
+            tenant_id="tenant-a", apply=True, session_factory=lambda: Session(self.engine, expire_on_commit=False),
+        )
+
+        self.assertEqual(first["jobs_created"], 3)
+        self.assertEqual(second["jobs_created"], 0)
+        with Session(self.engine, expire_on_commit=False) as verification:
+            self.assertEqual(verification.scalar(select(func.count()).select_from(ProcessingJobModel)), 3)
+            for asset, canonical_mime in assets:
+                self.assertEqual(verification.get(SourceAssetModel, asset.id).mime_type, canonical_mime)
 
 
 if __name__ == "__main__":

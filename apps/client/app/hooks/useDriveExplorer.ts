@@ -303,7 +303,6 @@ export function useDriveExplorer(imageSearchEnabled = true) {
           ? children
           : [...children, child];
         next[parent.id] = merged;
-        treeFolderCache.current.set(folderCacheKey(source, parent.id), merged);
       }
       return next;
     });
@@ -312,6 +311,21 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       nodes.slice(0, -1).forEach(node => next.add(node.id));
       return next;
     });
+  }
+
+  async function refreshTreePath(
+    nodes: Asset[],
+    source: Provider,
+    sourceId: string | null,
+    requestSequence: number,
+    signal: AbortSignal,
+  ) {
+    await Promise.all(nodes.map(async node => {
+      const folders = await fetchTreeFolders(node.id, source, sourceId, signal);
+      if (!signal.aborted && requestSequence === openSequence.current) {
+        cacheFolders(node.id, folders, source, sourceId);
+      }
+    }));
   }
 
   async function fetchTreeFolders(id: string, source: Provider = provider, sourceId: string | null = activeExternalSourceId, signal?: AbortSignal): Promise<Asset[]> {
@@ -380,14 +394,10 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       setItems(folder.children);
       const treeSourceId = folder.parent.external_source_id ?? sourceId ?? null;
       setActiveExternalSourceId(treeSourceId);
-      // The first content page can be paginated, so it is not a complete
-      // source tree. Rehydrate folder-only children whenever Explorer mounts.
-      void fetchTreeFolders(id, source, treeSourceId, controller.signal)
-        .then(folders => {
-          if (!controller.signal.aborted && requestSequence === openSequence.current) {
-            cacheFolders(id, folders, source, treeSourceId);
-          }
-        })
+      // A breadcrumb navigation reconstructs only the selected path. Load the
+      // complete folder list for every expanded level so the sidebar keeps all
+      // siblings instead of displaying only the reconstructed path nodes.
+      void refreshTreePath(nextPath, source, treeSourceId, requestSequence, controller.signal)
         .catch(() => undefined);
       if (pureViewer && sourceId) {
         const assignedRoot = viewerBootstrap?.sources

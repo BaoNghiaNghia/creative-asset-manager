@@ -73,6 +73,11 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
       <div><h2>Inventory hằng ngày</h2><p>Dữ liệu vận hành theo ngày của tenant hiện tại · múi giờ {status.timezone}</p></div>
       <div className="ops-inventory-heading-actions">
         <span className={`ops-inventory-health ${healthy ? "healthy" : status.operational_state}`}>{status.operational_state}</span>
+        <div className="ops-inventory-quick-actions">
+          {status.working_spreadsheet_url ? <a href={status.working_spreadsheet_url} target="_blank" rel="noreferrer">Mở Google Sheet đang xử lý</a> : null}
+          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("daily")}>Mở Daily Inventory</button>
+          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("settings")}>Cấu hình Inventory</button>
+        </div>
         <button type="button" onClick={onRefresh}>Làm mới</button>
       </div>
     </div>
@@ -102,11 +107,6 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
 
     {blockers.length ? <section className="ops-inventory-blockers"><h3>Cần xử lý ({blockers.length})</h3><ul>{blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}><strong>{blocker.code}</strong><span>{(blocker.document_ids?.length || 0)} document · {(blocker.review_ids?.length || 0)} review · {(blocker.job_ids?.length || 0)} job</span></li>)}</ul></section> : <p className="ops-inventory-clear">Không có blocker trong daily run hiện tại.</p>}
 
-    <div className="ops-inventory-links">
-      {status.working_spreadsheet_url ? <a href={status.working_spreadsheet_url} target="_blank" rel="noreferrer">Mở Google Sheet đang xử lý</a> : null}
-      <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("daily")}>Mở Daily Inventory</button>
-      <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("settings")}>Cấu hình Inventory</button>
-    </div>
     {modalPage ? <div className="ops-inventory-modal-backdrop" role="presentation" onMouseDown={() => setModalPage(null)}>
       <section className="ops-inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title" onMouseDown={event => event.stopPropagation()}>
         <header><div><span>OPERATIONS</span><h2 id="inventory-modal-title">Inventory</h2></div><button type="button" autoFocus aria-label="Đóng Inventory" onClick={() => setModalPage(null)}>×</button></header>

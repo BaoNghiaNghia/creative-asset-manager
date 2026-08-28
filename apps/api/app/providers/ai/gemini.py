@@ -314,13 +314,21 @@ class GeminiAiMetadataProvider:
         self._raise_for_status(response, model=model, input=input)
         payload = self._response_object(response)
         text = self._candidate_text(payload)
+        candidate = (payload.get("candidates") or [{}])[0]
         try:
-            metadata = json.loads(text)
+            metadata = self._metadata_document(text)
         except (TypeError, json.JSONDecodeError) as exc:
+            parts = ((candidate.get("content") or {}).get("parts") or [])
             raise AiProviderError(
                 "Gemini returned malformed JSON.",
                 code="gemini_invalid_json",
-                retryable=False,
+                retryable=True,
+                details={
+                    "finish_reason": candidate.get("finishReason"),
+                    "response_text_bytes": len(text.encode("utf-8")),
+                    "response_part_count": len(parts),
+                    "markdown_fenced": text.lstrip().startswith("```"),
+                },
             ) from exc
         if not isinstance(metadata, Mapping):
             raise AiProviderError(
@@ -328,7 +336,6 @@ class GeminiAiMetadataProvider:
                 code="gemini_invalid_document",
                 retryable=False,
             )
-        candidate = (payload.get("candidates") or [{}])[0]
         return AiMetadataAnalysisResult(
             metadata=dict(metadata),
             provider=self.provider_name,
@@ -856,6 +863,27 @@ class GeminiAiMetadataProvider:
                 retryable=False,
             )
         return text
+
+    @staticmethod
+    def _metadata_document(text: str) -> Any:
+        """Decode JSON, tolerating only a whole-document Markdown fence.
+
+        Gemini can occasionally wrap structured JSON output in a ``json`` code
+        fence despite ``responseMimeType=application/json``.  Deliberately do
+        not extract an object from arbitrary prose: accepting only a wrapper
+        around the complete document keeps structured-output validation closed.
+        """
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as original:
+            match = re.fullmatch(
+                r"```(?:json)?[ \t]*\r?\n(?P<document>[\s\S]*?)\r?\n```[ \t]*",
+                text.strip(),
+                flags=re.IGNORECASE,
+            )
+            if match is None:
+                raise original
+            return json.loads(match.group("document"))
 
     def _raise_for_status(
         self,

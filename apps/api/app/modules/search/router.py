@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+import re
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from urllib.parse import quote, urlencode
 from sqlalchemy import case, func, or_, select
 
@@ -8,6 +9,8 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
 from app.modules.explorer.media_types import infer_media_type
+from app.modules.explorer.router import _provider_error, _source_context, _viewer_folder_scope_allowed
+from app.providers.source_factory import create_source_provider
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
@@ -264,11 +267,17 @@ def _folder_breadcrumb(session, tenant: str, source: SourceAssetModel) -> tuple[
     names.reverse()
     return ids, names
 
+def _normalize_asin_folder_query(value: str) -> str | None:
+    normalized = value.strip().upper()
+    return normalized if re.fullmatch(r"[A-Z0-9]{10}", normalized) else None
+
+
 def _search_folder_items(session, principal: CurrentPrincipal, *, value: str, source_provider: str | None, external_source_id: str | None, limit: int) -> list[dict]:
     tenant = principal.active_tenant_id
-    normalized = value.strip().casefold()
-    if not normalized:
+    asin = _normalize_asin_folder_query(value)
+    if asin is None:
         return []
+    normalized = asin.casefold()
     escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     conditions = [
         SourceAssetModel.tenant_id == tenant,
@@ -327,19 +336,91 @@ def _search_folder_items(session, principal: CurrentPrincipal, *, value: str, so
         })
     return items
 
+async def _provider_folder_breadcrumb(client, folder, cache: dict[str, object]) -> tuple[list[str], list[str]]:
+    ids: list[str] = []
+    names: list[str] = []
+    parent_id = folder.parent_id
+    seen = {folder.id}
+    for _depth in range(64):
+        if not parent_id or parent_id in seen:
+            break
+        seen.add(parent_id)
+        parent = cache.get(parent_id)
+        if parent is None:
+            parent = await client.get_node(parent_id)
+            cache[parent_id] = parent
+        ids.append(parent.id)
+        names.append(parent.name or "Folder")
+        parent_id = parent.parent_id
+    ids.reverse()
+    names.reverse()
+    return ids, names
+
 @router.get("/folders")
-def search_folders(
+async def search_folders(
+    request: Request,
     q: str = Query(min_length=1, max_length=500),
     source_provider: str | None = Query(default=None, pattern="^(google-drive|sharepoint)$"),
     external_source_id: str | None = Query(default=None, max_length=128),
     limit: int = Query(default=20, ge=1, le=50),
     principal: CurrentPrincipal = Depends(SEARCH_READ),
 ):
+    asin = _normalize_asin_folder_query(q)
+    if asin is None:
+        return {"items": [], "total": 0}
     if is_pure_viewer(principal) and not (external_source_id or "").strip():
         raise HTTPException(status_code=422, detail={"code": "viewer_source_required", "message": "A search source is required."})
+    provider = source_provider or "google-drive"
     with SessionLocal() as session:
-        items = _search_folder_items(session, principal, value=q, source_provider=source_provider, external_source_id=external_source_id, limit=limit)
-    return {"items": items, "total": len(items)}
+        items = _search_folder_items(session, principal, value=asin, source_provider=source_provider, external_source_id=external_source_id, limit=limit)
+        if items or provider != "google-drive":
+            return {"items": items, "total": len(items)}
+        try:
+            token, _account_id, tenant_id, resolved_source_id = await _source_context(
+                request, provider, session, principal, external_source_id
+            )
+            if not token or not resolved_source_id:
+                raise HTTPException(status_code=401, detail="Connect Google Drive to search folders.")
+            scope_service = ViewerFolderScopeService(session)
+            access = scope_service.access(
+                tenant_id=tenant_id,
+                membership_id=principal.membership_id,
+                roles=principal.effective_roles,
+                external_source_id=resolved_source_id,
+            )
+            live_items: list[dict] = []
+            parent_cache: dict[str, object] = {}
+            async with create_source_provider(provider, token) as client:
+                folders = await client.search_folders(asin, limit=limit)
+                for folder in folders:
+                    if access.restricted and not await _viewer_folder_scope_allowed(
+                        scope_service,
+                        tenant_id=tenant_id,
+                        access=access,
+                        provider=provider,
+                        token=token,
+                        item_id=folder.id,
+                    ):
+                        continue
+                    ancestor_ids, ancestor_names = await _provider_folder_breadcrumb(client, folder, parent_cache)
+                    live_items.append({
+                        "provider": provider,
+                        "id": folder.id,
+                        "external_source_id": resolved_source_id,
+                        "name": folder.name or "Untitled folder",
+                        "kind": "folder",
+                        "mime_type": folder.mime_type or "application/vnd.google-apps.folder",
+                        "modified_at": folder.modified_at.isoformat() if folder.modified_at else None,
+                        "web_url": folder.web_url,
+                        "ancestor_ids": ancestor_ids,
+                        "ancestor_names": ancestor_names,
+                        "has_children": True,
+                    })
+            return {"items": live_items, "total": len(live_items)}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _provider_error(exc, "Unable to search Google Drive folders") from exc
 
 def _search_thumbnail_url(*, provider: str, external_asset_id: str, external_source_id: str, kind: str) -> str | None:
     if provider != "google-drive" or kind not in {"image", "video"}:

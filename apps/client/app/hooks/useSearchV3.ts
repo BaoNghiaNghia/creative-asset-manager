@@ -72,6 +72,28 @@ export function isCurrentSearchResponse(requestEpoch: number, currentEpoch: numb
   return requestEpoch === currentEpoch;
 }
 
+export function normalizeAsinFolderQuery(query: string): string | null {
+  const normalized = query.trim().toUpperCase();
+  return /^[A-Z0-9]{10}$/.test(normalized) ? normalized : null;
+}
+
+export function buildFolderSearchParams(
+  query: string,
+  provider: Provider,
+  externalSourceId?: string | null,
+): URLSearchParams {
+  return new URLSearchParams({
+    q: query.trim(),
+    source_provider: provider,
+    ...(externalSourceId ? { external_source_id: externalSourceId } : {}),
+    limit: "50",
+  });
+}
+
+export function mergeFolderSearchResults(folders: Asset[], assets: Asset[]): Asset[] {
+  return mergeSearchResults(folders.filter(item => item.kind === "folder"), assets);
+}
+
 export function buildSearchRequestBody(
   query: string,
   provider: Provider,
@@ -120,6 +142,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider, query: s
   const lastSuccessfulSuggestions = useRef<{ scope: string; query: string } | null>(null);
   const searchEpoch = useRef(0);
   const nextCursor = useRef<string | null>(null);
+  const folderTotal = useRef(0);
   const pageInFlight = useRef(false);
   const appendController = useRef<AbortController | null>(null);
 
@@ -268,21 +291,36 @@ export function useSearchV3(authenticated: boolean, provider: Provider, query: s
     }
     const startedAt = performance.now();
     try {
-      const response = await fetch("/api/v1/search", {
+      const assetRequest = fetch("/api/v1/search", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal,
         body: JSON.stringify(buildSearchRequestBody(
           query, provider, selectedFacets, cursor, append, false, externalSourceId,
         )),
       });
-      const payload = await response.json().catch(() => ({}));
+      const asinQuery = normalizeAsinFolderQuery(query);
+      const folderRequest = append || !asinQuery
+        ? Promise.resolve(null)
+        : fetch("/api/v1/search/folders?" + buildFolderSearchParams(asinQuery, provider, externalSourceId), { signal });
+      const [response, folderResponse] = await Promise.all([assetRequest, folderRequest]);
+      const [payload, folderPayload] = await Promise.all([
+        response.json().catch(() => ({})),
+        folderResponse ? folderResponse.json().catch(() => ({})) : Promise.resolve(null),
+      ]);
       if (!response.ok) {
         throw Error(searchApiErrorMessage(payload, "Search is unavailable"));
       }
+      if (folderResponse && !folderResponse.ok) {
+        throw Error(searchApiErrorMessage(folderPayload, "Folder search is unavailable"));
+      }
       if (!isCurrentSearchResponse(epoch, searchEpoch.current)) return;
       const pageItems: Asset[] = Array.isArray(payload.items) ? payload.items : [];
+      const folderItems: Asset[] = !append && Array.isArray(folderPayload?.items) ? folderPayload.items : [];
       const resultTotal = Number(payload.total || 0);
-      setItems(current => append ? mergeSearchResults(current, pageItems) : mergeSearchResults([], pageItems));
-      setTotal(resultTotal);
+      if (!append) folderTotal.current = Number(folderPayload?.total ?? folderItems.length);
+      setItems(current => append
+        ? mergeSearchResults(current, pageItems)
+        : mergeFolderSearchResults(folderItems, pageItems));
+      setTotal(resultTotal + folderTotal.current);
       if (!append) {
         setFacets(payload.facets || {});
         setParsed(payload.parsed_query || null);
@@ -310,6 +348,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider, query: s
     appendController.current = null;
     pageInFlight.current = false;
     nextCursor.current = null;
+    folderTotal.current = 0;
     setHasMore(false);
     setLoadingMore(false);
     setItems([]);

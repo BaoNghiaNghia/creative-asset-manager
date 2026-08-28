@@ -54,7 +54,11 @@ ALLOWED_TRANSITIONS: dict[PipelineState, frozenset[PipelineState]] = {
     PipelineState.INDEXED: frozenset({PipelineState.SIDECAR_PENDING, PipelineState.COMPLETED}),
     PipelineState.SIDECAR_PENDING: frozenset({PipelineState.COMPLETED, PipelineState.SIDECAR_FAILED}),
     PipelineState.DOWNLOAD_FAILED: frozenset({PipelineState.DOWNLOAD_PENDING}),
-    PipelineState.STORAGE_FAILED: frozenset({PipelineState.STORAGE_PENDING}),
+    PipelineState.STORAGE_FAILED: frozenset({
+        PipelineState.STORAGE_PENDING, PipelineState.ANALYSIS_PENDING,
+        PipelineState.PROJECTION_PENDING, PipelineState.SEARCH_PENDING,
+        PipelineState.COMPLETED,
+    }),
     PipelineState.ANALYSIS_FAILED: frozenset({PipelineState.ANALYSIS_PENDING}),
     PipelineState.PROJECTION_FAILED: frozenset({PipelineState.PROJECTION_PENDING}),
     PipelineState.SEARCH_FAILED: frozenset({PipelineState.SEARCH_PENDING}),

@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
+from app.domain.providers.contracts import StorageProviderError
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.ai_metadata.projection_service import SearchProjectionService
@@ -205,7 +206,10 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
 
 
     @staticmethod
-    def _enqueue_after_storage(coordinator: AssetPipelineService, pipeline: AssetPipelineModel, settings: Settings) -> None:
+    def _enqueue_after_storage(
+        coordinator: AssetPipelineService, pipeline: AssetPipelineModel,
+        settings: Settings, *, analysis_content_source: str | None = None,
+    ) -> None:
         session = coordinator.pipelines.session
         completed = session.scalar(select(AssetAiAnalysisModel).where(
             AssetAiAnalysisModel.tenant_id == pipeline.tenant_id,
@@ -232,7 +236,10 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
                     pipeline_version="asset-pipeline-v1", ai_provider="gemini",
                 )
                 pipeline.analysis_id = analysis.id
-                coordinator.enqueue(pipeline, "asset_analyze", payload={"analysis_id": analysis.id})
+                payload = {"analysis_id": analysis.id}
+                if analysis_content_source:
+                    payload["analysis_content_source"] = analysis_content_source
+                coordinator.enqueue(pipeline, "asset_analyze", payload=payload)
                 return
         coordinator.pipelines.transition(pipeline, PipelineState.COMPLETED)
 
@@ -277,8 +284,50 @@ class AssetStoreJobHandler(_PipelineHandler):
             finally:
                 session.close()
             return JobHandlerResult.completed()
+        except StorageProviderError as exc:
+            if (
+                not exc.retryable
+                and settings.AI_ANALYSIS_SOURCE_FALLBACK_ENABLED
+            ):
+                return self._continue_from_source(context, settings, exc)
+            return self._failed(
+                context,
+                exc,
+                retryable=exc.retryable,
+                error_code=exc.code,
+            )
         except Exception as exc:
             return self._failed(context, exc)
+
+    def _continue_from_source(
+        self, context: JobHandlerContext, settings: Settings,
+        error: StorageProviderError,
+    ) -> JobHandlerResult:
+        session, repository, pipeline = self._load(context)
+        try:
+            if pipeline.state == PipelineState.STORAGE_PENDING.value:
+                repository.record_failure(
+                    pipeline,
+                    "storage",
+                    error_code=error.code,
+                    error_message=str(error),
+                    retryable=False,
+                )
+            if pipeline.state != PipelineState.STORAGE_FAILED.value:
+                return JobHandlerResult.completed()
+            coordinator = AssetPipelineService(
+                repository, ProcessingRepository(session)
+            )
+            SourceAssetDownloadJobHandler._enqueue_after_storage(
+                coordinator,
+                pipeline,
+                settings,
+                analysis_content_source="source_asset",
+            )
+            session.commit()
+            return JobHandlerResult.completed()
+        finally:
+            session.close()
 
 
 class SearchProjectionBuildJobHandler(_PipelineHandler):

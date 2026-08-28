@@ -1,7 +1,7 @@
 import type { Asset } from "../types";
 
 export type LocationBreadcrumbNode = { id: string; name: string };
-type Props = { nodes: LocationBreadcrumbNode[]; unavailable?: boolean; onOpenFolder?: (id: string) => void };
+type Props = { nodes: LocationBreadcrumbNode[]; unavailable?: boolean; onOpenFolder?: (id: string, ancestors: LocationBreadcrumbNode[]) => void };
 
 export function LocationBreadcrumb({ nodes, unavailable, onOpenFolder }: Props) {
   if (!nodes.length || unavailable) return <span className="location-unavailable">Location unavailable</span>;
@@ -9,7 +9,7 @@ export function LocationBreadcrumb({ nodes, unavailable, onOpenFolder }: Props) 
   return <span className="location-breadcrumb" title={label}>
     {nodes.map((node, index) => <span className="location-breadcrumb-node" key={node.id + "-" + index}>
       {index > 0 && <span className="location-breadcrumb-separator" aria-hidden="true">{String.fromCharCode(8250)}</span>}
-      {onOpenFolder ? <button type="button" onClick={() => onOpenFolder(node.id)} title={"Open " + node.name}>{node.name}</button> : <span>{node.name}</span>}
+      {onOpenFolder ? <button type="button" onClick={() => onOpenFolder(node.id, nodes.slice(0, index))} title={"Open " + node.name}>{node.name}</button> : <span>{node.name}</span>}
     </span>)}
   </span>;
 }

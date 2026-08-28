@@ -153,6 +153,32 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.provider_request_id, "request-1")
         self.assertEqual(result.usage["totalTokenCount"], 9)
 
+    async def test_accepts_json_wrapped_by_a_whole_document_markdown_fence(self):
+        async def handler(_request):
+            return httpx.Response(
+                200,
+                json={
+                    "candidates": [{
+                        "content": {"parts": [
+                            {"text": '```json\n{"subject":"cat"}\n```'}
+                        ]},
+                        "finishReason": "STOP",
+                    }],
+                },
+            )
+
+        provider = configured_gemini_provider(
+            "secret", transport=httpx.MockTransport(handler)
+        )
+        result = await provider.analyze_single(analysis_input())
+        self.assertEqual(result.metadata, {"subject": "cat"})
+
+    def test_does_not_extract_json_from_arbitrary_prose(self):
+        with self.assertRaises(json.JSONDecodeError):
+            GeminiAiMetadataProvider._metadata_document(
+                'Here is the result: {"subject":"cat"}'
+            )
+
     async def test_malformed_and_empty_output_are_permanent_provider_errors(self):
         for payload, code in (
             ({"candidates": [{"content": {"parts": [{"text": "nope"}]}}]}, "gemini_invalid_json"),
@@ -166,7 +192,12 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AiProviderError) as raised:
                 await provider.analyze_single(analysis_input())
             self.assertEqual(raised.exception.code, code)
-            self.assertFalse(raised.exception.retryable)
+            self.assertEqual(
+                raised.exception.retryable,
+                code == "gemini_invalid_json",
+            )
+            if code == "gemini_invalid_json":
+                self.assertEqual(raised.exception.details["response_text_bytes"], 4)
             self.assertNotIsInstance(
                 raised.exception, GeminiPoolTemporarilyUnavailable
             )

@@ -20,6 +20,7 @@ from app.modules.search.operations_model import (
     SearchOperationRunModel,
 )
 from app.modules.storage.model import AssetStorageObjectModel
+from app.modules.video_search.model import VideoAnalysisRunModel
 
 AssetProcessingStatus = Literal[
     "discovered",
@@ -44,6 +45,10 @@ _RELEVANT_ASSET_JOBS = {
     "asset_analyze",
     "search_projection_build",
     "asset_index",
+}
+_RELEVANT_VIDEO_JOBS = {
+    "video_analyze",
+    "video_search_index",
 }
 
 
@@ -163,6 +168,7 @@ class AssetProcessingStatusService:
         indexed_assets: set[str] = set()
         latest_analysis: dict[str, AssetAiAnalysisModel] = {}
         latest_jobs: dict[tuple[str, str], ProcessingJobModel] = {}
+        latest_video_runs: dict[str, VideoAnalysisRunModel] = {}
         pipeline_ids_by_source_asset: dict[str, set[str]] = defaultdict(set)
         pipeline_ids_by_asset: dict[str, set[str]] = defaultdict(set)
 
@@ -258,6 +264,20 @@ class AssetProcessingStatusService:
                 if asset_id:
                     pipeline_ids_by_asset[asset_id].add(pipeline_id)
 
+            for run in self.session.scalars(
+                select(VideoAnalysisRunModel)
+                .where(
+                    VideoAnalysisRunModel.tenant_id == tenant_id,
+                    VideoAnalysisRunModel.source_asset_id.in_(source_asset_ids),
+                )
+                .order_by(
+                    VideoAnalysisRunModel.source_asset_id,
+                    VideoAnalysisRunModel.created_at.desc(),
+                    VideoAnalysisRunModel.id.desc(),
+                )
+            ):
+                latest_video_runs.setdefault(run.source_asset_id, run)
+
         pipeline_ids = {
             pipeline_id
             for values in (
@@ -266,8 +286,11 @@ class AssetProcessingStatusService:
             )
             for pipeline_id in values
         }
+        video_run_ids = {
+            run.id for run in latest_video_runs.values()
+        }
         job_entity_ids = tuple(
-            sorted({*asset_ids, *source_asset_ids, *pipeline_ids})
+            sorted({*asset_ids, *source_asset_ids, *pipeline_ids, *video_run_ids})
         )
         if job_entity_ids:
             for job in self.session.scalars(
@@ -276,7 +299,7 @@ class AssetProcessingStatusService:
                     ProcessingJobModel.tenant_id == tenant_id,
                     ProcessingJobModel.entity_id.in_(job_entity_ids),
                     ProcessingJobModel.job_type.in_(
-                        ("source_asset_download", *_RELEVANT_ASSET_JOBS)
+                        ("source_asset_download", *_RELEVANT_ASSET_JOBS, *_RELEVANT_VIDEO_JOBS)
                     ),
                 )
                 .order_by(
@@ -325,21 +348,41 @@ class AssetProcessingStatusService:
                 for asset_id in item_asset_ids
                 if asset_id in latest_analysis
             ]
+            video_runs = [
+                latest_video_runs[source_id]
+                for source_id in item_source_ids
+                if source_id in latest_video_runs
+            ]
+            video_jobs = [
+                job
+                for job in (
+                    *(latest_jobs.get((source_id, "video_analyze")) for source_id in item_source_ids),
+                    *(latest_jobs.get((run.id, "video_search_index")) for run in video_runs),
+                )
+                if job is not None
+            ]
 
             if any(
-                job.job_type == "asset_index" and job.status == "failed"
-                for job in relevant_jobs
+                job.job_type in {"asset_index", "video_search_index"}
+                and job.status == "failed"
+                for job in (*relevant_jobs, *video_jobs)
             ):
                 statuses[item_id] = "search_failed"
             elif (
                 any(job.status == "failed" for job in relevant_jobs)
+                or any(
+                    job.job_type == "video_analyze" and job.status == "failed"
+                    for job in video_jobs
+                )
                 or any(analysis.status == "failed" for analysis in analyses)
+                or any(run.status == "failed" for run in video_runs)
                 or bool(item_asset_ids & storage_failed_assets)
             ):
                 statuses[item_id] = "failed"
             elif any(
-                job.job_type == "asset_index" and job.status == "processing"
-                for job in relevant_jobs
+                job.job_type in {"asset_index", "video_search_index"}
+                and job.status == "processing"
+                for job in (*relevant_jobs, *video_jobs)
             ):
                 statuses[item_id] = "indexing"
             elif (
@@ -348,18 +391,32 @@ class AssetProcessingStatusService:
                     job.job_type == "asset_index" and job.status == "completed"
                     for job in relevant_jobs
                 )
+                or any(
+                    job.job_type == "video_search_index" and job.status == "completed"
+                    for job in video_jobs
+                )
             ):
                 statuses[item_id] = "indexed"
             elif any(
-                job.job_type == "asset_index" and job.status in {"pending", "retry"}
-                for job in relevant_jobs
+                job.job_type in {"asset_index", "video_search_index"}
+                and job.status in {"pending", "retry"}
+                for job in (*relevant_jobs, *video_jobs)
             ):
                 statuses[item_id] = "search_pending"
             elif any(
                 analysis.status == "completed" and analysis.metadata_json is not None
                 for analysis in analyses
-            ):
+            ) or any(run.status == "completed" for run in video_runs):
                 statuses[item_id] = "search_pending"
+            elif (
+                any(run.status in {"pending", "preparing", "analyzing"} for run in video_runs)
+                or any(
+                    job.job_type == "video_analyze"
+                    and job.status in _ACTIVE_JOB_STATUSES
+                    for job in video_jobs
+                )
+            ):
+                statuses[item_id] = "analyzing"
             elif (
                 any(analysis.status in {"pending", "running"} for analysis in analyses)
                 or any(

@@ -26,6 +26,7 @@ import {
   aiWorkerIsPaused,
   eligibleProcessingAction,
   formatProcessingDuration,
+  formatVideoDuration,
   emptyDashboard,
   handleTabKeyDown,
   pageFilters,
@@ -132,6 +133,9 @@ const data: AiOpsDashboardData = {
       entity_type: "asset_ai_analysis",
       entity_id: "analysis-1",
       asset_id: "asset-1",
+      filename: "inventory-photo.avif",
+      mime_type: "image/avif",
+      thumbnail_url: "/api/explorer/thumbnail/drive-item?provider=google-drive",
       provider: "openai",
       status: "completed",
       priority: 10,
@@ -218,7 +222,7 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(media?.video.queued).toBe(0);
     expect(media?.video_indexing.completed).toBe(0);
     const legacy = normalizeMediaDashboard({
-      recent_video: [{ job_id: "video-job", source_asset_id: "asset", filename: "clip.mp4", location: "Google Drive / Campaigns", thumbnail_url: "/api/explorer/thumbnail/asset", completed_chunks: 2, total_chunks: 5, status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:00:00Z", error_code: null }],
+      recent_video: [{ job_id: "video-job", source_asset_id: "asset", asset_id: "logical-asset", filename: "clip.mp4", mime_type: "video/mp4", duration_ms: 65_000, location: "Google Drive / Campaigns", thumbnail_url: "/api/explorer/thumbnail/asset", completed_chunks: 2, total_chunks: 5, status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:00:00Z", error_code: null }],
     } as unknown as AiOpsDashboardData["media"]);
     expect(legacy?.recent_video.total).toBe(1);
     expect(legacy?.recent_video.items[0]?.filename).toBe("clip.mp4");
@@ -238,6 +242,10 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(processingMarkup).toContain("Segments");
     expect(processingMarkup).toContain("2/5");
     expect(processingMarkup).toContain("Video processing page numbers");
+    expect(processingMarkup).toContain('aria-label="Thời lượng 1:05"');
+    expect(processingMarkup).toContain("video-duration-badge");
+    expect(processingMarkup).toContain('aria-label="Mở chi tiết clip.mp4"');
+    expect(processingMarkup).toContain("video-processing-title-button");
     expect(() => renderToStaticMarkup(<AiOperationsContent
       data={{ ...data, media }}
       filters={filters}
@@ -300,7 +308,10 @@ describe("AI Operations media dashboard compatibility", () => {
         items: [{
           job_id: "video-job",
           source_asset_id: "asset",
+          asset_id: "logical-asset",
           filename: "clip.mp4",
+          mime_type: "video/mp4",
+          duration_ms: 65_000,
           location: "Google Drive / Campaigns",
           thumbnail_url: "/api/explorer/thumbnail/asset",
           status: "completed",
@@ -334,6 +345,11 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(markup).toContain(">130<");
     expect(markup).toContain("...");
     expect(markup).toContain("/api/explorer/thumbnail/asset");
+    expect(markup).toContain('aria-label="Thời lượng 1:05"');
+    expect(markup).toContain("video-duration-badge");
+    expect(markup).toContain('aria-label="Mở chi tiết clip.mp4"');
+    expect(markup).toContain("video-recent-title-button");
+    expect(markup).toContain("video/mp4");
   });
 });
 
@@ -411,6 +427,13 @@ describe("Inventory Daily tab", () => {
     }
     expect(markup).toContain("https://docs.google.com/spreadsheets/d/workbook");
     expect(markup.match(/aria-haspopup="dialog"/g)).toHaveLength(2);
+    const heading = markup.slice(markup.indexOf("ops-section-heading"), markup.indexOf("ops-kpis"));
+    expect(heading).toContain("ops-inventory-quick-actions");
+    for (const action of ["Mở Google Sheet đang xử lý", "Mở Daily Inventory", "Cấu hình Inventory", "Làm mới"]) {
+      expect(heading).toContain(action);
+    }
+    expect(heading.indexOf("Cấu hình Inventory")).toBeLessThan(heading.indexOf("Làm mới"));
+    expect(markup).not.toContain("ops-inventory-links");
     expect(markup).not.toContain('href="/inventory/daily"');
   });
 });
@@ -485,12 +508,19 @@ describe("AI Operations dashboard", () => {
     expect(formatProcessingDuration(2_000)).toBe("2.0 s");
     expect(formatProcessingDuration(125_000)).toBe("2.1 min");
     expect(formatProcessingDuration(0)).toBe("—");
+    expect(formatVideoDuration(65_000)).toBe("1:05");
+    expect(formatVideoDuration(3_665_000)).toBe("1:01:05");
+    expect(formatVideoDuration(0)).toBe("0:00");
+    expect(formatVideoDuration(null)).toBe("—");
   });
 
   it("opens processing asset details in AI Operations without routing to Asset Explorer", () => {
     const markup = render("processing", { data: { ...data, usage: { ...data.usage, total: 0, items: [] } } });
     for (const value of ["AI processing jobs", "OpenAI", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Showing 26-50 of 60", "Số mục mỗi trang"]) expect(markup).toContain(value);
     expect(markup).toContain("asset-1");
+    expect(markup).toContain("inventory-photo.avif");
+    expect(markup).toContain("image/avif");
+    expect(markup).toContain('src="/api/explorer/thumbnail/drive-item?provider=google-drive"');
     expect(markup).toContain('aria-label="View asset asset-1"');
     expect(markup).toContain("Chi tiết");
     expect(markup).not.toContain("/?details=1&amp;asset=asset-1");
@@ -589,7 +619,7 @@ describe("AI Operations dashboard", () => {
       status: 200, headers: { "Content-Type": "application/json" },
     })) as unknown as typeof fetch;
     await fetchAiOperationsDashboard(
-      { ...filters, videoPage: 3, videoPageSize: 50 },
+      { ...filters, status: "failed", videoPage: 3, videoPageSize: 50 },
       fetcher,
       new Date("2026-07-22T00:00:00Z"),
     );
@@ -599,6 +629,11 @@ describe("AI Operations dashboard", () => {
     expect(mediaUrl).toContain("video_page_size=50");
     expect(mediaUrl).toContain("from=");
     expect(mediaUrl).toContain("to=");
+    expect(mediaUrl).toContain("provider=openai");
+    expect(mediaUrl).toContain("model=gpt-test");
+    expect(mediaUrl).toContain("processing_mode=batch");
+    expect(mediaUrl).toContain("metadata_profile=catalog");
+    expect(mediaUrl).toContain("status=failed");
   });
 
   it("normalizes a pre-pagination pipeline response without crashing", () => {
@@ -654,6 +689,7 @@ describe("AI Operations interactions", () => {
     fields[3].props.children[1].props.onChange({ target: { value: "single" } });
     fields[4].props.children[1].props.onChange({ target: { value: "creative" } });
     expect(changes.map(item => item.page)).toEqual([1, 1, 1, 1, 1]);
+    expect(changes.map(item => item.videoPage)).toEqual([1, 1, 1, 1, 1]);
     expect(changes[0].range).toBe(90);
     expect(changes[1].provider).toBe("gemini");
     expect(changes[2].model).toBe("gemini-test");
@@ -755,6 +791,8 @@ describe("AI Operations interactions", () => {
     expect(source).not.toContain("raw_job_payload");
     expect(source).not.toContain("signed_url");
     expect(source).not.toContain("provider_api_key");
+    expect(source).toContain("JPEG, PNG, WebP, AVIF, HEIC, and HEIF images");
+    expect(source).toContain('"avif", "heic", "heif"');
   });
 });
 
@@ -798,7 +836,7 @@ describe("Search Coverage card", () => {
       latest_source_sync: { mode: "full", status: "completed", pages_count: 2, items_seen_count: 8, jobs_created_count: 4, started_at: "2026-07-27T00:00:00Z", completed_at: "2026-07-27T00:01:00Z", duration_ms: 60_000, error_code: null },
       overall: { source_items_discovered: 8, supported_assets: 3, unsupported_assets: 5, completed: 1, active: 1, queued: 1, failed: 0, skipped: 0, indexed_percentage: 33.3, throughput_today: 1, asset_progress: [{ key: "discovered", count: 1 }, { key: "downloaded", count: 0 }, { key: "stored", count: 0 }, { key: "analyzed", count: 1 }, { key: "projection_built", count: 0 }, { key: "indexed", count: 1 }] },
       stages, active_job: { stage: "Download", job_type: "source_asset_download", status: "processing", filename: "nurse.jpg", provider: "google_drive", attempt_count: 1, max_attempts: 5, started_at: "2026-07-27T00:00:00Z", elapsed_ms: 1_000, message: "Downloading from Google Drive" },
-      failure_groups: [], skipped_breakdown: [{ category: "folders_non_images", count: 5 }], recent_assets: { page: 2, page_size: 25, total: 60, items: [{ asset_id: "asset-1", filename: "nurse.jpg", thumbnail_url: "/api/explorer/thumbnail/drive-item?provider=google-drive", state: "search_pending", stage_statuses: { download: "completed", store: "completed", analyze: "completed", projection: "completed", index: "pending" }, updated_at: "2026-07-27T00:00:00Z", error_code: null }] },
+      failure_groups: [], skipped_breakdown: [{ category: "folders_non_images", count: 5 }], recent_assets: { page: 2, page_size: 25, total: 60, items: [{ asset_id: "asset-1", filename: "nurse.jpg", mime_type: "image/jpeg", thumbnail_url: "/api/explorer/thumbnail/drive-item?provider=google-drive", state: "search_pending", stage_statuses: { download: "completed", store: "completed", analyze: "completed", projection: "completed", index: "pending" }, updated_at: "2026-07-27T00:00:00Z", error_code: null }] },
     }} />);
     expect(markup).toContain("scan-status-icon completed");
     expect(markup).toContain("Lập chỉ mục tìm kiếm");
@@ -819,6 +857,7 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Pipeline asset pagination");
     expect(markup).toContain("pipeline-asset-thumbnail");
     expect(markup).toContain("/api/explorer/thumbnail/drive-item?provider=google-drive");
+    expect(markup).toContain("image/jpeg");
     expect(markup).toContain('class="pipeline-asset-link"');
     expect(markup).toContain("xem chi tiết ngay trong AI Operations");
     expect(markup).not.toContain("/?details=1&amp;asset=asset-1");

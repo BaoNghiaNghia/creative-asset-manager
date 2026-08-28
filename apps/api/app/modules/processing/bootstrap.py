@@ -176,6 +176,7 @@ def build_worker_runtime(
     ai_provider_registry = build_ai_provider_registry(settings, session_factory=session_factory)
     resolver = SourceAssetPipelineContentResolver(session_factory)
     default_resources: dict[str, Any] = {
+        "pipeline_content_resolver": resolver,
         "pipeline_download_stage": ProviderDownloadStage(
             session_factory, resolver
         ),

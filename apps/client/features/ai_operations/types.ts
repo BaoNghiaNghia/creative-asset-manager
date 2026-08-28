@@ -88,6 +88,9 @@ export type AiOpsJob = {
   entity_type: string;
   entity_id: string;
   asset_id: string | null;
+  filename?: string | null;
+  mime_type?: string | null;
+  thumbnail_url?: string | null;
   provider: string | null;
   status: string;
   priority: number;
@@ -150,7 +153,7 @@ export type AiOpsMediaDashboard = {
   image: AiOpsMediaStage; video: AiOpsMediaStage; video_indexing: AiOpsMediaStage;
   pipeline: { image: AiOpsMediaStage[]; video: AiOpsMediaStage[] };
   analytics: AiOpsVideoAnalytics;
-  recent_video: Page<{ job_id: string; source_asset_id: string; filename: string | null; location: string | null; thumbnail_url: string | null; completed_chunks?: number; total_chunks?: number; status: string; attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null }>;
+  recent_video: Page<{ job_id: string; source_asset_id: string; asset_id: string | null; filename: string | null; mime_type?: string | null; location: string | null; thumbnail_url: string | null; duration_ms: number | null; completed_chunks?: number; total_chunks?: number; status: string; attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null }>;
   workers: AiOpsWorkerStatus[]; generated_at: string;
 };
 
@@ -270,5 +273,5 @@ export type PipelineSnapshot = {
   skipped_breakdown?: Array<{ category: string; count: number }>;
   diagnostics?: { decommissioned_sources_excluded: number; raw_attempts: Record<string, { total_attempts: number; completed_attempts: number; failed_attempts: number }> };
   definitions?: { snapshot: string; attempt_diagnostics: string };
-  recent_assets: Page<{ asset_id: string | null; filename: string; thumbnail_url?: string | null; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
+  recent_assets: Page<{ asset_id: string | null; filename: string; mime_type?: string | null; thumbnail_url?: string | null; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
 };

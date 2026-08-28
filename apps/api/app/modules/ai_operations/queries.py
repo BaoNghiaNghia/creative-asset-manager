@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote, urlencode
 
 from sqlalchemy import and_, case, exists, func, literal, or_, select
 from sqlalchemy.orm import aliased
@@ -10,6 +11,9 @@ from sqlalchemy.orm import aliased
 from app.modules.ai_batch.model import AiBatchItemModel, AiBatchJobModel
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.assets.model import (
+    AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel,
+)
 from app.modules.ai_operations.repository import AiOperationsRepository as BaseRepository
 from app.modules.ai_operations.schema import AI_JOB_TYPES, AiOperationsFilters
 from app.domain.processing.types import JobStatus
@@ -395,6 +399,45 @@ class AiOperationsRepository(BaseRepository):
             .order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc())
             .offset((page - 1) * page_size).limit(page_size)
         ).all()
+        resolved_asset_ids = {
+            str(analysis_asset_id or job.entity_id)
+            for job, analysis_asset_id in rows
+            if analysis_asset_id or job.entity_type == "asset"
+        }
+        asset_presentations: dict[str, dict[str, str | None]] = {}
+        if resolved_asset_ids:
+            source_rows = self.session.execute(
+                select(
+                    AssetSourceLinkModel.asset_id,
+                    SourceAssetModel.filename,
+                    SourceAssetModel.mime_type,
+                    SourceAssetModel.external_asset_id,
+                    SourceAssetModel.external_source_id,
+                    ExternalSourceModel.source_type,
+                )
+                .join(SourceAssetModel, and_(
+                    SourceAssetModel.tenant_id == AssetSourceLinkModel.tenant_id,
+                    SourceAssetModel.id == AssetSourceLinkModel.source_asset_id,
+                ))
+                .join(ExternalSourceModel, and_(
+                    ExternalSourceModel.tenant_id == SourceAssetModel.tenant_id,
+                    ExternalSourceModel.id == SourceAssetModel.external_source_id,
+                ))
+                .where(
+                    AssetSourceLinkModel.tenant_id == f.tenant_id,
+                    AssetSourceLinkModel.asset_id.in_(resolved_asset_ids),
+                    SourceAssetModel.deleted_at.is_(None),
+                )
+                .order_by(AssetSourceLinkModel.created_at.desc())
+            ).all()
+            for asset_id, filename, mime_type, external_asset_id, external_source_id, source_type in source_rows:
+                if str(asset_id) in asset_presentations:
+                    continue
+                thumbnail_url = None
+                if source_type == "google_drive":
+                    query = urlencode({"provider": "google-drive", "external_source_id": external_source_id})
+                    thumbnail_url = f"/api/explorer/thumbnail/{quote(str(external_asset_id), safe='')}?{query}"
+                asset_presentations[str(asset_id)] = {"filename": filename, "mime_type": mime_type, "thumbnail_url": thumbnail_url}
         now = datetime.now(timezone.utc)
         def is_deferred(job: ProcessingJobModel) -> bool:
             retry_at = job.next_attempt_at
@@ -406,16 +449,17 @@ class AiOperationsRepository(BaseRepository):
                 and retry_at is not None
                 and retry_at > now
             )
-        return {
-            "page": page, "page_size": page_size, "total": total,
-            "items": [{
+        items = []
+        for job, analysis_asset_id in rows:
+            asset_id = str(analysis_asset_id or job.entity_id) if analysis_asset_id or job.entity_type == "asset" else None
+            presentation = asset_presentations.get(asset_id or "", {})
+            items.append({
                 "id": job.id, "job_type": job.job_type,
                 "entity_type": job.entity_type, "entity_id": job.entity_id,
-                # asset_analyze points at an analysis record, not an asset. Resolve
-                # it server-side so the operations UI always links the internal asset.
-                "asset_id": analysis_asset_id or (
-                    job.entity_id if job.entity_type == "asset" else None
-                ),
+                "asset_id": asset_id,
+                "filename": presentation.get("filename"),
+                "mime_type": presentation.get("mime_type"),
+                "thumbnail_url": presentation.get("thumbnail_url"),
                 "provider": job.provider_key, "status": job.status,
                 "priority": job.priority, "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,
@@ -431,7 +475,10 @@ class AiOperationsRepository(BaseRepository):
                     "code": job.last_error_code,
                     "retryable": job.status == "retry",
                 },
-            } for job, analysis_asset_id in rows],
+            })
+        return {
+            "page": page, "page_size": page_size, "total": total,
+            "items": items,
         }
 
     def usage(self, f: AiOperationsFilters, *, page: int, page_size: int) -> dict[str, Any]:

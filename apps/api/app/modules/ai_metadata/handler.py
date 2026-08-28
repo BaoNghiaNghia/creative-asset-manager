@@ -10,6 +10,7 @@ from app.domain.processing.handlers import (
 )
 from app.domain.providers.registry import AiProviderUnavailableError
 from app.modules.ai_metadata.service import AiAnalysisService
+from app.modules.ai_metadata.source_storage import PipelineSourceAssetStorage
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.pipeline.service import AssetPipelineService
@@ -62,16 +63,49 @@ class AssetAnalyzeJobHandler:
                 if pipeline and pipeline.state == PipelineState.ANALYSIS_PENDING.value:
                     pipelines.transition(pipeline, PipelineState.ANALYZING)
                     session.commit()
-        if context.dependencies.storage_provider is None:
+        source_fallback = (
+            settings.AI_ANALYSIS_SOURCE_FALLBACK_ENABLED
+            and context.job.payload.get("analysis_content_source") == "source_asset"
+            and isinstance(pipeline_id, str)
+            and bool(pipeline_id)
+        )
+        storage_provider = context.dependencies.storage_provider
+        if source_fallback:
+            resolver = context.dependencies.resources.get("pipeline_content_resolver")
+            if resolver is None:
+                return JobHandlerResult.non_retryable(
+                    "source_analysis_resolver_unconfigured",
+                    "Source analysis resolver is not configured.",
+                )
+            with context.dependencies.session_factory() as session:
+                pipeline = AssetPipelineRepository(session).get(
+                    context.job.tenant_id, pipeline_id
+                )
+                if (
+                    pipeline is None
+                    or pipeline.asset_id != analysis.asset_id
+                    or not pipeline.source_asset_id
+                ):
+                    return JobHandlerResult.non_retryable(
+                        "source_analysis_identity_mismatch",
+                        "Source analysis identity could not be verified.",
+                    )
+                storage_provider = PipelineSourceAssetStorage(
+                    resolver,
+                    tenant_id=context.job.tenant_id,
+                    pipeline=pipeline,
+                )
+        if storage_provider is None:
             return JobHandlerResult.non_retryable(
                 "storage_provider_unconfigured",
                 "Asset storage provider is not configured.",
             )
         service = AiAnalysisService(
             session_factory=context.dependencies.session_factory,
-            storage_provider=context.dependencies.storage_provider,
+            storage_provider=storage_provider,
             ai_provider=provider,
             settings=settings,
+            allow_unstored_source=source_fallback,
         )
         outcome = asyncio.run(
             service.analyze(

@@ -18,6 +18,7 @@ from app.modules.search.operations_model import (
     SearchOperationRunModel,
 )
 from app.modules.storage.model import AssetStorageObjectModel
+from app.modules.video_search.model import VideoAnalysisRunModel, VideoMetadataProfileModel
 
 TENANT = "google-drive:developer"
 
@@ -193,6 +194,85 @@ class AssetProcessingStatusTest(unittest.TestCase):
                 "metadata-ready": "search_pending",
                 "indexed": "indexed",
                 "failed": "failed",
+            },
+        )
+
+    def test_video_analysis_and_index_jobs_drive_provider_item_status(self) -> None:
+        profile = VideoMetadataProfileModel(
+            tenant_id=TENANT,
+            profile_name="video-default",
+            profile_version="1",
+            prompt_template="analyze video",
+            search_config_json={},
+        )
+        self.session.add(profile)
+        self.session.flush()
+
+        def add_video(item_id: str, fingerprint: str, run_status: str):
+            source_asset = self.assets.upsert_source_asset(
+                tenant_id=TENANT,
+                external_source_id=self.source.id,
+                external_asset_id=item_id,
+                filename=item_id + ".mp4",
+                mime_type="video/mp4",
+            )
+            run = VideoAnalysisRunModel(
+                tenant_id=TENANT,
+                source_asset_id=source_asset.id,
+                source_fingerprint=fingerprint * 64,
+                video_metadata_profile_id=profile.id,
+                metadata_profile="video-default",
+                metadata_profile_version="1",
+                prompt_version="1",
+                analysis_version="1",
+                ai_provider="gemini",
+                ai_model="gemini-test",
+                idempotency_key=fingerprint * 64,
+                status=run_status,
+                chunk_seconds=30,
+                total_chunks=1,
+                completed_chunks=1 if run_status == "completed" else 0,
+                summary_json={"summary": "complete"} if run_status == "completed" else None,
+            )
+            self.session.add(run)
+            self.session.flush()
+            return source_asset, run
+
+        add_video("video-analyzing", "1", "analyzing")
+        _, completed_run = add_video("video-completed", "2", "completed")
+        _, indexed_run = add_video("video-indexed", "3", "completed")
+        self.session.add_all([
+            ProcessingJobModel(
+                tenant_id=TENANT,
+                job_type="video_search_index",
+                entity_type="video_analysis_run",
+                entity_id=completed_run.id,
+                idempotency_key="video-index-pending",
+                payload_json={"analysis_run_id": completed_run.id},
+                status="pending",
+            ),
+            ProcessingJobModel(
+                tenant_id=TENANT,
+                job_type="video_search_index",
+                entity_type="video_analysis_run",
+                entity_id=indexed_run.id,
+                idempotency_key="video-index-completed",
+                payload_json={"analysis_run_id": indexed_run.id},
+                status="completed",
+            ),
+        ])
+        self.session.commit()
+
+        self.assertEqual(
+            AssetProcessingStatusService(self.session).list(
+                TENANT,
+                "google-drive",
+                ["video-analyzing", "video-completed", "video-indexed"],
+            ),
+            {
+                "video-analyzing": "analyzing",
+                "video-completed": "search_pending",
+                "video-indexed": "indexed",
             },
         )
 

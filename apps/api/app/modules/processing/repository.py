@@ -28,6 +28,9 @@ class ProcessingRepository:
         self.session = session
         self.settings = settings
 
+    def get_job_by_key(self, tenant_id: str, key: str) -> ProcessingJobModel | None:
+        return self._job_by_key(tenant_id, key)
+
     def create_job(
         self,
         *,

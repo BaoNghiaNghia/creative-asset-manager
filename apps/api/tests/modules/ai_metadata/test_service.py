@@ -180,6 +180,56 @@ class AiAnalysisServiceTest(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self.engine.dispose()
 
+    async def test_unstored_source_requires_explicit_fallback(self):
+        with self.factory() as session:
+            session.query(AssetStorageObjectModel).delete()
+            session.commit()
+        ai = FakeAi({"subject": "cat"})
+
+        blocked = await AiAnalysisService(
+            session_factory=self.factory,
+            storage_provider=self.storage,
+            ai_provider=ai,
+            settings=self.settings,
+        ).analyze(
+            tenant_id="tenant-a",
+            analysis_id=self.analysis_id,
+            worker_id="worker-a",
+        )
+
+        self.assertEqual(blocked.status, "retryable_failure")
+        self.assertEqual(blocked.error_code, "managed_asset_not_stored")
+        self.assertEqual(ai.calls, 0)
+
+    async def test_explicit_unstored_source_is_prepared_and_analyzed(self):
+        from app.modules.ai_metadata.model import AssetAiAnalysisModel
+
+        with self.factory() as session:
+            session.query(AssetStorageObjectModel).delete()
+            analysis = session.get(AssetAiAnalysisModel, self.analysis_id)
+            analysis.status = "pending"
+            analysis.failure_retryable = None
+            analysis.error_code = None
+            analysis.error_message = None
+            session.commit()
+        ai = FakeAi({"subject": "cat"})
+
+        outcome = await AiAnalysisService(
+            session_factory=self.factory,
+            storage_provider=self.storage,
+            ai_provider=ai,
+            settings=self.settings,
+            allow_unstored_source=True,
+        ).analyze(
+            tenant_id="tenant-a",
+            analysis_id=self.analysis_id,
+            worker_id="worker-a",
+        )
+
+        self.assertEqual(outcome.status, "completed")
+        self.assertEqual(ai.calls, 1)
+        self.assertEqual(ai.last_input.image_mime_type, "image/jpeg")
+
     async def test_temporary_gemini_pool_exhaustion_defers_without_failure_or_usage(self):
         from app.modules.ai_governance.model import AiUsageRecordModel
         from app.modules.ai_metadata.model import AssetAiAnalysisModel

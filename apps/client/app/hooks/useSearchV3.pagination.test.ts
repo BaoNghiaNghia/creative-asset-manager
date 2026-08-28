@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset } from "../types";
-import { buildSearchRequestBody, isCurrentSearchResponse, mergeSearchResults, SEARCH_PAGE_SIZE } from "./useSearchV3";
+import { buildFolderSearchParams, buildSearchRequestBody, isCurrentSearchResponse, mergeFolderSearchResults, mergeSearchResults, normalizeAsinFolderQuery, SEARCH_PAGE_SIZE } from "./useSearchV3";
 
 function asset(id: string, source = "source-a"): Asset {
   return {
@@ -27,6 +27,37 @@ describe("Search result pagination", () => {
     const nextPage = buildSearchRequestBody("horse", "google-drive", {}, "cursor-2", true, false);
     expect(nextPage).toMatchObject({ limit: 60, cursor: "cursor-2", include_facets: false });
     expect(nextPage).not.toHaveProperty("offset");
+  });
+
+  it("recognizes only a complete ASIN as eligible for folder search", () => {
+    expect(normalizeAsinFolderQuery(" 4347749385 ")).toBe("4347749385");
+    expect(normalizeAsinFolderQuery(" b0gd6h8hyj ")).toBe("B0GD6H8HYJ");
+    expect(normalizeAsinFolderQuery("dad")).toBeNull();
+    expect(normalizeAsinFolderQuery("Amazon B0GD6H8HYJ")).toBeNull();
+    expect(normalizeAsinFolderQuery("123456789")).toBeNull();
+  });
+
+  it("builds a tenant-source-scoped folder query for an ASIN", () => {
+    const params = buildFolderSearchParams(" 4347749385 ", "google-drive", "source-a");
+    expect(params.get("q")).toBe("4347749385");
+    expect(params.get("source_provider")).toBe("google-drive");
+    expect(params.get("external_source_id")).toBe("source-a");
+    expect(params.get("limit")).toBe("50");
+  });
+
+  it("places matching ASIN folders before file results", () => {
+    const folder: Asset = {
+      id: "folder-asin",
+      provider: "google-drive",
+      external_source_id: "source-a",
+      name: "4347749385",
+      kind: "folder",
+      mime_type: "application/vnd.google-apps.folder",
+    };
+    expect(mergeFolderSearchResults([folder], [asset("photo")]).map(item => [item.kind, item.name])).toEqual([
+      ["folder", "4347749385"],
+      ["image", "photo.jpg"],
+    ]);
   });
 
   it("appends pages without duplicating an asset", () => {
