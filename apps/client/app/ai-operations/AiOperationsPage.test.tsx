@@ -329,6 +329,10 @@ describe("AI Operations media dashboard compatibility", () => {
           max_attempts: 5,
           updated_at: "2026-08-21T00:00:00Z",
           error_code: null,
+          steps: [
+            { key: "video_analyze", label: "Video analysis", status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:00:00Z", error_code: null },
+            { key: "video_search_index", label: "Video indexing", status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:01:00Z", error_code: null },
+          ],
         }],
       },
     } as unknown as AiOpsDashboardData["media"]);
@@ -360,6 +364,12 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(markup).toContain('aria-label="Mở chi tiết clip.mp4"');
     expect(markup).toContain("video-recent-title-button");
     expect(markup).toContain("video/mp4");
+    const recentMarkup = markup.slice(markup.indexOf('aria-label="Tiến độ video gần đây"'));
+    expect(recentMarkup).toContain("<th>Video analysis</th>");
+    expect(recentMarkup).toContain("<th>Video indexing</th>");
+    expect(recentMarkup).toContain('data-video-step="video_analyze"');
+    expect(recentMarkup).toContain('data-video-step="video_search_index"');
+    expect(recentMarkup.match(/Status: Completed/g)).toHaveLength(2);
   });
 });
 

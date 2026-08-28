@@ -500,10 +500,6 @@ function VideoPipelineOverview({ dashboard, onPage, onOpenVideo }: {
   const indexing = dashboard.video_indexing;
   const stages = [analysis, indexing];
   const recent = dashboard.recent_video;
-  const pages = Math.max(1, Math.ceil(recent.total / recent.page_size));
-  const page = Math.min(recent.page, pages);
-  const first = recent.total ? (page - 1) * recent.page_size + 1 : 0;
-  const last = Math.min(page * recent.page_size, recent.total);
   return <div className="ops-content pipeline-content">
     <section className="pipeline-summary" aria-label="Tóm tắt video pipeline">
       <PipelineMetric icon="eligible" label="Video analysis" value={analysis.completed} detail="Video AI analyses completed" />
@@ -514,8 +510,70 @@ function VideoPipelineOverview({ dashboard, onPage, onOpenVideo }: {
     </section>
     <section className="pipeline-stage-section" aria-label="Video pipeline stages"><header><div><small>VIDEO PIPELINE</small><h2>Phân tích và lập chỉ mục video</h2><p>Video analysis và video indexing là hai giai đoạn độc lập.</p></div></header><div className="pipeline-stage-grid">{stages.map(stage => <article key={stage.key} className={stage.failed ? "attention" : stage.running ? "active" : stage.queued ? "waiting" : "complete"}><header><div><small>GIAI ĐOẠN</small><h2>{stage.label}</h2></div></header><strong>{stage.completed.toLocaleString()}</strong><span>đã hoàn tất</span><dl><div><dt>Đã xếp hàng</dt><dd>{stage.queued.toLocaleString()}</dd></div><div><dt>Đang chạy</dt><dd>{stage.running.toLocaleString()}</dd></div><div><dt>Cần xử lý</dt><dd>{stage.failed.toLocaleString()}</dd></div></dl></article>)}</div></section>
     <section className="pipeline-queue" aria-label="Hàng đợi video hiện tại"><header><div><small>HÀNG ĐỢI TRỰC TIẾP</small><h2>Phân bổ hàng đợi video</h2><p>Chỉ các job video được tính ở đây; không dùng dữ liệu Image.</p></div><span className="pipeline-queue-total">{(analysis.queued + indexing.queued).toLocaleString()} đang chờ xử lý</span></header></section>
-    <section className="pipeline-recent" aria-label="Tiến độ video gần đây"><div className="ops-table-heading"><div><h2>Tiến độ video gần đây</h2><p>{recent.total ? "Hiển thị " + first + "-" + last + " trên tổng số " + recent.total + " video. Chọn tên để xem chi tiết ngay trong AI Operations." : "Chưa có video analysis job nào."}</p></div>{recent.items.length ? <div className="ops-pagination video-recent-pagination" aria-label="Video pagination"><label>Số mục mỗi trang<select aria-label="Số video mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Video page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"video-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div> : null}</div>{recent.items.length ? <div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Video</th><th>Vị trí</th><th>Phân tích AI</th><th>Lần thử</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => { const title = item.filename || "Video " + item.source_asset_id.slice(0, 8); return <tr key={item.job_id}><td className="video-recent-title"><VideoThumbnailWithDuration thumbnailUrl={item.thumbnail_url} durationMs={item.duration_ms} /><span className="video-recent-copy"><button type="button" className="video-recent-title-button" onClick={() => onOpenVideo(item.source_asset_id)} aria-label={"Mở chi tiết " + title}>{title}</button><small className="asset-mime-type">{item.mime_type || "\u2014"}</small></span></td><td className="video-recent-location" title={item.location || undefined}>{item.location || "—"}</td><td><StatusText status={item.status} /></td><td>{item.attempt_count}/{item.max_attempts}</td><td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>; })}</tbody></table></div> : <p>Chưa có video analysis job nào.</p>}</section>
+    <RecentVideoProgress recent={recent} onPage={onPage} onOpenVideo={onOpenVideo} />
   </div>;
+}
+
+const recentVideoSteps = [
+  { key: "video_analyze", label: "Video analysis" },
+  { key: "video_search_index", label: "Video indexing" },
+] as const;
+
+type RecentVideoItem = NonNullable<AiOpsDashboardData["media"]>["recent_video"]["items"][number];
+
+function RecentVideoStepStatus({ item, stepKey }: {
+  item: RecentVideoItem; stepKey: typeof recentVideoSteps[number]["key"];
+}) {
+  const step = item.steps?.find(candidate => candidate.key === stepKey);
+  const status = step?.status || (stepKey === "video_analyze" ? item.status : "not_started");
+  const attemptCount = step?.attempt_count ?? (stepKey === "video_analyze" ? item.attempt_count : 0);
+  const maxAttempts = step?.max_attempts ?? (stepKey === "video_analyze" ? item.max_attempts : 0);
+  return <td data-video-step={stepKey}><div className="video-step-status">
+    <StatusText status={status} />
+    {maxAttempts > 0 ? <small>{attemptCount}/{maxAttempts} lần thử</small> : null}
+  </div></td>;
+}
+
+function RecentVideoProgress({ recent, onPage, onOpenVideo }: {
+  recent: NonNullable<AiOpsDashboardData["media"]>["recent_video"];
+  onPage: (page: number, pageSize: 25 | 50 | 100) => void;
+  onOpenVideo: (sourceAssetId: string) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(recent.total / recent.page_size));
+  const page = Math.min(recent.page, pages);
+  const first = recent.total ? (page - 1) * recent.page_size + 1 : 0;
+  const last = Math.min(page * recent.page_size, recent.total);
+  return <section className="pipeline-recent" aria-label="Tiến độ video gần đây">
+    <div className="ops-table-heading">
+      <div><h2>Tiến độ video gần đây</h2><p>{recent.total
+        ? "Hiển thị " + first + "-" + last + " trên tổng số " + recent.total + " video. Mỗi cột giai đoạn hiển thị trạng thái xử lý riêng của video."
+        : "Chưa có video analysis job nào."}</p></div>
+      {recent.items.length ? <div className="ops-pagination video-recent-pagination" aria-label="Video pagination">
+        <label>Số mục mỗi trang<select aria-label="Số video mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <nav aria-label="Video page numbers">
+          <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>
+          {visiblePages(page, pages).map((entry, index) => entry === "ellipsis"
+            ? <span className="ops-page-ellipsis" key={"video-ellipsis-" + index}>...</span>
+            : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}
+          <button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button>
+        </nav>
+      </div> : null}
+    </div>
+    {recent.items.length ? <div className="ops-table-scroll"><table className="ops-data-table">
+      <thead><tr><th>Video</th><th>Vị trí</th>{recentVideoSteps.map(step => <th key={step.key}>{step.label}</th>)}<th>Cập nhật</th><th>Cần xử lý</th></tr></thead>
+      <tbody>{recent.items.map(item => {
+        const title = item.filename || "Video " + item.source_asset_id.slice(0, 8);
+        const stepErrors = Array.from(new Set((item.steps || []).map(step => step.error_code).filter(Boolean)));
+        return <tr key={item.job_id}>
+          <td className="video-recent-title"><VideoThumbnailWithDuration thumbnailUrl={item.thumbnail_url} durationMs={item.duration_ms} /><span className="video-recent-copy"><button type="button" className="video-recent-title-button" onClick={() => onOpenVideo(item.source_asset_id)} aria-label={"Mở chi tiết " + title}>{title}</button><small className="asset-mime-type">{item.mime_type || "\u2014"}</small></span></td>
+          <td className="video-recent-location" title={item.location || undefined}>{item.location || "—"}</td>
+          {recentVideoSteps.map(step => <RecentVideoStepStatus key={step.key} item={item} stepKey={step.key} />)}
+          <td>{new Date(item.updated_at).toLocaleString()}</td>
+          <td>{stepErrors.length ? stepErrors.join(", ") : item.error_code || "-"}</td>
+        </tr>;
+      })}</tbody>
+    </table></div> : <p>Chưa có video analysis job nào.</p>}
+  </section>;
 }
 
 type PipelineStageState = "attention" | "active" | "waiting" | "complete" | "idle";
