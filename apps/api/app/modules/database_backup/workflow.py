@@ -39,13 +39,9 @@ class DatabaseBackupWorkflow:
     async def run(self) -> DatabaseBackupWorkflowResult:
         with self._local_backup.exclusive_lock():
             backup = self._local_backup.create_verified_dump_locked()
-            try:
-                uploaded = await self._remote_storage.upload(backup)
-                verified = await self._remote_storage.verify(
-                    uploaded.remote_file_id, backup.size_bytes)
-            except Exception:
-                self._local_backup.cleanup_verified_backup(backup)
-                raise
+            uploaded = await self._remote_storage.upload(backup)
+            verified = await self._remote_storage.verify(
+                uploaded.remote_file_id, backup)
             try:
                 retention = await self._retention.prune_after_verified_upload(
                     self._remote_storage,

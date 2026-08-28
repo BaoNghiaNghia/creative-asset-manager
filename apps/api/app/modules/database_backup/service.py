@@ -51,6 +51,7 @@ class VerifiedDatabaseBackup:
     created_at: datetime
     size_bytes: int
     sha256: str
+    md5_checksum: str
 
 
 Runner = Callable[..., Any]
@@ -187,11 +188,18 @@ class DatabaseBackupService:
             ) from exc
         if int(getattr(result, "returncode", 1)) != 0:
             raise DatabaseBackupVerificationError("pg_restore verification failed.")
+        size_bytes = path.stat().st_size
+        sha256, md5_checksum = self._checksums(path)
+        if path.stat().st_size != size_bytes:
+            raise DatabaseBackupVerificationError(
+                "Database backup changed while checksums were calculated."
+            )
         return VerifiedDatabaseBackup(
             path=path,
             created_at=created_at or self._now(_HO_CHI_MINH),
-            size_bytes=path.stat().st_size,
-            sha256=self._sha256(path),
+            size_bytes=size_bytes,
+            sha256=sha256,
+            md5_checksum=md5_checksum,
         )
 
     def _run_pg_dump(self, destination: Path) -> Any:
@@ -262,12 +270,14 @@ class DatabaseBackupService:
             )
 
     @staticmethod
-    def _sha256(path: Path) -> str:
-        digest = hashlib.sha256()
+    def _checksums(path: Path) -> tuple[str, str]:
+        sha256 = hashlib.sha256()
+        md5 = hashlib.md5(usedforsecurity=False)
         with path.open("rb") as handle:
             while block := handle.read(_CHECKSUM_CHUNK_BYTES):
-                digest.update(block)
-        return digest.hexdigest()
+                sha256.update(block)
+                md5.update(block)
+        return sha256.hexdigest(), md5.hexdigest()
 
     @staticmethod
     def _cleanup_partial(path: Path) -> None:

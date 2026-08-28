@@ -128,6 +128,10 @@ class DatabaseBackupServiceTest(unittest.TestCase):
         self.assertEqual(backup.path.name, "cam-db-20260819-220001+0700.dump")
         self.assertEqual(backup.size_bytes, len(b"custom-dump"))
         self.assertEqual(backup.sha256, hashlib.sha256(b"custom-dump").hexdigest())
+        self.assertEqual(
+            backup.md5_checksum,
+            hashlib.md5(b"custom-dump", usedforsecurity=False).hexdigest(),
+        )
         self.assertTrue(backup.path.exists())
         self.assertEqual((self.staging.stat().st_mode & 0o777), 0o750)
         self.assertEqual((backup.path.stat().st_mode & 0o777), 0o600)

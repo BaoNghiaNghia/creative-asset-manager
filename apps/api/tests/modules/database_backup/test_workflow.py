@@ -57,15 +57,19 @@ class _Remote:
                                     {"cam_kind": DATABASE_BACKUP_KIND})
 
     async def verify(self, remote_file_id: str,
-                     expected_size_bytes: int) -> RemoteDatabaseBackup:
+                     backup: VerifiedDatabaseBackup) -> RemoteDatabaseBackup:
         self.verifications += 1
         if self.verify_error:
             raise self.verify_error
         return RemoteDatabaseBackup(remote_file_id, "backup.dump",
-                                    expected_size_bytes,
+                                    backup.size_bytes,
                                     datetime.now(timezone.utc),
                                     ("backup-folder", ),
-                                    {"cam_kind": DATABASE_BACKUP_KIND})
+                                    {
+                                        "cam_kind": DATABASE_BACKUP_KIND,
+                                        "cam_sha256": backup.sha256,
+                                    },
+                                    backup.md5_checksum)
 
 
 class _Retention:
@@ -91,9 +95,9 @@ class DatabaseBackupWorkflowTest(unittest.IsolatedAsyncioTestCase):
         path.write_bytes(b"dump")
         return _Local(
             VerifiedDatabaseBackup(path, datetime.now(timezone.utc), 4,
-                                   "a" * 64)), directory
+                                   "a" * 64, "b" * 32)), directory
 
-    async def test_upload_failure_never_starts_retention_and_cleans_local_file(
+    async def test_upload_failure_never_starts_retention_and_keeps_verified_local_file(
             self) -> None:
         local, directory = self._local()
         try:
@@ -103,12 +107,12 @@ class DatabaseBackupWorkflowTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(DatabaseBackupRemoteError):
                 await DatabaseBackupWorkflow(local, remote, retention).run()
             self.assertEqual(retention.calls, 0)
-            self.assertEqual(local.cleaned, 1)
-            self.assertFalse(local.backup.path.exists())
+            self.assertEqual(local.cleaned, 0)
+            self.assertTrue(local.backup.path.exists())
         finally:
             directory.cleanup()
 
-    async def test_remote_verification_failure_never_starts_retention_and_cleans_local_file(
+    async def test_remote_verification_failure_never_starts_retention_and_keeps_verified_local_file(
             self) -> None:
         local, directory = self._local()
         try:
@@ -119,8 +123,8 @@ class DatabaseBackupWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 await DatabaseBackupWorkflow(local, remote, retention).run()
             self.assertEqual(local.locked, 1)
             self.assertEqual(retention.calls, 0)
-            self.assertEqual(local.cleaned, 1)
-            self.assertFalse(local.backup.path.exists())
+            self.assertEqual(local.cleaned, 0)
+            self.assertTrue(local.backup.path.exists())
         finally:
             directory.cleanup()
 
@@ -173,9 +177,9 @@ class DatabaseBackupWorkflowTest(unittest.IsolatedAsyncioTestCase):
             return await original_upload(backup)
 
         async def ordered_verify(remote_file_id: str,
-                                 expected_size_bytes: int):
+                                 backup: VerifiedDatabaseBackup):
             events.append("remote_verify")
-            return await original_verify(remote_file_id, expected_size_bytes)
+            return await original_verify(remote_file_id, backup)
 
         async def ordered_prune(storage, *, protected_remote_file_id: str):
             events.append("retention")

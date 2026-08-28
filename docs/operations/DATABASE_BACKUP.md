@@ -1,6 +1,6 @@
 # Database Backup to Google Drive
 
-**Status:** DESIGN APPROVED / NOT YET IMPLEMENTED
+**Status:** IMPLEMENTED / NOT YET ACTIVATED IN PRODUCTION
 **Target database size:** < 10 GB
 **Scheduler:** systemd
 **Remote storage:** Google Drive managed storage
@@ -56,8 +56,11 @@ The persistent staging directory is:
 
 Do not use `/tmp`. Use directory mode 0750, file mode 0600, and existing
 `creative-assets` deployment user/group where permissions allow. Expected
-lifecycle: zero completed local files before work, one active staging file
-during work, and zero completed local files after a verified upload.
+normal lifecycle: zero completed local files before work, one active staging
+file during work, and zero completed local files after a verified upload. If
+Drive upload or remote verification fails, keep the locally verified dump in
+staging for an operator-controlled retry or reconciliation. Never silently
+delete that only known-good copy.
 
 Before starting, require at least **15 GiB** (`16106127360` bytes) free in
 staging. A later implementation may compare database size too, but this hard
@@ -77,7 +80,9 @@ Before upload require all of:
 - successful `pg_dump` exit status;
 - dump exists and size is greater than zero;
 - `pg_restore --list <backup-file>` succeeds; and
-- SHA-256 is calculated for safe operational/audit logging.
+- SHA-256 and MD5 are calculated in one bounded streaming pass. SHA-256 is
+  retained for safe operational/audit logging; MD5 is compared with the
+  checksum independently calculated by Google Drive.
 
 Use an OS-level single-host lock such as `flock`. If another backup is active,
 report `BACKUP_ALREADY_RUNNING=YES` and `NEW_BACKUP_STARTED=NO`; never run
@@ -121,10 +126,14 @@ local file -> bounded chunk reads -> Google Drive resumable upload
 ```
 
 Start with 16 MiB chunks; 32 MiB is acceptable only if code and tests justify
-it. After upload HTTP success, verify remote file ID exists and remote size
-matches local size. Record only safe metadata (created time, size, SHA-256,
-application/build commit if available, safe Alembic revision). When Drive
-appProperties are used, mark managed files with:
+it. After upload HTTP success, verify the remote file ID exists, remote size
+matches local size, and Drive's content-derived `md5Checksum` exactly matches
+the locally streamed MD5. A missing Drive checksum fails closed. Also require
+the remote `cam_sha256` appProperty to match local SHA-256; this binds metadata
+but is not a substitute for Drive's content-derived checksum. Record only safe
+metadata (created time, size, checksums, application/build commit if available,
+safe Alembic revision). When Drive appProperties are used, mark managed files
+with:
 
 ```text
 cam_kind=database_backup_v1
@@ -160,8 +169,10 @@ fails, keep the valid new backup, report failure, and never delete the new
 backup to compensate.
 
 After dump, local verification, upload, and remote verification pass, remove
-the local staging backup. On failure, clean partial local files when safe. The
-Drive copy is the retained copy.
+the local staging backup after retention completes or fails. Before remote
+verification succeeds, only incomplete/unverified partial dumps may be
+cleaned. A locally verified dump must survive Drive upload, network, quota, and
+remote-verification failures.
 
 ## CLI and configuration contract
 
@@ -198,7 +209,7 @@ required for V1 without a later explicit instruction.
 | --- | --- |
 | Staging preflight fails | `BACKUP_STARTED=NO` |
 | `pg_dump` or local verification fails | `UPLOAD=NO`; `RETENTION=NO` |
-| Drive upload or remote verification fails | `RETENTION=NO` |
+| Drive upload or remote verification fails | `RETENTION=NO`; retain locally verified dump |
 | Pruning fails after a verified upload | Preserve new backup; report failure |
 
 Configuration missing, insufficient space, missing `pg_dump`/`pg_restore`,
@@ -229,10 +240,12 @@ STORAGE_PREFLIGHT=
 PG_DUMP=
 BACKUP_FILE_SIZE_BYTES=
 BACKUP_SHA256=
+BACKUP_MD5=
 DUMP_VERIFY=
 DRIVE_UPLOAD=
 REMOTE_VERIFY=
 REMOTE_FILE_ID=
+REMOTE_MD5_CHECKSUM=
 REMOTE_BACKUP_COUNT_BEFORE_PRUNE=
 AGE_PRUNED=
 COUNT_PRUNED=
@@ -260,6 +273,8 @@ MAX_REMOTE_AGE_DAYS=21
 PRUNE_ONLY_AFTER_NEW_BACKUP_VERIFIED=YES
 DELETE_NON_MANAGED_FILES=NO
 DELETE_LOCAL_AFTER_SUCCESS=YES
+LOCAL_VERIFIED_RETAINED_ON_REMOTE_FAILURE=YES
+REMOTE_CONTENT_CHECKSUM_VERIFIED=YES
 CONCURRENT_BACKUPS=NO
 NORMAL_PRODUCTION_DOWNTIME=NO
 DATABASE_MIGRATION_REQUIRED=NO

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,7 @@ class RemoteDatabaseBackup:
     created_at: datetime | None
     parents: tuple[str, ...]
     app_properties: dict[str, str]
+    md5_checksum: str | None = None
 
 
 class GoogleDriveDatabaseBackupStorage:
@@ -83,7 +85,7 @@ class GoogleDriveDatabaseBackupStorage:
                         "uploadType": "resumable",
                         "supportsAllDrives": "true",
                         "fields":
-                        "id,name,size,parents,createdTime,appProperties"
+                        "id,name,size,md5Checksum,parents,createdTime,appProperties"
                     },
                     headers={
                         "X-Upload-Content-Type": "application/octet-stream",
@@ -128,15 +130,25 @@ class GoogleDriveDatabaseBackupStorage:
                                             retryable=True) from exc
 
     async def verify(self, remote_file_id: str,
-                     expected_size_bytes: int) -> RemoteDatabaseBackup:
+                     backup: VerifiedDatabaseBackup) -> RemoteDatabaseBackup:
         remote = await self._get(remote_file_id)
-        if remote.size_bytes != expected_size_bytes:
+        if remote.size_bytes != backup.size_bytes:
             raise DatabaseBackupRemoteError(
                 "Drive backup size verification failed.")
+        if not remote.md5_checksum or not hmac.compare_digest(
+                remote.md5_checksum.lower(), backup.md5_checksum.lower()):
+            raise DatabaseBackupRemoteError(
+                "Drive backup content checksum verification failed.")
         if self._folder_id not in remote.parents or remote.app_properties.get(
                 "cam_kind") != DATABASE_BACKUP_KIND:
             raise DatabaseBackupRemoteError(
                 "Drive backup verification failed.")
+        if not hmac.compare_digest(
+                remote.app_properties.get("cam_sha256", ""),
+                backup.sha256,
+        ):
+            raise DatabaseBackupRemoteError(
+                "Drive backup SHA-256 metadata verification failed.")
         return remote
 
     async def list_managed_backups(self) -> list[RemoteDatabaseBackup]:
@@ -159,7 +171,7 @@ class GoogleDriveDatabaseBackupStorage:
                         "spaces": "drive",
                         "pageSize": "100",
                         "fields":
-                        "nextPageToken,files(id,name,size,parents,createdTime,appProperties)",
+                        "nextPageToken,files(id,name,size,md5Checksum,parents,createdTime,appProperties)",
                         "supportsAllDrives": "true",
                         "includeItemsFromAllDrives": "true"
                     }
@@ -214,7 +226,7 @@ class GoogleDriveDatabaseBackupStorage:
                     f"{_DRIVE_FILES_URL}/{remote_file_id}",
                     params={
                         "fields":
-                        "id,name,size,parents,createdTime,appProperties",
+                        "id,name,size,md5Checksum,parents,createdTime,appProperties",
                         "supportsAllDrives": "true"
                     })
                 self._raise_for_status(response)
@@ -265,7 +277,12 @@ class GoogleDriveDatabaseBackupStorage:
             app_properties={
                 str(key): str(value)
                 for key, value in properties.items()
-            })
+            },
+            md5_checksum=(
+                str(payload["md5Checksum"]).lower()
+                if payload.get("md5Checksum") else None
+            ),
+        )
 
     @staticmethod
     def _escape_query(value: str) -> str:

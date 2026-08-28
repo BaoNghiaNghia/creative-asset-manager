@@ -82,12 +82,14 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
             datetime(2026, 8, 28, tzinfo=timezone.utc),
             123,
             "a" * 64,
+            "b" * 32,
         )
         workflow_result = DatabaseBackupWorkflowResult(
             backup,
             RemoteDatabaseBackup(
                 "remote-1", "cam.dump", 123, datetime.now(timezone.utc),
                 ("backup-folder",), {"cam_kind": DATABASE_BACKUP_KIND},
+                "b" * 32,
             ),
             DatabaseBackupRetentionResult(7, 1, 0, 6),
         )
@@ -99,6 +101,8 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["DATABASE_BACKUP"], "SUCCESS")
         self.assertEqual(result["REMOTE_BACKUP_COUNT"], 6)
         self.assertEqual(result["LOCAL_CLEANUP"], "PASS")
+        self.assertEqual(result["BACKUP_MD5"], "b" * 32)
+        self.assertEqual(result["REMOTE_MD5_CHECKSUM"], "b" * 32)
 
     def test_failure_output_never_includes_exception_message(self):
         output = io.StringIO()

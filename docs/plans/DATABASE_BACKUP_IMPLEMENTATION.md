@@ -1,6 +1,6 @@
 # Database Backup Implementation Plan
 
-**Status:** PLANNED / NOT IMPLEMENTED
+**Status:** IMPLEMENTED / PRODUCTION ACTIVATION PENDING
 
 > Future Codex sessions implementing database backup **MUST** first read
 > `AGENTS.md`, [the operations specification](../operations/DATABASE_BACKUP.md),
@@ -25,17 +25,18 @@ exact file locations from current source at implementation time.
 ## DB-BACKUP-1 -- Core backup service
 
 Implement configuration, 15 GiB staging preflight, a single-run OS lock,
-custom-format `pg_dump`, `pg_restore --list` verification, SHA-256, and safe
-local cleanup. Do not make Google Drive mutations in real-service tests in this
-phase. Failures must not create a successful-looking backup or begin retention.
+custom-format `pg_dump`, `pg_restore --list` verification, streaming SHA-256
+and MD5, and safe local cleanup. Do not make Google Drive mutations in
+real-service tests in this phase. Failures must not create a successful-looking
+backup or begin retention.
 
 ## DB-BACKUP-2 -- Google Drive upload and retention
 
 Reuse/refactor managed Google Drive credential refresh; never use tenant/user
 Source Drive OAuth. Implement dedicated-folder resumable bounded-chunk upload,
-safe remote metadata and size verification, managed-file listing, 21-day age
-pruning, six-file cap, and guarded deletion. Retention starts only after the
-new backup has passed remote verification.
+safe remote metadata, size, and Drive-derived MD5 verification, managed-file
+listing, 21-day age pruning, six-file cap, and guarded deletion. Retention
+starts only after the new backup has passed remote verification.
 
 ## DB-BACKUP-3 -- CLI and systemd
 
@@ -79,15 +80,19 @@ work.
 - insufficient staging space rejects before `pg_dump`;
 - failed `pg_dump`, empty dump, or failed `pg_restore --list` produces no
   upload;
-- SHA-256 is generated;
+- SHA-256 and MD5 are generated in one bounded streaming pass;
 - local cleanup follows successful remote verification; and
+- a locally verified dump is retained after upload or remote-verification
+  failure; and
 - the lock prevents a concurrent second backup.
 
 ### Google Drive
 
 - resumable upload uses bounded chunks and never whole-file reads;
 - managed credential refresh is mocked;
-- upload failure, remote-verification failure, and size mismatch do not prune;
+- upload failure, remote-verification failure, size mismatch, missing Drive
+  MD5, and Drive MD5 mismatch do not prune;
+- Drive MD5 must match the local dump before remote verification succeeds;
 - every managed backup has the managed marker.
 
 ### Retention

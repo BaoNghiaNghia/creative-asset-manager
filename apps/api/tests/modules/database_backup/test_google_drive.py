@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -28,7 +29,10 @@ class DatabaseBackupGoogleDriveTest(unittest.IsolatedAsyncioTestCase):
                                                           19,
                                                           tzinfo=timezone.utc),
                                       size_bytes=len(content),
-                                      sha256="a" * 64)
+                                      sha256=hashlib.sha256(content).hexdigest(),
+                                      md5_checksum=hashlib.md5(
+                                          content, usedforsecurity=False
+                                      ).hexdigest())
 
     async def test_rejected_managed_credential_is_wrapped_and_fails_closed(
             self) -> None:
@@ -59,6 +63,10 @@ class DatabaseBackupGoogleDriveTest(unittest.IsolatedAsyncioTestCase):
             self) -> None:
         uploads: list[tuple[str, bytes]] = []
         token_calls = 0
+        expected_sha256 = hashlib.sha256(b"abcdefghij").hexdigest()
+        expected_md5 = hashlib.md5(
+            b"abcdefghij", usedforsecurity=False
+        ).hexdigest()
 
         async def handler(request: httpx.Request) -> httpx.Response:
             nonlocal token_calls
@@ -74,6 +82,8 @@ class DatabaseBackupGoogleDriveTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(payload["parents"], ["backup-folder"])
                 self.assertEqual(payload["appProperties"]["cam_kind"],
                                  DATABASE_BACKUP_KIND)
+                self.assertEqual(
+                    payload["appProperties"]["cam_sha256"], expected_sha256)
                 return httpx.Response(
                     200,
                     headers={
@@ -90,22 +100,27 @@ class DatabaseBackupGoogleDriveTest(unittest.IsolatedAsyncioTestCase):
                                           "id": "remote-1",
                                           "name": "backup.dump",
                                           "size": "10",
+                                          "md5Checksum": expected_md5,
                                           "parents": ["backup-folder"],
                                           "appProperties": {
-                                              "cam_kind": DATABASE_BACKUP_KIND
+                                              "cam_kind": DATABASE_BACKUP_KIND,
+                                              "cam_sha256": expected_sha256,
                                           }
                                       })
             if request.method == "GET":
+                self.assertIn("md5Checksum", request.url.params["fields"])
                 return httpx.Response(200,
                                       json={
                                           "id": "remote-1",
                                           "name": "backup.dump",
                                           "size": "10",
+                                          "md5Checksum": expected_md5,
                                           "parents": ["backup-folder"],
                                           "createdTime":
                                           "2026-08-19T15:00:00Z",
                                           "appProperties": {
-                                              "cam_kind": DATABASE_BACKUP_KIND
+                                              "cam_kind": DATABASE_BACKUP_KIND,
+                                              "cam_sha256": expected_sha256,
                                           }
                                       })
             raise AssertionError(request.method)
@@ -123,13 +138,13 @@ class DatabaseBackupGoogleDriveTest(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             backup = self._backup(directory)
             uploaded = await storage.upload(backup)
-            verified = await storage.verify(uploaded.remote_file_id,
-                                            backup.size_bytes)
+            verified = await storage.verify(uploaded.remote_file_id, backup)
         self.assertEqual(token_calls, 1)
         self.assertEqual(uploads, [("bytes 0-3/10", b"abcd"),
                                    ("bytes 4-7/10", b"efgh"),
                                    ("bytes 8-9/10", b"ij")])
         self.assertEqual(verified.remote_file_id, "remote-1")
+        self.assertEqual(verified.md5_checksum, expected_md5)
 
     async def test_remote_size_mismatch_fails_closed(self) -> None:
 
@@ -153,8 +168,50 @@ class DatabaseBackupGoogleDriveTest(unittest.IsolatedAsyncioTestCase):
         storage = GoogleDriveDatabaseBackupStorage(credentials,
                                                    folder_id="backup-folder",
                                                    transport=transport)
-        with self.assertRaises(DatabaseBackupRemoteError):
-            await storage.verify("remote-1", 10)
+        with tempfile.TemporaryDirectory() as directory:
+            backup = self._backup(directory)
+            with self.assertRaises(DatabaseBackupRemoteError):
+                await storage.verify("remote-1", backup)
+
+    async def test_remote_content_checksum_mismatch_or_absence_fails_closed(
+            self) -> None:
+        expected_sha256 = hashlib.sha256(b"abcdefghij").hexdigest()
+
+        async def verify_payload(md5_checksum: str | None) -> None:
+            async def handler(request: httpx.Request) -> httpx.Response:
+                self.assertEqual(request.method, "GET")
+                payload = {
+                    "id": "remote-1",
+                    "name": "backup.dump",
+                    "size": "10",
+                    "parents": ["backup-folder"],
+                    "appProperties": {
+                        "cam_kind": DATABASE_BACKUP_KIND,
+                        "cam_sha256": expected_sha256,
+                    },
+                }
+                if md5_checksum is not None:
+                    payload["md5Checksum"] = md5_checksum
+                return httpx.Response(200, json=payload)
+
+            transport = httpx.MockTransport(handler)
+            storage = GoogleDriveDatabaseBackupStorage(
+                GoogleDriveAssetStorage(
+                    "token",
+                    root_folder_id="managed-root",
+                    transport=transport,
+                ),
+                folder_id="backup-folder",
+                transport=transport,
+            )
+            with tempfile.TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(
+                        DatabaseBackupRemoteError, "content checksum"):
+                    await storage.verify(
+                        "remote-1", self._backup(directory))
+
+        await verify_payload("0" * 32)
+        await verify_payload(None)
 
     async def test_listing_is_paged_and_delete_refuses_wrong_scope(
             self) -> None:
