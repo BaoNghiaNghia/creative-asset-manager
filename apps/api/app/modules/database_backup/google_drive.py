@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from app.domain.providers.contracts import StorageProviderError
 from app.modules.database_backup.service import VerifiedDatabaseBackup
 from app.providers.google.storage import GoogleDriveAssetStorage
 
@@ -61,7 +62,7 @@ class GoogleDriveDatabaseBackupStorage:
         if not backup.path.is_file() or backup.size_bytes <= 0:
             raise DatabaseBackupRemoteError(
                 "Database backup file is unavailable.")
-        access_token = await self._credentials.get_access_token()
+        access_token = await self._get_access_token()
         metadata = {
             "name": backup.path.name,
             "parents": [self._folder_id],
@@ -139,7 +140,7 @@ class GoogleDriveDatabaseBackupStorage:
         return remote
 
     async def list_managed_backups(self) -> list[RemoteDatabaseBackup]:
-        access_token = await self._credentials.get_access_token()
+        access_token = await self._get_access_token()
         quote = chr(39)
         query = (
             f"{quote}{self._escape_query(self._folder_id)}{quote} in parents and trashed = false and "
@@ -186,7 +187,7 @@ class GoogleDriveDatabaseBackupStorage:
                 "cam_kind") != DATABASE_BACKUP_KIND:
             raise DatabaseBackupRemoteError(
                 "Refusing to delete an unmanaged Drive file.")
-        access_token = await self._credentials.get_access_token()
+        access_token = await self._get_access_token()
         try:
             async with httpx.AsyncClient(
                     headers={"Authorization": f"Bearer {access_token}"},
@@ -203,7 +204,7 @@ class GoogleDriveDatabaseBackupStorage:
                                             retryable=True) from exc
 
     async def _get(self, remote_file_id: str) -> RemoteDatabaseBackup:
-        access_token = await self._credentials.get_access_token()
+        access_token = await self._get_access_token()
         try:
             async with httpx.AsyncClient(
                     headers={"Authorization": f"Bearer {access_token}"},
@@ -223,6 +224,15 @@ class GoogleDriveDatabaseBackupStorage:
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             raise DatabaseBackupRemoteError(
                 "Drive backup verification failed.", retryable=True) from exc
+
+    async def _get_access_token(self) -> str:
+        try:
+            return await self._credentials.get_access_token()
+        except StorageProviderError as exc:
+            raise DatabaseBackupRemoteError(
+                "Managed Drive backup credentials are unavailable.",
+                retryable=exc.retryable,
+            ) from exc
 
     @staticmethod
     def _remote_from_payload(payload: dict[str, Any]) -> RemoteDatabaseBackup:

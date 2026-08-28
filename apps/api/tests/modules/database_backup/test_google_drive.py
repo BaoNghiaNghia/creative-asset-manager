@@ -8,6 +8,7 @@ from pathlib import Path
 
 import httpx
 
+from app.domain.providers.contracts import StorageProviderError
 from app.modules.database_backup.google_drive import DATABASE_BACKUP_KIND, DatabaseBackupRemoteError, GoogleDriveDatabaseBackupStorage, RemoteDatabaseBackup
 from app.modules.database_backup.retention import DatabaseBackupRetentionService
 from app.modules.database_backup.service import VerifiedDatabaseBackup
@@ -28,6 +29,31 @@ class DatabaseBackupGoogleDriveTest(unittest.IsolatedAsyncioTestCase):
                                                           tzinfo=timezone.utc),
                                       size_bytes=len(content),
                                       sha256="a" * 64)
+
+    async def test_rejected_managed_credential_is_wrapped_and_fails_closed(
+            self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(str(request.url),
+                             "https://oauth2.googleapis.com/token")
+            return httpx.Response(400, json={"error": "invalid_grant"})
+
+        credentials = GoogleDriveAssetStorage(
+            root_folder_id="managed-root",
+            refresh_token="revoked-refresh-token",
+            client_id="client-id",
+            client_secret="client-secret",
+            transport=httpx.MockTransport(handler),
+        )
+        storage = GoogleDriveDatabaseBackupStorage(
+            credentials,
+            folder_id="backup-folder",
+            transport=httpx.MockTransport(handler),
+        )
+        with self.assertRaises(DatabaseBackupRemoteError) as context:
+            await storage.list_managed_backups()
+        self.assertFalse(context.exception.retryable)
+        self.assertIsInstance(context.exception.__cause__,
+                              StorageProviderError)
 
     async def test_resumable_upload_is_chunked_and_remote_verified_with_managed_refresh(
             self) -> None:
