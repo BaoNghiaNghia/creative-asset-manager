@@ -24,7 +24,6 @@ V4_SLOT_JOB_TYPES = {
 V4_SETTLED_RESULTS = frozenset({"completed", "shadow", "review_required"})
 V4_SLOT_MAX_ATTEMPTS = 5
 V4_SLOT_LEASE_SECONDS = 15 * 60
-V4_STALE_EVIDENCE_RESTARTS = 1
 
 
 def _configured_time(value: str, fallback: time) -> time:
@@ -211,33 +210,10 @@ class InventoryDailyScheduler:
         if claimed is None:
             return 0
         job_id, worker_id = claimed
-        stale_restarts = 0
         try:
-            while True:
-                try:
-                    result = self.sheet_service.run_agent_v4(
-                        settings.tenant_id,
-                        business_date,
-                        slot_kind=slot_kind,
-                    )
-                    break
-                except Exception as error:
-                    if (
-                        str(error).strip().lower() == "stale_evidence"
-                        and stale_restarts < V4_STALE_EVIDENCE_RESTARTS
-                    ):
-                        stale_restarts += 1
-                        logger.warning(
-                            "inventory_v41_stale_evidence_restarting",
-                            extra={
-                                "tenant_id": settings.tenant_id,
-                                "business_date": business_date.isoformat(),
-                                "slot_kind": slot_kind,
-                                "restart": stale_restarts,
-                            },
-                        )
-                        continue
-                    raise
+            result = self.sheet_service.run_agent_v4(
+                settings.tenant_id, business_date, slot_kind=slot_kind
+            )
             if result.status not in V4_SETTLED_RESULTS:
                 raise RuntimeError(f"inventory_v41_result_{result.status}")
             self._complete_v4_slot(

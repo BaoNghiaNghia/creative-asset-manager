@@ -257,7 +257,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
             ("2030-08-09", "snapshot"),
         ], sheets.calls)
 
-    def test_v4_stale_evidence_restarts_once_with_fresh_full_run(self):
+    def test_v4_stale_evidence_uses_persisted_retry_not_immediate_restart(self):
         self._enable_v4()
 
         class Sheets:
@@ -266,18 +266,22 @@ class DailySheetSchedulerTest(unittest.TestCase):
 
             def run_agent_v4(self, *_args, **_kwargs):
                 self.calls += 1
-                if self.calls == 1:
-                    raise V4AgentSafetyError("stale_evidence")
-                return SimpleNamespace(status="completed", writes=0)
+                raise V4AgentSafetyError("stale_evidence")
 
         sheets = Sheets()
-        count = InventoryDailyScheduler(
+        scheduler = InventoryDailyScheduler(
             self.sessions, sheet_service=sheets
-        ).execute_v4_slot(
-            "reconcile", datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
         )
-        self.assertEqual(1, count)
-        self.assertEqual(2, sheets.calls)
+        moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        with self.assertRaises(V4AgentSafetyError, msg="stale_evidence"):
+            scheduler.execute_v4_slot("reconcile", moment)
+        self.assertEqual(1, sheets.calls)
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v41_reconcile_slot"
+            ))
+            self.assertEqual("retry", job.status)
+            self.assertEqual("stale_evidence", job.last_error_code)
 
     def test_v4_transient_failure_backs_off_without_hot_loop(self):
         self._enable_v4()
