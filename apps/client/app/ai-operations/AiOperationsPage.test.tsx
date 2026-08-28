@@ -261,6 +261,7 @@ describe("AI Operations media dashboard compatibility", () => {
 
   it("renders Video AI charts from video analytics without borrowing Image cost", () => {
     const media = normalizeMediaDashboard({
+      video_processed_today: 7,
       analytics: {
         daily: [{
           date: "2026-08-21", requested: 3, completed: 2, failed: 1,
@@ -291,6 +292,9 @@ describe("AI Operations media dashboard compatibility", () => {
     />);
 
     expect(markup).toContain("Daily processing");
+    expect(markup).toContain("Processed today");
+    expect(markup).toContain("Completed video analyses today (UTC)");
+    expect(markup).toContain(">7<");
     expect(markup).toContain("Daily estimated cost by provider");
     expect(markup).toContain("Provider and mode volume");
     expect(markup).toContain("Failure categories");

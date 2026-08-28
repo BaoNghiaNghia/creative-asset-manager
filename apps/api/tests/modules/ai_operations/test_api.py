@@ -253,6 +253,7 @@ class AiOperationsApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         analytics = response.json()["analytics"]
+        self.assertEqual(response.json()["video_processed_today"], 1)
         self.assertEqual(analytics["daily"][0]["completed"], 1)
         self.assertEqual(analytics["daily"][0]["failed"], 1)
         self.assertEqual(analytics["providers"][0]["provider"], "gemini")

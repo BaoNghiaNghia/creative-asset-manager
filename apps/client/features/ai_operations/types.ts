@@ -169,6 +169,7 @@ export type AiOpsRecentVideo = {
 
 export type AiOpsMediaDashboard = {
   image: AiOpsMediaStage; video: AiOpsMediaStage; video_indexing: AiOpsMediaStage;
+  video_processed_today: number;
   pipeline: { image: AiOpsMediaStage[]; video: AiOpsMediaStage[] };
   analytics: AiOpsVideoAnalytics;
   recent_video: Page<AiOpsRecentVideo>;

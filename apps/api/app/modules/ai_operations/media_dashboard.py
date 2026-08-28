@@ -503,6 +503,21 @@ class MediaDashboardService:
         analytics_runs = list(self.session.scalars(select(VideoAnalysisRunModel).where(
             VideoAnalysisRunModel.tenant_id == tenant_id,
         )))
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_analytics = _video_analytics(
+            analytics_runs,
+            from_at=today_start,
+            to_at=now,
+            provider=provider,
+            model=model,
+            processing_mode=processing_mode,
+            metadata_profile=metadata_profile,
+            status=status,
+        )
+        video_processed_today = sum(
+            int(day["completed"])
+            for day in today_analytics["daily"]
+        )
         recent_video = []
         for job in page_jobs:
             source = self.session.get(SourceAssetModel, job.entity_id) if job.entity_type == "source_asset" else None
@@ -530,6 +545,7 @@ class MediaDashboardService:
             "image": image,
             "video": video,
             "video_indexing": indexing,
+            "video_processed_today": video_processed_today,
             "pipeline": {"image": [image], "video": [video, indexing]},
             "recent_video": {"page": video_page, "page_size": video_page_size, "total": len(ordered_video), "items": recent_video},
             "workers": [

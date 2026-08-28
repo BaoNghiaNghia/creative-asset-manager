@@ -132,6 +132,7 @@ export function normalizeMediaDashboard(
     image,
     video,
     video_indexing: videoIndexing,
+    video_processed_today: Number(source.video_processed_today) || 0,
     pipeline: {
       image: Array.isArray(source.pipeline?.image) ? source.pipeline.image : [image],
       video: Array.isArray(source.pipeline?.video) ? source.pipeline.video : [video, videoIndexing],
