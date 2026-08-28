@@ -654,10 +654,10 @@ function opsKpiIcon(label: string): string {
 function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashboardData["media"]>; media: "image" | "video" }) {
   const primary = media === "image" ? dashboard.image : dashboard.video;
   const cards = [
-    { label: "Processed", value: primary.completed, detail: "Completed AI analyses", tone: "success" },
     ...(media === "video" ? [
-      { label: "Processed today", value: dashboard.video_processed_today, detail: "Completed video analyses today (UTC)", tone: "success" },
+      { label: "Processed today", value: dashboard.video_processed_today, detail: "Completed video analyses today (UTC)", tone: "neutral" },
     ] : []),
+    { label: "Processed", value: primary.completed, detail: "Completed AI analyses", tone: "success" },
     { label: "Failed", value: primary.failed, detail: "Terminal AI failures", tone: "danger" },
     { label: "Running", value: primary.running, detail: "Currently processing", tone: "info" },
     { label: "Queued", value: primary.queued, detail: primary.eligible_now + " eligible now", tone: "neutral" },

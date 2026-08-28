@@ -295,6 +295,11 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(markup).toContain("Processed today");
     expect(markup).toContain("Completed video analyses today (UTC)");
     expect(markup).toContain(">7<");
+    const processedToday = markup.indexOf("Processed today");
+    const processed = markup.indexOf("Processed", processedToday + "Processed today".length);
+    expect(processedToday).toBeGreaterThan(-1);
+    expect(processed).toBeGreaterThan(processedToday);
+    expect(markup.slice(markup.lastIndexOf("<article", processedToday), processedToday)).toContain("ops-kpi-neutral");
     expect(markup).toContain("Daily estimated cost by provider");
     expect(markup).toContain("Provider and mode volume");
     expect(markup).toContain("Failure categories");
