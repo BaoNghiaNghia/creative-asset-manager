@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -12,6 +12,8 @@ from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 from app.modules.inventory.daily_sheet.semantic import InventoryDailySheetSemanticAnalyzer
+from app.modules.inventory.daily_sheet.agent_v4.tools import V4AgentSafetyError
+from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.persistence_model import InventorySettingsModel
 
 
@@ -20,7 +22,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.engine = create_engine(f"sqlite:///{Path(self.tmp.name) / 'daily-sheet-scheduler.db'}")
         event.listen(self.engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
-        for name in ("tenants", "external_sources", "inventory_settings"):
+        for name in ("tenants", "external_sources", "inventory_settings", "inventory_jobs"):
             Base.metadata.tables[name].create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.sessions.begin() as session:
@@ -174,7 +176,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
             def __init__(self):
                 self.calls = 0
 
-            def run_agent_v4(self, tenant_id, business_date):
+            def run_agent_v4(self, tenant_id, business_date, *, slot_kind=None):
                 self.calls += 1
                 if self.calls == 1:
                     return SimpleNamespace(status="review_required")
@@ -189,10 +191,142 @@ class DailySheetSchedulerTest(unittest.TestCase):
         sheets = Sheets()
         scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
-        self.assertEqual(0, scheduler.run_once(moment))
         self.assertEqual(1, scheduler.run_once(moment))
         self.assertEqual(0, scheduler.run_once(moment))
+        self.assertEqual(1, sheets.calls)
+
+    def _enable_v4(self):
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_sheet_config_json = {
+                "version": 4,
+                "mode": "gemini_tool_sheet_agent",
+                "source": {"allowed_sheets": ["Daily"]},
+                "agent": {"apply_mode": "auto"},
+            }
+
+    def test_v4_one_shot_settlement_survives_scheduler_restart(self):
+        self._enable_v4()
+
+        class Sheets:
+            def __init__(self):
+                self.calls = []
+
+            def run_agent_v4(self, tenant_id, business_date, *, slot_kind=None):
+                self.calls.append((tenant_id, business_date.isoformat(), slot_kind))
+                return SimpleNamespace(status="completed", writes=0)
+
+        sheets = Sheets()
+        moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(1, InventoryDailyScheduler(
+            self.sessions, sheet_service=sheets
+        ).execute_v4_slot("reconcile", moment))
+        self.assertEqual(0, InventoryDailyScheduler(
+            self.sessions, sheet_service=sheets
+        ).execute_v4_slot("reconcile", moment))
+        self.assertEqual([("tenant-a", "2030-08-08", "reconcile")], sheets.calls)
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v41_reconcile_slot"
+            ))
+            self.assertEqual("completed", job.status)
+            self.assertEqual(1, job.attempt_count)
+
+    def test_v4_snapshot_and_reconcile_are_independent_and_next_day_is_eligible(self):
+        self._enable_v4()
+
+        class Sheets:
+            def __init__(self):
+                self.calls = []
+
+            def run_agent_v4(self, tenant_id, business_date, *, slot_kind=None):
+                self.calls.append((business_date.isoformat(), slot_kind))
+                return SimpleNamespace(status="completed", writes=0)
+
+        sheets = Sheets()
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
+        first = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(1, scheduler.execute_v4_slot("snapshot", first))
+        self.assertEqual(1, scheduler.execute_v4_slot("reconcile", first))
+        self.assertEqual(1, scheduler.execute_v4_slot("snapshot", first + timedelta(days=1)))
+        self.assertEqual([
+            ("2030-08-08", "snapshot"),
+            ("2030-08-08", "reconcile"),
+            ("2030-08-09", "snapshot"),
+        ], sheets.calls)
+
+    def test_v4_stale_evidence_restarts_once_with_fresh_full_run(self):
+        self._enable_v4()
+
+        class Sheets:
+            def __init__(self):
+                self.calls = 0
+
+            def run_agent_v4(self, *_args, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise V4AgentSafetyError("stale_evidence")
+                return SimpleNamespace(status="completed", writes=0)
+
+        sheets = Sheets()
+        count = InventoryDailyScheduler(
+            self.sessions, sheet_service=sheets
+        ).execute_v4_slot(
+            "reconcile", datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        )
+        self.assertEqual(1, count)
         self.assertEqual(2, sheets.calls)
+
+    def test_v4_transient_failure_backs_off_without_hot_loop(self):
+        self._enable_v4()
+
+        class Sheets:
+            def __init__(self):
+                self.calls = 0
+
+            def run_agent_v4(self, *_args, **_kwargs):
+                self.calls += 1
+                raise TimeoutError("temporary Google timeout")
+
+        sheets = Sheets()
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
+        moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        with self.assertRaises(TimeoutError):
+            scheduler.execute_v4_slot("reconcile", moment)
+        self.assertEqual(0, scheduler.execute_v4_slot("reconcile", moment))
+        self.assertEqual(1, sheets.calls)
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v41_reconcile_slot"
+            ))
+            self.assertEqual("retry", job.status)
+            self.assertGreater(job.next_attempt_at.replace(tzinfo=timezone.utc), moment)
+
+    def test_v4_permanent_failure_is_terminal_without_hot_loop(self):
+        self._enable_v4()
+
+        class Sheets:
+            def __init__(self):
+                self.calls = 0
+
+            def run_agent_v4(self, *_args, **_kwargs):
+                self.calls += 1
+                raise ValueError("spreadsheet_not_authorized")
+
+        sheets = Sheets()
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
+        moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        with self.assertRaises(ValueError):
+            scheduler.execute_v4_slot("reconcile", moment)
+        self.assertEqual(0, scheduler.execute_v4_slot("reconcile", moment))
+        self.assertEqual(1, sheets.calls)
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v41_reconcile_slot"
+            ))
+            self.assertEqual("failed", job.status)
 
     def test_v3_scheduler_ignores_tenant_when_daily_automation_is_disabled(self):
         with self.sessions.begin() as session:

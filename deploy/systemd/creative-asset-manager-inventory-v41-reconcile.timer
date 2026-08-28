@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Inventory V4.1 reconcile timer
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 Asia/Ho_Chi_Minh
+Persistent=false
+Unit=creative-asset-manager-inventory-v41-reconcile.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Inventory V4.1 snapshot timer
+
+[Timer]
+OnCalendar=*-*-* 05:50:00 Asia/Ho_Chi_Minh
+Persistent=false
+Unit=creative-asset-manager-inventory-v41-snapshot.service
+
+[Install]
+WantedBy=timers.target

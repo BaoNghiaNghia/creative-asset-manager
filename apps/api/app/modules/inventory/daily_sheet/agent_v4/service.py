@@ -79,12 +79,20 @@ class InventoryDailySheetV4Service:
         value = self.token_resolver(connection_id)
         return asyncio.run(value) if hasattr(value, "__await__") else str(value)
 
-    def run(self, tenant_id: str, business_date: date) -> V4AgentRunResult:
+    def run(
+        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None
+    ) -> V4AgentRunResult:
         context = self.context_provider(tenant_id)
-        return self.run_shadow(tenant_id, business_date, apply_mode=context.config.agent.apply_mode)
+        return self.run_shadow(
+            tenant_id,
+            business_date,
+            apply_mode=context.config.agent.apply_mode,
+            slot_kind=slot_kind,
+        )
 
     def run_shadow(
-        self, tenant_id: str, business_date: date, *, apply_mode: str = "shadow"
+        self, tenant_id: str, business_date: date, *, apply_mode: str = "shadow",
+        slot_kind: str | None = None,
     ) -> V4AgentRunResult:
         if apply_mode not in {"shadow", "review", "auto"}:
             raise V4AgentSafetyError("invalid_apply_mode")
@@ -105,6 +113,7 @@ class InventoryDailySheetV4Service:
                             {
                                 "prompt_version": V4_PROMPT_VERSION,
                                 "business_date": business_date.isoformat(),
+                                "slot_kind": slot_kind,
                                 "apply_mode": apply_mode,
                                 "spreadsheet_file_id": context.working_file_id,
                                 "allowed_sheets": config.source.allowed_sheets,
@@ -186,7 +195,7 @@ class InventoryDailySheetV4Service:
                 else "shadow"
             )
             run_id = hashlib.sha256(
-                f"inventory-v4:{tenant_id}:{business_date.isoformat()}:{digest}".encode(
+                f"inventory-v4:{tenant_id}:{business_date.isoformat()}:{slot_kind or 'manual'}:{digest}".encode(
                     "utf-8"
                 )
             ).hexdigest()

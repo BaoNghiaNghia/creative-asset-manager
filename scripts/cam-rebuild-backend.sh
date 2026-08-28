@@ -1077,6 +1077,25 @@ verify_services() {
   done
 
 
+  for service in \
+    creative-asset-manager-inventory-v41-snapshot.timer \
+    creative-asset-manager-inventory-v41-reconcile.timer
+  do
+
+    systemctl is-enabled \
+      --quiet \
+      "$service" \
+      || die "$service is not enabled."
+
+
+    systemctl is-active \
+      --quiet \
+      "$service" \
+      || die "$service is not active."
+
+  done
+
+
   #
   # Legacy all-role worker must not run.
   #
@@ -1530,7 +1549,11 @@ progress 84 \
 for unit in \
   creative-asset-manager-api.service \
   creative-asset-manager-image-worker.service \
-  creative-asset-manager-video-worker.service
+  creative-asset-manager-video-worker.service \
+  creative-asset-manager-inventory-v41-snapshot.service \
+  creative-asset-manager-inventory-v41-snapshot.timer \
+  creative-asset-manager-inventory-v41-reconcile.service \
+  creative-asset-manager-inventory-v41-reconcile.timer
 do
 
   install \
@@ -1563,6 +1586,20 @@ systemctl disable \
   || true
 
 
+info \
+  "Stopping/disabling legacy long-running Inventory scheduler"
+
+
+systemctl stop \
+  creative-asset-manager-inventory-scheduler.service \
+  || true
+
+
+systemctl disable \
+  creative-asset-manager-inventory-scheduler.service \
+  || true
+
+
 #
 # Ensure native services are enabled.
 #
@@ -1574,6 +1611,22 @@ systemctl enable \
   creative-asset-manager-api.service \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-video-worker.service
+
+
+info \
+  "Enabling Inventory V4.1 one-shot timers"
+
+
+systemctl reset-failed \
+  creative-asset-manager-inventory-v41-snapshot.service \
+  creative-asset-manager-inventory-v41-reconcile.service \
+  || true
+
+
+systemctl enable \
+  --now \
+  creative-asset-manager-inventory-v41-snapshot.timer \
+  creative-asset-manager-inventory-v41-reconcile.timer
 
 
 #

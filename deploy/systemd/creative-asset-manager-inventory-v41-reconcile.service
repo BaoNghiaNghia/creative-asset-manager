@@ -1,0 +1,22 @@
+[Unit]
+Description=Creative Asset Manager Inventory V4.1 reconcile one-shot
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=creative-assets
+Group=creative-assets
+WorkingDirectory=/opt/creative-asset-manager/current
+EnvironmentFile=/etc/creative-asset-manager/production.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python /opt/creative-asset-manager/current/apps/inventory_scheduler/main.py --once --slot reconcile
+TimeoutStartSec=30min
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
