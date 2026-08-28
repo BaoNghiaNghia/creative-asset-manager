@@ -7,6 +7,7 @@ from app.core.database import SessionLocal
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.service import auth_repository, cookie_options
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
+from app.modules.auth_persistence.model import UserModel
 from app.modules.authorization.principal import (
     CurrentPrincipal,
     authorization_error,
@@ -31,6 +32,7 @@ def identity(
         available = TenantMembershipService(database).list_user_tenants(
             principal.user_id
         )
+        user = database.get(UserModel, principal.user_id)
         tenants = [
             {
                 "id": tenant.id,
@@ -49,6 +51,9 @@ def identity(
         "is_processing_admin": principal.platform_admin
         or "tenant_admin" in principal.effective_roles,
         "authorization_source": principal.authorization_source,
+        "display_name": user.display_name if user else None,
+        "email": user.primary_email if user else None,
+        "avatar_url": user.avatar_url if user else None,
     }
 
 
@@ -76,6 +81,7 @@ def select_active_tenant(
             tenant_id=body.tenant_id,
             user_id=principal.user_id,
         )
+        user = database.get(UserModel, principal.user_id)
         tenants = [
             {"id": tenant.id, "name": tenant.name, "slug": tenant.slug}
             for _membership, tenant in available
@@ -114,6 +120,9 @@ def select_active_tenant(
         "permissions": sorted(effective.permissions),
         "is_processing_admin": principal.platform_admin or "tenant_admin" in effective.roles,
         "authorization_source": principal.authorization_source,
+        "display_name": user.display_name if user else None,
+        "email": user.primary_email if user else None,
+        "avatar_url": user.avatar_url if user else None,
     }
     response = JSONResponse(payload)
     response.set_cookie(cookie_name, replacement_id, **cookie_options())

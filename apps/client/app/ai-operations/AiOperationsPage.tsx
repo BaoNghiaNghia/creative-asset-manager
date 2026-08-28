@@ -8,6 +8,7 @@ import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
 import { InventoryDailyTab } from "./InventoryDailyTab";
+import { AssetDetailsPanel } from "../components/AssetDetailsPanel";
 import { fetchAiOperationsConfiguration, setTenantAiPaused, setVideoAiPaused, type AiOpsConfiguration } from "../../features/ai_operations";
 import {
   dailyProviderCostChart, dailyStatusChart, failureChart,
@@ -63,6 +64,7 @@ export function AiOperationsPage() {
   const [authorizationReason, setAuthorizationReason] = useState("Sign in is required.");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [reload, setReload] = useState(0);
+  const [detailsAssetId, setDetailsAssetId] = useState<string | null>(null);
   const requests = useRef(new DashboardRequestCoordinator());
 
   useEffect(() => {
@@ -147,7 +149,9 @@ export function AiOperationsPage() {
       permissions={identity?.permissions || []}
       authorizationReason={authorizationReason}
       onRetry={() => setReload(value => value + 1)}
+      onOpenAsset={setDetailsAssetId}
     />
+    {detailsAssetId ? <AssetDetailsPanel item={null} assetId={detailsAssetId} onClose={() => setDetailsAssetId(null)} /> : null}
   </AiOperationsShell>;
 }
 
@@ -187,12 +191,14 @@ type ContentProps = {
   authorizationReason?: string;
   media?: "image" | "video";
   onMedia?: (media: "image" | "video") => void;
+  onOpenAsset?: (assetId: string) => void;
 };
 
 export function AiOperationsContent({
   data, filters, tab, loading = false, errors = [], unauthorized = false,
   onTab, onFilters, onRetry, refreshSeconds = 0, onRefreshSeconds = () => undefined,
   lastUpdated = null, permissions = [], authorizationReason = "Sign in is required.", media = "image", onMedia = () => undefined,
+  onOpenAsset = () => undefined,
 }: ContentProps) {
   const models = useMemo(() => [...new Set([
     ...data.providers.map(item => item.model || ""), ...data.usage.items.map(item => item.model || ""),
@@ -233,9 +239,9 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {tab === "inventory" ? <InventoryDailyTab /> : loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} media={media} onMedia={onMedia} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
+      {tab === "inventory" ? <InventoryDailyTab /> : loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
-        : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
+        : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} onOpenAsset={onOpenAsset} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
         : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} inventoryPermissions={permissions} />
         : <ConfigurationTab />}
@@ -404,8 +410,9 @@ function ScanStatusIcon({ status }: { status: string }) {
   </span>;
 }
 
-export function PipelineOverview({ pipeline, mediaDashboard = null, media = "image", onMedia = () => undefined, onPage = () => undefined, onVideoPage = () => undefined }: {
+export function PipelineOverview({ pipeline, mediaDashboard = null, media = "image", onMedia = () => undefined, onOpenAsset = () => undefined, onPage = () => undefined, onVideoPage = () => undefined }: {
   pipeline?: PipelineSnapshot | null; mediaDashboard?: AiOpsDashboardData["media"]; media?: "image" | "video"; onMedia?: (media: "image" | "video") => void;
+  onOpenAsset?: (assetId: string) => void;
   onPage?: (page: number, pageSize: 25 | 50 | 100) => void; onVideoPage?: (page: number, pageSize: 25 | 50 | 100) => void;
 }) {
   if (pipeline === undefined) return <DashboardState kind="empty" label="Tổng quan pipeline chưa khả dụng cho đến khi API được cập nhật và khởi động lại." />;
@@ -442,7 +449,7 @@ export function PipelineOverview({ pipeline, mediaDashboard = null, media = "ima
     <details className="pipeline-attempt-diagnostics"><summary><span className="pipeline-diagnostics-title"><i aria-hidden="true">⌁</i><span><b>Chẩn đoán lần thử</b><small>Lịch sử kỹ thuật, không dùng để tính tiến độ tài sản</small></span></span><span className="pipeline-diagnostics-total">{pipeline.stages.reduce((total, stage) => total + stage.total_attempts, 0).toLocaleString()} lần thử</span></summary><div className="pipeline-diagnostics-content"><p>{pipeline.definitions?.attempt_diagnostics || "Số lần thử của job không dùng để tính tiến độ tài sản."}</p><ul>{pipeline.stages.map(stage => <li key={stage.key}><header><span>{pipelineStageLabel(stage.label)}</span><strong>{stage.total_attempts.toLocaleString()}<small>lần thử</small></strong></header><dl><div><dt>Hoàn tất</dt><dd>{stage.completed_attempts.toLocaleString()}</dd></div><div className={stage.failed_attempts ? "has-failures" : ""}><dt>Thất bại</dt><dd>{stage.failed_attempts.toLocaleString()}</dd></div></dl></li>)}</ul></div></details>
     {pipeline.skipped_breakdown?.length ? <details className="pipeline-exclusions"><summary><span><i aria-hidden="true">–</i><b>Dữ liệu bị loại trừ</b><small>Loại trừ vĩnh viễn; không cần thử lại</small></span><strong>{pipeline.skipped_breakdown.reduce((total, item) => total + item.count, 0).toLocaleString()}</strong></summary><p>Các bản ghi này nằm ngoài pipeline ảnh và không được tính là lỗi.</p><ul>{pipeline.skipped_breakdown.map(item => <li key={item.category}><b>{item.category === "unsupported" ? "Định dạng không hỗ trợ" : item.category.replaceAll("_", " ")}</b><span>{item.count.toLocaleString()} mục</span></li>)}</ul></details> : null}
     {pipeline.failure_groups.length > 0 && <section className="pipeline-attention"><header><div><small>CẦN XỬ LÝ</small><h2>Các vấn đề cần xử lý</h2><p>Chỉ hiển thị các vấn đề chưa được giải quyết. Mã kỹ thuật vẫn được giữ để hỗ trợ.</p></div><span>{pipeline.failure_groups.length} nhóm vấn đề</span></header><ul>{pipeline.failure_groups.map(item => <PipelineFailureCard key={item.stage + item.error_code} item={item} />)}</ul></section>}
-    <PipelineRecentAssets recent={pipeline.recent_assets} onPage={onPage} />
+    <PipelineRecentAssets recent={pipeline.recent_assets} onPage={onPage} onOpenAsset={onOpenAsset} />
   </div>;
 }
 function VideoPipelineOverview({ dashboard, onPage }: {
@@ -577,13 +584,13 @@ function PipelineCurrentState({ state }: { state: string }) {
   return <span className={"pipeline-current-state " + tone} aria-label={"Trạng thái hiện tại: " + label}><i aria-hidden="true">{icon}</i><span>{label}</span></span>;
 }
 
-function PipelineRecentAssets({ recent, onPage }: { recent: PipelineSnapshot["recent_assets"]; onPage: (page: number, pageSize: 25 | 50 | 100) => void }) {
+function PipelineRecentAssets({ recent, onPage, onOpenAsset }: { recent: PipelineSnapshot["recent_assets"]; onPage: (page: number, pageSize: 25 | 50 | 100) => void; onOpenAsset: (assetId: string) => void }) {
   if (!recent.items.length) return <section className="pipeline-recent"><h2>Tiến độ tài sản gần đây</h2><p>Chưa có tài sản pipeline nào được tạo.</p></section>;
   const pages = Math.max(1, Math.ceil(recent.total / recent.page_size));
   const page = Math.min(recent.page, pages);
   const first = (page - 1) * recent.page_size + 1;
   const last = Math.min(page * recent.page_size, recent.total);
-  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Tiến độ tài sản gần đây</h2><p>Hiển thị {first}-{last} trên tổng số {recent.total} tài sản logic. Chọn tên để xem chi tiết.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Số mục mỗi trang<select aria-label="Số mục pipeline mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Tài sản</th><th>Giai đoạn hiện tại</th><th>Tải xuống</th><th>Lưu trữ</th><th>Phân tích AI</th><th>Tìm kiếm</th><th>Lập chỉ mục</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetThumbnail filename={item.filename} thumbnailUrl={item.thumbnail_url} /><div>{item.asset_id ? <a href={"/?details=1&asset=" + encodeURIComponent(item.asset_id)} title={item.filename}>{pipelineAssetTitle(item.filename)}</a> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small>{pipelineAssetKind(item.filename) === "asset" ? "Asset ID" : pipelineAssetKind(item.filename)}</small></div></div></td><td><PipelineCurrentState state={item.state} /></td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
+  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Tiến độ tài sản gần đây</h2><p>Hiển thị {first}-{last} trên tổng số {recent.total} tài sản logic. Chọn tên để xem chi tiết ngay trong AI Operations.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Số mục mỗi trang<select aria-label="Số mục pipeline mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table"><thead><tr><th>Tài sản</th><th>Giai đoạn hiện tại</th><th>Tải xuống</th><th>Lưu trữ</th><th>Phân tích AI</th><th>Tìm kiếm</th><th>Lập chỉ mục</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetThumbnail filename={item.filename} thumbnailUrl={item.thumbnail_url} /><div>{item.asset_id ? <button type="button" className="pipeline-asset-link" onClick={() => onOpenAsset(item.asset_id!)} title={item.filename}>{pipelineAssetTitle(item.filename)}</button> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small>{pipelineAssetKind(item.filename) === "asset" ? "Asset ID" : pipelineAssetKind(item.filename)}</small></div></div></td><td><PipelineCurrentState state={item.state} /></td>{(["download", "store", "analyze", "projection", "index"] as const).map(stage => <td key={stage}><StatusText status={item.stage_statuses[stage] || "not_started"} /></td>)}<td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "-"}</td></tr>)}</tbody></table></div></section>;
 }
 
 function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: string; label: string; value: number; detail: string; tone?: string }) {
@@ -762,9 +769,10 @@ function ProcessingFailureGroupRetry({
   </section>;
 }
 
-function Processing({ data, filters, permissions, onFilters, onActionAccepted, media = "image", onVideoPage = () => undefined }: {
+function Processing({ data, filters, permissions, onFilters, onActionAccepted, onOpenAsset, media = "image", onVideoPage = () => undefined }: {
   data: AiOpsDashboardData; filters: AiOpsFilters; permissions: string[];
   onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void;
+  onOpenAsset: (assetId: string) => void;
   media?: "image" | "video"; onVideoPage?: (page: number, pageSize: 25 | 50 | 100) => void;
 }) {
   if (media === "video") return <VideoProcessing media={data.media} onPage={onVideoPage} />;
@@ -801,7 +809,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted, m
           <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
           <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><code>{job.error?.code || "\u2014"}</code></td>
           <td><div className="ops-job-actions">
-            {assetId ? <a aria-label={`View asset ${assetId}`} href={`/?details=1&asset=${encodeURIComponent(assetId)}`}>View</a> : <span title="Asset identity is not available yet">Unavailable</span>}
+            {assetId ? <button type="button" aria-label={`View asset ${assetId}`} onClick={() => onOpenAsset(assetId)}>Chi tiết</button> : <span title="Asset identity is not available yet">Unavailable</span>}
             <ProcessingJobAction job={job} permissions={permissions} onAccepted={onActionAccepted} />
           </div></td>
         </tr>;

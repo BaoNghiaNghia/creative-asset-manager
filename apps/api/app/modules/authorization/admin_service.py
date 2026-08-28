@@ -116,6 +116,7 @@ class TenantAccessAdminService:
                     "user_id": user.id,
                     "display_name": user.display_name,
                     "email": user.primary_email,
+                    "avatar_url": user.avatar_url,
                     "status": membership.status,
                     "roles": role_map[membership.id],
                     "joined_at": membership.joined_at,

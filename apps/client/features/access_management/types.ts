@@ -12,6 +12,7 @@ export type AccessMember = {
   user_id: string;
   display_name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   status: MembershipStatus;
   roles: AccessRoleSummary[];
   joined_at: string | null;
@@ -39,6 +40,9 @@ export type AccessIdentity = {
   permissions: string[];
   is_processing_admin: boolean;
   authorization_source: string;
+  display_name?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
 };
 
 export type Page<T> = { items: T[]; page: number; page_size: number; total: number };

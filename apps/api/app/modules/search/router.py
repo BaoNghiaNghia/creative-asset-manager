@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from urllib.parse import quote, urlencode
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -232,6 +232,114 @@ def _source_pair_rank(source: SourceAssetModel, external: ExternalSourceModel) -
         _source_timestamp(source.updated_at),
         str(source.id),
     )
+
+def _folder_parent_id(source: SourceAssetModel) -> str | None:
+    metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+    parents = metadata.get("parents")
+    if not isinstance(parents, list):
+        return None
+    return next((str(value).strip() for value in parents if str(value).strip()), None)
+
+def _folder_breadcrumb(session, tenant: str, source: SourceAssetModel) -> tuple[list[str], list[str]]:
+    ids: list[str] = []
+    names: list[str] = []
+    seen = {source.external_asset_id}
+    parent_id = _folder_parent_id(source)
+    for _depth in range(100):
+        if not parent_id or parent_id in seen:
+            break
+        seen.add(parent_id)
+        parent = session.scalar(select(SourceAssetModel).where(
+            SourceAssetModel.tenant_id == tenant,
+            SourceAssetModel.external_source_id == source.external_source_id,
+            SourceAssetModel.external_asset_id == parent_id,
+            SourceAssetModel.deleted_at.is_(None),
+        ))
+        if parent is None:
+            break
+        ids.append(parent.external_asset_id)
+        names.append(parent.filename or "Folder")
+        parent_id = _folder_parent_id(parent)
+    ids.reverse()
+    names.reverse()
+    return ids, names
+
+def _search_folder_items(session, principal: CurrentPrincipal, *, value: str, source_provider: str | None, external_source_id: str | None, limit: int) -> list[dict]:
+    tenant = principal.active_tenant_id
+    normalized = value.strip().casefold()
+    if not normalized:
+        return []
+    escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    conditions = [
+        SourceAssetModel.tenant_id == tenant,
+        SourceAssetModel.deleted_at.is_(None),
+        func.lower(func.coalesce(SourceAssetModel.filename, "")).like(f"%{escaped}%", escape="\\"),
+        or_(
+            SourceAssetModel.mime_type == "application/vnd.google-apps.folder",
+            func.lower(func.coalesce(SourceAssetModel.mime_type, "")) == "folder",
+            SourceAssetModel.source_metadata["is_folder"].as_boolean().is_(True),
+        ),
+    ]
+    source_type = "google_drive" if source_provider == "google-drive" else "sharepoint" if source_provider == "sharepoint" else None
+    if source_type:
+        conditions.append(ExternalSourceModel.source_type == source_type)
+    if external_source_id:
+        conditions.append(ExternalSourceModel.id == external_source_id)
+    rows = session.execute(
+        select(SourceAssetModel, ExternalSourceModel)
+        .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
+        .where(*conditions)
+        .order_by(
+            case((func.lower(SourceAssetModel.filename) == normalized, 0), else_=1),
+            func.lower(SourceAssetModel.filename),
+            SourceAssetModel.external_asset_id,
+        )
+        .limit(limit)
+    ).all()
+    viewer_scopes = None
+    if is_pure_viewer(principal):
+        if not principal.membership_id:
+            return []
+        viewer_scopes = ViewerFolderScopeService(session).list_membership_scopes(
+            tenant_id=tenant,
+            membership_id=principal.membership_id,
+        )
+    items: list[dict] = []
+    for source, external in rows:
+        ancestor_ids, ancestor_names = _folder_breadcrumb(session, tenant, source)
+        if viewer_scopes is not None:
+            allowed_roots = set(viewer_scopes.get(source.external_source_id, ()))
+            if not allowed_roots.intersection([source.external_asset_id, *ancestor_ids]):
+                continue
+        provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
+        items.append({
+            "provider": provider,
+            "id": source.external_asset_id,
+            "external_source_id": source.external_source_id,
+            "name": source.filename or "Untitled folder",
+            "kind": "folder",
+            "mime_type": source.mime_type or "application/vnd.google-apps.folder",
+            "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None,
+            "web_url": resolve_source_web_url(provider=provider, external_asset_id=source.external_asset_id, source_metadata=source.source_metadata),
+            "ancestor_ids": ancestor_ids,
+            "ancestor_names": ancestor_names,
+            "has_children": True,
+        })
+    return items
+
+@router.get("/folders")
+def search_folders(
+    q: str = Query(min_length=1, max_length=500),
+    source_provider: str | None = Query(default=None, pattern="^(google-drive|sharepoint)$"),
+    external_source_id: str | None = Query(default=None, max_length=128),
+    limit: int = Query(default=20, ge=1, le=50),
+    principal: CurrentPrincipal = Depends(SEARCH_READ),
+):
+    if is_pure_viewer(principal) and not (external_source_id or "").strip():
+        raise HTTPException(status_code=422, detail={"code": "viewer_source_required", "message": "A search source is required."})
+    with SessionLocal() as session:
+        items = _search_folder_items(session, principal, value=q, source_provider=source_provider, external_source_id=external_source_id, limit=limit)
+    return {"items": items, "total": len(items)}
 
 def _search_thumbnail_url(*, provider: str, external_asset_id: str, external_source_id: str, kind: str) -> str | None:
     if provider != "google-drive" or kind not in {"image", "video"}:

@@ -4,6 +4,7 @@ import type {
   AssetMetadata,
   AssetMetadataMap,
   AuthState,
+  CloudUser,
   DriveIndexStatus,
   Folder,
   OAuthErrorState,
@@ -164,6 +165,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   const [pureViewer, setPureViewer] = useState<boolean | null>(null);
   const [explorerReady, setExplorerReady] = useState(false);
   const [applicationAuthenticated, setApplicationAuthenticated] = useState<boolean | null>(null);
+  const [applicationUser, setApplicationUser] = useState<CloudUser | null>(null);
   const [authByProvider, setAuthByProvider] = useState<ProviderSessions>({
     "google-drive": { authenticated: false, user: null, checking: true },
     sharepoint: { authenticated: false, user: null, checking: true },
@@ -762,20 +764,22 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         return { state: { authenticated: false, user: null }, error: "Provider session is temporarily unavailable" };
       }
     }
-    async function readIdentity(): Promise<{ roles: string[]; is_processing_admin: boolean }> {
+    async function readIdentity(): Promise<{ user_id: string; roles: string[]; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null }> {
       const response = await fetch("/api/v1/auth/identity");
       if (response.status === 401) throw Object.assign(new Error("unauthenticated"), { status: 401 });
       if (!response.ok) throw Object.assign(new Error("Unable to verify workspace access"), { status: response.status });
       return await response.json();
     }
     async function initialize() {
-      let identity: { roles: string[]; is_processing_admin: boolean };
+      let identity: { user_id: string; roles: string[]; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null };
       try {
         identity = await readIdentity();
         setApplicationAuthenticated(true);
+        setApplicationUser({ id: identity.user_id, name: identity.display_name || undefined, email: identity.email || undefined, picture: identity.avatar_url || undefined });
       } catch (reason) {
         const status = typeof reason === "object" && reason && "status" in reason ? Number((reason as { status?: number }).status) : 0;
         setApplicationAuthenticated(status === 401 ? false : null);
+        setApplicationUser(null);
         setAuthByProvider({
           "google-drive": { authenticated: false, user: null, checking: false },
           sharepoint: { authenticated: false, user: null, checking: false },
@@ -859,6 +863,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   async function logout() {
     await fetch(provider === "sharepoint" ? "/api/auth/microsoft/logout" : "/api/auth/google/logout", { method: "POST" });
     setApplicationAuthenticated(false);
+    setApplicationUser(null);
     setAuthByProvider(current => ({ ...current, [provider]: { authenticated: false, user: null, checking: false } }));
     clearExplorer(provider);
     setViewerBootstrap(null);
@@ -1021,6 +1026,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     auth,
     authByProvider,
     applicationAuthenticated,
+    applicationUser,
     oauthError,
     metadataIndex,
     explorerReady,

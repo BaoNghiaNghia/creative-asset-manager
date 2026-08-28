@@ -344,8 +344,7 @@
 .pipeline-asset-cell{min-width:260px}
 .pipeline-asset{display:flex;align-items:center;gap:9px;min-width:0}
 .pipeline-asset>div{display:flex;min-width:0;flex-direction:column;gap:2px}
-.pipeline-asset a,.pipeline-asset>div>span{max-width:245px;overflow:hidden;color:#2454b8;font-size:11px;font-weight:750;line-height:1.25;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
-.pipeline-asset a:hover{text-decoration:underline}
+.pipeline-asset a,.pipeline-asset-link,.pipeline-asset>div>span{display:block;max-width:245px;overflow:hidden;color:#2454b8;font-size:11px;font-weight:750;line-height:1.25;text-align:left;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.pipeline-asset-link{padding:0;border:0;background:transparent;cursor:pointer}.pipeline-asset a:hover,.pipeline-asset-link:hover{text-decoration:underline}.pipeline-asset-link:focus-visible{border-radius:3px;outline:2px solid #7899ef;outline-offset:2px}
 .pipeline-asset small{color:#8793a5;font-size:9px;letter-spacing:.04em;text-transform:uppercase}
 .pipeline-asset-icon{display:grid;place-items:center;width:27px;height:27px;flex:0 0 auto;border:1px solid #dce5f2;border-radius:8px;background:#f5f8fc;color:#60728d}
 .pipeline-asset-icon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -364,7 +363,7 @@
 .pipeline-recent .ops-status.processing i{background:#4777e8}
 .pipeline-recent .ops-status.pending,.pipeline-recent .ops-status.queued,.pipeline-recent .ops-status.retry,.pipeline-recent .ops-status.waiting{border-color:#f2dfaa;background:#fff9e9;color:#9a6a13}
 .pipeline-recent .ops-status.pending i,.pipeline-recent .ops-status.queued i,.pipeline-recent .ops-status.retry i,.pipeline-recent .ops-status.waiting i{background:#d79b20}
-@media(max-width:760px){.pipeline-asset-cell{min-width:210px}.pipeline-asset a,.pipeline-asset>div>span{max-width:185px}}
+@media(max-width:760px){.pipeline-asset-cell{min-width:210px}.pipeline-asset a,.pipeline-asset-link,.pipeline-asset>div>span{max-width:185px}}
 
 
 /* Current lifecycle state has a distinct, more prominent treatment than stage results. */

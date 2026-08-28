@@ -682,8 +682,8 @@ export default function App() {
             </select>
           </label>}
           <AccountAvatar
-            picture={explorer.auth.user?.picture}
-            name={explorer.auth.user?.name}
+            picture={explorer.applicationUser?.picture || explorer.auth.user?.picture}
+            name={explorer.applicationUser?.name || explorer.auth.user?.name}
             provider={explorer.provider}
           />
           <button onClick={explorer.logout}>Sign out</button>

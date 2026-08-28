@@ -487,11 +487,13 @@ describe("AI Operations dashboard", () => {
     expect(formatProcessingDuration(0)).toBe("—");
   });
 
-  it("renders processing details, stable errors, pagination and the real asset link", () => {
+  it("opens processing asset details in AI Operations without routing to Asset Explorer", () => {
     const markup = render("processing", { data: { ...data, usage: { ...data.usage, total: 0, items: [] } } });
     for (const value of ["AI processing jobs", "OpenAI", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Showing 26-50 of 60", "Số mục mỗi trang"]) expect(markup).toContain(value);
     expect(markup).toContain("asset-1");
-    expect(markup).toContain("asset=asset-1");
+    expect(markup).toContain('aria-label="View asset asset-1"');
+    expect(markup).toContain("Chi tiết");
+    expect(markup).not.toContain("/?details=1&amp;asset=asset-1");
     expect(markup).not.toContain(">analysis-1</code>");
   });
 
@@ -817,6 +819,9 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Pipeline asset pagination");
     expect(markup).toContain("pipeline-asset-thumbnail");
     expect(markup).toContain("/api/explorer/thumbnail/drive-item?provider=google-drive");
+    expect(markup).toContain('class="pipeline-asset-link"');
+    expect(markup).toContain("xem chi tiết ngay trong AI Operations");
+    expect(markup).not.toContain("/?details=1&amp;asset=asset-1");
     expect(markup).toContain("Sẵn sàng");
     expect(markup).toContain("Các giai đoạn đang hoạt động");
     expect(markup).toContain("Cần xử lý");

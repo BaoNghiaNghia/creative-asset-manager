@@ -13,6 +13,8 @@ const tabs: Array<{ id: AccessTab; label: string }> = [
 ];
 const emptyMembers: Page<AccessMember> = { items: [], page: 1, page_size: 25, total: 0 };
 const emptyFilters: AccessFilters = { query: "", status: "", role: "", page: 1 };
+export function memberAvatarLabel(name: string | null, email: string | null): string { const source=(name||email||"?").trim();const words=source.split(/\s+/).filter(Boolean);return (words.length>1?words[0][0]+words.at(-1)![0]:source.slice(0,2)).toUpperCase() }
+function MemberAvatar({ member }: { member: AccessMember }) { const [failed,setFailed]=useState(false);useEffect(()=>setFailed(false),[member.avatar_url]);return member.avatar_url&&!failed?<img className="access-member-avatar" src={member.avatar_url} alt="" referrerPolicy="no-referrer" onError={()=>setFailed(true)}/>:<span className="access-member-avatar fallback" role="img" aria-label={`Avatar của ${member.display_name||member.email||"thành viên"}`}>{memberAvatarLabel(member.display_name,member.email)}</span> }
 export type AccessPageState = "loading" | "ready" | "unauthenticated" | "no-tenant" | "permission-denied" | "stale-membership" | "error";
 
 export function AccessManagementPage() {
@@ -141,7 +143,7 @@ function MembersTab(props: ContentProps) {
     <label>Role<select value={filters.role} onChange={event => onFilters({ ...filters, role: event.target.value, page: 1 })}><option value="">All roles</option>{roles.map(role => <option key={role.id} value={role.key}>{role.name}</option>)}</select></label>
   </form></div>{canManageMembers && <InviteMemberForm tenantId={identity!.active_tenant_id} onDone={onMutation} onMessage={onMessage} />}</div>
     {!members.items.length ? <div className="access-empty"><h2>No members found</h2><p>Adjust the filters or invite an existing application user.</p></div> : <div className="access-table-wrap"><table className="access-table"><caption>Tenant members</caption><thead><tr><th>Member</th><th>Status</th><th>Roles</th><th>Joined</th><th>Actions</th></tr></thead><tbody>{members.items.map(member => <tr key={member.membership_id}>
-      <td><strong>{member.display_name || "Unnamed user"}</strong><small>{member.email || member.user_id}</small></td><td><StatusBadge status={member.status} /></td>
+      <td><div className="access-member-profile"><MemberAvatar member={member}/><span><strong>{member.display_name || "Unnamed user"}</strong><small>{member.email || member.user_id}</small></span></div></td><td><StatusBadge status={member.status} /></td>
       <td><div className="role-chips">{member.roles.length ? member.roles.map(role => <span key={role.id}>{role.name}{canManageRoles && <DangerousAction label="Remove" title="Remove role" description={`Remove ${role.name} from this member?`} onConfirm={reason => removeMemberRole(identity!.active_tenant_id, member.membership_id, role.id, reason).then(() => { onMessage("Role removed."); onMutation(); })} />}</span>) : <em>No roles</em>}</div></td>
       <td>{formatDate(member.joined_at)}</td><td><div className="member-action-stack"><MemberActions member={member} roles={roles} tenantId={identity!.active_tenant_id} canManageMembers={canManageMembers} canManageRoles={canManageRoles} onDone={onMutation} onMessage={onMessage} />{canManageMembers && member.roles.some(role => role.key === "viewer") && <ViewerFolderScopeEditor tenantId={identity!.active_tenant_id} membershipId={member.membership_id} onMessage={onMessage} />}</div></td>
     </tr>)}</tbody></table></div>}

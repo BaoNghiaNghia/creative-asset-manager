@@ -10,7 +10,7 @@ import {
 import { routeForPath } from "../AppRoute";
 import {
   AccessManagementContent, AccessManagementShell, accessStateForError,
-  groupPermissions, handleAccessTabKeyDown, safeTenantRoles,
+  groupPermissions, handleAccessTabKeyDown, memberAvatarLabel, safeTenantRoles,
 } from "./AccessManagementPage";
 
 const noop = () => undefined;
@@ -29,6 +29,7 @@ const role: AccessRole = {
 const customRole: AccessRole = { ...role, id: "role-2", key: "creative_reviewer", name: "Creative reviewer", system: false, protected: false };
 const member: AccessMember = {
   membership_id: "membership-1", user_id: "user-2", display_name: "Ari Artist", email: "ari@example.com",
+  avatar_url: "https://lh3.googleusercontent.com/ari-avatar",
   status: "active", roles: [{ id: role.id, key: role.key, name: role.name, system: true }],
   joined_at: "2026-07-21T00:00:00Z", last_login_at: "2026-07-22T00:00:00Z",
 };
@@ -60,7 +61,14 @@ describe("Access Management route and presentation", () => {
   it("renders the members list, filters, role assignment and dangerous actions", () => {
     const html = markup();
     for (const value of ["Tenant members", "Ari Artist", "ari@example.com", "active", "Tenant admin", "Invite member", "Assign role", "Suspend", "Remove", "Page 1 of 1"]) expect(html).toContain(value);
+    expect(html).toContain('class="access-member-avatar"');
+    expect(html).toContain('src="https://lh3.googleusercontent.com/ari-avatar"');
     expect(html).toContain("Member filters"); expect(html).toContain('aria-haspopup="dialog"');
+  });
+
+  it("keeps readable initials when a Google account has no avatar", () => {
+    expect(memberAvatarLabel("Bảo Nghĩa", "baonghia@example.com")).toBe("BN");
+    expect(memberAvatarLabel(null, "nghiabao@example.com")).toBe("NG");
   });
 
   it("offers folder scoping only for viewer memberships", () => {
