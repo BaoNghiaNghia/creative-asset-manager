@@ -277,6 +277,39 @@ def test_arbitrary_range_returns_cell_addressed_values_formulas_and_hashes():
     assert result["cells"][3]["formula"] == "=D7"
     assert all(len(item["evidence_hash"]) == 64 for item in result["cells"])
 
+def test_range_normalizes_lowercase_absolute_references_and_whitespace():
+    result = host().read_range(
+        {"sheet": "Arbitrary", "a1_range": " $c$7 : $d$8 ", "include_formulas": True}
+    )
+    assert result["range"] == "'Arbitrary'!C7:D8"
+    assert [item["cell"] for item in result["cells"]] == ["C7", "D7", "C8", "D8"]
+
+
+def test_correctable_tool_error_is_returned_to_agent_and_retry_can_succeed():
+    tools = host()
+    rejected = tools.execute(
+        "read_range", {"sheet": "Arbitrary", "a1_range": "A1:M"}
+    )
+    assert rejected == {
+        "accepted": False,
+        "error": "invalid_a1_range",
+        "instruction": "Correct the tool arguments or gather valid evidence, then retry.",
+    }
+    accepted = tools.execute(
+        "read_range", {"sheet": "Arbitrary", "a1_range": "C7:D8"}
+    )
+    assert accepted["range"] == "'Arbitrary'!C7:D8"
+    assert tools.tool_trace[0] == {
+        "tool": "read_range",
+        "accepted": False,
+        "error": "invalid_a1_range",
+    }
+
+
+def test_authorization_error_remains_terminal_through_tool_dispatch():
+    with pytest.raises(V4AgentSafetyError, match="sheet_not_authorized"):
+        host().execute("read_range", {"sheet": "Other", "a1_range": "A1"})
+
 
 @pytest.mark.parametrize(
     "arguments",

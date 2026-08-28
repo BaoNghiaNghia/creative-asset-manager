@@ -6,6 +6,7 @@ import re
 from copy import deepcopy
 from typing import Any, Mapping
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -19,9 +20,21 @@ from .contracts import (
 )
 
 
-_CELL_RE = re.compile(r"^(?P<column>[A-Z]+)(?P<row>[1-9][0-9]*)$")
+_CELL_RE = re.compile(r"^\$?(?P<column>[A-Za-z]+)\$?(?P<row>[1-9][0-9]*)$")
 _RANGE_RE = re.compile(
-    r"^(?P<sheet>'(?:[^']|'')+'|[^!]+)!(?P<start>[A-Z]+[1-9][0-9]*)(?::(?P<end>[A-Z]+[1-9][0-9]*))?$"
+    r"^(?P<sheet>'(?:[^']|'')+'|[^!]+)!"
+    r"(?P<start>\$?[A-Za-z]+\$?[1-9][0-9]*)"
+    r"(?::(?P<end>\$?[A-Za-z]+\$?[1-9][0-9]*))?$"
+)
+_CORRECTABLE_TOOL_ERRORS = frozenset(
+    {
+        "invalid_a1_range", "reversed_a1_range", "sheet_range_mismatch",
+        "invalid_cell", "cells_required", "missing_or_invalid_evidence",
+        "assessment_incomplete",
+        "grounded_assessment_required", "material_id_required",
+        "duplicate_or_conflicting_target", "target_out_of_grid",
+        "target_not_read", "formula_or_restricted_target", "blank_is_not_zero",
+    }
 )
 
 
@@ -52,11 +65,16 @@ def _cell_parts(value: str) -> tuple[int, int]:
     match = _CELL_RE.fullmatch(value)
     if match is None:
         raise V4AgentSafetyError("invalid_cell")
-    return _column_number(match.group("column")), int(match.group("row"))
+    return _column_number(match.group("column").upper()), int(match.group("row"))
+
+
+def _canonical_cell(value: str) -> str:
+    column, row = _cell_parts(value)
+    return f"{_column_name(column)}{row}"
 
 
 def _parse_range(sheet: str, a1_range: str) -> tuple[str, str, int, int, int, int]:
-    candidate = a1_range.strip()
+    candidate = re.sub(r"\s*([!:])\s*", r"\1", a1_range.strip())
     if "!" not in candidate:
         escaped = sheet.replace("'", "''")
         candidate = f"'{escaped}'!{candidate}"
@@ -66,13 +84,15 @@ def _parse_range(sheet: str, a1_range: str) -> tuple[str, str, int, int, int, in
     parsed_sheet = match.group("sheet")
     if parsed_sheet.startswith("'"):
         parsed_sheet = parsed_sheet[1:-1].replace("''", "'")
-    start = match.group("start")
-    end = match.group("end") or start
+    start = _canonical_cell(match.group("start"))
+    end = _canonical_cell(match.group("end") or match.group("start"))
     c1, r1 = _cell_parts(start)
     c2, r2 = _cell_parts(end)
     if c2 < c1 or r2 < r1:
         raise V4AgentSafetyError("reversed_a1_range")
-    return parsed_sheet, candidate, c1, r1, c2, r2
+    escaped_sheet = parsed_sheet.replace("'", "''")
+    qualified = f"'{escaped_sheet}'!{start}" + (f":{end}" if end != start else "")
+    return parsed_sheet, qualified, c1, r1, c2, r2
 
 
 def _evidence_hash(sheet: str, cell: str, raw_value: Any, formula: str | None) -> str:
@@ -506,7 +526,31 @@ class V4WorkbookToolHost:
         handler = handlers.get(name)
         if handler is None:
             raise V4AgentSafetyError("unknown_tool")
-        result = handler(arguments)
+        try:
+            result = handler(arguments)
+        except V4AgentLimitExceeded:
+            raise
+        except V4AgentSafetyError as exc:
+            error_code = str(exc)
+            if error_code not in _CORRECTABLE_TOOL_ERRORS:
+                raise
+            result = {
+                "accepted": False,
+                "error": error_code,
+                "instruction": "Correct the tool arguments or gather valid evidence, then retry.",
+            }
+            self.tool_trace.append({"tool": name, "accepted": False, "error": error_code})
+            return result
+        except ValidationError:
+            result = {
+                "accepted": False,
+                "error": "invalid_tool_arguments",
+                "instruction": "Correct the tool arguments to match the declared schema, then retry.",
+            }
+            self.tool_trace.append(
+                {"tool": name, "accepted": False, "error": "invalid_tool_arguments"}
+            )
+            return result
         trace: dict[str, Any] = {"tool": name}
         if name == "read_range":
             trace.update(
