@@ -285,7 +285,7 @@
 
 /* Keep the active Operations tab aligned with the product navigation treatment. */
 .ops-tabs button.active{
-  background:linear-gradient(90deg,#fff 0%,#fffdf1 42%,#fff1a8 100%);
+  background:linear-gradient(90deg, #fff, #edff93 50%, #ffffff);
   color:#234fb5;
 }
 
