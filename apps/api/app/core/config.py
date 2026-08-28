@@ -3,6 +3,7 @@ import json
 import re
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -78,6 +79,12 @@ class Settings(BaseSettings):
     DATABASE_POOL_TIMEOUT_SECONDS: float = 30.0
     DATABASE_POOL_RECYCLE_SECONDS: int = 1800
     DATABASE_CONNECT_TIMEOUT_SECONDS: int = 10
+    DATABASE_BACKUP_ENABLED: bool = False
+    DATABASE_BACKUP_DRIVE_FOLDER_ID: str = ""
+    DATABASE_BACKUP_RETENTION_DAYS: int = 21
+    DATABASE_BACKUP_MAX_FILES: int = 6
+    DATABASE_BACKUP_MIN_FREE_BYTES: int = 15 * 1024 * 1024 * 1024
+    DATABASE_BACKUP_STAGING_DIRECTORY: str = "/var/lib/creative-asset-manager/database-backup"
 
     UNIFIED_ASSET_INGESTION_ENABLED: bool = False
     CONTENT_DEDUP_ENABLED: bool = False
@@ -725,6 +732,16 @@ class Settings(BaseSettings):
             raise ValueError("Database pool and timeout settings must be positive")
         if self.DATABASE_MAX_OVERFLOW < 0:
             raise ValueError("DATABASE_MAX_OVERFLOW cannot be negative")
+        if self.DATABASE_BACKUP_MIN_FREE_BYTES <= 0:
+            raise ValueError("DATABASE_BACKUP_MIN_FREE_BYTES must be positive")
+        if self.DATABASE_BACKUP_RETENTION_DAYS <= 0:
+            raise ValueError("DATABASE_BACKUP_RETENTION_DAYS must be positive")
+        if self.DATABASE_BACKUP_MAX_FILES <= 0:
+            raise ValueError("DATABASE_BACKUP_MAX_FILES must be positive")
+        if not Path(self.DATABASE_BACKUP_STAGING_DIRECTORY).is_absolute():
+            raise ValueError("DATABASE_BACKUP_STAGING_DIRECTORY must be absolute")
+        if self.DATABASE_BACKUP_ENABLED and not self.DATABASE_BACKUP_DRIVE_FOLDER_ID.strip():
+            raise ValueError("DATABASE_BACKUP_DRIVE_FOLDER_ID is required when database backup is enabled")
         if self.PERSISTENT_AUTH_ENABLED:
             import base64
             versions = set()
