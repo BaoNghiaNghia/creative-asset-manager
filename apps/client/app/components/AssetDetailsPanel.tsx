@@ -142,20 +142,21 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
       </>}
       {section === "history" && data && <><p>{data.analysis_total} analysis attempt(s)</p><div className="analysis-history">{data.analysis_history.map(entry => <AnalysisHistoryCard key={String(entry.id)} analysis={entry} showCost={data.can_administer} />)}</div></>}
       {section === "jobs" && data && <><p>{data.job_total} related job(s)</p>{data.pipelines.map(entry => <Detail key={String(entry.id)} title={"Pipeline · " + String(entry.state)} value={entry} />)}{data.jobs.map(job => <div className="job-row" key={String(job.id)}><div><b>{String(job.job_type)}</b><small>{String(job.status)} · {String(job.attempt_count)}/{String(job.max_attempts)}</small></div>{job.cancelable && data.can_administer && <button disabled={busy === "cancel_job"} onClick={() => action("cancel_job", { job_id: job.id })}>Cancel</button>}</div>)}</>}
-      {data?.can_administer && <div className="asset-operations">
-        <div className="asset-actions-label"><span>Operator tools</span><b>Asset actions</b></div>
-        <button className="asset-action-primary" disabled={Boolean(busy)} onClick={() => { setForceAnalysis(false); setAnalysisOpen(true); }}>Analyze metadata</button>
-        {onMove && <button disabled={Boolean(busy)} onClick={onMove}>Move</button>}
-        {onDelete && <button disabled={Boolean(busy)} onClick={onDelete}>Delete</button>}
+      {data?.can_administer && <div className="asset-operations" aria-label="Asset actions">
+        <div className="asset-action-toolbar">
+        <button className="asset-action-primary" disabled={Boolean(busy)} onClick={() => { setForceAnalysis(false); setAnalysisOpen(true); }}><AssetActionIcon name="analyze" /><span>Analyze metadata</span></button>
+        {onMove && <button disabled={Boolean(busy)} onClick={onMove}><AssetActionIcon name="move" /><span>Move</span></button>}
+        {onDelete && <button className="asset-action-danger" disabled={Boolean(busy)} onClick={onDelete}><AssetActionIcon name="delete" /><span>Delete</span></button>}
         <details className="asset-action-menu">
-          <summary>More actions</summary>
+          <summary><AssetActionIcon name="more" /><span>More actions</span></summary>
           <div>
-            <button disabled={Boolean(busy)} onClick={() => { setForceAnalysis(true); setAnalysisOpen(true); }}>Force reanalysis</button>
-            <button disabled={Boolean(busy)} onClick={() => action("rebuild_projection")}>Rebuild projection</button>
-            <button disabled={Boolean(busy)} onClick={() => action("reindex")}>Reindex asset</button>
-            <button disabled={Boolean(busy)} onClick={() => action("retry_failed_stage")}>Retry failed stage</button>
+            <button disabled={Boolean(busy)} onClick={() => { setForceAnalysis(true); setAnalysisOpen(true); }}><AssetActionIcon name="analyze" /><span>Force reanalysis</span></button>
+            <button disabled={Boolean(busy)} onClick={() => action("rebuild_projection")}><AssetActionIcon name="rebuild" /><span>Rebuild projection</span></button>
+            <button disabled={Boolean(busy)} onClick={() => action("reindex")}><AssetActionIcon name="index" /><span>Reindex asset</span></button>
+            <button disabled={Boolean(busy)} onClick={() => action("retry_failed_stage")}><AssetActionIcon name="retry" /><span>Retry failed stage</span></button>
           </div>
         </details>
+        </div>
       </div>}
     </div>}
   </aside>{data && assetId && <AnalyzeMetadataDialog
@@ -170,6 +171,21 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
     onClose={() => setAnalysisOpen(false)}
     onSubmitted={() => void load().catch(reason => setCoreDetailsError(reason.message))}
   />}</>;
+}
+
+type AssetActionIconName = "analyze" | "move" | "delete" | "more" | "rebuild" | "index" | "retry";
+
+export function AssetActionIcon({ name }: { name: AssetActionIconName }) {
+  const paths: Record<AssetActionIconName, string> = {
+    analyze: "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15z",
+    move: "M5 9l-3 3 3 3M2 12h14M12 5l3-3 3 3M15 2v14",
+    delete: "M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5",
+    more: "M5 12h.01M12 12h.01M19 12h.01",
+    rebuild: "M19 8a7 7 0 10.5 8M19 3v5h-5",
+    index: "M4 6l8-3 8 3-8 3-8-3zM4 12l8 3 8-3M4 17l8 3 8-3",
+    retry: "M20 7v5h-5M19 12a7 7 0 11-2-5",
+  };
+  return <svg className="asset-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>;
 }
 
 function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFolder, locationNodes, locationStatus, locationLoading, canManageContent }: { item: Asset | null; data: AssetDetails | null; metadata?: AssetMetadata; provider: Asset["provider"]; onPreview?: (item: Asset) => void; onOpenFolder?: (id: string, ancestors: Array<{ id: string; name: string }>) => void; locationNodes: Array<{ id: string; name: string }>; locationStatus: "available" | "unavailable" | null; locationLoading: boolean; canManageContent: boolean }) {

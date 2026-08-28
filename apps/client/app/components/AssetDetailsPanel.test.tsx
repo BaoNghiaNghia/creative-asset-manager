@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset, AssetMetadata } from "../types";
-import { AssetDetailsPanel, VideoAnalysisDetails, buildActivity, formatBytes, formatVideoTimestamp, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl, resolveLocation } from "./AssetDetailsPanel";
+import { AssetActionIcon, AssetDetailsPanel, VideoAnalysisDetails, buildActivity, formatBytes, formatVideoTimestamp, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl, resolveLocation } from "./AssetDetailsPanel";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 
 const item: Asset = {
@@ -27,6 +27,14 @@ const metadata: AssetMetadata = {
 const noop = () => undefined;
 
 describe("Asset details inspector", () => {
+  it("renders compact action icons before operator labels", () => {
+    for (const name of ["analyze", "move", "delete", "more", "rebuild", "index", "retry"] as const) {
+      const markup = renderToStaticMarkup(<AssetActionIcon name={name} />);
+      expect(markup).toContain('class="asset-action-icon"');
+      expect(markup).toContain('aria-hidden="true"');
+    }
+  });
+
   it("renders a friendly Drive-style preview and file properties without an internal asset", () => {
     const markup = renderToStaticMarkup(<AssetDetailsPanel item={item} metadata={metadata} onClose={noop} onPreview={noop} />);
     for (const value of ["details", "activity", item.name, "Image · image/jpeg", "31 MB", "Resolving location...", "Google Drive", "Open preview", "Open in Google Drive", "public", "indexed"]) {
