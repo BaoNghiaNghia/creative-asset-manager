@@ -23,7 +23,7 @@ from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.source_sync.model import SourceSyncRunModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel
-from app.modules.video_search.model import VideoAnalysisRunModel
+from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
 
 
 class AiOperationsApiTest(unittest.TestCase):
@@ -351,6 +351,63 @@ class AiOperationsApiTest(unittest.TestCase):
             self.assertEqual(filtered[key].json()["recent_video"]["total"], 0, key)
         self.assertEqual(filtered["matching"].status_code, 200)
         self.assertEqual(filtered["matching"].json()["recent_video"]["total"], 26)
+
+    def test_media_dashboard_video_detail_is_tenant_scoped_and_returns_analysis(self):
+        with self.factory() as session:
+            source = session.get(SourceAssetModel, self.source_asset_id)
+            source.mime_type = "video/mp4"
+            source.filename = "clip.mp4"
+            source.size_bytes = 1234
+            run = VideoAnalysisRunModel(
+                tenant_id="tenant-a", source_asset_id=self.source_asset_id,
+                source_fingerprint="d" * 64, video_metadata_profile_id="video-profile",
+                metadata_profile="video", metadata_profile_version="v1",
+                prompt_version="p1", analysis_version="a1", ai_provider="gemini",
+                ai_model="gemini-flash", idempotency_key="v" * 64,
+                status="completed", chunk_seconds=30, total_chunks=1,
+                completed_chunks=1, duration_ms=65_000,
+                summary_json={"summary": "Video summary"},
+            )
+            session.add(run)
+            session.flush()
+            run_id = run.id
+            session.add(VideoAnalysisChunkModel(
+                tenant_id="tenant-a", run_id=run.id, chunk_index=0,
+                source_start_ms=0, source_end_ms=65_000, status="completed",
+                metadata_json={"segments": [{
+                    "start_ms": 1_000, "end_ms": 5_000,
+                    "summary": "Opening scene", "visual_description": "A jacket",
+                    "speech": "Hello", "confidence": 0.9,
+                }]},
+            ))
+            other_source = ExternalSourceModel(
+                tenant_id="tenant-b", source_key="other-drive", source_type="google_drive",
+            )
+            session.add(other_source)
+            session.flush()
+            hidden = SourceAssetModel(
+                tenant_id="tenant-b", external_source_id=other_source.id,
+                external_asset_id="hidden-video", filename="hidden.mp4", mime_type="video/mp4",
+            )
+            session.add(hidden)
+            session.commit()
+            hidden_id = hidden.id
+
+        with patch("app.modules.ai_operations.router.SessionLocal", self.factory):
+            response = self.client.get(
+                f"/api/v1/admin/ai-operations/media-dashboard/videos/{self.source_asset_id}"
+            )
+            denied = self.client.get(
+                f"/api/v1/admin/ai-operations/media-dashboard/videos/{hidden_id}"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        document = response.json()
+        self.assertEqual(document["filename"], "clip.mp4")
+        self.assertEqual(document["analysis_run_id"], run_id)
+        self.assertEqual(document["best_match"]["summary"], "Opening scene")
+        self.assertEqual(document["matches"][0]["confidence"], 0.9)
+        self.assertEqual(denied.status_code, 404)
 
     def test_media_dashboard_resolves_video_location_from_synced_folders(self):
         with self.factory() as session:

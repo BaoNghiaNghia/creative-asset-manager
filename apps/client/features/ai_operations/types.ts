@@ -149,11 +149,29 @@ export type AiOpsVideoAnalytics = {
   cost_available: boolean;
 };
 
+export type AiOpsVideoMatch = {
+  start_ms: number; end_ms: number; summary: string; visual_description: string;
+  speech: string; confidence: number; score: number;
+};
+export type AiOpsVideoDetail = {
+  source_asset_id: string; analysis_run_id: string; filename: string; mime_type: string;
+  duration_ms: number | null; source_type: string | null; external_source_id: string | null;
+  external_asset_id: string | null; web_url: string | null; thumbnail_url: string | null;
+  location: string | null; size_bytes: number | null; modified_at: string | null;
+  score: number; best_match: AiOpsVideoMatch; matches: AiOpsVideoMatch[];
+};
+export type AiOpsRecentVideo = {
+  job_id: string; source_asset_id: string; asset_id: string | null; filename: string | null;
+  mime_type?: string | null; location: string | null; thumbnail_url: string | null;
+  duration_ms: number | null; completed_chunks?: number; total_chunks?: number; status: string;
+  attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null;
+};
+
 export type AiOpsMediaDashboard = {
   image: AiOpsMediaStage; video: AiOpsMediaStage; video_indexing: AiOpsMediaStage;
   pipeline: { image: AiOpsMediaStage[]; video: AiOpsMediaStage[] };
   analytics: AiOpsVideoAnalytics;
-  recent_video: Page<{ job_id: string; source_asset_id: string; asset_id: string | null; filename: string | null; mime_type?: string | null; location: string | null; thumbnail_url: string | null; duration_ms: number | null; completed_chunks?: number; total_chunks?: number; status: string; attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null }>;
+  recent_video: Page<AiOpsRecentVideo>;
   workers: AiOpsWorkerStatus[]; generated_at: string;
 };
 

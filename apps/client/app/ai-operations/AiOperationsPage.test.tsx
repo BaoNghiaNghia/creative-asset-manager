@@ -222,7 +222,7 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(media?.video.queued).toBe(0);
     expect(media?.video_indexing.completed).toBe(0);
     const legacy = normalizeMediaDashboard({
-      recent_video: [{ job_id: "video-job", source_asset_id: "asset", asset_id: "logical-asset", filename: "clip.mp4", mime_type: "video/mp4", duration_ms: 65_000, location: "Google Drive / Campaigns", thumbnail_url: "/api/explorer/thumbnail/asset", completed_chunks: 2, total_chunks: 5, status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:00:00Z", error_code: null }],
+      recent_video: [{ job_id: "video-job", source_asset_id: "asset", asset_id: null, filename: "clip.mp4", mime_type: "video/mp4", duration_ms: 65_000, location: "Google Drive / Campaigns", thumbnail_url: "/api/explorer/thumbnail/asset", completed_chunks: 2, total_chunks: 5, status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-08-21T00:00:00Z", error_code: null }],
     } as unknown as AiOpsDashboardData["media"]);
     expect(legacy?.recent_video.total).toBe(1);
     expect(legacy?.recent_video.items[0]?.filename).toBe("clip.mp4");
@@ -246,6 +246,7 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(processingMarkup).toContain("video-duration-badge");
     expect(processingMarkup).toContain('aria-label="Mở chi tiết clip.mp4"');
     expect(processingMarkup).toContain("video-processing-title-button");
+    expect(processingMarkup).not.toContain("<b>clip.mp4</b>");
     expect(() => renderToStaticMarkup(<AiOperationsContent
       data={{ ...data, media }}
       filters={filters}

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
-from app.modules.video_search.model import VideoAnalysisRunModel
+from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
 
 IMAGE_JOB_TYPE = "asset_analyze"
 VIDEO_JOB_TYPE = "video_analyze"
@@ -299,6 +299,98 @@ class MediaDashboardService:
     def __init__(self, session: Session, settings: Settings):
         self.session = session
         self.settings = settings
+
+    def video_detail(self, tenant_id: str, source_asset_id: str) -> dict | None:
+        """Return one tenant-scoped video item for the existing detail drawer."""
+        source = self.session.scalar(select(SourceAssetModel).where(
+            SourceAssetModel.tenant_id == tenant_id,
+            SourceAssetModel.id == source_asset_id,
+            SourceAssetModel.deleted_at.is_(None),
+        ))
+        if source is None:
+            return None
+        external = self.session.scalar(select(ExternalSourceModel).where(
+            ExternalSourceModel.tenant_id == tenant_id,
+            ExternalSourceModel.id == source.external_source_id,
+        ))
+        if external is None:
+            return None
+        run = self.session.scalar(
+            select(VideoAnalysisRunModel)
+            .where(
+                VideoAnalysisRunModel.tenant_id == tenant_id,
+                VideoAnalysisRunModel.source_asset_id == source.id,
+            )
+            .order_by(
+                VideoAnalysisRunModel.updated_at.desc(),
+                VideoAnalysisRunModel.id.desc(),
+            )
+            .limit(1)
+        )
+        matches: list[dict] = []
+        if run is not None:
+            chunks = self.session.scalars(
+                select(VideoAnalysisChunkModel)
+                .where(
+                    VideoAnalysisChunkModel.tenant_id == tenant_id,
+                    VideoAnalysisChunkModel.run_id == run.id,
+                    VideoAnalysisChunkModel.status == "completed",
+                )
+                .order_by(VideoAnalysisChunkModel.chunk_index)
+            )
+            for chunk in chunks:
+                metadata = chunk.metadata_json if isinstance(chunk.metadata_json, dict) else {}
+                segments = metadata.get("segments")
+                if not isinstance(segments, list):
+                    continue
+                for segment in segments:
+                    if not isinstance(segment, dict):
+                        continue
+                    start_ms, end_ms = segment.get("start_ms"), segment.get("end_ms")
+                    if not isinstance(start_ms, int) or not isinstance(end_ms, int) or start_ms < 0 or end_ms <= start_ms:
+                        continue
+                    confidence = segment.get("confidence")
+                    matches.append({
+                        "start_ms": start_ms,
+                        "end_ms": end_ms,
+                        "summary": segment.get("summary") if isinstance(segment.get("summary"), str) else "",
+                        "visual_description": segment.get("visual_description") if isinstance(segment.get("visual_description"), str) else "",
+                        "speech": segment.get("speech") if isinstance(segment.get("speech"), str) else "",
+                        "confidence": float(confidence) if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else 0.0,
+                        "score": 0.0,
+                    })
+        matches.sort(key=lambda value: (value["start_ms"], value["end_ms"]))
+        fallback = {
+            "start_ms": 0,
+            "end_ms": max(1, int(_video_duration_ms(source, run) or 1)),
+            "summary": (run.summary_json or {}).get("summary", "") if run is not None else "",
+            "visual_description": "",
+            "speech": "",
+            "confidence": 0.0,
+            "score": 0.0,
+        }
+        metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+        thumbnail_url = None
+        if external.source_type == "google_drive":
+            thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
+        return {
+            "source_asset_id": source.id,
+            "analysis_run_id": run.id if run is not None else "",
+            "filename": source.filename or "Video",
+            "mime_type": source.mime_type or "video/mp4",
+            "duration_ms": _video_duration_ms(source, run),
+            "source_type": external.source_type,
+            "external_source_id": source.external_source_id,
+            "external_asset_id": source.external_asset_id,
+            "web_url": metadata.get("web_url") or metadata.get("webViewLink"),
+            "thumbnail_url": thumbnail_url or metadata.get("thumbnail_url"),
+            "location": _video_locations(self.session, tenant_id, [source], {external.id: external}).get(source.id),
+            "size_bytes": source.size_bytes,
+            "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None,
+            "score": 0.0,
+            "best_match": matches[0] if matches else fallback,
+            "matches": matches,
+        }
 
     async def snapshot(
         self,

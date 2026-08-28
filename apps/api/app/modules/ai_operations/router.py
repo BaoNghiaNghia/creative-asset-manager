@@ -337,6 +337,26 @@ async def media_dashboard(
     )
 
 
+@router.get("/media-dashboard/videos/{source_asset_id}")
+def media_dashboard_video_detail(
+    source_asset_id: str,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+):
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    with SessionLocal() as session:
+        document = MediaDashboardService(
+            session, get_settings()
+        ).video_detail(target, source_asset_id)
+    if document is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "video_not_found", "message": "Video is unavailable."},
+        )
+    return document
+
+
 @router.get("/summary")
 def summary(filters: AiOperationsFilters = Depends(common_filters)):
     return _cached_read("summary", filters, lambda repository, value: repository.summary(value))

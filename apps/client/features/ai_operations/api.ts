@@ -1,6 +1,7 @@
 import type {
   AiOpsDaily, AiOpsDashboardData, AiOpsFailure, AiOpsFilters, AiOpsJob,
   AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page, PipelineSnapshot, AiOpsMediaDashboard,
+  AiOpsVideoDetail,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -52,6 +53,12 @@ async function read<T>(url: string, fetcher: Fetcher, parentSignal?: AbortSignal
     throw new AiOperationsApiError(detail || `Request failed (${response.status})`, response.status);
   }
   return response.json() as Promise<T>;
+}
+
+export function fetchAiOperationsVideoDetail(
+  sourceAssetId: string, fetcher: Fetcher = fetch, signal?: AbortSignal,
+): Promise<AiOpsVideoDetail> {
+  return read("/api/v1/admin/ai-operations/media-dashboard/videos/" + encodeURIComponent(sourceAssetId), fetcher, signal);
 }
 
 async function settleDashboardCalls(
