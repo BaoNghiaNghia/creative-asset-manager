@@ -992,11 +992,13 @@ export default function App() {
         <div><b>{activeUploadCount ? `Uploading ${activeUploadCount} file${activeUploadCount === 1 ? "" : "s"}` : failedUploadCount ? "Uploads need attention" : "Uploads complete"}</b><small>{explorer.uploads.length} file{explorer.uploads.length === 1 ? "" : "s"} in this upload</small></div>
         <button onClick={() => explorer.clearUploads?.()} aria-label="Close upload progress">×</button>
       </header>
-      {explorer.uploads.map(upload => <div className={"upload-row upload-" + upload.status} key={upload.id}>
-        <span className="upload-file-icon" aria-hidden="true"></span>
-        <span className="upload-file-name" title={upload.name}>{upload.name}</span>
-        <span className="upload-status-icon" aria-label={upload.status === "failed" ? upload.error || "Upload failed." : upload.status === "completed" ? "Completed" : "Uploading..."}>{upload.status === "failed" ? "!" : ""}</span>
-      </div>)}
+      <div className="upload-list" role="list">
+        {explorer.uploads.map(upload => <div className={"upload-row upload-" + upload.status} key={upload.id} role="listitem">
+          <span className="upload-file-icon" aria-hidden="true"></span>
+          <span className="upload-file-name" title={upload.name}>{upload.name}</span>
+          <span className="upload-status-icon" aria-label={upload.status === "failed" ? upload.error || "Upload failed." : upload.status === "completed" ? "Completed" : "Uploading..."}>{upload.status === "failed" ? "!" : ""}</span>
+        </div>)}
+      </div>
     </aside>}
     {confirm && createPortal(<div
       className="confirm-dialog-backdrop"
