@@ -24,7 +24,7 @@ exact file locations from current source at implementation time.
 
 ## DB-BACKUP-1 -- Core backup service
 
-Implement configuration, 15 GiB staging preflight, a single-run OS lock,
+Implement configuration, 1.5 GiB staging preflight, a single-run OS lock,
 custom-format `pg_dump`, `pg_restore --list` verification, streaming SHA-256
 and MD5, and safe local cleanup. Do not make Google Drive mutations in
 real-service tests in this phase. Failures must not create a successful-looking

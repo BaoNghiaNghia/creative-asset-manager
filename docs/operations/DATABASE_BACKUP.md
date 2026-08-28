@@ -62,7 +62,7 @@ Drive upload or remote verification fails, keep the locally verified dump in
 staging for an operator-controlled retry or reconciliation. Never silently
 delete that only known-good copy.
 
-Before starting, require at least **15 GiB** (`16106127360` bytes) free in
+Before starting, require at least **1.5 GiB** (`1610612736` bytes) free in
 staging. A later implementation may compare database size too, but this hard
 floor remains. If it fails, `BACKUP_STARTED=NO`; do not risk filling the VPS.
 
@@ -195,7 +195,7 @@ DATABASE_BACKUP_ENABLED=false
 DATABASE_BACKUP_DRIVE_FOLDER_ID=
 DATABASE_BACKUP_RETENTION_DAYS=21
 DATABASE_BACKUP_MAX_FILES=6
-DATABASE_BACKUP_MIN_FREE_BYTES=16106127360
+DATABASE_BACKUP_MIN_FREE_BYTES=1610612736
 DATABASE_BACKUP_STAGING_DIRECTORY=/var/lib/creative-asset-manager/database-backup
 ```
 
@@ -263,7 +263,7 @@ SCHEDULE_FRIDAY_22=YES
 TIMEZONE_ASIA_HO_CHI_MINH=YES
 PG_DUMP_CUSTOM_FORMAT=YES
 LOCAL_STAGING=YES
-MIN_FREE_STAGING_GIB=15
+MIN_FREE_STAGING_GIB=1.5
 FULL_BACKUP_IN_MEMORY=NO
 GOOGLE_DRIVE_RESUMABLE_UPLOAD=YES
 TENANT_USER_DRIVE_OAUTH_FOR_BACKUP=NO

@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     DATABASE_BACKUP_DRIVE_FOLDER_ID: str = ""
     DATABASE_BACKUP_RETENTION_DAYS: int = 21
     DATABASE_BACKUP_MAX_FILES: int = 6
-    DATABASE_BACKUP_MIN_FREE_BYTES: int = 15 * 1024 * 1024 * 1024
+    DATABASE_BACKUP_MIN_FREE_BYTES: int = 1536 * 1024 * 1024
     DATABASE_BACKUP_STAGING_DIRECTORY: str = "/var/lib/creative-asset-manager/database-backup"
 
     UNIFIED_ASSET_INGESTION_ENABLED: bool = False

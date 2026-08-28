@@ -21,7 +21,7 @@ def settings(**overrides):
         "DATABASE_BACKUP_DRIVE_FOLDER_ID": "backup-folder",
         "DATABASE_BACKUP_RETENTION_DAYS": 21,
         "DATABASE_BACKUP_MAX_FILES": 6,
-        "DATABASE_BACKUP_MIN_FREE_BYTES": 16106127360,
+        "DATABASE_BACKUP_MIN_FREE_BYTES": 1610612736,
         "DATABASE_BACKUP_STAGING_DIRECTORY": "/var/lib/creative-asset-manager/database-backup",
         "DATABASE_URL": "postgresql+psycopg://user:secret@db/creative_assets",
         "GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID": "managed-root",

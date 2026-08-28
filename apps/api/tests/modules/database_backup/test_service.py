@@ -85,7 +85,7 @@ class DatabaseBackupServiceTest(unittest.TestCase):
         self.assertEqual(settings.DATABASE_BACKUP_DRIVE_FOLDER_ID, "")
         self.assertEqual(settings.DATABASE_BACKUP_RETENTION_DAYS, 21)
         self.assertEqual(settings.DATABASE_BACKUP_MAX_FILES, 6)
-        self.assertEqual(settings.DATABASE_BACKUP_MIN_FREE_BYTES, 15 * 1024 * 1024 * 1024)
+        self.assertEqual(settings.DATABASE_BACKUP_MIN_FREE_BYTES, 1536 * 1024 * 1024)
         self.assertEqual(
             settings.DATABASE_BACKUP_STAGING_DIRECTORY,
             "/var/lib/creative-asset-manager/database-backup",
