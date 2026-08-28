@@ -21,6 +21,7 @@ from app.modules.processing.model import (
     PROCESSING_JOB_QUEUED_STATUSES, PROCESSING_JOB_RUNNING_STATUSES,
     PROCESSING_JOB_TERMINAL_STATUSES, ProcessingJobModel,
 )
+from app.modules.pipeline.model import AssetPipelineModel
 
 
 LOCAL_RATE_LIMIT_DEFERRED_CODES = frozenset({"ai_model_rate_limited"})
@@ -384,10 +385,12 @@ class AiOperationsRepository(BaseRepository):
             select(func.count()).select_from(ProcessingJobModel).where(*conditions)
         ) or 0)
         analysis_for_job = aliased(AssetAiAnalysisModel)
+        pipeline_for_job = aliased(AssetPipelineModel)
         rows = self.session.execute(
             select(
                 ProcessingJobModel,
                 analysis_for_job.asset_id.label("analysis_asset_id"),
+                pipeline_for_job.asset_id.label("pipeline_asset_id"),
             ).outerjoin(
                 analysis_for_job,
                 and_(
@@ -395,14 +398,21 @@ class AiOperationsRepository(BaseRepository):
                     analysis_for_job.tenant_id == ProcessingJobModel.tenant_id,
                     analysis_for_job.id == ProcessingJobModel.entity_id,
                 ),
+            ).outerjoin(
+                pipeline_for_job,
+                and_(
+                    ProcessingJobModel.entity_type == "asset_pipeline",
+                    pipeline_for_job.tenant_id == ProcessingJobModel.tenant_id,
+                    pipeline_for_job.id == ProcessingJobModel.entity_id,
+                ),
             ).where(*conditions)
             .order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc())
             .offset((page - 1) * page_size).limit(page_size)
         ).all()
         resolved_asset_ids = {
-            str(analysis_asset_id or job.entity_id)
-            for job, analysis_asset_id in rows
-            if analysis_asset_id or job.entity_type == "asset"
+            str(analysis_asset_id or pipeline_asset_id or job.entity_id)
+            for job, analysis_asset_id, pipeline_asset_id in rows
+            if analysis_asset_id or pipeline_asset_id or job.entity_type == "asset"
         }
         asset_presentations: dict[str, dict[str, str | None]] = {}
         if resolved_asset_ids:
@@ -450,8 +460,9 @@ class AiOperationsRepository(BaseRepository):
                 and retry_at > now
             )
         items = []
-        for job, analysis_asset_id in rows:
-            asset_id = str(analysis_asset_id or job.entity_id) if analysis_asset_id or job.entity_type == "asset" else None
+        for job, analysis_asset_id, pipeline_asset_id in rows:
+            resolved_asset_id = analysis_asset_id or pipeline_asset_id
+            asset_id = str(resolved_asset_id or job.entity_id) if resolved_asset_id or job.entity_type == "asset" else None
             presentation = asset_presentations.get(asset_id or "", {})
             items.append({
                 "id": job.id, "job_type": job.job_type,

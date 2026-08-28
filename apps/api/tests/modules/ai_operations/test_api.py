@@ -662,6 +662,35 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(usage["total"], 2)
         self.assertNotIn("provider_request_id", str(usage))
 
+    def test_jobs_resolve_asset_pipeline_thumbnail_filename_and_mime(self):
+        with self.factory() as session:
+            session.add(AssetPipelineModel(
+                id="pipeline-analysis", tenant_id="tenant-a",
+                correlation_id="pipeline-analysis", origin_type="ingestion_item",
+                origin_id="pipeline-analysis", source_asset_id=self.source_asset_id,
+                asset_id=self.asset_id, analysis_id=self.analysis_ids[0],
+                state="completed",
+            ))
+            session.add(ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_pipeline", entity_id="pipeline-analysis",
+                idempotency_key="pipeline-analysis-job", provider_key="gemini", provider_scope="ai",
+                status="completed", payload_json={"analysis_id": self.analysis_ids[0]},
+                created_at=self.now - timedelta(seconds=2),
+                completed_at=self.now - timedelta(seconds=2),
+            ))
+            session.commit()
+
+        jobs = self.get("/api/v1/admin/ai-operations/jobs", page=1, page_size=10).json()
+        pipeline_job = next(item for item in jobs["items"] if item["entity_id"] == "pipeline-analysis")
+        self.assertEqual(pipeline_job["asset_id"], self.asset_id)
+        self.assertEqual(pipeline_job["filename"], "inventory-photo.avif")
+        self.assertEqual(pipeline_job["mime_type"], "image/avif")
+        self.assertEqual(
+            pipeline_job["thumbnail_url"],
+            f"/api/explorer/thumbnail/drive-item?provider=google-drive&external_source_id={self.external_source_id}",
+        )
+
     def test_summary_uses_canonical_current_job_states_and_latest_replacement(self):
         today_start = self.now.replace(hour=0, minute=0, second=0, microsecond=0)
         with self.factory() as session:
