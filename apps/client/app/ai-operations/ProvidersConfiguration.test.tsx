@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AiOpsConfiguration, AiOpsProviderBreakdown } from "../../features/ai_operations";
 import { fetchAiOperationsConfiguration, getManagedStorageOAuthStatus, updateAiBudget, updateAiProvider } from "../../features/ai_operations";
 import { ConfigurationForm, ProviderCards, replaceProviderConfiguration } from "./ProvidersConfiguration";
+import { ManagedStorageCredentialStatus } from "./ManagedStorageCredentialSettings";
 
 const configuration: AiOpsConfiguration = {
   tenant_id: "tenant-a",
@@ -87,7 +88,7 @@ describe("AI Operations provider and configuration tabs", () => {
     const elevated = { ...configuration, permissions: { ...configuration.permissions, platform_admin: true } };
     const elevatedMarkup = renderToStaticMarkup(<ProviderCards configuration={elevated} metrics={metrics} onChanged={noop} onReload={noop} />);
     expect(elevatedMarkup).toContain("Google Drive Managed Storage");
-    expect(elevatedMarkup).toContain("Loading Managed Storage credential");
+    expect(elevatedMarkup).toContain("Đang tải thông tin kết nối");
     const tenantMarkup = renderToStaticMarkup(<ProviderCards configuration={configuration} metrics={metrics} onChanged={noop} onReload={noop} />);
     expect(tenantMarkup).not.toContain("Google Drive Managed Storage");
   });
@@ -97,6 +98,19 @@ describe("AI Operations provider and configuration tabs", () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
     await expect(getManagedStorageOAuthStatus(fetcher)).resolves.toEqual(payload);
     expect(fetcher).toHaveBeenCalledWith("/api/auth/google/managed-storage/status", expect.any(Object));
+  });
+
+  it("renders a compact and actionable Managed Storage status", () => {
+    const status = { root_folder_configured: true, connected: false, source: "environment" as const, account_email: null, updated_at: null, reconnect_required: true };
+    const markup = renderToStaticMarkup(<ManagedStorageCredentialStatus status={status} />);
+    for (const value of [
+      "Cần kết nối lại",
+      "Kết nối Google Drive",
+      "Cần thao tác:",
+      "Biến môi trường (legacy)",
+      "Nhận diện bằng Folder ID",
+    ]) expect(markup).toContain(value);
+    expect(markup).toContain("/api/auth/google/connect-managed-storage");
   });
 
   it("shows platform-only global emergency action to platform administrators", () => {
