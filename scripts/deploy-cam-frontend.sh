@@ -52,6 +52,9 @@ COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify "${REF:-HEAD}^{commit}")"
 RELEASE_ID="$COMMIT"
 DIST="$SOURCE_DIR/apps/client/dist"
 [[ -f "$DIST/index.html" && -f "$DIST/build-info.json" ]] || die "Committed frontend dist is incomplete."
+for required_asset in favicon.svg favicon.ico favicon-32x32.png apple-touch-icon.png app-icon-192.png app-icon-512.png site.webmanifest; do
+  [[ -s "$DIST/$required_asset" ]] || die "Committed frontend icon is missing or empty: $required_asset"
+done
 python3 - "$DIST/build-info.json" <<'PY'
 import json
 import re
@@ -93,6 +96,8 @@ if ! nginx -t || ! systemctl reload nginx; then
 fi
 HOST="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"TRUSTED_HOSTS\"].split(\",\")[0].strip())")"
 PUBLIC_URL="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"PUBLIC_APP_URL\"].rstrip(\"/\"))")"
-for path in / /build-info.json /live /ready /version; do curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL$path" >/dev/null; done
+for path in / /build-info.json /favicon.svg /favicon.ico /favicon-32x32.png /apple-touch-icon.png /app-icon-192.png /app-icon-512.png /site.webmanifest /live /ready /version; do
+  curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL$path" >/dev/null
+done
 curl --fail --silent --show-error --max-time 10 -H "Host: $HOST" "http://127.0.0.1:8000/version" >/dev/null
 printf "Frontend release %s activated.\n" "$RELEASE_ID"

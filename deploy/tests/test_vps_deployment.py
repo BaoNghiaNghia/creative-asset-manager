@@ -35,6 +35,9 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             "set -Eeuo pipefail", 'DIST="$SOURCE_DIR/apps/client/dist"',
             'CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"',
             "Committed frontend dist is incomplete.", "build-info.json",
+            "favicon.svg", "favicon.ico", "favicon-32x32.png",
+            "apple-touch-icon.png", "app-icon-192.png", "app-icon-512.png",
+            "site.webmanifest",
             "nginx -t", "systemctl reload nginx", "--rollback",
             'http://127.0.0.1:8000/version" >/dev/null',
         ):
