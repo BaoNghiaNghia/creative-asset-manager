@@ -30,3 +30,4 @@ def downgrade() -> None:
         batch.drop_constraint("ck_creative_ai_credentials_provider", type_="check")
         batch.create_check_constraint(
             "ck_creative_ai_credentials_provider", "provider = 'gemini'"
+        )
