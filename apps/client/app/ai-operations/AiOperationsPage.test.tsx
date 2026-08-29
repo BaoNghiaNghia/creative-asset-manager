@@ -292,6 +292,7 @@ describe("AI Operations media dashboard compatibility", () => {
     />);
 
     expect(markup).toContain("Daily processing");
+    expect(markup).toContain('class="ops-kpis ops-kpis-video"');
     expect(markup).toContain("Processed today");
     expect(markup).toContain("Completed video analyses today (UTC)");
     expect(markup).toContain(">7<");

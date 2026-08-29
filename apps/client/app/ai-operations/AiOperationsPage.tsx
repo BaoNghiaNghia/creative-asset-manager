@@ -725,7 +725,7 @@ function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashb
     ] : []),
   ];
   return <>
-    <section className="ops-kpis" aria-label={media + " AI processing summary"}>{cards.map(card => <article key={card.label} className={"ops-kpi ops-kpi-" + card.tone}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value.toLocaleString()}</strong><small>{card.detail}</small></article>)}</section>
+    <section className={`ops-kpis${media === "video" ? " ops-kpis-video" : ""}`} aria-label={media + " AI processing summary"}>{cards.map(card => <article key={card.label} className={"ops-kpi ops-kpi-" + card.tone}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value.toLocaleString()}</strong><small>{card.detail}</small></article>)}</section>
   </>;
 }
 

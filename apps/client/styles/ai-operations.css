@@ -677,3 +677,7 @@
 
 .video-thumbnail-with-duration{position:relative;display:block;width:96px;height:60px;flex:0 0 auto;overflow:hidden;border:1px solid #d9e3f0;border-radius:7px;background:#f2f5f9}.video-thumbnail-with-duration>img,.video-thumbnail-with-duration>.video-recent-placeholder{width:100%;height:100%;border:0;border-radius:0;object-fit:cover}.video-duration-badge{position:absolute;right:4px;bottom:4px;display:inline-flex;align-items:center;gap:4px;border-radius:5px;padding:3px 6px;background:rgba(16,24,40,.82);color:#fff;font-size:11px;font-weight:750;line-height:1;letter-spacing:.01em;box-shadow:0 1px 3px rgba(0,0,0,.25);white-space:nowrap}.video-duration-badge>span{font-size:12px}.video-processing-title>.video-thumbnail-with-duration{width:80px;height:50px}
 .video-step-status{display:flex;min-width:124px;align-items:flex-start;flex-direction:column;gap:5px}.video-step-status small{color:#7a8799;font-size:10px;white-space:nowrap}
+
+/* Keep the complete Video AI summary on one row; narrow viewports scroll it horizontally. */
+.ops-kpis.ops-kpis-video{grid-template-columns:repeat(7,minmax(150px,1fr));overflow-x:auto;overscroll-behavior-inline:contain;padding-bottom:2px;scrollbar-width:thin}
+.ops-kpis.ops-kpis-video>.ops-kpi{min-width:150px}
