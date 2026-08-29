@@ -41,6 +41,7 @@ STAGE_POLICY = {
     "video_search_index": "search_v2_enabled",
     "metadata_sidecar_export": "sidecar_enabled",
     "retention_cleanup": "pipeline_enabled",
+    "managed_storage_cleanup": "pipeline_enabled",
 }
 
 

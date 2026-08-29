@@ -153,6 +153,25 @@ class ProcessingPolicyTest(unittest.TestCase):
             service.update("tenant", {"pipeline_enabled": True, "download_enabled": True}, actor_id="admin")
             self.assertTrue(service.effective("tenant").effective["download_enabled"])
 
+    def test_managed_storage_cleanup_is_claimable_for_enabled_tenant(self):
+        self.policy("tenant")
+        cleanup = self.job(
+            "tenant",
+            "managed-storage-cleanup",
+            kind="managed_storage_cleanup",
+            provider=None,
+            scope=None,
+        )
+
+        claimed = self.claim(
+            "image-worker",
+            ("managed_storage_cleanup",),
+            worker_role="image",
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, cleanup)
+
     def test_video_analyze_claims_under_ai_policy_and_respects_ai_capacity(self):
         self.policy("tenant", total=2, ai=1)
         video = self.job("tenant", "video", kind="video_analyze", provider="gemini", scope="video")
