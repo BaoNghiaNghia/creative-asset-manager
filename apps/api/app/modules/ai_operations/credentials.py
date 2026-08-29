@@ -76,18 +76,18 @@ class CreativeAiCredentialRepository:
             raise CreativeCredentialError("creative_ai_credential_decryption_failed")
         return CreativeGeminiCredential(secret, row.secret_fingerprint, "configuration", row.secret_last4, row.encrypted_secret, row.key_version)
 
-    def replace(self, tenant_id: str, *, secret: str, label: str | None = None, updated_by: str | None = None, last_test_status: str = "VALID") -> CreativeCredentialMetadata:
+    def replace(self, tenant_id: str, *, secret: str, provider: str = "gemini", label: str | None = None, updated_by: str | None = None, last_test_status: str = "VALID") -> CreativeCredentialMetadata:
         if not secret or secret.strip() != secret or len(secret) > 512:
             raise ValueError("creative_ai_credential_invalid")
         if label is not None and len(label.strip()) > 255:
             raise ValueError("creative_ai_credential_label_invalid")
         if self.cipher is None:
             raise CreativeCredentialError("creative_credential_encryption_unavailable")
-        encrypted = self.cipher.encrypt(secret, aad=self._aad(tenant_id, "gemini"))
+        encrypted = self.cipher.encrypt(secret, aad=self._aad(tenant_id, provider))
         assert encrypted is not None
-        row = self.session.scalar(select(CreativeAiCredentialModel).where(CreativeAiCredentialModel.tenant_id == tenant_id, CreativeAiCredentialModel.provider == "gemini"))
+        row = self.session.scalar(select(CreativeAiCredentialModel).where(CreativeAiCredentialModel.tenant_id == tenant_id, CreativeAiCredentialModel.provider == provider))
         if row is None:
-            row = CreativeAiCredentialModel(tenant_id=tenant_id, provider="gemini")
+            row = CreativeAiCredentialModel(tenant_id=tenant_id, provider=provider)
             self.session.add(row)
         row.encrypted_secret, row.key_version = encrypted.ciphertext, encrypted.key_version
         row.secret_fingerprint, row.secret_last4 = hashlib.sha256(secret.encode()).hexdigest(), secret[-4:]
@@ -95,8 +95,8 @@ class CreativeAiCredentialRepository:
         self.session.flush()
         return self._metadata(row)
 
-    def audit(self, tenant_id: str, *, actor_id: str | None, action: str, result: str, previous_fingerprint: str | None = None, new_fingerprint: str | None = None) -> None:
-        self.session.add(CreativeAiCredentialAuditModel(tenant_id=tenant_id, provider="gemini", actor_id=actor_id, action=action, result=result, previous_fingerprint=previous_fingerprint, new_fingerprint=new_fingerprint))
+    def audit(self, tenant_id: str, *, actor_id: str | None, action: str, result: str, provider: str = "gemini", previous_fingerprint: str | None = None, new_fingerprint: str | None = None) -> None:
+        self.session.add(CreativeAiCredentialAuditModel(tenant_id=tenant_id, provider=provider, actor_id=actor_id, action=action, result=result, previous_fingerprint=previous_fingerprint, new_fingerprint=new_fingerprint))
         self.session.flush()
 
 

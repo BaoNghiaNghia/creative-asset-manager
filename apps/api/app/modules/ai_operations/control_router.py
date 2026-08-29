@@ -123,6 +123,80 @@ def replace_creative_gemini_credential(
     _CREDENTIAL_LOGGER.info("creative_gemini_credential_replace tenant_id=%s actor_id=%s provider=gemini result=VALID", target, principal.user_id)
     return _creative_credential_view(metadata, source="configuration")
 
+
+@router.get("/configuration/credentials/gemini-video")
+def get_video_gemini_credential(
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+):
+    target = _tenant(principal, tenant_id)
+    try:
+        with SessionLocal() as session:
+            metadata = CreativeAiCredentialRepository(
+                session, None
+            ).get_metadata(target, provider="gemini_video")
+    except SQLAlchemyError as exc:
+        raise _creative_credential_error(exc) from exc
+    result = _creative_credential_view(metadata, source="configuration" if metadata else "unavailable")
+    result["provider"] = "gemini_video"
+    return result
+
+
+@router.post("/configuration/credentials/gemini-video/test")
+def test_video_gemini_credential(
+    body: CreativeGeminiCredentialRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    target = _tenant(principal, tenant_id)
+    if body.api_key is not None:
+        result = validate_gemini_api_key(
+            body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10)
+        )
+    else:
+        try:
+            with SessionLocal() as session:
+                credential = CreativeAiCredentialRepository(
+                    session, creative_credential_cipher(get_settings())
+                ).get_active_secret(target, provider="gemini_video")
+            result = validate_gemini_api_key(credential.secret, timeout_seconds=10) if credential else "PROVIDER_UNAVAILABLE"
+        except CreativeCredentialError:
+            result = "PROVIDER_UNAVAILABLE"
+    return {"provider": "gemini_video", "status": result}
+
+
+@router.put("/configuration/credentials/gemini-video")
+def replace_video_gemini_credential(
+    body: CreativeGeminiCredentialRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    if body.api_key is None:
+        raise HTTPException(422, detail={"code": "video_gemini_credential_required"})
+    result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+    if result != "VALID":
+        raise HTTPException(422, detail={"code": "video_gemini_credential_invalid", "status": result})
+    target = _tenant(principal, tenant_id)
+    try:
+        with SessionLocal() as session:
+            repository = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings()))
+            metadata = repository.replace(
+                target, secret=body.api_key, provider="gemini_video", label=body.label,
+                updated_by=principal.user_id,
+            )
+            repository.audit(
+                target, provider="gemini_video", actor_id=principal.user_id,
+                action="credential_replaced", result="VALID",
+                new_fingerprint=metadata.secret_fingerprint,
+            )
+            session.commit()
+    except (CreativeCredentialError, SQLAlchemyError) as exc:
+        raise _creative_credential_error(exc) from exc
+    result = _creative_credential_view(metadata, source="configuration")
+    result["provider"] = "gemini_video"
+    return result
+
+
 def _cache() -> TenantPolicyCache:
     global _policy_cache
     ttl = get_settings().PROCESSING_POLICY_CACHE_TTL_SECONDS

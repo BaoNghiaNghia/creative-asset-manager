@@ -58,6 +58,20 @@ class CreativeCredentialRouterTest(unittest.TestCase):
   self.assertEqual(response.status_code,200); self.assertNotIn(NEW,response.text)
   with self.sessions() as s:
    self.assertEqual(CreativeAiCredentialRepository(s,creative_credential_cipher(self.settings)).get_active_secret("tenant-a").secret,NEW); self.assertEqual(s.get(OAuthConnectionModel,"oauth-a").access_token_ciphertext,"access"); self.assertEqual(s.scalar(select(func.count(CreativeAiCredentialAuditModel.id))),2)
+ def test_video_credential_is_separate_masked_and_testable(self):
+  with patch.object(control_router,"validate_gemini_api_key",return_value="VALID"):
+   saved=self.request(self.pmanage,"PUT","/api/v1/admin/ai-operations/configuration/credentials/gemini-video",json={"api_key":NEW,"label":"Video project"})
+  self.assertEqual(saved.status_code,200); self.assertEqual(saved.json()["provider"],"gemini_video"); self.assertNotIn(NEW,saved.text)
+  viewed=self.request(self.pread,"GET","/api/v1/admin/ai-operations/configuration/credentials/gemini-video")
+  self.assertEqual(viewed.status_code,200); self.assertTrue(viewed.json()["masked_key"].endswith("2222"))
+  with patch.object(control_router,"validate_gemini_api_key",return_value="VALID") as validate:
+   tested=self.request(self.pmanage,"POST","/api/v1/admin/ai-operations/configuration/credentials/gemini-video/test",json={})
+  self.assertEqual(tested.json(),{"provider":"gemini_video","status":"VALID"}); validate.assert_called_once_with(NEW,timeout_seconds=10)
+  with self.sessions() as s:
+   repository=CreativeAiCredentialRepository(s,creative_credential_cipher(self.settings))
+   self.assertEqual(repository.get_active_secret("tenant-a",provider="gemini_video").secret,NEW)
+   self.assertIsNone(repository.get_metadata("tenant-a",provider="gemini"))
+
  def test_expected_errors_are_structured_and_do_not_leak(self):
   self.settings.CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=""
   with patch.object(control_router,"validate_gemini_api_key",return_value="VALID"):

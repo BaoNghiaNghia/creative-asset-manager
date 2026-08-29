@@ -173,10 +173,11 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
           <button className={provider.paused ? "primary" : "danger"} type="button" disabled={pauseDisabled} onClick={() => { setConfirmProvider(provider.id); setReason(""); }}>{provider.paused ? "Resume provider" : "Pause provider"}</button>
         </div>
         {provider.id === "gemini" && <section className="ops-provider-gemini-credentials" aria-label="Google Gemini credential settings">
-          <header className="ops-provider-gemini-credentials-header"><div><h4>Gemini credentials</h4><p>Hai API key độc lập: một cho Creative AI và một cho Inventory. Thay đổi một key không ảnh hưởng key còn lại.</p></div><span className="ops-card-kicker">Credentials</span></header>
+          <header className="ops-provider-gemini-credentials-header"><div><h4>Gemini credentials</h4><p>Ba API key độc lập cho Creative AI, Video AI và Inventory. Thay đổi một key không ảnh hưởng key còn lại.</p></div><span className="ops-card-kicker">Credentials</span></header>
           <div className="ops-provider-gemini-credentials-grid">
             <CreativeGeminiCredentialSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
             <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} embedded />
+            <CreativeGeminiCredentialSettings kind="video" canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
           </div>
         </section>}
         {confirmProvider === provider.id && <div className="ops-confirm" role="dialog" aria-label={`${provider.paused ? "Resume" : "Pause"} ${provider.label}`}>
