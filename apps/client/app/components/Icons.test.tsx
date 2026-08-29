@@ -1,5 +1,14 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { amazonAsin, etsyListingId, sourceFolderBrand } from "./Icons";
+import { amazonAsin, BrandIcon, etsyListingId, sourceFolderBrand } from "./Icons";
+
+describe("BrandIcon", () => {
+  it("renders the inline product mark without depending on a remote image", () => {
+    const markup = renderToStaticMarkup(<BrandIcon />);
+    expect(markup).toContain('class="brand-logo"');
+    expect(markup).not.toContain("<img");
+  });
+});
 
 describe("sourceFolderBrand", () => {
   it("recognizes Etsy folders case-insensitively", () => {

@@ -1,18 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Creative Asset Manager">
-  <defs>
-    <linearGradient id="bg" x1="8" y1="5" x2="57" y2="61" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#172033"/>
-      <stop offset="1" stop-color="#080d19"/>
-    </linearGradient>
-    <linearGradient id="spark" x1="43" y1="16" x2="57" y2="35" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#6b8cff"/>
-      <stop offset="1" stop-color="#315fd7"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
-  <path d="M13 20a5 5 0 0 1 5-5h10l5 5h14a5 5 0 0 1 5 5v4H23a6 6 0 0 0-6 6v15h-4V20Z" fill="#fff"/>
-  <rect x="20" y="27" width="35" height="27" rx="6" fill="#fff"/>
-  <circle cx="29" cy="36" r="3" fill="#101827"/>
-  <path d="m25 49 8-9 6 6 4-4 8 7H25Z" fill="#101827"/>
-  <path d="M50 17c1.3 5 2.6 6.3 7.6 7.6-5 1.3-6.3 2.6-7.6 7.6-1.3-5-2.6-6.3-7.6-7.6 5-1.3 6.3-2.6 7.6-7.6Z" fill="url(#spark)" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/>
+  <path d="M5 18A7 7 0 0 1 12 11h13l7 7h17a8 8 0 0 1 8 8v24a8 8 0 0 1-8 8H13a8 8 0 0 1-8-8V18Z" fill="#315fd7"/>
+  <rect x="14" y="28" width="34" height="22" rx="5" fill="#fff"/>
+  <circle cx="23" cy="36" r="3" fill="#315fd7"/>
+  <path d="m18 46 7-7 5 5 4-4 9 6H18Z" fill="#315fd7"/>
+  <path d="M49 5c1.1 4.7 2.3 5.9 7 7-4.7 1.1-5.9 2.3-7 7-1.1-4.7-2.3-5.9-7-7 4.7-1.1 5.9-2.3 7-7Z" fill="#6f8dff" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>
 </svg>

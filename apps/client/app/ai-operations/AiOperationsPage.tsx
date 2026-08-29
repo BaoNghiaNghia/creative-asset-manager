@@ -9,6 +9,7 @@ import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
 import { InventoryDailyTab } from "./InventoryDailyTab";
 import { AssetDetailsPanel } from "../components/AssetDetailsPanel";
+import { BrandIcon } from "../components/Icons";
 import type { Asset } from "../types";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 import { fetchAiOperationsConfiguration, setTenantAiPaused, setVideoAiPaused, type AiOpsConfiguration } from "../../features/ai_operations";
@@ -193,7 +194,7 @@ function updateUrl(filters: AiOpsFilters, tab: AiOpsTab, refreshSeconds: AutoRef
 export function AiOperationsShell({ children }: { children: React.ReactNode }) {
   return <main className="ops-shell">
     <aside className="ops-sidebar">
-      <div className="brand"><b>C</b><span><strong>Creative assets</strong><small>Operations console</small></span></div>
+      <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>Operations console</small></span></div>
       <p>WORKSPACE</p>
       <a href="/">▧ Asset Explorer</a>
       <a href="/ai-operations" className="active" aria-current="page">◉ AI Operations</a>

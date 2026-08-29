@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
 import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
 import { DriveTreeNode } from "./DriveTree";
-import { DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
+import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 
 type Props = {
   provider: Provider;
@@ -70,7 +70,7 @@ export function Sidebar({
       <SidebarIcon open />
     </button>
     <div className="brand">
-      <b>C</b>
+      <b><BrandIcon /></b>
       <span><strong>Creative assets</strong><small>{auth.user?.email || "Google Drive · SharePoint"}</small></span>
     </div>
     <div className="workspace-navigation" aria-label="Workspace navigation">

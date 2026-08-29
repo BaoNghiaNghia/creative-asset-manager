@@ -6,6 +6,7 @@ import {
   type AccessFilters, type AccessIdentity, type AccessMember, type AccessPermission,
   type AccessRole, type Page,
 } from "../../features/access_management";
+import { BrandIcon } from "../components/Icons";
 
 export type AccessTab = "members" | "roles" | "my-access";
 const tabs: Array<{ id: AccessTab; label: string }> = [
@@ -72,7 +73,7 @@ export function AccessManagementPage() {
 
 export function AccessManagementShell({ children, identity = null }: { children: React.ReactNode; identity?: AccessIdentity | null }) {
   return <main className="access-shell"><aside className="access-sidebar">
-    <div className="brand"><b>C</b><span><strong>Creative assets</strong><small>Workspace settings</small></span></div>
+    <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>Workspace settings</small></span></div>
     <p>WORKSPACE</p>
     <a href="/">▧ Asset Explorer</a>
     {identity?.permissions.includes("ai_operations.read") && <a href="/ai-operations">◉ AI Operations</a>}

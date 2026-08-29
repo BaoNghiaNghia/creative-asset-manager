@@ -1,5 +1,15 @@
 import amazonLogoUrl from "../../assets/logos/amazon-logo.svg";
 
+export function BrandIcon() {
+  return <svg className="brand-logo" viewBox="0 0 40 40" aria-hidden="true">
+    <path className="brand-logo-folder" d="M4 11.5A4.5 4.5 0 0 1 8.5 7h8l4 4H31a5 5 0 0 1 5 5v16a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V11.5Z" />
+    <rect className="brand-logo-photo" x="9" y="17" width="22" height="15" rx="3" />
+    <circle className="brand-logo-sun" cx="15" cy="22" r="2.2" />
+    <path className="brand-logo-landscape" d="m11.5 29 5-5 3.5 3.5 2.8-2.8 5.7 4.3h-17Z" />
+    <path className="brand-logo-spark" d="M31.5 5.5c.7 3 1.5 3.8 4.5 4.5-3 .7-3.8 1.5-4.5 4.5-.7-3-1.5-3.8-4.5-4.5 3-.7 3.8-1.5 4.5-4.5Z" />
+  </svg>;
+}
+
 export function ChevronIcon({ expanded = false }: { expanded?: boolean }) {
   return <svg className={"chevron-icon " + (expanded ? "expanded" : "")} viewBox="0 0 16 16" aria-hidden="true">
     <path d="m6 3.5 4.5 4.5L6 12.5" />
