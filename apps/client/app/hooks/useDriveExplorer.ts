@@ -708,6 +708,22 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   }
 
   async function deleteItem(itemId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "?provider=" + encodeURIComponent(provider) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "DELETE" }); if (!response.ok) throw Error("Unable to delete file"); await refreshCurrentFolder(); }
+  async function renameItem(itemId: string, requestedName: string) {
+    const name = requestedName.trim();
+    if (!name) throw Error("File or folder name cannot be empty.");
+    const response = await fetch(
+      "/api/explorer/items/" + encodeURIComponent(itemId)
+        + "?provider=" + encodeURIComponent(provider)
+        + "&name=" + encodeURIComponent(name)
+        + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""),
+      { method: "PATCH" },
+    );
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw Error(apiErrorMessage(payload, "Unable to rename this item."));
+    const renamed = payload as { name?: string };
+    await refreshCurrentFolder();
+    return renamed.name || name;
+  }
   async function moveItem(itemId: string, destinationParentId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/move?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "POST" }); if (!response.ok) throw Error("Unable to move file"); await refreshCurrentFolder(); }
   async function copyItems(itemIds: string[], destinationParentId: string) {
     for (const itemId of itemIds) {
@@ -1063,6 +1079,6 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     rateAsset,
     applyRating,
     clearSelection: () => setSelected(new Set()),
-    uploads, uploadFiles, createFolder, createTextFile, deleteItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
+    uploads, uploadFiles, createFolder, createTextFile, deleteItem, renameItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
   };
 }

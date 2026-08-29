@@ -28,6 +28,7 @@ describe("AssetContextMenu", () => {
       onOpen={noop}
       onDownload={noop}
       onCopy={noop}
+      onRename={noop}
       onMove={noop}
       onDetails={noop}
       onDelete={noop}
@@ -36,6 +37,7 @@ describe("AssetContextMenu", () => {
     expect(markup).toContain("Open preview");
     expect(markup).toContain("Download");
     expect(markup).toContain("Make a copy");
+    expect(markup).toContain("Rename");
     expect(markup).toContain("Move to");
     expect(markup).toContain("File information");
     expect(markup).toContain("Move to trash");

@@ -46,6 +46,9 @@ class GoogleDriveSourceAdapter(BaseSourceAdapter):
     async def delete_file(self, item_id: str):
         await self.client.delete_file(item_id)
 
+    async def rename_file(self, item_id: str, name: str):
+        return await self.client.rename_file(item_id, name)
+
     async def move_file(self, item_id: str, destination_parent_id: str):
         return await self.client.move_file(item_id, destination_parent_id)
 

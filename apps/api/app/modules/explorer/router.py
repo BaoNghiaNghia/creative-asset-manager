@@ -957,6 +957,76 @@ async def delete_item(
     )
     return {"deleted": True, "id": item_id}
 
+
+@router.patch("/items/{item_id}")
+async def rename_item(
+    request: Request,
+    item_id: str,
+    name: str = Query(..., min_length=1, max_length=255),
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    external_source_id: str | None = Query(None),
+):
+    if provider != "google-drive":
+        raise HTTPException(status_code=501, detail="Rename is not supported for this provider yet.")
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise HTTPException(status_code=422, detail="File or folder name cannot be empty.")
+    token, _account, tenant_id, resolved_source_id = await _source_context(
+        request,
+        provider,
+        session,
+        principal,
+        external_source_id,
+        require_drive_write_scope=True,
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail="Connect Google Drive before renaming files.")
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(
+        tenant_id=tenant_id,
+        membership_id=principal.membership_id,
+        roles=principal.effective_roles,
+        external_source_id=resolved_source_id,
+    )
+    try:
+        async with create_source_provider(provider, token) as client:
+            current = await client.get_node(item_id)
+            _require_viewer_folder_scope(
+                scope_service,
+                tenant_id=tenant_id,
+                access=access,
+                folder_id=current.parent_id or "root",
+                allow_root=False,
+            )
+            node = await client.rename_file(item_id, normalized_name)
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        raise _provider_error(exc, "Google Drive could not rename this item.") from exc
+    viewer_folder_hierarchy_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
+    viewer_folder_remote_parent_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
+    location_breadcrumb_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
+    )
+    invalidate_drive_listings(
+        tenant_id=tenant_id,
+        external_source_id=resolved_source_id,
+        parent_id=current.parent_id or "root",
+    )
+    return {
+        "id": node.id,
+        "name": node.name,
+        "kind": node.kind,
+        "parent_id": node.parent_id,
+    }
+
+
 @router.post("/items/{item_id}/copy")
 async def copy_item(
     request: Request, item_id: str, destination_parent_id: str = Query(...), provider: Provider = Query("google-drive"),

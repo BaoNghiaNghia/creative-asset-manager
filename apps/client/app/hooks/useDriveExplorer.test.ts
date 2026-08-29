@@ -172,3 +172,12 @@ describe("breadcrumb sidebar hydration", () => {
     );
   });
 });
+
+describe("rename mutation", () => {
+  it("renames through the tenant-scoped Explorer endpoint and refreshes the folder", () => {
+    expect(driveExplorerSource).toContain('async function renameItem(itemId: string, requestedName: string)');
+    expect(driveExplorerSource).toContain('{ method: "PATCH" }');
+    expect(driveExplorerSource).toContain('"&name=" + encodeURIComponent(name)');
+    expect(driveExplorerSource).toContain("await refreshCurrentFolder()");
+  });
+});

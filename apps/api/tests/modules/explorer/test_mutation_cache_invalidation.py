@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from app.modules.explorer.router import create_folder, delete_item, move_item
+from app.modules.explorer.router import create_folder, delete_item, move_item, rename_item
 from app.modules.explorer.schema import AssetNode
 
 
@@ -49,6 +49,9 @@ class FakeMutationProvider:
         return self.current.model_copy(
             update={"id": item_id, "parent_id": destination_parent_id}
         )
+
+    async def rename_file(self, item_id, name):
+        return self.current.model_copy(update={"id": item_id, "name": name})
 
 
 def _principal():
@@ -149,6 +152,46 @@ def test_move_invalidates_source_listings_for_old_and_new_parent():
                 external_source_id="source-a",
             )
         invalidate.assert_called_once_with(
+            tenant_id="tenant-a",
+            external_source_id="source-a",
+        )
+
+    asyncio.run(scenario())
+
+
+def test_rename_updates_name_and_invalidates_parent_listing_and_breadcrumbs():
+    async def scenario():
+        provider = FakeMutationProvider()
+        invalidate = Mock()
+        breadcrumb_invalidate = Mock()
+        patches = _context_patches(provider, invalidate)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patch(
+                "app.modules.explorer.router.location_breadcrumb_cache.invalidate",
+                breadcrumb_invalidate,
+            ),
+        ):
+            result = await rename_item(
+                SimpleNamespace(),
+                "file-a",
+                name="  renamed.png  ",
+                provider="google-drive",
+                session=SimpleNamespace(),
+                principal=_principal(),
+                external_source_id="source-a",
+            )
+        assert result["name"] == "renamed.png"
+        invalidate.assert_called_once_with(
+            tenant_id="tenant-a",
+            external_source_id="source-a",
+            parent_id="old-parent",
+        )
+        breadcrumb_invalidate.assert_called_once_with(
             tenant_id="tenant-a",
             external_source_id="source-a",
         )

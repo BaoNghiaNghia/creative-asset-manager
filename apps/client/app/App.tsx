@@ -526,6 +526,31 @@ export default function App() {
     });
   }
 
+  function renameContextItem(item: Asset) {
+    const requested = window.prompt(
+      item.kind === "folder" ? "Enter a new folder name" : "Enter a new file name",
+      item.name,
+    );
+    if (requested === null) return;
+    const name = requested.trim();
+    if (!name) {
+      setShortcutNotice({ tone: "error", message: "File or folder name cannot be empty." });
+      return;
+    }
+    if (name === item.name) return;
+    void explorer.renameItem(item.id, name)
+      .then(renamedName => {
+        setPreviewItem(current => current?.id === item.id ? { ...current, name: renamedName } : current);
+        setDetailsItem(current => current?.id === item.id ? { ...current, name: renamedName } : current);
+        if (explorer.query.trim()) explorer.retrySearch();
+        setShortcutNotice({ tone: "success", message: "Renamed to “" + renamedName + "”." });
+      })
+      .catch(reason => setShortcutNotice({
+        tone: "error",
+        message: reason instanceof Error ? reason.message : "Could not rename this item.",
+      }));
+  }
+
   function deleteContextItem(item: Asset) {
     setConfirm({
       message: "Move this item to Google Drive trash?",
@@ -952,6 +977,7 @@ export default function App() {
         link.click();
       }}
       onCopy={() => copyContextItem(assetContextMenu.item)}
+      onRename={() => renameContextItem(assetContextMenu.item)}
       onMove={() => moveContextItem(assetContextMenu.item)}
       onDetails={() => openDetails(assetContextMenu.item)}
       onDelete={() => deleteContextItem(assetContextMenu.item)}

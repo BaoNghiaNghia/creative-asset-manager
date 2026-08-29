@@ -90,6 +90,28 @@ class GoogleDriveUploadMimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.kwargs["headers"]["Content-Type"], "text/plain")
         self.assertEqual(request.kwargs["content"], b"updated content")
 
+    async def test_rename_file_patches_only_drive_name(self):
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {
+            "id": "folder-id",
+            "name": "Renamed folder",
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": ["parent-id"],
+        }
+        http_client = MagicMock()
+        http_client.patch = AsyncMock(return_value=response)
+        drive_client = object.__new__(GoogleDriveClient)
+        drive_client.client = http_client
+
+        renamed = await drive_client.rename_file("folder-id", "Renamed folder")
+
+        self.assertEqual(renamed.name, "Renamed folder")
+        request = http_client.patch.await_args
+        self.assertEqual(request.args[0], "/files/folder-id")
+        self.assertEqual(request.kwargs["json"], {"name": "Renamed folder"})
+        self.assertTrue(request.kwargs["params"]["supportsAllDrives"])
+
 
 class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):
     async def test_follows_redirects_for_authenticated_media(self):

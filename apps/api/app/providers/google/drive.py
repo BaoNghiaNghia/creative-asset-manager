@@ -128,6 +128,15 @@ class GoogleDriveClient:
     async def delete_file(self, item_id: str):
         response = await self.client.delete(f"/files/{item_id}", params={"supportsAllDrives": "true"}); response.raise_for_status()
 
+    async def rename_file(self, item_id: str, name: str):
+        response = await self.client.patch(
+            f"/files/{item_id}",
+            params={"supportsAllDrives": "true", "fields": FIELDS},
+            json={"name": name},
+        )
+        response.raise_for_status()
+        return map_drive_file(response.json())
+
     async def move_file(self, item_id: str, destination_parent_id: str):
         current = await self.client.get(f"/files/{item_id}", params={"fields": "id,parents", "supportsAllDrives": "true"}); current.raise_for_status(); old=",".join(current.json().get("parents", [])); response=await self.client.patch(f"/files/{item_id}", params={"addParents": destination_parent_id, "removeParents": old, "supportsAllDrives": "true", "fields": FIELDS}); response.raise_for_status(); return map_drive_file(response.json())
 
