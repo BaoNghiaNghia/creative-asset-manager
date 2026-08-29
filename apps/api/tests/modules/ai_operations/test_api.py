@@ -23,7 +23,7 @@ from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.source_sync.model import SourceSyncRunModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel
-from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
+from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel, VideoMetadataProfileModel
 
 
 class AiOperationsApiTest(unittest.TestCase):
@@ -503,6 +503,45 @@ class AiOperationsApiTest(unittest.TestCase):
             self.assertEqual(len(profiles), 2)
             self.assertEqual(sum(profile.active for profile in profiles), 1)
             self.assertEqual(next(profile for profile in profiles if profile.active).prompt_template, "Describe image {{ asset }} with searchable visual attributes.")
+
+    def test_video_prompt_template_is_exposed_versioned_and_audited(self):
+        with self.factory() as session:
+            session.add(VideoMetadataProfileModel(
+                tenant_id="tenant-a", profile_name="video-search", profile_version="1",
+                prompt_template="Analyze video scenes", optional_json_schema={"type": "object"},
+                search_config_json={"segments": True}, active=True,
+            ))
+            session.commit()
+        with patch("app.modules.ai_operations.control_router.SessionLocal", self.factory):
+            initial = self.client.get("/api/v1/admin/ai-operations/configuration")
+            self.assertEqual(initial.status_code, 200)
+            current = initial.json()["video_prompt_template"]
+            self.assertEqual(current["profile_name"], "video-search")
+            self.assertEqual(current["prompt_template"], "Analyze video scenes")
+            updated = self.client.patch(
+                "/api/v1/admin/ai-operations/configuration/video-prompt-template",
+                json={
+                    "prompt_template": "Analyze video scenes, visible text, and audible speech.",
+                    "reason": "improve video evidence extraction",
+                },
+            )
+        self.assertEqual(updated.status_code, 200)
+        document = updated.json()["video_prompt_template"]
+        self.assertEqual(document["profile_name"], "video-search")
+        self.assertNotEqual(document["id"], current["id"])
+        self.assertEqual(updated.json()["audit"]["action"], "video_prompt_template_updated")
+        with self.factory() as session:
+            profiles = list(session.scalars(select(VideoMetadataProfileModel).where(
+                VideoMetadataProfileModel.tenant_id == "tenant-a",
+                VideoMetadataProfileModel.profile_name == "video-search",
+            )))
+            self.assertEqual(len(profiles), 2)
+            self.assertEqual(sum(profile.active for profile in profiles), 1)
+            active = next(profile for profile in profiles if profile.active)
+            self.assertEqual(active.prompt_template, "Analyze video scenes, visible text, and audible speech.")
+            self.assertEqual(active.optional_json_schema, {"type": "object"})
+            self.assertEqual(active.search_config_json, {"segments": True})
+
 
     def test_metadata_prompt_template_provides_a_draft_and_creates_first_profile(self):
         with self.factory() as session:

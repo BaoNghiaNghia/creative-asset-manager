@@ -326,6 +326,74 @@ class AssetProcessingStatusTest(unittest.TestCase):
             {"pipeline-indexed": "indexed"},
         )
 
+    def test_shared_asset_pipeline_failure_does_not_contaminate_completed_source(self) -> None:
+        completed_source, asset = self.add_item("completed-copy", "8")
+        failed_source = self.assets.upsert_source_asset(
+            tenant_id=TENANT,
+            external_source_id=self.source.id,
+            external_asset_id="failed-copy",
+            filename="failed-copy.jpg",
+            mime_type="image/jpeg",
+        )
+        self.assets.link_source_asset(
+            tenant_id=TENANT,
+            asset_id=asset.id,
+            source_asset_id=failed_source.id,
+        )
+        completed_pipeline = AssetPipelineModel(
+            tenant_id=TENANT,
+            correlation_id="completed-copy-pipeline",
+            origin_type="source_asset",
+            origin_id=completed_source.id,
+            source_asset_id=completed_source.id,
+            asset_id=asset.id,
+            state="indexed",
+        )
+        failed_pipeline = AssetPipelineModel(
+            tenant_id=TENANT,
+            correlation_id="failed-copy-pipeline",
+            origin_type="source_asset",
+            origin_id=failed_source.id,
+            source_asset_id=failed_source.id,
+            asset_id=asset.id,
+            state="storage_failed",
+        )
+        self.session.add_all([completed_pipeline, failed_pipeline])
+        self.session.flush()
+        self.session.add_all([
+            ProcessingJobModel(
+                tenant_id=TENANT,
+                job_type="asset_index",
+                entity_type="asset_pipeline",
+                entity_id=completed_pipeline.id,
+                idempotency_key="completed-copy-index",
+                payload_json={"pipeline_id": completed_pipeline.id},
+                status="completed",
+            ),
+            ProcessingJobModel(
+                tenant_id=TENANT,
+                job_type="asset_store",
+                entity_type="asset_pipeline",
+                entity_id=failed_pipeline.id,
+                idempotency_key="failed-copy-store",
+                payload_json={"pipeline_id": failed_pipeline.id},
+                status="failed",
+            ),
+        ])
+        self.session.commit()
+
+        self.assertEqual(
+            AssetProcessingStatusService(self.session).list(
+                TENANT,
+                "google-drive",
+                ["completed-copy", "failed-copy"],
+            ),
+            {
+                "completed-copy": "indexed",
+                "failed-copy": "failed",
+            },
+        )
+
 
 class AssetProcessingStatusApiTest(unittest.TestCase):
     def setUp(self) -> None:

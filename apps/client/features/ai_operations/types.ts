@@ -252,6 +252,14 @@ export type AiOpsConfiguration = {
     updated_at: string | null;
     is_draft: boolean;
   } | null;
+  video_prompt_template: {
+    id: string | null;
+    profile_name: string;
+    profile_version: string;
+    prompt_template: string;
+    updated_at: string | null;
+    is_draft: boolean;
+  } | null;
   budget: {
     enabled: boolean;
     daily_limit_micros: number | null;

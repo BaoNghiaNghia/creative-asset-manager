@@ -19,6 +19,7 @@ from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.repository import ProcessingPolicyRepository, policy_document
 from app.modules.processing_policy.service import ProcessingPolicyService, TenantPolicyCache
+from app.modules.video_search.model import VideoMetadataProfileModel
 
 
 class AiOperationsControlError(ValueError):
@@ -31,6 +32,7 @@ class AiOperationsControlError(ValueError):
 _DEFERRED_AI_REASON_CODES = frozenset({"gemini_quota_deferred"})
 
 _DEFAULT_METADATA_PROMPT_TEMPLATE = 'Analyze the image and return JSON only. Extract search-ready visual metadata: a concise title, detailed description, primary subjects, objects, people (without identifying private individuals), actions, setting, scene type, style, colors, mood, composition, visible text, logos or brands, products, materials, patterns, seasons, events, concepts, keywords, and any useful search phrases. Be factual, include only information supported by the image, and use arrays where multiple values apply. {{ asset }}'
+_DEFAULT_VIDEO_PROMPT_TEMPLATE = 'Analyze the video and return structured JSON describing useful semantic scenes and events, visible subjects, objects, actions, settings, composition, colors, mood, products, materials, logos, exact visible text, and audible speech. Use precise timestamps and include only evidence present in the video.'
 
 
 def _job_document(job: ProcessingJobModel) -> dict[str, Any]:
@@ -235,6 +237,12 @@ class AiOperationsControlService:
         prompt_profile = self.session.scalar(
             prompt_statement.order_by(MetadataProfileModel.created_at.desc()).limit(1)
         )
+        video_prompt_profile = self.session.scalar(
+            select(VideoMetadataProfileModel).where(
+                VideoMetadataProfileModel.tenant_id == tenant_id,
+                VideoMetadataProfileModel.active.is_(True),
+            ).order_by(VideoMetadataProfileModel.created_at.desc()).limit(1)
+        )
         video_policy = self.policies.get_provider(tenant_id, "gemini", "video")
         runtime_stopped, _ = self.governance.runtime_stopped("global")
         return {
@@ -271,6 +279,7 @@ class AiOperationsControlService:
             "providers": providers,
             "metadata_profiles": profiles,
             "metadata_prompt_template": self._prompt_template_document(prompt_profile),
+            "video_prompt_template": self._video_prompt_template_document(video_prompt_profile),
             "budget": budget,
         }
 
@@ -340,6 +349,82 @@ class AiOperationsControlService:
             },
         )
         return self._prompt_template_document(replacement)
+
+    def update_video_prompt_template(
+        self, tenant_id: str, *, prompt_template: str, actor_id: str, reason: str,
+    ) -> dict[str, Any]:
+        current = self.session.scalar(
+            select(VideoMetadataProfileModel).where(
+                VideoMetadataProfileModel.tenant_id == tenant_id,
+                VideoMetadataProfileModel.active.is_(True),
+            ).order_by(VideoMetadataProfileModel.created_at.desc()).limit(1)
+        )
+        template = prompt_template.strip()
+        if not template:
+            raise AiOperationsControlError(
+                "video_prompt_template_required", "Video prompt template cannot be empty.",
+            )
+        if current is not None and template == current.prompt_template:
+            return self._video_prompt_template_document(current)
+        version_stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        if current is not None:
+            profile_name = current.profile_name
+            next_version = f"{current.profile_version[:72]}-edit-{version_stamp}"
+            current.active = False
+            optional_json_schema = dict(current.optional_json_schema) if current.optional_json_schema else None
+            search_config_json = dict(current.search_config_json or {})
+        else:
+            profile_name = "video-default"
+            has_version_one = self.session.scalar(select(VideoMetadataProfileModel.id).where(
+                VideoMetadataProfileModel.tenant_id == tenant_id,
+                VideoMetadataProfileModel.profile_name == profile_name,
+                VideoMetadataProfileModel.profile_version == "1",
+            ).limit(1)) is not None
+            next_version = f"created-{version_stamp}" if has_version_one else "1"
+            optional_json_schema = None
+            search_config_json = {}
+        replacement = VideoMetadataProfileModel(
+            tenant_id=tenant_id,
+            profile_name=profile_name,
+            profile_version=next_version,
+            prompt_template=template,
+            optional_json_schema=optional_json_schema,
+            search_config_json=search_config_json,
+            active=True,
+        )
+        self.session.add(replacement)
+        self.session.flush()
+        self.governance.event(
+            tenant_id,
+            "video_prompt_template_updated",
+            actor_id=actor_id,
+            reason=reason,
+            details={
+                "profile_name": replacement.profile_name,
+                "previous_profile_id": current.id if current else None,
+                "previous_profile_version": current.profile_version if current else None,
+                "profile_id": replacement.id,
+                "profile_version": replacement.profile_version,
+            },
+        )
+        return self._video_prompt_template_document(replacement)
+
+    @staticmethod
+    def _video_prompt_template_document(profile: VideoMetadataProfileModel | None) -> dict[str, Any]:
+        if profile is None:
+            return {
+                "id": None, "profile_name": "video-default", "profile_version": "Draft",
+                "prompt_template": _DEFAULT_VIDEO_PROMPT_TEMPLATE,
+                "updated_at": None, "is_draft": True,
+            }
+        return {
+            "id": profile.id,
+            "profile_name": profile.profile_name,
+            "profile_version": profile.profile_version,
+            "prompt_template": profile.prompt_template,
+            "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+            "is_draft": False,
+        }
 
     @staticmethod
     def _prompt_template_document(profile: MetadataProfileModel | None) -> dict[str, Any]:

@@ -254,6 +254,30 @@ async def update_metadata_prompt_template(
         "audit": _audit(principal, "metadata_prompt_template_updated", body.reason),
     }
 
+
+@router.patch("/configuration/video-prompt-template")
+async def update_video_prompt_template(
+    body: AiMetadataPromptTemplateUpdate,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    target = _tenant(principal, tenant_id)
+    profile = await _mutate(
+        target,
+        lambda service: service.update_video_prompt_template(
+            target,
+            prompt_template=body.prompt_template,
+            actor_id=principal.user_id,
+            reason=body.reason,
+        ),
+    )
+    return {
+        "tenant_id": target,
+        "video_prompt_template": profile,
+        "audit": _audit(principal, "video_prompt_template_updated", body.reason),
+    }
+
+
 @router.post("/controls/pause")
 async def pause_all_ai(
     body: AiPauseRequest,

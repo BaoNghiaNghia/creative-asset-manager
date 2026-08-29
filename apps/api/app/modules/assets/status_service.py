@@ -324,15 +324,21 @@ class AssetProcessingStatusService:
                 for asset_id in item_asset_ids
                 for job_type in _RELEVANT_ASSET_JOBS
             ]
-            item_pipeline_ids = {
+            source_pipeline_ids = {
                 pipeline_id
                 for source_id in item_source_ids
                 for pipeline_id in pipeline_ids_by_source_asset.get(source_id, set())
-            } | {
+            }
+            asset_pipeline_ids = {
                 pipeline_id
                 for asset_id in item_asset_ids
                 for pipeline_id in pipeline_ids_by_asset.get(asset_id, set())
             }
+            # A deduplicated managed asset can be linked to several source items.
+            # Do not let a sibling source's failed pipeline contaminate this item.
+            # Asset-level lookup remains a fallback for legacy pipelines without a
+            # source_asset_id.
+            item_pipeline_ids = source_pipeline_ids or asset_pipeline_ids
             pipeline_jobs = [
                 latest_jobs.get((pipeline_id, job_type))
                 for pipeline_id in item_pipeline_ids
