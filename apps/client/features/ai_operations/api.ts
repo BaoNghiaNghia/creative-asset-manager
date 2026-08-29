@@ -408,3 +408,14 @@ export type CreativeGeminiCredentialStatus = "VALID"|"INVALID_KEY"|"PERMISSION_D
 export const getCreativeGeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", fetcher);
 export const testCreativeGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<{provider:"gemini";status:CreativeGeminiCredentialStatus}>("/api/v1/admin/ai-operations/configuration/credentials/gemini/test", "POST", api_key ? {api_key,label} : {}, fetcher);
 export const replaceCreativeGeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", "PUT", {api_key,label}, fetcher);
+
+export type ManagedStorageOAuthStatus = {
+  root_folder_configured: boolean;
+  connected: boolean;
+  source: "database" | "environment" | "none";
+  account_email: string | null;
+  updated_at: string | null;
+  reconnect_required: boolean;
+};
+export const getManagedStorageOAuthStatus = (fetcher: Fetcher = fetch) =>
+  read<ManagedStorageOAuthStatus>("/api/auth/google/managed-storage/status", fetcher);

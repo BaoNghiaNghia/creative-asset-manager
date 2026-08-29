@@ -8,6 +8,7 @@ import {
 import { formatCost } from "./presentation";
 import { InventoryGeminiCredentialSettings } from "../inventory/InventoryGeminiCredentialSettings";
 import { CreativeGeminiCredentialSettings } from "./CreativeGeminiCredentialSettings";
+import { ManagedStorageCredentialSettings } from "./ManagedStorageCredentialSettings";
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
 import openAiLogo from "../../assets/openai-logo.svg";
 
@@ -185,6 +186,7 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
         </div>}
       </article>;
     })}</div>
+    {configuration.permissions.platform_admin && <ManagedStorageCredentialSettings />}
   </section>;
 }
 

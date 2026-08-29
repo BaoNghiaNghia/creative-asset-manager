@@ -13,10 +13,15 @@ from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel, UserModel
 
 from app.modules.auth_persistence.service import clear_provider_session_cookies, cookie_options
-from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_platform_admin
+from app.modules.authorization.platform_admin import PlatformAdminService
 from app.modules.authorization.service import TenantAuthorizationService
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.login import LoginAdmissionError
+from app.modules.storage.managed_oauth import (
+    managed_storage_oauth_status,
+    persist_managed_storage_connection,
+)
 from app.providers.google.auth import (
     DRIVE_READONLY_SCOPE,
     DRIVE_WRITE_SCOPE,
@@ -40,6 +45,11 @@ def client_redirect(**params: str) -> RedirectResponse:
     client_url = get_settings().PUBLIC_APP_URL.rstrip("/")
     separator = "&" if "?" in client_url else "?"
     return RedirectResponse(client_url + separator + urlencode(params))
+
+def managed_storage_redirect(status: str, **params: str) -> RedirectResponse:
+    client_url = get_settings().PUBLIC_APP_URL.rstrip("/") + "/ai-operations"
+    query = {"tab": "providers", "managed_storage": status, **params}
+    return RedirectResponse(client_url + "?" + urlencode(query))
 
 
 def _authorization_response(flow, *, redirect_intent: str, prompt: str | None = None) -> RedirectResponse:
@@ -100,6 +110,29 @@ async def connect_drive(
     )
 
 
+@router.get("/connect-managed-storage")
+async def connect_managed_storage(
+    principal: CurrentPrincipal = Depends(require_platform_admin),
+):
+    """Rotate the global Managed Storage credential through explicit consent."""
+    settings = get_settings()
+    if not settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID:
+        raise HTTPException(503, "Managed Storage root folder is not configured.")
+    return _authorization_response(
+        oauth_flow(require_drive_scope=True),
+        redirect_intent=(
+            f"managed_storage_connect:{principal.active_tenant_id}:{principal.user_id}"
+        ),
+        prompt="consent select_account",
+    )
+
+
+@router.get("/managed-storage/status")
+async def managed_storage_status(
+    principal: CurrentPrincipal = Depends(require_platform_admin),
+):
+    return managed_storage_oauth_status(get_settings())
+
 @router.get("/callback")
 async def callback(
     request: Request,
@@ -138,6 +171,7 @@ async def callback(
     connection_tenant_id = None
     reconnect_source_id = None
     initiating_user_id = None
+    managed_storage_connect = redirect_intent.startswith("managed_storage_connect:")
     if drive_connect:
         parts = redirect_intent.split(":", 3)
         connection_tenant_id = parts[1] if len(parts) > 1 else None
@@ -155,7 +189,21 @@ async def callback(
                 source = db.scalar(select(ExternalSourceModel).where(ExternalSourceModel.id == reconnect_source_id, ExternalSourceModel.tenant_id == connection_tenant_id, ExternalSourceModel.source_type == "google_drive"))
                 if source is None:
                     return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
-    flow = oauth_flow(state, require_drive_scope=drive_connect)
+    elif managed_storage_connect:
+        parts = redirect_intent.split(":", 2)
+        connection_tenant_id = parts[1] if len(parts) > 1 else None
+        initiating_user_id = parts[2] if len(parts) > 2 else None
+        if not connection_tenant_id or not initiating_user_id:
+            return managed_storage_redirect("error", auth_request=request_id)
+        with SessionLocal() as db:
+            user = db.get(UserModel, initiating_user_id)
+            is_platform_admin = PlatformAdminService(db).is_platform_admin(
+                initiating_user_id
+            )
+            if user is None or user.status != "active" or not is_platform_admin:
+                logger.warning("Managed Storage callback authorization failed request_id=%s", request_id)
+                return managed_storage_redirect("error", auth_request=request_id)
+    flow = oauth_flow(state, require_drive_scope=drive_connect or managed_storage_connect)
     if code_verifier:
         flow.code_verifier = code_verifier
 
@@ -174,7 +222,22 @@ async def callback(
 
     try:
         granted_scopes = resolve_granted_scopes(flow.credentials, token_response if isinstance(token_response, dict) else None)
-        if drive_connect:
+        if managed_storage_connect:
+            root_folder_id = str(
+                get_settings().GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or ""
+            ).strip()
+            if not root_folder_id:
+                raise ValueError("Managed Storage root folder is not configured")
+            await persist_managed_storage_connection(
+                flow.credentials,
+                tenant_id=connection_tenant_id,
+                initiating_user_id=initiating_user_id,
+                root_folder_id=root_folder_id,
+                granted_scopes=granted_scopes,
+            )
+            cloud_session = None
+            session_id = None
+        elif drive_connect:
             cloud_session = await persist_drive_connection(flow.credentials, tenant_id=connection_tenant_id, user_id=initiating_user_id, granted_scopes=granted_scopes)
             session_id = None
         else:
@@ -189,8 +252,13 @@ async def callback(
             exc.code,
         )
         return client_redirect(auth_error=exc.code, auth_request=request_id)
-    except PermissionError:
+    except PermissionError as exc:
         logger.warning("Google Drive scope was not granted request_id=%s", request_id)
+        if managed_storage_connect:
+            return managed_storage_redirect(
+                "error", auth_request=request_id,
+                auth_message=str(exc),
+            )
         return client_redirect(auth_error="insufficient_drive_scope", auth_request=request_id)
     except Exception as exc:
         logger.exception(
@@ -198,6 +266,8 @@ async def callback(
             request_id,
             type(exc).__name__,
         )
+        if managed_storage_connect:
+            return managed_storage_redirect("error", auth_request=request_id)
         return client_redirect(auth_error="profile", auth_request=request_id)
 
 
@@ -215,8 +285,13 @@ async def callback(
             )
             return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
 
-    response = client_redirect(google="source_connected" if drive_connect else "signed_in")
-    if not drive_connect:
+    if managed_storage_connect:
+        response = managed_storage_redirect("connected")
+    elif drive_connect:
+        response = client_redirect(google="source_connected")
+    else:
+        response = client_redirect(google="signed_in")
+    if not drive_connect and not managed_storage_connect:
         remove_session(request)
         clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/google")
         response.set_cookie(SESSION_COOKIE, session_id, **cookie_options())

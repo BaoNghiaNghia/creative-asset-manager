@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { AiOpsConfiguration, AiOpsProviderBreakdown } from "../../features/ai_operations";
-import { fetchAiOperationsConfiguration, updateAiBudget, updateAiProvider } from "../../features/ai_operations";
+import { fetchAiOperationsConfiguration, getManagedStorageOAuthStatus, updateAiBudget, updateAiProvider } from "../../features/ai_operations";
 import { ConfigurationForm, ProviderCards, replaceProviderConfiguration } from "./ProvidersConfiguration";
 
 const configuration: AiOpsConfiguration = {
@@ -81,6 +81,22 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(markup).toContain("Inventory AI");
     expect(markup).toContain("Loading Gemini credential configuration");
     expect(markup).not.toContain("INVENTORY_AUTOMATION_ENABLED");
+  });
+
+  it("shows Managed Storage reconnect only to platform administrators", () => {
+    const elevated = { ...configuration, permissions: { ...configuration.permissions, platform_admin: true } };
+    const elevatedMarkup = renderToStaticMarkup(<ProviderCards configuration={elevated} metrics={metrics} onChanged={noop} onReload={noop} />);
+    expect(elevatedMarkup).toContain("Google Drive Managed Storage");
+    expect(elevatedMarkup).toContain("Loading Managed Storage credential");
+    const tenantMarkup = renderToStaticMarkup(<ProviderCards configuration={configuration} metrics={metrics} onChanged={noop} onReload={noop} />);
+    expect(tenantMarkup).not.toContain("Google Drive Managed Storage");
+  });
+
+  it("loads Managed Storage OAuth status from the admin-only endpoint", async () => {
+    const payload = { root_folder_configured: true, connected: true, source: "database" as const, account_email: "m***@example.com", updated_at: null, reconnect_required: false };
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    await expect(getManagedStorageOAuthStatus(fetcher)).resolves.toEqual(payload);
+    expect(fetcher).toHaveBeenCalledWith("/api/auth/google/managed-storage/status", expect.any(Object));
   });
 
   it("shows platform-only global emergency action to platform administrators", () => {
