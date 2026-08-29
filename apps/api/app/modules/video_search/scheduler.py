@@ -20,12 +20,15 @@ class VideoNoSafeModel:
 class VideoFreeTierModelPlanner:
     def __init__(self, settings: Settings, quota: GeminiProjectQuotaRepository, *, quota_scope: str):
         self.settings, self.quota, self.quota_scope = settings, quota, quota_scope
+        self.model_pool = getattr(settings, "video_gemini_model_pool", None) or settings.gemini_model_pool
+        self.model_limits = getattr(settings, "video_gemini_model_limits", None) or settings.gemini_model_limits
+        self.project_daily_limit = getattr(settings, "video_gemini_project_daily_request_limit", None) or settings.gemini_project_daily_request_limit
     def select(self, *, duration_ms: int, now: datetime | None = None):
         estimate=estimate_video_input_tokens(duration_ms=duration_ms, media_resolution=MEDIA_RESOLUTION_LOW)
         reasons=[]; retry=[]; compatible=False
-        project=floor(self.settings.gemini_project_daily_request_limit*self.settings.VIDEO_AI_DAILY_BUDGET_RATIO)
-        for model in self.settings.gemini_model_pool:
-            limit=self.settings.gemini_model_limits[model]; safe=floor(limit.tpm*self.settings.VIDEO_AI_TOKEN_SAFETY_RATIO); daily=floor(limit.rpd*self.settings.VIDEO_AI_DAILY_BUDGET_RATIO)
+        project=floor(self.project_daily_limit*self.settings.VIDEO_AI_DAILY_BUDGET_RATIO)
+        for model in self.model_pool:
+            limit=self.model_limits[model]; safe=floor(limit.tpm*self.settings.VIDEO_AI_TOKEN_SAFETY_RATIO); daily=floor(limit.rpd*self.settings.VIDEO_AI_DAILY_BUDGET_RATIO)
             if estimate.total_tokens > safe: reasons.append(f"{model}:token_budget_exceeded"); continue
             compatible=True
             if daily <= 0 or project <= 0: reasons.append(f"{model}:automatic_daily_budget_disabled"); continue
@@ -37,13 +40,13 @@ class VideoFreeTierModelPlanner:
 
     def select_pinned(self, *, model: str, duration_ms: int, now: datetime | None = None):
         """Validate a persisted run model without silently switching models."""
-        if model not in self.settings.gemini_model_pool or model not in self.settings.gemini_model_limits:
+        if model not in self.model_pool or model not in self.model_limits:
             return VideoNoSafeModel((f"{model}:not_explicitly_configured",))
         estimate = estimate_video_input_tokens(duration_ms=duration_ms, media_resolution=MEDIA_RESOLUTION_LOW)
-        limit = self.settings.gemini_model_limits[model]
+        limit = self.model_limits[model]
         safe = floor(limit.tpm * self.settings.VIDEO_AI_TOKEN_SAFETY_RATIO)
         daily = floor(limit.rpd * self.settings.VIDEO_AI_DAILY_BUDGET_RATIO)
-        project = floor(self.settings.gemini_project_daily_request_limit * self.settings.VIDEO_AI_DAILY_BUDGET_RATIO)
+        project = floor(self.project_daily_limit * self.settings.VIDEO_AI_DAILY_BUDGET_RATIO)
         if estimate.total_tokens > safe:
             return VideoNoSafeModel((f"{model}:token_budget_exceeded",))
         if daily <= 0 or project <= 0:

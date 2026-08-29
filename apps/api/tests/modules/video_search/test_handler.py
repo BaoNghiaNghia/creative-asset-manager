@@ -46,7 +46,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
         self.engine.dispose()
 
     def _settings(self):
-        return SimpleNamespace(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, VIDEO_ANALYSIS_ENABLED=True, VIDEO_PROXY_ENABLED=True, VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS=True, GEMINI_MODEL_LIMITS="model-b:10,10", VIDEO_AI_PROMPT_VERSION="video-search-prompt-v1", VIDEO_AI_ANALYSIS_VERSION="video-search-analysis-v1", VIDEO_CHUNK_SECONDS=30, GEMINI_TIMEOUT_SECONDS=10, GEMINI_PROJECT_QUOTA_SCOPE="scope", GEMINI_MODEL_COOLDOWN_SECONDS=60, AI_EMERGENCY_STOP_ENABLED=False, GEMINI_EMERGENCY_STOP_ENABLED=False)
+        return SimpleNamespace(PROCESSING_JOBS_ENABLED=True, VIDEO_SEARCH_ENABLED=True, VIDEO_ANALYSIS_ENABLED=True, VIDEO_PROXY_ENABLED=True, VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS=True, GEMINI_MODEL_LIMITS="model-b:10,10", VIDEO_AI_PROMPT_VERSION="video-search-prompt-v1", VIDEO_AI_ANALYSIS_VERSION="video-search-analysis-v1", VIDEO_CHUNK_SECONDS=30, GEMINI_TIMEOUT_SECONDS=10, GEMINI_PROJECT_QUOTA_SCOPE="scope", VIDEO_GEMINI_PROJECT_QUOTA_SCOPE="scope", VIDEO_GEMINI_API_KEY="video-key", GEMINI_MODEL_COOLDOWN_SECONDS=60, AI_EMERGENCY_STOP_ENABLED=False, GEMINI_EMERGENCY_STOP_ENABLED=False)
 
     def _context(self, asset_id=None):
         asset_id = asset_id or self.asset.id
@@ -56,7 +56,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
         settings = self._settings()
         settings.GEMINI_EMERGENCY_STOP_ENABLED = True
         with (
-            patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver,
+            patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver,
             patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy,
         ):
             result = VideoAnalyzeJobHandler(settings)(self._context())
@@ -78,7 +78,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             chunk = PreparedVideoChunk(0, path, 0, 1000, 1000, path.stat().st_size, 640, 360)
             selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope")
             analysis_result = SimpleNamespace(metadata_json={"summary": "ok"}, usage_json={"tokens": 1}, provider_metadata_json={"analysis_mode": "free_scan", "media_resolution": "MEDIA_RESOLUTION_LOW", "estimated_input_tokens": 8110})
-            with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
+            with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
                 planner.return_value.select.return_value = selection
                 planner.return_value.reserve.return_value = SimpleNamespace(allowed=True)
@@ -139,7 +139,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
                 chunks.append(PreparedVideoChunk(index, path, index * 1000, (index + 1) * 1000, 1000, path.stat().st_size, 640, 360))
             selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope")
             analysis_result = SimpleNamespace(metadata_json={"summary": "ok"}, usage_json={"tokens": 1}, provider_metadata_json={"analysis_mode": "free_scan", "media_resolution": "MEDIA_RESOLUTION_LOW", "estimated_input_tokens": 8110})
-            with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
+            with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
                 planner.return_value.select.return_value = selection
                 planner.return_value.select_pinned.return_value = selection
@@ -172,7 +172,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             assets=AssetRegistryRepository(session); source=assets.upsert_external_source(tenant_id="tenant-b",source_key="source-foreign",source_type="google_drive")
             asset=assets.upsert_source_asset(tenant_id="tenant-b",external_source_id=source.id,external_asset_id="asset-foreign",filename="clip.mp4",mime_type="video/mp4",size_bytes=10,provider_checksum="foreign",provider_version="v1",source_metadata={}); session.commit()
         context=self._context(asset.id)
-        with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver,patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner,patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy:
+        with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver,patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner,patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy:
             result=VideoAnalyzeJobHandler(self._settings())(context)
         self.assertEqual(result.error_code,"video_source_unavailable"); resolver.assert_not_called(); planner.assert_not_called(); proxy.assert_not_called()
 
@@ -189,7 +189,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             result_data=SimpleNamespace(metadata_json={"summary":"ok"},usage_json={"tokens":1},provider_metadata_json={"analysis_mode":"free_scan"})
             async def analyze(**_kwargs):
                 context.shutdown_requested.set(); return result_data
-            with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver,patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner,patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type,patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
+            with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver,patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner,patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type,patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value=SimpleNamespace(secret="key",fingerprint="fp"*32); planner.return_value.select.return_value=selection; planner.return_value.reserve.return_value=SimpleNamespace(allowed=True); proxy_type.return_value.prepare=AsyncMock(return_value=tuple(chunks)); analysis_type.return_value.analyze_chunk=AsyncMock(side_effect=analyze)
                 result=VideoAnalyzeJobHandler(self._settings())(context)
             self.assertEqual(result.outcome.value,"cancelled"); self.assertEqual(planner.return_value.reserve.call_count,1); self.assertEqual(analysis_type.return_value.analyze_chunk.call_count,1); proxy_type.return_value.cleanup.assert_called_once()
@@ -211,7 +211,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             async def prepare(**_kwargs):
                 context.shutdown_requested.set()
                 return (chunk,)
-            with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
+            with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
                 planner.return_value.select.return_value = selection; proxy_type.return_value.prepare = prepare
                 result = VideoAnalyzeJobHandler(self._settings())(context)
@@ -228,7 +228,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             path = Path(directory) / "video-proxy-test" / "00000.mp4"; path.parent.mkdir(); path.write_bytes(b"proxy")
             chunk = PreparedVideoChunk(0, path, 0, 1000, 1000, path.stat().st_size, 640, 360)
             selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope:fp")
-            with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
+            with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
                 planner.return_value.select.return_value = selection; planner.return_value.reserve.return_value = SimpleNamespace(allowed=True)
                 proxy_type.return_value.prepare = AsyncMock(return_value=(chunk,))
@@ -255,7 +255,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             async def prepare(**_kwargs):
                 context.cancellation_requested.set()
                 return (chunk,)
-            with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
+            with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
                 planner.return_value.select.return_value = selection
                 proxy_type.return_value.prepare = prepare
@@ -276,7 +276,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             session.commit()
         context = self._context(asset.id)
         context.cancellation_requested.set()
-        with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy:
+        with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy:
             result = VideoAnalyzeJobHandler(self._settings())(context)
         self.assertEqual(result.outcome.value, "cancelled")
         resolver.assert_not_called(); planner.assert_not_called(); proxy.assert_not_called()
@@ -293,7 +293,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
                 path = Path(directory) / "video-proxy-test" / "00000.mp4"; path.parent.mkdir(); path.write_bytes(b"proxy")
                 chunk = PreparedVideoChunk(0, path, 0, 1000, 1000, path.stat().st_size, 640, 360)
                 selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope:fp")
-                with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
+                with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                     resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
                     planner.return_value.select.return_value = selection; planner.return_value.reserve.return_value = SimpleNamespace(allowed=True)
                     proxy_type.return_value.prepare = AsyncMock(return_value=(chunk,))
@@ -317,7 +317,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             path.parent.mkdir(); path.write_bytes(b"proxy")
             chunk = PreparedVideoChunk(0, path, 0, 1000, 1000, path.stat().st_size, 640, 360)
             selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope:fp")
-            with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
+            with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type, patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type:
                 resolver.return_value.resolve.return_value = SimpleNamespace(secret="key", fingerprint="fp" * 32)
                 planner.return_value.select.return_value = selection
                 planner.return_value.reserve.return_value = SimpleNamespace(allowed=True)
@@ -343,7 +343,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
         self.assertGreater(fallback_seconds, settings.GEMINI_MODEL_COOLDOWN_SECONDS - 2)
 
     def test_completed_compatible_run_skips_planner_quota_proxy_and_gemini(self):
-        with patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as credentials, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy, patch("app.modules.video_search.handler.GeminiVideoClient") as client:
+        with patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as credentials, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy, patch("app.modules.video_search.handler.GeminiVideoClient") as client:
             result = VideoAnalyzeJobHandler(self._settings())(self._context())
         self.assertEqual(result.outcome.value, "completed")
         planner.assert_not_called()
@@ -354,7 +354,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
     def test_completed_reuse_does_not_require_current_gemini_limits(self):
         settings = self._settings()
         settings.GEMINI_MODEL_LIMITS = ""
-        with patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as credentials, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy:
+        with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as credentials, patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner, patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy:
             result = VideoAnalyzeJobHandler(settings)(self._context())
         self.assertEqual(result.outcome.value, "completed")
         credentials.assert_not_called()
@@ -385,7 +385,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             session.commit()
         selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope:fp")
         with (
-            patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver,
+            patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver,
             patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner,
             patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type,
             patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type,
@@ -410,7 +410,7 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
             session.commit()
         selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope:fp")
         with (
-            patch("app.modules.video_search.handler.CreativeGeminiCredentialResolver") as resolver,
+            patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver,
             patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner,
             patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type,
             patch("app.modules.video_search.handler.GeminiVideoAnalysisService") as analysis_type,

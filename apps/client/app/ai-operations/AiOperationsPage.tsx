@@ -720,6 +720,7 @@ function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashb
     { label: "Processed", value: primary.completed, detail: "Completed AI analyses", tone: "success" },
     { label: "Failed", value: primary.failed, detail: "Terminal AI failures", tone: "danger" },
     { label: "Running", value: primary.running, detail: "Currently processing", tone: "info" },
+    ...(media === "video" ? [{ label: "Deferred by quota", value: primary.deferred_by_quota || 0, detail: primary.next_quota_retry_at ? "Next retry " + new Date(primary.next_quota_retry_at).toLocaleString() : "No quota deferral", tone: "warning" }] : []),
     { label: "Queued", value: primary.queued, detail: primary.eligible_now + " eligible now", tone: "neutral" },
     ...(media === "video" ? [
       { label: "Indexed", value: dashboard.video_indexing.completed, detail: "Video search indexing (not AI)", tone: "neutral" },

@@ -210,6 +210,17 @@ class VideoSearchRepository:
         self.session.flush()
         return run
 
+    def repin_unstarted_run(
+        self, *, tenant_id: str, run_id: str, ai_model: str
+    ) -> VideoAnalysisRunModel:
+        """Switch only a run with no completed chunks to an available model."""
+        run = self._run(tenant_id=tenant_id, run_id=run_id, lock=True)
+        if run.completed_chunks:
+            raise VideoStateTransitionError("cannot switch model after a chunk completes")
+        run.ai_model = ai_model
+        self.session.flush()
+        return run
+
     def complete_run(
         self, *, tenant_id: str, run_id: str, summary_json: Mapping[str, Any] | None = None
     ) -> VideoAnalysisRunModel:

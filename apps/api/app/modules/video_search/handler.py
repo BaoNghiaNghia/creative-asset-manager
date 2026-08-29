@@ -10,11 +10,8 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import AiProviderError
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
-from app.modules.ai_operations.credentials import (
-    CreativeCredentialError,
-    CreativeGeminiCredentialResolver,
-)
 from app.modules.assets.model import SourceAssetModel
+from app.modules.video_search.credentials import VideoGeminiCredentialError, VideoGeminiCredentialResolver
 from app.modules.pipeline.mime_types import is_eligible_video_source_asset
 from app.modules.video_search.analysis import GeminiVideoAnalysisService
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
@@ -93,21 +90,24 @@ class VideoAnalyzeJobHandler:
             except VideoRunConflictError:
                 return JobHandlerResult.non_retryable("video_resumable_run_conflict", "Multiple compatible resumable video runs exist.")
             resumable_id = resumable.id if resumable is not None else None
-            pinned_model = resumable.ai_model if resumable is not None else None
+            pinned_model = resumable.ai_model if resumable is not None and resumable.completed_chunks else None
 
-        if settings.VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS and not settings.GEMINI_MODEL_LIMITS.strip():
+        video_limits = getattr(settings, "VIDEO_GEMINI_MODEL_LIMITS", "")
+        if settings.VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS and not (video_limits or settings.GEMINI_MODEL_LIMITS).strip():
             return JobHandlerResult.non_retryable("video_gemini_limits_not_explicitly_configured", "Video Gemini limits must be explicitly configured.")
         if self._interrupted(context):
             return self._cancel(context, resumable_id)
         try:
-            credential = CreativeGeminiCredentialResolver(context.dependencies.session_factory, settings).resolve(context.job.tenant_id)
-        except CreativeCredentialError:
+            credential = VideoGeminiCredentialResolver(context.dependencies.session_factory, settings).resolve(context.job.tenant_id)
+        except VideoGeminiCredentialError:
             return JobHandlerResult.non_retryable("video_gemini_credential_unavailable", "Video Gemini credential is unavailable.")
 
-        # Gemini RPD is applied per Google project, not per API key. Keep the
-        # configured project scope stable across credential rotation and share it
-        # with image analysis.
-        quota_scope = settings.GEMINI_PROJECT_QUOTA_SCOPE
+        quota_scope = getattr(settings, "VIDEO_GEMINI_PROJECT_QUOTA_SCOPE", "").strip()
+        if not quota_scope:
+            return JobHandlerResult.non_retryable(
+                "video_gemini_quota_scope_unavailable",
+                "Video Gemini project quota scope is unavailable.",
+            )
         with context.dependencies.session_factory() as session:
             planner = VideoFreeTierModelPlanner(settings, GeminiProjectQuotaRepository(session), quota_scope=quota_scope)
             decision = planner.select_pinned(model=pinned_model, duration_ms=duration_ms) if pinned_model else planner.select(duration_ms=duration_ms)
@@ -159,8 +159,14 @@ class VideoAnalyzeJobHandler:
                 repo = VideoSearchRepository(session)
                 if run_id:
                     run = repo.get_run(tenant_id=context.job.tenant_id, run_id=run_id)
-                    if run is None or run.ai_model != selection.model:
-                        return JobHandlerResult.non_retryable("video_pinned_model_conflict", "The resumable video run model is not available.")
+                    if run is None:
+                        return JobHandlerResult.non_retryable("video_pinned_model_conflict", "The resumable video run is not available.")
+                    if run.ai_model != selection.model:
+                        if run.completed_chunks:
+                            return JobHandlerResult.non_retryable("video_pinned_model_conflict", "The resumable video run model is not available.")
+                        run = repo.repin_unstarted_run(
+                            tenant_id=context.job.tenant_id, run_id=run_id, ai_model=selection.model
+                        )
                 else:
                     values = {key: value for key, value in identity.items() if key != "prompt_template"}
                     run = repo.get_or_create_run(**values, ai_model=selection.model, chunk_seconds=settings.VIDEO_CHUNK_SECONDS)

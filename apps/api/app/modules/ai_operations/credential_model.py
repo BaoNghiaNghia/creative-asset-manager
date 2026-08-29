@@ -24,7 +24,7 @@ class CreativeAiCredentialModel(Base):
     __tablename__ = "creative_ai_credentials"
     __table_args__ = (
         UniqueConstraint("tenant_id", "provider", name="uq_creative_ai_credentials_tenant_provider"),
-        CheckConstraint("provider = 'gemini'", name="ck_creative_ai_credentials_provider"),
+        CheckConstraint("provider IN ('gemini', 'gemini_video')", name="ck_creative_ai_credentials_provider"),
         CheckConstraint("status IN ('active','disabled')", name="ck_creative_ai_credentials_status"),
         CheckConstraint("length(secret_fingerprint) = 64", name="ck_creative_ai_credentials_fingerprint"),
         CheckConstraint("length(secret_last4) = 4", name="ck_creative_ai_credentials_last4"),

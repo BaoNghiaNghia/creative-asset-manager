@@ -259,12 +259,21 @@ def _video_job_matches_filters(
 
 def _stage(key: str, label: str, rows: list[ProcessingJobModel], now: datetime) -> dict:
     counts = Counter(row.status for row in rows)
-    waiting_rate_limit = sum(
-        row.status in _QUEUED
-        and row.last_error_code in {"ai_model_rate_limited", "rate_limited"}
+    deferred_quota_codes = {
+        "ai_model_rate_limited", "rate_limited",
+        "video_gemini_quota_deferred", "video_gemini_rate_limited",
+    }
+    deferred_by_quota = [
+        row for row in rows
+        if row.status in _QUEUED
+        and row.last_error_code in deferred_quota_codes
         and (retry_at := _as_utc(row.next_attempt_at)) is not None
         and retry_at > now
-        for row in rows
+    ]
+    waiting_rate_limit = len(deferred_by_quota)
+    next_quota_retry_at = min(
+        (_as_utc(row.next_attempt_at) for row in deferred_by_quota),
+        default=None,
     )
     eligible_now = sum(
         row.status in _QUEUED
@@ -280,6 +289,8 @@ def _stage(key: str, label: str, rows: list[ProcessingJobModel], now: datetime) 
         "completed": counts["completed"],
         "failed": counts["failed"],
         "waiting_rate_limit": waiting_rate_limit,
+        "deferred_by_quota": waiting_rate_limit,
+        "next_quota_retry_at": next_quota_retry_at.isoformat() if next_quota_retry_at else None,
     }
 
 

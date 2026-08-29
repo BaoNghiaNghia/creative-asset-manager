@@ -125,6 +125,12 @@ class Settings(BaseSettings):
     VIDEO_PROXY_ENABLED: bool = False
     VIDEO_AI_TOKEN_SAFETY_RATIO: float = 0.80
     VIDEO_AI_DAILY_BUDGET_RATIO: float = 0.90
+    # Video uses an independent Gemini project on the Free Tier. It must never
+    # silently consume the Image/Creative project quota.
+    VIDEO_GEMINI_PROJECT_QUOTA_SCOPE: str = "video"
+    VIDEO_GEMINI_MODEL_POOL: str = ""
+    VIDEO_GEMINI_MODEL_LIMITS: str = ""
+    VIDEO_GEMINI_PROJECT_DAILY_REQUEST_LIMIT: int | None = None
     VIDEO_AI_REQUIRE_EXPLICIT_MODEL_LIMITS: bool = True
     VIDEO_AI_PROMPT_VERSION: str = "video-search-prompt-v1"
     VIDEO_AI_ANALYSIS_VERSION: str = "video-search-analysis-v1"
@@ -443,6 +449,47 @@ class Settings(BaseSettings):
             return configured
         return sum(limit.rpd for limit in self.gemini_model_limits.values())
 
+    @property
+    def video_gemini_model_pool(self) -> tuple[str, ...]:
+        configured = self.VIDEO_GEMINI_MODEL_POOL.strip()
+        if not configured:
+            return self.gemini_model_pool
+        return tuple(dict.fromkeys(
+            value.strip() for value in configured.split(",") if value.strip()
+        ))
+
+    @property
+    def video_gemini_model_limits(self) -> dict[str, GeminiModelLimit]:
+        if not self.VIDEO_GEMINI_MODEL_LIMITS.strip() and not self.VIDEO_GEMINI_MODEL_POOL.strip():
+            return self.gemini_model_limits
+        try:
+            raw = json.loads(self.VIDEO_GEMINI_MODEL_LIMITS)
+        except json.JSONDecodeError as exc:
+            raise ValueError("VIDEO_GEMINI_MODEL_LIMITS must be a JSON object") from exc
+        if not isinstance(raw, dict):
+            raise ValueError("VIDEO_GEMINI_MODEL_LIMITS must be a JSON object")
+        pool = self.video_gemini_model_pool
+        if set(raw) != set(pool):
+            raise ValueError("VIDEO_GEMINI_MODEL_LIMITS must define rpm, tpm and rpd for every VIDEO_GEMINI_MODEL_POOL model")
+        limits: dict[str, GeminiModelLimit] = {}
+        for model in pool:
+            values = raw.get(model)
+            if not isinstance(values, dict):
+                raise ValueError("VIDEO_GEMINI_MODEL_LIMITS entries must be objects")
+            rpm, tpm, rpd = values.get("rpm"), values.get("tpm"), values.get("rpd")
+            if any(type(value) is not int or value < 1 for value in (rpm, tpm, rpd)):
+                raise ValueError("VIDEO_GEMINI_MODEL_LIMITS rpm, tpm and rpd must be positive integers")
+            limits[model] = GeminiModelLimit(rpm=rpm, tpm=tpm, rpd=rpd)
+        return limits
+
+    @property
+    def video_gemini_project_daily_request_limit(self) -> int:
+        configured = self.VIDEO_GEMINI_PROJECT_DAILY_REQUEST_LIMIT
+        if configured is not None:
+            if configured < 1:
+                raise ValueError("VIDEO_GEMINI_PROJECT_DAILY_REQUEST_LIMIT must be positive")
+            return configured
+        return sum(limit.rpd for limit in self.video_gemini_model_limits.values())
     @property
     def ai_model_rpm_limits(self) -> dict[tuple[str, str], int]:
         """Configured per-provider/model RPM values.
