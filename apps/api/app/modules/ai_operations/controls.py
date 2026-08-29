@@ -32,7 +32,46 @@ class AiOperationsControlError(ValueError):
 _DEFERRED_AI_REASON_CODES = frozenset({"gemini_quota_deferred"})
 
 _DEFAULT_METADATA_PROMPT_TEMPLATE = 'Analyze the image and return JSON only. Extract search-ready visual metadata: a concise title, detailed description, primary subjects, objects, people (without identifying private individuals), actions, setting, scene type, style, colors, mood, composition, visible text, logos or brands, products, materials, patterns, seasons, events, concepts, keywords, and any useful search phrases. Be factual, include only information supported by the image, and use arrays where multiple values apply. {{ asset }}'
-_DEFAULT_VIDEO_PROMPT_TEMPLATE = 'Analyze the video and return structured JSON describing useful semantic scenes and events, visible subjects, objects, actions, settings, composition, colors, mood, products, materials, logos, exact visible text, and audible speech. Use precise timestamps and include only evidence present in the video.'
+_DEFAULT_VIDEO_PROMPT_TEMPLATE = """Analyze this video for semantic search and retrieval.
+
+Describe the important visible and audible scenes using factual evidence.
+Capture useful actions, objects, people, products, locations, visible text,
+speech, visual style, colors, mood, and concise search keywords.
+
+Prefer meaningful searchable concepts over generic descriptions.
+Do not infer identities or details that are not visibly or audibly supported.
+
+EMBROIDERY CLASSIFICATION
+When embroidery is visible in a semantic segment, select exactly one primary
+embroidery type and add this exact keyword to that segment's keywords array:
+embroidery_type:<type>
+
+Allowed types:
+PetFull, PeopleFull, CarFull, PetOutline, PeopleOutline, CarOutline,
+Roman, Monogram, Handwriting, Floral, Neckline, Text.
+
+Definitions:
+- PetFull, PeopleFull, CarFull: detailed or filled embroidery with meaningful
+  interior stitching, features, colors, shading, or filled regions.
+- PetOutline, PeopleOutline, CarOutline: primarily contour, silhouette,
+  line-art, or minimal stitching with little interior fill.
+- Roman: Roman-style lettering, Roman numerals, or classical serif lettering.
+- Monogram: two or more letters intentionally interlocked, overlapped,
+  intertwined, stacked, or structurally combined into one decorative mark.
+- Handwriting: handwritten, signature-like, cursive, or traced handwriting.
+- Floral: flowers, leaves, stems, bouquets, wreaths, or botanical motifs are
+  the primary design.
+- Neckline: embroidery primarily follows or surrounds a neckline or collar.
+- Text: primarily textual embroidery not classified as Roman, Monogram,
+  or Handwriting.
+
+Classify the visually primary embroidery design. Secondary names, dates,
+initials, or text must not override a primary pet, person, car, floral, or
+neckline design. Ordinary adjacent initials are not automatically Monogram.
+If uncertain, choose the most likely allowed type and explicitly describe the
+visible uncertainty. Do not add an embroidery_type keyword when embroidery is
+not visible. In visual_description, record visible placement, motifs,
+rendering style, thread colors, legibility, and exact visible embroidery text."""
 
 
 def _job_document(job: ProcessingJobModel) -> dict[str, Any]:

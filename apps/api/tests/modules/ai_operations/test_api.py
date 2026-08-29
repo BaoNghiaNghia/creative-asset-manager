@@ -557,6 +557,10 @@ class AiOperationsApiTest(unittest.TestCase):
             self.assertTrue(draft["is_draft"])
             self.assertIsNone(draft["id"])
             self.assertIn("search-ready visual metadata", draft["prompt_template"])
+            video_draft = initial.json()["video_prompt_template"]
+            self.assertTrue(video_draft["is_draft"])
+            self.assertIn("embroidery_type:<type>", video_draft["prompt_template"])
+            self.assertIn("PetFull, PeopleFull, CarFull", video_draft["prompt_template"])
             created = self.client.patch(
                 "/api/v1/admin/ai-operations/configuration/metadata-prompt-template",
                 json={"prompt_template": draft["prompt_template"], "reason": "initialize profile"},

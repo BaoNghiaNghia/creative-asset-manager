@@ -35,6 +35,16 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(markup).not.toContain("Emergency stop all AI");
   });
 
+  it("renders an editable default Video prompt when the API has no active video profile", () => {
+    const legacyConfiguration = { ...configuration, video_prompt_template: undefined };
+    const markup = renderToStaticMarkup(<ConfigurationForm configuration={legacyConfiguration} onChanged={noop} onReload={noop} />);
+    expect(markup).toContain("video-default");
+    expect(markup).toContain("Analyze this video for semantic search and retrieval.");
+    expect(markup).toContain("embroidery_type:&lt;type&gt;");
+    expect(markup).toContain("Save video prompt template");
+    expect(markup).not.toContain("Chưa có video metadata profile");
+  });
+
   it("keeps core Configuration cards in the responsive layout and moves Gemini credentials to Providers", () => {
     const markup = renderToStaticMarkup(<ConfigurationForm configuration={configuration} onChanged={noop} onReload={noop} />);
     expect(markup).toContain("ops-config-card ops-config-defaults");

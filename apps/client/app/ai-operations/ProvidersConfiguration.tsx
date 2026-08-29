@@ -11,6 +11,54 @@ import { CreativeGeminiCredentialSettings } from "./CreativeGeminiCredentialSett
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
 import openAiLogo from "../../assets/openai-logo.svg";
 
+const DEFAULT_VIDEO_PROMPT_PROFILE: NonNullable<AiOpsConfiguration["video_prompt_template"]> = {
+  id: null,
+  profile_name: "video-default",
+  profile_version: "Draft",
+  prompt_template: `Analyze this video for semantic search and retrieval.
+
+Describe the important visible and audible scenes using factual evidence.
+Capture useful actions, objects, people, products, locations, visible text,
+speech, visual style, colors, mood, and concise search keywords.
+
+Prefer meaningful searchable concepts over generic descriptions.
+Do not infer identities or details that are not visibly or audibly supported.
+
+EMBROIDERY CLASSIFICATION
+When embroidery is visible in a semantic segment, select exactly one primary
+embroidery type and add this exact keyword to that segment's keywords array:
+embroidery_type:<type>
+
+Allowed types:
+PetFull, PeopleFull, CarFull, PetOutline, PeopleOutline, CarOutline,
+Roman, Monogram, Handwriting, Floral, Neckline, Text.
+
+Definitions:
+- PetFull, PeopleFull, CarFull: detailed or filled embroidery with meaningful
+  interior stitching, features, colors, shading, or filled regions.
+- PetOutline, PeopleOutline, CarOutline: primarily contour, silhouette,
+  line-art, or minimal stitching with little interior fill.
+- Roman: Roman-style lettering, Roman numerals, or classical serif lettering.
+- Monogram: two or more letters intentionally interlocked, overlapped,
+  intertwined, stacked, or structurally combined into one decorative mark.
+- Handwriting: handwritten, signature-like, cursive, or traced handwriting.
+- Floral: flowers, leaves, stems, bouquets, wreaths, or botanical motifs are
+  the primary design.
+- Neckline: embroidery primarily follows or surrounds a neckline or collar.
+- Text: primarily textual embroidery not classified as Roman, Monogram,
+  or Handwriting.
+
+Classify the visually primary embroidery design. Secondary names, dates,
+initials, or text must not override a primary pet, person, car, floral, or
+neckline design. Ordinary adjacent initials are not automatically Monogram.
+If uncertain, choose the most likely allowed type and explicitly describe the
+visible uncertainty. Do not add an embroidery_type keyword when embroidery is
+not visible. In visual_description, record visible placement, motifs,
+rendering style, thread colors, legibility, and exact visible embroidery text.`,
+  updated_at: null,
+  is_draft: true,
+};
+
 export function ProvidersTab({ metrics, inventoryPermissions = [] }: { metrics: AiOpsProviderBreakdown[]; inventoryPermissions?: readonly string[] }) {
   const state = useConfiguration();
   if (state.loading) return <ConfigurationLoading />;
@@ -160,6 +208,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
   const canEdit = configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant;
   const canUpdateBudget = configuration.permissions.can_update_budget ?? configuration.permissions.can_manage_tenant;
   const canEmergencyStop = configuration.permissions.can_emergency_stop ?? configuration.permissions.can_manage_tenant;
+  const videoPromptProfile = configuration.video_prompt_template || DEFAULT_VIDEO_PROMPT_PROFILE;
 
   async function saveConfiguration() {
     if (!reason.trim()) { setError("A reason is required for the audit log."); return; }
@@ -238,7 +287,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
         </div>
       </form>
       <MetadataPromptTemplateCard key={configuration.metadata_prompt_template?.id || "image-missing"} media="image" profile={configuration.metadata_prompt_template} canEdit={canEdit} onReload={onReload} />
-      <MetadataPromptTemplateCard key={configuration.video_prompt_template?.id || "video-missing"} media="video" profile={configuration.video_prompt_template} canEdit={canEdit} onReload={onReload} />
+      <MetadataPromptTemplateCard key={videoPromptProfile.id || "video-draft"} media="video" profile={videoPromptProfile} canEdit={canEdit} onReload={onReload} />
       {configuration.permissions.can_read_budget !== false ? <form className="ops-config-card ops-config-budget" onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
         <header className="ops-config-card-header"><div><h3>Chính sách ngân sách</h3><p>Đặt ngưỡng chi phí AI cho tenant. Mọi thay đổi đều cần xác nhận.</p></div><span className="ops-card-kicker">Budget</span></header>
         <label className="check ops-field-full"><input disabled={!canUpdateBudget} type="checkbox" checked={budget.enabled} onChange={event => setBudget({ ...budget, enabled: event.target.checked })} /> Bật kiểm soát ngân sách</label>
