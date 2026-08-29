@@ -40,7 +40,6 @@ export function SearchCategoryFilter({ selected, onChange }: CategoryFilterProps
     <header>
       <small>Filter</small>
       <h2>Design type</h2>
-      <span>Image results</span>
     </header>
     <div role="radiogroup" aria-label="Design type">
       {categoryOptions.map(option => {
