@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select
 
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import (
@@ -13,9 +16,20 @@ from app.modules.ai_metadata.service import AiAnalysisService
 from app.modules.ai_metadata.source_storage import PipelineSourceAssetStorage
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.pipeline.repository import AssetPipelineRepository
+from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.pipeline.service import AssetPipelineService
 from app.modules.pipeline.state import PipelineState
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.storage.repository import ManagedStorageRepository
+
+
+_STORAGE_WAIT_SECONDS = 30
+_STORAGE_IN_PROGRESS = frozenset({"pending", "uploading", "retry"})
+_PIPELINE_STORAGE_IN_PROGRESS = frozenset({
+    PipelineState.DOWNLOADED.value,
+    PipelineState.DUPLICATE_DETECTED.value,
+    PipelineState.STORAGE_PENDING.value,
+})
 
 
 class AssetAnalyzeJobHandler:
@@ -30,6 +44,13 @@ class AssetAnalyzeJobHandler:
                 "asset_analyze job requires an analysis_id.",
             )
         settings = self.settings or get_settings()
+        pipeline_id = context.job.payload.get("pipeline_id")
+        source_fallback = (
+            settings.AI_ANALYSIS_SOURCE_FALLBACK_ENABLED
+            and context.job.payload.get("analysis_content_source") == "source_asset"
+            and isinstance(pipeline_id, str)
+            and bool(pipeline_id)
+        )
         registry = context.dependencies.ai_provider_registry
         if registry is None:
             return JobHandlerResult.non_retryable(
@@ -48,6 +69,15 @@ class AssetAnalyzeJobHandler:
                     "analysis_not_found", "Analysis was not found."
                 )
             provider_name = analysis.ai_provider
+            asset_id = analysis.asset_id
+        storage_gate = self._managed_storage_gate(
+            context,
+            settings,
+            asset_id=asset_id,
+            source_fallback=source_fallback,
+        )
+        if storage_gate is not None:
+            return storage_gate
         try:
             provider = registry.require(provider_name or "")
         except (AiProviderUnavailableError, ValueError):
@@ -55,7 +85,6 @@ class AssetAnalyzeJobHandler:
                 "ai_provider_unavailable",
                 "The persisted analysis AI provider is not configured.",
             )
-        pipeline_id = context.job.payload.get("pipeline_id")
         if isinstance(pipeline_id, str) and pipeline_id:
             with context.dependencies.session_factory() as session:
                 pipelines = AssetPipelineRepository(session)
@@ -63,12 +92,6 @@ class AssetAnalyzeJobHandler:
                 if pipeline and pipeline.state == PipelineState.ANALYSIS_PENDING.value:
                     pipelines.transition(pipeline, PipelineState.ANALYZING)
                     session.commit()
-        source_fallback = (
-            settings.AI_ANALYSIS_SOURCE_FALLBACK_ENABLED
-            and context.job.payload.get("analysis_content_source") == "source_asset"
-            and isinstance(pipeline_id, str)
-            and bool(pipeline_id)
-        )
         storage_provider = context.dependencies.storage_provider
         if source_fallback:
             resolver = context.dependencies.resources.get("pipeline_content_resolver")
@@ -170,3 +193,61 @@ class AssetAnalyzeJobHandler:
             outcome.error_code or "analysis_failed",
             outcome.error_message or "Asset analysis failed.",
         )
+
+    @staticmethod
+    def _managed_storage_gate(
+        context: JobHandlerContext,
+        settings: Settings,
+        *,
+        asset_id: str,
+        source_fallback: bool,
+    ) -> JobHandlerResult | DeferredJobOutcome | None:
+        if not settings.MANAGED_ASSET_STORAGE_ENABLED or source_fallback:
+            return None
+        now = datetime.now(timezone.utc)
+        with context.dependencies.session_factory() as session:
+            storage = ManagedStorageRepository(session).get(
+                context.job.tenant_id, asset_id, "google_drive_managed"
+            )
+            if storage is not None and storage.status == "stored" and storage.remote_file_id:
+                return None
+            pipeline = session.scalar(
+                select(AssetPipelineModel)
+                .where(
+                    AssetPipelineModel.tenant_id == context.job.tenant_id,
+                    AssetPipelineModel.asset_id == asset_id,
+                )
+                .order_by(AssetPipelineModel.updated_at.desc(), AssetPipelineModel.id.desc())
+                .limit(1)
+            )
+            storage_waiting = storage is not None and storage.status in _STORAGE_IN_PROGRESS
+            pipeline_waiting = (
+                pipeline is not None
+                and pipeline.state in _PIPELINE_STORAGE_IN_PROGRESS
+            )
+            if storage_waiting or pipeline_waiting:
+                retry_at = storage.next_attempt_at if storage is not None else None
+                if retry_at is not None and retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                if retry_at is None or retry_at <= now:
+                    retry_at = now + timedelta(seconds=_STORAGE_WAIT_SECONDS)
+                return DeferredJobOutcome(
+                    reason_code="managed_asset_storage_pending",
+                    reason_message="Managed storage is still preparing this asset.",
+                    retry_at=retry_at,
+                    metadata={"asset_id": asset_id},
+                )
+            if (
+                storage is not None and storage.status == "failed"
+            ) or (
+                pipeline is not None
+                and pipeline.state == PipelineState.STORAGE_FAILED.value
+            ):
+                return JobHandlerResult.non_retryable(
+                    "managed_asset_storage_failed",
+                    "Managed storage failed before AI analysis could start.",
+                )
+            return JobHandlerResult.non_retryable(
+                "managed_asset_storage_missing",
+                "No managed storage object is available for this asset.",
+            )

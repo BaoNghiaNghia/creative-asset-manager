@@ -17,7 +17,7 @@ from app.modules.authorization.folder_scope import ViewerFolderScopeModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.schema import AssetNode
-from app.modules.search.router import _live_suggestion_hits, _search_generation, _search_scope_filters, _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
+from app.modules.search.router import _design_type_filter, _live_suggestion_hits, _search_generation, _search_scope_filters, _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
 from app.modules.search.governance_model import SearchIndexRecordModel
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 
@@ -56,6 +56,17 @@ class SearchV3ApiTest(unittest.TestCase):
             effective_permissions=frozenset({"search.read"}), platform_admin=False,
             session_id=None, authorization_source="tenant_rbac",
         )
+
+    def test_design_type_filter_matches_normalized_metadata_values(self):
+        self.assertEqual(_design_type_filter(["petfull", "peoplefull", "carfull"]), {
+            "nested": {
+                "path": "path_values",
+                "query": {"terms": {"path_values.value": ["petfull", "peoplefull", "carfull"]}},
+            }
+        })
+        self.assertIsNone(_design_type_filter([]))
+        invalid = self.client.post("/api/v1/search", json={"query": "dad", "design_types": ["unknown"]})
+        self.assertEqual(invalid.status_code, 422)
 
     def tearDown(self):
         app.dependency_overrides.clear(); self.client.close(); self.engine.dispose()

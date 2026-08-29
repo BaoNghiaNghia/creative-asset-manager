@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ParsedQueryDebug, SearchCapabilities, SearchFacetBucket } from "../types";
+import { DESIGN_TYPE_FILTER_KEY } from "../hooks/useSearchV3";
 
 type Props = {
   capabilities: SearchCapabilities;
@@ -8,6 +9,56 @@ type Props = {
   parsed: ParsedQueryDebug | null;
   onToggle: (name: string, value: string) => void;
 };
+
+type CategoryFilterProps = Pick<Props, "selected"> & {
+  onChange: (name: string, values: string[]) => void;
+};
+
+const categoryOptions = [
+  { label: "All", values: [] },
+  { label: "PetFull / PeopleFull / CarFull", values: ["petfull", "peoplefull", "carfull"] },
+  { label: "PetFull", values: ["petfull"] },
+  { label: "PetOutline", values: ["petoutline"] },
+  { label: "PeopleFull", values: ["peoplefull"] },
+  { label: "PeopleOutline", values: ["peopleoutline"] },
+  { label: "CarFull", values: ["carfull"] },
+  { label: "CarOutline", values: ["caroutline"] },
+  { label: "ExistedDesign", values: ["existeddesign"] },
+  { label: "Roman", values: ["roman"] },
+  { label: "Handwriting", values: ["handwriting"] },
+  { label: "Floral", values: ["floral"] },
+  { label: "Neckline", values: ["neckline"] },
+  { label: "Text", values: ["text"] },
+  { label: "Other tags", values: ["other tags"] },
+] as const;
+
+export function SearchCategoryFilter({ selected, onChange }: CategoryFilterProps) {
+  const current = selected[DESIGN_TYPE_FILTER_KEY] || [];
+  const currentKey = [...current].sort().join("|");
+
+  return <aside className="search-category-filter" aria-label="Filter image results by type">
+    <header>
+      <small>Filter</small>
+      <h2>Design type</h2>
+      <span>Image results</span>
+    </header>
+    <div role="radiogroup" aria-label="Design type">
+      {categoryOptions.map(option => {
+        const values = [...option.values];
+        const checked = values.length === 0 ? current.length === 0 : currentKey === values.slice().sort().join("|");
+        return <label key={option.label} className={checked ? "active" : ""}>
+          <input
+            type="radio"
+            name="search-design-type"
+            checked={checked}
+            onChange={() => onChange(DESIGN_TYPE_FILTER_KEY, values)}
+          />
+          <span>{option.label}</span>
+        </label>;
+      })}
+    </div>
+  </aside>;
+}
 
 const guideExamples = [
   ["hoodie cat", "T\u00ecm theo m\u1ee9c \u0111\u1ed9 li\u00ean quan."],

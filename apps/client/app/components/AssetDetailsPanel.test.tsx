@@ -97,6 +97,10 @@ describe("Asset details inspector", () => {
       matches: [
         { start_ms: 3_000, end_ms: 6_000, summary: "A family together", visual_description: "Four people in a living room.", speech: "Hello", confidence: 0.9, score: 4.2 },
       ],
+      steps: [
+        { key: "video_analyze", label: "Video analysis", status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-07-27T10:00:00Z", error_code: null },
+        { key: "video_search_index", label: "Video indexing", status: "completed", attempt_count: 1, max_attempts: 5, updated_at: "2026-07-27T10:01:00Z", error_code: null },
+      ],
     };
     const videoItem: Asset = { ...item, id: "drive-video-1", name: "dad.mp4", kind: "video", mime_type: "video/mp4" };
     const markup = renderToStaticMarkup(<AssetDetailsPanel item={videoItem} videoAnalysis={videoAnalysis} onClose={noop} />);
@@ -104,8 +108,8 @@ describe("Asset details inspector", () => {
     const analysisMarkup = renderToStaticMarkup(<VideoAnalysisDetails analysis={videoAnalysis} />);
     for (const value of ["BEST MATCH · 00:03", "A family together", "Four people in a living room.", "Speech:", "Hello", "90% confidence"]) expect(analysisMarkup).toContain(value);
     const entries = buildActivity(videoItem, null, videoAnalysis);
-    const videoEntry = entries.find(entry => entry.title === "Video AI analysis available");
-    expect(videoEntry?.detail).toContain("Best match starts at 00:03");
+    expect(entries.map(entry => entry.title)).toContain("Video analysis completed");
+    expect(entries.map(entry => entry.title)).toContain("Video indexing completed");
     expect(formatVideoTimestamp(65_000)).toBe("01:05");
   });
 

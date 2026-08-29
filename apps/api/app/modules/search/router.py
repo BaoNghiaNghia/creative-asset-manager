@@ -434,6 +434,17 @@ def _search_thumbnail_url(*, provider: str, external_asset_id: str, external_sou
     return f"/api/explorer/thumbnail/{quote(str(external_asset_id), safe='')}?{query}"
 
 
+def _design_type_filter(values: list[str]) -> dict | None:
+    if not values:
+        return None
+    return {
+        "nested": {
+            "path": "path_values",
+            "query": {"terms": {"path_values.value": values}},
+        }
+    }
+
+
 def _facet_aggregations(allowed_facets: list[str], include_facets: bool) -> dict[str, dict]:
     if not include_facets:
         return {}
@@ -651,6 +662,9 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
         for name, values in sorted(body.facets.items()):
             if values:
                 filters.append({"terms": {f"facets.{name}": values}})
+        design_type_filter = _design_type_filter(body.design_types)
+        if design_type_filter:
+            filters.append(design_type_filter)
         aggregations = _facet_aggregations(allowed_facets, body.include_facets)
         if aggregations:
             query["aggs"] = aggregations

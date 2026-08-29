@@ -7,6 +7,7 @@ type Position = { left: number; top: number; width: number };
 type Props = {
   item: VideoSearchItem;
   anchor: HTMLElement;
+  visible: boolean;
   onClose: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -34,7 +35,7 @@ export function hoverPreviewPosition(anchor: Pick<DOMRect, "left" | "top" | "wid
   };
 }
 
-export function VideoHoverPreview({ item, anchor, onClose, onMouseEnter, onMouseLeave }: Props) {
+export function VideoHoverPreview({ item, anchor, visible, onClose, onMouseEnter, onMouseLeave }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [failed, setFailed] = useState(false);
   const [position, setPosition] = useState<Position>(() => hoverPreviewPosition(anchor.getBoundingClientRect(), window.innerWidth));
@@ -86,17 +87,18 @@ export function VideoHoverPreview({ item, anchor, onClose, onMouseEnter, onMouse
   }, [item.analysis_run_id, item.best_match.start_ms]);
 
   return createPortal(<section
-    className="video-hover-preview"
-    style={position}
-    role="dialog"
-    aria-label={"Hover preview for " + item.filename}
+    className={visible ? "video-hover-preview" : "video-hover-preloader"}
+    style={visible ? position : undefined}
+    role={visible ? "dialog" : undefined}
+    aria-label={visible ? "Hover preview for " + item.filename : undefined}
+    aria-hidden={visible ? undefined : true}
     onMouseEnter={onMouseEnter}
     onMouseLeave={onMouseLeave}
   >
-    <header>
+    {visible && <header>
       <div><strong title={item.filename}>{item.filename}</strong><small>Best match · {formatTimestamp(item.best_match.start_ms)}–{formatTimestamp(item.best_match.end_ms)}</small></div>
       <button type="button" onClick={onClose} aria-label="Close hover preview" title="Close preview">×</button>
-    </header>
+    </header>}
     <div className="video-hover-preview-stage">
       {!mediaUrl || failed
         ? <div className="video-hover-preview-error" role="alert">Video preview is unavailable.</div>
@@ -107,9 +109,9 @@ export function VideoHoverPreview({ item, anchor, onClose, onMouseEnter, onMouse
           poster={item.thumbnail_url || undefined}
           muted
           autoPlay
-          controls
+          controls={visible}
           playsInline
-          preload="metadata"
+          preload="auto"
           aria-label={"Preview " + item.filename}
           onLoadedMetadata={startPlayback}
           onTimeUpdate={loopBestMatch}

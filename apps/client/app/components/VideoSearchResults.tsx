@@ -3,7 +3,7 @@ import { buildVideoPlaybackUrl, playbackSeekSeconds } from "../utils/videoPlayba
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 import { VideoHoverPreview } from "./VideoHoverPreview";
 
-export const VIDEO_HOVER_PREVIEW_DELAY_MS = 4000;
+export const VIDEO_HOVER_PREVIEW_DELAY_MS = 1000;
 const VIDEO_HOVER_PREVIEW_CLOSE_DELAY_MS = 220;
 
 export function formatVideoTimestamp(milliseconds: number): string {
@@ -22,11 +22,26 @@ export function formatVideoDuration(milliseconds: number | null): string | null 
     : null;
 }
 
-function VideoThumbnail({ item }: { item: VideoSearchItem }) {
+export function videoThumbnailRequestUrl(url: string | null): string | null {
+  if (!url) return null;
+  const separator = url.indexOf("?");
+  if (separator < 0) return url;
+  const params = new URLSearchParams(url.slice(separator + 1));
+  if (params.get("fallback") !== "video") return url;
+  params.delete("fallback");
+  const query = params.toString();
+  return url.slice(0, separator) + (query ? "?" + query : "");
+}
+
+function VideoThumbnail({ item, fallbackFrame }: { item: VideoSearchItem; fallbackFrame?: string }) {
   const [failed, setFailed] = useState(false);
   const timestamp = formatVideoTimestamp(item.best_match.start_ms);
+  const providerThumbnail = videoThumbnailRequestUrl(item.thumbnail_url);
+  const thumbnail = (!failed && providerThumbnail) || fallbackFrame;
 
-  if (!item.thumbnail_url || failed) {
+  useEffect(() => setFailed(false), [item.analysis_run_id, item.thumbnail_url]);
+
+  if (!thumbnail) {
     return <div
       className="video-search-thumbnail video-search-thumbnail-fallback"
       role="img"
@@ -39,7 +54,7 @@ function VideoThumbnail({ item }: { item: VideoSearchItem }) {
 
   return <div className="video-search-thumbnail">
     <img
-      src={item.thumbnail_url}
+      src={thumbnail}
       alt={"Thumbnail for " + item.filename}
       loading="lazy"
       referrerPolicy="no-referrer"
@@ -147,12 +162,12 @@ export async function captureVideoSequenceFrames(mediaUrl: string, startTimesMs:
   }
 }
 
-function VideoSequenceStrip({ item, onOpen }: { item: VideoSearchItem; onOpen: (item: VideoSearchItem) => void }) {
+function VideoSequenceStrip({ item, onOpen, onThumbnailFrame }: { item: VideoSearchItem; onOpen: (item: VideoSearchItem) => void; onThumbnailFrame: (frame: string | null) => void }) {
   const stripRef = useRef<HTMLDivElement>(null);
   const [inViewport, setInViewport] = useState(false);
   const [frames, setFrames] = useState<string[]>([]);
   const mediaUrl = buildVideoPlaybackUrl(item);
-  const frameKey = item.matches.map(match => match.start_ms).join(":");
+  const frameKey = [item.best_match.start_ms, ...item.matches.map(match => match.start_ms)].join(":");
 
   useEffect(() => {
     const target = stripRef.current;
@@ -171,11 +186,14 @@ function VideoSequenceStrip({ item, onOpen }: { item: VideoSearchItem; onOpen: (
 
   useEffect(() => {
     setFrames([]);
-    if (!inViewport || !mediaUrl || !item.matches.length) return;
+    onThumbnailFrame(null);
+    if (!inViewport || !mediaUrl) return;
     let mounted = true;
     const cancel = sequenceFrameQueue.enqueue(async signal => {
-      const captured = await captureVideoSequenceFrames(mediaUrl, item.matches.map(match => match.start_ms), signal);
-      if (mounted && !signal.aborted) setFrames(captured);
+      const captured = await captureVideoSequenceFrames(mediaUrl, [item.best_match.start_ms, ...item.matches.map(match => match.start_ms)], signal);
+      if (!mounted || signal.aborted) return;
+      onThumbnailFrame(captured[0] || null);
+      setFrames(captured.slice(1));
     });
     return () => { mounted = false; cancel(); };
   }, [frameKey, inViewport, item.analysis_run_id, mediaUrl]);
@@ -209,7 +227,8 @@ export function VideoSearchResults({
   onOpen: (item: VideoSearchItem) => void;
   onDetails: (item: VideoSearchItem) => void;
 }) {
-  const [hoverPreview, setHoverPreview] = useState<{ item: VideoSearchItem; anchor: HTMLElement } | null>(null);
+  const [generatedThumbnails, setGeneratedThumbnails] = useState<Record<string, string>>({});
+  const [hoverPreview, setHoverPreview] = useState<{ item: VideoSearchItem; anchor: HTMLElement; visible: boolean } | null>(null);
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
 
@@ -232,6 +251,10 @@ export function VideoSearchResults({
   function scheduleClose() {
     clearTimer(openTimer);
     clearTimer(closeTimer);
+    if (hoverPreview && !hoverPreview.visible) {
+      setHoverPreview(null);
+      return;
+    }
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
       setHoverPreview(null);
@@ -246,9 +269,13 @@ export function VideoSearchResults({
     }
     if (!buildVideoPlaybackUrl(item)) return;
     if (hoverPreview?.item.analysis_run_id === item.analysis_run_id) return;
+    setHoverPreview({ item, anchor, visible: false });
     openTimer.current = window.setTimeout(() => {
       openTimer.current = null;
-      if (anchor.isConnected) setHoverPreview({ item, anchor });
+      if (!anchor.isConnected) return;
+      setHoverPreview(current => current?.item.analysis_run_id === item.analysis_run_id
+        ? { ...current, visible: true }
+        : current);
     }, VIDEO_HOVER_PREVIEW_DELAY_MS);
   }
 
@@ -283,7 +310,7 @@ export function VideoSearchResults({
           aria-label={"View details for " + item.filename}
           title="View details"
         >i</button>
-        <VideoThumbnail item={item} />
+        <VideoThumbnail item={item} fallbackFrame={generatedThumbnails[item.analysis_run_id]} />
         <div className="video-search-card-body">
           <header className="video-search-card-header">
             <h3 title={item.filename}>{item.filename}</h3>
@@ -293,7 +320,14 @@ export function VideoSearchResults({
             </div>
           </header>
 
-          <VideoSequenceStrip item={item} onOpen={onOpen} />
+          <VideoSequenceStrip item={item} onOpen={onOpen} onThumbnailFrame={frame => setGeneratedThumbnails(current => {
+            if (frame && current[item.analysis_run_id] === frame) return current;
+            if (!frame && !(item.analysis_run_id in current)) return current;
+            const next = { ...current };
+            if (frame) next[item.analysis_run_id] = frame;
+            else delete next[item.analysis_run_id];
+            return next;
+          })} />
 
           <div className="video-search-best-match">
             <b>Best match - {timestamp}</b>
@@ -316,6 +350,7 @@ export function VideoSearchResults({
   </div>{hoverPreview && <VideoHoverPreview
     item={hoverPreview.item}
     anchor={hoverPreview.anchor}
+    visible={hoverPreview.visible}
     onClose={closeNow}
     onMouseEnter={cancelClose}
     onMouseLeave={scheduleClose}

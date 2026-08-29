@@ -373,6 +373,43 @@ class MediaDashboardService:
         thumbnail_url = None
         if external.source_type == "google_drive":
             thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
+        analysis_job = self.session.scalar(
+            select(ProcessingJobModel)
+            .where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.job_type == VIDEO_JOB_TYPE,
+                ProcessingJobModel.entity_type == "source_asset",
+                ProcessingJobModel.entity_id == source.id,
+            )
+            .order_by(ProcessingJobModel.updated_at.desc(), ProcessingJobModel.id.desc())
+            .limit(1)
+        )
+        index_job = None
+        if run is not None:
+            index_job = self.session.scalar(
+                select(ProcessingJobModel)
+                .where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == VIDEO_INDEX_JOB_TYPE,
+                    ProcessingJobModel.entity_type == "video_analysis_run",
+                    ProcessingJobModel.entity_id == run.id,
+                )
+                .order_by(ProcessingJobModel.updated_at.desc(), ProcessingJobModel.id.desc())
+                .limit(1)
+            )
+
+        def video_step(key: str, label: str, job: ProcessingJobModel | None) -> dict:
+            updated_at = _as_utc(job.updated_at) if job is not None else None
+            return {
+                "key": key,
+                "label": label,
+                "status": job.status if job is not None else "not_started",
+                "attempt_count": job.attempt_count if job is not None else 0,
+                "max_attempts": job.max_attempts if job is not None else 0,
+                "updated_at": updated_at.isoformat() if updated_at is not None else None,
+                "error_code": job.last_error_code if job is not None else None,
+            }
+
         return {
             "source_asset_id": source.id,
             "analysis_run_id": run.id if run is not None else "",
@@ -390,6 +427,10 @@ class MediaDashboardService:
             "score": 0.0,
             "best_match": matches[0] if matches else fallback,
             "matches": matches,
+            "steps": [
+                video_step(VIDEO_JOB_TYPE, "Video analysis", analysis_job),
+                video_step(VIDEO_INDEX_JOB_TYPE, "Video indexing", index_job),
+            ],
         }
 
     async def snapshot(

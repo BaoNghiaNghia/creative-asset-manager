@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  AssetGrid,
   AssetGridSkeleton,
   createThumbnailLoadQueue,
   INITIAL_HIGH_PRIORITY_THUMBNAILS,
@@ -29,6 +30,27 @@ describe("AssetGrid thumbnail loading", () => {
   it("does not try to load a missing thumbnail", () => {
     expect(shouldLoadAssetThumbnail(true, undefined)).toBe(false);
     expect(shouldLoadAssetThumbnail(true, "")).toBe(false);
+  });
+
+  it("always overlays a centered play control on video cards", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(AssetGrid, {
+      items: [{ provider: "google-drive", id: "video-1", name: "clip.mp4", kind: "video", mime_type: "video/mp4" }],
+      path: [],
+      selected: new Set<string>(),
+      metadataByItem: {},
+      onOpen: noop,
+      onToggle: noop,
+      onPrefetch: noop,
+      onCancelPrefetch: noop,
+      onPreview: noop,
+      onRate: noop,
+      onDetails: noop,
+      onFocus: noop,
+      onContextMenu: noop,
+    }));
+    expect(markup).toContain('class="video-thumbnail-badge"');
+    expect(markup).toContain("▶");
   });
 });
 

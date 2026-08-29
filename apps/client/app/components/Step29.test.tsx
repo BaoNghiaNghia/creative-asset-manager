@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SafeJsonTree } from "./SafeJsonTree";
-import { SearchGuide, SearchControls } from "./SearchControls";
+import { SearchCategoryFilter, SearchGuide, SearchControls } from "./SearchControls";
 
 describe("Step 29 operator UI", () => {
   it("renders bounded nested metadata without mutating it", () => {
@@ -25,5 +25,16 @@ describe("Step 29 operator UI", () => {
     expect(guide).toContain("H\u01b0\u1edbng d\u1eabn t\u00ecm ki\u1ebfm");
     expect(markup).toContain("subject");
     expect(markup).toContain("Parsed query debug");
+  });
+
+  it("renders the fixed design taxonomy as a left-side radio filter", () => {
+    const markup = renderToStaticMarkup(<SearchCategoryFilter
+      selected={{}}
+      onChange={() => undefined}
+    />);
+    expect(markup).toContain("Design type");
+    expect(markup).toContain("PetFull / PeopleFull / CarFull");
+    expect(markup).toContain("Other tags");
+    expect(markup).toContain('checked=""');
   });
 });

@@ -9,7 +9,7 @@ import { useVideoSearch } from "./hooks/useVideoSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
-import { SearchControls } from "./components/SearchControls";
+import { SearchCategoryFilter, SearchControls } from "./components/SearchControls";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
 import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, SidebarIcon, sourceFolderBrand } from "./components/Icons";
@@ -891,6 +891,11 @@ export default function App() {
             </div>
           </div>
 
+          <div className={explorer.query.trim() && imageSearchEnabled ? "search-results-layout has-category-filter" : "search-results-layout"}>
+          {explorer.query.trim() && imageSearchEnabled && <SearchCategoryFilter
+            selected={explorer.searchV3.selectedFacets}
+            onChange={explorer.searchV3.setFacetValues}
+          />}
           <div id="search-results">
           {searchMediaMode === "videos" && explorer.query.trim() ? videoResults : <>
           {searchMediaMode === "all" && explorer.query.trim() && <h2 className="mixed-search-heading"><button type="button" className="mixed-search-toggle" aria-expanded={imageResultsExpanded} aria-controls="mixed-image-results" onClick={() => setImageResultsExpanded(value => !value)}><i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i><span>Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></span></button></h2>}
@@ -955,6 +960,7 @@ export default function App() {
             <div id="mixed-video-results" hidden={!videoResultsExpanded}>{videoResults}</div>
           </section>}
           </>}
+          </div>
           </div>
           {(!explorer.query.trim() || imageSearchEnabled) && explorer.selected.size > 0 && <div className="bulk">
             <b>{explorer.selected.size} selected</b>

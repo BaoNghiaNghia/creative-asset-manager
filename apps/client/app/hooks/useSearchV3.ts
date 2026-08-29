@@ -94,6 +94,8 @@ export function mergeFolderSearchResults(folders: Asset[], assets: Asset[]): Ass
   return mergeSearchResults(folders.filter(item => item.kind === "folder"), assets);
 }
 
+export const DESIGN_TYPE_FILTER_KEY = "__design_type";
+
 export function buildSearchRequestBody(
   query: string,
   provider: Provider,
@@ -103,11 +105,14 @@ export function buildSearchRequestBody(
   debug: boolean,
   externalSourceId?: string | null,
 ) {
+  const { [DESIGN_TYPE_FILTER_KEY]: designTypes = [], ...apiFacets } = facets;
+
   return {
     query: query.trim(),
     source_provider: provider,
     ...(externalSourceId ? { external_source_id: externalSourceId } : {}),
-    facets,
+    facets: apiFacets,
+    design_types: designTypes,
     limit: SEARCH_PAGE_SIZE,
     ...(cursor ? { cursor } : {}),
     include_facets: !append,
@@ -397,6 +402,16 @@ export function useSearchV3(authenticated: boolean, provider: Provider, query: s
     });
   }
 
+  function setFacetValues(name: string, values: string[]) {
+    setSelectedFacets(current => {
+      const next = { ...current };
+      const normalized = [...new Set(values.filter(Boolean))].sort();
+      if (normalized.length) next[name] = normalized;
+      else delete next[name];
+      return next;
+    });
+  }
+
   const availabilityError = capabilitiesResolved && !capabilities.search_available
     ? "Search V3 is unavailable. Retry when the search index is ready."
     : "";
@@ -408,6 +423,6 @@ export function useSearchV3(authenticated: boolean, provider: Provider, query: s
     active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed,
     total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions,
     suggestionsLoading, suggestionsError, suggestionsLastUpdated, retrySuggestions,
-    error: displayedError, retry, toggleFacet, clearSearchFilters,
+    error: displayedError, retry, toggleFacet, setFacetValues, clearSearchFilters,
   }), [active, capabilitiesResolved, capabilities, items, facets, selectedFacets, parsed, total, loading, loadingMore, hasMore, loadMore, durationMs, suggestions, suggestionsLoading, suggestionsError, suggestionsLastUpdated, displayedError, retry, retrySuggestions]);
 }

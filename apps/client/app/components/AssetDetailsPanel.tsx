@@ -43,6 +43,9 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
   const [locationNodes, setLocationNodes] = useState<Array<{ id: string; name: string }>>([]);
   const [locationStatus, setLocationStatus] = useState<"available" | "unavailable" | null>(null);
   const [locationLoading, setLocationLoading] = useState(Boolean(item?.id));
+  const [loadedVideoAnalysis, setLoadedVideoAnalysis] = useState<VideoSearchItem | null>(null);
+  const [videoDetailsLoading, setVideoDetailsLoading] = useState(false);
+  const [videoDetailsError, setVideoDetailsError] = useState("");
 
   async function load(signal?: AbortSignal) {
     if (!assetId) { setData(null); setLoading(false); return; }
@@ -64,7 +67,36 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
       if (!controller.signal.aborted) { setLoading(false); setCoreDetailsError(reason.message); }
     });
     return () => controller.abort();
-  }, [assetId, item?.external_source_id]);
+  }, [assetId, item?.id, item?.external_source_id]);
+
+  useEffect(() => {
+    setLoadedVideoAnalysis(null);
+    setVideoDetailsError("");
+    if (videoAnalysis || item?.kind !== "video" || !item.source_asset_id) {
+      setVideoDetailsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setVideoDetailsLoading(true);
+    const params = new URLSearchParams();
+    if (item.external_source_id) params.set("external_source_id", item.external_source_id);
+    void fetch("/api/v1/search/video/" + encodeURIComponent(item.source_asset_id) + (params.size ? "?" + params : ""), {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    }).then(async response => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof payload.detail === "string" ? payload.detail : payload.detail?.message;
+        throw Error(detail || "Unable to load video processing details");
+      }
+      if (!controller.signal.aborted) setLoadedVideoAnalysis(payload as VideoSearchItem);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setVideoDetailsError(reason instanceof Error ? reason.message : "Unable to load video processing details");
+    }).finally(() => {
+      if (!controller.signal.aborted) setVideoDetailsLoading(false);
+    });
+    return () => controller.abort();
+  }, [item?.kind, item?.source_asset_id, videoAnalysis]);
 
   useEffect(() => {
     if (!item?.id) { setLocationNodes([]); setLocationStatus(null); setLocationLoading(false); return; }
@@ -110,12 +142,14 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
   const sourceProvider = provider === "sharepoint" ? "sharepoint" : "google-drive";
   const kind = item?.kind === "folder" ? "folder" : inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), displayName);
   const fileType = getFileType(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), kind);
+  const effectiveVideoAnalysis = videoAnalysis || loadedVideoAnalysis;
+  const hasVideoAnalysis = Boolean(effectiveVideoAnalysis?.analysis_run_id);
   const tabs: Section[] = data
-    ? ["details", "activity", "metadata", "history", "jobs"]
-    : videoAnalysis
+    ? ["details", "activity", ...(hasVideoAnalysis ? ["analysis" as const] : []), "metadata", "history", "jobs"]
+    : hasVideoAnalysis
       ? ["details", "activity", "analysis"]
       : ["details", "activity"];
-  const activity = useMemo(() => buildActivity(item, data, videoAnalysis), [item, data, videoAnalysis]);
+  const activity = useMemo(() => buildActivity(item, data, effectiveVideoAnalysis), [item, data, effectiveVideoAnalysis]);
 
   return <><aside className="asset-details asset-inspector" aria-label="File information">
     <header className="asset-inspector-header">
@@ -129,9 +163,11 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
     {loading && <div className="panel-loading" role="status" aria-label="Loading file information"><span className="panel-loading-spinner" aria-hidden="true" /></div>}
     {!loading && !item && !data && <InspectorEmpty />}
     {!loading && (item || data) && <div className="asset-details-body">
+      {videoDetailsLoading && <div className="panel-notice" role="status">Loading video activity and AI analysis…</div>}
+      {videoDetailsError && <div className="panel-error" role="alert">{videoDetailsError}</div>}
       {section === "details" && <FriendlyDetails item={item} data={data} metadata={metadata} provider={provider} onPreview={onPreview} onOpenFolder={onOpenFolder} locationNodes={locationNodes} locationStatus={locationStatus} locationLoading={locationLoading} canManageContent={canManageContent} />}
       {section === "activity" && <Activity entries={activity} />}
-      {section === "analysis" && videoAnalysis && <VideoAnalysisDetails analysis={videoAnalysis} />}
+      {section === "analysis" && effectiveVideoAnalysis && <VideoAnalysisDetails analysis={effectiveVideoAnalysis} />}
       {section === "metadata" && data && <>
         <Summary analysis={data.active_analysis} />
         <h3 className="panel-section-title">Metadata document</h3>
@@ -370,7 +406,22 @@ export function buildActivity(item: Asset | null, data: AssetDetails | null, vid
     });
   });
   data?.jobs.slice(0, 20).forEach((job, index) => entries.push(describeJobActivity(job, index)));
-  if (videoAnalysis) entries.push({
+  if (videoAnalysis?.steps?.length) {
+    videoAnalysis.steps.forEach((step, index) => {
+      const status = String(step.status || "not_started");
+      const completed = status === "completed";
+      const failed = status === "failed";
+      const attempts = step.max_attempts > 0 ? ` Attempt ${step.attempt_count}/${step.max_attempts}.` : "";
+      const error = step.error_code ? ` Error: ${humanizeError(step.error_code)}.` : "";
+      entries.push({
+        id: `video-step-${step.key}-${index}`,
+        title: `${step.label} ${completed ? "completed" : failed ? "failed" : readableStatus(status)}`,
+        category: "Video pipeline", tone: completed ? "success" : failed ? "danger" : status === "not_started" ? "neutral" : "warning",
+        detail: `${step.label} is ${readableStatus(status)}.${attempts}${error}`,
+        at: step.updated_at || undefined,
+      });
+    });
+  } else if (videoAnalysis?.analysis_run_id) entries.push({
     id: `video-analysis-${videoAnalysis.analysis_run_id}`,
     title: "Video AI analysis available",
     category: "AI analysis",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset } from "../types";
-import { buildFolderSearchParams, buildSearchRequestBody, isCurrentSearchResponse, mergeFolderSearchResults, mergeSearchResults, normalizeAsinFolderQuery, SEARCH_PAGE_SIZE } from "./useSearchV3";
+import { buildFolderSearchParams, buildSearchRequestBody, DESIGN_TYPE_FILTER_KEY, isCurrentSearchResponse, mergeFolderSearchResults, mergeSearchResults, normalizeAsinFolderQuery, SEARCH_PAGE_SIZE } from "./useSearchV3";
 
 function asset(id: string, source = "source-a"): Asset {
   return {
@@ -27,6 +27,16 @@ describe("Search result pagination", () => {
     const nextPage = buildSearchRequestBody("horse", "google-drive", {}, "cursor-2", true, false);
     expect(nextPage).toMatchObject({ limit: 60, cursor: "cursor-2", include_facets: false });
     expect(nextPage).not.toHaveProperty("offset");
+  });
+
+  it("sends the design taxonomy through its dedicated backend filter", () => {
+    const request = buildSearchRequestBody("dad", "google-drive", {
+      subject: ["family"],
+      [DESIGN_TYPE_FILTER_KEY]: ["petfull", "peoplefull", "carfull"],
+    }, null, false, false);
+    expect(request.facets).toEqual({ subject: ["family"] });
+    expect(request.design_types).toEqual(["petfull", "peoplefull", "carfull"]);
+    expect(request.facets).not.toHaveProperty(DESIGN_TYPE_FILTER_KEY);
   });
 
   it("recognizes only a complete ASIN as eligible for folder search", () => {

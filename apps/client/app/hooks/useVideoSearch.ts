@@ -3,7 +3,8 @@ import type { Provider } from "../types";
 import { searchApiErrorMessage } from "./useSearchV3";
 
 export type VideoSearchMatch = { start_ms: number; end_ms: number; summary: string; visual_description: string; speech: string; confidence: number; score: number; };
-export type VideoSearchItem = { source_asset_id: string; analysis_run_id: string; filename: string; mime_type: string; duration_ms: number | null; source_type: string | null; external_source_id: string | null; external_asset_id: string | null; web_url: string | null; thumbnail_url: string | null; score: number; best_match: VideoSearchMatch; matches: VideoSearchMatch[]; };
+export type VideoProcessingStep = { key: string; label: string; status: string; attempt_count: number; max_attempts: number; updated_at: string | null; error_code: string | null; };
+export type VideoSearchItem = { source_asset_id: string; analysis_run_id: string; filename: string; mime_type: string; duration_ms: number | null; source_type: string | null; external_source_id: string | null; external_asset_id: string | null; web_url: string | null; thumbnail_url: string | null; score: number; best_match: VideoSearchMatch; matches: VideoSearchMatch[]; steps?: VideoProcessingStep[]; };
 export type VideoSearchResponse = { items: VideoSearchItem[]; total: number; took_ms: number | null };
 export type VideoSearchConfig = {
   authenticated: boolean;

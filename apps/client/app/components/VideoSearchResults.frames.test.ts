@@ -1,8 +1,19 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { captureVideoSequenceFrames } from "./VideoSearchResults";
+import { captureVideoSequenceFrames, videoThumbnailRequestUrl } from "./VideoSearchResults";
 
 describe("video sequence frame capture", () => {
+  it("requests a real provider thumbnail instead of the HTTP 200 video placeholder", () => {
+    expect(videoThumbnailRequestUrl(
+      "/api/explorer/thumbnail/file-a?provider=google-drive&external_source_id=source-a&fallback=video",
+    )).toBe(
+      "/api/explorer/thumbnail/file-a?provider=google-drive&external_source_id=source-a",
+    );
+    expect(videoThumbnailRequestUrl("/api/explorer/thumbnail/file-a?provider=google-drive")).toBe(
+      "/api/explorer/thumbnail/file-a?provider=google-drive",
+    );
+    expect(videoThumbnailRequestUrl(null)).toBeNull();
+  });
   it("seeks once through the source and returns a distinct frame for every segment timestamp", async () => {
     const video = document.createElement("video");
     const canvas = document.createElement("canvas");

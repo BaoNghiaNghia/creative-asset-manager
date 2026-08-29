@@ -149,7 +149,6 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
         setThumbnailFailed(true);
       }}
     />}
-    {item.kind === "video" && thumbnailLoaded && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
   </span>;
 }
 
@@ -264,6 +263,7 @@ export function AssetGrid({
       <button className="check" onClick={() => onToggle(item.id)}>{selected.has(item.id) ? "✓" : ""}</button>
       <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
         <AssetPreview item={item} fetchPriority={thumbnailFetchPriority(index)} />
+        {item.kind === "video" && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
       </button>
       <div>
         <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>

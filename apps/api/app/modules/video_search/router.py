@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
+from app.modules.ai_operations.media_dashboard import MediaDashboardService
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.authorization.principal import CurrentPrincipal, is_pure_viewer, require_permission
@@ -75,6 +76,35 @@ def _authorized_video_scope(
         if access.restricted
         else None,
     )
+
+
+@router.get("/video/{source_asset_id}")
+def video_search_detail(
+    source_asset_id: str,
+    external_source_id: str | None = Query(default=None),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(VIDEO_SEARCH_READ),
+):
+    authorized_source_id, allowed_source_asset_ids = _authorized_video_scope(
+        external_source_id=external_source_id,
+        principal=principal,
+        session=session,
+    )
+    if allowed_source_asset_ids is not None and source_asset_id not in allowed_source_asset_ids:
+        raise HTTPException(404, detail={"code": "video_not_found", "message": "Video is unavailable."})
+    document = MediaDashboardService(session, get_settings()).video_detail(
+        principal.active_tenant_id,
+        source_asset_id,
+    )
+    if (
+        document is None
+        or (
+            authorized_source_id is not None
+            and document.get("external_source_id") != authorized_source_id
+        )
+    ):
+        raise HTTPException(404, detail={"code": "video_not_found", "message": "Video is unavailable."})
+    return document
 
 
 @router.post("/video")

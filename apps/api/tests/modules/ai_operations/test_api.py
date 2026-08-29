@@ -394,6 +394,18 @@ class AiOperationsApiTest(unittest.TestCase):
                     "speech": "Hello", "confidence": 0.9,
                 }]},
             ))
+            session.add_all([
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="video_analyze", entity_type="source_asset",
+                    entity_id=self.source_asset_id, idempotency_key="video-detail-analysis",
+                    status="completed", attempt_count=1, max_attempts=5, payload_json={},
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="video_search_index", entity_type="video_analysis_run",
+                    entity_id=run.id, idempotency_key="video-detail-index",
+                    status="completed", attempt_count=1, max_attempts=5, payload_json={},
+                ),
+            ])
             other_source = ExternalSourceModel(
                 tenant_id="tenant-b", source_key="other-drive", source_type="google_drive",
             )
@@ -421,6 +433,10 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(document["analysis_run_id"], run_id)
         self.assertEqual(document["best_match"]["summary"], "Opening scene")
         self.assertEqual(document["matches"][0]["confidence"], 0.9)
+        self.assertEqual(
+            [(step["key"], step["status"]) for step in document["steps"]],
+            [("video_analyze", "completed"), ("video_search_index", "completed")],
+        )
         self.assertEqual(denied.status_code, 404)
 
     def test_media_dashboard_resolves_video_location_from_synced_folders(self):

@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
+from app.core.database import get_db
 from app.main import app
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.authorization.folder_scope import ViewerFolderAccess
@@ -108,6 +109,39 @@ class VideoSearchApiTest(unittest.TestCase):
             )
         self.assertEqual(source_id, "source-a")
         self.assertEqual(allowed_ids, {"asset-in-folder-a"})
+
+    def test_video_detail_returns_pipeline_steps_and_honors_authorized_source(self):
+        session = Mock()
+        app.dependency_overrides[get_db] = lambda: session
+        document = {
+            "source_asset_id": "asset-a",
+            "analysis_run_id": "run-a",
+            "external_source_id": "source-a",
+            "filename": "clip.mp4",
+            "mime_type": "video/mp4",
+            "duration_ms": 1000,
+            "source_type": "google_drive",
+            "external_asset_id": "drive-a",
+            "web_url": None,
+            "thumbnail_url": None,
+            "location": None,
+            "size_bytes": None,
+            "modified_at": None,
+            "score": 0.0,
+            "best_match": {"start_ms": 0, "end_ms": 1000, "summary": "", "visual_description": "", "speech": "", "confidence": 0.0, "score": 0.0},
+            "matches": [],
+            "steps": [{"key": "video_analyze", "label": "Video analysis", "status": "completed"}],
+        }
+        with (
+            patch("app.modules.video_search.router.get_settings", return_value=self.settings),
+            patch("app.modules.video_search.router._authorized_video_scope", return_value=("source-a", {"asset-a"})),
+            patch("app.modules.video_search.router.MediaDashboardService") as service_type,
+        ):
+            service_type.return_value.video_detail.return_value = document
+            result = self.client.get("/api/v1/search/video/asset-a?external_source_id=source-a")
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()["steps"][0]["key"], "video_analyze")
+        service_type.return_value.video_detail.assert_called_once_with("tenant-a", "asset-a")
 
     def test_video_route_uses_server_authorized_source_scope(self):
         with (

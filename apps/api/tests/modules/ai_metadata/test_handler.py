@@ -22,6 +22,7 @@ from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.ai_metadata.service import AiAnalysisOutcome
 from app.modules.assets.model import AssetModel
+from app.modules.storage.model import AssetStorageObjectModel
 
 
 class FakeProvider:
@@ -165,6 +166,55 @@ class AssetAnalyzeJobHandlerProviderTest(unittest.TestCase):
 
         self.assertEqual(result.outcome, JobOutcome.NON_RETRYABLE_FAILURE)
         self.assertEqual(result.error_code, "ai_provider_unavailable")
+
+    def test_pending_managed_storage_is_deferred_without_invoking_ai(self):
+        analysis_id = self._analysis("gemini")
+        registry = AiProviderRegistry()
+        registry.register("gemini", FakeProvider("gemini"))
+        with self.sessions() as session:
+            session.add(AssetStorageObjectModel(
+                tenant_id="tenant-a",
+                asset_id=self.asset_id,
+                content_hash="a" * 64,
+                storage_provider="google_drive_managed",
+                status="uploading",
+            ))
+            session.commit()
+
+        with patch("app.modules.ai_metadata.handler.AiAnalysisService") as service_class:
+            result = AssetAnalyzeJobHandler(Settings(MANAGED_ASSET_STORAGE_ENABLED=True))(
+                self._context(analysis_id, registry)
+            )
+
+        self.assertIsInstance(result, DeferredJobOutcome)
+        self.assertEqual(result.reason_code, "managed_asset_storage_pending")
+        service_class.assert_not_called()
+        with self.sessions() as session:
+            analysis = AiMetadataRepository(session).get_analysis(analysis_id)
+            self.assertEqual(analysis.attempt_count, 0)
+            self.assertEqual(analysis.status, "pending")
+
+    def test_failed_managed_storage_is_reported_without_ai_retries(self):
+        analysis_id = self._analysis("gemini")
+        registry = AiProviderRegistry()
+        registry.register("gemini", FakeProvider("gemini"))
+        with self.sessions() as session:
+            session.add(AssetStorageObjectModel(
+                tenant_id="tenant-a",
+                asset_id=self.asset_id,
+                content_hash="a" * 64,
+                storage_provider="google_drive_managed",
+                status="failed",
+                attempt_count=5,
+            ))
+            session.commit()
+
+        result = AssetAnalyzeJobHandler(Settings(MANAGED_ASSET_STORAGE_ENABLED=True))(
+            self._context(analysis_id, registry)
+        )
+
+        self.assertEqual(result.outcome, JobOutcome.NON_RETRYABLE_FAILURE)
+        self.assertEqual(result.error_code, "managed_asset_storage_failed")
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe("VideoSearchResults hover preview", () => {
-  it("opens only after four seconds and streams the best matching segment", async () => {
+  it("preloads immediately and reveals the same player after one second", async () => {
     vi.useFakeTimers();
     const host = document.createElement("div");
     document.body.append(host);
@@ -37,12 +37,17 @@ describe("VideoSearchResults hover preview", () => {
     Object.defineProperty(card, "getBoundingClientRect", { configurable: true, value: () => ({ left: 20, top: 500, width: 320 }) });
 
     await act(async () => card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+    expect(VIDEO_HOVER_PREVIEW_DELAY_MS).toBe(1000);
+    const preloadedVideo = document.querySelector<HTMLVideoElement>(".video-hover-preloader video")!;
+    expect(preloadedVideo).not.toBeNull();
+    expect(preloadedVideo.preload).toBe("auto");
     await act(async () => vi.advanceTimersByTime(VIDEO_HOVER_PREVIEW_DELAY_MS - 1));
     expect(document.querySelector(".video-hover-preview")).toBeNull();
 
     await act(async () => vi.advanceTimersByTime(1));
     const preview = document.querySelector(".video-hover-preview")!;
     const video = preview.querySelector("video")!;
+    expect(video).toBe(preloadedVideo);
     expect(preview.getAttribute("aria-label")).toContain("ride.mp4");
     expect(video.getAttribute("src")).toContain("/api/explorer/media/file-a");
     expect(video.dataset.previewStartSeconds).toBe("12");
@@ -63,6 +68,7 @@ describe("VideoSearchResults hover preview", () => {
     await act(async () => card.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
     await act(async () => vi.advanceTimersByTime(VIDEO_HOVER_PREVIEW_DELAY_MS));
     expect(document.querySelector(".video-hover-preview")).toBeNull();
+    expect(document.querySelector(".video-hover-preloader")).toBeNull();
     await act(async () => root.unmount());
   });
 });
