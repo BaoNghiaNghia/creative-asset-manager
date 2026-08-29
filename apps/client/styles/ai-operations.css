@@ -504,6 +504,33 @@
 @media(max-width:720px){.ops-header-actions{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.ops-worker-control,.ops-refresh-control,.ops-refresh-status{width:100%;min-width:0!important}.ops-refresh-status{padding-left:10px!important;border-left:0!important;border-top:1px solid #e1e8f1!important}.ops-back-link{grid-column:1/-1;width:100%;margin:0;justify-content:center}}
 @media(max-width:430px){.ops-header-actions{grid-template-columns:1fr}.ops-back-link{grid-column:auto}}
 
+/* Inventory Daily separates today's calendar date from the D-1 data cycle. */
+.ops-inventory-daily .ops-section-heading{align-items:flex-start;margin-bottom:16px}
+.ops-inventory-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ops-inventory-summary-card{position:relative;display:flex;min-width:0;min-height:116px;overflow:hidden;padding:17px 18px;flex-direction:column;border:1px solid #dfe7f0;border-radius:13px;background:#fff;box-shadow:0 6px 18px #17203308}
+.ops-inventory-summary-card:before{position:absolute;top:0;right:0;left:0;height:3px;background:#cbd5e1;content:""}
+.ops-inventory-summary-card>span{color:#68778c;font-size:10px;font-weight:800;letter-spacing:.045em;text-transform:uppercase}
+.ops-inventory-summary-card strong{margin-top:12px;color:#26364b;font-size:24px;letter-spacing:-.025em}
+.ops-inventory-summary-card small{margin-top:auto;padding-top:7px;color:#748197;font-size:10px;line-height:1.4}
+.ops-inventory-summary-card.today:before{background:#466de0}.ops-inventory-summary-card.today strong{color:#315fd7}
+.ops-inventory-summary-card.processing-date:before{background:#6c7a90}
+.ops-inventory-summary-card.success:before{background:#32a36a}.ops-inventory-summary-card.success strong{color:#247a50}
+.ops-inventory-summary-card.warning:before{background:#d39a2b}.ops-inventory-summary-card.warning strong{color:#9a6700}
+.ops-inventory-summary-card.danger:before{background:#d65a50}.ops-inventory-summary-card.danger strong{color:#b5473e}
+.ops-inventory-card>header{display:flex;height:auto;min-height:0;padding:0 0 12px;align-items:flex-start;justify-content:space-between;gap:12px;border:0;border-bottom:1px solid #edf1f5;background:transparent}
+.ops-inventory-card>header>div{min-width:0}.ops-inventory-card>header h3{margin:4px 0 0;color:#26364b}
+.ops-inventory-card-kicker{color:#6f7d91;font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+.ops-inventory-card-status{display:inline-flex;flex:0 0 auto;padding:5px 8px;border-radius:999px;background:#eef2f7;color:#65748a;font-size:9px;font-weight:800}
+.ops-inventory-card-status.success{background:#eaf8ef;color:#247a50}.ops-inventory-card-status.muted{background:#eef2f7;color:#65748a}
+.ops-inventory-card>p{min-height:31px;margin:11px 0 3px;color:#748197;font-size:10px;line-height:1.45}
+.ops-inventory-card dl div:first-child{border-top:0}
+.ops-inventory-card dd{font-variant-numeric:tabular-nums}
+.ops-inventory-clear{display:flex;align-items:flex-start;flex-direction:column;gap:3px}
+.ops-inventory-clear strong{font-size:12px}.ops-inventory-clear span{color:#4c8b68;font-size:10px}
+.ops-inventory-blockers>p{margin:0 0 8px;color:#7b6a48;font-size:10px}
+@media(max-width:1250px){.ops-inventory-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.ops-inventory-summary{grid-template-columns:1fr}.ops-inventory-summary-card{min-height:104px}.ops-inventory-card dl div{align-items:flex-start;flex-direction:column;gap:4px}.ops-inventory-card dd{text-align:left}}
+
 /* One compact Gemini card; credentials remain independent by workload. */
 
 .ops-provider-gemini-credentials{display:flex;flex-direction:column;gap:12px;margin-top:18px;padding-top:18px;border-top:1px solid #e8edf3}

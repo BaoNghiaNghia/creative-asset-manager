@@ -316,6 +316,7 @@ def test_status_exposes_business_schedule_and_safe_drive_links(daily_sheet_db):
         now=datetime(2030, 8, 9, 22, 0, tzinfo=timezone.utc),
     ).status("tenant-a")
 
+    assert result["current_local_date"] == "2030-08-10"
     assert result["working_business_date"] == "2030-08-09"
     assert result["next_snapshot_at"].startswith("2030-08-10T05:50:00+07:00")
     assert result["next_reconciliation_at"].startswith("2030-08-10T07:00:00+07:00")

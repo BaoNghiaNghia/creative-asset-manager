@@ -403,6 +403,7 @@ describe("Inventory Daily tab", () => {
         operational_state: "healthy",
         image_pipeline_enabled: true,
         timezone: "Asia/Ho_Chi_Minh",
+        current_local_date: "2026-08-27",
         working_business_date: "2026-08-26",
         snapshot_time: "05:50",
         reconcile_time: "07:00",
@@ -442,7 +443,7 @@ describe("Inventory Daily tab", () => {
         finalized_by: null,
       }}
     />);
-    for (const value of ["Inventory hằng ngày", "2026-08-26", "Sẵn sàng", "206", "4 thay đổi", "Snapshot gần nhất", "Đối soát gần nhất", "05:50 / 07:00", "Không có blocker"]) {
+    for (const value of ["Inventory hằng ngày", "27/08/2026", "26/08/2026", "Ngày dữ liệu đang xử lý", "Sẵn sàng", "206", "4 thay đổi", "Snapshot gần nhất", "Đối soát gần nhất", "Chụp dữ liệu lúc 05:50", "Chu kỳ hiện không có vấn đề"]) {
       expect(markup).toContain(value);
     }
     expect(markup).toContain("https://docs.google.com/spreadsheets/d/workbook");

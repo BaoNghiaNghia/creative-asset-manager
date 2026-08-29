@@ -1175,6 +1175,7 @@ class InventoryDailySheetService:
                 "operational_state": "disabled" if not enabled else ("degraded" if degraded else "healthy"),
                 "image_pipeline_enabled": bool(settings and settings.image_pipeline_enabled),
                 "timezone": timezone_name,
+                "current_local_date": local_now.date().isoformat(),
                 "working_business_date": (local_now.date() - timedelta(days=1)).isoformat(),
                 "snapshot_time": snapshot_time,
                 "reconcile_time": reconcile_time,

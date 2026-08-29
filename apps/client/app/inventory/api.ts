@@ -34,6 +34,7 @@ export type InventoryDailySheetStatus = {
   operational_state:"disabled"|"healthy"|"degraded";
   image_pipeline_enabled:boolean;
   timezone:string;
+  current_local_date:string;
   working_business_date:string;
   snapshot_time:string;
   reconcile_time:string;
