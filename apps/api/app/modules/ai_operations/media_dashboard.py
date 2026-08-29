@@ -8,6 +8,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_url_queries
 from app.core.config import Settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
@@ -593,6 +594,7 @@ class MediaDashboardService:
                 "max_attempts": job.max_attempts,
                 "updated_at": (_as_utc(job.updated_at) or now).isoformat(),
                 "error_code": job.last_error_code,
+                "error_message": redact_url_queries(job.last_error_message),
                 "steps": [
                     {
                         "key": VIDEO_JOB_TYPE,
@@ -602,6 +604,7 @@ class MediaDashboardService:
                         "max_attempts": job.max_attempts,
                         "updated_at": (_as_utc(job.updated_at) or now).isoformat(),
                         "error_code": job.last_error_code,
+                        "error_message": redact_url_queries(job.last_error_message),
                     },
                     {
                         "key": VIDEO_INDEX_JOB_TYPE,
@@ -614,6 +617,7 @@ class MediaDashboardService:
                             if index_job is not None else None
                         ),
                         "error_code": index_job.last_error_code if index_job is not None else None,
+                        "error_message": redact_url_queries(index_job.last_error_message) if index_job is not None else None,
                     },
                 ],
             })

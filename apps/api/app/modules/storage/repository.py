@@ -106,16 +106,21 @@ class ManagedStorageRepository:
 
 
     def list_cleanup_candidate_ids(
-        self, *, tenant_id: str | None, limit: int
+        self, *, tenant_id: str | None, remote_folder_id: str, limit: int
     ) -> tuple[str, ...]:
         statement = select(AssetStorageObjectModel.id).where(
             AssetStorageObjectModel.status == "stored",
             AssetStorageObjectModel.remote_file_id.is_not(None),
+            AssetStorageObjectModel.remote_folder_id == remote_folder_id,
         )
         if tenant_id is not None:
             statement = statement.where(AssetStorageObjectModel.tenant_id == tenant_id)
         return tuple(self.session.scalars(
-            statement.order_by(AssetStorageObjectModel.stored_at, AssetStorageObjectModel.id).limit(limit)
+            statement.order_by(
+                AssetStorageObjectModel.updated_at,
+                AssetStorageObjectModel.stored_at,
+                AssetStorageObjectModel.id,
+            ).limit(limit)
         ))
 
     def get_for_cleanup(self, storage_id: str) -> AssetStorageObjectModel | None:

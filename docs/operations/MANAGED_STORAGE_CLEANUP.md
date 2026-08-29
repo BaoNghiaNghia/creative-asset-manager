@@ -22,6 +22,28 @@ treated as an already-removed staging binary and only removes its stale DB
 reference. Authorization, rate-limit, network, and server errors retain the DB
 row for a future retry.
 
+The active Managed Storage location is identified by the folder ID configured
+for the current environment. Take only the value after `/folders/` from the
+active Google Drive URL; do not copy the whole URL and do not reuse an example
+ID as a fixed root:
+
+```dotenv
+# https://drive.google.com/drive/u/0/folders/{folder_id}
+GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID=<folder_id>
+```
+
+The example environment intentionally leaves this value blank. Automatic
+cleanup is also disabled unless production explicitly sets:
+
+```dotenv
+MANAGED_STORAGE_AUTO_CLEANUP_ENABLED=true
+```
+
+Skipped active or not-yet-ready records are rotated behind unchecked records,
+so a fixed set of old rows cannot starve an eligible backlog. Active analysis,
+projection, and search-index jobs attached to either the asset or its pipeline
+continue to protect the managed binary.
+
 Set the values in deploy/production.env.example; migrations never call Google
 Drive or delete remote data.
 

@@ -233,6 +233,8 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
 
         async def handler(request):
             requests.append(request)
+            if request.method == "GET":
+                return httpx.Response(200, json={"id": "managed-remote-id", "parents": ["managed-root"], "trashed": False})
             return httpx.Response(204)
 
         provider = GoogleDriveAssetStorage(
@@ -243,9 +245,33 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
         await provider.delete_asset(DeleteStoredAssetInput(
             tenant_id="tenant-a", asset_id="internal-asset", remote_file_id="managed-remote-id",
         ))
-        self.assertEqual(requests[0].method, "DELETE")
-        self.assertIn("managed-remote-id", str(requests[0].url))
-        self.assertEqual(requests[0].url.params["supportsAllDrives"], "true")
+        self.assertEqual([request.method for request in requests], ["GET", "DELETE"])
+        self.assertIn("managed-remote-id", str(requests[1].url))
+        self.assertEqual(requests[1].url.params["supportsAllDrives"], "true")
+
+    async def test_delete_refuses_file_outside_active_folder_id(self) -> None:
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            return httpx.Response(200, json={
+                "id": "managed-remote-id",
+                "parents": ["different-folder"],
+                "trashed": False,
+            })
+
+        provider = GoogleDriveAssetStorage(
+            "storage-token", root_folder_id="managed-root",
+            transport=httpx.MockTransport(handler),
+        )
+        from app.domain.providers.contracts import DeleteStoredAssetInput
+        with self.assertRaises(StorageProviderError) as context:
+            await provider.delete_asset(DeleteStoredAssetInput(
+                tenant_id="tenant-a", asset_id="internal-asset",
+                remote_file_id="managed-remote-id",
+            ))
+        self.assertEqual(context.exception.code, "managed_storage_folder_mismatch")
+        self.assertEqual([request.method for request in requests], ["GET"])
 
     async def test_delete_404_is_reported_as_missing_and_429_is_retryable(self) -> None:
         from app.domain.providers.contracts import DeleteStoredAssetInput

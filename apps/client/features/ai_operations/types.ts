@@ -105,7 +105,7 @@ export type AiOpsJob = {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
-  error: { code: string; retryable: boolean } | null;
+  error: { code: string; message?: string | null; retryable: boolean } | null;
 };
 
 export type AiOpsUsage = {
@@ -165,11 +165,12 @@ export type AiOpsRecentVideo = {
   mime_type?: string | null; location: string | null; thumbnail_url: string | null;
   duration_ms: number | null; completed_chunks?: number; total_chunks?: number; status: string;
   attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null;
+  error_message?: string | null;
   steps?: AiOpsRecentVideoStep[];
 };
 export type AiOpsRecentVideoStep = {
   key: string; label: string; status: string; attempt_count: number; max_attempts: number;
-  updated_at: string | null; error_code: string | null;
+  updated_at: string | null; error_code: string | null; error_message?: string | null;
 };
 
 export type AiOpsMediaDashboard = {

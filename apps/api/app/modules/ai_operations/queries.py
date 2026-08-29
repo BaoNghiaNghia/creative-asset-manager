@@ -8,6 +8,7 @@ from urllib.parse import quote, urlencode
 from sqlalchemy import and_, case, exists, func, literal, or_, select
 from sqlalchemy.orm import aliased
 
+from app.core.redaction import redact_url_queries
 from app.modules.ai_batch.model import AiBatchItemModel, AiBatchJobModel
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
@@ -484,6 +485,7 @@ class AiOperationsRepository(BaseRepository):
                 "completed_at": job.completed_at,
                 "error": None if not job.last_error_code else {
                     "code": job.last_error_code,
+                    "message": redact_url_queries(job.last_error_message),
                     "retryable": job.status == "retry",
                 },
             })

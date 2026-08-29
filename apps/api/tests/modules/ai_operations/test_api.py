@@ -234,6 +234,7 @@ class AiOperationsApiTest(unittest.TestCase):
                     entity_type="source_asset", entity_id=self.source_asset_id,
                     idempotency_key="video-analytics-failure", status="failed",
                     last_error_code="video_provider_failed", payload_json={},
+                    last_error_message="Gemini request failed at https://video.example/run?token=secret",
                     completed_at=self.now - timedelta(seconds=1),
                     updated_at=self.now - timedelta(seconds=1),
                 ),
@@ -266,6 +267,10 @@ class AiOperationsApiTest(unittest.TestCase):
         }])
         self.assertGreater(analytics["latency"]["average_ms"], 0)
         self.assertFalse(analytics["cost_available"])
+        failed_video = response.json()["recent_video"]["items"][0]
+        self.assertEqual(failed_video["error_code"], "video_provider_failed")
+        self.assertEqual(failed_video["error_message"], "Gemini request failed at https://video.example/run")
+        self.assertNotIn("secret", str(response.json()))
 
         with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(
             "app.modules.ai_operations.media_dashboard._probe_worker", probe,
@@ -716,6 +721,7 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertIn(2_000, [item["processing_duration_ms"] for item in all_jobs["items"]])
         analysis_job = next(item for item in all_jobs["items"] if item["entity_id"] == self.analysis_ids[1])
         self.assertEqual(analysis_job["asset_id"], self.asset_id)
+        self.assertEqual(analysis_job["error"]["message"], "https://signed.example/file")
         self.assertEqual(analysis_job["filename"], "inventory-photo.avif")
         self.assertEqual(analysis_job["mime_type"], "image/avif")
         self.assertEqual(

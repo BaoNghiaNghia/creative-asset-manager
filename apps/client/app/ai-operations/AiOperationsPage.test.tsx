@@ -25,6 +25,7 @@ import {
   AiOperationsShell,
   aiWorkerIsPaused,
   eligibleProcessingAction,
+  formatErrorDetail,
   formatProcessingDuration,
   formatVideoDuration,
   emptyDashboard,
@@ -150,7 +151,7 @@ const data: AiOpsDashboardData = {
       created_at: "2026-07-21T09:59:00Z",
       updated_at: "2026-07-21T10:00:02Z",
       completed_at: "2026-07-21T10:00:02Z",
-      error: { code: "provider_timeout", retryable: false },
+      error: { code: "provider_timeout", message: "Provider timed out after 30 seconds.", retryable: false },
     }],
   },
   usage: {
@@ -534,6 +535,8 @@ describe("AI Operations dashboard", () => {
     expect(formatVideoDuration(3_665_000)).toBe("1:01:05");
     expect(formatVideoDuration(0)).toBe("0:00");
     expect(formatVideoDuration(null)).toBe("—");
+    expect(formatErrorDetail("provider_timeout", "Provider timed out.")).toBe("Error code: provider_timeout\nMessage: Provider timed out.");
+    expect(formatErrorDetail("provider_timeout", null)).toContain("No additional error detail was recorded.");
   });
 
   it("opens processing asset details in AI Operations without routing to Asset Explorer", () => {
@@ -545,6 +548,8 @@ describe("AI Operations dashboard", () => {
     expect(markup).toContain('src="/api/explorer/thumbnail/drive-item?provider=google-drive"');
     expect(markup).toContain('aria-label="View asset asset-1"');
     expect(markup).toContain("Chi tiết");
+    expect(markup).toContain('aria-haspopup="dialog"');
+    expect(markup).toContain("Show error details");
     expect(markup).not.toContain("/?details=1&amp;asset=asset-1");
     expect(markup).not.toContain(">analysis-1</code>");
   });
@@ -793,6 +798,7 @@ describe("AI Operations interactions", () => {
           completed_chunks: 0, total_chunks: 1, status: "failed",
           attempt_count: 5, max_attempts: 5, updated_at: "2026-08-29T00:00:00Z",
           error_code: "video_provider_failed",
+          error_message: "Gemini video request returned HTTP 503.",
         }],
       },
     } as unknown as AiOpsDashboardData["media"]);
@@ -802,6 +808,7 @@ describe("AI Operations interactions", () => {
     expect(markup).toContain("video_provider_failed (2)");
     expect(markup).toContain("Retry failed group");
     expect(markup).toContain("Retry failed job");
+    expect(markup).toContain('aria-haspopup="dialog"');
     expect(markup).toContain('id="video_analyze-failed-error-group"');
   });
 

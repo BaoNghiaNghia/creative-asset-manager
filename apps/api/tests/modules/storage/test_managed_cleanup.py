@@ -12,6 +12,8 @@ from app.core.database import Base
 from app.domain.providers.contracts import StorageProviderError, StoreAssetInput, StoredAsset
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.repository import AssetRegistryRepository
+from app.modules.pipeline.model import AssetPipelineModel
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.storage.managed_cleanup import ManagedStorageCleanupService
 from app.modules.storage.repository import ManagedStorageRepository
 from app.modules.storage.service import ManagedAssetStorageService
@@ -71,7 +73,11 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
     def _service(self, provider):
         return ManagedStorageCleanupService(
             lambda: Session(self.engine, expire_on_commit=False),
-            Settings(MANAGED_STORAGE_COMPLETED_RETENTION_HOURS=6, MANAGED_STORAGE_FAILED_RETENTION_HOURS=24),
+            Settings(
+                GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="managed-root",
+                MANAGED_STORAGE_COMPLETED_RETENTION_HOURS=6,
+                MANAGED_STORAGE_FAILED_RETENTION_HOURS=24,
+            ),
             provider,
         )
 
@@ -161,3 +167,80 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
         result = await self._service(provider).execute(tenant_id="tenant-a")
         self.assertEqual(result.failed, 1)
         self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row_id))
+
+    async def test_skipped_old_record_does_not_starve_eligible_backlog(self) -> None:
+        now = datetime.now(timezone.utc)
+        blocked = self._record(age_hours=10)
+        blocked.updated_at = now - timedelta(hours=10)
+        eligible_asset = self.assets.create_asset(
+            tenant_id="tenant-a", content_hash="b" * 64, mime_type="image/png",
+        )
+        eligible_storage = AssetStorageObjectModel(
+            tenant_id="tenant-a", asset_id=eligible_asset.id,
+            content_hash=eligible_asset.content_hash,
+            storage_provider="google_drive_managed", status="stored",
+            remote_file_id="eligible-managed-id", remote_folder_id="managed-root",
+            stored_at=now - timedelta(hours=9),
+            updated_at=now - timedelta(hours=9),
+        )
+        self.session.add(eligible_storage)
+        self.session.flush()
+        analysis = self.metadata.create_analysis(
+            tenant_id="tenant-a", asset_id=eligible_asset.id,
+            metadata_profile_id=self.profile.id, prompt_version="1", pipeline_version="1",
+        )
+        analysis.status = "completed"
+        analysis.completed_at = now - timedelta(hours=7)
+        self.session.commit()
+
+        provider = FakeManagedStorage()
+        first = await self._service(provider).execute(
+            tenant_id="tenant-a", limit=1, now=now,
+        )
+        self.assertEqual(first.skipped_not_ready, 1)
+        self.assertEqual(provider.deleted, [])
+
+        second = await self._service(provider).execute(
+            tenant_id="tenant-a", limit=1, now=now + timedelta(seconds=1),
+        )
+        self.assertEqual(second.deleted, 1)
+        self.assertEqual(provider.deleted, ["eligible-managed-id"])
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, blocked.id))
+
+    async def test_active_pipeline_index_job_protects_staged_asset(self) -> None:
+        row = self._record()
+        self._analysis()
+        pipeline = AssetPipelineModel(
+            tenant_id="tenant-a", correlation_id="cleanup-index-active",
+            origin_type="source_asset", origin_id="source-a",
+            asset_id=self.asset.id, state="search_pending",
+        )
+        self.session.add(pipeline)
+        self.session.flush()
+        self.session.add(ProcessingJobModel(
+            tenant_id="tenant-a", job_type="asset_index",
+            entity_type="asset_pipeline", entity_id=pipeline.id,
+            idempotency_key="cleanup-index-active", payload_json={},
+            status="processing",
+        ))
+        self.session.commit()
+
+        provider = FakeManagedStorage()
+        result = await self._service(provider).execute(tenant_id="tenant-a")
+        self.assertEqual(result.skipped_active, 1)
+        self.assertEqual(provider.deleted, [])
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
+
+    async def test_cleanup_ignores_records_outside_active_folder_id(self) -> None:
+        row = self._record()
+        row.remote_folder_id = "previous-managed-root"
+        self._analysis()
+        self.session.commit()
+
+        provider = FakeManagedStorage()
+        result = await self._service(provider).execute(tenant_id="tenant-a")
+
+        self.assertEqual(result.selected, 0)
+        self.assertEqual(result.deleted, 0)
+        self.assertEqual(provider.deleted, [])
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))

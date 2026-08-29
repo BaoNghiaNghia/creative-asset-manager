@@ -128,6 +128,22 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
                 timeout=httpx.Timeout(60, connect=10, read=60),
                 transport=self._transport,
             ) as client:
+                metadata_response = await client.get(
+                    f"https://www.googleapis.com/drive/v3/files/{input.remote_file_id}",
+                    params={
+                        "fields": "id,parents,trashed",
+                        "supportsAllDrives": "true",
+                    },
+                )
+                self._raise_for_status(metadata_response)
+                metadata = metadata_response.json()
+                parents = metadata.get("parents") or []
+                if metadata.get("trashed") or self._root_folder_id not in parents:
+                    raise StorageProviderError(
+                        "Managed asset is outside the active storage folder.",
+                        code="managed_storage_folder_mismatch",
+                        retryable=False,
+                    )
                 response = await client.delete(
                     f"https://www.googleapis.com/drive/v3/files/{input.remote_file_id}",
                     params={"supportsAllDrives": "true"},

@@ -13,6 +13,7 @@ from app.domain.processing.types import JobStatus
 from app.domain.providers.contracts import AssetStorageProvider, DeleteStoredAssetInput, StorageProviderError
 from app.modules.ai_batch.model import AiBatchItemModel, AiBatchJobModel, BATCH_TERMINAL_STATUSES, ITEM_TERMINAL_STATUSES
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.storage.repository import ManagedStorageRepository
@@ -69,9 +70,14 @@ class ManagedStorageCleanupService:
             self.settings.MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN,
         )
         current = now or datetime.now(UTC)
+        active_folder_id = str(
+            self.settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or ""
+        ).strip()
+        if not active_folder_id:
+            return ManagedStorageCleanupResult()
         with self.session_factory() as session:
             candidate_ids = ManagedStorageRepository(session).list_cleanup_candidate_ids(
-                tenant_id=tenant_id, limit=bounded
+                tenant_id=tenant_id, remote_folder_id=active_folder_id, limit=bounded
             )
         result = ManagedStorageCleanupResult(selected=len(candidate_ids))
         for storage_id in candidate_ids:
@@ -87,12 +93,22 @@ class ManagedStorageCleanupService:
         with self.session_factory() as session:
             try:
                 record = ManagedStorageRepository(session).get_for_cleanup(storage_id)
-                if record is None or record.status != "stored" or not record.remote_file_id:
+                active_folder_id = str(
+                    self.settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or ""
+                ).strip()
+                if (record is None or record.status != "stored"
+                        or not record.remote_file_id
+                        or record.remote_folder_id != active_folder_id):
                     session.rollback()
                     return "skipped_not_ready"
                 decision = self._eligibility(session, record, now)
                 if decision not in {"eligible_completed", "eligible_failed"}:
-                    session.rollback()
+                    if dry_run:
+                        session.rollback()
+                    else:
+                        # Rotate checked rows so they cannot starve eligible backlog.
+                        record.updated_at = now
+                        session.commit()
                     return decision
                 if dry_run:
                     session.rollback()
@@ -187,7 +203,14 @@ class ManagedStorageCleanupService:
         record: AssetStorageObjectModel,
         analysis_ids: tuple[str, ...],
     ) -> bool:
-        identities = (record.asset_id, *analysis_ids)
+        pipeline_ids = tuple(session.scalars(select(AssetPipelineModel.id).where(
+            AssetPipelineModel.tenant_id == record.tenant_id,
+            AssetPipelineModel.asset_id == record.asset_id,
+        )))
+        # Projection/index jobs are commonly attached to the pipeline rather
+        # than directly to the managed asset. Protect staged bytes until those
+        # jobs reach a terminal state.
+        identities = (record.asset_id, *analysis_ids, *pipeline_ids)
         return session.scalar(select(ProcessingJobModel.id).where(
             ProcessingJobModel.tenant_id == record.tenant_id,
             ProcessingJobModel.entity_id.in_(identities),

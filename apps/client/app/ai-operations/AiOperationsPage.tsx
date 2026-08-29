@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
   retryAiOperationsJob, retryAiOperationsJobsByError, searchFromFilters, fetchAiOperationsVideoDetail,
@@ -873,6 +874,104 @@ function ProcessingFailureGroupRetry({
   </section>;
 }
 
+export function formatErrorDetail(code: string, message?: string | null): string {
+  const detail = message?.trim() || "No additional error detail was recorded.";
+  return `Error code: ${code}\nMessage: ${detail}`;
+}
+
+async function copyText(value: string): Promise<void> {
+  try {
+    if (!navigator.clipboard) throw new Error("Clipboard API unavailable");
+    await navigator.clipboard.writeText(value);
+    return;
+  } catch {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand?.("copy") ?? false;
+    textarea.remove();
+    if (!copied) throw new Error("Copy failed");
+  }
+}
+
+export function ErrorDetailPopover({ code, message }: { code: string | null | undefined; message?: string | null }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeTimer = useRef<number | null>(null);
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState<"idle" | "success" | "error">("idle");
+  const [position, setPosition] = useState({ left: 12, top: 12, above: false });
+  const detailMessage = message?.trim() || "No additional error detail was recorded.";
+
+  function clearCloseTimer() {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  }
+  function updatePosition() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const panelWidth = Math.min(380, window.innerWidth - 24);
+    setPosition({
+      left: Math.max(12, Math.min(rect.left, window.innerWidth - panelWidth - 12)),
+      top: rect.top > 210 ? rect.top - 8 : rect.bottom + 8,
+      above: rect.top > 210,
+    });
+  }
+  function show() {
+    clearCloseTimer();
+    updatePosition();
+    setOpen(true);
+  }
+  function scheduleHide() {
+    clearCloseTimer();
+    closeTimer.current = window.setTimeout(() => {
+      setOpen(false);
+      setCopied("idle");
+    }, 140);
+  }
+  useEffect(() => {
+    if (!open) return undefined;
+    const reposition = () => updatePosition();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open]);
+  useEffect(() => () => clearCloseTimer(), []);
+
+  if (!code) return <span aria-label="No error">—</span>;
+  const popover = open && typeof document !== "undefined" ? createPortal(
+    <section
+      className={`ops-error-popover ${position.above ? "is-above" : "is-below"}`}
+      role="dialog"
+      aria-label={`Error details for ${code}`}
+      style={{ left: position.left, top: position.top, transform: position.above ? "translateY(-100%)" : undefined }}
+      onMouseEnter={clearCloseTimer}
+      onMouseLeave={scheduleHide}
+    >
+      <header><strong>Error details</strong><span>{copied === "success" ? "Copied" : copied === "error" ? "Copy failed" : "Hover or focus to inspect"}</span></header>
+      <dl><div><dt>Error code</dt><dd><code>{code}</code></dd></div><div><dt>Message</dt><dd>{detailMessage}</dd></div></dl>
+      <button type="button" onClick={() => void copyText(formatErrorDetail(code, message)).then(() => setCopied("success")).catch(() => setCopied("error"))}>
+        <span aria-hidden="true">⧉</span> {copied === "success" ? "Copied" : "Copy details"}
+      </button>
+    </section>,
+    document.body,
+  ) : null;
+  return <>
+    <button ref={triggerRef} type="button" className="ops-error-trigger" aria-haspopup="dialog" aria-expanded={open} onMouseEnter={show} onMouseLeave={scheduleHide} onFocus={show} onBlur={scheduleHide}>
+      <code>{code}</code><span aria-hidden="true">ⓘ</span><span className="sr-only">Show error details</span>
+    </button>
+    {popover}
+  </>;
+}
+
 function Processing({ data, filters, permissions, onFilters, onActionAccepted, onOpenAsset, onOpenVideo, media = "image", onVideoPage = () => undefined }: {
   data: AiOpsDashboardData; filters: AiOpsFilters; permissions: string[];
   onFilters: (value: AiOpsFilters) => void; onActionAccepted: () => void;
@@ -927,7 +1026,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted, o
           <td>{providerLabel(job.provider)}</td><td>{usage?.model || "\u2014"}</td><td>{modeLabel(mode)}</td>
           <td>{usage?.metadata_profile || "\u2014"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
           <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
-          <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><code>{job.error?.code || "\u2014"}</code></td>
+          <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><ErrorDetailPopover code={job.error?.code} message={job.error?.message} /></td>
           <td><div className="ops-job-actions">
             {assetId ? <button type="button" aria-label={`View asset ${assetId}`} onClick={() => onOpenAsset(assetId)}>Chi tiết</button> : <span title="Asset identity is not available yet">Unavailable</span>}
             <ProcessingJobAction job={job} permissions={permissions} onAccepted={onActionAccepted} />
@@ -979,7 +1078,7 @@ function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }
         <td title="Completed processing segments / total segments">{job.total_chunks ? (job.completed_chunks || 0) + "/" + job.total_chunks : "—"}</td>
         <td>{job.attempt_count}/{job.max_attempts}</td>
         <td><time dateTime={job.updated_at}>{new Date(job.updated_at).toLocaleString()}</time></td>
-        <td><code>{job.error_code || "-"}</code></td>
+        <td><ErrorDetailPopover code={job.error_code} message={job.error_message} /></td>
         <td><VideoProcessingJobRetry job={job} permissions={permissions} onAccepted={onAccepted} /></td>
       </tr>)}</tbody>
     </table></div>

@@ -459,7 +459,10 @@ class ManagedStorageSelfIngestionRepairTest(unittest.IsolatedAsyncioTestCase):
         provider = _StorageProvider()
         cleanup = ManagedStorageCleanupService(
             lambda: Session(self.engine, expire_on_commit=False),
-            Settings(MANAGED_STORAGE_COMPLETED_RETENTION_HOURS=6),
+            Settings(
+                GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="managed-root",
+                MANAGED_STORAGE_COMPLETED_RETENTION_HOURS=6,
+            ),
             provider,
         )
         result = await cleanup.execute(tenant_id="tenant-a", dry_run=False)
