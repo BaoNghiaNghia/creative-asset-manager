@@ -818,11 +818,12 @@ export function visiblePages(currentPage: number, totalPages: number): Array<num
 }
 
 function ProcessingFailureGroupRetry({
-  failures, permissions, onAccepted,
+  failures, permissions, onAccepted, jobType = "asset_analyze",
 }: {
   failures: AiOpsDashboardData["failures"];
   permissions: string[];
   onAccepted: () => void;
+  jobType?: "asset_analyze" | "video_analyze";
 }) {
   const groups = useMemo(
     () => [...new Map(failures.filter(item => item.error_code).map(item => [item.error_code, item])).values()]
@@ -843,7 +844,7 @@ function ProcessingFailureGroupRetry({
     if (!errorCode || !reason.trim()) return;
     setBusy(true); setMessage("");
     try {
-      const result = await retryAiOperationsJobsByError(errorCode, reason.trim(), 1000);
+      const result = await retryAiOperationsJobsByError(errorCode, reason.trim(), 1000, fetch, jobType);
       setMessage(result.retried + " job" + (result.retried === 1 ? "" : "s") + " queued" + (result.skipped ? "; " + result.skipped + " skipped" : "") + ".");
       setConfirming(false);
       setReason("");
@@ -854,8 +855,8 @@ function ProcessingFailureGroupRetry({
   }
   return <section className="ops-bulk-retry" aria-label="Retry failed jobs by error group">
     <div>
-      <label htmlFor="failed-error-group">Failed error group</label>
-      <select id="failed-error-group" value={errorCode} onChange={event => setErrorCode(event.target.value)}>
+      <label htmlFor={jobType + "-failed-error-group"}>Failed error group</label>
+      <select id={jobType + "-failed-error-group"} value={errorCode} onChange={event => setErrorCode(event.target.value)}>
         {groups.map(group => <option key={group.error_code} value={group.error_code}>{group.error_code} ({group.count})</option>)}
       </select>
       <small>{selected ? selected.count + " matching failed jobs" : ""} - maximum 1,000 per action</small>
@@ -878,7 +879,13 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted, o
   onOpenVideo: (sourceAssetId: string) => void;
   media?: "image" | "video"; onVideoPage?: (page: number, pageSize: 25 | 50 | 100) => void;
 }) {
-  if (media === "video") return <VideoProcessing media={data.media} onPage={onVideoPage} onOpenVideo={onOpenVideo} />;
+  if (media === "video") return <VideoProcessing
+    media={data.media}
+    permissions={permissions}
+    onAccepted={onActionAccepted}
+    onPage={onVideoPage}
+    onOpenVideo={onOpenVideo}
+  />;
   const usageByJob = new Map(data.usage.items.filter(item => item.job_id).map(item => [item.job_id!, item]));
   if (!data.jobs.items.length) return <DashboardState kind="empty" label="No processing jobs in this period" />;
   const pages = Math.max(1, Math.ceil(data.jobs.total / data.jobs.page_size));
@@ -930,8 +937,9 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted, o
   </div>;
 }
 
-function VideoProcessing({ media, onPage, onOpenVideo }: {
-  media: AiOpsDashboardData["media"]; onPage: (page: number, pageSize: 25 | 50 | 100) => void;
+function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }: {
+  media: AiOpsDashboardData["media"]; permissions: string[]; onAccepted: () => void;
+  onPage: (page: number, pageSize: 25 | 50 | 100) => void;
   onOpenVideo: (sourceAssetId: string) => void;
 }) {
   const recent = media?.recent_video;
@@ -952,9 +960,15 @@ function VideoProcessing({ media, onPage, onOpenVideo }: {
         </nav>
       </div>
     </div>
+    <ProcessingFailureGroupRetry
+      failures={media?.analytics.failures || []}
+      permissions={permissions}
+      onAccepted={onAccepted}
+      jobType="video_analyze"
+    />
     <div className="ops-table-scroll"><table className="ops-data-table">
       <caption className="sr-only">Video processing jobs</caption>
-      <thead><tr>{["Status", "Video", "Segments", "Attempts", "Updated", "Error"].map(value => <th key={value}>{value}</th>)}</tr></thead>
+      <thead><tr>{["Status", "Video", "Segments", "Attempts", "Updated", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
       <tbody>{recent.items.map(job => <tr key={job.job_id}>
         <td><StatusText status={job.status} /></td>
         <td><div className="video-processing-title">
@@ -965,9 +979,47 @@ function VideoProcessing({ media, onPage, onOpenVideo }: {
         <td>{job.attempt_count}/{job.max_attempts}</td>
         <td><time dateTime={job.updated_at}>{new Date(job.updated_at).toLocaleString()}</time></td>
         <td><code>{job.error_code || "-"}</code></td>
+        <td><VideoProcessingJobRetry job={job} permissions={permissions} onAccepted={onAccepted} /></td>
       </tr>)}</tbody>
     </table></div>
   </div>;
+}
+
+function VideoProcessingJobRetry({ job, permissions, onAccepted }: {
+  job: NonNullable<AiOpsDashboardData["media"]>["recent_video"]["items"][number];
+  permissions: string[];
+  onAccepted: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  if (job.status !== "failed" || !permissions.includes("ai_jobs.retry")) return null;
+  async function submit() {
+    if (!reason.trim()) return;
+    setBusy(true); setMessage("");
+    try {
+      const result = await retryAiOperationsJob(job.job_id, reason.trim());
+      setMessage(result.outcome.replaceAll("_", " "));
+      setConfirming(false);
+      setReason("");
+      onAccepted();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Video retry failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <>
+    <button type="button" onClick={() => { setConfirming(true); setReason(""); setMessage(""); }}>Retry failed job</button>
+    {confirming && <div className="ops-confirm ops-job-confirm" role="dialog" aria-modal="true" aria-label="Confirm video job retry">
+      <strong>Retry failed video job</strong>
+      <p>This action is audited. Enter a reason before continuing.</p>
+      <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label>
+      <div><button type="button" onClick={() => setConfirming(false)}>Back</button><button type="button" className="danger" disabled={busy || !reason.trim()} onClick={submit}>{busy ? "Retrying..." : "Confirm retry"}</button></div>
+    </div>}
+    {message && <span className="ops-action-message" aria-live="polite">{message}</span>}
+  </>;
 }
 
 export function formatVideoDuration(durationMs: number | null | undefined): string {

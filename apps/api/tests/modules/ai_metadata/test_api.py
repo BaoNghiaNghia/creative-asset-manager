@@ -1,3 +1,4 @@
+import base64
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,6 +13,10 @@ from app.core.database import Base
 from app.main import app
 from app.modules.ai_governance.model import AiBudgetEventModel
 from app.modules.ai_metadata.repository import AiMetadataRepository
+from app.modules.ai_operations.credentials import (
+    CreativeAiCredentialRepository,
+    creative_credential_cipher,
+)
 from app.modules.assets.model import AssetModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing.model import ProcessingJobModel
@@ -366,6 +371,48 @@ class AssetAnalysisAdminApiTest(unittest.TestCase):
         )
         self.assertFalse(openai["enabled"])
         self.assertEqual(openai["supported_modes"], [])
+
+    def test_database_gemini_credential_is_available_without_environment_key(self):
+        encryption_key = base64.urlsafe_b64encode(b"C" * 32).decode().rstrip("=")
+        settings = Settings(
+            UNIFIED_ASSET_INGESTION_ENABLED=True,
+            PROCESSING_JOBS_ENABLED=True,
+            DYNAMIC_AI_METADATA_ENABLED=True,
+            AI_SINGLE_ANALYSIS_ENABLED=True,
+            AI_BATCH_ANALYSIS_ENABLED=True,
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=encryption_key,
+            GEMINI_API_KEY="",
+            GEMINI_MODEL="gemini-test",
+            GEMINI_ALLOWED_MODELS="gemini-test,gemini-alt",
+        )
+        with self.factory() as session:
+            CreativeAiCredentialRepository(
+                session, creative_credential_cipher(settings)
+            ).replace(
+                "tenant-a",
+                secret="creative-db-key-1234",
+                label="Creative project",
+                updated_by="user-a",
+            )
+            session.commit()
+
+        response = self._capabilities(settings=settings)
+        self.assertEqual(response.status_code, 200)
+        gemini = next(
+            provider
+            for provider in response.json()["providers"]
+            if provider["id"] == "gemini"
+        )
+        self.assertTrue(gemini["enabled"])
+        self.assertEqual(gemini["supported_modes"], ["single", "batch"])
+        self.assertNotIn("creative-db-key-1234", response.text)
+
+        accepted = self._request(
+            self._body(ai_provider="gemini", processing_mode="single"),
+            settings=settings,
+        )
+        self.assertEqual(accepted.status_code, 202)
+        self.assertEqual(accepted.json()["provider"], "gemini")
 
     def test_capabilities_requires_authentication(self):
         app.dependency_overrides.clear()

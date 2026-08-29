@@ -40,6 +40,22 @@ export function searchIncludesVideos(mode: SearchMediaMode): boolean {
   return mode === "all" || mode === "videos";
 }
 
+type FileDragTransfer = Pick<DataTransfer, "types" | "items">;
+
+export function dragContainsFiles(dataTransfer: Pick<DataTransfer, "types">): boolean {
+  return Array.from(dataTransfer.types).includes("Files");
+}
+
+export function isExternalFileDrag(dataTransfer: FileDragTransfer): boolean {
+  const types = Array.from(dataTransfer.types);
+  if (!types.includes("Files")) return false;
+  // Native drags from cards/images can expose a synthetic File together with
+  // browser-origin payloads. OS file drags do not carry these HTML/URL types.
+  if (types.includes("text/html") || types.includes("text/uri-list")) return false;
+  const items = Array.from(dataTransfer.items || []);
+  return items.length === 0 || items.some(item => item.kind === "file");
+}
+
 type ExplorerClipboard = {
   items: Asset[];
   operation: "copy" | "cut";
@@ -459,28 +475,33 @@ export default function App() {
   const activeUploadCount = explorer.uploads.filter(upload => upload.status === "queued" || upload.status === "uploading").length;
   const failedUploadCount = explorer.uploads.filter(upload => upload.status === "failed").length;
 
-  function dragContainsFiles(event: { dataTransfer: DataTransfer }) {
-    return Array.from(event.dataTransfer.types).includes("Files");
-  }
   function handleFileDragEnter(event: DragEvent<HTMLElement>) {
-    if (!dragContainsFiles(event)) return;
+    if (!dragContainsFiles(event.dataTransfer)) return;
     event.preventDefault();
+    if (!isExternalFileDrag(event.dataTransfer)) return;
     dragDepthRef.current += 1;
     setIsDraggingFiles(true);
   }
   function handleFileDragLeave(event: DragEvent<HTMLElement>) {
-    if (!dragContainsFiles(event)) return;
+    if (!dragContainsFiles(event.dataTransfer)) return;
     event.preventDefault();
+    if (!isExternalFileDrag(event.dataTransfer)) return;
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) setIsDraggingFiles(false);
   }
   function handleFileDrop(event: DragEvent<HTMLElement>) {
-    if (!dragContainsFiles(event)) return;
+    if (!dragContainsFiles(event.dataTransfer)) return;
     event.preventDefault();
     dragDepthRef.current = 0;
     setIsDraggingFiles(false);
+    if (!isExternalFileDrag(event.dataTransfer)) return;
     const files = Array.from(event.dataTransfer.files);
     if (files.length && explorer.auth.authenticated) void explorer.uploadFiles(files);
+  }
+  function preventInternalFileDrag(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
   }
 
 
@@ -609,8 +630,13 @@ export default function App() {
     <section
       ref={resultContainerRef}
       className={isDraggingFiles ? "explorer-content explorer-drop-active" : "explorer-content"}
+      onDragStart={preventInternalFileDrag}
       onDragEnter={handleFileDragEnter}
-      onDragOver={event => { if (dragContainsFiles(event)) event.preventDefault(); }}
+      onDragOver={event => {
+        if (!dragContainsFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = isExternalFileDrag(event.dataTransfer) ? "copy" : "none";
+      }}
       onDragLeave={handleFileDragLeave}
       onDrop={handleFileDrop}
     >

@@ -418,7 +418,7 @@ async def retry_ai_jobs_by_error(
         target,
         lambda service: service.retry_jobs_by_error_code(
             target, body.error_code, actor_id=principal.user_id,
-            reason=body.reason, limit=body.limit,
+            reason=body.reason, limit=body.limit, job_type=body.job_type,
         ),
     )
     return {

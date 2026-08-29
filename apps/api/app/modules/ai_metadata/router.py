@@ -45,7 +45,7 @@ def enqueue_asset_analysis(
     if body.force:
         require_principal_permission(principal, "ai_analysis.force")
     tenant_id = principal.active_tenant_id
-    registry = build_ai_provider_registry(settings)
+    registry = build_ai_provider_registry(settings, session_factory=SessionLocal)
     try:
         with SessionLocal() as session:
             selection_service = AiProviderSelectionService(
@@ -141,7 +141,7 @@ def enqueue_asset_analysis(
 def ai_capabilities(principal: CurrentPrincipal = Depends(AI_ANALYSIS_RUN)) -> AiCapabilitiesResponse:
     tenant_id = principal.active_tenant_id
     settings = get_settings()
-    registry = build_ai_provider_registry(settings)
+    registry = build_ai_provider_registry(settings, session_factory=SessionLocal)
     try:
         with SessionLocal() as session:
             service = AiProviderSelectionService(

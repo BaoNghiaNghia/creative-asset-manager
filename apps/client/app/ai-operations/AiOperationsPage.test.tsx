@@ -778,6 +778,32 @@ describe("AI Operations interactions", () => {
     expect(markup).toContain("maximum 1,000 per action");
   });
 
+  it("renders scoped group and per-job retry actions for failed Video jobs", () => {
+    const media = normalizeMediaDashboard({
+      analytics: {
+        failures: [{ source: "video_analyze", error_code: "video_provider_failed", count: 2 }],
+      },
+      recent_video: {
+        page: 1, page_size: 25, total: 1,
+        items: [{
+          job_id: "video-failed", source_asset_id: "source-video", asset_id: null,
+          filename: "failed.mp4", mime_type: "video/mp4", duration_ms: 10_000,
+          location: "Google Drive / Video", thumbnail_url: null,
+          completed_chunks: 0, total_chunks: 1, status: "failed",
+          attempt_count: 5, max_attempts: 5, updated_at: "2026-08-29T00:00:00Z",
+          error_code: "video_provider_failed",
+        }],
+      },
+    } as unknown as AiOpsDashboardData["media"]);
+    const markup = render("processing", {
+      data: { ...data, media }, media: "video", permissions: ["ai_jobs.retry"],
+    });
+    expect(markup).toContain("video_provider_failed (2)");
+    expect(markup).toContain("Retry failed group");
+    expect(markup).toContain("Retry failed job");
+    expect(markup).toContain('id="video_analyze-failed-error-group"');
+  });
+
   it("posts a bounded audited bulk retry request", async () => {
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => new Response(JSON.stringify({
       tenant_id: "tenant-a", error_code: "analysis_image_dimensions",
@@ -788,6 +814,23 @@ describe("AI Operations interactions", () => {
       "/api/v1/admin/ai-operations/jobs/retry-by-error",
       expect.objectContaining({ method: "POST", body: JSON.stringify({
         error_code: "analysis_image_dimensions", reason: "operator requested retry", limit: 1000,
+      }) }),
+    );
+  });
+
+  it("scopes Video bulk retry requests to video_analyze", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      tenant_id: "tenant-a", error_code: "video_provider_failed", job_type: "video_analyze",
+      matched: 2, retried: 2, skipped: 0, items: [],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    await retryAiOperationsJobsByError(
+      "video_provider_failed", "video provider recovered", 1000, fetcher, "video_analyze",
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/admin/ai-operations/jobs/retry-by-error",
+      expect.objectContaining({ body: JSON.stringify({
+        error_code: "video_provider_failed", reason: "video provider recovered",
+        limit: 1000, job_type: "video_analyze",
       }) }),
     );
   });

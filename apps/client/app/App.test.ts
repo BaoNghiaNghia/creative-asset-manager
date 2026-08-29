@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SEARCH_MEDIA_MODE, parseSearchMediaMode, searchIncludesImages, searchIncludesVideos, accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions } from "./App";
+import { DEFAULT_SEARCH_MEDIA_MODE, parseSearchMediaMode, searchIncludesImages, searchIncludesVideos, accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag } from "./App";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
 import type { Asset } from "./types";
@@ -7,6 +7,32 @@ import type { Asset } from "./types";
 function asset(overrides: Partial<Asset>): Asset {
   return { provider: "google-drive", id: "item-1", name: "asset", kind: "image", mime_type: "image/jpeg", ...overrides };
 }
+
+function dragTransfer(types: string[], itemKinds: string[] = []): DataTransfer {
+  return {
+    types,
+    items: itemKinds.map(kind => ({ kind })),
+  } as unknown as DataTransfer;
+}
+
+describe("External file drag detection", () => {
+  it("accepts file payloads originating outside the browser", () => {
+    const transfer = dragTransfer(["Files"], ["file"]);
+    expect(dragContainsFiles(transfer)).toBe(true);
+    expect(isExternalFileDrag(transfer)).toBe(true);
+  });
+
+  it("rejects browser-origin image, link and non-file drags", () => {
+    expect(isExternalFileDrag(dragTransfer(["Files", "text/html"], ["file"]))).toBe(false);
+    expect(isExternalFileDrag(dragTransfer(["Files", "text/uri-list"], ["file"]))).toBe(false);
+    expect(isExternalFileDrag(dragTransfer(["Files"], ["string"]))).toBe(false);
+    expect(isExternalFileDrag(dragTransfer(["text/plain"], ["string"]))).toBe(false);
+  });
+
+  it("allows the Files-only drag-enter shape before item metadata is exposed", () => {
+    expect(isExternalFileDrag(dragTransfer(["Files"]))).toBe(true);
+  });
+});
 
 describe("Account avatar fallback", () => {
   it("uses normalized initials when a Google profile image cannot load", () => {

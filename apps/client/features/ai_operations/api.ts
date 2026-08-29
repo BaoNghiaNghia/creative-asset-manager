@@ -361,6 +361,7 @@ export const retryAiOperationsJob = (jobId: string, reason: string, force = fals
 export type AiBulkRetryResult = {
   tenant_id: string;
   error_code: string;
+  job_type?: "asset_analyze" | "video_analyze" | "video_search_index" | null;
   matched: number;
   retried: number;
   skipped: number;
@@ -370,9 +371,10 @@ export type AiBulkRetryResult = {
 
 export const retryAiOperationsJobsByError = (
   errorCode: string, reason: string, limit = 1000, fetcher: Fetcher = fetch,
+  jobType?: "asset_analyze" | "video_analyze" | "video_search_index",
 ) => mutate<AiBulkRetryResult>(
   "/api/v1/admin/ai-operations/jobs/retry-by-error", "POST",
-  { error_code: errorCode, reason, limit }, fetcher,
+  { error_code: errorCode, reason, limit, ...(jobType ? { job_type: jobType } : {}) }, fetcher,
 );
 
 export const cancelAiOperationsJob = (jobId: string, reason: string, fetcher: Fetcher = fetch) =>

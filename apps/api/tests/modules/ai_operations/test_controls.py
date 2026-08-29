@@ -316,6 +316,52 @@ class AiOperationsControlsTest(unittest.TestCase):
         self.assertEqual(second.status_code, 200)
         self.assertEqual(second.json()["matched"], 0)
 
+    def test_video_retry_is_supported_and_bulk_retry_is_job_type_scoped(self):
+        with self.factory() as session:
+            image = ProcessingJobModel(
+                tenant_id="tenant-a", job_type="asset_analyze",
+                entity_type="asset_ai_analysis", entity_id="image-shared-error",
+                idempotency_key="image-shared-error", provider_key="gemini", provider_scope="ai",
+                status="failed", attempt_count=5, max_attempts=5,
+                last_error_code="provider_timeout", payload_json={},
+            )
+            video = ProcessingJobModel(
+                tenant_id="tenant-a", job_type="video_analyze",
+                entity_type="source_asset", entity_id="video-shared-error",
+                idempotency_key="video-shared-error", provider_key="gemini", provider_scope="video",
+                status="failed", attempt_count=5, max_attempts=5,
+                last_error_code="provider_timeout", payload_json={},
+            )
+            single_video = ProcessingJobModel(
+                tenant_id="tenant-a", job_type="video_analyze",
+                entity_type="source_asset", entity_id="video-single",
+                idempotency_key="video-single", provider_key="gemini", provider_scope="video",
+                status="failed", attempt_count=5, max_attempts=5,
+                last_error_code="video_invalid_document", payload_json={},
+            )
+            session.add_all([image, video, single_video])
+            session.commit()
+            image_id, video_id, single_video_id = image.id, video.id, single_video.id
+
+        grouped = self.request("POST", "/api/v1/admin/ai-operations/jobs/retry-by-error", {
+            "error_code": "provider_timeout", "job_type": "video_analyze",
+            "reason": "video provider recovered", "limit": 1000,
+        })
+        self.assertEqual(grouped.status_code, 200)
+        self.assertEqual(grouped.json()["job_type"], "video_analyze")
+        self.assertEqual(grouped.json()["retried"], 1)
+
+        single = self.request("POST", f"/api/v1/admin/ai-operations/jobs/{single_video_id}/retry", {
+            "reason": "video input support fixed",
+        })
+        self.assertEqual(single.status_code, 200)
+        self.assertEqual(single.json()["outcome"], "retry_requested")
+
+        with self.factory() as session:
+            self.assertEqual(session.get(ProcessingJobModel, image_id).status, "failed")
+            self.assertEqual(session.get(ProcessingJobModel, video_id).status, "retry")
+            self.assertEqual(session.get(ProcessingJobModel, single_video_id).status, "retry")
+
     def test_deferred_job_requires_explicit_force_retry(self):
         with self.factory() as session:
             job = ProcessingJobModel(

@@ -13,6 +13,8 @@ from app.modules.ai_governance.repository import AiGovernanceRepository, Missing
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
 from app.modules.ai_metadata.selection import AiProviderSelectionService
 from app.modules.ai_operations.schema import AI_JOB_TYPES
+
+RETRYABLE_AI_JOB_TYPES = AI_JOB_TYPES + ("video_analyze", "video_search_index")
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.repository import ProcessingPolicyRepository, policy_document
@@ -396,7 +398,7 @@ class AiOperationsControlService:
         force: bool = False,
     ) -> tuple[dict, str]:
         job = self._locked_job(tenant_id, job_id)
-        if job.job_type not in AI_JOB_TYPES:
+        if job.job_type not in RETRYABLE_AI_JOB_TYPES:
             raise AiOperationsControlError("job_not_ai", "Only AI jobs can be retried.")
         if job.status == "retry" and job.last_error_code == "operator_retry_requested":
             return _job_document(job), "already_requested"
@@ -454,13 +456,20 @@ class AiOperationsControlService:
 
     def retry_jobs_by_error_code(
         self, tenant_id: str, error_code: str, *, actor_id: str, reason: str,
-        limit: int,
+        limit: int, job_type: str | None = None,
     ) -> dict[str, Any]:
         """Retry a bounded group of terminal AI jobs sharing an error code."""
+        eligible_job_types = RETRYABLE_AI_JOB_TYPES
+        if job_type is not None:
+            if job_type not in RETRYABLE_AI_JOB_TYPES:
+                raise AiOperationsControlError(
+                    "job_type_not_retryable", "The requested job type is not eligible for retry.", status_code=422,
+                )
+            eligible_job_types = (job_type,)
         job_ids = list(self.session.scalars(
             select(ProcessingJobModel.id).where(
                 ProcessingJobModel.tenant_id == tenant_id,
-                ProcessingJobModel.job_type.in_(AI_JOB_TYPES),
+                ProcessingJobModel.job_type.in_(eligible_job_types),
                 ProcessingJobModel.status == "failed",
                 ProcessingJobModel.last_error_code == error_code,
             ).order_by(ProcessingJobModel.updated_at, ProcessingJobModel.id).limit(limit)
@@ -480,6 +489,7 @@ class AiOperationsControlService:
                 items.append({"job_id": job_id, "outcome": "skipped", "code": exc.code})
         return {
             "error_code": error_code,
+            "job_type": job_type,
             "matched": len(job_ids),
             "retried": retried,
             "skipped": skipped,

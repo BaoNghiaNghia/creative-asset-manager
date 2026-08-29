@@ -87,6 +87,7 @@ class AiJobMutation(_Mutation):
 class AiBulkJobRetry(_Mutation):
     error_code: str = Field(min_length=1, max_length=100)
     limit: int = Field(default=100, ge=1, le=1000)
+    job_type: Literal["asset_analyze", "video_analyze", "video_search_index"] | None = None
 
 
 class CreativeGeminiCredentialRequest(BaseModel):

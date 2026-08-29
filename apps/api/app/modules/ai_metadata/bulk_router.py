@@ -266,7 +266,7 @@ async def bulk_asset_analyses(
     if len(body.asset_ids) > settings.AI_ANALYSIS_BULK_MAX_ITEMS:
         raise HTTPException(status_code=413, detail="Too many assets in bulk request")
 
-    registry = build_ai_provider_registry(settings)
+    registry = build_ai_provider_registry(settings, session_factory=SessionLocal)
     try:
         with SessionLocal() as session:
             selection_service = AiProviderSelectionService(
@@ -359,7 +359,7 @@ async def cancel_analysis_request(
 ) -> AnalysisRequestStatusResponse:
     tenant_id, actor_id = principal.active_tenant_id, principal.user_id
     settings = get_settings()
-    registry = build_ai_provider_registry(settings)
+    registry = build_ai_provider_registry(settings, session_factory=SessionLocal)
     try:
         with SessionLocal() as session:
             service = AiAnalysisOrchestrationService(session, settings)

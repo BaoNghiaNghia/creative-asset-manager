@@ -528,6 +528,49 @@ activate_release() {
 }
 
 
+# A release directory is reusable only after dependency installation and the
+# migration graph have both been verified. Merely finding a Python executable
+# is insufficient: an interrupted filesystem write can leave a structurally
+# present virtualenv containing empty or corrupt package files.
+validate_release_runtime() {
+  local release="$1"
+  local expected_commit="$2"
+  local python="$release/apps/api/.venv/bin/python"
+  local recorded_commit=""
+  local heads=""
+
+  [[ -f "$release/.cam-release-ready" ]] \
+    || return 1
+
+  [[ -f "$release/.cam-release" ]] \
+    || return 1
+
+  recorded_commit="$(tr -d '[:space:]' < "$release/.cam-release")"
+
+  [[ "$recorded_commit" == "$expected_commit" ]] \
+    || return 1
+
+  [[ -x "$python" ]] \
+    || return 1
+
+  "$python" -c \
+    'from pydantic_settings import BaseSettings; import alembic, fastapi, httpx' \
+    >/dev/null 2>&1 \
+    || return 1
+
+  heads="$(
+    "$python" \
+      -m alembic \
+      -c "$release/apps/api/alembic.ini" \
+      heads \
+      2>/dev/null \
+      | awk 'NF { count += 1 } END { print count + 0 }'
+  )"
+
+  [[ "$heads" == "1" ]]
+}
+
+
 #
 # Convert any path inside:
 #
@@ -1429,6 +1472,13 @@ if [[ ! -e "$TARGET" ]]; then
     > "$STAGE/.cam-release"
 
 
+  touch "$STAGE/.cam-release-ready"
+
+
+  validate_release_runtime "$STAGE" "$COMMIT" \
+    || die "New backend release failed runtime integrity validation."
+
+
   mv \
     -T \
     "$STAGE" \
@@ -1448,6 +1498,10 @@ else
 
   progress 60 \
     "Using existing immutable backend release"
+
+
+  validate_release_runtime "$TARGET" "$COMMIT" \
+    || die "Existing backend release is incomplete or corrupt; deploy a fresh commit instead of reusing it."
 
 
   info \

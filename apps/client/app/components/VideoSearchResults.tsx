@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { buildVideoPlaybackUrl, playbackSeekSeconds } from "../utils/videoPlayback";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
+import { VideoHoverPreview } from "./VideoHoverPreview";
+
+export const VIDEO_HOVER_PREVIEW_DELAY_MS = 4000;
+const VIDEO_HOVER_PREVIEW_CLOSE_DELAY_MS = 220;
 
 export function formatVideoTimestamp(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -205,7 +209,61 @@ export function VideoSearchResults({
   onOpen: (item: VideoSearchItem) => void;
   onDetails: (item: VideoSearchItem) => void;
 }) {
-  return <div className="video-search-grid" aria-label="Video search results">
+  const [hoverPreview, setHoverPreview] = useState<{ item: VideoSearchItem; anchor: HTMLElement } | null>(null);
+  const openTimer = useRef<number | null>(null);
+  const closeTimer = useRef<number | null>(null);
+
+  function clearTimer(ref: typeof openTimer) {
+    if (ref.current === null) return;
+    window.clearTimeout(ref.current);
+    ref.current = null;
+  }
+
+  function cancelClose() {
+    clearTimer(closeTimer);
+  }
+
+  function closeNow() {
+    clearTimer(openTimer);
+    clearTimer(closeTimer);
+    setHoverPreview(null);
+  }
+
+  function scheduleClose() {
+    clearTimer(openTimer);
+    clearTimer(closeTimer);
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      setHoverPreview(null);
+    }, VIDEO_HOVER_PREVIEW_CLOSE_DELAY_MS);
+  }
+
+  function schedulePreview(item: VideoSearchItem, anchor: HTMLElement) {
+    cancelClose();
+    clearTimer(openTimer);
+    if (hoverPreview && hoverPreview.item.analysis_run_id !== item.analysis_run_id) {
+      setHoverPreview(null);
+    }
+    if (!buildVideoPlaybackUrl(item)) return;
+    if (hoverPreview?.item.analysis_run_id === item.analysis_run_id) return;
+    openTimer.current = window.setTimeout(() => {
+      openTimer.current = null;
+      if (anchor.isConnected) setHoverPreview({ item, anchor });
+    }, VIDEO_HOVER_PREVIEW_DELAY_MS);
+  }
+
+  useEffect(() => () => {
+    clearTimer(openTimer);
+    clearTimer(closeTimer);
+  }, []);
+
+  useEffect(() => {
+    if (!hoverPreview) return;
+    const stillVisible = items.some(item => item.analysis_run_id === hoverPreview.item.analysis_run_id);
+    if (!stillVisible) closeNow();
+  }, [items, hoverPreview]);
+
+  return <><div className="video-search-grid" aria-label="Video search results">
     {items.map((item) => {
       const timestamp = formatVideoTimestamp(item.best_match.start_ms);
       const excerpt = item.best_match.visual_description || item.best_match.speech;
@@ -215,6 +273,8 @@ export function VideoSearchResults({
         className="video-search-card"
         key={item.analysis_run_id}
         aria-label={"Video result: " + item.filename}
+        onMouseEnter={event => schedulePreview(item, event.currentTarget)}
+        onMouseLeave={scheduleClose}
       >
         <button
           type="button"
@@ -253,5 +313,11 @@ export function VideoSearchResults({
         </div>
       </article>;
     })}
-  </div>;
+  </div>{hoverPreview && <VideoHoverPreview
+    item={hoverPreview.item}
+    anchor={hoverPreview.anchor}
+    onClose={closeNow}
+    onMouseEnter={cancelClose}
+    onMouseLeave={scheduleClose}
+  />}</>;
 }
