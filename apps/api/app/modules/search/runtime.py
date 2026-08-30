@@ -41,6 +41,42 @@ class SearchSuggestionCache:
         self._entries.clear()
 
 
+
+
+@dataclass(frozen=True, slots=True)
+class _SearchConfigCacheEntry:
+    value: tuple[Any, tuple[str, ...]]
+
+
+class SearchConfigCache:
+    """Bounded revision-keyed cache for immutable tenant search configuration."""
+
+    def __init__(self) -> None:
+        self._entries: OrderedDict[tuple[Any, ...], _SearchConfigCacheEntry] = OrderedDict()
+
+    def get(self, key: tuple[Any, ...]) -> tuple[Any, tuple[str, ...]] | None:
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        self._entries.move_to_end(key)
+        return entry.value
+
+    def put(
+        self,
+        key: tuple[Any, ...],
+        value: tuple[Any, tuple[str, ...]],
+        *,
+        max_entries: int = 256,
+    ) -> None:
+        self._entries[key] = _SearchConfigCacheEntry(value)
+        self._entries.move_to_end(key)
+        while len(self._entries) > max_entries:
+            self._entries.popitem(last=False)
+
+    def clear(self) -> None:
+        self._entries.clear()
+
+
 class ApiSearchIndexPool:
     """Keeps HTTP connection pools alive for the lifetime of each API event loop."""
 
@@ -73,3 +109,4 @@ class ApiSearchIndexPool:
 
 API_SEARCH_INDEX_POOL = ApiSearchIndexPool()
 SEARCH_SUGGESTION_CACHE = SearchSuggestionCache()
+SEARCH_CONFIG_CACHE = SearchConfigCache()

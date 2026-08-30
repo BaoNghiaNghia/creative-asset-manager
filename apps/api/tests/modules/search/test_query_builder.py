@@ -95,6 +95,63 @@ class ElasticsearchQueryBuilderTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 decode_search_cursor(value)
 
+    def test_filter_only_query_uses_bool_filters_without_match_none(self) -> None:
+        body = self.builder.build(
+            self.parser.parse(""),
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            body["query"],
+            {"bool": {"filter": [{"term": {"tenant_id": "tenant-a"}}]}},
+        )
+        self.assertNotIn("match_none", str(body))
+
+    def test_plain_term_uses_tiered_dis_max_and_bounded_fuzzy_fallback(self) -> None:
+        short_should = self.build("cat")["query"]["bool"]["must"][0]["bool"]["should"]
+        long_should = self.build("kitten")["query"]["bool"]["must"][0]["bool"]["should"]
+        self.assertTrue(any("dis_max" in item for item in short_should))
+        self.assertFalse(any("fuzziness" in str(item) for item in short_should))
+        fuzzy = next(item["multi_match"] for item in long_should if "multi_match" in item and "fuzziness" in item["multi_match"])
+        self.assertEqual(fuzzy["prefix_length"], 1)
+        self.assertLessEqual(fuzzy["max_expansions"], 24)
+        self.assertLess(fuzzy["boost"], self.builder.SEARCH_TEXT_BOOST)
+        self.assertLessEqual(len(long_should), 8)
+
+    def test_exact_filename_and_phrase_are_stronger_than_lexical_or_fuzzy(self) -> None:
+        term_should = self.build("kitten")["query"]["bool"]["must"][0]["bool"]["should"]
+        exact_filename = next(
+            item["term"]["filename.normalized"]["boost"]
+            for item in term_should
+            if "term" in item and "filename.normalized" in item["term"]
+        )
+        lexical = next(item["dis_max"] for item in term_should if "dis_max" in item)
+        lexical_boosts = [
+            next(iter(next(iter(query.values())).values()))["boost"]
+            for query in lexical["queries"]
+        ]
+        fuzzy = next(item["multi_match"] for item in term_should if "multi_match" in item)
+        self.assertGreater(exact_filename, max(lexical_boosts))
+        self.assertGreater(min(lexical_boosts), fuzzy["boost"])
+
+        phrase_should = self.build('"summer design"')["query"]["bool"]["must"][0]["bool"]["should"]
+        self.assertTrue(any(
+            "term" in item and "phrases" in item["term"]
+            for item in phrase_should
+        ))
+
+    def test_qualified_analyzed_terms_use_match_not_term(self) -> None:
+        for query, field in (
+            ("filename:summer_design", "filename"),
+            ("folder:summer_design", "folder_path"),
+            ("text:summer_design", "search_text"),
+        ):
+            clause = self.build(query)["query"]["bool"]["must"][0]
+            self.assertIn("match", clause)
+            self.assertIn(field, clause["match"])
+            self.assertNotIn("term", clause)
+        phrase = self.build('filename:"summer design"')["query"]["bool"]["must"][0]
+        self.assertIn("match_phrase", phrase)
+
     def test_result_source_is_minimal_and_highlighting_is_not_requested(self) -> None:
         body = self.build("cat")
         self.assertEqual(body["_source"], ["asset_id", "source_id", "filename", "folder_path"])

@@ -11,7 +11,11 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, El
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.router import _provider_error, _source_context, _viewer_folder_scope_allowed
 from app.providers.source_factory import create_source_provider
-from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
+from app.modules.search.runtime import (
+    API_SEARCH_INDEX_POOL,
+    SEARCH_CONFIG_CACHE,
+    SEARCH_SUGGESTION_CACHE,
+)
 from app.modules.ai_metadata.model import MetadataProfileModel
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
@@ -40,17 +44,57 @@ def enabled(*_args, **_kwargs) -> bool:
     """Compatibility hook; Search V3 is the only runtime generation."""
     return True
 def search_config(session, tenant):
-    profiles = list(session.scalars(select(MetadataProfileModel).where(MetadataProfileModel.tenant_id == tenant, MetadataProfileModel.active.is_(True))))
+    count, revision = session.execute(
+        select(
+            func.count(MetadataProfileModel.id),
+            func.max(MetadataProfileModel.updated_at),
+        ).where(
+            MetadataProfileModel.tenant_id == tenant,
+            MetadataProfileModel.active.is_(True),
+        )
+    ).one()
+    cache_key = (
+        id(session.get_bind()),
+        tenant,
+        int(count or 0),
+        str(revision or ""),
+    )
+    cached = SEARCH_CONFIG_CACHE.get(cache_key)
+    if cached is not None:
+        config, facets = cached
+        return config, list(facets)
+    profiles = list(session.scalars(
+        select(MetadataProfileModel).where(
+            MetadataProfileModel.tenant_id == tenant,
+            MetadataProfileModel.active.is_(True),
+        )
+    ))
     facets, aliases, boosts = set(), {}, {}
     for profile in profiles:
-        config = profile.search_config_json or {}
-        values = config.get("facet_paths", [])
+        profile_config = profile.search_config_json or {}
+        values = profile_config.get("facet_paths", [])
         if isinstance(values, dict):
             values = list(values)
         facets.update(str(value) for value in values if isinstance(value, str))
-        aliases.update({str(k): str(v) for k, v in (config.get("field_aliases") or {}).items()})
-        boosts.update({str(k): float(v) for k, v in (config.get("boost_paths") or {}).items() if isinstance(v, (int, float))})
-    return SearchQueryConfig(facet_names=frozenset(facets), path_aliases=aliases, boost_paths=boosts), sorted(facets)
+        aliases.update({
+            str(key): str(value)
+            for key, value in (profile_config.get("field_aliases") or {}).items()
+        })
+        boosts.update({
+            str(key): float(value)
+            for key, value in (profile_config.get("boost_paths") or {}).items()
+            if isinstance(value, (int, float))
+        })
+    result = (
+        SearchQueryConfig(
+            facet_names=frozenset(facets),
+            path_aliases=aliases,
+            boost_paths=boosts,
+        ),
+        tuple(sorted(facets)),
+    )
+    SEARCH_CONFIG_CACHE.put(cache_key, result)
+    return result[0], list(result[1])
 
 def _search_generation(session, tenant: str, settings) -> str:
     """Resolve V3 readiness without ever selecting a legacy generation."""
@@ -445,14 +489,80 @@ def _design_type_filter(values: list[str]) -> dict | None:
     }
 
 
-def _facet_aggregations(allowed_facets: list[str], include_facets: bool) -> dict[str, dict]:
+def _facet_filter(name: str, values: list[str]) -> dict | None:
+    normalized = list(dict.fromkeys(value for value in values if value))
+    return {"terms": {f"facets.{name}": normalized}} if normalized else None
+
+
+def _facet_aggregations(
+    allowed_facets: list[str],
+    include_facets: bool,
+    *,
+    selected_facets: dict[str, list[str]] | None = None,
+    persistent_filters: list[dict] | None = None,
+) -> dict[str, dict]:
     if not include_facets:
         return {}
-    return {
-        name: {"terms": {"field": f"facets.{name}", "size": 50}}
-        for name in allowed_facets
-    }
+    selected_facets = selected_facets or {}
+    persistent_filters = list(persistent_filters or ())
+    aggregations: dict[str, dict] = {}
+    for name in allowed_facets:
+        other_filters = list(persistent_filters)
+        for other_name, values in sorted(selected_facets.items()):
+            if other_name == name:
+                continue
+            selected_filter = _facet_filter(other_name, values)
+            if selected_filter:
+                other_filters.append(selected_filter)
+        selected_counts = {
+            f"selected_{index}": {"term": {f"facets.{name}": value}}
+            for index, value in enumerate(selected_facets.get(name, ()))
+        }
+        nested_aggs: dict[str, dict] = {
+            "values": {"terms": {"field": f"facets.{name}", "size": 50}},
+        }
+        if selected_counts:
+            nested_aggs["selected"] = {
+                "filters": {"filters": selected_counts},
+            }
+        aggregations[name] = {
+            "filter": (
+                {"bool": {"filter": other_filters}}
+                if other_filters
+                else {"match_all": {}}
+            ),
+            "aggs": nested_aggs,
+        }
+    return aggregations
 
+
+def _facet_response(
+    response: dict,
+    allowed_facets: list[str],
+    selected_facets: dict[str, list[str]],
+) -> dict[str, list[dict]]:
+    output: dict[str, list[dict]] = {}
+    response_aggs = response.get("aggregations", {})
+    for name in allowed_facets:
+        aggregation = response_aggs.get(name, {})
+        buckets = aggregation.get("values", {}).get("buckets", [])
+        values = [
+            {"value": bucket.get("key"), "count": bucket.get("doc_count", 0)}
+            for bucket in buckets
+        ]
+        represented = {str(item["value"]) for item in values}
+        selected_buckets = aggregation.get("selected", {}).get("buckets", {})
+        for index, selected in enumerate(selected_facets.get(name, ())):
+            if selected in represented:
+                continue
+            selected_bucket = selected_buckets.get(f"selected_{index}", {})
+            values.append({
+                "value": selected,
+                "count": int(selected_bucket.get("doc_count", 0)),
+                "selected": True,
+            })
+        output[name] = values
+    return output
 
 
 def _completion_value(value: object, query: str) -> str | None:
@@ -638,7 +748,7 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
         unknown = set(body.facets) - set(allowed_facets)
         if unknown:
             raise HTTPException(422, f"Unsupported search facets: {sorted(unknown)}")
-        parsed = SearchQueryParser().parse(body.query)
+        parsed = SearchQueryParser().parse(body.query or "")
         if body.cursor and body.offset:
             raise HTTPException(422, "Offset and cursor pagination cannot be combined")
         try:
@@ -659,13 +769,24 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
             external_source_id=body.external_source_id,
             )
         query["query"]["bool"]["filter"] = filters
-        for name, values in sorted(body.facets.items()):
-            if values:
-                filters.append({"terms": {f"facets.{name}": values}})
+        persistent_facet_filters: list[dict] = []
         design_type_filter = _design_type_filter(body.design_types)
         if design_type_filter:
-            filters.append(design_type_filter)
-        aggregations = _facet_aggregations(allowed_facets, body.include_facets)
+            persistent_facet_filters.append(design_type_filter)
+        selected_facet_filters = [
+            selected_filter
+            for name, values in sorted(body.facets.items())
+            if (selected_filter := _facet_filter(name, values)) is not None
+        ]
+        post_filters = [*persistent_facet_filters, *selected_facet_filters]
+        if post_filters:
+            query["post_filter"] = {"bool": {"filter": post_filters}}
+        aggregations = _facet_aggregations(
+            allowed_facets,
+            body.include_facets,
+            selected_facets=body.facets,
+            persistent_filters=persistent_facet_filters,
+        )
         if aggregations:
             query["aggs"] = aggregations
         debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
@@ -688,6 +809,7 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
                 "retryable": True,
             }) from exc
         first_response = response
+        query.pop("aggs", None)
         hits = list(response.get("hits", {}).get("hits", []))
         consumed = len(hits)
         last_sort = hits[-1].get("sort") if hits else None
@@ -723,9 +845,16 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
             can_continue = len(batch) == next_size
         response = first_response
         total_value = response.get("hits", {}).get("total", 0)
-        total = int(total_value.get("value", 0) if isinstance(total_value, dict) else total_value)
+        if isinstance(total_value, dict):
+            total = int(total_value.get("value", 0))
+            total_relation = (
+                "gte" if total_value.get("relation") == "gte" else "eq"
+            )
+        else:
+            total = int(total_value)
+            total_relation = "eq"
         facet_output = (
-            {name: [{"value": bucket.get("key"), "count": bucket.get("doc_count", 0)} for bucket in response.get("aggregations", {}).get(name, {}).get("buckets", [])] for name in allowed_facets}
+            _facet_response(response, allowed_facets, body.facets)
             if body.include_facets
             else {}
         )
@@ -736,5 +865,15 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
                 next_cursor = encode_search_cursor(last_sort)
             except ValueError:
                 next_cursor = None
-        primary_result = {"search_version": generation, "items": items, "total": total, "facets": facet_output, "parsed_query": parsed_doc, "took_ms": response.get("took"), "next_cursor": next_cursor, "has_more": next_cursor is not None}
+        primary_result = {
+            "search_version": generation,
+            "items": items,
+            "total": total,
+            "total_relation": total_relation,
+            "facets": facet_output,
+            "parsed_query": parsed_doc,
+            "took_ms": response.get("took"),
+            "next_cursor": next_cursor,
+            "has_more": next_cursor is not None,
+        }
         return primary_result

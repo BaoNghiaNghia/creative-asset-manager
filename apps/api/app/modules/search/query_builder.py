@@ -24,7 +24,11 @@ def encode_search_cursor(sort_values: list[Any]) -> str:
     if len(sort_values) != 2:
         raise ValueError("invalid search cursor sort values")
     score, asset_id = sort_values
-    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
+    if (
+        isinstance(score, bool)
+        or not isinstance(score, (int, float))
+        or not math.isfinite(score)
+    ):
         raise ValueError("invalid search cursor score")
     if not isinstance(asset_id, str) or not asset_id or len(asset_id) > 256:
         raise ValueError("invalid search cursor asset id")
@@ -42,9 +46,16 @@ def decode_search_cursor(cursor: str) -> list[Any]:
         raise ValueError("invalid search cursor")
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
-        document = base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
+        document = base64.b64decode(
+            padded.encode("ascii"), altchars=b"-_", validate=True
+        )
         payload = json.loads(document.decode("ascii"))
-    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+    except (
+        binascii.Error,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
         raise ValueError("invalid search cursor") from exc
     if not isinstance(payload, dict) or payload.get("v") != _CURSOR_VERSION:
         raise ValueError("invalid search cursor")
@@ -72,17 +83,20 @@ class SearchQueryConfig:
 
 
 class ElasticsearchQueryBuilder:
+    EXACT_FILENAME_BOOST = 18.0
     EXACT_NUMBER_BOOST = 16.0
     EXACT_PHRASE_BOOST = 14.0
     EXACT_TERM_BOOST = 12.0
     BOOSTED_PATH_BOOST = 10.0
-    NORMALIZED_TERM_BOOST = 8.0
-    FILENAME_BOOST = 6.0
-    SEARCH_TEXT_BOOST = 4.0
+    NORMALIZED_TERM_BOOST = 9.0
+    VISIBLE_TEXT_BOOST = 8.0
+    FILENAME_BOOST = 7.0
+    SEARCH_TEXT_BOOST = 5.0
+    PREFIX_BOOST = 3.0
     FOLDER_BOOST = 2.0
-    VISIBLE_TEXT_BOOST = 20.0
-    PREFIX_BOOST = 7.0
-    FUZZY_BOOST = 3.0
+    FUZZY_BOOST = 0.8
+    FUZZY_MIN_LENGTH = 4
+    FUZZY_MAX_EXPANSIONS = 24
 
     def build(
         self,
@@ -96,17 +110,25 @@ class ElasticsearchQueryBuilder:
     ) -> dict[str, Any]:
         if not tenant_id:
             raise ValueError("tenant_id is required")
-        if size < 1 or size > 1_000 or offset < 0 or (search_after is not None and offset):
+        if (
+            size < 1
+            or size > 1_000
+            or offset < 0
+            or (search_after is not None and offset)
+        ):
             raise ValueError("invalid search pagination")
         query_config = config or SearchQueryConfig()
-        clauses: list[dict[str, Any]] = []
         try:
             clauses = [self._clause(item, query_config) for item in parsed.clauses]
         except ValueError:
-            clauses = [self._plain_term(item.value, query_config) for item in parsed.clauses]
+            clauses = [
+                self._plain_term(item.value, query_config)
+                for item in parsed.clauses
+            ]
 
+        content: dict[str, Any] | None
         if not clauses:
-            content: dict[str, Any] = {"match_none": {}}
+            content = None
         elif parsed.mode is QueryMode.STRICT_AND:
             content = {"bool": {"must": clauses}}
         elif parsed.mode in {QueryMode.OR, QueryMode.FALLBACK}:
@@ -121,21 +143,16 @@ class ElasticsearchQueryBuilder:
         else:
             content = clauses[0]
 
-        document = {
+        query_bool: dict[str, Any] = {
+            "filter": [{"term": {"tenant_id": tenant_id}}],
+        }
+        if content is not None:
+            query_bool["must"] = [content]
+        document: dict[str, Any] = {
             "size": size,
             "sort": [{"_score": "desc"}, {"asset_id": "asc"}],
-            "_source": [
-                "asset_id",
-                "source_id",
-                "filename",
-                "folder_path",
-            ],
-            "query": {
-                "bool": {
-                    "filter": [{"term": {"tenant_id": tenant_id}}],
-                    "must": [content],
-                }
-            },
+            "_source": ["asset_id", "source_id", "filename", "folder_path"],
+            "query": {"bool": query_bool},
         }
         if search_after is None:
             document["from"] = offset
@@ -156,36 +173,126 @@ class ElasticsearchQueryBuilder:
         return self._qualified(target, clause.value, clause.kind, config)
 
     def _plain_term(self, value: str, config: SearchQueryConfig) -> dict[str, Any]:
-        should: list[dict[str, Any]] = []
+        exact: list[dict[str, Any]] = [
+            {
+                "term": {
+                    "filename.normalized": {
+                        "value": value,
+                        "boost": self.EXACT_FILENAME_BOOST,
+                    }
+                }
+            },
+            {
+                "term": {
+                    "search_terms": {
+                        "value": value,
+                        "boost": self.EXACT_TERM_BOOST,
+                    }
+                }
+            },
+            {
+                "term": {
+                    "normalized_terms": {
+                        "value": value,
+                        "boost": self.NORMALIZED_TERM_BOOST,
+                    }
+                }
+            },
+            *self._boosted_paths(value, config),
+        ]
         if value.isdigit():
-            should.append({"term": {"numbers": {"value": value, "boost": self.EXACT_NUMBER_BOOST}}})
-        should.extend(
-            [
-                {"match_phrase": {"visible_text": {"query": value, "boost": self.VISIBLE_TEXT_BOOST}}},
-                {"term": {"search_terms": {"value": value, "boost": self.EXACT_TERM_BOOST}}},
-                *self._boosted_paths(value, config),
-                {"term": {"normalized_terms": {"value": value, "boost": self.NORMALIZED_TERM_BOOST}}},
-                {"match_phrase_prefix": {"visible_text": {"query": value, "boost": self.PREFIX_BOOST}}},
-                {"match_phrase_prefix": {"search_text": {"query": value, "boost": self.PREFIX_BOOST}}},
-                {"multi_match": {"query": value, "type": "bool_prefix", "fields": ["search_suggest", "search_suggest._2gram", "search_suggest._3gram"], "boost": self.PREFIX_BOOST}},
-                {"multi_match": {"query": value, "fields": ["visible_text^8", "filename^4", "search_text^2"], "fuzziness": "AUTO", "prefix_length": 1, "max_expansions": 30, "boost": self.FUZZY_BOOST}},
-                {"match": {"filename": {"query": value, "boost": self.FILENAME_BOOST}}},
-                {"match": {"search_text": {"query": value, "boost": self.SEARCH_TEXT_BOOST}}},
-                {"match": {"folder_path": {"query": value, "boost": self.FOLDER_BOOST}}},
-            ]
-        )
+            exact.insert(
+                0,
+                {
+                    "term": {
+                        "numbers": {
+                            "value": value,
+                            "boost": self.EXACT_NUMBER_BOOST,
+                        }
+                    }
+                },
+            )
+        lexical = {
+            "dis_max": {
+                "tie_breaker": 0.1,
+                "queries": [
+                    {"match": {"visible_text": {"query": value, "boost": self.VISIBLE_TEXT_BOOST}}},
+                    {"match": {"filename": {"query": value, "boost": self.FILENAME_BOOST}}},
+                    {"match": {"search_text": {"query": value, "boost": self.SEARCH_TEXT_BOOST}}},
+                    {"match": {"folder_path": {"query": value, "boost": self.FOLDER_BOOST}}},
+                ],
+            }
+        }
+        should: list[dict[str, Any]] = [*exact, lexical]
+        if len(value) >= 2:
+            should.append({
+                "dis_max": {
+                    "tie_breaker": 0.05,
+                    "queries": [
+                        {"match_phrase_prefix": {"visible_text": {"query": value, "boost": self.PREFIX_BOOST}}},
+                        {"match_phrase_prefix": {"filename": {"query": value, "boost": self.PREFIX_BOOST}}},
+                        {"match_phrase_prefix": {"search_text": {"query": value, "boost": self.PREFIX_BOOST}}},
+                        {
+                            "multi_match": {
+                                "query": value,
+                                "type": "bool_prefix",
+                                "fields": [
+                                    "search_suggest",
+                                    "search_suggest._2gram",
+                                    "search_suggest._3gram",
+                                ],
+                                "boost": self.PREFIX_BOOST,
+                            }
+                        },
+                    ],
+                }
+            })
+        if len(value) >= self.FUZZY_MIN_LENGTH:
+            should.append({
+                "multi_match": {
+                    "query": value,
+                    "type": "best_fields",
+                    "fields": ["visible_text^3", "filename^2", "search_text"],
+                    "fuzziness": "AUTO",
+                    "prefix_length": 1,
+                    "max_expansions": self.FUZZY_MAX_EXPANSIONS,
+                    "boost": self.FUZZY_BOOST,
+                }
+            })
         return {"bool": {"should": should, "minimum_should_match": 1}}
 
     def _phrase(self, value: str, config: SearchQueryConfig) -> dict[str, Any]:
         return {
             "bool": {
                 "should": [
-                    {"match_phrase": {"visible_text": {"query": value, "boost": self.VISIBLE_TEXT_BOOST}}},
-                    {"term": {"phrases": {"value": value, "boost": self.EXACT_PHRASE_BOOST}}},
+                    {
+                        "term": {
+                            "filename.normalized": {
+                                "value": value,
+                                "boost": self.EXACT_FILENAME_BOOST,
+                            }
+                        }
+                    },
+                    {
+                        "term": {
+                            "phrases": {
+                                "value": value,
+                                "boost": self.EXACT_PHRASE_BOOST,
+                            }
+                        }
+                    },
                     *self._boosted_paths(value, config),
-                    {"match_phrase": {"filename": {"query": value, "boost": self.FILENAME_BOOST}}},
-                    {"match_phrase": {"search_text": {"query": value, "boost": self.SEARCH_TEXT_BOOST}}},
-                    {"match_phrase": {"folder_path": {"query": value, "boost": self.FOLDER_BOOST}}},
+                    {
+                        "dis_max": {
+                            "tie_breaker": 0.1,
+                            "queries": [
+                                {"match_phrase": {"visible_text": {"query": value, "boost": self.VISIBLE_TEXT_BOOST}}},
+                                {"match_phrase": {"filename": {"query": value, "boost": self.FILENAME_BOOST}}},
+                                {"match_phrase": {"search_text": {"query": value, "boost": self.SEARCH_TEXT_BOOST}}},
+                                {"match_phrase": {"folder_path": {"query": value, "boost": self.FOLDER_BOOST}}},
+                            ],
+                        }
+                    },
                 ],
                 "minimum_should_match": 1,
             }
@@ -210,23 +317,57 @@ class ElasticsearchQueryBuilder:
     ) -> dict[str, Any]:
         if target.startswith("facet:"):
             name = target.removeprefix("facet:")
-            return {"term": {f"facets.{name}": {"value": value, "boost": self.EXACT_TERM_BOOST}}}
+            return {
+                "term": {
+                    f"facets.{name}": {
+                        "value": value,
+                        "boost": self.EXACT_TERM_BOOST,
+                    }
+                }
+            }
         if target.startswith("path:"):
             return self._nested_path(
-                target.removeprefix("path:"), value, self.BOOSTED_PATH_BOOST
+                target.removeprefix("path:"),
+                value,
+                self.BOOSTED_PATH_BOOST,
             )
-        allowed = {"search_text", "filename", "folder_path", "numbers", "search_terms", "normalized_terms", "phrases"}
-        if target not in allowed:
+        analyzed = {"search_text", "filename", "folder_path"}
+        keywords = {"numbers", "search_terms", "normalized_terms", "phrases"}
+        if target not in analyzed | keywords:
             raise ValueError("unsafe qualified field")
-        if kind is ClauseKind.QUALIFIED_PHRASE and target in {"search_text", "filename", "folder_path"}:
-            return {"match_phrase": {target: {"query": value, "boost": self.EXACT_PHRASE_BOOST}}}
-        return {"term": {target: {"value": value, "boost": self.EXACT_TERM_BOOST}}}
+        if target in analyzed:
+            query_kind = (
+                "match_phrase"
+                if kind is ClauseKind.QUALIFIED_PHRASE
+                else "match"
+            )
+            return {
+                query_kind: {
+                    target: {
+                        "query": value,
+                        "boost": (
+                            self.EXACT_PHRASE_BOOST
+                            if query_kind == "match_phrase"
+                            else self.EXACT_TERM_BOOST
+                        ),
+                    }
+                }
+            }
+        return {
+            "term": {
+                target: {"value": value, "boost": self.EXACT_TERM_BOOST}
+            }
+        }
 
     def _boosted_paths(
         self, value: str, config: SearchQueryConfig
     ) -> list[dict[str, Any]]:
         return [
-            self._nested_path(path, value, self.BOOSTED_PATH_BOOST * min(boost, 1.0))
+            self._nested_path(
+                path,
+                value,
+                self.BOOSTED_PATH_BOOST * min(boost, 1.0),
+            )
             for path, boost in sorted(config.boost_paths.items())
             if boost > 0
         ]

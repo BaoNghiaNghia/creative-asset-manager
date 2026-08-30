@@ -1,3 +1,4 @@
+import copy
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -17,15 +18,33 @@ from app.modules.authorization.folder_scope import ViewerFolderScopeModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.schema import AssetNode
-from app.modules.search.router import _design_type_filter, _live_suggestion_hits, _search_generation, _search_scope_filters, _search_thumbnail_url, _source_pair_rank, _source_provider_filter, _suggestion_values
+from app.modules.search.router import (
+    _design_type_filter,
+    _facet_aggregations,
+    _facet_filter,
+    _facet_response,
+    _live_suggestion_hits,
+    _search_generation,
+    _search_scope_filters,
+    _search_thumbnail_url,
+    _source_pair_rank,
+    _source_provider_filter,
+    _suggestion_values,
+)
 from app.modules.search.governance_model import SearchIndexRecordModel
-from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
+from app.modules.search.runtime import (
+    API_SEARCH_INDEX_POOL,
+    SEARCH_CONFIG_CACHE,
+    SEARCH_SUGGESTION_CACHE,
+)
+from app.modules.search.schema import SearchV3Request
 
 
 class SearchV3ApiTest(unittest.TestCase):
     def setUp(self):
         API_SEARCH_INDEX_POOL.clear()
         SEARCH_SUGGESTION_CACHE.clear()
+        SEARCH_CONFIG_CACHE.clear()
         self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         Base.metadata.create_all(self.engine)
         self.factory = sessionmaker(self.engine, class_=Session, expire_on_commit=False)
@@ -72,6 +91,140 @@ class SearchV3ApiTest(unittest.TestCase):
         app.dependency_overrides.clear(); self.client.close(); self.engine.dispose()
         API_SEARCH_INDEX_POOL.clear()
         SEARCH_SUGGESTION_CACHE.clear()
+        SEARCH_CONFIG_CACHE.clear()
+
+    def test_search_request_normalizes_blank_text_and_rejects_no_condition(self):
+        request = SearchV3Request(query="   ", facets={"subject": [" cat ", "cat"]})
+        self.assertIsNone(request.query)
+        self.assertEqual(request.facets, {"subject": ["cat"]})
+        response = self.client.post("/api/v1/search", json={"query": "   "})
+        self.assertEqual(response.status_code, 422)
+
+    def test_same_facet_is_or_and_each_aggregation_excludes_only_itself(self):
+        selected = {
+            "style": ["floral", "minimal"],
+            "color": ["red", "black"],
+        }
+        self.assertEqual(
+            _facet_filter("style", selected["style"]),
+            {"terms": {"facets.style": ["floral", "minimal"]}},
+        )
+        design = {"terms": {"design_type": ["petfull"]}}
+        aggregations = _facet_aggregations(
+            ["style", "color"],
+            True,
+            selected_facets=selected,
+            persistent_filters=[design],
+        )
+        color_filters = aggregations["color"]["filter"]["bool"]["filter"]
+        style_filters = aggregations["style"]["filter"]["bool"]["filter"]
+        self.assertIn({"terms": {"facets.style": ["floral", "minimal"]}}, color_filters)
+        self.assertNotIn({"terms": {"facets.color": ["red", "black"]}}, color_filters)
+        self.assertIn({"terms": {"facets.color": ["red", "black"]}}, style_filters)
+        self.assertNotIn({"terms": {"facets.style": ["floral", "minimal"]}}, style_filters)
+        self.assertIn(design, color_filters)
+        self.assertIn(design, style_filters)
+
+    def test_selected_facet_value_outside_top_n_is_preserved(self):
+        response = {
+            "aggregations": {
+                "color": {
+                    "values": {"buckets": [{"key": "blue", "doc_count": 9}]},
+                    "selected": {
+                        "buckets": {"selected_0": {"doc_count": 3}}
+                    },
+                }
+            }
+        }
+        self.assertEqual(
+            _facet_response(response, ["color"], {"color": ["red"]}),
+            {
+                "color": [
+                    {"value": "blue", "count": 9},
+                    {"value": "red", "count": 3, "selected": True},
+                ]
+            },
+        )
+
+    def test_filter_only_search_keeps_security_and_returns_total_relation(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="operator-a",
+            active_tenant_id="tenant-a",
+            membership_id="membership-a",
+            external_identity=None,
+            effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}),
+            platform_admin=False,
+            session_id=None,
+            authorization_source="tenant_rbac",
+        )
+        captured = []
+
+        class FakeIndex:
+            async def aclose(self):
+                return None
+
+            async def search(self, query):
+                captured.append(copy.deepcopy(query))
+                return {
+                    "took": 4,
+                    "hits": {
+                        "total": {"value": 10_000, "relation": "gte"},
+                        "hits": [],
+                    },
+                    "aggregations": {
+                        "subject": {
+                            "values": {
+                                "buckets": [{"key": "dog", "doc_count": 8}]
+                            },
+                            "selected": {
+                                "buckets": {
+                                    "selected_0": {"doc_count": 2}
+                                }
+                            },
+                        }
+                    },
+                }
+
+        settings = Settings(
+            SEARCH_V3_ENABLED=True,
+            ELASTICSEARCH_URL="http://search.test:9200",
+        )
+        fake_index = FakeIndex()
+
+        async def get_index(_config):
+            return fake_index
+
+        with (
+            patch("app.modules.search.router.SessionLocal", self.factory),
+            patch("app.modules.search.router.get_settings", return_value=settings),
+            patch.object(API_SEARCH_INDEX_POOL, "get", side_effect=get_index),
+        ):
+            response = self.client.post(
+                "/api/v1/search",
+                json={"query": "", "facets": {"subject": ["cat"]}},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["total_relation"], "gte")
+        query = captured[0]
+        self.assertEqual(
+            query["query"]["bool"]["filter"],
+            [{"term": {"tenant_id": "tenant-a"}}],
+        )
+        self.assertNotIn("must", query["query"]["bool"])
+        self.assertEqual(
+            query["post_filter"]["bool"]["filter"],
+            [{"terms": {"facets.subject": ["cat"]}}],
+        )
+        self.assertEqual(
+            query["aggs"]["subject"]["filter"],
+            {"match_all": {}},
+        )
+        self.assertEqual(
+            response.json()["facets"]["subject"][-1],
+            {"value": "cat", "count": 2, "selected": True},
+        )
 
     def test_v3_source_provider_filter_uses_source_ids(self):
         with self.factory() as session:
@@ -359,7 +512,7 @@ class SearchV3ApiTest(unittest.TestCase):
 
             async def search(self, query):
                 self.query = query
-                captured.append(query)
+                captured.append(copy.deepcopy(query))
                 return {
                     "took": 3,
                     "hits": {"hits": [
