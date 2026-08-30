@@ -25,6 +25,7 @@ from app.modules.database_backup.service import (
     DatabaseBackupService,
 )
 from app.modules.database_backup.workflow import DatabaseBackupWorkflow
+from app.modules.storage.managed_oauth import resolve_managed_storage_credential
 
 
 def verify_configuration(
@@ -39,8 +40,9 @@ def verify_configuration(
     if not folder_id:
         raise DatabaseBackupConfigurationError("Database backup Drive folder is not configured.")
     root_id = str(getattr(settings, "GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID", "") or "").strip()
-    access_token = str(getattr(settings, "GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN", "") or "").strip()
-    refresh_token = str(getattr(settings, "GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN", "") or "").strip()
+    managed_credential = resolve_managed_storage_credential(settings)
+    access_token = str(managed_credential.access_token or "").strip()
+    refresh_token = str(managed_credential.refresh_token or "").strip()
     if not root_id or not (access_token or refresh_token):
         raise DatabaseBackupConfigurationError("Managed Google Drive storage is not configured.")
     if refresh_token and not (

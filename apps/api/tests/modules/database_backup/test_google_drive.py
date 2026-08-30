@@ -6,17 +6,53 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 
 from app.domain.providers.contracts import StorageProviderError
-from app.modules.database_backup.google_drive import DATABASE_BACKUP_KIND, DatabaseBackupRemoteError, GoogleDriveDatabaseBackupStorage, RemoteDatabaseBackup
+from app.modules.database_backup.google_drive import DATABASE_BACKUP_KIND, DatabaseBackupRemoteError, GoogleDriveDatabaseBackupStorage, RemoteDatabaseBackup, build_database_backup_storage
 from app.modules.database_backup.retention import DatabaseBackupRetentionService
 from app.modules.database_backup.service import VerifiedDatabaseBackup
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 
 class DatabaseBackupGoogleDriveTest(unittest.IsolatedAsyncioTestCase):
+
+    def test_storage_factory_prefers_persisted_managed_credential(self) -> None:
+        settings = SimpleNamespace(
+            DATABASE_BACKUP_DRIVE_FOLDER_ID="backup-folder",
+            GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="managed-root",
+            GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN="legacy-access",
+            GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN="legacy-refresh",
+            GOOGLE_CLIENT_ID="client-id",
+            GOOGLE_CLIENT_SECRET="client-secret",
+        )
+        resolved = SimpleNamespace(
+            access_token="database-access",
+            refresh_token="database-refresh",
+        )
+        with (
+            patch(
+                "app.modules.database_backup.google_drive.resolve_managed_storage_credential",
+                return_value=resolved,
+            ),
+            patch(
+                "app.modules.database_backup.google_drive.GoogleDriveAssetStorage"
+            ) as storage_class,
+        ):
+            result = build_database_backup_storage(settings)
+
+        storage_class.assert_called_once_with(
+            "database-access",
+            root_folder_id="managed-root",
+            refresh_token="database-refresh",
+            client_id="client-id",
+            client_secret="client-secret",
+            transport=None,
+        )
+        self.assertIs(result._credentials, storage_class.return_value)
 
     def _backup(self,
                 directory: str,

@@ -11,6 +11,7 @@ import httpx
 
 from app.domain.providers.contracts import StorageProviderError
 from app.modules.database_backup.service import VerifiedDatabaseBackup
+from app.modules.storage.managed_oauth import resolve_managed_storage_credential
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 DATABASE_BACKUP_KIND = "database_backup_v1"
@@ -324,11 +325,11 @@ def build_database_backup_storage(
     if not folder_id:
         raise DatabaseBackupRemoteError(
             "Database backup Drive folder is not configured.")
+    managed_credential = resolve_managed_storage_credential(settings)
     credentials = GoogleDriveAssetStorage(
-        getattr(settings, "GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN", None),
+        managed_credential.access_token,
         root_folder_id=root_folder_id,
-        refresh_token=getattr(settings, "GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN",
-                              None),
+        refresh_token=managed_credential.refresh_token,
         client_id=getattr(settings, "GOOGLE_CLIENT_ID", None),
         client_secret=getattr(settings, "GOOGLE_CLIENT_SECRET", None),
         transport=transport,

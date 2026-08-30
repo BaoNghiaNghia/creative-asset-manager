@@ -29,6 +29,7 @@ def settings(**overrides):
         "GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN": "",
         "GOOGLE_CLIENT_ID": "",
         "GOOGLE_CLIENT_SECRET": "",
+        "PERSISTENT_AUTH_ENABLED": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -47,6 +48,27 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
                 ),
                 which=lambda command: f"/usr/bin/{command}",
             )
+
+    def test_verify_config_accepts_persisted_managed_identity(self):
+        persisted = SimpleNamespace(
+            access_token="database-access",
+            refresh_token="database-refresh",
+        )
+        with patch.object(
+            cli,
+            "resolve_managed_storage_credential",
+            return_value=persisted,
+        ):
+            result = cli.verify_configuration(
+                settings(
+                    GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN="",
+                    GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN="",
+                    GOOGLE_CLIENT_ID="client-id",
+                    GOOGLE_CLIENT_SECRET="client-secret",
+                ),
+                which=lambda command: f"/usr/bin/{command}",
+            )
+        self.assertEqual(result["DATABASE_BACKUP_CONFIGURATION"], "VALID")
 
     def test_verify_config_fails_closed_when_postgres_tools_are_missing(self):
         with self.assertRaises(DatabaseBackupConfigurationError):
