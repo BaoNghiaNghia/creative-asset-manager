@@ -32,6 +32,7 @@ from app.modules.pipeline.stages import (
     ProviderDownloadStage,
     ProviderStorageStage,
 )
+from app.modules.search.index_sync_handler import SearchIndexSyncJobHandler
 from app.modules.pipeline.handlers import (
     AssetIndexJobHandler,
     AssetStoreJobHandler,
@@ -74,6 +75,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "ai_batch_retry_items": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
     "search_projection_build": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "SEARCH_PROJECTION_ENABLED"),
     "asset_index": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
+    "search_index_sync": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
     "metadata_sidecar_export": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DRIVE_METADATA_SIDECAR_ENABLED"),
     "retention_cleanup": ("PROCESSING_JOBS_ENABLED", "RETENTION_CLEANUP_ENABLED"),
     "managed_storage_cleanup": ("PROCESSING_JOBS_ENABLED", "MANAGED_STORAGE_AUTO_CLEANUP_ENABLED"),
@@ -81,7 +83,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
     def enabled(job_type: str, flags: tuple[str, ...]) -> bool:
-        if job_type == "asset_index":
+        if job_type in {"asset_index", "search_index_sync"}:
             return (
                 settings.PROCESSING_JOBS_ENABLED
                 and settings.UNIFIED_ASSET_INGESTION_ENABLED
@@ -233,6 +235,7 @@ def build_worker_runtime(
                 ("ai_batch_retry_items", AiBatchRetryItemsJobHandler(settings)),
                 ("search_projection_build", SearchProjectionBuildJobHandler(settings)),
                 ("asset_index", AssetIndexJobHandler(settings)),
+                ("search_index_sync", SearchIndexSyncJobHandler(settings)),
                 ("metadata_sidecar_export", MetadataSidecarExportJobHandler(settings)),
                 ("retention_cleanup", RetentionCleanupJobHandler(settings)),
                 ("managed_storage_cleanup", ManagedStorageCleanupJobHandler(settings)),

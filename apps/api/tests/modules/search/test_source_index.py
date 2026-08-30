@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
 
@@ -17,6 +18,10 @@ class SearchSourceIndexResolverTest(unittest.TestCase):
             external_asset_id=external_id,
             source_metadata=metadata or {},
             filename="asset.jpg",
+            mime_type="image/jpeg",
+            size_bytes=2048,
+            source_created_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            source_modified_at=datetime(2026, 8, 2, tzinfo=timezone.utc),
         )
 
     def test_ancestor_ids_include_self_and_every_parent(self):
@@ -45,6 +50,24 @@ class SearchSourceIndexResolverTest(unittest.TestCase):
             external_asset_id="file-a", source_metadata={}, filename="asset.jpg",
         )
         self.assertEqual(resolver.for_source(source_b).ancestor_ids, ("file-a", "root-b"))
+    def test_typed_source_fields_are_normalized_at_index_time(self):
+        details = self._resolver({"file-a": ()}).for_source(
+            self._source(
+                "file-a",
+                {"width": "1200", "height": 800, "duration_ms": -1},
+            ),
+            source_type="google_drive",
+        )
+        self.assertEqual(details.source_provider, "google-drive")
+        self.assertEqual(details.media_kind, "image")
+        self.assertEqual(details.mime_type, "image/jpeg")
+        self.assertEqual(details.extension, "jpg")
+        self.assertEqual(details.width, 1200)
+        self.assertEqual(details.height, 800)
+        self.assertIsNone(details.duration_ms)
+        self.assertEqual(details.file_size_bytes, 2048)
+        self.assertEqual(details.source_created_at, "2026-08-01T00:00:00+00:00")
+
     def test_cycles_are_bounded_and_cannot_escape_source(self):
         resolver = self._resolver({"file-a": ("folder-a",), "folder-a": ("file-a",)})
         self.assertEqual(resolver.for_source(self._source("file-a")).ancestor_ids, ("file-a", "folder-a"))

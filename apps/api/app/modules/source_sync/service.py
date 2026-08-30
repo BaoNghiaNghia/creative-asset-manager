@@ -75,6 +75,55 @@ class SourceSyncService:
         self.enabled = enabled
         self.settings = settings
 
+    def _enqueue_search_index_sync(
+        self,
+        *,
+        tenant_id: str,
+        asset_id: str,
+        source_asset_id: str,
+        identity: str,
+    ) -> None:
+        settings = self.settings
+        if settings is None or not (
+            settings.PROCESSING_JOBS_ENABLED
+            and settings.UNIFIED_ASSET_INGESTION_ENABLED
+            and (settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED)
+        ):
+            return
+        self.processing.create_job(
+            tenant_id=tenant_id,
+            job_type="search_index_sync",
+            entity_type="asset",
+            entity_id=asset_id,
+            idempotency_key=(
+                f"source-index-sync:{asset_id}:{source_asset_id}:{identity}"
+            ),
+            payload={"asset_id": asset_id, "source_asset_id": source_asset_id},
+            provider_key="elasticsearch",
+            provider_scope="search",
+        )
+
+    def _retire_source_asset_and_enqueue_sync(
+        self,
+        *,
+        tenant_id: str,
+        source_asset,
+        identity: str,
+    ) -> None:
+        linked = self.repository.assets.find_linked_asset(
+            tenant_id, source_asset.id
+        )
+        retired = self.repository.assets.mark_source_asset_deleted(
+            tenant_id=tenant_id, source_asset_id=source_asset.id
+        )
+        if linked is not None:
+            self._enqueue_search_index_sync(
+                tenant_id=tenant_id,
+                asset_id=str(linked.id),
+                source_asset_id=str(retired.id),
+                identity=identity,
+            )
+
     async def sync_source(
         self, *, tenant_id: str, source_id: str, provider: AssetSourceProvider,
         page_size: int = 100, max_pages: int = 1000, reconciliation: bool = False,
@@ -123,8 +172,10 @@ class SourceSyncService:
                             tenant_id, source_id, change.external_asset_id
                         )
                         if existing is not None and existing.deleted_at is None:
-                            self.repository.assets.mark_source_asset_deleted(
-                                tenant_id=tenant_id, source_asset_id=existing.id
+                            self._retire_source_asset_and_enqueue_sync(
+                                tenant_id=tenant_id,
+                                source_asset=existing,
+                                identity=f"deleted:{change.external_asset_id}",
                             )
                         continue
                     candidate = change.candidate
@@ -137,8 +188,10 @@ class SourceSyncService:
                             tenant_id, source_id, candidate.external_asset_id
                         )
                         if existing is not None and existing.deleted_at is None:
-                            self.repository.assets.mark_source_asset_deleted(
-                                tenant_id=tenant_id, source_asset_id=existing.id
+                            self._retire_source_asset_and_enqueue_sync(
+                                tenant_id=tenant_id,
+                                source_asset=existing,
+                                identity=f"deleted:{change.external_asset_id}",
                             )
                         continue
                     existing = self.repository.get_source_asset_by_external_id(
@@ -260,7 +313,19 @@ class SourceSyncService:
                 self.repository.session.commit()
                 raise RuntimeError("source sync interrupted before reconciliation sweep")
             try:
+                missing_sources = self.repository.missing_source_assets_for_run(run)
                 missing_marked = self.repository.complete_full_run(run)
+                for source_asset in missing_sources:
+                    linked = self.repository.assets.find_linked_asset(
+                        tenant_id, source_asset.id
+                    )
+                    if linked is not None:
+                        self._enqueue_search_index_sync(
+                            tenant_id=tenant_id,
+                            asset_id=str(linked.id),
+                            source_asset_id=str(source_asset.id),
+                            identity=f"reconciliation:{run.id}",
+                        )
                 self.repository.session.commit()
                 if missing_marked:
                     _invalidate_viewer_folder_hierarchy(

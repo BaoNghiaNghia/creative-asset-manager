@@ -30,6 +30,7 @@ from app.modules.search.router import (
     _source_pair_rank,
     _source_provider_filter,
     _suggestion_values,
+    _typed_filters,
 )
 from app.modules.search.governance_model import SearchIndexRecordModel
 from app.modules.search.runtime import (
@@ -60,7 +61,11 @@ class SearchV3ApiTest(unittest.TestCase):
                     "passed": True,
                     "mapping_fields": [
                         "tenant_id", "source_id", "ancestor_ids", "visible_text",
-                        "search_suggest", "filename.normalized",
+                        "search_suggest", "filename.normalized", "media_kind",
+                        "mime_type", "extension", "source_provider",
+                        "source_created_at", "source_modified_at",
+                        "file_size_bytes", "has_visible_text",
+                        "has_ai_metadata", "design_type",
                     ],
                     "mapping_matches": True,
                     "analyzer_matches": True,
@@ -77,12 +82,10 @@ class SearchV3ApiTest(unittest.TestCase):
         )
 
     def test_design_type_filter_matches_normalized_metadata_values(self):
-        self.assertEqual(_design_type_filter(["petfull", "peoplefull", "carfull"]), {
-            "nested": {
-                "path": "path_values",
-                "query": {"terms": {"path_values.value": ["petfull", "peoplefull", "carfull"]}},
-            }
-        })
+        self.assertEqual(
+            _design_type_filter(["petfull", "peoplefull", "carfull"]),
+            {"terms": {"design_type": ["petfull", "peoplefull", "carfull"]}},
+        )
         self.assertIsNone(_design_type_filter([]))
         invalid = self.client.post("/api/v1/search", json={"query": "dad", "design_types": ["unknown"]})
         self.assertEqual(invalid.status_code, 422)
@@ -98,6 +101,35 @@ class SearchV3ApiTest(unittest.TestCase):
         self.assertIsNone(request.query)
         self.assertEqual(request.facets, {"subject": ["cat"]})
         response = self.client.post("/api/v1/search", json={"query": "   "})
+        self.assertEqual(response.status_code, 422)
+
+    def test_typed_filter_only_request_and_filter_dsl(self):
+        request = SearchV3Request(
+            query="",
+            filters={
+                "media_kind": ["video"],
+                "mime_type": ["Video/MP4"],
+                "extension": [".MP4"],
+                "source_modified_from": "2026-08-01T00:00:00Z",
+                "file_size_min": 1024,
+                "has_ai_metadata": True,
+            },
+        )
+        self.assertEqual(request.filters.mime_type, ["video/mp4"])
+        self.assertEqual(request.filters.extension, ["mp4"])
+        self.assertEqual(_typed_filters(request.filters), [
+            {"terms": {"media_kind": ["video"]}},
+            {"terms": {"mime_type": ["video/mp4"]}},
+            {"terms": {"extension": ["mp4"]}},
+            {"range": {"source_modified_at": {"gte": "2026-08-01T00:00:00+00:00"}}},
+            {"range": {"file_size_bytes": {"gte": 1024}}},
+            {"term": {"has_ai_metadata": True}},
+        ])
+
+    def test_typed_filter_ranges_are_validated(self):
+        response = self.client.post("/api/v1/search", json={
+            "filters": {"file_size_min": 10, "file_size_max": 5},
+        })
         self.assertEqual(response.status_code, 422)
 
     def test_same_facet_is_or_and_each_aggregation_excludes_only_itself(self):
@@ -380,7 +412,12 @@ class SearchV3ApiTest(unittest.TestCase):
             result = _source_provider_filter(
                 session, "tenant-a", "google-drive", generation="v3"
             )
-        self.assertEqual(result, {"terms": {"source_id": source_ids}})
+        self.assertEqual(result, {"term": {"source_provider": "google-drive"}})
+        scoped = _source_provider_filter(
+            session, "tenant-a", "google-drive",
+            external_source_id=source_ids[0], generation="v3",
+        )
+        self.assertEqual(scoped, {"terms": {"source_id": source_ids}})
 
     def test_viewer_suggestion_filters_are_source_and_folder_scoped(self):
         with self.factory() as session:

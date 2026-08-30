@@ -38,6 +38,7 @@ STAGE_POLICY = {
     "ai_batch_retry_items": "ai_analysis_enabled",
     "search_projection_build": "search_v2_enabled",
     "asset_index": "search_v2_enabled",
+    "search_index_sync": "search_v2_enabled",
     "video_search_index": "search_v2_enabled",
     "metadata_sidecar_export": "sidecar_enabled",
     "retention_cleanup": "pipeline_enabled",

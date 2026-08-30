@@ -15,6 +15,7 @@ class JobType(str, Enum):
     AI_BATCH_RETRY_ITEMS = "ai_batch_retry_items"
     SEARCH_PROJECTION_BUILD = "search_projection_build"
     ASSET_INDEX = "asset_index"
+    SEARCH_INDEX_SYNC = "search_index_sync"
     METADATA_SIDECAR_EXPORT = "metadata_sidecar_export"
     RETENTION_CLEANUP = "retention_cleanup"
     MANAGED_STORAGE_CLEANUP = "managed_storage_cleanup"

@@ -56,6 +56,19 @@ _V3_REQUIRED_MAPPING = {
     "ancestor_ids": ("keyword", None),
     "visible_text": ("text", "cam_text_v2"),
     "search_suggest": ("search_as_you_type", "cam_text_v2"),
+    "media_kind": ("keyword", None),
+    "mime_type": ("keyword", None),
+    "extension": ("keyword", None),
+    "source_provider": ("keyword", None),
+    "source_created_at": ("date", None),
+    "source_modified_at": ("date", None),
+    "width": ("integer", None),
+    "height": ("integer", None),
+    "duration_ms": ("long", None),
+    "file_size_bytes": ("long", None),
+    "has_visible_text": ("boolean", None),
+    "has_ai_metadata": ("boolean", None),
+    "design_type": ("keyword", None),
 }
 
 class SearchIndexLifecycleService:

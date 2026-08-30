@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from app.core.database import Base
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Index
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.modules.search.governance_model import SearchIndexRecordModel
 from app.modules.search.index_lifecycle import IndexVerificationError, SearchIndexLifecycleService, VerificationSpec
 from app.modules.search.index_types import AliasSwitchResult
@@ -114,23 +114,12 @@ class ElasticsearchLifecycleRemediationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row.lifecycle_state, "failed")
 
     async def test_v3_verification_requires_scope_mapping_and_normalized_filename(self):
-        definition = deepcopy(ElasticsearchV3Index.index_definition())
-        analysis = definition["settings"]["analysis"]
-        analysis["normalizer"] = {
-            "cam_normalized": {"type": "custom", "filter": ["lowercase", "asciifolding"]}
-        }
-        properties = definition["mappings"]["properties"]
-        properties.update({
-            "source_id": {"type": "keyword"},
-            "parent_id": {"type": "keyword"},
-            "ancestor_ids": {"type": "keyword"},
-            "visible_text": {"type": "text", "analyzer": "cam_text_v2"},
-            "search_suggest": {"type": "search_as_you_type", "analyzer": "cam_text_v2"},
-            "filename": {
-                "type": "text", "analyzer": "cam_text_v2",
-                "fields": {"normalized": {"type": "keyword", "normalizer": "cam_normalized"}},
-            },
-        })
+        definition = ElasticsearchV3Index(
+            ElasticsearchV3Config(
+                "http://elastic.test", index_prefix="cam",
+                index_generation="v3",
+            )
+        )._index_definition()
         self.provider.definition = definition
         row = self.service.register(
             physical_index_name="cam-v3-verified", index_prefix="cam-v3",

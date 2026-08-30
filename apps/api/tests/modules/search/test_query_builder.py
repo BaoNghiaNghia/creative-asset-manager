@@ -97,6 +97,40 @@ class ElasticsearchQueryBuilderTest(unittest.TestCase):
                 search_after=cursor,
             )
 
+    def test_supported_sorts_are_stable_and_cursor_compatible(self) -> None:
+        expected = {
+            "relevance": [{"_score": "desc"}, {"asset_id": "asc"}],
+            "newest": [
+                {"source_modified_at": {"order": "desc", "missing": "_last"}},
+                {"asset_id": "asc"},
+            ],
+            "oldest": [
+                {"source_modified_at": {"order": "asc", "missing": "_last"}},
+                {"asset_id": "asc"},
+            ],
+            "name_asc": [
+                {"filename.normalized": {"order": "asc", "missing": "_last"}},
+                {"asset_id": "asc"},
+            ],
+            "name_desc": [
+                {"filename.normalized": {"order": "desc", "missing": "_last"}},
+                {"asset_id": "asc"},
+            ],
+        }
+        for mode, sort in expected.items():
+            body = self.builder.build(
+                self.parser.parse("cat"),
+                tenant_id="tenant-a",
+                sort_mode=mode,
+            )
+            self.assertEqual(body["sort"], sort)
+        with self.assertRaisesRegex(ValueError, "unsupported"):
+            self.builder.build(
+                self.parser.parse("cat"),
+                tenant_id="tenant-a",
+                sort_mode="random",
+            )
+
     def test_cursor_round_trip_and_rejects_malformed_values(self) -> None:
         fingerprint = search_request_fingerprint({"query": "cat", "sort": "relevance"})
         cursor = encode_search_cursor(

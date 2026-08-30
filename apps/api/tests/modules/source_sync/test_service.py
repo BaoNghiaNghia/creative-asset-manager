@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import Settings
 from app.core.database import Base
 from app.domain.providers.contracts import (
     ExternalAssetCandidate,
@@ -122,6 +123,57 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.session.scalar(select(func.count()).select_from(ProcessingJobModel)),
             0,
+        )
+
+    async def test_deleted_linked_source_enqueues_idempotent_search_sync(self) -> None:
+        self.service = SourceSyncService(
+            self.repository,
+            self.processing,
+            enabled=True,
+            settings=Settings(
+                PROCESSING_JOBS_ENABLED=True,
+                UNIFIED_ASSET_INGESTION_ENABLED=True,
+                SEARCH_V3_ENABLED=True,
+            ),
+        )
+        source_asset = self.assets.upsert_source_asset(
+            tenant_id="tenant-a",
+            external_source_id=self.source.id,
+            external_asset_id="file-deleted",
+            filename="deleted.png",
+            mime_type="image/png",
+        )
+        asset = self.assets.create_asset(
+            tenant_id="tenant-a",
+            content_hash="a" * 64,
+            mime_type="image/png",
+        )
+        self.assets.link_source_asset(
+            tenant_id="tenant-a",
+            asset_id=asset.id,
+            source_asset_id=source_asset.id,
+        )
+        self.session.commit()
+
+        provider = FakeProvider([
+            SourceChangePage(
+                (SourceChange("deleted", "file-deleted", None),),
+                "cursor",
+                False,
+            )
+        ])
+        await self.service.sync_source(
+            tenant_id="tenant-a", source_id=self.source.id, provider=provider
+        )
+
+        job = self.session.scalar(select(ProcessingJobModel).where(
+            ProcessingJobModel.job_type == "search_index_sync"
+        ))
+        self.assertIsNotNone(job)
+        self.assertEqual(job.entity_id, asset.id)
+        self.assertEqual(job.payload_json["asset_id"], asset.id)
+        self.assertTrue(
+            self.session.get(SourceAssetModel, source_asset.id).deleted_at
         )
 
     async def test_persists_each_page_before_advancing_cursor(self) -> None:

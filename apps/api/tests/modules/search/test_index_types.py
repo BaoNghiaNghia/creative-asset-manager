@@ -53,6 +53,47 @@ class SearchIndexDocumentBuilderTest(unittest.TestCase):
         self.assertEqual(payload["visible_text"], ["BSN, RN", "bsn rn"])
         self.assertIn("search_suggest", payload)
 
+    def test_typed_source_and_safe_design_fields_are_indexed(self):
+        analysis = self._analysis()
+        analysis.search_projection["facets"] = {
+            "design_type": ["PetFull", "Other Tags"],
+            "unrelated": ["handwriting"],
+        }
+        analysis.search_projection["path_values"] = [
+            {"path": "embroidery.type", "value": "Floral"},
+            {"path": "unsafe.path", "value": "Roman"},
+        ]
+        document = build_search_index_document(
+            analysis,
+            media_kind="image",
+            mime_type="image/jpeg",
+            extension="jpg",
+            source_provider="google-drive",
+            source_created_at="2026-08-01T00:00:00+00:00",
+            source_modified_at="2026-08-02T00:00:00+00:00",
+            width=1200,
+            height=800,
+            file_size_bytes=4096,
+        )
+        payload = document.to_document()
+        self.assertEqual(payload["design_type"], ["petfull", "other tags", "floral"])
+        self.assertNotIn("handwriting", payload["design_type"])
+        self.assertNotIn("roman", payload["design_type"])
+        self.assertEqual(payload["media_kind"], "image")
+        self.assertEqual(payload["source_provider"], "google-drive")
+        self.assertEqual(payload["file_size_bytes"], 4096)
+        self.assertTrue(payload["has_visible_text"])
+        self.assertTrue(payload["has_ai_metadata"])
+
+    def test_unknown_optional_source_values_are_not_emitted(self):
+        payload = build_search_index_document(self._analysis()).to_document()
+        for field in (
+            "media_kind", "mime_type", "extension", "source_provider",
+            "source_created_at", "source_modified_at", "width", "height",
+            "duration_ms", "file_size_bytes", "design_type",
+        ):
+            self.assertNotIn(field, payload)
+
     def test_v3_document_carries_compact_source_ancestry(self):
         document = build_search_index_document(
             self._analysis(),

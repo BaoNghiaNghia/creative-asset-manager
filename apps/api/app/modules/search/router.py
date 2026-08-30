@@ -117,7 +117,13 @@ def _search_generation(session, tenant: str, settings) -> str:
     verification = row.verification_json or {}
     if verification.get("passed") is False:
         return "incompatible"
-    required_fields = {"tenant_id", "source_id", "ancestor_ids", "visible_text", "search_suggest", "filename.normalized"}
+    required_fields = {
+        "tenant_id", "source_id", "ancestor_ids", "visible_text",
+        "search_suggest", "filename.normalized", "media_kind", "mime_type",
+        "extension", "source_provider", "source_created_at",
+        "source_modified_at", "file_size_bytes", "has_visible_text",
+        "has_ai_metadata", "design_type",
+    }
     raw_mapping_fields = verification.get("mapping_fields")
     if not raw_mapping_fields:
         return "verification_unknown"
@@ -172,6 +178,8 @@ def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
 def _source_provider_filter(session, tenant: str, source_provider: str | None, *, external_source_id: str | None = None, generation: str | None = None) -> dict | None:
     if not source_provider and not external_source_id:
         return None
+    if source_provider and not external_source_id:
+        return {"term": {"source_provider": source_provider}}
     source_type = "google_drive" if source_provider == "google-drive" else "sharepoint" if source_provider == "sharepoint" else None
     source_where = [ExternalSourceModel.tenant_id == tenant]
     if source_type:
@@ -480,14 +488,34 @@ def _search_thumbnail_url(*, provider: str, external_asset_id: str, external_sou
 
 
 def _design_type_filter(values: list[str]) -> dict | None:
-    if not values:
-        return None
-    return {
-        "nested": {
-            "path": "path_values",
-            "query": {"terms": {"path_values.value": values}},
-        }
-    }
+    normalized = list(dict.fromkeys(value for value in values if value))
+    return {"terms": {"design_type": normalized}} if normalized else None
+
+
+def _typed_filters(filters) -> list[dict]:
+    output: list[dict] = []
+    for field in ("media_kind", "mime_type", "extension"):
+        values = list(getattr(filters, field))
+        if values:
+            output.append({"terms": {field: values}})
+    ranges = (
+        ("source_created_at", filters.source_created_from, filters.source_created_to),
+        ("source_modified_at", filters.source_modified_from, filters.source_modified_to),
+        ("file_size_bytes", filters.file_size_min, filters.file_size_max),
+    )
+    for field, lower, upper in ranges:
+        bounds = {}
+        if lower is not None:
+            bounds["gte"] = lower.isoformat() if hasattr(lower, "isoformat") else lower
+        if upper is not None:
+            bounds["lte"] = upper.isoformat() if hasattr(upper, "isoformat") else upper
+        if bounds:
+            output.append({"range": {field: bounds}})
+    for field in ("has_visible_text", "has_ai_metadata"):
+        value = getattr(filters, field)
+        if value is not None:
+            output.append({"term": {field: value}})
+    return output
 
 
 def _facet_filter(name: str, values: list[str]) -> dict | None:
@@ -717,6 +745,7 @@ def _hydrate_search_hits(session, tenant: str, hits: list[dict], *, viewer_restr
     for aid, source, external in sorted(rows, key=lambda row: _source_pair_rank(row[1], row[2]), reverse=True):
         sources.setdefault((str(aid), str(external.id)), (source, external))
     items = []
+    hydration_drops = 0
     for hit in hits:
         doc = hit.get("_source", {})
         aid = str(doc.get("asset_id") or hit.get("_id"))
@@ -725,6 +754,7 @@ def _hydrate_search_hits(session, tenant: str, hits: list[dict], *, viewer_restr
         if pair is None and not viewer_restricted:
             pair = next((value for (candidate, _), value in sources.items() if candidate == aid), None)
         if not pair:
+            hydration_drops += 1
             continue
         source, external = pair
         provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
@@ -733,6 +763,13 @@ def _hydrate_search_hits(session, tenant: str, hits: list[dict], *, viewer_restr
         items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": _search_thumbnail_url(provider=provider, external_asset_id=source.external_asset_id, external_source_id=source.external_source_id, kind=kind), "web_url": resolve_source_web_url(provider=provider, external_asset_id=source.external_asset_id, source_metadata=source.source_metadata), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
         if len(items) >= limit:
             break
+    if hydration_drops:
+        logger.warning(
+            "search_hydration_drift_detected tenant_id=%s dropped_hits=%s candidate_hits=%s",
+            tenant,
+            hydration_drops,
+            len(hits),
+        )
     return items
 
 @router.post("", response_model=SearchV3Response)
@@ -793,6 +830,7 @@ async def search(
                 for name, values in sorted(body.facets.items())
             },
             "design_types": sorted(body.design_types),
+            "filters": body.filters.model_dump(mode="json", exclude_none=True),
             "source_provider": body.source_provider,
             "external_source_id": body.external_source_id,
             "viewer_scope": viewer_scope_key,
@@ -828,7 +866,7 @@ async def search(
             sort_mode=body.sort,
         )
         query["query"]["bool"]["filter"] = filters
-        persistent_facet_filters: list[dict] = []
+        persistent_facet_filters = _typed_filters(body.filters)
         design_type_filter = _design_type_filter(body.design_types)
         if design_type_filter:
             persistent_facet_filters.append(design_type_filter)

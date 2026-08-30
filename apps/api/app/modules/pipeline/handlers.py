@@ -640,6 +640,16 @@ class AssetIndexJobHandler(_PipelineHandler):
             ancestor_ids=source.ancestor_ids,
             filename=source.filename,
             folder_path=source.folder_path,
+            media_kind=source.media_kind,
+            mime_type=source.mime_type,
+            extension=source.extension,
+            source_provider=source.source_provider,
+            source_created_at=source.source_created_at,
+            source_modified_at=source.source_modified_at,
+            width=source.width,
+            height=source.height,
+            duration_ms=source.duration_ms,
+            file_size_bytes=source.file_size_bytes,
         )
 
     @staticmethod

@@ -2,30 +2,31 @@
 
 ## Current behavior
 
-- Search V3 is the only runtime generation and all hit queries are tenant-scoped.
-- Viewer requests fail closed unless an external source is selected; Elasticsearch filters
-  preserve both source and ancestor-folder restrictions.
-- Facet filters use OR within a facet and AND across facets for hits, but aggregations are
-  calculated after every selected facet filter, so counts are not self-excluding.
-- The request requires non-empty text. Parsing blank text yields no clauses and the builder
-  emits `match_none`, preventing legitimate filter-only discovery.
-- One term fans out across exact, phrase, prefix, fuzzy and repeated lexical fields inside
-  one additive `bool.should`, which can stack duplicate evidence.
-- Qualified analyzed text terms can emit `term` queries; only qualified phrases use
-  `match_phrase`.
-- Cursor V1 stores only score and asset ID. It is not bound to query/filter/sort context and
-  searches the read alias without PIT stability.
-- Offset has no product-level deep-page cap. The current frontend already uses cursor
-  pagination after page one.
-- The V3 projection contains source ID and folder ancestry but no typed media/date/size,
-  source-provider, or first-class design-type fields.
-- Design Type currently matches any `path_values.value` without constraining its metadata
-  path.
-- Source-provider filters resolve source IDs in PostgreSQL before the Elasticsearch query.
-- Tenant search configuration loads all active metadata profiles on every request.
-- Hydration defensively removes stale hits but drift is not explicitly measured.
-- Multiple live source links are supported by the schema; indexing intentionally chooses
-  the deterministic first live source and uses one document per internal asset.
+- Search V3 is tenant-scoped and viewer requests fail closed unless an external source is selected.
+  Elasticsearch filters preserve source and ancestor-folder restrictions for both hits and facets.
+- Selected facet values use OR inside each facet and AND across facets. Aggregations are
+  self-excluding: each facet keeps text/security/core filters and all other selected facets.
+  Explicit selected-value filters preserve selected values that fall outside the top 50 terms.
+- Blank text is valid with any facet, design, source or typed filter; a request with no effective
+  condition remains invalid. Filter-only queries use Elasticsearch bool.filter, never match_none.
+- Query clauses use bounded relevance tiers (dis_max for equivalent lexical evidence) and fuzzy
+  matching is low-weight, bounded and disabled for short tokens. Qualified text clauses use
+  match/match_phrase, not term against analyzed fields.
+- Cursor V2 binds search_after values to a tenant-aware effective-request fingerprint and PIT.
+  V1 is intentionally rejected. Offset is capped at 500 and interactive paging uses PIT.
+- Typed V3 fields now include media/mime/extension/provider, source dates, dimensions/duration,
+  file size, visible/AI flags and first-class design_type. Newest/oldest/name sort modes all
+  include deterministic asset_id tie-breaking.
+- Design Type filters directly use terms design_type; provider-only filtering uses the direct
+  indexed provider field. External-source filtering and viewer authorization still use
+  authoritative source IDs.
+- Tenant metadata-profile query configuration uses a bounded revision-keyed local cache.
+- A source deletion now enqueues an idempotent search_index_sync worker job after the source
+  transaction commits. The job reindexes the asset to a remaining live deterministic source or
+  removes its document when none remains. Full-source reconciliation enqueues the same repair.
+  Hydration continues as defense in depth and logs stale-hit drops as observable drift.
+- Multiple live source links still use one document per internal asset and deterministic
+  first-live-source projection. This invariant remains intentionally unchanged.
 
 ## Files to change
 

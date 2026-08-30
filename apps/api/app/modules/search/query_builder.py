@@ -172,9 +172,9 @@ class ElasticsearchQueryBuilder:
             or offset < 0
             or offset > _MAX_OFFSET
             or (search_after is not None and offset)
-            or sort_mode != "relevance"
         ):
             raise ValueError("invalid search pagination")
+        sort = self._sort(sort_mode)
         query_config = config or SearchQueryConfig()
         try:
             clauses = [self._clause(item, query_config) for item in parsed.clauses]
@@ -208,7 +208,7 @@ class ElasticsearchQueryBuilder:
             query_bool["must"] = [content]
         document: dict[str, Any] = {
             "size": size,
-            "sort": [{"_score": "desc"}, {"asset_id": "asc"}],
+            "sort": sort,
             "_source": ["asset_id", "source_id", "filename", "folder_path"],
             "query": {"bool": query_bool},
         }
@@ -217,6 +217,32 @@ class ElasticsearchQueryBuilder:
         else:
             document["search_after"] = search_after
         return document
+
+    @staticmethod
+    def _sort(sort_mode: str) -> list[dict[str, Any]]:
+        sorts: dict[str, list[dict[str, Any]]] = {
+            "relevance": [{"_score": "desc"}, {"asset_id": "asc"}],
+            "newest": [
+                {"source_modified_at": {"order": "desc", "missing": "_last"}},
+                {"asset_id": "asc"},
+            ],
+            "oldest": [
+                {"source_modified_at": {"order": "asc", "missing": "_last"}},
+                {"asset_id": "asc"},
+            ],
+            "name_asc": [
+                {"filename.normalized": {"order": "asc", "missing": "_last"}},
+                {"asset_id": "asc"},
+            ],
+            "name_desc": [
+                {"filename.normalized": {"order": "desc", "missing": "_last"}},
+                {"asset_id": "asc"},
+            ],
+        }
+        try:
+            return sorts[sort_mode]
+        except KeyError as exc:
+            raise ValueError("unsupported search sort") from exc
 
     def _clause(
         self, clause: SearchClause, config: SearchQueryConfig

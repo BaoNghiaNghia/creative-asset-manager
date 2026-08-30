@@ -34,6 +34,11 @@ class ElasticsearchV3MappingTest(unittest.TestCase):
         self.assertEqual(properties["visible_text"]["analyzer"], "cam_text_v2")
         self.assertEqual(properties["search_suggest"]["type"], "search_as_you_type")
         self.assertEqual(properties["filename"]["fields"]["normalized"]["type"], "keyword")
+        self.assertEqual(properties["source_provider"]["type"], "keyword")
+        self.assertEqual(properties["source_modified_at"]["type"], "date")
+        self.assertEqual(properties["file_size_bytes"]["type"], "long")
+        self.assertEqual(properties["has_ai_metadata"]["type"], "boolean")
+        self.assertEqual(properties["design_type"]["type"], "keyword")
         self.assertNotIn("length", definition["settings"]["analysis"].get("filter", {}))
 
 
@@ -171,6 +176,32 @@ class ElasticsearchV3HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
             json.loads(self.requests[-1].content),
             {"id": "pit-refreshed"},
         )
+
+    async def test_delete_is_idempotent_when_document_is_already_absent(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(
+                200,
+                json={"errors": False, "items": [{"delete": {"status": 404}}]},
+            )
+
+        client = httpx.AsyncClient(
+            base_url="http://elastic.test",
+            transport=httpx.MockTransport(handler),
+        )
+        index = ElasticsearchV3Index(
+            ElasticsearchV3Config("http://elastic.test"),
+            client=client,
+        )
+        try:
+            self.assertEqual(await index.delete_documents(["asset-1", "asset-1"]), 1)
+            payload = requests[-1].content.decode().splitlines()
+            self.assertEqual(len(payload), 1)
+            self.assertEqual(json.loads(payload[0])["delete"]["_id"], "asset-1")
+        finally:
+            await client.aclose()
 
     async def test_search_reads_through_read_alias(self) -> None:
         await self.index.search({"query": {"match_all": {}}})

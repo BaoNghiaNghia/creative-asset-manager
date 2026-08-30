@@ -94,6 +94,7 @@ class SourceSyncJobHandler:
                         SourceSyncRepository(sync_session),
                         ProcessingRepository(sync_session),
                         enabled=True,
+                        settings=settings,
                     ).sync_source(
                         tenant_id=context.job.tenant_id,
                         source_id=source_id,

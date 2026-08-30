@@ -115,6 +115,22 @@ class SourceSyncRepository:
         run.error_json = {"code": reason, "message": "Source enumeration was interrupted."}
         self.session.flush()
 
+    def missing_source_assets_for_run(
+        self, run: SourceSyncRunModel
+    ) -> list[SourceAssetModel]:
+        """Snapshot active source assets that the completing sweep will retire."""
+        return list(self.session.scalars(
+            select(SourceAssetModel).where(
+                SourceAssetModel.tenant_id == run.tenant_id,
+                SourceAssetModel.external_source_id == run.external_source_id,
+                SourceAssetModel.deleted_at.is_(None),
+                or_(
+                    SourceAssetModel.last_seen_generation.is_(None),
+                    SourceAssetModel.last_seen_generation != run.generation,
+                ),
+            )
+        ))
+
     def complete_full_run(self, run: SourceSyncRunModel) -> int:
         owned = self.session.scalar(
             select(SourceSyncRunModel)

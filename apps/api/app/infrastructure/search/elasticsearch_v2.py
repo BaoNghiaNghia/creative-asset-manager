@@ -170,6 +170,21 @@ class ElasticsearchV3Index:
         properties["search_suggest"] = {
             "type": "search_as_you_type", "analyzer": "cam_text_v2"
         }
+        properties.update({
+            "media_kind": {"type": "keyword"},
+            "mime_type": {"type": "keyword"},
+            "extension": {"type": "keyword"},
+            "source_provider": {"type": "keyword"},
+            "source_created_at": {"type": "date"},
+            "source_modified_at": {"type": "date"},
+            "width": {"type": "integer"},
+            "height": {"type": "integer"},
+            "duration_ms": {"type": "long"},
+            "file_size_bytes": {"type": "long"},
+            "has_visible_text": {"type": "boolean"},
+            "has_ai_metadata": {"type": "boolean"},
+            "design_type": {"type": "keyword"},
+        })
         return definition
     async def create_index(self, version: str) -> str:
         index_name = self.physical_index_name(version)
@@ -234,10 +249,48 @@ class ElasticsearchV3Index:
             count += len(batch)
         return count
 
+    async def delete_documents(self, asset_ids: Sequence[str]) -> int:
+        """Idempotently delete live-search documents by their internal asset ids."""
+        normalized = tuple(dict.fromkeys(
+            str(asset_id).strip()
+            for asset_id in asset_ids
+            if str(asset_id).strip()
+        ))
+        if not normalized:
+            return 0
+        lines: list[str] = []
+        for asset_id in normalized:
+            lines.append(json.dumps({
+                "delete": {"_index": self.write_alias, "_id": asset_id}
+            }, separators=(",", ":")))
+        response = await self._request(
+            "POST",
+            "/_bulk?refresh=wait_for" if len(normalized) == 1 else "/_bulk",
+            content=("\n".join(lines) + "\n").encode(),
+            headers={"Content-Type": "application/x-ndjson"},
+        )
+        failures = []
+        for item in response.get("items", []):
+            result = item.get("delete", {}) if isinstance(item, dict) else {}
+            status = int(result.get("status") or 500)
+            if result.get("error") or (status >= 300 and status != 404):
+                failures.append(result)
+        if failures or response.get("errors") and failures:
+            raise ElasticsearchV3RequestError(
+                f"bulk delete failed for {len(failures)} item(s)"
+            )
+        return len(normalized)
+
     def _document_body(self, document: SearchIndexDocument) -> dict[str, Any]:
         body = document.to_document()
         if self.config.index_generation == "v2":
-            for field in ("source_id", "parent_id", "ancestor_ids", "visible_text", "search_suggest"):
+            for field in (
+                "source_id", "parent_id", "ancestor_ids", "visible_text",
+                "search_suggest", "media_kind", "mime_type", "extension",
+                "source_provider", "source_created_at", "source_modified_at",
+                "width", "height", "duration_ms", "file_size_bytes",
+                "has_visible_text", "has_ai_metadata", "design_type",
+            ):
                 body.pop(field, None)
         return body
     async def switch_aliases(self, target_index: str) -> AliasSwitchResult:
