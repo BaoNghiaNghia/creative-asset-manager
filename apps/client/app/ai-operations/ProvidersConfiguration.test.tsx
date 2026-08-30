@@ -64,6 +64,8 @@ describe("AI Operations provider and configuration tabs", () => {
       inventoryPermissions={["inventory.read", "inventory.credentials.manage"]}
     />);
     expect(markup).toContain("ops-provider-gemini-credentials");
+    expect(markup).toContain("ops-provider-summary");
+    expect(markup).toContain("ops-provider-summary-error");
     expect(markup).toContain("Creative AI");
     expect(markup).toContain("Inventory AI");
     expect(markup).toContain("Loading Gemini credential configuration");

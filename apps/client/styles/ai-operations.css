@@ -609,6 +609,80 @@
   }
   .ops-provider-controls > button { width: 100%; }
 }
+/* Compact provider overview: dense metrics grid and a distinct control toolbar. */
+.ops-provider-card{padding:18px}
+.ops-provider-card>header{padding-bottom:12px}
+.ops-provider-card .ops-provider-summary{
+  grid-template-columns:repeat(6,minmax(0,1fr));
+  gap:9px;
+  margin:12px 0;
+}
+.ops-provider-summary>div{
+  min-width:0;
+  min-height:54px;
+  justify-content:center;
+  padding:9px 11px;
+  border:1px solid #e6ebf2;
+  border-radius:9px;
+  background:#f8fafc;
+}
+.ops-provider-summary .ops-provider-models{grid-column:span 3}
+.ops-provider-summary .ops-provider-summary-error{grid-column:span 2}
+.ops-provider-summary dt{font-size:10px!important}
+.ops-provider-summary dd{font-size:13px!important;line-height:1.25}
+.ops-provider-summary-error code{font-size:12px}
+.ops-provider-summary .ops-model-badges{gap:4px}
+.ops-provider-summary .ops-model-badge{
+  min-height:20px;
+  padding:2px 7px;
+  font-size:10px;
+}
+.ops-provider-controls{
+  align-items:center;
+  padding:9px 11px;
+  border:1px solid #e6ebf2;
+  border-radius:10px;
+  background:#fafbfd;
+}
+.ops-provider-controls .ops-provider-switches{
+  padding:0;
+  border:0;
+}
+.ops-provider-controls .ops-provider-switches legend{
+  padding-top:8px;
+  color:#526174;
+  font-weight:750;
+}
+.ops-provider-controls .ops-provider-switches label{
+  padding:5px 8px;
+  background:#fff;
+}
+.ops-provider-controls>button{min-height:34px;padding:7px 11px}
+.ops-provider-gemini-credentials{
+  gap:10px;
+  margin-top:14px;
+  padding-top:14px;
+}
+.ops-provider-gemini-credentials-header p{max-width:none}
+.ops-provider-gemini-credentials-grid{gap:10px}
+.ops-provider-gemini-credentials .inventory-settings-card-embedded{padding:13px}
+.ops-provider-gemini-credentials .inventory-credential-grid{margin:9px 0}
+.ops-provider-gemini-credentials .inventory-credential-grid>div{padding:7px 10px}
+@media(max-width:1200px){
+  .ops-provider-card .ops-provider-summary{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .ops-provider-summary .ops-provider-models{grid-column:span 2}
+  .ops-provider-summary .ops-provider-summary-error{grid-column:span 2}
+}
+@media(max-width:760px){
+  .ops-provider-card .ops-provider-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ops-provider-summary .ops-provider-models,
+  .ops-provider-summary .ops-provider-summary-error{grid-column:1/-1}
+}
+@media(max-width:520px){
+  .ops-provider-card .ops-provider-summary{grid-template-columns:1fr}
+  .ops-provider-summary .ops-provider-models,
+  .ops-provider-summary .ops-provider-summary-error{grid-column:auto}
+}
 /* Provider brand marks */
 .ops-provider-heading{display:flex;align-items:center;gap:10px;min-width:0}
 .ops-provider-logo{display:block;flex:0 0 auto;width:30px;height:30px;object-fit:contain}

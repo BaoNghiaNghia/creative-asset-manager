@@ -153,16 +153,16 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
       const pauseDisabled = pending === provider.id || !(configuration.permissions.can_emergency_stop ?? configuration.permissions.can_manage_tenant);
       return <article className="ops-provider-card" key={provider.id}>
         <header><div className="ops-provider-heading">{provider.id === "gemini" && <img className="ops-provider-logo" src={geminiSparkle} alt="" />} {provider.id === "openai" && <img className="ops-provider-logo ops-provider-logo-openai" src={openAiLogo} alt="" />}<div><h3>{provider.label}</h3><span className={`ops-connection ${provider.connection_configured ? "ok" : "off"}`}>{provider.connection_configured ? "Connection configured" : "Connection not configured"}</span></div></div><Status enabled={provider.enabled && provider.processing_enabled && !provider.paused} /></header>
-        <dl>
-          <div><dt>Single</dt><dd>{provider.single_enabled ? "Enabled" : "Disabled"}</dd></div>
-          <div><dt>Batch</dt><dd>{provider.batch_enabled ? "Enabled" : "Disabled"}</dd></div>
-          <div><dt>Default model</dt><dd>{provider.default_model || "Not set"}</dd></div>
+        <dl className="ops-provider-summary">
+          <div className="ops-provider-summary-mode"><dt>Single</dt><dd>{provider.single_enabled ? "Enabled" : "Disabled"}</dd></div>
+          <div className="ops-provider-summary-mode"><dt>Batch</dt><dd>{provider.batch_enabled ? "Enabled" : "Disabled"}</dd></div>
+          <div className="ops-provider-summary-model"><dt>Default model</dt><dd>{provider.default_model || "Not set"}</dd></div>
           <div className="ops-provider-models"><dt>Allowed models</dt><dd>{provider.allowed_models.length ? <span className="ops-model-badges">{provider.allowed_models.map(model => <span className="ops-model-badge" key={model}>{model}</span>)}</span> : "None"}</dd></div>
-          <div><dt>Requests today</dt><dd>{metric.count}</dd></div>
-          <div><dt>Success rate</dt><dd>{(metric.success * 100).toFixed(1)}%</dd></div>
-          <div><dt title="Maximum p95 among the provider/model/mode groups returned by the API">Highest grouped p95 latency</dt><dd>{Math.round(metric.highestGroupedP95)} ms</dd></div>
-          <div><dt>Estimated cost today</dt><dd>{formatCost(metric.cost, metric.currency)}</dd></div>
-          <div className="wide"><dt>Last error</dt><dd><code>{provider.last_error || "None"}</code></dd></div>
+          <div className="ops-provider-summary-metric"><dt>Requests today</dt><dd>{metric.count}</dd></div>
+          <div className="ops-provider-summary-metric"><dt>Success rate</dt><dd>{(metric.success * 100).toFixed(1)}%</dd></div>
+          <div className="ops-provider-summary-metric"><dt title="Maximum p95 among the provider/model/mode groups returned by the API">Highest grouped p95 latency</dt><dd>{Math.round(metric.highestGroupedP95)} ms</dd></div>
+          <div className="ops-provider-summary-metric"><dt>Estimated cost today</dt><dd>{formatCost(metric.cost, metric.currency)}</dd></div>
+          <div className="ops-provider-summary-error"><dt>Last error</dt><dd><code>{provider.last_error || "None"}</code></dd></div>
         </dl>
         <div className="ops-provider-controls">
           <fieldset disabled={configureDisabled} className="ops-provider-switches"><legend>Tenant settings</legend>
