@@ -1062,6 +1062,9 @@ wait_for_endpoint() {
   shift
 
   local attempt
+  local endpoint_url
+
+  endpoint_url="${!#}"
 
 
   for attempt in {1..30}; do
@@ -1089,7 +1092,47 @@ wait_for_endpoint() {
   done
 
 
+  diagnose_endpoint_failure "$label" "$endpoint_url"
+
   die "$label did not become healthy within 30 seconds."
+}
+
+
+diagnose_endpoint_failure() {
+  local label="$1"
+  local endpoint_url="$2"
+  local service=""
+  local port=""
+
+  case "$label" in
+    API\ *)
+      service="creative-asset-manager-api.service"
+      port="8000"
+      ;;
+    "worker $IMAGE_WORKER_HEALTH_PORT "*)
+      service="creative-asset-manager-image-worker.service"
+      port="$IMAGE_WORKER_HEALTH_PORT"
+      ;;
+    "worker $VIDEO_WORKER_HEALTH_PORT "*)
+      service="creative-asset-manager-video-worker.service"
+      port="$VIDEO_WORKER_HEALTH_PORT"
+      ;;
+  esac
+
+  [[ -n "$service" ]] || return 0
+
+  warn "Health diagnostic for $label ($service)"
+  systemctl status "$service" --no-pager --full || true
+  journalctl -u "$service" -n 120 --no-pager --output=short-iso || true
+
+  if command -v ss >/dev/null 2>&1; then
+    warn "Listening process diagnostic for TCP port $port"
+    ss -ltnp "( sport = :$port )" || true
+  fi
+
+  warn "Last endpoint response for $endpoint_url"
+  curl --silent --show-error --max-time 5 "$endpoint_url" || true
+  printf '\n' >&2
 }
 
 

@@ -51,6 +51,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             'SOURCE_DIR="${CAM_SOURCE_DIR:-$CHECKOUT_ROOT}"',
             "/opt/creative-asset-manager", "python3", "-m venv", "--no-cache-dir",
             "alembic", "upgrade head", "wait_for_endpoint",
+            "diagnose_endpoint_failure", "Health diagnostic for $label",
             'exec 3>&1 4>&2',
             'tee -a "$LOG_FILE" >&3',
             'tee -a "$LOG_FILE" >&4',
