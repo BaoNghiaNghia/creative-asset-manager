@@ -54,13 +54,6 @@ Authenticated tenant operators can download:
 
 The standard dashboard filters are supported plus `row_limit` (default 5,000; maximum 10,000). Each request creates an append-only `ai_operations_export_requested` audit record before streaming begins. Exports use `private, no-store`, guard spreadsheet formula cells, and omit job payloads, raw error messages, provider request IDs, signed URLs, credentials, and raw provider responses.
 
-## Validation and rollback
-
-Run focused validation:
-
-```bash
-cd apps/api
-python -m unittest -v tests.modules.ai_operations.test_api tests.modules.ai_operations.test_controls
 ## Running maintenance commands in production
 
 Never source `/etc/creative-asset-manager/production.env` in a shell. Values such as
@@ -71,11 +64,11 @@ executing shell syntax and command output is redacted against configured secrets
 For example, inspect quota-deferred Video AI jobs without changing them:
 
 ```bash
-cd /opt/creative-asset-manager/current
-./deploy/tools/production_env.py run-redacted \
+cd /opt/creative-asset-manager/current/apps/api
+../../deploy/tools/production_env.py run-redacted \
   --env-file /etc/creative-asset-manager/production.env \
   --expected-owner-uid 0 -- \
-  ./apps/api/.venv/bin/python -m app.operations.processing_cli \
+  ./.venv/bin/python -m app.operations.processing_cli \
   video-quota:reconcile-deferred --tenant-id <tenant-id> --limit 1000
 ```
 
@@ -83,6 +76,13 @@ After confirming the dry-run count, append `--apply --yes` to the processing CLI
 arguments. This only makes matching pending jobs eligible immediately; the Video
 worker still performs its normal Free Tier quota reservation before calling Gemini.
 
+## Validation and rollback
+
+Run focused validation:
+
+```bash
+cd apps/api
+python -m unittest -v tests.modules.ai_operations.test_api tests.modules.ai_operations.test_controls
 python -m unittest -v tests.integration.test_ai_operations_postgresql
 
 cd ../client
