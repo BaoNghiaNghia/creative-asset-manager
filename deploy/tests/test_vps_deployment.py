@@ -40,7 +40,8 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             "site.webmanifest",
             'CHECKED_OUT_COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify HEAD^{commit})"',
             'Requested commit does not match the checked-out HEAD.',
-            'Committed build-info.json does not match the requested commit.',
+            'Committed build-info.json is not an ancestor of the requested commit.',
+            'Frontend source changed after build-info.json was generated.',
             "nginx -t", "systemctl reload nginx", "--rollback",
             'http://127.0.0.1:8000/version" >/dev/null',
         ):

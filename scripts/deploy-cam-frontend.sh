@@ -57,7 +57,7 @@ DIST="$SOURCE_DIR/apps/client/dist"
 for required_asset in favicon.svg favicon.ico favicon-32x32.png apple-touch-icon.png app-icon-192.png app-icon-512.png site.webmanifest; do
   [[ -s "$DIST/$required_asset" ]] || die "Committed frontend icon is missing or empty: $required_asset"
 done
-python3 - "$DIST/build-info.json" "$COMMIT" <<'PY'
+BUILD_COMMIT="$(python3 - "$DIST/build-info.json" <<'PY'
 import json
 import re
 import sys
@@ -67,12 +67,17 @@ try:
 except (OSError, ValueError) as exc:
     raise SystemExit(f"Invalid committed build-info.json: {exc}")
 build_commit = build_info.get("build_commit")
-requested_commit = sys.argv[2]
 if not isinstance(build_commit, str) or not re.fullmatch(r"[0-9a-f]{7,64}", build_commit):
     raise SystemExit("Committed build-info.json has no valid build_commit.")
-if not requested_commit.startswith(build_commit):
-    raise SystemExit("Committed build-info.json does not match the requested commit.")
+print(build_commit)
 PY
+)"
+BUILD_COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify "${BUILD_COMMIT}^{commit}")"   || die "Committed build-info.json references an unknown Git commit."
+git -C "$SOURCE_DIR" merge-base --is-ancestor "$BUILD_COMMIT" "$COMMIT"   || die "Committed build-info.json is not an ancestor of the requested commit."
+# dist is committed after it is built, therefore its self-referential Git SHA
+# cannot equal the commit that contains it. Permit only a provenance-preserving
+# dist-only/backend-only follow-up: any frontend source change requires rebuild.
+git -C "$SOURCE_DIR" diff --quiet "$BUILD_COMMIT" "$COMMIT" --   apps/client ':(exclude)apps/client/dist'   || die "Frontend source changed after build-info.json was generated."
 if find "$DIST" -type f \( -name "*.map" -o -name "*.map.gz" \) -print -quit | grep -q .; then die "Source maps are forbidden in production dist."; fi
 if ! python3 "$SOURCE_DIR/deploy/tools/validate_frontend_dist.py" "$DIST"; then
   die "Generated dist contains a forbidden endpoint or credential value."
