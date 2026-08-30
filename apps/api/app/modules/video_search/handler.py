@@ -248,19 +248,31 @@ class VideoAnalyzeJobHandler:
         except AiProviderError as exc:
             if exc.status_code == 429:
                 retry_at = self._rate_limit_retry_at(settings, exc)
+                detail = self._gemini_error_message(exc)
                 if current_chunk_id:
-                    self._defer_chunk(context, run_id, current_chunk_id, exc.code, "Gemini video capacity is temporarily unavailable.")
+                    self._defer_chunk(context, run_id, current_chunk_id, exc.code, detail)
                 with context.dependencies.session_factory() as session:
                     GeminiProjectQuotaRepository(session).block_until(quota_scope=selection.quota_scope, model=selection.model, retry_at=retry_at)
                     session.commit()
-                return DeferredJobOutcome("video_gemini_rate_limited", "Gemini video capacity is temporarily unavailable.", retry_at)
+                return DeferredJobOutcome("video_gemini_rate_limited", detail, retry_at)
+            detail = self._gemini_error_message(exc)
             if exc.retryable:
-                return self._retry(context, run_id, current_chunk_id, exc.code, "Gemini video request could not be completed.")
-            return self._non_retry(context, run_id, current_chunk_id, exc.code, "Gemini video returned an invalid response.")
+                return self._retry(context, run_id, current_chunk_id, exc.code, detail)
+            return self._non_retry(context, run_id, current_chunk_id, exc.code, detail)
         except Exception:
             return self._retry(context, run_id, current_chunk_id, "video_analysis_failed", "Video analysis could not be completed.")
         finally:
             proxy.cleanup(chunks)
+
+    @staticmethod
+    def _gemini_error_message(exc: AiProviderError) -> str:
+        details = exc.details if isinstance(exc.details, dict) else {}
+        values = [str(exc)]
+        for key in ("google_error_status", "google_error_message", "provider_request_id"):
+            value = details.get(key)
+            if isinstance(value, str) and value.strip() and value not in values:
+                values.append(value.strip())
+        return " | ".join(values)[:1200]
 
     @staticmethod
     def _rate_limit_retry_at(settings: Settings, exc: AiProviderError) -> datetime:

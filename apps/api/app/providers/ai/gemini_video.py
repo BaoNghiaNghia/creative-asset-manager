@@ -4,7 +4,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
+from urllib.parse import urlsplit
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +25,7 @@ _UPLOAD_BLOCK_SIZE = 1024 * 1024
 MEDIA_RESOLUTION_LOW = "MEDIA_RESOLUTION_LOW"
 MEDIA_RESOLUTION_HIGH = "MEDIA_RESOLUTION_HIGH"
 _MEDIA_RESOLUTIONS = frozenset((MEDIA_RESOLUTION_LOW, MEDIA_RESOLUTION_HIGH))
+_MAX_ERROR_DETAIL_CHARS = 1200
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,8 +210,52 @@ class GeminiVideoClient:
             status = response.status_code
             codes = {400: ("gemini_video_bad_request", False), 401: ("gemini_video_authentication_error", False), 403: ("gemini_video_permission_denied", False), 429: ("gemini_video_rate_limited", True)}
             code, retryable = codes.get(status, ("gemini_video_http_error", status >= 500))
-            raise AiProviderError(f"Gemini video request failed with HTTP {status}.", code=code, retryable=retryable, status_code=status, details={"http_status": status})
+            raise AiProviderError(
+                f"Gemini video request failed with HTTP {status}.",
+                code=code, retryable=retryable, status_code=status,
+                details=self._error_details(response),
+            )
         return response
+
+    def _error_details(self, response: httpx.Response) -> dict[str, Any]:
+        payload: Mapping[str, Any] = {}
+        try:
+            value = response.json()
+            if isinstance(value, Mapping):
+                payload = value
+        except ValueError:
+            pass
+        error = payload.get("error")
+        error = error if isinstance(error, Mapping) else {}
+        request_id = next((
+            response.headers.get(header)
+            for header in ("x-goog-request-id", "x-request-id", "x-cloud-trace-context")
+            if response.headers.get(header)
+        ), None)
+        try:
+            endpoint_path = urlsplit(str(response.url)).path
+        except Exception:
+            endpoint_path = "/v1beta"
+        excerpt = json.dumps({"error": dict(error)}, ensure_ascii=False, sort_keys=True) if error else response.text
+        return {
+            "http_status": response.status_code,
+            "endpoint_path": self._sanitize_error_text(endpoint_path),
+            "google_error_status": self._sanitize_error_text(error.get("status")),
+            "google_error_message": self._sanitize_error_text(error.get("message")),
+            "provider_request_id": self._sanitize_error_text(request_id),
+            "provider_response_excerpt": self._sanitize_error_text(excerpt),
+        }
+
+    def _sanitize_error_text(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).replace(self._api_key, "[REDACTED]")
+        text = re.sub(
+            r'(?i)("?(?:api[_-]?key|authorization|key)"?\s*[:=]\s*"?)[^\s,;"]+',
+            r"\1[REDACTED]",
+            text,
+        )
+        return text[:_MAX_ERROR_DETAIL_CHARS]
 
     @staticmethod
     async def _file_chunks(path: Path) -> AsyncIterator[bytes]:
