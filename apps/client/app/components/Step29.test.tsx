@@ -34,7 +34,8 @@ describe("Step 29 operator UI", () => {
     />);
     expect(markup).toContain("Design type");
     expect(markup).toContain("PetFull / PeopleFull / CarFull");
-    expect(markup).toContain("Other tags");
+    expect(markup).not.toContain("ExistedDesign");
+    expect(markup).not.toContain("Other tags");
     expect(markup).toContain('checked=""');
     expect(markup).not.toContain("Image results");
   });

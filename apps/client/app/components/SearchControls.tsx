@@ -23,13 +23,11 @@ const categoryOptions = [
   { label: "PeopleOutline", values: ["peopleoutline"] },
   { label: "CarFull", values: ["carfull"] },
   { label: "CarOutline", values: ["caroutline"] },
-  { label: "ExistedDesign", values: ["existeddesign"] },
   { label: "Roman", values: ["roman"] },
   { label: "Handwriting", values: ["handwriting"] },
   { label: "Floral", values: ["floral"] },
   { label: "Neckline", values: ["neckline"] },
   { label: "Text", values: ["text"] },
-  { label: "Other tags", values: ["other tags"] },
 ] as const;
 
 export function SearchCategoryFilter({ selected, onChange }: CategoryFilterProps) {

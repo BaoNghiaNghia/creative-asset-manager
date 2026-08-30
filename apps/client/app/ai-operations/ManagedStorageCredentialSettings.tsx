@@ -98,21 +98,21 @@ export function ManagedStorageRefreshTokenForm({
           </button>
         </div>
       </label>
-      <div className="ops-managed-storage-token-actions">
-        <button type="button" className="secondary" disabled={!token.trim() || busy !== null} onClick={() => onSubmit(false)}>
-          {busy === "test" ? "Đang kiểm tra…" : "Kiểm tra token"}
-        </button>
-        <button type="submit" disabled={!token.trim() || busy !== null}>
-          {busy === "save" ? "Saving..." : "Save token"}
-        </button>
-      </div>
-      {result && <p className="ops-inline-success" role="status">
-        {result.saved
-          ? "Token encrypted and saved. Folder access has not been checked."
-          : "Token is valid. Folder access: " + (result.folder_access === "READ_WRITE" ? "read/write" : result.folder_access)}
-        {result.account_email ? " / " + result.account_email : ""}
-      </p>}
     </div>
+    <div className="ops-managed-storage-token-actions">
+      <button type="button" className="secondary" disabled={!token.trim() || busy !== null} onClick={() => onSubmit(false)}>
+        {busy === "test" ? "Đang kiểm tra…" : "Kiểm tra token"}
+      </button>
+      <button type="submit" disabled={!token.trim() || busy !== null}>
+        {busy === "save" ? "Saving..." : "Save token"}
+      </button>
+    </div>
+    {result && <p className="ops-inline-success" role="status">
+      {result.saved
+        ? "Token encrypted and saved. Folder access has not been checked."
+        : "Token is valid. Folder access: " + (result.folder_access === "READ_WRITE" ? "read/write" : result.folder_access)}
+      {result.account_email ? " / " + result.account_email : ""}
+    </p>}
   </form>;
 }
 

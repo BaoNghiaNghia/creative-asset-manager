@@ -20,6 +20,18 @@ const businessDate = (value: string | null | undefined) => {
   return year && month && day ? day + "/" + month + "/" + year : value;
 };
 
+type QuickActionIconName = "sheet" | "calendar" | "settings" | "refresh";
+
+function QuickActionIcon({ name }: { name: QuickActionIconName }) {
+  const paths = {
+    sheet: <><path d="M6 3.5h8l4 4v13H6z" /><path d="M14 3.5v4h4M8.5 11h7M8.5 14h7M8.5 17h4" /></>,
+    calendar: <><rect x="4" y="5.5" width="16" height="14" rx="2" /><path d="M8 3.5v4M16 3.5v4M4 10h16M8 14h3" /></>,
+    settings: <><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3M5.9 5.9 8 8M16 16l2.1 2.1M18.1 5.9 16 8M8 16l-2.1 2.1" /><circle cx="12" cy="12" r="3.2" /></>,
+    refresh: <><path d="M19 8.5V4.5m0 0h-4m4 0-3 3A7 7 0 1 0 19 12" /></>,
+  };
+  return <svg className="ops-inventory-action-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+}
+
 const dateTime = (value: string | null | undefined) => value
   ? new Intl.DateTimeFormat("vi-VN", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -109,11 +121,11 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
       <div className="ops-inventory-heading-actions">
         <span className={"ops-inventory-health " + (healthy ? "healthy" : status.operational_state)}>{operationalLabel(status.operational_state)}</span>
         <div className="ops-inventory-quick-actions">
-          {status.working_spreadsheet_url ? <a href={status.working_spreadsheet_url} target="_blank" rel="noreferrer">Mở Google Sheet đang xử lý</a> : null}
-          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("daily")}>Mở Daily Inventory</button>
-          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("settings")}>Cấu hình Inventory</button>
+          {status.working_spreadsheet_url ? <a href={status.working_spreadsheet_url} target="_blank" rel="noreferrer"><QuickActionIcon name="sheet" />Mở Google Sheet đang xử lý</a> : null}
+          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("daily")}><QuickActionIcon name="calendar" />Mở Daily Inventory</button>
+          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("settings")}><QuickActionIcon name="settings" />Cấu hình Inventory</button>
         </div>
-        <button type="button" onClick={onRefresh}>Làm mới</button>
+        <button className="ops-inventory-refresh-action" type="button" onClick={onRefresh}><QuickActionIcon name="refresh" />Làm mới</button>
       </div>
     </div>
 

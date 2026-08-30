@@ -591,7 +591,14 @@ export default function App() {
       ? <AssetGridSkeleton />
       : videoSearch.items.length
         ? <VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} onDetails={openVideoDetails} />
-        : <div className="state">No videos matched this search.</div>}
+        : <EmptyAssets
+          query={explorer.query}
+          path={explorer.path}
+          visibilityFilter="all"
+          onClearSearch={() => explorer.setQuery("")}
+          onClearFilter={() => undefined}
+          onOpen={explorer.open}
+        />}
   </>;
 
   return <main
