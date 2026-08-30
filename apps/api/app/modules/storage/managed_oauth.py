@@ -176,6 +176,47 @@ def _persist_validated_connection(
         repository.session.flush()
 
 
+async def save_managed_storage_refresh_token_unverified(
+    settings: Settings,
+    refresh_token: str,
+    *,
+    tenant_id: str,
+    initiating_user_id: str,
+) -> ManagedStorageCredentialCheck:
+    """Persist a manually supplied token without making a Google API request.
+
+    The worker will refresh this token on its first storage operation. Use the
+    explicit test endpoint to validate Drive-folder access before enabling
+    cleanup or relying on managed storage.
+    """
+    token = str(refresh_token or "").strip()
+    root_folder_id = str(settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or "").strip()
+    if not settings.PERSISTENT_AUTH_ENABLED:
+        raise ManagedStorageCredentialValidationError(
+            "Persistent authentication is not enabled."
+        )
+    if not root_folder_id:
+        raise ManagedStorageCredentialValidationError(
+            "Managed Storage root folder is not configured."
+        )
+    if len(token) < 16 or len(token) > 4096:
+        raise ManagedStorageCredentialValidationError(
+            "Refresh token format is invalid."
+        )
+    _persist_validated_connection(
+        tenant_id=tenant_id,
+        initiating_user_id=initiating_user_id,
+        root_folder_id=root_folder_id,
+        account_id="managed-storage-manual",
+        account_email=None,
+        access_token="pending-refresh",
+        refresh_token=token,
+        expires_at=datetime.now(timezone.utc),
+        scopes=(DRIVE_WRITE_SCOPE,),
+    )
+    return ManagedStorageCredentialCheck(account_email=None, saved=True)
+
+
 async def check_managed_storage_refresh_token(
     settings: Settings,
     refresh_token: str,

@@ -24,6 +24,7 @@ from app.modules.storage.managed_oauth import (
     ManagedStorageCredentialUnavailableError,
     ManagedStorageCredentialValidationError,
     check_managed_storage_refresh_token,
+    save_managed_storage_refresh_token_unverified,
     managed_storage_oauth_status,
     persist_managed_storage_connection,
 )
@@ -182,7 +183,21 @@ async def save_managed_storage_refresh_token(
     body: ManagedStorageRefreshTokenRequest,
     principal: CurrentPrincipal = Depends(require_platform_admin),
 ):
-    return await _check_manual_managed_storage_token(body, principal, save=True)
+    try:
+        result = await save_managed_storage_refresh_token_unverified(
+            get_settings(),
+            body.refresh_token.get_secret_value(),
+            tenant_id=principal.active_tenant_id,
+            initiating_user_id=principal.user_id,
+        )
+    except ManagedStorageCredentialValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "status": "SAVED_UNVERIFIED",
+        "account_email": result.account_email,
+        "folder_access": "UNVERIFIED",
+        "saved": result.saved,
+    }
 
 
 @router.get("/callback")

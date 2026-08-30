@@ -12,6 +12,7 @@ from app.modules.storage.managed_oauth import (
     managed_storage_oauth_status,
     persist_managed_storage_connection,
     resolve_managed_storage_credential,
+    save_managed_storage_refresh_token_unverified,
 )
 
 TEST_TOKEN_KEY = "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -165,6 +166,25 @@ class ManagedStorageManualCredentialTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.saved)
         self.assertEqual(persist.call_args.kwargs["refresh_token"], "refresh-token-value")
         self.assertEqual(persist.call_args.kwargs["root_folder_id"], "folder-active")
+
+    async def test_token_can_be_persisted_without_google_validation(self):
+        with patch(
+            "app.modules.storage.managed_oauth._persist_validated_connection"
+        ) as persist:
+            result = await save_managed_storage_refresh_token_unverified(
+                self.settings(),
+                "refresh-token-value",
+                tenant_id="tenant-a",
+                initiating_user_id="admin-a",
+            )
+        self.assertTrue(result.saved)
+        self.assertIsNone(result.account_email)
+        self.assertEqual(persist.call_args.kwargs["refresh_token"], "refresh-token-value")
+        self.assertEqual(
+            persist.call_args.kwargs["account_id"],
+            "managed-storage-manual",
+        )
+        self.assertEqual(persist.call_args.kwargs["access_token"], "pending-refresh")
 
     async def test_rejected_token_is_never_persisted(self):
         with (

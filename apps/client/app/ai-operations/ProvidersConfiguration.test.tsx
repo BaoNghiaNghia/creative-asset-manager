@@ -144,8 +144,8 @@ describe("AI Operations provider and configuration tabs", () => {
     />);
     expect(markup).toContain('type="password"');
     expect(markup).toContain("Kiểm tra token");
-    expect(markup).toContain("Kiểm tra &amp; lưu");
-    expect(markup).toContain("Token hợp lệ");
+    expect(markup).toContain("Save token");
+    expect(markup).toContain("Token is valid");
   });
 
   it("shows platform-only global emergency action to platform administrators", () => {

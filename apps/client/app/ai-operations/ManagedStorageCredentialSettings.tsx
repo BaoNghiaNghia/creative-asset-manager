@@ -78,7 +78,7 @@ export function ManagedStorageRefreshTokenForm({
   return <form className="ops-managed-storage-token-form" onSubmit={submit}>
     <div className="ops-managed-storage-token-copy">
       <h4>Refresh token</h4>
-      <p>Token được kiểm tra với Google và quyền đọc/ghi folder active trước khi lưu mã hóa. Giá trị đã lưu sẽ không hiển thị lại.</p>
+      <p>Token is encrypted and saved immediately. Use the separate token check to verify active-folder access before enabling cleanup.</p>
     </div>
     <div className="ops-managed-storage-token-controls">
       <label>
@@ -103,13 +103,14 @@ export function ManagedStorageRefreshTokenForm({
           {busy === "test" ? "Đang kiểm tra…" : "Kiểm tra token"}
         </button>
         <button type="submit" disabled={!token.trim() || busy !== null}>
-          {busy === "save" ? "Đang kiểm tra & lưu…" : "Kiểm tra & lưu"}
+          {busy === "save" ? "Saving..." : "Save token"}
         </button>
       </div>
       {result && <p className="ops-inline-success" role="status">
-        Token hợp lệ · quyền folder {result.folder_access === "READ_WRITE" ? "đọc/ghi" : result.folder_access}
-        {result.account_email ? ` · ${result.account_email}` : ""}
-        {result.saved ? " · đã lưu mã hóa" : ""}
+        {result.saved
+          ? "Token encrypted and saved. Folder access has not been checked."
+          : "Token is valid. Folder access: " + (result.folder_access === "READ_WRITE" ? "read/write" : result.folder_access)}
+        {result.account_email ? " / " + result.account_email : ""}
       </p>}
     </div>
   </form>;
