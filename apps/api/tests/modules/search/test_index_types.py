@@ -85,6 +85,17 @@ class SearchIndexDocumentBuilderTest(unittest.TestCase):
         self.assertTrue(payload["has_visible_text"])
         self.assertTrue(payload["has_ai_metadata"])
 
+    def test_current_embroidery_metadata_path_is_indexed(self):
+        analysis = self._analysis()
+        analysis.search_projection["path_values"] = [
+            {"path": "embroidery_details.embroidery_type", "value": "PetFull Embroidery"},
+            {"path": "embroidery_details.embroidery_type", "value": "Handwriting"},
+        ]
+
+        payload = build_search_index_document(analysis).to_document()
+
+        self.assertEqual(payload["design_type"], ["petfull", "handwriting"])
+
     def test_unknown_optional_source_values_are_not_emitted(self):
         payload = build_search_index_document(self._analysis()).to_document()
         for field in (

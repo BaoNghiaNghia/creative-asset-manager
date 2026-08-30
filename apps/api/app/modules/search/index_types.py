@@ -196,6 +196,8 @@ _DESIGN_TYPES = {
 _DESIGN_PATHS = frozenset({
     "design_type", "embroidery_type", "embroidery.design_type",
     "embroidery.type", "classification.design_type",
+    # The current Creative image profile persists its classification here.
+    "embroidery_details.embroidery_type",
 })
 
 
@@ -219,6 +221,9 @@ def _design_types(projection: Mapping[str, Any]) -> tuple[str, ...]:
     normalized: list[str] = []
     for value in values:
         candidate = MetadataNormalizer.normalize_text(value).replace(" ", "")
+        # Historical metadata can use descriptive values such as PetFull Embroidery.
+        if candidate.endswith("embroidery"):
+            candidate = candidate.removesuffix("embroidery")
         canonical = _DESIGN_TYPES.get(candidate)
         if canonical and canonical not in normalized:
             normalized.append(canonical)
