@@ -318,6 +318,7 @@ def run_worker(
     except Exception as exc:
         worker_logger.critical(
             "worker_startup_failed",
+            exc_info=True,
             extra={
                 "worker_id": settings.WORKER_ID or "uninitialized",
                 "error_code": type(exc).__name__,
