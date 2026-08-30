@@ -28,6 +28,7 @@ from app.modules.search.query_builder import (
     SearchQueryConfig,
     decode_search_cursor,
     encode_search_cursor,
+    search_request_fingerprint,
 )
 from app.modules.search.query_parser import SearchQueryParser
 from app.modules.search.schema import SearchCapabilities, SearchSuggestionsResponse, SearchV3Request, SearchV3Response
@@ -735,39 +736,97 @@ def _hydrate_search_hits(session, tenant: str, hits: list[dict], *, viewer_restr
     return items
 
 @router.post("", response_model=SearchV3Response)
-async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SEARCH_READ)):
+async def search(
+    body: SearchV3Request,
+    principal: CurrentPrincipal = Depends(SEARCH_READ),
+):
     tenant = principal.active_tenant_id
     settings = get_settings()
     with SessionLocal() as session:
         readiness = _search_generation(session, tenant, settings)
         if is_pure_viewer(principal) and not (body.external_source_id or "").strip():
-            raise HTTPException(status_code=422, detail={"code": "viewer_source_required", "message": "A search source is required."})
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "viewer_source_required",
+                    "message": "A search source is required.",
+                },
+            )
         _require_v3(readiness, settings)
         generation = "v3"
         config, allowed_facets = search_config(session, tenant)
         unknown = set(body.facets) - set(allowed_facets)
         if unknown:
-            raise HTTPException(422, f"Unsupported search facets: {sorted(unknown)}")
+            raise HTTPException(
+                422,
+                f"Unsupported search facets: {sorted(unknown)}",
+            )
         parsed = SearchQueryParser().parse(body.query or "")
         if body.cursor and body.offset:
-            raise HTTPException(422, "Offset and cursor pagination cannot be combined")
+            raise HTTPException(
+                422,
+                "Offset and cursor pagination cannot be combined",
+            )
+        filters, viewer_scope_key, viewer_restricted = _search_scope_filters(
+            session,
+            principal,
+            source_provider=body.source_provider,
+            external_source_id=body.external_source_id,
+        )
+        parsed_semantics = {
+            "mode": parsed.mode.value,
+            "clauses": [
+                {
+                    "kind": clause.kind.value,
+                    "field": clause.field,
+                    "value": clause.value,
+                }
+                for clause in parsed.clauses
+            ],
+        }
+        fingerprint = search_request_fingerprint({
+            "generation": generation,
+            "tenant_id": tenant,
+            "query": parsed_semantics,
+            "facets": {
+                name: sorted(values)
+                for name, values in sorted(body.facets.items())
+            },
+            "design_types": sorted(body.design_types),
+            "source_provider": body.source_provider,
+            "external_source_id": body.external_source_id,
+            "viewer_scope": viewer_scope_key,
+            "sort": body.sort,
+            "search_config": {
+                "facet_names": sorted(config.facet_names),
+                "path_aliases": dict(sorted(config.path_aliases.items())),
+                "boost_paths": dict(sorted(config.boost_paths.items())),
+                "soft_and": config.soft_and_minimum_should_match,
+            },
+        })
         try:
-            search_after = decode_search_cursor(body.cursor) if body.cursor else None
+            cursor_state = (
+                decode_search_cursor(
+                    body.cursor,
+                    expected_fingerprint=fingerprint,
+                )
+                if body.cursor
+                else None
+            )
         except ValueError as exc:
-            raise HTTPException(422, "Invalid search cursor") from exc
+            raise HTTPException(422, str(exc)) from exc
+
         query = ElasticsearchQueryBuilder().build(
             parsed,
             tenant_id=tenant,
             config=config,
             size=body.limit,
             offset=body.offset,
-            search_after=search_after,
+            search_after=(
+                cursor_state.sort_values if cursor_state is not None else None
+            ),
+            sort_mode=body.sort,
         )
-        filters, _viewer_scope_key, viewer_restricted = _search_scope_filters(
-            session, principal,
-            source_provider=body.source_provider,
-            external_source_id=body.external_source_id,
-            )
         query["query"]["bool"]["filter"] = filters
         persistent_facet_filters: list[dict] = []
         design_type_filter = _design_type_filter(body.design_types)
@@ -789,10 +848,16 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
         )
         if aggregations:
             query["aggs"] = aggregations
-        debug = body.debug and (principal.platform_admin or "search.rebuild" in principal.effective_permissions)
+
+        debug = body.debug and (
+            principal.platform_admin
+            or "search.rebuild" in principal.effective_permissions
+        )
         candidate_limit = min(max(body.limit + 30, body.limit), 180)
         chunk_size = min(body.limit + 30, 90)
         query["size"] = chunk_size
+        pit_id = cursor_state.pit_id if cursor_state is not None else None
+        opened_here = False
         try:
             index = await API_SEARCH_INDEX_POOL.get(
                 ElasticsearchV3Config(
@@ -801,21 +866,51 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
                     index_generation="v3",
                 )
             )
-            response = await index.search(query)
+            if pit_id is None:
+                pit_id = await index.open_point_in_time(keep_alive="2m")
+                opened_here = True
+            response = await index.search_with_pit(
+                query,
+                pit_id=pit_id,
+                keep_alive="2m",
+            )
+            pit_id = str(response.get("pit_id") or pit_id)
         except ElasticsearchV3RequestError as exc:
-            raise HTTPException(503, detail={
-                "code": "search_v3_unavailable",
-                "message": "Search V3 is temporarily unavailable.",
-                "retryable": True,
-            }) from exc
+            if opened_here and pit_id:
+                try:
+                    await index.close_point_in_time(pit_id)
+                except Exception:
+                    logger.warning("search_pit_cleanup_failed")
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "search_v3_unavailable",
+                    "message": "Search V3 is temporarily unavailable.",
+                    "retryable": True,
+                },
+            ) from exc
+
         first_response = response
         query.pop("aggs", None)
+        query["track_total_hits"] = False
         hits = list(response.get("hits", {}).get("hits", []))
         consumed = len(hits)
         last_sort = hits[-1].get("sort") if hits else None
-        items = _hydrate_search_hits(session, tenant, hits, viewer_restricted=viewer_restricted, limit=body.limit)
-        can_continue = bool(len(hits) == chunk_size and isinstance(last_sort, list))
-        while len(items) < body.limit and can_continue and consumed < candidate_limit:
+        items = _hydrate_search_hits(
+            session,
+            tenant,
+            hits,
+            viewer_restricted=viewer_restricted,
+            limit=body.limit,
+        )
+        can_continue = bool(
+            len(hits) == chunk_size and isinstance(last_sort, list)
+        )
+        while (
+            len(items) < body.limit
+            and can_continue
+            and consumed < candidate_limit
+        ):
             next_size = min(chunk_size, candidate_limit - consumed)
             if next_size < 1:
                 break
@@ -823,13 +918,21 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
             query.pop("from", None)
             query["size"] = next_size
             try:
-                next_response = await index.search(query)
+                next_response = await index.search_with_pit(
+                    query,
+                    pit_id=pit_id,
+                    keep_alive="2m",
+                )
+                pit_id = str(next_response.get("pit_id") or pit_id)
             except ElasticsearchV3RequestError as exc:
-                raise HTTPException(503, detail={
-                    "code": "search_v3_unavailable",
-                    "message": "Search V3 is temporarily unavailable.",
-                    "retryable": True,
-                }) from exc
+                raise HTTPException(
+                    503,
+                    detail={
+                        "code": "search_v3_unavailable",
+                        "message": "Search V3 is temporarily unavailable.",
+                        "retryable": True,
+                    },
+                ) from exc
             batch = list(next_response.get("hits", {}).get("hits", []))
             if not batch:
                 can_continue = False
@@ -841,8 +944,15 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
             hits.extend(batch)
             consumed += len(batch)
             last_sort = next_sort
-            items = _hydrate_search_hits(session, tenant, hits, viewer_restricted=viewer_restricted, limit=body.limit)
+            items = _hydrate_search_hits(
+                session,
+                tenant,
+                hits,
+                viewer_restricted=viewer_restricted,
+                limit=body.limit,
+            )
             can_continue = len(batch) == next_size
+
         response = first_response
         total_value = response.get("hits", {}).get("total", 0)
         if isinstance(total_value, dict):
@@ -858,14 +968,23 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
             if body.include_facets
             else {}
         )
-        parsed_doc = {"mode": parsed.mode.value, "clauses": [{"kind": clause.kind.value, "field": clause.field, "value": clause.value} for clause in parsed.clauses]} if debug else None
+        parsed_doc = parsed_semantics if debug else None
         next_cursor = None
         if can_continue and last_sort:
             try:
-                next_cursor = encode_search_cursor(last_sort)
+                next_cursor = encode_search_cursor(
+                    last_sort,
+                    fingerprint=fingerprint,
+                    pit_id=pit_id,
+                )
             except ValueError:
                 next_cursor = None
-        primary_result = {
+        if next_cursor is None and pit_id:
+            try:
+                await index.close_point_in_time(pit_id)
+            except ElasticsearchV3RequestError:
+                logger.warning("search_pit_cleanup_failed")
+        return {
             "search_version": generation,
             "items": items,
             "total": total,
@@ -876,4 +995,3 @@ async def search(body: SearchV3Request, principal: CurrentPrincipal = Depends(SE
             "next_cursor": next_cursor,
             "has_more": next_cursor is not None,
         }
-        return primary_result

@@ -293,6 +293,45 @@ class ElasticsearchV3Index:
     async def search(self, body: Mapping[str, Any]) -> Mapping[str, Any]:
         return await self._request("POST", f"/{self.read_alias}/_search", json_body=body)
 
+    async def open_point_in_time(self, *, keep_alive: str = "2m") -> str:
+        if keep_alive not in {"1m", "2m", "5m"}:
+            raise ValueError("invalid PIT keep alive")
+        response = await self._request(
+            "POST",
+            f"/{self.read_alias}/_pit?keep_alive={keep_alive}",
+        )
+        pit_id = str(response.get("id") or "").strip()
+        if not pit_id:
+            raise ElasticsearchV3RequestError(
+                "Elasticsearch returned no point-in-time identifier"
+            )
+        return pit_id
+
+    async def search_with_pit(
+        self,
+        body: Mapping[str, Any],
+        *,
+        pit_id: str,
+        keep_alive: str = "2m",
+    ) -> Mapping[str, Any]:
+        if not pit_id or len(pit_id) > 2048:
+            raise ValueError("invalid PIT identifier")
+        if keep_alive not in {"1m", "2m", "5m"}:
+            raise ValueError("invalid PIT keep alive")
+        document = copy.deepcopy(dict(body))
+        document["pit"] = {"id": pit_id, "keep_alive": keep_alive}
+        return await self._request("POST", "/_search", json_body=document)
+
+    async def close_point_in_time(self, pit_id: str) -> bool:
+        if not pit_id or len(pit_id) > 2048:
+            raise ValueError("invalid PIT identifier")
+        response = await self._request(
+            "DELETE",
+            "/_pit",
+            json_body={"id": pit_id},
+        )
+        return bool(response.get("succeeded", True))
+
     async def _alias_indices(self) -> dict[str, set[str]]:
         responses = [
             await self._request("GET", f"/_alias/{alias}", allow_not_found=True)

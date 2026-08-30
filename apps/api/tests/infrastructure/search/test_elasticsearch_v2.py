@@ -55,8 +55,12 @@ class ElasticsearchV3HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json={"creative-assets-v2-000001": {"aliases": {alias: value}}})
             if request.url.path == "/_bulk":
                 return httpx.Response(200, json={"errors": False, "items": []})
+            if request.method == "POST" and request.url.path.endswith("/_pit"):
+                return httpx.Response(200, json={"id": "pit-opened"})
+            if request.method == "DELETE" and request.url.path == "/_pit":
+                return httpx.Response(200, json={"succeeded": True})
             if request.url.path.endswith("/_search"):
-                return httpx.Response(200, json={"hits": {"hits": []}})
+                return httpx.Response(200, json={"pit_id": "pit-refreshed", "hits": {"hits": []}})
             return httpx.Response(200, json={"acknowledged": True})
 
         self.client = httpx.AsyncClient(base_url="http://elastic.test", transport=httpx.MockTransport(handler))
@@ -143,6 +147,30 @@ class ElasticsearchV3HttpIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.previous_read_indices, ("creative-assets-v2-000001",))
         await self.index.rollback_aliases(result.previous_read_indices[0])
         self.assertEqual(len([item for item in self.requests if item.url.path == "/_aliases"]), 2)
+
+    async def test_pit_open_search_and_close_use_shared_abstraction(self) -> None:
+        pit_id = await self.index.open_point_in_time(keep_alive="2m")
+        self.assertEqual(pit_id, "pit-opened")
+        self.assertEqual(
+            self.requests[-1].url.path,
+            "/creative-assets-v2-read/_pit",
+        )
+        result = await self.index.search_with_pit(
+            {"query": {"match_all": {}}, "sort": [{"asset_id": "asc"}]},
+            pit_id=pit_id,
+            keep_alive="2m",
+        )
+        request = self.requests[-1]
+        self.assertEqual(request.url.path, "/_search")
+        body = json.loads(request.content)
+        self.assertEqual(body["pit"], {"id": "pit-opened", "keep_alive": "2m"})
+        self.assertEqual(result["pit_id"], "pit-refreshed")
+        self.assertTrue(await self.index.close_point_in_time("pit-refreshed"))
+        self.assertEqual(self.requests[-1].method, "DELETE")
+        self.assertEqual(
+            json.loads(self.requests[-1].content),
+            {"id": "pit-refreshed"},
+        )
 
     async def test_search_reads_through_read_alias(self) -> None:
         await self.index.search({"query": {"match_all": {}}})

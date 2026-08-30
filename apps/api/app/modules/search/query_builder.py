@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 import math
 from dataclasses import dataclass, field
@@ -15,33 +16,84 @@ from app.modules.search.query_parser import (
 )
 
 
-_CURSOR_VERSION = 1
-_CURSOR_MAX_LENGTH = 512
+_CURSOR_VERSION = 2
+_CURSOR_MAX_LENGTH = 4096
+_MAX_OFFSET = 500
 
 
-def encode_search_cursor(sort_values: list[Any]) -> str:
-    """Encode the stable Elasticsearch search_after values for one result page."""
-    if len(sort_values) != 2:
-        raise ValueError("invalid search cursor sort values")
-    score, asset_id = sort_values
-    if (
-        isinstance(score, bool)
-        or not isinstance(score, (int, float))
-        or not math.isfinite(score)
-    ):
-        raise ValueError("invalid search cursor score")
-    if not isinstance(asset_id, str) or not asset_id or len(asset_id) > 256:
-        raise ValueError("invalid search cursor asset id")
-    payload = json.dumps(
-        {"v": _CURSOR_VERSION, "s": [score, asset_id]},
+@dataclass(frozen=True, slots=True)
+class SearchCursorV2:
+    sort_values: list[Any]
+    fingerprint: str
+    pit_id: str
+
+
+def search_request_fingerprint(payload: Mapping[str, Any]) -> str:
+    """Hash canonical effective search semantics without exposing raw values."""
+    document = json.dumps(
+        payload,
+        sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
     ).encode("ascii")
-    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return hashlib.sha256(document).hexdigest()
 
 
-def decode_search_cursor(cursor: str) -> list[Any]:
-    """Validate and decode an opaque search_after cursor supplied by a client."""
+def _validate_sort_values(sort_values: Any) -> list[Any]:
+    if not isinstance(sort_values, list) or len(sort_values) != 2:
+        raise ValueError("invalid search cursor sort values")
+    primary, asset_id = sort_values
+    if isinstance(primary, bool) or not isinstance(
+        primary, (int, float, str, type(None))
+    ):
+        raise ValueError("invalid search cursor primary sort value")
+    if isinstance(primary, float) and not math.isfinite(primary):
+        raise ValueError("invalid search cursor primary sort value")
+    if isinstance(primary, str) and len(primary) > 1024:
+        raise ValueError("invalid search cursor primary sort value")
+    if not isinstance(asset_id, str) or not asset_id or len(asset_id) > 256:
+        raise ValueError("invalid search cursor asset id")
+    return sort_values
+
+
+def encode_search_cursor(
+    sort_values: list[Any],
+    *,
+    fingerprint: str,
+    pit_id: str,
+) -> str:
+    """Encode query-bound PIT/search_after state without embedding raw filters."""
+    values = _validate_sort_values(sort_values)
+    if (
+        not isinstance(fingerprint, str)
+        or len(fingerprint) != 64
+        or any(character not in "0123456789abcdef" for character in fingerprint)
+    ):
+        raise ValueError("invalid search cursor fingerprint")
+    if not isinstance(pit_id, str) or not pit_id or len(pit_id) > 2048:
+        raise ValueError("invalid search cursor PIT")
+    payload = json.dumps(
+        {
+            "v": _CURSOR_VERSION,
+            "sort": values,
+            "fingerprint": fingerprint,
+            "pit": pit_id,
+        },
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("ascii")
+    cursor = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    if len(cursor) > _CURSOR_MAX_LENGTH:
+        raise ValueError("search cursor exceeds maximum length")
+    return cursor
+
+
+def decode_search_cursor(
+    cursor: str,
+    *,
+    expected_fingerprint: str,
+) -> SearchCursorV2:
+    """Validate an opaque V2 cursor and bind it to current request semantics."""
     if not isinstance(cursor, str) or not cursor or len(cursor) > _CURSOR_MAX_LENGTH:
         raise ValueError("invalid search cursor")
     try:
@@ -58,12 +110,15 @@ def decode_search_cursor(cursor: str) -> list[Any]:
     ) as exc:
         raise ValueError("invalid search cursor") from exc
     if not isinstance(payload, dict) or payload.get("v") != _CURSOR_VERSION:
-        raise ValueError("invalid search cursor")
-    sort_values = payload.get("s")
-    if not isinstance(sort_values, list):
-        raise ValueError("invalid search cursor")
-    encode_search_cursor(sort_values)
-    return sort_values
+        raise ValueError("unsupported search cursor version")
+    fingerprint = payload.get("fingerprint")
+    if fingerprint != expected_fingerprint:
+        raise ValueError("search cursor does not match the current request")
+    pit_id = payload.get("pit")
+    values = _validate_sort_values(payload.get("sort"))
+    # Re-encode to apply all scalar/length checks symmetrically.
+    encode_search_cursor(values, fingerprint=fingerprint, pit_id=pit_id)
+    return SearchCursorV2(values, fingerprint, pit_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +162,7 @@ class ElasticsearchQueryBuilder:
         size: int = 50,
         offset: int = 0,
         search_after: list[Any] | None = None,
+        sort_mode: str = "relevance",
     ) -> dict[str, Any]:
         if not tenant_id:
             raise ValueError("tenant_id is required")
@@ -114,7 +170,9 @@ class ElasticsearchQueryBuilder:
             size < 1
             or size > 1_000
             or offset < 0
+            or offset > _MAX_OFFSET
             or (search_after is not None and offset)
+            or sort_mode != "relevance"
         ):
             raise ValueError("invalid search pagination")
         query_config = config or SearchQueryConfig()

@@ -5,6 +5,7 @@ from app.modules.search.query_builder import (
     SearchQueryConfig,
     decode_search_cursor,
     encode_search_cursor,
+    search_request_fingerprint,
 )
 from app.modules.search.query_parser import SearchQueryParser
 
@@ -69,6 +70,14 @@ class ElasticsearchQueryBuilderTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.builder.build(self.parser.parse("cat"), tenant_id="tenant-a", size=1001)
 
+    def test_deep_offset_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self.builder.build(
+                self.parser.parse("cat"),
+                tenant_id="tenant-a",
+                offset=501,
+            )
+
     def test_search_after_uses_deterministic_sort_without_offset(self) -> None:
         cursor = [1.25, "asset-2"]
         body = self.builder.build(
@@ -89,11 +98,64 @@ class ElasticsearchQueryBuilderTest(unittest.TestCase):
             )
 
     def test_cursor_round_trip_and_rejects_malformed_values(self) -> None:
-        cursor = encode_search_cursor([1.25, "asset-2"])
-        self.assertEqual(decode_search_cursor(cursor), [1.25, "asset-2"])
-        for value in ("not-a-cursor", "e30", "a" * 513):
+        fingerprint = search_request_fingerprint({"query": "cat", "sort": "relevance"})
+        cursor = encode_search_cursor(
+            [1.25, "asset-2"],
+            fingerprint=fingerprint,
+            pit_id="pit-1",
+        )
+        decoded = decode_search_cursor(
+            cursor,
+            expected_fingerprint=fingerprint,
+        )
+        self.assertEqual(decoded.sort_values, [1.25, "asset-2"])
+        self.assertEqual(decoded.pit_id, "pit-1")
+        for value in ("not-a-cursor", "e30", "a" * 4097):
             with self.assertRaises(ValueError):
-                decode_search_cursor(value)
+                decode_search_cursor(
+                    value,
+                    expected_fingerprint=fingerprint,
+                )
+
+    def test_cursor_rejects_query_filter_or_sort_fingerprint_mismatch(self) -> None:
+        original = search_request_fingerprint({
+            "query": "cat",
+            "facets": {"color": ["red"]},
+            "sort": "relevance",
+        })
+        cursor = encode_search_cursor(
+            [1.25, "asset-2"],
+            fingerprint=original,
+            pit_id="pit-1",
+        )
+        for changed in (
+            {"query": "dog", "facets": {"color": ["red"]}, "sort": "relevance"},
+            {"query": "cat", "facets": {"color": ["black"]}, "sort": "relevance"},
+            {"query": "cat", "facets": {"color": ["red"]}, "sort": "newest"},
+        ):
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                decode_search_cursor(
+                    cursor,
+                    expected_fingerprint=search_request_fingerprint(changed),
+                )
+
+    def test_cursor_rejects_v1_and_malformed_sort_values(self) -> None:
+        import base64
+        import json
+
+        fingerprint = search_request_fingerprint({"query": "cat"})
+        v1 = base64.urlsafe_b64encode(
+            json.dumps({"v": 1, "s": [1.0, "asset-1"]}).encode()
+        ).decode().rstrip("=")
+        with self.assertRaisesRegex(ValueError, "unsupported"):
+            decode_search_cursor(v1, expected_fingerprint=fingerprint)
+        for values in ([1.0], [float("inf"), "asset-1"], [1.0, ""], [{}, "asset-1"]):
+            with self.assertRaises(ValueError):
+                encode_search_cursor(
+                    values,
+                    fingerprint=fingerprint,
+                    pit_id="pit-1",
+                )
 
     def test_filter_only_query_uses_bool_filters_without_match_none(self) -> None:
         body = self.builder.build(

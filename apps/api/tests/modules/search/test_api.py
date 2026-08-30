@@ -161,10 +161,17 @@ class SearchV3ApiTest(unittest.TestCase):
         captured = []
 
         class FakeIndex:
+            closed = []
+
             async def aclose(self):
                 return None
 
-            async def search(self, query):
+            async def open_point_in_time(self, *, keep_alive):
+                self.keep_alive = keep_alive
+                return "pit-filter-only"
+
+            async def search_with_pit(self, query, *, pit_id, keep_alive):
+                self.pit_id = pit_id
                 captured.append(copy.deepcopy(query))
                 return {
                     "took": 4,
@@ -185,6 +192,10 @@ class SearchV3ApiTest(unittest.TestCase):
                         }
                     },
                 }
+
+            async def close_point_in_time(self, pit_id):
+                self.closed.append(pit_id)
+                return True
 
         settings = Settings(
             SEARCH_V3_ENABLED=True,
@@ -207,6 +218,7 @@ class SearchV3ApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["total_relation"], "gte")
+        self.assertEqual(fake_index.closed, ["pit-filter-only"])
         query = captured[0]
         self.assertEqual(
             query["query"]["bool"]["filter"],
@@ -225,6 +237,131 @@ class SearchV3ApiTest(unittest.TestCase):
             response.json()["facets"]["subject"][-1],
             {"value": "cat", "count": 2, "selected": True},
         )
+
+    def test_cursor_page_two_reuses_pit_and_rejects_context_changes(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="operator-a",
+            active_tenant_id="tenant-a",
+            membership_id="membership-a",
+            external_identity=None,
+            effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}),
+            platform_admin=False,
+            session_id=None,
+            authorization_source="tenant_rbac",
+        )
+
+        class FakeIndex:
+            def __init__(self):
+                self.opens = 0
+                self.searches = []
+                self.closed = []
+
+            async def open_point_in_time(self, *, keep_alive):
+                self.opens += 1
+                return "pit-page-1"
+
+            async def search_with_pit(self, query, *, pit_id, keep_alive):
+                self.searches.append((copy.deepcopy(query), pit_id))
+                if len(self.searches) == 1:
+                    return {
+                        "pit_id": "pit-page-2",
+                        "hits": {
+                            "total": {"value": 31, "relation": "eq"},
+                            "hits": [
+                                {
+                                    "_id": f"asset-{index}",
+                                    "_score": 10 - index / 100,
+                                    "sort": [10 - index / 100, f"asset-{index}"],
+                                    "_source": {
+                                        "asset_id": f"asset-{index}",
+                                        "source_id": "source-a",
+                                    },
+                                }
+                                for index in range(31)
+                            ],
+                        },
+                    }
+                return {
+                    "pit_id": "pit-terminal",
+                    "hits": {"total": {"value": 31, "relation": "eq"}, "hits": []},
+                }
+
+            async def close_point_in_time(self, pit_id):
+                self.closed.append(pit_id)
+                return True
+
+        fake_index = FakeIndex()
+        settings = Settings(
+            SEARCH_V3_ENABLED=True,
+            ELASTICSEARCH_URL="http://search.test:9200",
+        )
+
+        async def get_index(_config):
+            return fake_index
+
+        def hydrate(_session, _tenant, hits, **_kwargs):
+            return [{"id": hits[0]["_id"]}] if hits else []
+
+        with (
+            patch("app.modules.search.router.SessionLocal", self.factory),
+            patch("app.modules.search.router.get_settings", return_value=settings),
+            patch.object(API_SEARCH_INDEX_POOL, "get", side_effect=get_index),
+            patch("app.modules.search.router._hydrate_search_hits", side_effect=hydrate),
+        ):
+            first = self.client.post(
+                "/api/v1/search",
+                json={
+                    "query": "cat",
+                    "limit": 1,
+                    "include_facets": False,
+                },
+            )
+            self.assertEqual(first.status_code, 200)
+            cursor = first.json()["next_cursor"]
+            self.assertTrue(cursor)
+            self.assertEqual(fake_index.opens, 1)
+            self.assertEqual(fake_index.searches[0][1], "pit-page-1")
+
+            mismatch = self.client.post(
+                "/api/v1/search",
+                json={
+                    "query": "dog",
+                    "limit": 1,
+                    "include_facets": False,
+                    "cursor": cursor,
+                },
+            )
+            self.assertEqual(mismatch.status_code, 422)
+            self.assertIn("does not match", mismatch.text)
+
+            conflict = self.client.post(
+                "/api/v1/search",
+                json={
+                    "query": "cat",
+                    "limit": 1,
+                    "include_facets": False,
+                    "cursor": cursor,
+                    "offset": 1,
+                },
+            )
+            self.assertEqual(conflict.status_code, 422)
+
+            second = self.client.post(
+                "/api/v1/search",
+                json={
+                    "query": "cat",
+                    "limit": 1,
+                    "include_facets": False,
+                    "cursor": cursor,
+                },
+            )
+
+        self.assertEqual(second.status_code, 200)
+        self.assertIsNone(second.json()["next_cursor"])
+        self.assertEqual(fake_index.opens, 1)
+        self.assertEqual(fake_index.searches[-1][1], "pit-page-2")
+        self.assertEqual(fake_index.closed, ["pit-terminal"])
 
     def test_v3_source_provider_filter_uses_source_ids(self):
         with self.factory() as session:
