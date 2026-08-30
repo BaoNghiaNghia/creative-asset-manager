@@ -26,6 +26,7 @@ class VideoGeminiCredentialError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class VideoGeminiCredential:
     secret: str
+    fingerprint: str
 
 
 class VideoGeminiCredentialResolver:
@@ -43,3 +44,7 @@ class VideoGeminiCredentialResolver:
             raise VideoGeminiCredentialError(str(exc)) from exc
         if credential is None:
             raise VideoGeminiCredentialError("video_gemini_credential_unavailable")
+        return VideoGeminiCredential(
+            secret=credential.secret,
+            fingerprint=credential.fingerprint,
+        )

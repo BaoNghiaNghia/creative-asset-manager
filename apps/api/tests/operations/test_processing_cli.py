@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
@@ -9,6 +9,7 @@ from app.core.database import Base
 from app.modules.processing.model import ProcessingJobModel
 from app.operations.processing_cli import (
     requeue_download_stage_unconfigured,
+    requeue_video_quota_deferred,
     repair_downloads,
 )
 
@@ -154,6 +155,56 @@ class ProcessingCliTest(unittest.TestCase):
         )
         self.assertEqual(repeated["matched"], 0)
         self.assertEqual(repeated["requeued"], 0)
+
+
+    def test_video_quota_reconcile_is_tenant_scoped_and_preserves_attempts(self):
+        future = datetime.now(timezone.utc) + timedelta(hours=6)
+        with self.sessions() as session:
+            target = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="video_analyze",
+                entity_type="source_asset",
+                entity_id="video-a",
+                idempotency_key="video-quota-a",
+                status="pending",
+                attempt_count=2,
+                max_attempts=5,
+                next_attempt_at=future,
+                last_error_code="video_gemini_quota_deferred",
+                last_error_message="quota deferred",
+            )
+            other = ProcessingJobModel(
+                tenant_id="tenant-b",
+                job_type="video_analyze",
+                entity_type="source_asset",
+                entity_id="video-b",
+                idempotency_key="video-quota-b",
+                status="pending",
+                attempt_count=2,
+                max_attempts=5,
+                next_attempt_at=future,
+                last_error_code="video_gemini_quota_deferred",
+            )
+            session.add_all((target, other))
+            session.commit()
+            target_id, other_id = target.id, other.id
+
+        dry = requeue_video_quota_deferred(
+            tenant_id="tenant-a", session_factory=self.sessions
+        )
+        self.assertEqual((dry["matched"], dry["made_eligible_now"]), (1, 0))
+
+        applied = requeue_video_quota_deferred(
+            tenant_id="tenant-a", apply=True, session_factory=self.sessions
+        )
+        self.assertEqual(applied["made_eligible_now"], 1)
+        with self.sessions() as session:
+            target = session.get(ProcessingJobModel, target_id)
+            other = session.get(ProcessingJobModel, other_id)
+            self.assertLess(target.next_attempt_at, other.next_attempt_at)
+            self.assertEqual(target.attempt_count, 2)
+            self.assertEqual(target.last_error_code, "video_gemini_quota_deferred")
+            self.assertEqual(other.status, "pending")
 
 
 if __name__ == "__main__":

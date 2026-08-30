@@ -102,12 +102,16 @@ class VideoAnalyzeJobHandler:
         except VideoGeminiCredentialError:
             return JobHandlerResult.non_retryable("video_gemini_credential_unavailable", "Video Gemini credential is unavailable.")
 
-        quota_scope = getattr(settings, "VIDEO_GEMINI_PROJECT_QUOTA_SCOPE", "").strip()
-        if not quota_scope:
-            return JobHandlerResult.non_retryable(
-                "video_gemini_quota_scope_unavailable",
-                "Video Gemini project quota scope is unavailable.",
-            )
+        # Isolate local Free Tier accounting per tenant and configured Video
+        # credential. Connecting a new project key must not inherit the
+        # exhausted accounting scope of the previous key.
+        quota_scope_prefix = (
+            getattr(settings, "VIDEO_GEMINI_PROJECT_QUOTA_SCOPE", "").strip()
+            or "video"
+        )
+        quota_scope = (
+            f"{quota_scope_prefix}:{context.job.tenant_id}:{credential.fingerprint}"
+        )
         with context.dependencies.session_factory() as session:
             planner = VideoFreeTierModelPlanner(settings, GeminiProjectQuotaRepository(session), quota_scope=quota_scope)
             decision = planner.select_pinned(model=pinned_model, duration_ms=duration_ms) if pinned_model else planner.select(duration_ms=duration_ms)

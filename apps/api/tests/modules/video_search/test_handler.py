@@ -87,7 +87,10 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
                 result = VideoAnalyzeJobHandler(self._settings())(self._context(asset.id))
             self.assertEqual(result.outcome.value, "completed")
             resolver.return_value.resolve.assert_called_once_with("tenant-a")
-            self.assertEqual(planner.call_args.kwargs["quota_scope"], "scope")
+            self.assertEqual(
+                planner.call_args_list[0].kwargs["quota_scope"],
+                f"scope:tenant-a:{'fp' * 32}",
+            )
             self.assertEqual(planner.return_value.reserve.call_count, 1)
             self.assertEqual(analysis_type.return_value.analyze_chunk.call_count, 1)
             proxy_type.return_value.cleanup.assert_called_once()

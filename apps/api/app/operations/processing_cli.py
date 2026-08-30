@@ -71,6 +71,49 @@ def requeue_download_stage_unconfigured(
     }
 
 
+def requeue_video_quota_deferred(
+    *,
+    tenant_id: str,
+    apply: bool = False,
+    limit: int = 1000,
+    session_factory: Callable[[], Session] = SessionLocal,
+) -> dict[str, object]:
+    if limit < 1 or limit > 1000:
+        raise ValueError("limit must be between 1 and 1000")
+    now = datetime.now(timezone.utc)
+    criteria = (
+        ProcessingJobModel.tenant_id == tenant_id,
+        ProcessingJobModel.job_type == "video_analyze",
+        ProcessingJobModel.status == "pending",
+        ProcessingJobModel.last_error_code == "video_gemini_quota_deferred",
+    )
+    with session_factory() as session:
+        statement = (
+            select(ProcessingJobModel)
+            .where(*criteria)
+            .order_by(ProcessingJobModel.created_at, ProcessingJobModel.id)
+            .limit(limit)
+        )
+        jobs = list(session.scalars(statement))
+        if apply:
+            for job in jobs:
+                job.next_attempt_at = now
+                job.claimed_by = None
+                job.claimed_at = None
+                job.lease_expires_at = None
+                job.updated_at = now
+            session.commit()
+        else:
+            session.rollback()
+    return {
+        "tenant_id": tenant_id,
+        "matched": len(jobs),
+        "made_eligible_now": len(jobs) if apply else 0,
+        "dry_run": not apply,
+        "limit": limit,
+    }
+
+
 def repair_downloads(
     *,
     tenant_id: str,
@@ -200,6 +243,14 @@ def main(argv: list[str] | None = None) -> int:
     requeue.add_argument("--tenant-id", required=True)
     requeue.add_argument("--apply", action="store_true")
     requeue.add_argument("--yes", action="store_true")
+    video_quota = commands.add_parser(
+        "video-quota:reconcile-deferred",
+        help="Make quota-deferred Video AI jobs eligible after credential rotation",
+    )
+    video_quota.add_argument("--tenant-id", required=True)
+    video_quota.add_argument("--limit", type=int, default=1000)
+    video_quota.add_argument("--apply", action="store_true")
+    video_quota.add_argument("--yes", action="store_true")
     repair = commands.add_parser(
         "pipeline:repair-downloads",
         help="Create fresh jobs for latest failed source downloads without mutating audit history",
@@ -234,6 +285,12 @@ def main(argv: list[str] | None = None) -> int:
             after_job_id=args.after_job_id,
             include_oversized=args.include_oversized,
             verify=args.verify,
+        )
+    elif args.command == "video-quota:reconcile-deferred":
+        result = requeue_video_quota_deferred(
+            tenant_id=args.tenant_id,
+            apply=args.apply,
+            limit=args.limit,
         )
     else:
         result = requeue_download_stage_unconfigured(
