@@ -49,13 +49,15 @@ if $ROLLBACK; then
 fi
 [[ "$ALLOW_DIRTY" == true || -z "$(git -C "$SOURCE_DIR" status --porcelain --untracked-files=normal)" ]] || die "Refusing deployment from a dirty checkout."
 COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify "${REF:-HEAD}^{commit}")"
+CHECKED_OUT_COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify HEAD^{commit})"
+[[ "$COMMIT" == "$CHECKED_OUT_COMMIT" ]] || die "Requested commit does not match the checked-out HEAD."
 RELEASE_ID="$COMMIT"
 DIST="$SOURCE_DIR/apps/client/dist"
 [[ -f "$DIST/index.html" && -f "$DIST/build-info.json" ]] || die "Committed frontend dist is incomplete."
 for required_asset in favicon.svg favicon.ico favicon-32x32.png apple-touch-icon.png app-icon-192.png app-icon-512.png site.webmanifest; do
   [[ -s "$DIST/$required_asset" ]] || die "Committed frontend icon is missing or empty: $required_asset"
 done
-python3 - "$DIST/build-info.json" <<'PY'
+python3 - "$DIST/build-info.json" "$COMMIT" <<'PY'
 import json
 import re
 import sys
@@ -64,9 +66,12 @@ try:
     build_info = json.load(open(sys.argv[1], encoding="utf-8"))
 except (OSError, ValueError) as exc:
     raise SystemExit(f"Invalid committed build-info.json: {exc}")
-commit = build_info.get("build_commit")
-if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{7,64}", commit):
+build_commit = build_info.get("build_commit")
+requested_commit = sys.argv[2]
+if not isinstance(build_commit, str) or not re.fullmatch(r"[0-9a-f]{7,64}", build_commit):
     raise SystemExit("Committed build-info.json has no valid build_commit.")
+if not requested_commit.startswith(build_commit):
+    raise SystemExit("Committed build-info.json does not match the requested commit.")
 PY
 if find "$DIST" -type f \( -name "*.map" -o -name "*.map.gz" \) -print -quit | grep -q .; then die "Source maps are forbidden in production dist."; fi
 if ! python3 "$SOURCE_DIR/deploy/tools/validate_frontend_dist.py" "$DIST"; then

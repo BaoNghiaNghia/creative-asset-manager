@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Callable
+from datetime import datetime, timezone
+from hashlib import sha256
+import json
+from typing import Any, Callable, Mapping
 
 from app.core.redaction import sanitize_sensitive_urls
 from app.domain.providers.contracts import AssetSourceProvider, ListSourceChangesInput
@@ -52,6 +54,51 @@ def _datetime(value: str | None) -> datetime | None:
 
 def initial_source_asset_download_key(source_asset_id: str) -> str:
     return f"source-asset-download:{source_asset_id}:initial-import-v2"
+
+
+def _projection_timestamp(value: Any) -> str | None:
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def _search_projection(source_asset: Any, *, source_type: str) -> dict[str, Any]:
+    """The persisted source fields materialized into Search V3."""
+    metadata = source_asset.source_metadata
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+    parents = metadata.get("parents", metadata.get("parent_id"))
+    if isinstance(parents, str):
+        parents = [parents]
+    elif isinstance(parents, (list, tuple)):
+        parents = [value for value in parents if isinstance(value, str)]
+    else:
+        parents = []
+    return {
+        "source_id": str(source_asset.external_source_id or ""),
+        "source_provider": str(source_type or "").casefold(),
+        "filename": str(source_asset.filename or ""),
+        "mime_type": str(source_asset.mime_type or "").casefold(),
+        "size_bytes": source_asset.size_bytes,
+        "source_created_at": _projection_timestamp(source_asset.source_created_at),
+        "source_modified_at": _projection_timestamp(source_asset.source_modified_at),
+        "parents": parents,
+        "folder_path": metadata.get("path", metadata.get("folder_path", "")),
+        "width": metadata.get("width", metadata.get("image_width", metadata.get("video_width"))),
+        "height": metadata.get("height", metadata.get("image_height", metadata.get("video_height"))),
+        "duration_ms": metadata.get("duration_ms", metadata.get("durationMillis")),
+    }
+
+
+def _search_projection_identity(source_asset: Any, projection: Mapping[str, Any]) -> str:
+    """Make each actual projection change independently retryable and idempotent."""
+    encoded = json.dumps(projection, sort_keys=True, separators=(",", ":"), default=str)
+    changed_at = getattr(source_asset, "updated_at", None)
+    version = changed_at.isoformat() if changed_at is not None else ""
+    digest = sha256(encoded.encode("utf-8")).hexdigest()[:24]
+    return f"projection:{digest}:{version}"
 
 
 @dataclass(frozen=True)
@@ -198,6 +245,10 @@ class SourceSyncService:
                         tenant_id, source_id, candidate.external_asset_id
                     )
                     was_deleted = existing is not None and existing.deleted_at is not None
+                    previous_search_projection = (
+                        _search_projection(existing, source_type=source.source_type)
+                        if existing is not None else None
+                    )
                     old_marker = None if existing is None else (existing.provider_checksum or existing.provider_version)
                     old_video_fingerprint = None if existing is None else build_video_source_fingerprint(existing)
                     new_marker = candidate.provider_checksum or candidate.provider_version
@@ -221,6 +272,29 @@ class SourceSyncService:
                         provider_version=candidate.provider_version,
                         source_metadata=sanitize_sensitive_urls(candidate_metadata),
                     )
+                    current_search_projection = _search_projection(
+                        source_asset, source_type=source.source_type
+                    )
+                    search_projection_changed = (
+                        was_deleted
+                        or (
+                            previous_search_projection is not None
+                            and previous_search_projection != current_search_projection
+                        )
+                    )
+                    if search_projection_changed:
+                        linked = self.repository.assets.find_linked_asset(
+                            tenant_id, source_asset.id
+                        )
+                        if linked is not None:
+                            self._enqueue_search_index_sync(
+                                tenant_id=tenant_id,
+                                asset_id=str(linked.id),
+                                source_asset_id=str(source_asset.id),
+                                identity=_search_projection_identity(
+                                    source_asset, current_search_projection
+                                ),
+                            )
                     # Incremental discoveries during a full traversal join its generation,
                     # preventing a later successful sweep from deleting the new item.
                     if active_generation is not None:

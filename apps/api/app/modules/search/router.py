@@ -37,6 +37,8 @@ from app.modules.search.governance_model import SearchIndexRecordModel
 router = APIRouter(prefix="/api/v1/search", tags=["search-v3"])
 logger = logging.getLogger(__name__)
 SEARCH_READ = require_permission("search.read")
+SEARCH_HYDRATION_HEADROOM = 60
+MAX_SEARCH_CANDIDATES = 260
 EXAMPLES = ["cat", "cat mama", "cat, est, 2015", "\"est 2015\"", "cat OR dog", "subject:cat", "text:\"mama\""]
 
 
@@ -891,8 +893,14 @@ async def search(
             principal.platform_admin
             or "search.rebuild" in principal.effective_permissions
         )
-        candidate_limit = min(max(body.limit + 30, body.limit), 180)
-        chunk_size = min(body.limit + 30, 90)
+        # Always scan at least the public page size. The bounded headroom
+        # lets hydration replace stale/deleted Elasticsearch hits while
+        # preserving PIT + search_after pagination.
+        candidate_limit = max(
+            body.limit,
+            min(body.limit + SEARCH_HYDRATION_HEADROOM, MAX_SEARCH_CANDIDATES),
+        )
+        chunk_size = min(candidate_limit, body.limit + 30)
         query["size"] = chunk_size
         pit_id = cursor_state.pit_id if cursor_state is not None else None
         opened_here = False

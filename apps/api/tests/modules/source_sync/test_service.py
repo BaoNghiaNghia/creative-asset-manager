@@ -239,6 +239,93 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def _enable_search_projection_sync(self):
+        self.service = SourceSyncService(
+            self.repository,
+            self.processing,
+            enabled=True,
+            settings=Settings(
+                PROCESSING_JOBS_ENABLED=True,
+                UNIFIED_ASSET_INGESTION_ENABLED=True,
+                SEARCH_V3_ENABLED=True,
+            ),
+        )
+        source_asset = self.assets.upsert_source_asset(
+            tenant_id="tenant-a",
+            external_source_id=self.source.id,
+            external_asset_id="linked-file",
+            filename="before.pdf",
+            mime_type="application/pdf",
+            size_bytes=12,
+            provider_checksum="same-content",
+            source_modified_at=datetime(2026, 7, 18, 8, tzinfo=timezone.utc),
+            source_metadata={"parents": ["folder-b"], "path": "Outside"},
+        )
+        asset = self.assets.create_asset(
+            tenant_id="tenant-a",
+            content_hash="b" * 64,
+            mime_type="application/pdf",
+        )
+        self.assets.link_source_asset(
+            tenant_id="tenant-a", asset_id=asset.id, source_asset_id=source_asset.id
+        )
+        self.session.commit()
+        return source_asset, asset
+
+    async def test_move_and_rename_enqueue_search_sync_without_download(self) -> None:
+        source_asset, asset = self._enable_search_projection_sync()
+        moved = ExternalAssetCandidate(
+            source_type="google_drive",
+            source_id="source-db-id",
+            external_asset_id="linked-file",
+            filename="inside.txt",
+            mime_type="application/pdf",
+            provider_checksum="same-content",
+            source_modified_at="2026-07-18T08:00:00Z",
+            source_metadata={"parents": ["folder-a"], "path": "Allowed"},
+        )
+        result = await self.service.sync_source(
+            tenant_id="tenant-a",
+            source_id=self.source.id,
+            provider=FakeProvider([SourceChangePage((SourceChange("updated", "linked-file", moved),), "done")]),
+        )
+
+        jobs = list(self.session.scalars(select(ProcessingJobModel)))
+        self.assertEqual(result.jobs_created, 0)
+        self.assertIn("search_index_sync", [job.job_type for job in jobs])
+        self.assertEqual(jobs[0].entity_id, asset.id)
+        self.assertEqual(jobs[0].payload_json["source_asset_id"], source_asset.id)
+        changed = self.session.get(SourceAssetModel, source_asset.id)
+        self.assertEqual(changed.filename, "inside.txt")
+        self.assertEqual(changed.source_metadata["parents"], ["folder-a"])
+        self.assertEqual(changed.source_metadata["path"], "Allowed")
+
+    async def test_projection_noop_does_not_enqueue_duplicate_search_sync(self) -> None:
+        self._enable_search_projection_sync()
+        unchanged = ExternalAssetCandidate(
+            source_type="google_drive",
+            source_id="source-db-id",
+            external_asset_id="linked-file",
+            filename="before.pdf",
+            mime_type="application/pdf",
+            size_bytes=12,
+            provider_checksum="same-content",
+            source_modified_at="2026-07-18T08:00:00Z",
+            source_metadata={"parents": ["folder-b"], "path": "Outside"},
+        )
+        result = await self.service.sync_source(
+            tenant_id="tenant-a",
+            source_id=self.source.id,
+            provider=FakeProvider([SourceChangePage((SourceChange("updated", "linked-file", unchanged),), "done")]),
+        )
+        self.assertEqual(result.jobs_created, 0)
+        self.assertEqual(
+            self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "search_index_sync"
+            )),
+            0,
+        )
+
     async def test_rename_and_move_do_not_create_another_download_job(self) -> None:
         first = FakeProvider(
             [SourceChangePage((SourceChange("updated", "file-1", candidate("file-1")),), "c1")]

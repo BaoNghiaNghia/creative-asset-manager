@@ -395,6 +395,130 @@ class SearchV3ApiTest(unittest.TestCase):
         self.assertEqual(fake_index.searches[-1][1], "pit-page-2")
         self.assertEqual(fake_index.closed, ["pit-terminal"])
 
+    def test_max_page_scans_and_returns_200_live_hits(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="operator-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id=None, authorization_source="tenant_rbac",
+        )
+        class FakeIndex:
+            async def open_point_in_time(self, *, keep_alive):
+                return "pit-max"
+
+            async def search_with_pit(self, query, *, pit_id, keep_alive):
+                self.query = copy.deepcopy(query)
+                return {
+                    "pit_id": pit_id,
+                    "hits": {
+                        "total": {"value": 200, "relation": "eq"},
+                        "hits": [
+                            {
+                                "_id": f"asset-{index}",
+                                "sort": [200 - index, f"asset-{index}"],
+                                "_source": {"asset_id": f"asset-{index}", "source_id": "source-a"},
+                            }
+                            for index in range(200)
+                        ],
+                    },
+                }
+
+            async def close_point_in_time(self, pit_id):
+                return True
+
+        fake_index = FakeIndex()
+        settings = Settings(SEARCH_V3_ENABLED=True, ELASTICSEARCH_URL="http://search.test:9200")
+
+        async def get_index(_config):
+            return fake_index
+
+        def hydrate(_session, _tenant, hits, **_kwargs):
+            return [{"id": hit["_id"]} for hit in hits]
+
+        with (
+            patch("app.modules.search.router.SessionLocal", self.factory),
+            patch("app.modules.search.router.get_settings", return_value=settings),
+            patch.object(API_SEARCH_INDEX_POOL, "get", side_effect=get_index),
+            patch("app.modules.search.router._hydrate_search_hits", side_effect=hydrate),
+        ):
+            response = self.client.post(
+                "/api/v1/search",
+                json={"query": "cat", "limit": 200, "include_facets": False},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(response.json()["items"]), 200)
+        self.assertGreaterEqual(fake_index.query["size"], 200)
+
+    def test_max_page_continues_after_hydration_drops(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="operator-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id=None, authorization_source="tenant_rbac",
+        )
+        class FakeIndex:
+            def __init__(self):
+                self.calls = []
+
+            async def open_point_in_time(self, *, keep_alive):
+                return "pit-stale"
+
+            async def search_with_pit(self, query, *, pit_id, keep_alive):
+                self.calls.append(copy.deepcopy(query))
+                start = 0 if len(self.calls) == 1 else 230
+                count = 230 if start == 0 else 30
+                return {
+                    "pit_id": pit_id,
+                    "hits": {
+                        "total": {"value": 260, "relation": "eq"},
+                        "hits": [
+                            {
+                                "_id": f"asset-{index}",
+                                "sort": [260 - index, f"asset-{index}"],
+                                "_source": {
+                                    "asset_id": f"asset-{index}",
+                                    "source_id": "source-a",
+                                    "live": index >= 50,
+                                },
+                            }
+                            for index in range(start, start + count)
+                        ],
+                    },
+                }
+
+            async def close_point_in_time(self, pit_id):
+                return True
+
+        fake_index = FakeIndex()
+        settings = Settings(SEARCH_V3_ENABLED=True, ELASTICSEARCH_URL="http://search.test:9200")
+
+        async def get_index(_config):
+            return fake_index
+
+        def hydrate(_session, _tenant, hits, **_kwargs):
+            return [
+                {"id": hit["_id"]}
+                for hit in hits
+                if hit["_source"]["live"]
+            ][:200]
+
+        with (
+            patch("app.modules.search.router.SessionLocal", self.factory),
+            patch("app.modules.search.router.get_settings", return_value=settings),
+            patch.object(API_SEARCH_INDEX_POOL, "get", side_effect=get_index),
+            patch("app.modules.search.router._hydrate_search_hits", side_effect=hydrate),
+        ):
+            response = self.client.post(
+                "/api/v1/search",
+                json={"query": "cat", "limit": 200, "include_facets": False},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["items"]), 200)
+        self.assertEqual(len(fake_index.calls), 2)
+        self.assertEqual(fake_index.calls[1]["search_after"], [31, "asset-229"])
+
     def test_v3_source_provider_filter_uses_source_ids(self):
         with self.factory() as session:
             session.add_all([

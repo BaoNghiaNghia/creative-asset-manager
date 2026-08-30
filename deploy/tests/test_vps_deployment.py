@@ -38,6 +38,9 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             "favicon.svg", "favicon.ico", "favicon-32x32.png",
             "apple-touch-icon.png", "app-icon-192.png", "app-icon-512.png",
             "site.webmanifest",
+            'CHECKED_OUT_COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify HEAD^{commit})"',
+            'Requested commit does not match the checked-out HEAD.',
+            'Committed build-info.json does not match the requested commit.',
             "nginx -t", "systemctl reload nginx", "--rollback",
             'http://127.0.0.1:8000/version" >/dev/null',
         ):
