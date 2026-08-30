@@ -35,7 +35,7 @@ class PipelineBootstrapTest(unittest.TestCase):
         finally:
             runtime.close()
 
-    def test_storage_stage_is_registered_when_storage_is_configured(self):
+    def test_static_storage_access_token_is_not_used(self):
         runtime = build_worker_runtime(
             Settings(
                 PROCESSING_JOBS_ENABLED=False,
@@ -45,9 +45,9 @@ class PipelineBootstrapTest(unittest.TestCase):
             session_factory=self.sessions,
         )
         try:
-            self.assertIsInstance(
-                runtime.dependencies.resources["pipeline_storage_stage"],
-                ProviderStorageStage,
+            self.assertNotIn(
+                "pipeline_storage_stage",
+                runtime.dependencies.resources,
             )
         finally:
             runtime.close()
@@ -75,7 +75,7 @@ class PipelineBootstrapTest(unittest.TestCase):
         finally:
             runtime.close()
 
-    def test_refresh_token_configures_storage_without_static_token(self):
+    def test_static_storage_refresh_token_is_not_used(self):
         runtime = build_worker_runtime(
             Settings(
                 PROCESSING_JOBS_ENABLED=False,
@@ -87,29 +87,29 @@ class PipelineBootstrapTest(unittest.TestCase):
             session_factory=self.sessions,
         )
         try:
-            self.assertEqual(
-                runtime.dependencies.storage_provider._refresh_token,
-                "refresh-token",
-            )
-            self.assertIn(
+            self.assertNotIn(
                 "pipeline_storage_stage",
                 runtime.dependencies.resources,
             )
         finally:
             runtime.close()
 
-    def test_enabled_managed_storage_requires_configured_provider(self):
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "managed asset storage is enabled but not configured",
-        ):
-            build_worker_runtime(
-                Settings(
-                    PROCESSING_JOBS_ENABLED=False,
-                    MANAGED_ASSET_STORAGE_ENABLED=True,
-                ),
-                session_factory=self.sessions,
+    def test_unconfigured_managed_storage_does_not_stop_the_worker(self):
+        runtime = build_worker_runtime(
+            Settings(
+                PROCESSING_JOBS_ENABLED=True,
+                MANAGED_ASSET_STORAGE_ENABLED=True,
+            ),
+            session_factory=self.sessions,
+        )
+        try:
+            self.assertNotIn("asset_store", runtime.config.allowed_job_types)
+            self.assertNotIn(
+                "pipeline_storage_stage",
+                runtime.dependencies.resources,
             )
+        finally:
+            runtime.close()
 
 
 if __name__ == "__main__":

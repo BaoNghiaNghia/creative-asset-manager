@@ -821,3 +821,92 @@
 .ops-inline-success{padding:10px 12px;border:1px solid #b9e4c7;border-radius:8px;background:#f0faf3;color:#26733d}
 @media(max-width:1050px){.ops-managed-storage-header{align-items:flex-start}.ops-managed-storage-actions{align-items:flex-end;flex-direction:column}.ops-managed-storage-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-managed-storage-token-form{grid-template-columns:1fr}}
 @media(max-width:620px){.ops-managed-storage-card{padding:15px}.ops-managed-storage-header{align-items:stretch;flex-direction:column}.ops-managed-storage-actions{align-items:stretch;flex-direction:row;justify-content:space-between}.ops-managed-storage-facts{grid-template-columns:1fr}.ops-managed-storage-heading{align-items:flex-start}.ops-managed-storage-token-form{padding:12px}.ops-managed-storage-token-input,.ops-managed-storage-token-actions{flex-direction:column}.ops-managed-storage-token-actions button{width:100%}}
+
+/* Managed Storage credential form: compact input/action system aligned with Provider controls. */
+.ops-managed-storage-token-form{
+  align-items:center;
+  gap:18px;
+  padding:16px;
+  border-color:#dfe7f1;
+  border-radius:12px;
+  background:linear-gradient(135deg,#fbfcfe,#f6f8fc);
+}
+.ops-managed-storage-token-copy h4{font-size:14px;letter-spacing:-.01em}
+.ops-managed-storage-token-copy p{max-width:500px;color:#718096;line-height:1.45}
+.ops-managed-storage-token-controls{display:grid;min-width:0;gap:10px}
+.ops-managed-storage-token-controls label>span{
+  margin-bottom:5px;
+  color:#66778d;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.065em;
+}
+.ops-managed-storage-token-input{
+  overflow:hidden;
+  gap:0;
+  border:1px solid #cbd7e6;
+  border-radius:9px;
+  background:#fff;
+  box-shadow:inset 0 1px 1px #17203305;
+  transition:border-color .16s ease,box-shadow .16s ease;
+}
+.ops-managed-storage-token-input:focus-within{
+  border-color:#6d8ee8;
+  box-shadow:0 0 0 3px #4169df18;
+}
+.ops-managed-storage-token-input input{
+  min-height:38px;
+  padding:8px 11px;
+  border:0!important;
+  border-radius:0!important;
+  outline:0;
+  box-shadow:none!important;
+  color:#283a52;
+  font-size:13px;
+}
+.ops-managed-storage-token-input input::placeholder{color:#98a4b4}
+.ops-managed-storage-token-input button{
+  min-height:38px;
+  padding:7px 12px;
+  border:0!important;
+  border-left:1px solid #dbe3ee!important;
+  border-radius:0!important;
+  background:#f7f9fc!important;
+  color:#40536e!important;
+  font-size:12px;
+  font-weight:750;
+}
+.ops-managed-storage-token-input button:hover{background:#edf3ff!important;color:#3159b8!important}
+.ops-managed-storage-token-actions{
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:0;
+}
+.ops-managed-storage-token-actions button{
+  min-height:34px;
+  padding:7px 12px;
+  border:1px solid #cbd8e8;
+  border-radius:8px;
+  background:#fff;
+  color:#40536e;
+  font-size:12px;
+  font-weight:750;
+  box-shadow:0 1px 2px #17203308;
+}
+.ops-managed-storage-token-actions button:hover:not(:disabled){
+  border-color:#9db6e6;
+  background:#f3f6ff;
+  color:#3159b8;
+}
+.ops-managed-storage-token-actions button:last-child{
+  border-color:#315fe9;
+  background:#315fe9;
+  color:#fff;
+}
+.ops-managed-storage-token-actions button:last-child:hover:not(:disabled){background:#294fca;color:#fff}
+.ops-managed-storage-token-actions button:disabled{cursor:not-allowed;opacity:.5;box-shadow:none}
+@media(max-width:620px){
+  .ops-managed-storage-token-form{gap:13px}
+  .ops-managed-storage-token-actions{align-items:stretch}
+}

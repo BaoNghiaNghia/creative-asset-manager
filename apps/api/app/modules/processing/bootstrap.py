@@ -153,9 +153,6 @@ def build_worker_runtime(
 ) -> WorkerRuntime:
     worker_role = settings.WORKER_ROLE
     worker_id = settings.WORKER_ID or default_worker_id(worker_role)
-    enabled_job_types = globally_enabled_job_types(settings)
-    allowed_job_types = enabled_job_types_for_role(worker_role, enabled_job_types)
-    borrowed_job_types = borrowable_job_types_for_role(worker_role, enabled_job_types)
     probe_database(session_factory)
     if (
         runs_operational_schedulers(worker_role)
@@ -163,18 +160,27 @@ def build_worker_runtime(
         and settings.RETENTION_CLEANUP_ENABLED
     ):
         RetentionCleanupScheduler(session_factory, settings).schedule_known_tenants()
-    if (
-        runs_operational_schedulers(worker_role)
-        and settings.PROCESSING_JOBS_ENABLED
-        and settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED
-    ):
-        ManagedStorageCleanupScheduler(session_factory, settings).schedule_known_tenants()
     storage_provider = build_managed_storage_provider(settings)
     storage_configured = not isinstance(
         storage_provider, UnconfiguredAssetStorageProvider
     )
-    if settings.MANAGED_ASSET_STORAGE_ENABLED and not storage_configured:
-        raise RuntimeError("managed asset storage is enabled but not configured")
+    enabled_job_types = globally_enabled_job_types(settings)
+    if not storage_configured:
+        enabled_job_types = tuple(
+            job_type for job_type in enabled_job_types if job_type != "asset_store"
+        )
+        (logger or logging.getLogger("cam.worker")).warning(
+            "managed_storage_unavailable_asset_store_paused"
+        )
+    if (
+        storage_configured
+        and runs_operational_schedulers(worker_role)
+        and settings.PROCESSING_JOBS_ENABLED
+        and settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED
+    ):
+        ManagedStorageCleanupScheduler(session_factory, settings).schedule_known_tenants()
+    allowed_job_types = enabled_job_types_for_role(worker_role, enabled_job_types)
+    borrowed_job_types = borrowable_job_types_for_role(worker_role, enabled_job_types)
     ai_provider_registry = build_ai_provider_registry(settings, session_factory=session_factory)
     resolver = SourceAssetPipelineContentResolver(session_factory)
     default_resources: dict[str, Any] = {
