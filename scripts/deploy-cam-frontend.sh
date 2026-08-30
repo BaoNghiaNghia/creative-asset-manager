@@ -69,7 +69,9 @@ if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{7,64}", commit):
     raise SystemExit("Committed build-info.json has no valid build_commit.")
 PY
 if find "$DIST" -type f \( -name "*.map" -o -name "*.map.gz" \) -print -quit | grep -q .; then die "Source maps are forbidden in production dist."; fi
-if grep -R -E -I -n "https?://localhost(:[0-9]+)?|127\.0\.0\.1|DATABASE_URL|postgres(ql)?://|AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{20,}|refresh_token|access_token|client_secret|BEGIN [A-Z ]*PRIVATE KEY" "$DIST" >/dev/null; then die "Generated dist contains a forbidden endpoint or secret marker."; fi
+if ! python3 "$SOURCE_DIR/deploy/tools/validate_frontend_dist.py" "$DIST"; then
+  die "Generated dist contains a forbidden endpoint or credential value."
+fi
 RELEASES="$WEB_ROOT/releases"
 TARGET="$RELEASES/$RELEASE_ID"
 install -d -o root -g root -m 0755 "$RELEASES"
