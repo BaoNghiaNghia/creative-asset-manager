@@ -34,7 +34,7 @@
 @media(max-width:720px){.ops-header-actions label{min-height:48px}.ops-refresh-status{display:none}}
 
 /* Dense KPI layout: five cards on wide workspaces, four on regular desktops. */
-.ops-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}@media(min-width:1700px){.ops-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}}
+.ops-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}@media(min-width:1700px){.ops-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}}
 
 /* The asset-grid checkbox is absolutely positioned; configuration toggles are normal form controls. */
 .ops-configuration label.check{position:static;z-index:auto;width:auto;height:auto;min-height:40px;padding:8px 10px;border:1px solid #dbe3ee;border-radius:8px;background:#f8fafc;color:#344054;cursor:pointer}.ops-configuration label.check:hover{border-color:#9fb7e5;box-shadow:none}.ops-configuration label.check input{width:16px;height:16px;margin:0;padding:0;accent-color:#315fe9}.ops-configuration label.check:has(input:checked){border-color:#a9bee9;background:#f1f5ff;color:#244c9d}
@@ -208,7 +208,7 @@
 
 
 /* Pipeline dashboard: distinct counts and stable wide-screen column rhythm. */
-.pipeline-summary{grid-template-columns:repeat(5,minmax(0,1fr))}
+.pipeline-summary{grid-template-columns:repeat(6,minmax(0,1fr))}
 .pipeline-summary>article.warning{border-color:#f0d9aa;background:#fffdf7}
 .pipeline-summary>.warning strong{color:#966516}
 .pipeline-summary>.info{border-color:#c7d3ff;background:#fafbff}
@@ -236,7 +236,7 @@
 @media(max-width:460px){.pipeline-summary{grid-template-columns:1fr}}
 
 /* Pipeline Overview: compact operational groups. */
-.pipeline-summary{grid-template-columns:repeat(5,minmax(0,1fr))}
+.pipeline-summary{grid-template-columns:repeat(6,minmax(0,1fr))}
 .pipeline-context-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:14px}
 .pipeline-context-row>.pipeline-scan-card,.pipeline-context-row>.pipeline-active-job{min-width:0;height:100%;box-sizing:border-box}
 .pipeline-context-row>.pipeline-scan-card{align-items:flex-start}
@@ -613,8 +613,17 @@
 .ops-provider-card{padding:18px}
 .ops-provider-card>header{padding-bottom:12px}
 .ops-provider-card .ops-provider-summary{
-  grid-template-columns:repeat(6,minmax(0,1fr));
-  gap:9px;
+  grid-template-columns:
+    minmax(78px,.58fr)
+    minmax(78px,.58fr)
+    minmax(155px,1.05fr)
+    minmax(420px,3fr)
+    minmax(92px,.72fr)
+    minmax(92px,.72fr)
+    minmax(150px,1fr)
+    minmax(120px,.9fr)
+    minmax(180px,1.35fr);
+  gap:8px;
   margin:12px 0;
 }
 .ops-provider-summary>div{
@@ -626,8 +635,8 @@
   border-radius:9px;
   background:#f8fafc;
 }
-.ops-provider-summary .ops-provider-models{grid-column:span 3}
-.ops-provider-summary .ops-provider-summary-error{grid-column:span 2}
+.ops-provider-summary .ops-provider-models,
+.ops-provider-summary .ops-provider-summary-error{grid-column:auto}
 .ops-provider-summary dt{font-size:10px!important}
 .ops-provider-summary dd{font-size:13px!important;line-height:1.25}
 .ops-provider-summary-error code{font-size:12px}
@@ -668,10 +677,13 @@
 .ops-provider-gemini-credentials .inventory-settings-card-embedded{padding:13px}
 .ops-provider-gemini-credentials .inventory-credential-grid{margin:9px 0}
 .ops-provider-gemini-credentials .inventory-credential-grid>div{padding:7px 10px}
+@media(max-width:1550px){
+  .ops-provider-card .ops-provider-summary{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .ops-provider-summary .ops-provider-models,
+  .ops-provider-summary .ops-provider-summary-error{grid-column:span 2}
+}
 @media(max-width:1200px){
   .ops-provider-card .ops-provider-summary{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .ops-provider-summary .ops-provider-models{grid-column:span 2}
-  .ops-provider-summary .ops-provider-summary-error{grid-column:span 2}
 }
 @media(max-width:760px){
   .ops-provider-card .ops-provider-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
