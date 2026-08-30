@@ -417,10 +417,20 @@ export const replaceVideoGeminiCredential = (api_key:string, label?:string, fetc
 export type ManagedStorageOAuthStatus = {
   root_folder_configured: boolean;
   connected: boolean;
-  source: "database" | "environment" | "none";
+  source: "database" | "none";
   account_email: string | null;
   updated_at: string | null;
   reconnect_required: boolean;
 };
 export const getManagedStorageOAuthStatus = (fetcher: Fetcher = fetch) =>
   read<ManagedStorageOAuthStatus>("/api/auth/google/managed-storage/status", fetcher);
+export type ManagedStorageCredentialCheck = {
+  status: "VALID";
+  account_email: string | null;
+  folder_access: "READ_WRITE";
+  saved: boolean;
+};
+export const testManagedStorageRefreshToken = (refresh_token: string, fetcher: Fetcher = fetch) =>
+  mutate<ManagedStorageCredentialCheck>("/api/auth/google/managed-storage/credential/test", "POST", { refresh_token }, fetcher);
+export const saveManagedStorageRefreshToken = (refresh_token: string, fetcher: Fetcher = fetch) =>
+  mutate<ManagedStorageCredentialCheck>("/api/auth/google/managed-storage/credential", "PUT", { refresh_token }, fetcher);

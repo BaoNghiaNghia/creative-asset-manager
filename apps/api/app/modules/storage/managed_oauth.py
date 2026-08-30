@@ -21,6 +21,7 @@ from app.providers.google.auth import (
 
 logger = logging.getLogger(__name__)
 MANAGED_STORAGE_OAUTH_PROVIDER = "google_managed_storage"
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 GOOGLE_DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
 
@@ -28,6 +29,20 @@ GOOGLE_DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 class ManagedStorageCredential:
     access_token: str | None
     refresh_token: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedStorageCredentialCheck:
+    account_email: str | None
+    saved: bool
+
+
+class ManagedStorageCredentialValidationError(ValueError):
+    """A supplied refresh token cannot manage the active storage folder."""
+
+
+class ManagedStorageCredentialUnavailableError(RuntimeError):
+    """Google could not be reached to validate a supplied refresh token."""
 
 
 def _matching_rows(repository, root_folder_id: str):
@@ -76,10 +91,7 @@ def resolve_managed_storage_credential(settings: Settings) -> ManagedStorageCred
             access_token=connection.access_token,
             refresh_token=connection.refresh_token,
         )
-    return ManagedStorageCredential(
-        access_token=settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN,
-        refresh_token=settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN,
-    )
+    return ManagedStorageCredential(access_token=None, refresh_token=None)
 
 
 def _masked_email(value: str | None) -> str | None:
@@ -98,7 +110,7 @@ def managed_storage_oauth_status(settings: Settings) -> dict[str, Any]:
         "source": "none",
         "account_email": None,
         "updated_at": None,
-        "reconnect_required": False,
+        "reconnect_required": bool(root_folder_id),
     }
     if root_folder_id and settings.PERSISTENT_AUTH_ENABLED:
         try:
@@ -125,12 +137,166 @@ def managed_storage_oauth_status(settings: Settings) -> dict[str, Any]:
             )
             result["reconnect_required"] = True
             return result
-    if settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN:
-        result.update({
-            "source": "environment",
-            "reconnect_required": True,
-        })
     return result
+
+
+def _persist_validated_connection(
+    *,
+    tenant_id: str,
+    initiating_user_id: str,
+    root_folder_id: str,
+    account_id: str,
+    account_email: str | None,
+    access_token: str,
+    refresh_token: str,
+    expires_at: datetime,
+    scopes: Iterable[str],
+) -> None:
+    with auth_repository() as repository:
+        connection = repository.upsert_connection(
+            tenant_id=tenant_id,
+            provider=MANAGED_STORAGE_OAUTH_PROVIDER,
+            provider_account_id=account_id,
+            account_email=account_email,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
+            scopes=list(scopes),
+            token_type="Bearer",
+            provider_metadata={
+                "connection_purpose": "managed_storage",
+                "root_folder_id": root_folder_id,
+                "connected_by_user_id": initiating_user_id,
+            },
+        )
+        for row in _matching_rows(repository, root_folder_id):
+            if row.id != connection.id:
+                row.status = "revoked"
+                row.revoked_at = datetime.now(timezone.utc)
+        repository.session.flush()
+
+
+async def check_managed_storage_refresh_token(
+    settings: Settings,
+    refresh_token: str,
+    *,
+    tenant_id: str,
+    initiating_user_id: str,
+    save: bool,
+) -> ManagedStorageCredentialCheck:
+    """Validate a manually supplied token and optionally persist it encrypted."""
+    token = str(refresh_token or "").strip()
+    root_folder_id = str(settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or "").strip()
+    client_id = str(settings.GOOGLE_CLIENT_ID or "").strip()
+    client_secret = str(settings.GOOGLE_CLIENT_SECRET or "").strip()
+    if not settings.PERSISTENT_AUTH_ENABLED:
+        raise ManagedStorageCredentialValidationError(
+            "Persistent authentication is not enabled."
+        )
+    if not root_folder_id or not client_id or not client_secret:
+        raise ManagedStorageCredentialValidationError(
+            "Managed Storage OAuth configuration is incomplete."
+        )
+    if len(token) < 16 or len(token) > 4096:
+        raise ManagedStorageCredentialValidationError(
+            "Refresh token format is invalid."
+        )
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(25, connect=8)) as client:
+            token_response = await client.post(
+                GOOGLE_TOKEN_URI,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": token,
+                    "grant_type": "refresh_token",
+                },
+            )
+            if token_response.status_code in {408, 425, 429, 500, 502, 503, 504}:
+                raise ManagedStorageCredentialUnavailableError(
+                    "Google token validation is temporarily unavailable."
+                )
+            if token_response.status_code >= 400:
+                raise ManagedStorageCredentialValidationError(
+                    "Google rejected the refresh token."
+                )
+            token_payload = token_response.json()
+            access_token = str(token_payload.get("access_token") or "").strip()
+            if not access_token:
+                raise ManagedStorageCredentialUnavailableError(
+                    "Google returned no access token."
+                )
+            granted_scopes = tuple(
+                scope for scope in str(token_payload.get("scope") or "").split()
+                if scope
+            )
+            if granted_scopes and DRIVE_WRITE_SCOPE not in granted_scopes:
+                raise ManagedStorageCredentialValidationError(
+                    "The refresh token does not include Google Drive write access."
+                )
+            headers = {"Authorization": f"Bearer {access_token}"}
+            about_response = await client.get(
+                "https://www.googleapis.com/drive/v3/about",
+                params={"fields": "user(displayName,emailAddress,permissionId)"},
+                headers=headers,
+            )
+            folder_response = await client.get(
+                f"https://www.googleapis.com/drive/v3/files/{root_folder_id}",
+                params={
+                    "fields": "id,mimeType,trashed,capabilities(canAddChildren,canDeleteChildren)",
+                    "supportsAllDrives": "true",
+                },
+                headers=headers,
+            )
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise ManagedStorageCredentialUnavailableError(
+            "Google token validation is temporarily unavailable."
+        ) from exc
+    for response in (about_response, folder_response):
+        if response.status_code in {408, 425, 429, 500, 502, 503, 504}:
+            raise ManagedStorageCredentialUnavailableError(
+                "Google Drive validation is temporarily unavailable."
+            )
+        if response.status_code >= 400:
+            raise ManagedStorageCredentialValidationError(
+                "The refresh token cannot access the active storage folder."
+            )
+    user = about_response.json().get("user") or {}
+    account_id = str(user.get("permissionId") or "").strip()
+    account_email = str(user.get("emailAddress") or "").strip() or None
+    folder = folder_response.json()
+    capabilities = folder.get("capabilities") or {}
+    if (
+        not account_id
+        or folder.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME_TYPE
+        or bool(folder.get("trashed"))
+        or not bool(capabilities.get("canAddChildren"))
+        or not bool(capabilities.get("canDeleteChildren"))
+    ):
+        raise ManagedStorageCredentialValidationError(
+            "The selected Google account cannot manage files in the active storage folder."
+        )
+    try:
+        lifetime = max(0, int(token_payload.get("expires_in", 3600)))
+    except (TypeError, ValueError):
+        lifetime = 3600
+    scopes = granted_scopes or (DRIVE_WRITE_SCOPE,)
+    if save:
+        _persist_validated_connection(
+            tenant_id=tenant_id,
+            initiating_user_id=initiating_user_id,
+            root_folder_id=root_folder_id,
+            account_id=account_id,
+            account_email=account_email,
+            access_token=access_token,
+            refresh_token=token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=lifetime),
+            scopes=scopes,
+        )
+    return ManagedStorageCredentialCheck(
+        account_email=_masked_email(account_email),
+        saved=save,
+    )
 
 
 async def persist_managed_storage_connection(

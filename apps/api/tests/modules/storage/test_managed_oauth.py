@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.core.config import Settings
 from app.modules.storage.managed_oauth import (
     MANAGED_STORAGE_OAUTH_PROVIDER,
+    ManagedStorageCredentialValidationError,
+    check_managed_storage_refresh_token,
     managed_storage_oauth_status,
     persist_managed_storage_connection,
     resolve_managed_storage_credential,
@@ -60,17 +62,129 @@ class ManagedStorageCredentialResolverTest(unittest.TestCase):
         self.assertTrue(status["connected"])
         self.assertEqual(status["account_email"], "m***@example.com")
 
-    def test_environment_token_is_a_fail_closed_fallback_status(self):
+    def test_environment_token_is_not_used_as_a_runtime_fallback(self):
         with patch(
             "app.modules.storage.managed_oauth.auth_repository",
             self.repository_context(),
         ):
             result = resolve_managed_storage_credential(self.settings())
             status = managed_storage_oauth_status(self.settings())
-        self.assertEqual(result.refresh_token, "env-refresh")
+        self.assertIsNone(result.refresh_token)
+        self.assertIsNone(result.access_token)
         self.assertFalse(status["connected"])
         self.assertTrue(status["reconnect_required"])
-        self.assertEqual(status["source"], "environment")
+        self.assertEqual(status["source"], "none")
+
+
+class ManagedStorageManualCredentialTest(unittest.IsolatedAsyncioTestCase):
+    def settings(self):
+        return Settings(
+            PERSISTENT_AUTH_ENABLED=True,
+            OAUTH_TOKEN_ENCRYPTION_KEYS=TEST_TOKEN_KEY,
+            OAUTH_ACTIVE_KEY_VERSION="v1",
+            GOOGLE_CLIENT_ID="client-id",
+            GOOGLE_CLIENT_SECRET="client-secret",
+            GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="folder-active",
+        )
+
+    @staticmethod
+    def response(status_code, payload):
+        response = MagicMock()
+        response.status_code = status_code
+        response.json.return_value = payload
+        return response
+
+    def google_client(self, *, token_status=200, folder_can_write=True):
+        client = AsyncMock()
+        client.post.return_value = self.response(
+            token_status,
+            {
+                "access_token": "short-lived-access",
+                "expires_in": 3600,
+                "scope": "https://www.googleapis.com/auth/drive",
+            } if token_status == 200 else {"error": "invalid_grant"},
+        )
+        client.get.side_effect = [
+            self.response(200, {
+                "user": {
+                    "permissionId": "google-account-id",
+                    "emailAddress": "managed@example.com",
+                }
+            }),
+            self.response(200, {
+                "mimeType": "application/vnd.google-apps.folder",
+                "trashed": False,
+                "capabilities": {
+                    "canAddChildren": folder_can_write,
+                    "canDeleteChildren": folder_can_write,
+                },
+            }),
+        ]
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        return context
+
+    async def test_valid_token_can_be_checked_without_persisting(self):
+        with (
+            patch(
+                "app.modules.storage.managed_oauth.httpx.AsyncClient",
+                return_value=self.google_client(),
+            ),
+            patch(
+                "app.modules.storage.managed_oauth._persist_validated_connection"
+            ) as persist,
+        ):
+            result = await check_managed_storage_refresh_token(
+                self.settings(),
+                "refresh-token-value",
+                tenant_id="tenant-a",
+                initiating_user_id="admin-a",
+                save=False,
+            )
+        self.assertEqual(result.account_email, "m***@example.com")
+        self.assertFalse(result.saved)
+        persist.assert_not_called()
+
+    async def test_valid_token_is_persisted_only_after_folder_check(self):
+        with (
+            patch(
+                "app.modules.storage.managed_oauth.httpx.AsyncClient",
+                return_value=self.google_client(),
+            ),
+            patch(
+                "app.modules.storage.managed_oauth._persist_validated_connection"
+            ) as persist,
+        ):
+            result = await check_managed_storage_refresh_token(
+                self.settings(),
+                "refresh-token-value",
+                tenant_id="tenant-a",
+                initiating_user_id="admin-a",
+                save=True,
+            )
+        self.assertTrue(result.saved)
+        self.assertEqual(persist.call_args.kwargs["refresh_token"], "refresh-token-value")
+        self.assertEqual(persist.call_args.kwargs["root_folder_id"], "folder-active")
+
+    async def test_rejected_token_is_never_persisted(self):
+        with (
+            patch(
+                "app.modules.storage.managed_oauth.httpx.AsyncClient",
+                return_value=self.google_client(token_status=400),
+            ),
+            patch(
+                "app.modules.storage.managed_oauth._persist_validated_connection"
+            ) as persist,
+            self.assertRaises(ManagedStorageCredentialValidationError),
+        ):
+            await check_managed_storage_refresh_token(
+                self.settings(),
+                "rejected-refresh-token",
+                tenant_id="tenant-a",
+                initiating_user_id="admin-a",
+                save=True,
+            )
+        persist.assert_not_called()
 
 
 class ManagedStoragePersistenceTest(unittest.IsolatedAsyncioTestCase):

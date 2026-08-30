@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { AiOpsConfiguration, AiOpsProviderBreakdown } from "../../features/ai_operations";
-import { fetchAiOperationsConfiguration, getManagedStorageOAuthStatus, updateAiBudget, updateAiProvider } from "../../features/ai_operations";
+import { fetchAiOperationsConfiguration, getManagedStorageOAuthStatus, saveManagedStorageRefreshToken, testManagedStorageRefreshToken, updateAiBudget, updateAiProvider } from "../../features/ai_operations";
 import { ConfigurationForm, ProviderCards, replaceProviderConfiguration } from "./ProvidersConfiguration";
-import { ManagedStorageCredentialStatus } from "./ManagedStorageCredentialSettings";
+import { ManagedStorageCredentialStatus, ManagedStorageRefreshTokenForm } from "./ManagedStorageCredentialSettings";
 
 const configuration: AiOpsConfiguration = {
   tenant_id: "tenant-a",
@@ -102,17 +102,50 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(fetcher).toHaveBeenCalledWith("/api/auth/google/managed-storage/status", expect.any(Object));
   });
 
+  it("tests and saves Managed Storage refresh tokens without returning the secret", async () => {
+    const payload = { status: "VALID", account_email: "m***@example.com", folder_access: "READ_WRITE", saved: false };
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    await expect(testManagedStorageRefreshToken("refresh-token-value", fetcher)).resolves.toEqual(payload);
+    await expect(saveManagedStorageRefreshToken("refresh-token-value", fetcher)).resolves.toEqual(payload);
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "/api/auth/google/managed-storage/credential/test",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ refresh_token: "refresh-token-value" }) }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "/api/auth/google/managed-storage/credential",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ refresh_token: "refresh-token-value" }) }),
+    );
+  });
+
   it("renders a compact and actionable Managed Storage status", () => {
-    const status = { root_folder_configured: true, connected: false, source: "environment" as const, account_email: null, updated_at: null, reconnect_required: true };
+    const status = { root_folder_configured: true, connected: false, source: "none" as const, account_email: null, updated_at: null, reconnect_required: true };
     const markup = renderToStaticMarkup(<ManagedStorageCredentialStatus status={status} />);
     for (const value of [
       "Cần kết nối lại",
-      "Kết nối Google Drive",
       "Cần thao tác:",
-      "Biến môi trường (legacy)",
+      "Chưa kết nối",
       "Nhận diện bằng Folder ID",
     ]) expect(markup).toContain(value);
-    expect(markup).toContain("/api/auth/google/connect-managed-storage");
+    expect(markup).not.toContain("Biến môi trường");
+    expect(markup).not.toContain("/api/auth/google/connect-managed-storage");
+  });
+
+  it("renders a masked refresh-token form with separate test and save actions", () => {
+    const markup = renderToStaticMarkup(<ManagedStorageRefreshTokenForm
+      token=""
+      visible={false}
+      busy={null}
+      result={{ status: "VALID", account_email: "m***@example.com", folder_access: "READ_WRITE", saved: false }}
+      onTokenChange={noop}
+      onToggleVisible={noop}
+      onSubmit={noop}
+    />);
+    expect(markup).toContain('type="password"');
+    expect(markup).toContain("Kiểm tra token");
+    expect(markup).toContain("Kiểm tra &amp; lưu");
+    expect(markup).toContain("Token hợp lệ");
   });
 
   it("shows platform-only global emergency action to platform administrators", () => {

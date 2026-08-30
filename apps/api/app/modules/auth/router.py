@@ -1,9 +1,11 @@
 import logging
 import secrets
 from urllib.parse import urlencode
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import case, func, select
+from pydantic import BaseModel, Field, SecretStr
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.config import get_settings
@@ -19,6 +21,9 @@ from app.modules.authorization.service import TenantAuthorizationService
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.login import LoginAdmissionError
 from app.modules.storage.managed_oauth import (
+    ManagedStorageCredentialUnavailableError,
+    ManagedStorageCredentialValidationError,
+    check_managed_storage_refresh_token,
     managed_storage_oauth_status,
     persist_managed_storage_connection,
 )
@@ -39,6 +44,10 @@ from app.providers.google.auth import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/google", tags=["auth"])
+
+
+class ManagedStorageRefreshTokenRequest(BaseModel):
+    refresh_token: SecretStr = Field(min_length=16, max_length=4096)
 
 
 def client_redirect(**params: str) -> RedirectResponse:
@@ -132,6 +141,49 @@ async def managed_storage_status(
     principal: CurrentPrincipal = Depends(require_platform_admin),
 ):
     return managed_storage_oauth_status(get_settings())
+
+
+async def _check_manual_managed_storage_token(
+    body: ManagedStorageRefreshTokenRequest,
+    principal: CurrentPrincipal,
+    *,
+    save: bool,
+) -> dict[str, Any]:
+    try:
+        result = await check_managed_storage_refresh_token(
+            get_settings(),
+            body.refresh_token.get_secret_value(),
+            tenant_id=principal.active_tenant_id,
+            initiating_user_id=principal.user_id,
+            save=save,
+        )
+    except ManagedStorageCredentialValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except ManagedStorageCredentialUnavailableError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {
+        "status": "VALID",
+        "account_email": result.account_email,
+        "folder_access": "READ_WRITE",
+        "saved": result.saved,
+    }
+
+
+@router.post("/managed-storage/credential/test")
+async def test_managed_storage_refresh_token(
+    body: ManagedStorageRefreshTokenRequest,
+    principal: CurrentPrincipal = Depends(require_platform_admin),
+):
+    return await _check_manual_managed_storage_token(body, principal, save=False)
+
+
+@router.put("/managed-storage/credential")
+async def save_managed_storage_refresh_token(
+    body: ManagedStorageRefreshTokenRequest,
+    principal: CurrentPrincipal = Depends(require_platform_admin),
+):
+    return await _check_manual_managed_storage_token(body, principal, save=True)
+
 
 @router.get("/callback")
 async def callback(

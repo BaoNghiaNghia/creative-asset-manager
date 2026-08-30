@@ -94,18 +94,20 @@ or `GOOGLE_CLIENT_SECRET`.
 ## Google Drive managed storage
 
 Backups must use the application's existing managed Google Drive
-credential/storage infrastructure, not tenant/user Source Drive OAuth. Current
-relevant settings are:
+credential/storage infrastructure, not tenant/user Source Drive OAuth. The
+Managed Storage refresh token is validated against the configured active folder,
+then encrypted and persisted through the Platform Admin Providers UI. Runtime
+and backup code resolve that persisted credential and do not fall back to
+access or refresh tokens from the environment.
 
-- `GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN`
-- `GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN`
+The non-secret folder selection and OAuth client configuration remain:
+
 - `GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 
-Future code should reuse/refactor existing managed-storage credential refresh
-behavior. A logged-in user's Drive connection is never a production backup
-identity.
+A logged-in user's Drive connection is never a production backup identity.
+Never copy a Source Drive token into the Managed Storage credential form.
 
 Add this future non-secret production configuration:
 

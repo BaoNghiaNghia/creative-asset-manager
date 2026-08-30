@@ -223,21 +223,9 @@ def _storage_error_category(error: StorageProviderError) -> str:
 
 def _configured_storage_provider() -> AssetStorageProvider:
     from app.core.config import get_settings
-    from app.providers.google.storage import GoogleDriveAssetStorage
+    from app.modules.storage.provider_factory import build_managed_storage_provider
 
-    settings = get_settings()
-    if not settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or not (
-        settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN
-        or settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN
-    ):
-        return UnconfiguredAssetStorageProvider()
-    return GoogleDriveAssetStorage(
-        settings.GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN,
-        root_folder_id=settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID,
-        refresh_token=settings.GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN,
-        client_id=settings.GOOGLE_CLIENT_ID,
-        client_secret=settings.GOOGLE_CLIENT_SECRET,
-    )
+    return build_managed_storage_provider(get_settings())
 
 
 def main(argv: list[str] | None = None) -> int:

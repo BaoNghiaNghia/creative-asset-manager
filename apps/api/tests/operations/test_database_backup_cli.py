@@ -37,15 +37,25 @@ def settings(**overrides):
 
 class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
     def test_verify_config_is_read_only_and_requires_managed_identity(self):
-        result = cli.verify_configuration(settings(), which=lambda command: f"/usr/bin/{command}")
+        persisted = SimpleNamespace(
+            access_token="database-access",
+            refresh_token="database-refresh",
+        )
+        with patch.object(
+            cli, "resolve_managed_storage_credential", return_value=persisted
+        ):
+            result = cli.verify_configuration(
+                settings(GOOGLE_CLIENT_ID="client-id", GOOGLE_CLIENT_SECRET="client-secret"),
+                which=lambda command: f"/usr/bin/{command}",
+            )
         self.assertEqual(result["DATABASE_BACKUP_CONFIGURATION"], "VALID")
         self.assertEqual(result["TENANT_SOURCE_DRIVE_OAUTH"], "NOT_USED")
-        with self.assertRaises(DatabaseBackupConfigurationError):
+        missing = SimpleNamespace(access_token=None, refresh_token=None)
+        with patch.object(
+            cli, "resolve_managed_storage_credential", return_value=missing
+        ), self.assertRaises(DatabaseBackupConfigurationError):
             cli.verify_configuration(
-                settings(
-                    GOOGLE_MANAGED_STORAGE_ACCESS_TOKEN="",
-                    GOOGLE_MANAGED_STORAGE_REFRESH_TOKEN="",
-                ),
+                settings(),
                 which=lambda command: f"/usr/bin/{command}",
             )
 
@@ -71,7 +81,10 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["DATABASE_BACKUP_CONFIGURATION"], "VALID")
 
     def test_verify_config_fails_closed_when_postgres_tools_are_missing(self):
-        with self.assertRaises(DatabaseBackupConfigurationError):
+        persisted = SimpleNamespace(access_token="database-access", refresh_token=None)
+        with patch.object(
+            cli, "resolve_managed_storage_credential", return_value=persisted
+        ), self.assertRaises(DatabaseBackupConfigurationError):
             cli.verify_configuration(settings(), which=lambda _command: None)
 
     async def test_list_is_read_only_and_returns_only_safe_metadata(self):

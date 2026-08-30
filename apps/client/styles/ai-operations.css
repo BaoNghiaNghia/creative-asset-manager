@@ -778,6 +778,15 @@
 .ops-managed-storage-facts small{display:block;margin-top:2px;color:#7b8798;font-size:10px}
 .ops-managed-storage-loading{margin:0;color:#667085;font-size:13px}
 .ops-managed-storage-card>.ops-inline-success,.ops-managed-storage-card>.ops-inline-error{margin:0 0 14px}
+.ops-managed-storage-token-form{display:grid;grid-template-columns:minmax(220px,.7fr) minmax(420px,1.3fr);gap:22px;margin-top:14px;padding:14px;border:1px solid #dce5f2;border-radius:10px;background:#f8fafc}
+.ops-managed-storage-token-copy h4{margin:0;color:#172033;font-size:13px}
+.ops-managed-storage-token-copy p{margin:5px 0 0;color:#667085;font-size:11px;line-height:1.5}
+.ops-managed-storage-token-controls label>span{display:block;margin-bottom:6px;color:#475467;font-size:10px;font-weight:750;text-transform:uppercase}
+.ops-managed-storage-token-input{display:flex;gap:8px}
+.ops-managed-storage-token-input input{min-width:0;flex:1}
+.ops-managed-storage-token-input button{flex:0 0 auto}
+.ops-managed-storage-token-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.ops-managed-storage-token-controls>.ops-inline-success{margin:10px 0 0;padding:8px 10px}
 .ops-inline-success{padding:10px 12px;border:1px solid #b9e4c7;border-radius:8px;background:#f0faf3;color:#26733d}
-@media(max-width:1050px){.ops-managed-storage-header{align-items:flex-start}.ops-managed-storage-actions{align-items:flex-end;flex-direction:column}.ops-managed-storage-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:620px){.ops-managed-storage-card{padding:15px}.ops-managed-storage-header{align-items:stretch;flex-direction:column}.ops-managed-storage-actions{align-items:stretch;flex-direction:row;justify-content:space-between}.ops-managed-storage-connect{flex:1}.ops-managed-storage-facts{grid-template-columns:1fr}.ops-managed-storage-heading{align-items:flex-start}}
+@media(max-width:1050px){.ops-managed-storage-header{align-items:flex-start}.ops-managed-storage-actions{align-items:flex-end;flex-direction:column}.ops-managed-storage-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-managed-storage-token-form{grid-template-columns:1fr}}
+@media(max-width:620px){.ops-managed-storage-card{padding:15px}.ops-managed-storage-header{align-items:stretch;flex-direction:column}.ops-managed-storage-actions{align-items:stretch;flex-direction:row;justify-content:space-between}.ops-managed-storage-facts{grid-template-columns:1fr}.ops-managed-storage-heading{align-items:flex-start}.ops-managed-storage-token-form{padding:12px}.ops-managed-storage-token-input,.ops-managed-storage-token-actions{flex-direction:column}.ops-managed-storage-token-actions button{width:100%}}
