@@ -12,6 +12,7 @@ export type VideoSearchConfig = {
   query: string;
   provider: Provider;
   externalSourceId: string | null;
+  designTypes: string[];
 };
 export const VIDEO_SEARCH_LIMIT = 20;
 
@@ -41,8 +42,10 @@ export function useVideoSearch({
   query,
   provider,
   externalSourceId,
+  designTypes,
 }: VideoSearchConfig) {
   const [result, setResult] = useState<VideoSearchResponse>({ items: [], total: 0, took_ms: null });
+  const designTypesKey = designTypes.join("\u001f");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const epoch = useRef(0);
@@ -70,6 +73,7 @@ export function useVideoSearch({
             query: normalizedQuery,
             limit: VIDEO_SEARCH_LIMIT,
             ...(externalSourceId ? { external_source_id: externalSourceId } : {}),
+            ...(designTypes.length ? { design_types: designTypes } : {}),
           }),
         });
         const payload = await response.json().catch(() => ({}));
@@ -96,7 +100,7 @@ export function useVideoSearch({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [authenticated, enabled, query, provider, externalSourceId]);
+  }, [authenticated, enabled, query, provider, externalSourceId, designTypesKey]);
 
   return { ...result, loading, error };
 }

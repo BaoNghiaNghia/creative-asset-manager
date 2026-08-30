@@ -222,6 +222,7 @@ export default function App() {
     query: explorer.query,
     provider: explorer.provider,
     externalSourceId: explorer.activeExternalSourceId,
+    designTypes: explorer.searchV3.selectedFacets.__design_type || [],
   });
   const searchBusy = explorer.query.trim().length > 0
     && ((imageSearchEnabled && explorer.searching) || (videoSearchEnabled && videoSearch.loading));

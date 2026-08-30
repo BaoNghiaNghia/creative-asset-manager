@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -42,6 +42,7 @@ def build_video_search_query(
     limit: int,
     external_source_id: str | None = None,
     allowed_source_asset_ids: set[str] | None = None,
+    design_types: Sequence[str] = (),
 ) -> dict[str, Any]:
     nested_query = {
         "nested": {
@@ -78,6 +79,9 @@ def build_video_search_query(
     filters: list[dict[str, Any]] = [{"term": {"tenant_id": tenant_id}}]
     if external_source_id:
         filters.append({"term": {"external_source_id": external_source_id}})
+    normalized_design_types = sorted({value.strip().casefold() for value in design_types if value.strip()})
+    if normalized_design_types:
+        filters.append({"terms": {"design_type": normalized_design_types}})
     if allowed_source_asset_ids is not None:
         filters.append(
             {"terms": {"source_asset_id": sorted(allowed_source_asset_ids)}}

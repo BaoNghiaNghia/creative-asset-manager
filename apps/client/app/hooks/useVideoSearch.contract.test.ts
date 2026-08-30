@@ -6,6 +6,7 @@ describe("video search request isolation", () => {
   it("uses only the video endpoint, source scope, and never sends tenant identity", () => {
     expect(source).toContain('fetch("/api/v1/search/video"');
     expect(source).toContain("external_source_id: externalSourceId");
+    expect(source).toContain("design_types: designTypes");
     expect(source).not.toContain("tenant_id");
   });
 

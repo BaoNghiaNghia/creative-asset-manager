@@ -59,6 +59,23 @@ class VideoSearchApiTest(unittest.TestCase):
         self.assertEqual(query["query"]["bool"]["filter"], [{"term": {"tenant_id": "tenant-a"}}])
         index_type.return_value.aclose.assert_awaited_once()
 
+    def test_video_route_forwards_design_types_to_video_index(self):
+        with (
+            patch("app.modules.video_search.router.get_settings", return_value=self.settings),
+            patch("app.modules.video_search.router.VideoSearchElasticsearchIndex") as index_type,
+        ):
+            index_type.return_value.search = AsyncMock(return_value=response())
+            index_type.return_value.aclose = AsyncMock()
+            result = self.client.post(
+                "/api/v1/search/video",
+                json={"query": "embroidered dog", "design_types": ["petfull"]},
+            )
+        self.assertEqual(result.status_code, 200)
+        self.assertIn(
+            {"terms": {"design_type": ["petfull"]}},
+            index_type.return_value.search.await_args.args[0]["query"]["bool"]["filter"],
+        )
+
     def test_unowned_source_is_rejected_before_elasticsearch(self):
         from app.modules.video_search.router import _authorized_video_scope
 

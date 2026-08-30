@@ -13,6 +13,36 @@ class VideoIndexDataError(ValueError):
     pass
 
 
+_DESIGN_TYPE_VALUES = {
+    "petfull": "petfull", "petoutline": "petoutline",
+    "peoplefull": "peoplefull", "peopleoutline": "peopleoutline",
+    "carfull": "carfull", "caroutline": "caroutline",
+    "existeddesign": "existeddesign", "roman": "roman",
+    "monogram": "monogram", "handwriting": "handwriting",
+    "floral": "floral", "neckline": "neckline", "text": "text",
+    "othertags": "other tags",
+}
+
+
+def _video_design_types(segments: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Read the exact structured marker emitted by the Video AI prompt."""
+    values: list[str] = []
+    for segment in segments:
+        keywords = segment.get("keywords")
+        if not isinstance(keywords, list):
+            continue
+        for keyword in keywords:
+            if not isinstance(keyword, str):
+                continue
+            prefix, separator, raw_value = keyword.partition(":")
+            if separator != ":" or prefix.strip().casefold() != "embroidery_type":
+                continue
+            canonical = _DESIGN_TYPE_VALUES.get("".join(raw_value.casefold().split()))
+            if canonical and canonical not in values:
+                values.append(canonical)
+    return values
+
+
 def video_segment_mapping() -> dict[str, Any]:
     text = {"type": "text", "analyzer": "cam_text_v2"}
     keyword = {"type": "keyword"}
@@ -41,7 +71,7 @@ def video_index_mapping() -> dict[str, Any]:
         "external_source_id": keyword, "external_asset_id": keyword, "filename": text,
         "mime_type": keyword, "web_url": keyword, "thumbnail_url": keyword,
         "analysis_run_id": keyword, "analysis_completed_at": {"type": "date"},
-        "segments": video_segment_mapping(),
+        "design_type": keyword, "segments": video_segment_mapping(),
     }}
 
 
@@ -87,5 +117,5 @@ def build_video_document(*, run: VideoAnalysisRunModel, source: SourceAssetModel
         "filename": source.filename or "", "mime_type": source.mime_type or "",
         "web_url": metadata.get("web_url") or metadata.get("webViewLink"), "thumbnail_url": metadata.get("thumbnail_url"),
         "analysis_run_id": run.id, "analysis_completed_at": run.completed_at.isoformat() if run.completed_at else None,
-        "segments": segments,
+        "design_type": _video_design_types(segments), "segments": segments,
     }

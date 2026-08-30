@@ -46,6 +46,19 @@ class VideoSearchQueryTest(unittest.TestCase):
         self.assertIn("segments.speech^3", nested["query"]["multi_match"]["fields"])
         self.assertIn("segments.keywords^2", nested["query"]["multi_match"]["fields"])
 
+    def test_query_applies_design_type_filter(self):
+        query = build_video_search_query(
+            query="embroidered dog", tenant_id="tenant-a", limit=20,
+            design_types=["peoplefull", "petfull", "petfull"],
+        )
+        self.assertEqual(
+            query["query"]["bool"]["filter"],
+            [
+                {"term": {"tenant_id": "tenant-a"}},
+                {"terms": {"design_type": ["peoplefull", "petfull"]}},
+            ],
+        )
+
     def test_query_applies_authorized_source_and_folder_asset_scope(self):
         query = build_video_search_query(
             query="horse riding",

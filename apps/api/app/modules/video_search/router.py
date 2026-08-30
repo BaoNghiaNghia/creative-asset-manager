@@ -13,6 +13,7 @@ from app.modules.assets.model import ExternalSourceModel
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.authorization.principal import CurrentPrincipal, is_pure_viewer, require_permission
 from app.modules.video_search.elasticsearch import VideoSearchElasticsearchIndex
+from app.modules.search.schema import DesignType
 from app.modules.video_search.search import (
     VideoSearchResponseError,
     build_video_search_query,
@@ -27,6 +28,7 @@ class VideoSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     limit: int = Field(default=20, ge=1, le=100)
     external_source_id: str | None = Field(default=None, min_length=1, max_length=36)
+    design_types: list[DesignType] = Field(default_factory=list, max_length=3)
 
 
 def _authorized_video_scope(
@@ -142,6 +144,7 @@ async def video_search(
             limit=body.limit,
             external_source_id=external_source_id,
             allowed_source_asset_ids=allowed_source_asset_ids,
+            design_types=body.design_types,
         ))
         return parse_video_search_response(response)
     except ElasticsearchV3RequestError as exc:

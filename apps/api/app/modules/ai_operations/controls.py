@@ -48,7 +48,7 @@ embroidery_type:<type>
 
 Allowed types:
 PetFull, PeopleFull, CarFull, PetOutline, PeopleOutline, CarOutline,
-Roman, Monogram, Handwriting, Floral, Neckline, Text.
+Roman, Monogram, Handwriting, Floral, Neckline, Text, ExistedDesign, Other tags.
 
 Definitions:
 - PetFull, PeopleFull, CarFull: detailed or filled embroidery with meaningful
@@ -64,6 +64,9 @@ Definitions:
 - Neckline: embroidery primarily follows or surrounds a neckline or collar.
 - Text: primarily textual embroidery not classified as Roman, Monogram,
   or Handwriting.
+- ExistedDesign: an existing, recognizable stock or pre-made embroidery design
+  that is not better described by another allowed type.
+- Other tags: visible embroidery that does not fit any of the allowed types.
 
 Classify the visually primary embroidery design. Secondary names, dates,
 initials, or text must not override a primary pet, person, car, floral, or
