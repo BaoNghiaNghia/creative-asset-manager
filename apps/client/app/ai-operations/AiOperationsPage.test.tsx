@@ -367,11 +367,11 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(markup).toContain("video-recent-title-button");
     expect(markup).toContain("video/mp4");
     const recentMarkup = markup.slice(markup.indexOf('aria-label="Tiến độ video gần đây"'));
-    expect(recentMarkup).toContain("<th>Video analysis</th>");
-    expect(recentMarkup).toContain("<th>Video indexing</th>");
+    expect(recentMarkup).toContain("<th>Pipeline</th>");
+    expect(recentMarkup).toContain("video-pipeline-flow");
     expect(recentMarkup).toContain('data-video-step="video_analyze"');
     expect(recentMarkup).toContain('data-video-step="video_search_index"');
-    expect(recentMarkup.match(/Status: Completed/g)).toHaveLength(2);
+    expect(recentMarkup.match(/Completed/g)).toHaveLength(2);
   });
 });
 

@@ -517,23 +517,26 @@ function VideoPipelineOverview({ dashboard, onPage, onOpenVideo }: {
 }
 
 const recentVideoSteps = [
-  { key: "video_analyze", label: "Video analysis" },
-  { key: "video_search_index", label: "Video indexing" },
+  { key: "video_analyze", label: "Video analysis", icon: "*" },
+  { key: "video_search_index", label: "Video indexing", icon: "=" },
 ] as const;
 
 type RecentVideoItem = NonNullable<AiOpsDashboardData["media"]>["recent_video"]["items"][number];
 
-function RecentVideoStepStatus({ item, stepKey }: {
-  item: RecentVideoItem; stepKey: typeof recentVideoSteps[number]["key"];
-}) {
-  const step = item.steps?.find(candidate => candidate.key === stepKey);
-  const status = step?.status || (stepKey === "video_analyze" ? item.status : "not_started");
-  const attemptCount = step?.attempt_count ?? (stepKey === "video_analyze" ? item.attempt_count : 0);
-  const maxAttempts = step?.max_attempts ?? (stepKey === "video_analyze" ? item.max_attempts : 0);
-  return <td data-video-step={stepKey}><div className="video-step-status">
-    <StatusText status={status} />
-    {maxAttempts > 0 ? <small>{attemptCount}/{maxAttempts} lần thử</small> : null}
-  </div></td>;
+function VideoPipelineFlow({ item }: { item: RecentVideoItem }) {
+  return <td className="video-pipeline-flow-cell"><ol className="video-pipeline-flow" aria-label="Video processing flow">
+    {recentVideoSteps.map(step => {
+      const jobStep = item.steps?.find(candidate => candidate.key === step.key);
+      const status = jobStep?.status || (step.key === "video_analyze" ? item.status : "not_started");
+      const attemptCount = jobStep?.attempt_count ?? (step.key === "video_analyze" ? item.attempt_count : 0);
+      const maxAttempts = jobStep?.max_attempts ?? (step.key === "video_analyze" ? item.max_attempts : 0);
+      const label = status === "pending" ? "Queued" : status === "not_started" ? "Not started" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase());
+      return <li className={status} data-video-step={step.key} key={step.key}>
+        <span className="video-pipeline-flow-icon" aria-hidden="true">{step.icon}</span>
+        <div><span className="video-pipeline-flow-label">{step.label}</span><span className="video-pipeline-flow-status"><i aria-hidden="true" />{label}</span>{maxAttempts > 0 ? <small>{attemptCount}/{maxAttempts} attempts</small> : null}</div>
+      </li>;
+    })}
+  </ol></td>;
 }
 
 function RecentVideoProgress({ recent, onPage, onOpenVideo }: {
@@ -562,14 +565,14 @@ function RecentVideoProgress({ recent, onPage, onOpenVideo }: {
       </div> : null}
     </div>
     {recent.items.length ? <div className="ops-table-scroll"><table className="ops-data-table">
-      <thead><tr><th>Video</th><th>Vị trí</th>{recentVideoSteps.map(step => <th key={step.key}>{step.label}</th>)}<th>Cập nhật</th><th>Cần xử lý</th></tr></thead>
+      <thead><tr><th>Video</th><th>Vị trí</th><th>Pipeline</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead>
       <tbody>{recent.items.map(item => {
         const title = item.filename || "Video " + item.source_asset_id.slice(0, 8);
         const stepErrors = Array.from(new Set((item.steps || []).map(step => step.error_code).filter(Boolean)));
         return <tr key={item.job_id}>
           <td className="video-recent-title"><VideoThumbnailWithDuration thumbnailUrl={item.thumbnail_url} durationMs={item.duration_ms} /><span className="video-recent-copy"><button type="button" className="video-recent-title-button" onClick={() => onOpenVideo(item.source_asset_id)} aria-label={"Mở chi tiết " + title}>{title}</button><small className="asset-mime-type">{item.mime_type || "\u2014"}</small></span></td>
           <td className="video-recent-location" title={item.location || undefined}>{item.location || "—"}</td>
-          {recentVideoSteps.map(step => <RecentVideoStepStatus key={step.key} item={item} stepKey={step.key} />)}
+          <VideoPipelineFlow item={item} />
           <td>{new Date(item.updated_at).toLocaleString()}</td>
           <td>{stepErrors.length ? stepErrors.join(", ") : item.error_code || "-"}</td>
         </tr>;
