@@ -965,20 +965,19 @@
 }
 
 
-/* Per-asset pipeline replaces disconnected stage columns with a visible flow. */
+/* Per-asset pipeline: one continuous track, with a compact status beneath each stage. */
 .pipeline-recent-table{min-width:1180px}
-.pipeline-recent-table .pipeline-flow-cell{min-width:640px;padding-top:10px;padding-bottom:10px}
-.pipeline-asset-flow{display:grid;grid-template-columns:repeat(5,minmax(110px,1fr));gap:0;margin:0;padding:0;list-style:none}
-.pipeline-asset-flow li{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:7px;min-width:0;padding:5px 8px}
-.pipeline-asset-flow li:not(:last-child):after{position:absolute;top:17px;right:-7px;z-index:1;width:14px;border-top:1px solid #cad5e4;content:""}
-.pipeline-asset-flow li:not(:last-child):before{position:absolute;top:13px;right:-7px;z-index:2;color:#9aa9bb;content:"›";font-size:13px;line-height:1}
-.pipeline-asset-flow-icon{display:grid;width:24px;height:24px;place-items:center;border:1px solid #dce4ee;border-radius:7px;background:#f7f9fc;color:#708096;font-size:13px;font-weight:800}
-.pipeline-asset-flow li>div{display:flex;min-width:0;flex-direction:column;gap:3px}
-.pipeline-asset-flow small{overflow:hidden;color:#69798e;font-size:9px;font-weight:800;letter-spacing:.03em;text-overflow:ellipsis;white-space:nowrap}
-.pipeline-asset-flow .ops-status{min-width:0;padding:3px 6px;font-size:9px;white-space:nowrap}
-.pipeline-asset-flow .ops-status i{width:5px;height:5px}
-.pipeline-asset-flow li.completed .pipeline-asset-flow-icon{border-color:#bde5d0;background:#eaf8ef;color:#24754a}
-.pipeline-asset-flow li.processing .pipeline-asset-flow-icon,.pipeline-asset-flow li.running .pipeline-asset-flow-icon{border-color:#bdcafc;background:#edf0ff;color:#4338ca}
-.pipeline-asset-flow li.pending .pipeline-asset-flow-icon,.pipeline-asset-flow li.retry .pipeline-asset-flow-icon{border-color:#efd29f;background:#fff5df;color:#986617}
-.pipeline-asset-flow li.failed .pipeline-asset-flow-icon{border-color:#f0c5c0;background:#fff0ee;color:#b5473e}
-@media(max-width:760px){.pipeline-recent-table{min-width:980px}.pipeline-recent-table .pipeline-flow-cell{min-width:590px}.pipeline-asset-flow{grid-template-columns:repeat(5,minmax(100px,1fr))}}
+.pipeline-recent-table .pipeline-flow-cell{min-width:680px;padding-top:14px;padding-bottom:14px}
+.pipeline-asset-flow{position:relative;display:grid;grid-template-columns:repeat(5,minmax(118px,1fr));gap:8px;margin:0;padding:0;list-style:none}
+.pipeline-asset-flow:before{position:absolute;top:15px;right:9%;left:9%;z-index:0;border-top:1px solid #d6e0ec;content:""}
+.pipeline-asset-flow li{position:relative;z-index:1;display:grid;grid-template-columns:31px minmax(0,1fr);align-items:start;gap:7px;min-width:0}
+.pipeline-asset-flow-icon{display:grid;width:30px;height:30px;place-items:center;border:1px solid #d6e0ec;border-radius:50%;background:#fff;color:#76879c;font-size:14px;font-weight:800}
+.pipeline-asset-flow li>div{display:flex;min-width:0;flex-direction:column;padding-top:1px;gap:2px}
+.pipeline-asset-flow-label{overflow:hidden;color:#43536a;font-size:10px;font-weight:800;letter-spacing:.01em;text-overflow:ellipsis;white-space:nowrap}
+.pipeline-asset-flow-status{display:flex;align-items:center;gap:4px;overflow:hidden;color:#7b899c;font-size:10px;font-weight:650;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
+.pipeline-asset-flow-status i{display:block;width:5px;height:5px;flex:0 0 auto;border-radius:50%;background:#98a5b5}
+.pipeline-asset-flow li.completed .pipeline-asset-flow-icon{border-color:#a9dcbf;background:#effaf3;color:#1d8049}.pipeline-asset-flow li.completed .pipeline-asset-flow-status{color:#28784c}.pipeline-asset-flow li.completed .pipeline-asset-flow-status i{background:#32a563}
+.pipeline-asset-flow li.processing .pipeline-asset-flow-icon,.pipeline-asset-flow li.running .pipeline-asset-flow-icon{border-color:#b9c9ff;background:#f1f4ff;color:#3c63ca}.pipeline-asset-flow li.processing .pipeline-asset-flow-status,.pipeline-asset-flow li.running .pipeline-asset-flow-status{color:#315fc5}.pipeline-asset-flow li.processing .pipeline-asset-flow-status i,.pipeline-asset-flow li.running .pipeline-asset-flow-status i{background:#4777e8}
+.pipeline-asset-flow li.pending .pipeline-asset-flow-icon,.pipeline-asset-flow li.retry .pipeline-asset-flow-icon{border-color:#efd29f;background:#fff8e9;color:#986617}.pipeline-asset-flow li.pending .pipeline-asset-flow-status,.pipeline-asset-flow li.retry .pipeline-asset-flow-status{color:#9a6a13}.pipeline-asset-flow li.pending .pipeline-asset-flow-status i,.pipeline-asset-flow li.retry .pipeline-asset-flow-status i{background:#d79b20}
+.pipeline-asset-flow li.failed .pipeline-asset-flow-icon{border-color:#f0c5c0;background:#fff1ef;color:#b5473e}.pipeline-asset-flow li.failed .pipeline-asset-flow-status{color:#b84035}.pipeline-asset-flow li.failed .pipeline-asset-flow-status i{background:#dc584c}
+@media(max-width:760px){.pipeline-recent-table{min-width:980px}.pipeline-recent-table .pipeline-flow-cell{min-width:630px}.pipeline-asset-flow{grid-template-columns:repeat(5,minmax(118px,1fr))}}

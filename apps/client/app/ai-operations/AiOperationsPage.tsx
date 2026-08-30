@@ -700,8 +700,8 @@ function PipelineAssetFlow({ statuses }: { statuses: Record<string, string> }) {
       return <li className={status} key={step.key}>
         <span className="pipeline-asset-flow-icon" aria-hidden="true">{step.icon}</span>
         <div>
-          <small>{step.label}</small>
-          <StatusText status={status} />
+          <span className="pipeline-asset-flow-label">{step.label}</span>
+          <span className="pipeline-asset-flow-status"><i aria-hidden="true" />{status === "pending" ? "\u0110\u00e3 x\u1ebfp h\u00e0ng" : status === "not_started" ? "Ch\u01b0a b\u1eaft \u0111\u1ea7u" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase())}</span>
         </div>
       </li>;
     })}
