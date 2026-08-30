@@ -152,6 +152,10 @@ def build_parser() -> argparse.ArgumentParser:
     flag = subparsers.add_parser("flag-enabled")
     common(flag)
     flag.add_argument("--name", required=True)
+    visible = subparsers.add_parser("run-redacted")
+    common(visible)
+    visible.add_argument("command", nargs=argparse.REMAINDER)
+
 
     run = subparsers.add_parser("run-quiet")
     common(run)
@@ -186,14 +190,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             errors="replace",
             check=False,
         )
+        output = result.stdout
+        for value in sorted(values.values(), key=len, reverse=True):
+            if len(value) >= 4:
+                output = output.replace(value, "[redacted]")
+        if args.action == "run-redacted" and output:
+            print(output, end="" if output.endswith("\n") else "\n")
         if result.returncode:
-            output = result.stdout[-4000:]
-            for value in sorted(values.values(), key=len, reverse=True):
-                if len(value) >= 4:
-                    output = output.replace(value, "[redacted]")
             print("ERROR: production command failed.", file=sys.stderr)
-            if output.strip():
-                print(output, file=sys.stderr)
+            if args.action == "run-quiet" and output.strip():
+                print(output[-4000:], file=sys.stderr)
         return result.returncode
     except SafeConfigurationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
