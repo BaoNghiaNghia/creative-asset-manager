@@ -18,6 +18,13 @@ from app.modules.processing.repository import ProcessingRepository
 
 
 DOWNLOAD_STAGE_ERROR = "download_stage_unconfigured"
+VIDEO_QUOTA_DEFERRED_STATUSES = ("pending", "retry")
+VIDEO_QUOTA_DEFERRED_CODES = (
+    "video_gemini_quota_deferred",
+    "video_gemini_rate_limited",
+    "ai_model_rate_limited",
+    "rate_limited",
+)
 
 
 def requeue_download_stage_unconfigured(
@@ -84,10 +91,29 @@ def requeue_video_quota_deferred(
     criteria = (
         ProcessingJobModel.tenant_id == tenant_id,
         ProcessingJobModel.job_type == "video_analyze",
-        ProcessingJobModel.status == "pending",
-        ProcessingJobModel.last_error_code == "video_gemini_quota_deferred",
+        ProcessingJobModel.status.in_(VIDEO_QUOTA_DEFERRED_STATUSES),
+        ProcessingJobModel.last_error_code.in_(VIDEO_QUOTA_DEFERRED_CODES),
     )
     with session_factory() as session:
+        queued_breakdown = {
+            f"{status}:{error_code or 'none'}": int(count)
+            for status, error_code, count in session.execute(
+                select(
+                    ProcessingJobModel.status,
+                    ProcessingJobModel.last_error_code,
+                    func.count(),
+                )
+                .where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == "video_analyze",
+                    ProcessingJobModel.status.in_(VIDEO_QUOTA_DEFERRED_STATUSES),
+                )
+                .group_by(
+                    ProcessingJobModel.status,
+                    ProcessingJobModel.last_error_code,
+                )
+            )
+        }
         statement = (
             select(ProcessingJobModel)
             .where(*criteria)
@@ -111,6 +137,7 @@ def requeue_video_quota_deferred(
         "made_eligible_now": len(jobs) if apply else 0,
         "dry_run": not apply,
         "limit": limit,
+        "queued_breakdown": queued_breakdown,
     }
 
 

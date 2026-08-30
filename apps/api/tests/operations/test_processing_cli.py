@@ -206,6 +206,53 @@ class ProcessingCliTest(unittest.TestCase):
             self.assertEqual(target.last_error_code, "video_gemini_quota_deferred")
             self.assertEqual(other.status, "pending")
 
+    def test_video_quota_reconcile_matches_dashboard_deferred_states_and_codes(self):
+        future = datetime.now(timezone.utc) + timedelta(hours=6)
+        with self.sessions() as session:
+            session.add_all(
+                ProcessingJobModel(
+                    tenant_id="tenant-a",
+                    job_type="video_analyze",
+                    entity_type="source_asset",
+                    entity_id=f"video-{index}",
+                    idempotency_key=f"video-quota-variant-{index}",
+                    status=status,
+                    next_attempt_at=future,
+                    last_error_code=error_code,
+                )
+                for index, (status, error_code) in enumerate(
+                    (
+                        ("retry", "video_gemini_quota_deferred"),
+                        ("retry", "video_gemini_rate_limited"),
+                        ("pending", "ai_model_rate_limited"),
+                        ("pending", "rate_limited"),
+                    )
+                )
+            )
+            session.add(
+                ProcessingJobModel(
+                    tenant_id="tenant-a",
+                    job_type="video_analyze",
+                    entity_type="source_asset",
+                    entity_id="not-quota-deferred",
+                    idempotency_key="not-quota-deferred",
+                    status="pending",
+                    next_attempt_at=future,
+                    last_error_code="operator_retry_requested",
+                )
+            )
+            session.commit()
+
+        result = requeue_video_quota_deferred(
+            tenant_id="tenant-a", session_factory=self.sessions
+        )
+
+        self.assertEqual(result["matched"], 4)
+        self.assertEqual(result["made_eligible_now"], 0)
+        self.assertEqual(
+            result["queued_breakdown"]["pending:operator_retry_requested"], 1
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
