@@ -186,8 +186,10 @@ export function InventoryDailySheetSettings() {
 
     <section className="inventory-settings-section">
       <div className="inventory-settings-section-heading"><div><h3>File và lịch chạy</h3><p>Các thiết lập dùng thường xuyên. File Excel phải được chuyển thành Google Sheet native.</p></div></div>
-      <div className="inventory-settings-form-grid">
-        <label>Chế độ xử lý<select value={configurationMode} disabled={isV4} onChange={(event)=>event.target.value === "daily_count_sheet" ? setV2(newV2Config()) : setV2({})}>{isV4 ? <option value="v4">Inventory V4.1 · Gemini Tool Agent</option> : null}<option value="daily_count_sheet">Kiểm kho hằng ngày</option><option value="legacy">Kho/SKU cũ</option></select><small>{isV4 ? "V4.1 là chế độ production; không thể đổi nhầm tại giao diện này." : "Chọn cấu trúc phù hợp với workbook hiện tại."}</small></label>
+      <div className="inventory-settings-form-grid inventory-settings-file-schedule-grid">
+        {!isV4 ? <>
+        <label>Chế độ xử lý<select value={configurationMode} onChange={(event)=>event.target.value === "daily_count_sheet" ? setV2(newV2Config()) : setV2({})}><option value="daily_count_sheet">Kiểm kho hằng ngày</option><option value="legacy">Kho/SKU cũ</option></select><small>{isV4 ? "V4.1 là chế độ production; không thể đổi nhầm tại giao diện này." : "Chọn cấu trúc phù hợp với workbook hiện tại."}</small></label>
+        </> : null}
         <label className="wide">Google Spreadsheet ID<div className="inventory-settings-inline-field"><input value={configuration.working_spreadsheet_file_id||""} onChange={(event)=>update("working_spreadsheet_file_id",event.target.value||null)}/><button type="button" disabled={busy || !configuration.working_spreadsheet_file_id} onClick={()=>void scan()}>Quét workbook</button></div><small>ID nằm giữa <code>/spreadsheets/d/</code> và <code>/edit</code> trong đường dẫn Google Sheet.</small></label>
         <label>Giờ snapshot<input type="time" value={configuration.snapshot_time_local} onChange={(event)=>update("snapshot_time_local",event.target.value)}/><small>Lưu trạng thái trước ngày làm việc.</small></label>
         <label>Giờ đối soát<input type="time" value={configuration.reconcile_time_local} onChange={(event)=>update("reconcile_time_local",event.target.value)}/><small>Đọc dữ liệu và lập kế hoạch cập nhật.</small></label>
