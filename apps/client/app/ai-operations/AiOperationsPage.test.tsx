@@ -371,7 +371,9 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(recentMarkup).toContain("video-pipeline-flow");
     expect(recentMarkup).toContain('data-video-step="video_analyze"');
     expect(recentMarkup).toContain('data-video-step="video_search_index"');
-    expect(recentMarkup.match(/Completed/g)).toHaveLength(2);
+    expect(recentMarkup).toContain("Video analysis");
+    expect(recentMarkup).toContain("Video indexing");
+    expect(recentMarkup).not.toContain("video-pipeline-flow-status");
   });
 });
 

@@ -543,10 +543,10 @@ function VideoPipelineFlow({ item }: { item: RecentVideoItem }) {
       const status = jobStep?.status || (step.key === "video_analyze" ? item.status : "not_started");
       const attemptCount = jobStep?.attempt_count ?? (step.key === "video_analyze" ? item.attempt_count : 0);
       const maxAttempts = jobStep?.max_attempts ?? (step.key === "video_analyze" ? item.max_attempts : 0);
-      const label = status === "pending" ? "Queued" : status === "not_started" ? "Not started" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase());
-      return <li className={status} data-video-step={step.key} key={step.key}>
+      const stateLabel = status === "pending" ? "queued" : status === "not_started" ? "not started" : status.replaceAll("_", " ");
+      return <li className={status} data-video-step={step.key} key={step.key} aria-label={step.label + ": " + stateLabel + (maxAttempts > 0 ? ", " + attemptCount + "/" + maxAttempts + " attempts" : "")}>
         <span className="video-pipeline-flow-icon"><PipelineFlowIcon kind={step.icon} /></span>
-        <div><span className="video-pipeline-flow-label">{step.label}</span><span className="video-pipeline-flow-status"><i aria-hidden="true" />{label}</span>{maxAttempts > 0 ? <small>{attemptCount}/{maxAttempts} attempts</small> : null}</div>
+        <div><span className="video-pipeline-flow-label">{step.label}</span></div>
       </li>;
     })}
   </ol></td>;
@@ -713,12 +713,10 @@ function PipelineAssetFlow({ statuses }: { statuses: Record<string, string> }) {
   return <ol className="pipeline-asset-flow" aria-label="Các giai đoạn pipeline">
     {pipelineAssetSteps.map(step => {
       const status = statuses[step.key] || "not_started";
-      return <li className={status} key={step.key}>
+      const stateLabel = status === "pending" ? "queued" : status === "not_started" ? "not started" : status.replaceAll("_", " ");
+      return <li className={status} key={step.key} aria-label={step.label + ": " + stateLabel}>
         <span className="pipeline-asset-flow-icon"><PipelineFlowIcon kind={step.icon} /></span>
-        <div>
-          <span className="pipeline-asset-flow-label">{step.label}</span>
-          <span className="pipeline-asset-flow-status"><i aria-hidden="true" />{status === "pending" ? "\u0110\u00e3 x\u1ebfp h\u00e0ng" : status === "not_started" ? "Ch\u01b0a b\u1eaft \u0111\u1ea7u" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase())}</span>
-        </div>
+        <div><span className="pipeline-asset-flow-label">{step.label}</span></div>
       </li>;
     })}
   </ol>;
