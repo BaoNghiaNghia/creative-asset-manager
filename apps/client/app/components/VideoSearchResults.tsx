@@ -22,6 +22,18 @@ export function formatVideoDuration(milliseconds: number | null): string | null 
     : null;
 }
 
+export function formatVideoSegmentDuration(startMilliseconds: number, endMilliseconds: number): string {
+  const seconds = Math.max(0, endMilliseconds - startMilliseconds) / 1000;
+  const rounded = Math.round(seconds * 10) / 10;
+  return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)) + " giây";
+}
+
+export function formatVideoMatchWindow(startMilliseconds: number, endMilliseconds: number): string {
+  const end = Math.max(startMilliseconds, endMilliseconds);
+  return formatVideoTimestamp(startMilliseconds) + " – " + formatVideoTimestamp(end)
+    + " · " + formatVideoSegmentDuration(startMilliseconds, end);
+}
+
 export function videoThumbnailRequestUrl(url: string | null): string | null {
   if (!url) return null;
   const separator = url.indexOf("?");
@@ -293,6 +305,7 @@ export function VideoSearchResults({
   return <><div className="video-search-grid" aria-label="Video search results">
     {items.map((item) => {
       const timestamp = formatVideoTimestamp(item.best_match.start_ms);
+      const matchWindow = formatVideoMatchWindow(item.best_match.start_ms, item.best_match.end_ms);
       const excerpt = item.best_match.visual_description || item.best_match.speech;
       const duration = formatVideoDuration(item.duration_ms);
 
@@ -339,10 +352,10 @@ export function VideoSearchResults({
             type="button"
             className="video-search-open"
             onClick={() => onOpen(item)}
-            aria-label={"Open " + item.filename + " at " + timestamp}
+            aria-label={"Play " + item.filename + " from " + formatVideoTimestamp(item.best_match.start_ms) + " to " + formatVideoTimestamp(item.best_match.end_ms) + " (" + formatVideoSegmentDuration(item.best_match.start_ms, item.best_match.end_ms) + ")"}
           >
             <span aria-hidden="true">Play</span>
-            Open at {timestamp}
+            {"Phát " + matchWindow}
           </button>
         </div>
       </article>;
