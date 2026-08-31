@@ -287,6 +287,67 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(filtered.json()["analytics"]["daily"], [])
         self.assertEqual(filtered.json()["analytics"]["providers"], [])
 
+    def test_media_dashboard_does_not_mix_historical_index_with_pending_video_analysis(self):
+        with self.factory() as session:
+            source = session.get(SourceAssetModel, self.source_asset_id)
+            source.mime_type = "video/mp4"
+            profile = VideoMetadataProfileModel(
+                tenant_id="tenant-a", profile_name="video-default",
+                profile_version="1", prompt_template="Analyze video",
+                search_config_json={},
+            )
+            session.add(profile)
+            session.flush()
+            historical_run = VideoAnalysisRunModel(
+                tenant_id="tenant-a", source_asset_id=source.id,
+                source_fingerprint="h" * 64, video_metadata_profile_id=profile.id,
+                metadata_profile="video-default", metadata_profile_version="1",
+                prompt_version="old", analysis_version="old", ai_provider="gemini",
+                ai_model="gemini-old", idempotency_key="h" * 64,
+                status="completed", chunk_seconds=30, total_chunks=1,
+                completed_chunks=1, updated_at=self.now - timedelta(hours=1),
+            )
+            session.add(historical_run)
+            session.flush()
+            session.add_all([
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="video_search_index",
+                    entity_type="video_analysis_run", entity_id=historical_run.id,
+                    idempotency_key="historical-index", status="completed",
+                    payload_json={}, updated_at=self.now - timedelta(hours=1),
+                ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="video_analyze",
+                    entity_type="source_asset", entity_id=source.id,
+                    idempotency_key="new-analysis", status="pending",
+                    last_error_code="video_gemini_quota_deferred",
+                    payload_json={"source_asset_id": source.id},
+                    updated_at=self.now,
+                ),
+            ])
+            session.commit()
+
+        probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
+        with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(
+            "app.modules.ai_operations.media_dashboard._probe_worker", probe,
+        ):
+            dashboard = self.client.get("/api/v1/admin/ai-operations/media-dashboard")
+            detail = self.client.get(
+                f"/api/v1/admin/ai-operations/media-dashboard/videos/{self.source_asset_id}"
+            )
+
+        self.assertEqual(dashboard.status_code, 200)
+        item = dashboard.json()["recent_video"]["items"][0]
+        self.assertEqual(
+            [(step["key"], step["status"]) for step in item["steps"]],
+            [("video_analyze", "pending"), ("video_search_index", "not_started")],
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(
+            [(step["key"], step["status"]) for step in detail.json()["steps"]],
+            [("video_analyze", "pending"), ("video_search_index", "not_started")],
+        )
+
     def test_media_dashboard_paginates_video_jobs_and_returns_safe_thumbnail_proxy(self):
         with self.factory() as session:
             source = session.get(SourceAssetModel, self.source_asset_id)

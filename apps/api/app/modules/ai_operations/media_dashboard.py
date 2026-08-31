@@ -294,6 +294,26 @@ def _stage(key: str, label: str, rows: list[ProcessingJobModel], now: datetime) 
     }
 
 
+def _index_job_for_current_video_analysis(
+    analysis_job: ProcessingJobModel | None,
+    run: VideoAnalysisRunModel | None,
+    index_jobs_by_run_id: dict[str, ProcessingJobModel],
+) -> ProcessingJobModel | None:
+    """Return an index job only when it belongs to the displayed analysis cycle.
+
+    A new ``video_analyze`` job can be deferred before it creates a run. In
+    that state, a completed index job from an older run must not make the
+    current pipeline appear to have completed its second step.
+    """
+    if (
+        analysis_job is None
+        or analysis_job.status != "completed"
+        or run is None
+    ):
+        return None
+    return index_jobs_by_run_id.get(run.id)
+
+
 async def _probe_worker(base_url: str, timeout: float) -> dict:
     # Only return health state; URLs and transport errors are deliberately not exposed.
     try:
@@ -397,7 +417,7 @@ class MediaDashboardService:
             .limit(1)
         )
         index_job = None
-        if run is not None:
+        if analysis_job is not None and analysis_job.status == "completed" and run is not None:
             index_job = self.session.scalar(
                 select(ProcessingJobModel)
                 .where(
@@ -587,7 +607,11 @@ class MediaDashboardService:
             source = self.session.get(SourceAssetModel, job.entity_id) if job.entity_type == "source_asset" else None
             external = external_sources.get(source.external_source_id) if source is not None else None
             run = latest_runs.get(source.id) if source is not None else None
-            index_job = latest_index_jobs.get(run.id) if run is not None else None
+            index_job = _index_job_for_current_video_analysis(
+                job,
+                run,
+                latest_index_jobs,
+            )
             thumbnail_url = None
             if source is not None and external is not None and external.source_type == "google_drive":
                 thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
