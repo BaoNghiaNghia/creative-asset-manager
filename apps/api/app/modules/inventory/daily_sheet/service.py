@@ -13,6 +13,7 @@ from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetConfig, DailySheetAnyConfig, DailySheetConfig, GeminiSheetAgentConfig, GeminiToolSheetAgentConfig, normalize_identifier, normalize_sku, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient, require_sheets_scope
 from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailyCountSheetValidationError, DailySheetValidationError, StockRecord, build_daily_count_variances, build_variances, canonical_hash, _normalized_header, classify_daily_count_row, parse_daily_count_records, parse_stock_records, value_blocks
+from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.persistence_model import InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel, inventory_utcnow
 from app.modules.inventory.materials import MaterialRegistry, MaterialResolution
 from app.providers.google.auth import get_connection_access_token
@@ -1111,6 +1112,26 @@ class InventoryDailySheetService:
                 InventoryDailySheetReconciliationModel.tenant_id == tenant_id,
             ).order_by(InventoryDailySheetReconciliationModel.business_date.desc()))
 
+            is_v4 = bool(
+                settings
+                and isinstance(settings.daily_sheet_config_json, dict)
+                and settings.daily_sheet_config_json.get("version") == 4
+            )
+            v4_jobs: dict[str, InventoryJobModel | None] = {}
+            if is_v4:
+                for slot_kind, job_type in (
+                    ("snapshot", "inventory_v41_snapshot_slot"),
+                    ("reconcile", "inventory_v41_reconcile_slot"),
+                ):
+                    v4_jobs[slot_kind] = session.scalar(
+                        select(InventoryJobModel)
+                        .where(
+                            InventoryJobModel.tenant_id == tenant_id,
+                            InventoryJobModel.job_type == job_type,
+                        )
+                        .order_by(InventoryJobModel.created_at.desc())
+                    )
+
             timezone_name = settings.timezone if settings else "Asia/Ho_Chi_Minh"
             snapshot_time = settings.daily_snapshot_time_local if settings else "05:50"
             reconcile_time = settings.daily_reconcile_time_local if settings else "07:00"
@@ -1157,11 +1178,48 @@ class InventoryDailySheetService:
                     "completed_at": rec.completed_at,
                 }
 
+            if is_v4:
+                def v4_slot_status(slot_kind: str) -> dict[str, Any] | None:
+                    job = v4_jobs.get(slot_kind)
+                    if job is None:
+                        return None
+                    business_date = str((job.payload_json or {}).get("business_date") or "")
+                    return {
+                        "id": job.id,
+                        "business_date": business_date,
+                        "status": job.status,
+                        "error_code": job.last_error_code,
+                        "completed_at": job.completed_at,
+                    }
+
+                v4_snapshot = v4_slot_status("snapshot")
+                v4_reconciliation = v4_slot_status("reconcile")
+                snapshot_status = (
+                    None
+                    if v4_snapshot is None
+                    else {
+                        **v4_snapshot,
+                        "snapshot_file_id": None,
+                        "snapshot_url": None,
+                        "archive_folder_url": None,
+                    }
+                )
+                reconciliation_status = (
+                    None
+                    if v4_reconciliation is None
+                    else {
+                        **v4_reconciliation,
+                        "previous_business_date": None,
+                        "summary": {},
+                    }
+                )
+
             enabled = bool(settings and settings.daily_sheet_automation_enabled)
             failures = {"retryable_failure", "terminal_failure"}
             degraded = bool(
                 (snap is not None and snap.status in failures)
                 or (rec is not None and rec.status in failures)
+                or any(job is not None and job.status == "failed" for job in v4_jobs.values())
             )
             configured = bool(
                 settings
@@ -1172,6 +1230,7 @@ class InventoryDailySheetService:
             return {
                 "enabled": enabled,
                 "configured": configured,
+                "execution_mode": "v4_slots" if is_v4 else "legacy_daily_run",
                 "operational_state": "disabled" if not enabled else ("degraded" if degraded else "healthy"),
                 "image_pipeline_enabled": bool(settings and settings.image_pipeline_enabled),
                 "timezone": timezone_name,

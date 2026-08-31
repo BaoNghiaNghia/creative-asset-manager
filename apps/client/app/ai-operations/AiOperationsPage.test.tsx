@@ -402,6 +402,7 @@ describe("Inventory Daily tab", () => {
       status={{
         enabled: true,
         configured: true,
+        execution_mode: "legacy_daily_run",
         operational_state: "healthy",
         image_pipeline_enabled: true,
         timezone: "Asia/Ho_Chi_Minh",

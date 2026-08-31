@@ -31,6 +31,7 @@ export type InventoryDailySheetConfiguration = {
 export type InventoryDailySheetStatus = {
   enabled:boolean;
   configured:boolean;
+  execution_mode:"v4_slots"|"legacy_daily_run";
   operational_state:"disabled"|"healthy"|"degraded";
   image_pipeline_enabled:boolean;
   timezone:string;

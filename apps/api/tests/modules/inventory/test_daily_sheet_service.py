@@ -13,6 +13,7 @@ from app.core.database import Base
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
 from app.modules.inventory.daily_sheet.google_client import GOOGLE_SHEETS_SCOPE, NATIVE_SPREADSHEET_MIME
+from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.daily_sheet.parser import DailyCountSheetValidationError, DailySheetValidationError
 from app.modules.inventory.daily_sheet.service import (
     DailySheetConfigurationError,
@@ -114,6 +115,7 @@ def daily_sheet_db():
         "inventory_material_external_identities",
         "inventory_material_package_conversions",
         "inventory_material_candidates",
+        "inventory_jobs",
     ):
         Base.metadata.tables[name].create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
@@ -294,6 +296,52 @@ def test_restore_template_uses_formula_rendering_and_verifies(daily_sheet_db):
     assert result.status == "completed"
     assert google.values[("working", "Stock!D2:D20")] == [["=SUM(A2:C2)"]]
     assert len(google.update_calls) == 1
+
+
+def test_v4_status_uses_scheduler_slots_instead_of_legacy_records(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel))
+        settings.daily_sheet_config_json = {
+            "version": 4,
+            "mode": "gemini_tool_sheet_agent",
+            "source": {"allowed_sheets": []},
+            "agent": {"apply_mode": "auto"},
+        }
+        session.add_all([
+            InventoryJobModel(
+                id="v4-snapshot",
+                tenant_id="tenant-a",
+                job_type="inventory_v41_snapshot_slot",
+                entity_type="inventory_v41_scheduler_slot",
+                entity_id="2030-08-09:snapshot",
+                idempotency_key="v4-snapshot",
+                payload_json={"business_date": "2030-08-09", "slot_kind": "snapshot"},
+                status="completed",
+                completed_at=datetime(2030, 8, 10, tzinfo=timezone.utc),
+            ),
+            InventoryJobModel(
+                id="v4-reconcile",
+                tenant_id="tenant-a",
+                job_type="inventory_v41_reconcile_slot",
+                entity_type="inventory_v41_scheduler_slot",
+                entity_id="2030-08-09:reconcile",
+                idempotency_key="v4-reconcile",
+                payload_json={"business_date": "2030-08-09", "slot_kind": "reconcile"},
+                status="completed",
+                completed_at=datetime(2030, 8, 10, tzinfo=timezone.utc),
+            ),
+        ])
+
+    result = service(daily_sheet_db, FakeGoogle()).status("tenant-a")
+
+    assert result["execution_mode"] == "v4_slots"
+    assert result["operational_state"] == "healthy"
+    assert result["last_snapshot"]["id"] == "v4-snapshot"
+    assert result["last_snapshot"]["business_date"] == "2030-08-09"
+    assert result["last_snapshot"]["status"] == "completed"
+    assert result["last_reconciliation"]["id"] == "v4-reconcile"
+    assert result["last_reconciliation"]["status"] == "completed"
+    assert result["last_reconciliation"]["summary"] == {}
 
 
 def test_status_exposes_business_schedule_and_safe_drive_links(daily_sheet_db):

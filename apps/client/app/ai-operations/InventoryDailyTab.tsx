@@ -103,8 +103,11 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
   const summary = reconciliation?.summary || {};
   const blockers = run?.blockers || [];
   const healthy = status.operational_state === "healthy";
-  const runLabel = run?.finalized ? "Đã chốt" : run?.ready ? "Sẵn sàng" : run ? "Cần xử lý" : "Chưa tạo";
-  const runTone = run?.finalized || run?.ready ? "success" : run ? "danger" : "warning";
+  const usesV4Slots = status.execution_mode === "v4_slots";
+  const v4Completed = snapshot?.status === "completed" && reconciliation?.status === "completed";
+  const v4Started = Boolean(snapshot || reconciliation);
+  const runLabel = run?.finalized ? "Đã chốt" : run?.ready ? "Sẵn sàng" : run ? "Cần xử lý" : usesV4Slots ? (v4Completed ? "Đã hoàn tất" : v4Started ? "Đang xử lý" : "Chưa chạy") : "Chưa tạo";
+  const runTone = run?.finalized || run?.ready || (usesV4Slots && v4Completed) ? "success" : run || (usesV4Slots && v4Started) ? "warning" : "warning";
 
   useEffect(() => {
     if (!modalPage) return;
@@ -143,7 +146,7 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
       <article className={"ops-inventory-summary-card run " + runTone}>
         <span>Trạng thái chu kỳ</span>
         <strong>{runLabel}</strong>
-        <small>{run ? "Ngày " + businessDate(run.business_date) + " · " + processStatusLabel(run.status) : "Chưa có daily run cho ngày " + businessDate(status.working_business_date)}</small>
+        <small>{run ? "Ngày " + businessDate(run.business_date) + " · " + processStatusLabel(run.status) : usesV4Slots ? "V4.1 · " + (v4Started ? "hai bước được theo dõi bằng scheduler slot" : "chưa có slot cho ngày ") + businessDate(status.working_business_date) : "Chưa có daily run cho ngày " + businessDate(status.working_business_date)}</small>
       </article>
       <article className={"ops-inventory-summary-card result " + (Number(summary.invalid_count || 0) ? "danger" : "success")}>
         <span>Đối soát gần nhất</span>
