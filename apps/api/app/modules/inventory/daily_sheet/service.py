@@ -495,6 +495,67 @@ class InventoryDailySheetService:
             )
         return self.agent_service
 
+    def snapshot_v4_workbook(self, tenant_id: str, business_date: date):
+        context = self._context(tenant_id, require_enabled=False)
+        if not isinstance(context.config, GeminiToolSheetAgentConfig):
+            raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
+        row, claimed = self._claim_snapshot(tenant_id, business_date, context)
+        if not claimed:
+            return row
+        try:
+            with self.client_factory(self._token(context.connection_id)) as google:
+                source = google.validate_native_spreadsheet(context.working_file_id)
+                parents = [str(value) for value in (source.get("parents") or []) if value]
+                if len(parents) != 1:
+                    raise DailySheetConfigurationError("V4 source workbook must have exactly one parent folder.")
+                source_parent_id = parents[0]
+                before = _parse_time(source.get("modifiedTime"))
+                snapshot_id = row.snapshot_file_id
+                if not snapshot_id:
+                    copied = google.copy_spreadsheet(
+                        context.working_file_id,
+                        folder_id=source_parent_id,
+                        name=f"{str(source.get('name') or 'Inventory').strip()} - {business_date.isoformat()}",
+                        tenant_id=tenant_id,
+                        business_date=business_date.isoformat(),
+                    )
+                    snapshot_id = str(copied["id"])
+                    if snapshot_id == context.working_file_id:
+                        raise DailySheetValidationError("snapshot_copy_matches_source")
+                    google.validate_native_spreadsheet(snapshot_id)
+                    with self.session_factory() as session:
+                        persisted = session.get(InventoryDailySheetSnapshotModel, row.id)
+                        persisted.archive_folder_id = source_parent_id
+                        persisted.snapshot_file_id = snapshot_id
+                        persisted.source_modified_time_before = before
+                        persisted.status = "cloned"
+                        persisted.cloned_at = inventory_utcnow()
+                        session.commit()
+                after = _parse_time(google.drive_file(context.working_file_id).get("modifiedTime"))
+                if before != after:
+                    raise DailySheetValidationError("source_changed_during_snapshot")
+            with self.session_factory() as session:
+                persisted = session.get(InventoryDailySheetSnapshotModel, row.id)
+                persisted.source_modified_time_after = after
+                persisted.verified_at = inventory_utcnow()
+                persisted.reset_completed_at = inventory_utcnow()
+                persisted.status = "completed"
+                persisted.error_code = persisted.error_message = None
+                session.commit()
+                session.refresh(persisted)
+                session.expunge(persisted)
+                return persisted
+        except Exception as exc:
+            code = str(exc) if str(exc) in {"snapshot_copy_matches_source", "source_changed_during_snapshot"} else getattr(exc, "code", type(exc).__name__)
+            with self.session_factory() as session:
+                persisted = session.get(InventoryDailySheetSnapshotModel, row.id)
+                if persisted:
+                    persisted.status = "retryable_failure"
+                    persisted.error_code = str(code)[:100]
+                    persisted.error_message = "Inventory V4 workbook snapshot failed; inspect structured logs."
+                    session.commit()
+            raise
+
     def _agent_v4(self):
         if self.agent_v4_service is None:
             from app.modules.inventory.daily_sheet.agent_v4.service import build_daily_sheet_v4_service
@@ -524,6 +585,7 @@ class InventoryDailySheetService:
         context = self._context(tenant_id, require_enabled=False)
         if not isinstance(context.config, GeminiToolSheetAgentConfig):
             raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
+        self.snapshot_v4_workbook(tenant_id, business_date)
         return self._agent_v4().run(
             tenant_id, business_date, slot_kind=slot_kind
         )
@@ -1194,14 +1256,33 @@ class InventoryDailySheetService:
 
                 v4_snapshot = v4_slot_status("snapshot")
                 v4_reconciliation = v4_slot_status("reconcile")
+                stored_v4_snapshot = (
+                    snapshot_status
+                    if snapshot_status
+                    and str(snapshot_status.get("business_date") or "")
+                    == str((v4_snapshot or {}).get("business_date") or "")
+                    else None
+                )
                 snapshot_status = (
                     None
                     if v4_snapshot is None
                     else {
                         **v4_snapshot,
-                        "snapshot_file_id": None,
-                        "snapshot_url": None,
-                        "archive_folder_url": None,
+                        "snapshot_file_id": (
+                            stored_v4_snapshot.get("snapshot_file_id")
+                            if stored_v4_snapshot
+                            else None
+                        ),
+                        "snapshot_url": (
+                            stored_v4_snapshot.get("snapshot_url")
+                            if stored_v4_snapshot
+                            else None
+                        ),
+                        "archive_folder_url": (
+                            stored_v4_snapshot.get("archive_folder_url")
+                            if stored_v4_snapshot
+                            else None
+                        ),
                     }
                 )
                 reconciliation_status = (

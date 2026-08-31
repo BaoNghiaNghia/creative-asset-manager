@@ -965,6 +965,35 @@ def test_v4_validation_ignores_stale_legacy_template(daily_sheet_db):
     assert google.validated_file_ids == ["working"]
 
 
+def test_v4_snapshot_copies_workbook_beside_source_before_agent_run(daily_sheet_db):
+    configure_v4(daily_sheet_db, automation_enabled=True)
+
+    class V4SnapshotGoogle(FakeGoogle):
+        def validate_native_spreadsheet(self, file_id):
+            return {
+                **super().validate_native_spreadsheet(file_id),
+                "parents": ["source-parent"],
+            }
+
+        def drive_file(self, file_id):
+            return {
+                "id": file_id,
+                "modifiedTime": self.modified,
+                "parents": ["source-parent"],
+            }
+
+    google = V4SnapshotGoogle()
+    worker = service(daily_sheet_db, google)
+    result = worker.snapshot_v4_workbook("tenant-a", date(2030, 8, 9))
+
+    assert result.status == "completed"
+    assert result.snapshot_file_id == "snapshot"
+    assert result.archive_folder_id == "source-parent"
+    assert google.copy_calls == 1
+    assert worker.snapshot_v4_workbook("tenant-a", date(2030, 8, 9)).id == result.id
+    assert google.copy_calls == 1
+
+
 def test_v4_manual_shadow_runs_while_daily_automation_is_disabled(daily_sheet_db):
     configure_v4(daily_sheet_db, automation_enabled=False)
 

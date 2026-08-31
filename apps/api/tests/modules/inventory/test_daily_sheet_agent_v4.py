@@ -61,7 +61,20 @@ class FakeGoogle:
             "id": file_id,
             "name": "Any workbook",
             "modifiedTime": self.modified_time,
+            "parents": ["source-folder"],
         }
+
+    def drive_file(self, file_id):
+        return {
+            "id": file_id,
+            "name": "Any workbook",
+            "modifiedTime": self.modified_time,
+            "parents": ["source-folder"],
+        }
+
+    def copy_spreadsheet(self, source_id, **kwargs):
+        self.copy_calls.append({"source_id": source_id, **kwargs})
+        return {"id": "snapshot-" + source_id}
 
     def spreadsheet_metadata(self, _file_id):
         return {
