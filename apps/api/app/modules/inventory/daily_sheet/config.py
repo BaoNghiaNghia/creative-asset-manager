@@ -287,6 +287,9 @@ class ToolSheetAgentRuntimeConfig(DailySheetModel):
     max_read_calls: int = Field(default=24, ge=1, le=100)
     max_read_cells: int = Field(default=12000, ge=1, le=50000)
     max_edit_operations: int = Field(default=200, ge=1, le=1000)
+    tool_call_min_interval_seconds: float = Field(default=2.0, ge=0.0, le=60.0)
+    tool_call_rate_limit_retries: int = Field(default=2, ge=0, le=5)
+    tool_call_retry_backoff_seconds: float = Field(default=5.0, ge=0.0, le=120.0)
     business_goal: list[str] = Field(
         default_factory=lambda: [
             "Understand the workbook from its labels, structure, formulas and exact values.",

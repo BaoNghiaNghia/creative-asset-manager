@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from datetime import date
 from typing import Any, Callable
 
@@ -11,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings, get_settings
-from app.modules.inventory.ai.gateway import RuntimeInventoryGeminiGateway
+from app.modules.inventory.ai.gateway import InventoryAiGatewayError, RuntimeInventoryGeminiGateway
 from app.modules.inventory.credentials import InventoryGeminiCredentialResolver
 from app.modules.inventory.model import InventoryAiControlModel
 
@@ -58,7 +59,7 @@ class InventoryDailySheetV4Service:
         self.token_resolver = token_resolver
         self.enabled = enabled
 
-    def _runtime(self, tenant_id: str) -> tuple[str, str]:
+    def _runtime(self, tenant_id: str) -> tuple[str, tuple[str, ...]]:
         if not self.enabled:
             raise V4AgentUnavailable("inventory_ai_disabled")
         with self.session_factory() as session:
@@ -74,7 +75,7 @@ class InventoryDailySheetV4Service:
         models = tuple(str(value) for value in (control.allowed_models_json or ()) if value)
         if control.provider != "gemini" or not models:
             raise V4AgentUnavailable("inventory_ai_model_not_allowed")
-        return control.provider, models[0]
+        return control.provider, models
 
     def _token(self, connection_id: str) -> str:
         value = self.token_resolver(connection_id)
@@ -102,7 +103,7 @@ class InventoryDailySheetV4Service:
         configured_file_id = config.source.spreadsheet_file_id
         if configured_file_id and configured_file_id != context.working_file_id:
             raise V4AgentSafetyError("spreadsheet_not_authorized")
-        provider, model = self._runtime(tenant_id)
+        provider, models = self._runtime(tenant_id)
         contents: list[dict[str, Any]] = [
             {
                 "role": "user",
@@ -120,6 +121,11 @@ class InventoryDailySheetV4Service:
                                 "allowed_sheets": config.source.allowed_sheets,
                                 "business_goal": config.agent.business_goal,
                                 "allow_auto_evidence_backed_transforms": config.agent.allow_auto_evidence_backed_transforms,
+                                "rate_limit_strategy": {
+                                    "models": list(models),
+                                    "min_interval_seconds": config.agent.tool_call_min_interval_seconds,
+                                    "retries_per_round": config.agent.tool_call_rate_limit_retries,
+                                },
                                 "limits": {
                                     "max_tool_rounds": config.agent.max_tool_rounds,
                                     "max_read_calls": config.agent.max_read_calls,
@@ -149,15 +155,52 @@ class InventoryDailySheetV4Service:
             ),
         )
         rounds = 0
+        selected_model_index = 0
         try:
             for rounds in range(1, config.agent.max_tool_rounds + 1):
-                turn = self.gateway.generate_tool_turn(
-                    tenant_id=tenant_id,
-                    contents=contents,
-                    function_declarations=function_declarations(),
-                    provider=provider,
-                    model=model,
-                )
+                if rounds > 1 and config.agent.tool_call_min_interval_seconds:
+                    time.sleep(config.agent.tool_call_min_interval_seconds)
+                last_rate_limit_error: InventoryAiGatewayError | None = None
+                turn = None
+                for retry_index in range(config.agent.tool_call_rate_limit_retries + 1):
+                    model_indexes = tuple(range(selected_model_index, len(models))) + tuple(
+                        range(0, selected_model_index)
+                    )
+                    for model_index in model_indexes:
+                        model = models[model_index]
+                        try:
+                            turn = self.gateway.generate_tool_turn(
+                                tenant_id=tenant_id,
+                                contents=contents,
+                                function_declarations=function_declarations(),
+                                provider=provider,
+                                model=model,
+                            )
+                            selected_model_index = model_index
+                            break
+                        except InventoryAiGatewayError as exc:
+                            if exc.code != "inventory_gemini_rate_limited":
+                                raise
+                            last_rate_limit_error = exc
+                            logger.warning(
+                                "inventory_sheet_agent_v4_rate_limited",
+                                extra={
+                                    "tenant_id": tenant_id,
+                                    "model": model,
+                                    "round": rounds,
+                                    "retry_index": retry_index,
+                                },
+                            )
+                    if turn is not None:
+                        break
+                    if retry_index < config.agent.tool_call_rate_limit_retries:
+                        time.sleep(
+                            config.agent.tool_call_retry_backoff_seconds
+                            * (retry_index + 1)
+                        )
+                if turn is None:
+                    assert last_rate_limit_error is not None
+                    raise last_rate_limit_error
                 contents.append(dict(turn.content))
                 if not turn.calls:
                     raise V4AgentUnavailable("inventory_sheet_agent_v4_missing_tool_call")
