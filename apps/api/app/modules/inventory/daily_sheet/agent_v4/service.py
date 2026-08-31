@@ -20,13 +20,14 @@ from .tools import V4AgentSafetyError, V4WorkbookToolHost, function_declarations
 
 logger = logging.getLogger("cam.inventory.daily_sheet.agent_v4")
 
-V4_PROMPT_VERSION = "inventory-sheet-tool-agent-v4-1"
+V4_PROMPT_VERSION = "inventory-sheet-tool-agent-v4-2"
 V4_HIGH_LEVEL_GOAL = """Act as an investigative Inventory workbook operator in a safety-controlled environment.
 Start with workbook metadata, then read enough exact cell evidence to understand the workbook's own labels, structure, formulas, values, operational rows and field relationships.
 Do not assume the first range is sufficient, and do not assume fixed headers, columns, rows or ranges.
 Inspect row-local anomalies and relationships. Distinguish blank from zero, coherent raw structured values from structurally suspicious data, and missing evidence from evidence that no action is required.
 When material or item identities are relevant to the configured business goal, inspect the tenant material catalog before finalizing. Do not perform fuzzy matching outside the model; MATCH_EXISTING must cite an exact active catalog material_id.
-Never invent a value. When evidence required for a safe workflow is missing, report an issue or uncertainty and do not stage destructive clears.
+Never invent a value. In automatic mode, process every report material independently: update only materials that can be matched to an existing editable warehouse row. First prefer an exact normalized name or confirmed catalog alias. A close name is allowed only after reading the candidate warehouse row and confirming compatible category, unit, and operational context; cite evidence from both the report and selected warehouse row. Process matched materials even when other report rows are unmatched.
+For an unmatched material, do not create a warehouse row, do not alter that report row, and do not stage AMBIGUOUS_MATERIAL_MAPPING. Instead stage a non-review informational issue with code UNMAPPED_MATERIAL_SKIPPED. An unmatched line must not block evidence-backed operations for other materials.
 Use exact_copy provenance whenever a value is copied without transformation. Cite the exact evidence hash returned by a read tool for every assessment observation, edit, issue and material action.
 Before stage_edits, call submit_workbook_assessment. If more evidence is needed, read it and submit an updated complete assessment before staging.
 Perform a silent completeness check, then call stage_edits exactly once. A ready no-op plan requires a grounded assessment explaining why no action or review is needed.
