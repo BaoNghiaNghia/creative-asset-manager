@@ -11,6 +11,12 @@ describe("Inventory routes and API boundary", () => {
     expect(markup).toContain("inventory-shell--embedded");
     expect(markup).toContain("<button");
     expect(markup).toContain("Inventory dashboard");
+    expect(markup).toContain("H\u1eb1ng ng\u00e0y");
+    expect(markup).toContain("Xem x\u00e9t");
+    expect(markup).toContain("V\u1eadt t\u01b0");
+    expect(markup).toContain("C\u1ea5u h\u00ecnh");
+    expect(markup).not.toContain(">Inbox<");
+    expect(markup).not.toContain(">Reports<");
     expect(markup).not.toContain("inventory-brand");
   });
   it("resolves all six Inventory routes without changing Creative routes", () => {
