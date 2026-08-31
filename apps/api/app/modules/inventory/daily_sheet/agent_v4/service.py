@@ -118,6 +118,7 @@ class InventoryDailySheetV4Service:
                                 "spreadsheet_file_id": context.working_file_id,
                                 "allowed_sheets": config.source.allowed_sheets,
                                 "business_goal": config.agent.business_goal,
+                                "allow_auto_evidence_backed_transforms": config.agent.allow_auto_evidence_backed_transforms,
                                 "limits": {
                                     "max_tool_rounds": config.agent.max_tool_rounds,
                                     "max_read_calls": config.agent.max_read_calls,
@@ -141,6 +142,10 @@ class InventoryDailySheetV4Service:
             max_read_calls=config.agent.max_read_calls,
             max_read_cells=config.agent.max_read_cells,
             max_edit_operations=config.agent.max_edit_operations,
+            allow_auto_transforms=(
+                apply_mode == "auto"
+                and config.agent.allow_auto_evidence_backed_transforms
+            ),
         )
         rounds = 0
         try:
@@ -200,6 +205,7 @@ class InventoryDailySheetV4Service:
                 )
             ).hexdigest()
             result = V4AgentRunResult(
+                apply_mode=apply_mode,
                 status=status,
                 run_id=run_id,
                 tenant_id=tenant_id,

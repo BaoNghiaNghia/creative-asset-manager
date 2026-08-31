@@ -135,7 +135,7 @@ class SessionFactory:
         return FakeSession(self.control, self.material_ids)
 
 
-def host(*, max_read_calls=20, max_read_cells=100, material_ids=()):
+def host(*, max_read_calls=20, max_read_cells=100, material_ids=(), allow_auto_transforms=False):
     return V4WorkbookToolHost(
         tenant_id="tenant-a",
         spreadsheet_file_id="sheet-1",
@@ -145,6 +145,7 @@ def host(*, max_read_calls=20, max_read_cells=100, material_ids=()):
         max_read_calls=max_read_calls,
         max_read_cells=max_read_cells,
         max_edit_operations=20,
+        allow_auto_transforms=allow_auto_transforms,
     )
 
 
@@ -203,6 +204,20 @@ def test_v4_config_accepts_explicit_guarded_apply_modes(apply_mode):
             "agent": {"apply_mode": apply_mode},
         }
     ).agent.apply_mode == apply_mode
+
+
+def test_v4_config_allows_explicit_evidence_backed_auto_transforms():
+    config = parse_daily_sheet_config(
+        {
+            "version": 4,
+            "mode": "gemini_tool_sheet_agent",
+            "agent": {
+                "apply_mode": "auto",
+                "allow_auto_evidence_backed_transforms": True,
+            },
+        }
+    )
+    assert config.agent.allow_auto_evidence_backed_transforms is True
 
 
 def test_v4_config_rejects_unknown_apply_mode():
@@ -417,6 +432,31 @@ def test_transformed_write_is_review_required():
     )
     assert tools.staged.status == "review_required"
     assert tools.staged.requires_review is True
+
+
+def test_enabled_evidence_backed_transformation_can_be_auto_applied():
+    tools = host(allow_auto_transforms=True)
+    cell = tools.read_range({"sheet": "Arbitrary", "a1_range": "C7"})["cells"][0]
+    submit_grounded_assessment(tools, cell)
+    result = tools.stage_edits(
+        {
+            "status": "ready",
+            "operations": [
+                {
+                    "operation_id": "transform",
+                    "type": "set_cell",
+                    "sheet": "Arbitrary",
+                    "cell": "C7",
+                    "value": "changed",
+                    "evidence": [reference(cell)],
+                    "provenance": "transformed",
+                }
+            ],
+        }
+    )
+    assert result["apply_mode"] == "auto"
+    assert tools.staged.status == "ready"
+    assert tools.staged.requires_review is False
 
 
 @pytest.mark.parametrize("target", ["D8", "C9", "C10"])

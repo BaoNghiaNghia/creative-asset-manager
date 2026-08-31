@@ -129,6 +129,7 @@ class V4WorkbookToolHost:
         max_read_calls: int,
         max_read_cells: int,
         max_edit_operations: int,
+        allow_auto_transforms: bool = False,
     ) -> None:
         self.tenant_id = tenant_id
         self.spreadsheet_file_id = spreadsheet_file_id
@@ -138,6 +139,7 @@ class V4WorkbookToolHost:
         self.max_read_calls = max_read_calls
         self.max_read_cells = max_read_cells
         self.max_edit_operations = max_edit_operations
+        self.allow_auto_transforms = allow_auto_transforms
         self.read_calls = 0
         self.read_cells = 0
         self.ledger: dict[tuple[str, str], CellEvidence] = {}
@@ -442,8 +444,10 @@ class V4WorkbookToolHost:
                 if operation.type == "set_cell" and operation.provenance == "exact_copy" and operation.value != source.raw_value:
                     if source.raw_value in (None, "") and operation.value in (0, "0"):
                         raise V4AgentSafetyError("blank_is_not_zero")
-                    transformed = True
-            if operation.provenance == "transformed" or operation.requires_review:
+                    raise V4AgentSafetyError("exact_copy_value_mismatch")
+            if operation.requires_review:
+                transformed = True
+            elif operation.provenance == "transformed" and not self.allow_auto_transforms:
                 transformed = True
             (set_operations if operation.type == "set_cell" else clear_operations).append(operation)
         for issue in staged.issues:
@@ -461,7 +465,7 @@ class V4WorkbookToolHost:
         self.staged = staged
         return {
             "accepted": True,
-            "apply_mode": "shadow",
+            "apply_mode": "auto" if self.allow_auto_transforms else "shadow",
             "status": staged.status,
             "requires_review": staged.requires_review,
             "operation_count": len(staged.operations),
