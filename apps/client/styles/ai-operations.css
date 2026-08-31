@@ -787,7 +787,7 @@
 .video-pipeline-flow{position:relative;display:grid;grid-template-columns:repeat(2,minmax(160px,1fr));gap:12px;margin:0;padding:0;list-style:none}
 .video-pipeline-flow:before{position:absolute;top:15px;right:22%;left:22%;z-index:0;border-top:1px solid #d6e0ec;content:""}
 .video-pipeline-flow li{position:relative;z-index:1;display:grid;grid-template-columns:31px minmax(0,1fr);align-items:start;gap:8px;min-width:0}
-.video-pipeline-flow-icon{display:grid;width:30px;height:30px;place-items:center;border:1px solid #d6e0ec;border-radius:50%;background:#fff;color:#76879c;font-size:14px;font-weight:800}
+.video-pipeline-flow-icon{display:grid;width:30px;height:30px;place-items:center;border:1px solid #d6e0ec;border-radius:50%;background:#fff;color:#76879c}.video-pipeline-flow-icon svg{width:16px;height:16px}
 .video-pipeline-flow li>div{display:flex;min-width:0;flex-direction:column;padding-top:1px;gap:2px}
 .video-pipeline-flow-label{overflow:hidden;color:#43536a;font-size:10px;font-weight:800;letter-spacing:.01em;text-overflow:ellipsis;white-space:nowrap}
 .video-pipeline-flow-status{display:flex;align-items:center;gap:4px;overflow:hidden;color:#7b899c;font-size:10px;font-weight:650;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
@@ -985,7 +985,7 @@
 .pipeline-asset-flow{position:relative;display:grid;grid-template-columns:repeat(5,minmax(118px,1fr));gap:8px;margin:0;padding:0;list-style:none}
 .pipeline-asset-flow:before{position:absolute;top:15px;right:9%;left:9%;z-index:0;border-top:1px solid #d6e0ec;content:""}
 .pipeline-asset-flow li{position:relative;z-index:1;display:grid;grid-template-columns:31px minmax(0,1fr);align-items:start;gap:7px;min-width:0}
-.pipeline-asset-flow-icon{display:grid;width:30px;height:30px;place-items:center;border:1px solid #d6e0ec;border-radius:50%;background:#fff;color:#76879c;font-size:14px;font-weight:800}
+.pipeline-asset-flow-icon{display:grid;width:30px;height:30px;place-items:center;border:1px solid #d6e0ec;border-radius:50%;background:#fff;color:#76879c}.pipeline-asset-flow-icon svg{width:16px;height:16px}
 .pipeline-asset-flow li>div{display:flex;min-width:0;flex-direction:column;padding-top:1px;gap:2px}
 .pipeline-asset-flow-label{overflow:hidden;color:#43536a;font-size:10px;font-weight:800;letter-spacing:.01em;text-overflow:ellipsis;white-space:nowrap}
 .pipeline-asset-flow-status{display:flex;align-items:center;gap:4px;overflow:hidden;color:#7b899c;font-size:10px;font-weight:650;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}

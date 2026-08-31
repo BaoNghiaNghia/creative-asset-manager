@@ -516,9 +516,22 @@ function VideoPipelineOverview({ dashboard, onPage, onOpenVideo }: {
   </div>;
 }
 
+type PipelineIconKind = "download" | "store" | "analyze" | "search" | "index" | "video_analyze" | "video_index";
+
+function PipelineFlowIcon({ kind }: { kind: PipelineIconKind }) {
+  const attrs = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (kind === "download") return <svg {...attrs}><path d="M12 3v11" /><path d="m8 10 4 4 4-4" /><path d="M5 20h14" /></svg>;
+  if (kind === "store") return <svg {...attrs}><path d="M4 7h16v13H4z" /><path d="M8 7V4h8v3" /><path d="M9 12h6" /></svg>;
+  if (kind === "analyze") return <svg {...attrs}><path d="m12 3 1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3Z" /></svg>;
+  if (kind === "search") return <svg {...attrs}><circle cx="10.5" cy="10.5" r="5.5" /><path d="m15 15 4 4" /></svg>;
+  if (kind === "index") return <svg {...attrs}><path d="M8 6h11M8 12h11M8 18h11" /><path d="M4 6h.01M4 12h.01M4 18h.01" /></svg>;
+  if (kind === "video_analyze") return <svg {...attrs}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m10 9 5 3-5 3V9Z" /><path d="m18 4 1-1" /></svg>;
+  return <svg {...attrs}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M8 10h5M8 14h7" /><path d="m17 16 2 2" /><circle cx="15.5" cy="14.5" r="2.5" /></svg>;
+}
+
 const recentVideoSteps = [
-  { key: "video_analyze", label: "Video analysis", icon: "*" },
-  { key: "video_search_index", label: "Video indexing", icon: "=" },
+  { key: "video_analyze", label: "Video analysis", icon: "video_analyze" },
+  { key: "video_search_index", label: "Video indexing", icon: "video_index" },
 ] as const;
 
 type RecentVideoItem = NonNullable<AiOpsDashboardData["media"]>["recent_video"]["items"][number];
@@ -532,7 +545,7 @@ function VideoPipelineFlow({ item }: { item: RecentVideoItem }) {
       const maxAttempts = jobStep?.max_attempts ?? (step.key === "video_analyze" ? item.max_attempts : 0);
       const label = status === "pending" ? "Queued" : status === "not_started" ? "Not started" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase());
       return <li className={status} data-video-step={step.key} key={step.key}>
-        <span className="video-pipeline-flow-icon" aria-hidden="true">{step.icon}</span>
+        <span className="video-pipeline-flow-icon"><PipelineFlowIcon kind={step.icon} /></span>
         <div><span className="video-pipeline-flow-label">{step.label}</span><span className="video-pipeline-flow-status"><i aria-hidden="true" />{label}</span>{maxAttempts > 0 ? <small>{attemptCount}/{maxAttempts} attempts</small> : null}</div>
       </li>;
     })}
@@ -689,11 +702,11 @@ function PipelineCurrentState({ state }: { state: string }) {
 }
 
 const pipelineAssetSteps = [
-  { key: "download", label: "Tải xuống", icon: "↓" },
-  { key: "store", label: "Lưu trữ", icon: "□" },
-  { key: "analyze", label: "Phân tích AI", icon: "✦" },
-  { key: "projection", label: "Tìm kiếm", icon: "⌕" },
-  { key: "index", label: "Lập chỉ mục", icon: "≡" },
+  { key: "download", label: "Tải xuống", icon: "download" },
+  { key: "store", label: "Lưu trữ", icon: "store" },
+  { key: "analyze", label: "Phân tích AI", icon: "analyze" },
+  { key: "projection", label: "Tìm kiếm", icon: "search" },
+  { key: "index", label: "Lập chỉ mục", icon: "index" },
 ] as const;
 
 function PipelineAssetFlow({ statuses }: { statuses: Record<string, string> }) {
@@ -701,7 +714,7 @@ function PipelineAssetFlow({ statuses }: { statuses: Record<string, string> }) {
     {pipelineAssetSteps.map(step => {
       const status = statuses[step.key] || "not_started";
       return <li className={status} key={step.key}>
-        <span className="pipeline-asset-flow-icon" aria-hidden="true">{step.icon}</span>
+        <span className="pipeline-asset-flow-icon"><PipelineFlowIcon kind={step.icon} /></span>
         <div>
           <span className="pipeline-asset-flow-label">{step.label}</span>
           <span className="pipeline-asset-flow-status"><i aria-hidden="true" />{status === "pending" ? "\u0110\u00e3 x\u1ebfp h\u00e0ng" : status === "not_started" ? "Ch\u01b0a b\u1eaft \u0111\u1ea7u" : status.replaceAll("_", " ").replace(/\b\w/g, value => value.toUpperCase())}</span>
