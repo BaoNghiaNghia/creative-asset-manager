@@ -173,11 +173,11 @@ export function InventoryGeminiCredentialSettings({
       <div><dt>Provider</dt><dd>Google Gemini</dd></div>
       <div><dt>Status</dt><dd>{credentialStatusLabel(credential.status, credential.configured)}</dd></div>
       <div><dt>API Key</dt><dd>{credential.masked_key || "Not configured"}</dd></div>
-      <div><dt>Credential Source</dt><dd>{credential.source === "configuration" ? "Configuration" : credential.source === "environment" ? "Environment" : "Not configured"}</dd></div>
+
       <div><dt>Label</dt><dd>{credential.label || "Not set"}</dd></div>
-      <div><dt>Last Tested</dt><dd>{formatTimestamp(credential.last_tested_at)}</dd></div>
+
       <div><dt>Last Updated</dt><dd>{formatTimestamp(credential.updated_at)}</dd></div>
-      <div><dt>Updated By</dt><dd>{credential.updated_by || "Not available"}</dd></div>
+
     </dl>
     <div className="inventory-actions">
       {canManage ? <>
