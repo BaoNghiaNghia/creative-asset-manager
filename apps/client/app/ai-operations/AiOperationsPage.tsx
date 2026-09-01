@@ -11,6 +11,7 @@ import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
 import { InventoryDailyTab } from "./InventoryDailyTab";
 import { AssetDetailsPanel } from "../components/AssetDetailsPanel";
 import { BrandIcon } from "../components/Icons";
+import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import type { Asset } from "../types";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 import { fetchAiOperationsConfiguration, setTenantAiPaused, setVideoAiPaused, type AiOpsConfiguration } from "../../features/ai_operations";
@@ -169,7 +170,7 @@ export function AiOperationsPage() {
       setErrors(current => [...current, error instanceof Error ? error.message : "Unable to load video details."]);
     }
   }
-  return <AiOperationsShell>
+  return <AiOperationsShell subtitle={identity?.email || "Operations console"}>
     <AiOperationsContent
       data={data} loading={loading} errors={errors} unauthorized={unauthorized}
       filters={filters} tab={tab} onTab={changeTab} onFilters={changeFilters}
@@ -192,26 +193,11 @@ function updateUrl(filters: AiOpsFilters, tab: AiOpsTab, refreshSeconds: AutoRef
   window.history.replaceState({}, "", `/ai-operations${query ? `?${query}` : ""}`);
 }
 
-function WorkspaceIcon({ name }: { name: "assets" | "operations" | "queue" | "access" }) {
-  const paths = {
-    assets: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="m4 17 5-5 3.5 3.5 2.5-2.5 5 5M8 9h.01" /></>,
-    operations: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /></>,
-    queue: <><path d="M5 5h14M5 12h14M5 19h9" /><circle cx="4" cy="5" r=".7" fill="currentColor" stroke="none" /><circle cx="4" cy="12" r=".7" fill="currentColor" stroke="none" /><circle cx="4" cy="19" r=".7" fill="currentColor" stroke="none" /></>,
-    access: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c.6-3.5 3-5.5 7-5.5s6.4 2 7 5.5" /></>,
-  };
-  return <svg className="workspace-nav-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
-}
-
-export function AiOperationsShell({ children }: { children: React.ReactNode }) {
+export function AiOperationsShell({ children, subtitle = "Operations console" }: { children: React.ReactNode; subtitle?: string }) {
   return <main className="ops-shell">
     <aside className="ops-sidebar">
-      <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>Operations console</small></span></div>
-      <nav className="workspace-navigation" aria-label="Workspace navigation">
-        <a href="/"><WorkspaceIcon name="assets" /><span>Asset Explorer</span></a>
-        <a href="/ai-operations" className="active" aria-current="page"><WorkspaceIcon name="operations" /><span>AI Operations</span></a>
-        <a href="/job-queue"><WorkspaceIcon name="queue" /><span>Job Queue</span></a>
-        <a href="/settings/access"><WorkspaceIcon name="access" /><span>Access Management</span></a>
-      </nav>
+      <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>{subtitle}</small></span></div>
+      <WorkspaceNavigation active="operations" />
       <small className="ops-sidebar-note">Tenant-scoped metrics. Provider secrets are never shown.</small>
     </aside>
     <section className="ops-main">{children}</section>
