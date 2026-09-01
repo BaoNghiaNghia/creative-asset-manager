@@ -19,6 +19,7 @@ class JobType(str, Enum):
     METADATA_SIDECAR_EXPORT = "metadata_sidecar_export"
     RETENTION_CLEANUP = "retention_cleanup"
     MANAGED_STORAGE_CLEANUP = "managed_storage_cleanup"
+    IMAGE_GENERATE = "image_generate"
 
 
 JOB_TYPES = tuple(job_type.value for job_type in JobType)

@@ -121,6 +121,14 @@ class Settings(BaseSettings):
     SEARCH_SHADOW_COMPARISON_ENABLED: bool = False
     ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED: bool = False
     VIDEO_SEARCH_ENABLED: bool = False
+    # Image generation is deny-by-default. Provider selection is explicit and
+    # Firefly/Gemini never fall back to one another.
+    IMAGE_GENERATION_ENABLED: bool = False
+    FIREFLY_IMAGE_GENERATION_ENABLED: bool = False
+    GEMINI_IMAGE_GENERATION_ENABLED: bool = False
+    FIREFLY_SERVICES_CLIENT_ID: str = ""
+    FIREFLY_SERVICES_CLIENT_SECRET: str = ""
+    GEMINI_IMAGE_MODEL: str = "gemini-3.1-flash-image"
     VIDEO_ANALYSIS_ENABLED: bool = False
     VIDEO_PROXY_ENABLED: bool = False
     VIDEO_AI_TOKEN_SAFETY_RATIO: float = 0.80
