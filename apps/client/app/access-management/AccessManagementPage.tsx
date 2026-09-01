@@ -74,10 +74,12 @@ export function AccessManagementPage() {
 export function AccessManagementShell({ children, identity = null }: { children: React.ReactNode; identity?: AccessIdentity | null }) {
   return <main className="access-shell"><aside className="access-sidebar">
     <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>Workspace settings</small></span></div>
-    <p>WORKSPACE</p>
-    <a href="/">▧ Asset Explorer</a>
-    {identity?.permissions.includes("ai_operations.read") && <a href="/ai-operations">◉ AI Operations</a>}
-    <a href="/settings/access" className="active" aria-current="page">⚿ Access Management</a>
+    <nav className="workspace-navigation" aria-label="Workspace navigation">
+      <a href="/"><span className="access-nav-icon">▧</span><span>Asset Explorer</span></a>
+      {identity?.permissions.includes("ai_operations.read") && <a href="/ai-operations"><span className="access-nav-icon">◉</span><span>AI Operations</span></a>}
+      {identity?.permissions.includes("ai_operations.read") && <a href="/job-queue"><span className="access-nav-icon">☷</span><span>Job Queue</span></a>}
+      <a href="/settings/access" className="active" aria-current="page"><span className="access-nav-icon">♙</span><span>Access Management</span></a>
+    </nav>
     <small className="access-sidebar-note">Permissions are enforced by the server for every tenant operation.</small>
   </aside><section className="access-main">{children}</section></main>;
 }

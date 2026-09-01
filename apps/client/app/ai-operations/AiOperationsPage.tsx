@@ -209,7 +209,7 @@ export function AiOperationsShell({ children }: { children: React.ReactNode }) {
       <nav className="workspace-navigation" aria-label="Workspace navigation">
         <a href="/"><WorkspaceIcon name="assets" /><span>Asset Explorer</span></a>
         <a href="/ai-operations" className="active" aria-current="page"><WorkspaceIcon name="operations" /><span>AI Operations</span></a>
-        <a href="/ai-operations?tab=processing"><WorkspaceIcon name="queue" /><span>Job Queue</span></a>
+        <a href="/job-queue"><WorkspaceIcon name="queue" /><span>Job Queue</span></a>
         <a href="/settings/access"><WorkspaceIcon name="access" /><span>Access Management</span></a>
       </nav>
       <small className="ops-sidebar-note">Tenant-scoped metrics. Provider secrets are never shown.</small>

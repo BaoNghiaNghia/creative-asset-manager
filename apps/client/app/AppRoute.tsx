@@ -3,13 +3,15 @@ import App from "./App";
 
 const AccessManagementPage = lazy(() => import("./access-management/AccessManagementPage").then(module => ({ default: module.AccessManagementPage })));
 const AiOperationsPage = lazy(() => import("./ai-operations/AiOperationsPage").then(module => ({ default: module.AiOperationsPage })));
+const JobQueuePage = lazy(() => import("./job-queue/JobQueuePage").then(module => ({ default: module.JobQueuePage })));
 const InventoryApp = lazy(() => import("./inventory/InventoryApp").then(module => ({ default: module.InventoryApp })));
 const PrivacyPolicyPage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.TermsOfServicePage })));
 
-export type ApplicationRoute = "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory";
+export type ApplicationRoute = "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory" | "job-queue";
 
 export function routeForPath(pathname: string): ApplicationRoute {
+  if (pathname === "/job-queue") return "job-queue";
   if (pathname.startsWith("/inventory")) return "inventory";
   if (pathname === "/privacy-policy" || pathname === "/privacy") return "privacy";
   if (pathname === "/terms-of-service" || pathname === "/terms") return "terms";
@@ -19,7 +21,8 @@ export function routeForPath(pathname: string): ApplicationRoute {
 
 export function AppRoute() {
   const route = routeForPath(window.location.pathname);
-  const page = route === "inventory" ? <InventoryApp />
+  const page = route === "job-queue" ? <JobQueuePage />
+    : route === "inventory" ? <InventoryApp />
     : route === "privacy" ? <PrivacyPolicyPage />
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />

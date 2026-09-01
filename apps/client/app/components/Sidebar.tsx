@@ -88,7 +88,7 @@ export function Sidebar({
     <div className="workspace-navigation" aria-label="Workspace navigation">
       <a href="/" aria-current="page"><WorkspaceNavIcon name="assets" /><span>Asset Explorer</span></a>
       {canViewAiOperations && <a href="/ai-operations"><WorkspaceNavIcon name="operations" /><span>AI Operations</span></a>}
-      {canViewAiOperations && <a href="/ai-operations?tab=processing"><WorkspaceNavIcon name="queue" /><span>Job Queue</span></a>}
+      {canViewAiOperations && <a href="/job-queue"><WorkspaceNavIcon name="queue" /><span>Job Queue</span></a>}
       <a href="/settings/access"><WorkspaceNavIcon name="access" /><span>Access Management</span></a>
     </div>
     <p>SOURCES</p>
