@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
+import { Fragment, useEffect, useState, type PointerEventHandler, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
 import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
@@ -28,6 +28,18 @@ type Props = {
 
 export function mayViewAiOperations(permissions: readonly string[]): boolean {
   return permissions.includes("ai_operations.read");
+}
+
+type WorkspaceNavIconName = "assets" | "operations" | "queue" | "access";
+
+function WorkspaceNavIcon({ name }: { name: WorkspaceNavIconName }) {
+  const paths: Record<WorkspaceNavIconName, ReactNode> = {
+    assets: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="m4 17 5-5 3.5 3.5 2.5-2.5 5 5M8 9h.01" /></>,
+    operations: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /><path d="M12 3v2M21 12h-2" /></>,
+    queue: <><path d="M5 5h14M5 12h14M5 19h9" /><circle cx="4" cy="5" r=".7" fill="currentColor" stroke="none" /><circle cx="4" cy="12" r=".7" fill="currentColor" stroke="none" /><circle cx="4" cy="19" r=".7" fill="currentColor" stroke="none" /></>,
+    access: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c.6-3.5 3-5.5 7-5.5s6.4 2 7 5.5M18 4l2 2-2 2" /></>,
+  };
+  return <svg className="workspace-nav-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 
 const sources: Array<{ provider: Provider; label: string; login: string }> = [
@@ -74,9 +86,10 @@ export function Sidebar({
       <span><strong>Creative assets</strong><small>{auth.user?.email || "Google Drive · SharePoint"}</small></span>
     </div>
     <div className="workspace-navigation" aria-label="Workspace navigation">
-      <a href="/" aria-current="page">▧ Asset Explorer</a>
-      {canViewAiOperations && <a href="/ai-operations">◉ AI Operations</a>}
-      <a href="/settings/access">⚿ Access Management</a>
+      <a href="/" aria-current="page"><WorkspaceNavIcon name="assets" /><span>Asset Explorer</span></a>
+      {canViewAiOperations && <a href="/ai-operations"><WorkspaceNavIcon name="operations" /><span>AI Operations</span></a>}
+      {canViewAiOperations && <a href="/ai-operations?tab=processing"><WorkspaceNavIcon name="queue" /><span>Job Queue</span></a>}
+      <a href="/settings/access"><WorkspaceNavIcon name="access" /><span>Access Management</span></a>
     </div>
     <p>SOURCES</p>
     {Object.values(authByProvider).some(session => session.checking)
