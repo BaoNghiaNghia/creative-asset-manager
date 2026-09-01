@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-
 ProviderKey = Literal["adobe_firefly", "gemini"]
 PreservationMode = Literal["strict_expand", "semantic_expand"]
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
@@ -45,22 +44,29 @@ class DeferredGenerationResult:
     upload_id: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderPollResult:
+    state: Literal["running", "succeeded", "failed", "cancelled"]
+    output_url: str | None = None
+    cancel_url: str | None = None
+    retry_after_seconds: int = 10
+    error_code: str | None = None
+
+
 class SquareImageGenerationProvider(Protocol):
     provider_key: ProviderKey
     preservation_mode: PreservationMode
 
-    async def generate_square(self, *, source: PreparedImage, target_size: int, prompt: str | None) -> GeneratedImageResult | DeferredGenerationResult: ...
+    async def generate_square(
+        self, *, source: PreparedImage, target_size: int, prompt: str | None
+    ) -> GeneratedImageResult | DeferredGenerationResult: ...
 
 
 def gemini_expansion_prompt(user_prompt: str | None) -> str:
     value = (user_prompt or "").strip()
     if not value:
         return GEMINI_SQUARE_EXPANSION_INSTRUCTION
-    return (
-        GEMINI_SQUARE_EXPANSION_INSTRUCTION
-        + "\n\nUser preference:\n"
-        + value
-    )
+    return GEMINI_SQUARE_EXPANSION_INSTRUCTION + "\n\nUser preference:\n" + value
 
 
 def gemini_image_size(target_size: int) -> Literal["1K", "2K"]:
