@@ -54,10 +54,13 @@ class SquareImageGenerationProvider(Protocol):
 
 def gemini_expansion_prompt(user_prompt: str | None) -> str:
     value = (user_prompt or "").strip()
-    return GEMINI_SQUARE_EXPANSION_INSTRUCTION if not value else f"{GEMINI_SQUARE_EXPANSION_INSTRUCTION}
-
-User preference:
-{value}"
+    if not value:
+        return GEMINI_SQUARE_EXPANSION_INSTRUCTION
+    return (
+        GEMINI_SQUARE_EXPANSION_INSTRUCTION
+        + "\n\nUser preference:\n"
+        + value
+    )
 
 
 def gemini_image_size(target_size: int) -> Literal["1K", "2K"]:
