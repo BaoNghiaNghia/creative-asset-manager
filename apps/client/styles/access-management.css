@@ -123,3 +123,4 @@
 .member-actions .danger-link[data-action="remove"]:before{content:"x";font-size:15px;font-weight:800;line-height:1}
 .member-action-stack>.secondary{min-height:36px;margin:0}
 @media(max-width:700px){.member-action-stack{min-width:520px}.member-actions{width:auto}.member-role-assignment,.member-status-actions{width:auto;align-items:center}}
+.access-sidebar{width:260px;box-sizing:border-box}.access-sidebar .workspace-navigation{display:flex;flex-direction:column;gap:7px;width:100%;margin:16px 0}.access-sidebar .workspace-navigation a{display:flex;align-items:center;gap:11px;width:100%;min-height:42px;box-sizing:border-box;padding:9px 11px;white-space:nowrap}.access-sidebar .workspace-navigation a>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.access-nav-icon{display:grid;width:20px;flex:0 0 20px;place-items:center;font-size:18px;line-height:1}.access-sidebar>p{display:none}
