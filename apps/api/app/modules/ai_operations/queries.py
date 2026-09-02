@@ -487,6 +487,13 @@ class AiOperationsRepository(BaseRepository):
                 "filename": presentation.get("filename"),
                 "mime_type": presentation.get("mime_type"),
                 "thumbnail_url": presentation.get("thumbnail_url"),
+                "source_thumbnail_url": presentation.get("thumbnail_url"),
+                "generated_image_url": (
+                    f"/api/v1/image-generations/{quote(str(job.entity_id), safe='')}/image"
+                    if job.entity_type == "image_generation_run"
+                    and job.status == JobStatus.COMPLETED.value
+                    else None
+                ),
                 "provider": job.provider_key, "status": job.status,
                 "priority": job.priority, "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,

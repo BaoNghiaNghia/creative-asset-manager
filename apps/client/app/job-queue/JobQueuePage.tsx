@@ -185,21 +185,23 @@ export function JobQueuePage() {
           </header>
           <div className="job-queue-table-scroll">
             <table className="job-queue-table">
-              <thead><tr><th>Job</th><th>Provider</th><th>Status</th><th>Attempts</th><th>Updated</th></tr></thead>
+              <thead><tr><th>Job</th><th>Source</th><th>Generated</th><th>Provider</th><th>Status</th><th>Attempts</th><th>Updated</th></tr></thead>
               <tbody>
-                {loading && !jobs.length ? <tr><td colSpan={5} className="job-queue-empty">Loading jobs...</td></tr> : visibleJobs.map(job => <tr key={job.id}>
+                {loading && !jobs.length ? <tr><td colSpan={7} className="job-queue-empty">Loading jobs...</td></tr> : visibleJobs.map(job => <tr key={job.id}>
                   <td>
                     <div className="job-queue-job">
                       <svg className="job-queue-file-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>
                       <span><b>{job.filename || formatJobType(job.job_type)}</b><small>{formatJobType(job.job_type)} / {job.id}</small></span>
                     </div>
                   </td>
+                  <td><div className="job-image-preview">{job.source_thumbnail_url ? <img src={job.source_thumbnail_url} alt="Source image" loading="lazy" /> : <span>No preview</span>}</div></td>
+                  <td><div className={"job-image-preview generated" + (job.generated_image_url ? " available" : "")}>{job.generated_image_url ? <img src={job.generated_image_url} alt="Generated image" loading="lazy" /> : <span>{job.is_deferred ? "Waiting for quota" : job.status === "failed" ? "Unavailable" : "Generating"}</span>}</div></td>
                   <td>{job.provider ? formatJobType(job.provider) : "Local"}</td>
                   <td><span className={`job-status ${job.is_deferred ? "waiting" : job.status}`}><i />{jobStatusLabel(job)}</span>{job.waiting_reason && <small className="job-waiting-reason">{job.waiting_reason === "gemini_image_quota_deferred" ? ("Next attempt " + formatJobTime(job.next_attempt_at)) : formatJobType(job.waiting_reason)}</small>}</td>
                   <td><b>{job.attempt_count}</b><span className="job-attempt-limit"> / {job.max_attempts}</span></td>
                   <td><time dateTime={job.updated_at}>{formatJobTime(job.updated_at)}</time></td>
                 </tr>)}
-                {!loading && !visibleJobs.length && <tr><td colSpan={5} className="job-queue-empty">No jobs match the selected filters.</td></tr>}
+                {!loading && !visibleJobs.length && <tr><td colSpan={7} className="job-queue-empty">No jobs match the selected filters.</td></tr>}
               </tbody>
             </table>
           </div>

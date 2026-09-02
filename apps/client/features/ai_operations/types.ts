@@ -92,6 +92,8 @@ export type AiOpsJob = {
   filename?: string | null;
   mime_type?: string | null;
   thumbnail_url?: string | null;
+  source_thumbnail_url?: string | null;
+  generated_image_url?: string | null;
   provider: string | null;
   status: string;
   priority: number;
