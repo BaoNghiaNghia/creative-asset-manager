@@ -149,6 +149,24 @@ class WorkerRuntimeTest(unittest.TestCase):
                 self.assertTrue(runtime.run_once())
                 self.assertEqual(self.job(job_id).status, status)
 
+    def test_claimed_job_includes_provider_key(self) -> None:
+        job_id = self.enqueue("provider-key")
+        with self.sessions.begin() as session:
+            model = session.get(ProcessingJobModel, job_id)
+            model.provider_key = "gemini"
+
+        observed: list[str | None] = []
+        runtime = self.runtime(
+            lambda context: (
+                observed.append(context.job.provider_key),
+                JobHandlerResult.completed(),
+            )[1]
+        )
+
+        self.assertTrue(runtime.run_once())
+        self.assertEqual(observed, ["gemini"])
+        self.assertEqual(self.job(job_id).status, "completed")
+
     def test_deferred_outcome_requeues_without_consuming_attempt_or_lease(self) -> None:
         job_id = self.enqueue("deferred")
         retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)

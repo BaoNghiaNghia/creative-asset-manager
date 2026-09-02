@@ -488,6 +488,7 @@ class WorkerRuntime:
                 payload={},
                 attempt_count=0,
                 lease_owner=self.config.worker_id,
+                provider_key=None,
             )
         return job
 
@@ -502,6 +503,7 @@ class WorkerRuntime:
             payload=dict(model.payload_json or {}),
             attempt_count=model.attempt_count,
             lease_owner=model.claimed_by or "",
+            provider_key=model.provider_key,
         )
 
     def _job_fields(self, job: ClaimedJob) -> dict[str, object]:

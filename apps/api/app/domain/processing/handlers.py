@@ -71,6 +71,7 @@ class ClaimedJob:
     payload: Mapping[str, Any]
     attempt_count: int
     lease_owner: str
+    provider_key: str | None = None
 
     @property
     def correlation_id(self) -> str | None:
