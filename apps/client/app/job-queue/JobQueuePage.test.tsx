@@ -5,7 +5,8 @@ vi.mock("../../features/ai_operations", () => ({
   fetchAiOperationsJobQueue: vi.fn(),
 }));
 
-import { formatJobTime, formatJobType, JobQueuePage, jobStatusLabel } from "./JobQueuePage";
+import { formatJobTime, formatJobType, GenerationResultModal, JobQueuePage, jobStatusLabel } from "./JobQueuePage";
+import type { AiOpsJob } from "../../features/ai_operations";
 
 describe("JobQueuePage", () => {
   it("renders the shared workspace sidebar with Job Queue active", () => {
@@ -32,6 +33,45 @@ describe("JobQueuePage", () => {
     expect(markup).toContain('class="job-queue-toolbar"');
     expect(markup).toContain("Generate Square 1:1 jobs");
     expect(markup).toContain("Source image or job ID");
+  });
+
+  it("renders the completed generation comparison with original and generated images", () => {
+    const job: AiOpsJob = {
+      id: "job-1",
+      job_type: "image_generate",
+      entity_type: "asset",
+      entity_id: "asset-1",
+      asset_id: "asset-1",
+      filename: "source.jpg",
+      source_thumbnail_url: "/api/assets/asset-1/thumbnail",
+      generated_image_url: "/api/assets/generated-1/content",
+      provider: "cloudflare_sd",
+      ai_model: "@cf/runwayml/stable-diffusion-v1-5-inpainting",
+      status: "completed",
+      priority: 0,
+      attempt_count: 1,
+      max_attempts: 8,
+      processing_duration_ms: 1000,
+      next_attempt_at: null,
+      is_deferred: false,
+      waiting_reason: null,
+      claimed_at: null,
+      lease_expires_at: null,
+      created_at: "2026-09-02T10:00:00Z",
+      updated_at: "2026-09-02T10:00:01Z",
+      completed_at: "2026-09-02T10:00:01Z",
+      error: null,
+    };
+    const markup = renderToStaticMarkup(<GenerationResultModal job={job} onClose={() => undefined} />);
+
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('aria-modal="true"');
+    expect(markup).toContain("Generation result");
+    expect(markup).toContain("Original");
+    expect(markup).toContain("Generated");
+    expect(markup).toContain('src="/api/assets/asset-1/thumbnail"');
+    expect(markup).toContain('src="/api/assets/generated-1/content"');
+    expect(markup).toContain("Open full size");
   });
 
   it("formats job types, times and deferred statuses safely", () => {

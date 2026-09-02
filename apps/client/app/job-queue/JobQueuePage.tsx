@@ -39,6 +39,41 @@ export function jobStatusLabel(job: Pick<AiOpsJob, "status" | "is_deferred"> & {
   return labels[job.status] || formatJobType(job.status);
 }
 
+export function GenerationResultModal({ job, onClose }: { job: AiOpsJob; onClose: () => void }) {
+  if (!job.source_thumbnail_url || !job.generated_image_url) return null;
+
+  return <div
+    className="generation-result-backdrop"
+    role="presentation"
+    onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}
+  >
+    <section className="generation-result-modal" role="dialog" aria-modal="true" aria-labelledby="generation-result-title">
+      <header>
+        <div>
+          <small>GENERATE SQUARE 1:1</small>
+          <h2 id="generation-result-title">Generation result</h2>
+          <p title={job.filename || undefined}>{job.filename || "Generated image"}</p>
+        </div>
+        <button type="button" className="generation-result-close-icon" onClick={onClose} aria-label="Close result comparison">&times;</button>
+      </header>
+      <div className="generation-result-comparison">
+        <figure>
+          <figcaption><strong>Original</strong><span>Source image</span></figcaption>
+          <div><img src={job.source_thumbnail_url} alt="Original source" /></div>
+        </figure>
+        <figure>
+          <figcaption><strong>Generated</strong><span>{job.provider ? formatJobType(job.provider) : "Generated result"}</span></figcaption>
+          <div><img src={job.generated_image_url} alt="Generated result" /></div>
+        </figure>
+      </div>
+      <footer>
+        <a href={job.generated_image_url} target="_blank" rel="noreferrer">Open full size</a>
+        <button type="button" onClick={onClose}>Close</button>
+      </footer>
+    </section>
+  </div>;
+}
+
 export function JobQueuePage() {
   const [jobs, setJobs] = useState<AiOpsJob[]>([]);
   const [summary, setSummary] = useState({ queued: 0, running: 0, completed: 0, failed: 0 });
@@ -51,6 +86,7 @@ export function JobQueuePage() {
   const [knownProviders, setKnownProviders] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedResult, setSelectedResult] = useState<AiOpsJob | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -88,6 +124,18 @@ export function JobQueuePage() {
   }, [page, pageSize, provider, status]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!selectedResult) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setSelectedResult(null); };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [selectedResult]);
 
   const visibleJobs = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -185,9 +233,9 @@ export function JobQueuePage() {
           </header>
           <div className="job-queue-table-scroll">
             <table className="job-queue-table">
-              <thead><tr><th>Job</th><th>Source</th><th>Generated</th><th>Provider</th><th>AI model</th><th>Status</th><th>Attempts</th><th>Updated</th></tr></thead>
+              <thead><tr><th>Job</th><th>Source</th><th>Generated</th><th>Provider</th><th>AI model</th><th>Status</th><th>Attempts</th><th>Updated</th><th>Action</th></tr></thead>
               <tbody>
-                {loading && !jobs.length ? <tr><td colSpan={8} className="job-queue-empty">Loading jobs...</td></tr> : visibleJobs.map(job => <tr key={job.id}>
+                {loading && !jobs.length ? <tr><td colSpan={9} className="job-queue-empty">Loading jobs...</td></tr> : visibleJobs.map(job => <tr key={job.id}>
                   <td>
                     <div className="job-queue-job">
                       <svg className="job-queue-file-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>
@@ -201,8 +249,11 @@ export function JobQueuePage() {
                   <td><span className={`job-status ${job.is_deferred ? "waiting" : job.status}`}><i />{jobStatusLabel(job)}</span>{job.waiting_reason && <small className="job-waiting-reason">{job.waiting_reason === "gemini_image_quota_deferred" ? ("Next attempt " + formatJobTime(job.next_attempt_at)) : formatJobType(job.waiting_reason)}</small>}</td>
                   <td><b>{job.attempt_count}</b><span className="job-attempt-limit"> / {job.max_attempts}</span></td>
                   <td><time dateTime={job.updated_at}>{formatJobTime(job.updated_at)}</time></td>
+                  <td>{job.status === "completed" && job.source_thumbnail_url && job.generated_image_url
+                    ? <button type="button" className="job-view-result" onClick={() => setSelectedResult(job)}>View result</button>
+                    : <span className="job-result-unavailable">&mdash;</span>}</td>
                 </tr>)}
-                {!loading && !visibleJobs.length && <tr><td colSpan={8} className="job-queue-empty">No jobs match the selected filters.</td></tr>}
+                {!loading && !visibleJobs.length && <tr><td colSpan={9} className="job-queue-empty">No jobs match the selected filters.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -215,5 +266,6 @@ export function JobQueuePage() {
         </footer>
       </div>
     </section>
+    {selectedResult && <GenerationResultModal job={selectedResult} onClose={() => setSelectedResult(null)} />}
   </main>;
 }
