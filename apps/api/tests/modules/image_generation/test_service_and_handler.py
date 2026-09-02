@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
 
@@ -264,3 +265,5 @@ def test_gemini_rate_limit_defers_without_consuming_attempts(database, tmp_path,
 
     assert isinstance(result, DeferredJobOutcome)
     assert result.reason_code == "gemini_image_quota_deferred"
+    delay_seconds = (result.retry_at - datetime.now(timezone.utc)).total_seconds()
+    assert 55 * 60 <= delay_seconds <= 60 * 60
