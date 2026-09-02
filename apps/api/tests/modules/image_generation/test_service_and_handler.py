@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.core.database import Base
-from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, JobHandlerResult, WorkerDependencies
+from app.domain.processing.handlers import ClaimedJob, DeferredJobOutcome, JobHandlerContext, JobHandlerResult, WorkerDependencies
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.image_generation.handler import ImageGenerateJobHandler
 from app.modules.image_generation.model import ImageGenerationRunModel
@@ -224,3 +224,43 @@ def test_persisted_firefly_job_resumes_without_resubmission(database, tmp_path, 
     result = asyncio.run(handler._execute(make_context(database, run)))
     assert result == JobHandlerResult.completed()
     assert called == ["https://firefly-api.adobe.io/jobs/1"]
+
+
+def test_gemini_rate_limit_defers_without_consuming_attempts(database, tmp_path, monkeypatch):
+    with database() as session:
+        asset, source = seed_source(session)
+        run = add_run(session, asset, source, provider="gemini")
+
+    class RateLimitedProvider:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def generate_square(self, **_kwargs):
+            from app.providers.ai.gemini_image import GeminiImageProviderError
+
+            raise GeminiImageProviderError(
+                "gemini_image_rate_limited",
+                "Gemini image generation rate limit reached.",
+                retryable=True,
+            )
+
+        async def aclose(self):
+            pass
+
+    handler = ImageGenerateJobHandler(settings(tmp_path))
+    monkeypatch.setattr(
+        "app.modules.image_generation.handler.GeminiSquareImageProvider",
+        RateLimitedProvider,
+    )
+    result = asyncio.run(
+        handler._run_gemini(
+            make_context(database, run),
+            settings(tmp_path),
+            PreparedImage(b"image", "image/png", 100, 200),
+            1024,
+            tmp_path / "generated.image",
+        )
+    )
+
+    assert isinstance(result, DeferredJobOutcome)
+    assert result.reason_code == "gemini_image_quota_deferred"

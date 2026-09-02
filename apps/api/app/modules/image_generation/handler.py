@@ -192,6 +192,12 @@ class ImageGenerateJobHandler:
                 source=source, target_size=target, prompt=self._prompt(context)
             )
         except GeminiImageProviderError as exc:
+            if exc.code == "gemini_image_rate_limited":
+                return DeferredJobOutcome(
+                    "gemini_image_quota_deferred",
+                    "Gemini image generation is waiting for provider quota.",
+                    datetime.now(timezone.utc) + timedelta(minutes=5),
+                )
             raise ImageGenerationHandlerError(exc.code, str(exc), retryable=exc.retryable) from exc
         finally:
             await adapter.aclose()
