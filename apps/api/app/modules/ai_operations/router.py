@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,7 +19,7 @@ from app.modules.ai_operations.queries import AiOperationsRepository
 from app.modules.ai_operations.pipeline import PipelineOperationsRepository
 from app.modules.ai_operations.media_dashboard import MediaDashboardService
 from app.modules.ai_operations.coverage import SearchCoverageSummaryService
-from app.modules.ai_operations.schema import AiOperationsFilters, ManagedStorageCleanupRequest, ManagedStorageSelfIngestionRepairRequest, SearchCoverageAuditRequest, SearchCoverageRepairRequest
+from app.modules.ai_operations.schema import AI_JOB_TYPES, AiOperationsFilters, ManagedStorageCleanupRequest, ManagedStorageSelfIngestionRepairRequest, SearchCoverageAuditRequest, SearchCoverageRepairRequest
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
 from app.modules.ai_governance.repository import AiGovernanceRepository
 from app.modules.search.coverage_audit import SearchV3CoverageAudit, SearchV3CoverageRepair
@@ -30,6 +31,7 @@ from app.modules.storage.self_ingestion_repair import ManagedStorageSelfIngestio
 router = APIRouter(prefix="/api/v1/admin/ai-operations", tags=["ai-operations"])
 AI_OPERATIONS_READ = require_permission("ai_operations.read")
 _VALID_MODES = {"single", "batch"}
+_VALID_JOB_TYPES = {*AI_JOB_TYPES, "image_generate"}
 _VALID_STATUSES = {
     "pending", "queued", "retrying", "running", "completed", "failed",
     "cancelled", "budget_blocked", "processing", "retry", "waiting",
@@ -123,6 +125,17 @@ def _cached_read(
         filters_cache_key(filters) + tuple(extra),
         lambda: _read(filters, operation),
     )
+
+
+def _job_type_filters(filters: AiOperationsFilters, job_type: str | None) -> AiOperationsFilters:
+    if job_type is None:
+        return filters
+    if job_type not in _VALID_JOB_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_job_type", "message": "Unsupported job type filter"},
+        )
+    return replace(filters, job_type=job_type)
 
 
 def _projection_version() -> str:
@@ -358,8 +371,12 @@ def media_dashboard_video_detail(
 
 
 @router.get("/summary")
-def summary(filters: AiOperationsFilters = Depends(common_filters)):
-    return _cached_read("summary", filters, lambda repository, value: repository.summary(value))
+def summary(
+    filters: AiOperationsFilters = Depends(common_filters),
+    job_type: str | None = Query(default=None, max_length=64),
+):
+    scoped = _job_type_filters(filters, job_type)
+    return _cached_read("summary", scoped, lambda repository, value: repository.summary(value))
 
 
 @router.get("/daily")
@@ -391,10 +408,12 @@ def jobs(
     filters: AiOperationsFilters = Depends(common_filters),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
+    job_type: str | None = Query(default=None, max_length=64),
 ):
+    scoped = _job_type_filters(filters, job_type)
     return _cached_read(
         "jobs",
-        filters,
+        scoped,
         lambda repository, value: repository.jobs(
             value, page=page, page_size=page_size
         ),

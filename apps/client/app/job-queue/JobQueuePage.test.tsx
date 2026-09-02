@@ -24,12 +24,14 @@ describe("JobQueuePage", () => {
     const markup = renderToStaticMarkup(<JobQueuePage />);
     for (const value of [
       "OPERATIONS", "Job Queue", "Workspace - Creative Assets", "Back to assets",
-      "All jobs", "Queued", "Running", "Completed", "Failed",
-      "FIND A JOB", "All providers", "25 per page", "Processing jobs",
+      "All generations", "Queued", "Running", "Completed", "Failed",
+      "FIND A JOB", "All providers", "25 per page", "Square generation jobs",
     ]) expect(markup).toContain(value);
     expect(markup).toContain('class="job-queue-header"');
     expect(markup).toContain('class="job-queue-tabs"');
     expect(markup).toContain('class="job-queue-toolbar"');
+    expect(markup).toContain("Generate Square 1:1 jobs");
+    expect(markup).toContain("Source image or job ID");
   });
 
   it("formats job types, times and deferred statuses safely", () => {

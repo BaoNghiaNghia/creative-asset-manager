@@ -17,6 +17,7 @@ class AiOperationsFilters:
     metadata_profile: str | None = None
     status: str | None = None
     source_provider: str | None = None
+    job_type: str | None = None
 
 
 AI_JOB_TYPES = (

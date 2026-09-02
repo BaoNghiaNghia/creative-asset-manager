@@ -39,6 +39,7 @@ def filters_cache_key(filters: AiOperationsFilters) -> tuple[object, ...]:
         filters.metadata_profile or "",
         filters.status or "",
         filters.source_provider or "",
+        filters.job_type or "",
     )
 
 

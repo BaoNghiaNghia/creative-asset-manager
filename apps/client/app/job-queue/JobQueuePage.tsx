@@ -8,7 +8,7 @@ type QueueStatus = "" | "queued" | "running" | "completed" | "failed";
 type PageSize = 25 | 50 | 100;
 
 const statusTabs: Array<{ id: QueueStatus; label: string }> = [
-  { id: "", label: "All jobs" },
+  { id: "", label: "All generations" },
   { id: "queued", label: "Queued" },
   { id: "running", label: "Running" },
   { id: "completed", label: "Completed" },
@@ -61,6 +61,7 @@ export function JobQueuePage() {
       processingMode: "",
       metadataProfile: "",
       status,
+      jobType: "image_generate",
       page,
       pageSize,
     })
@@ -115,7 +116,7 @@ export function JobQueuePage() {
         <span><strong>Creative assets</strong><small>Operations console</small></span>
       </div>
       <WorkspaceNavigation active="queue" />
-      <small className="ops-sidebar-note">Track tenant-scoped processing work across every job status.</small>
+      <small className="ops-sidebar-note">Track square image generation across every job status.</small>
     </aside>
 
     <section className="ops-main job-queue-main">
@@ -123,7 +124,7 @@ export function JobQueuePage() {
         <div>
           <small>OPERATIONS</small>
           <h1>Job Queue</h1>
-          <p>Monitor file processing jobs, retries, failures, and completed work.</p>
+          <p>Monitor Generate Square 1:1 jobs, retries, failures, and completed images.</p>
         </div>
         <div className="job-queue-header-actions">
           <span>Workspace - Creative Assets</span>
@@ -147,7 +148,7 @@ export function JobQueuePage() {
             <small>FIND A JOB</small>
             <div className="job-queue-filter-fields">
               <label>Search
-                <input value={query} onChange={event => setQuery(event.target.value)} placeholder="File, job type or ID" />
+                <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Source image or job ID" />
               </label>
               <label>Provider
                 <select value={provider} onChange={event => { setProvider(event.target.value); setPage(1); }}>
@@ -178,7 +179,7 @@ export function JobQueuePage() {
 
         <section className="job-queue-table-card">
           <header>
-            <div><h2>Processing jobs</h2><p>{status ? `Showing ${formatJobType(status).toLowerCase()} jobs` : "All recent tenant processing jobs"}</p></div>
+            <div><h2>Square generation jobs</h2><p>{status ? `Showing ${formatJobType(status).toLowerCase()} generations` : "All recent Generate Square 1:1 jobs"}</p></div>
             <strong>{total.toLocaleString()} total</strong>
           </header>
           <div className="job-queue-table-scroll">

@@ -8,6 +8,7 @@ export type AiOpsFilters = {
   processingMode: string;
   metadataProfile: string;
   status: string;
+  jobType?: string;
   page: number;
   pageSize?: 25 | 50 | 100;
   usagePage?: number;

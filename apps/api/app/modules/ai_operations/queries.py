@@ -12,6 +12,7 @@ from app.core.redaction import redact_url_queries
 from app.modules.ai_batch.model import AiBatchItemModel, AiBatchJobModel
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.image_generation.model import ImageGenerationRunModel
 from app.modules.assets.model import (
     AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel,
 )
@@ -134,7 +135,9 @@ class AiOperationsRepository(BaseRepository):
     def _job_scope_conditions(self, f: AiOperationsFilters):
         conditions = [
             ProcessingJobModel.tenant_id == f.tenant_id,
-            ProcessingJobModel.job_type.in_(AI_JOB_TYPES),
+            ProcessingJobModel.job_type == f.job_type
+            if f.job_type
+            else ProcessingJobModel.job_type.in_(AI_JOB_TYPES),
         ]
         if f.provider:
             conditions.append(ProcessingJobModel.provider_key == f.provider)
@@ -387,11 +390,13 @@ class AiOperationsRepository(BaseRepository):
         ) or 0)
         analysis_for_job = aliased(AssetAiAnalysisModel)
         pipeline_for_job = aliased(AssetPipelineModel)
+        generation_for_job = aliased(ImageGenerationRunModel)
         rows = self.session.execute(
             select(
                 ProcessingJobModel,
                 analysis_for_job.asset_id.label("analysis_asset_id"),
                 pipeline_for_job.asset_id.label("pipeline_asset_id"),
+                generation_for_job.source_asset_id.label("generation_asset_id"),
             ).outerjoin(
                 analysis_for_job,
                 and_(
@@ -406,14 +411,21 @@ class AiOperationsRepository(BaseRepository):
                     pipeline_for_job.tenant_id == ProcessingJobModel.tenant_id,
                     pipeline_for_job.id == ProcessingJobModel.entity_id,
                 ),
+            ).outerjoin(
+                generation_for_job,
+                and_(
+                    ProcessingJobModel.entity_type == "image_generation_run",
+                    generation_for_job.tenant_id == ProcessingJobModel.tenant_id,
+                    generation_for_job.id == ProcessingJobModel.entity_id,
+                ),
             ).where(*conditions)
             .order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc())
             .offset((page - 1) * page_size).limit(page_size)
         ).all()
         resolved_asset_ids = {
-            str(analysis_asset_id or pipeline_asset_id or job.entity_id)
-            for job, analysis_asset_id, pipeline_asset_id in rows
-            if analysis_asset_id or pipeline_asset_id or job.entity_type == "asset"
+            str(analysis_asset_id or pipeline_asset_id or generation_asset_id or job.entity_id)
+            for job, analysis_asset_id, pipeline_asset_id, generation_asset_id in rows
+            if analysis_asset_id or pipeline_asset_id or generation_asset_id or job.entity_type == "asset"
         }
         asset_presentations: dict[str, dict[str, str | None]] = {}
         if resolved_asset_ids:
@@ -461,8 +473,8 @@ class AiOperationsRepository(BaseRepository):
                 and retry_at > now
             )
         items = []
-        for job, analysis_asset_id, pipeline_asset_id in rows:
-            resolved_asset_id = analysis_asset_id or pipeline_asset_id
+        for job, analysis_asset_id, pipeline_asset_id, generation_asset_id in rows:
+            resolved_asset_id = analysis_asset_id or pipeline_asset_id or generation_asset_id
             asset_id = str(resolved_asset_id or job.entity_id) if resolved_asset_id or job.entity_type == "asset" else None
             presentation = asset_presentations.get(asset_id or "", {})
             items.append({

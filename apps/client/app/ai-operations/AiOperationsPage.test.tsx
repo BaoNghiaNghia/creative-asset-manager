@@ -638,7 +638,7 @@ describe("AI Operations dashboard", () => {
       });
     }) as unknown as typeof fetch;
     const result = await fetchAiOperationsJobQueue(
-      { ...filters, provider: "gemini", status: "failed", page: 2, pageSize: 50 },
+      { ...filters, provider: "gemini", status: "failed", jobType: "image_generate", page: 2, pageSize: 50 },
       fetcher,
       new Date("2026-07-22T00:00:00Z"),
     );
@@ -646,7 +646,9 @@ describe("AI Operations dashboard", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(urls.find(url => url.includes("/summary?"))).not.toContain("provider=");
     expect(urls.find(url => url.includes("/summary?"))).not.toContain("status=");
+    expect(urls.find(url => url.includes("/summary?"))).toContain("job_type=image_generate");
     expect(urls.find(url => url.includes("/jobs?"))).toContain("provider=gemini");
+    expect(urls.find(url => url.includes("/jobs?"))).toContain("job_type=image_generate");
     expect(urls.find(url => url.includes("/jobs?"))).toContain("status=failed");
     expect(urls.find(url => url.includes("/jobs?"))).toContain("page=2");
     expect(urls.find(url => url.includes("/jobs?"))).toContain("page_size=50");

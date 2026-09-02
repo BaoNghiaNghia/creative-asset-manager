@@ -99,6 +99,7 @@ function filteredParams(filters: AiOpsFilters, range: { from: string | null; to:
   if (filters.processingMode) params.set("processing_mode", filters.processingMode);
   if (filters.metadataProfile) params.set("metadata_profile", filters.metadataProfile);
   if (filters.status) params.set("status", filters.status);
+  if (filters.jobType) params.set("job_type", filters.jobType);
   return params;
 }
 

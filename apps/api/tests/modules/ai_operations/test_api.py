@@ -15,6 +15,7 @@ from app.modules.ai_batch.model import AiBatchJobModel
 from app.modules.ai_operations.cache import ai_operations_caches
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
+from app.modules.image_generation.model import ImageGenerationRunModel
 from app.modules.assets.model import (
     AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel,
 )
@@ -801,6 +802,56 @@ class AiOperationsApiTest(unittest.TestCase):
         ).json()
         self.assertEqual(usage["total"], 2)
         self.assertNotIn("provider_request_id", str(usage))
+
+    def test_jobs_and_summary_filter_square_image_generations(self):
+        with self.factory() as session:
+            run = ImageGenerationRunModel(
+                tenant_id="tenant-a", source_asset_id=self.asset_id,
+                source_source_asset_id=self.source_asset_id,
+                operation="square_expand", provider="adobe_firefly",
+                preservation_mode="strict_expand", target_width=1024,
+                target_height=1024, source_width=800, source_height=600,
+                normalized_width=1024, normalized_height=768,
+                left=0, top=128, right=0, bottom=128, status="queued",
+                client_request_id="00000000-0000-4000-8000-000000000099",
+                created_by_user_id="user-a",
+                created_at=self.now - timedelta(minutes=1),
+                updated_at=self.now - timedelta(minutes=1),
+            )
+            session.add(run)
+            session.flush()
+            session.add(ProcessingJobModel(
+                tenant_id="tenant-a", job_type="image_generate",
+                entity_type="image_generation_run", entity_id=run.id,
+                idempotency_key=f"image-generate:{run.id}",
+                provider_key="adobe_firefly", provider_scope="image_generation",
+                status="pending", payload_json={"image_generation_run_id": run.id},
+                created_at=self.now - timedelta(minutes=1),
+                updated_at=self.now - timedelta(minutes=1),
+            ))
+            session.commit()
+
+        jobs = self.get(
+            "/api/v1/admin/ai-operations/jobs",
+            job_type="image_generate", page=1, page_size=10,
+        ).json()
+        self.assertEqual(jobs["total"], 1)
+        self.assertEqual(jobs["items"][0]["job_type"], "image_generate")
+        self.assertEqual(jobs["items"][0]["asset_id"], self.asset_id)
+        self.assertEqual(jobs["items"][0]["filename"], "inventory-photo.avif")
+        self.assertEqual(jobs["items"][0]["provider"], "adobe_firefly")
+
+        summary = self.get(
+            "/api/v1/admin/ai-operations/summary", job_type="image_generate",
+        ).json()
+        self.assertEqual(summary["queued"], 1)
+        self.assertEqual(summary["running"], 0)
+        self.assertEqual(summary["completed"], 0)
+        self.assertEqual(summary["failed"], 0)
+        self.assertEqual(
+            self.get("/api/v1/admin/ai-operations/jobs", job_type="unsupported").status_code,
+            422,
+        )
 
     def test_jobs_resolve_asset_pipeline_thumbnail_filename_and_mime(self):
         with self.factory() as session:
