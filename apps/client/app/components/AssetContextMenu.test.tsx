@@ -10,6 +10,7 @@ const item: Asset = {
   kind: "image",
   mime_type: "image/jpeg",
   external_source_id: "source-1",
+  internal_asset_id: "internal-asset-1",
 };
 
 describe("AssetContextMenu", () => {
@@ -30,12 +31,14 @@ describe("AssetContextMenu", () => {
       onCopy={noop}
       onRename={noop}
       onMove={noop}
+      onGenerate={noop}
       onDetails={noop}
       onDelete={noop}
       onClose={noop}
     />);
     expect(markup).toContain("Open preview");
     expect(markup).toContain("Download");
+    expect(markup).toContain("Generate square 1:1");
     expect(markup).toContain("Make a copy");
     expect(markup).toContain("Rename");
     expect(markup).toContain("Move to");

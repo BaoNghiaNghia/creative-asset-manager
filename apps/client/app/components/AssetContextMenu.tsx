@@ -14,6 +14,7 @@ type Props = {
   onCopy: () => void;
   onRename: () => void;
   onMove: () => void;
+  onGenerate?: () => void;
   onDetails: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -21,12 +22,13 @@ type Props = {
 
 const VIEWPORT_GAP = 8;
 
-type IconName = "open" | "preview" | "download" | "copy" | "rename" | "move" | "info" | "trash";
+type IconName = "open" | "preview" | "generate" | "download" | "copy" | "rename" | "move" | "info" | "trash";
 
 function MenuIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
     open: <><path d="M3.5 6.5h6l2 2h9v10h-17z" /><path d="m14.5 5 3-3 3 3M17.5 2v9" /></>,
     preview: <><path d="M4 5h16v14H4z" /><path d="m7 16 4-4 3 3 2-2 4 4M8.5 9.5h.01" /></>,
+    generate: <><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" /><path d="M5 17v4M3 19h4" /></>,
     download: <><path d="M12 3v12m-4-4 4 4 4-4" /><path d="M4 19h16" /></>,
     copy: <><rect x="8" y="8" width="11" height="11" rx="1" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
     rename: <><path d="m4 16-.8 4 4-.8L18.5 7.9l-3.2-3.2z" /><path d="m13.8 6.2 3.2 3.2M4 21h16" /></>,
@@ -58,6 +60,7 @@ export function AssetContextMenu({
   onCopy,
   onRename,
   onMove,
+  onGenerate,
   onDetails,
   onDelete,
   onClose,
@@ -119,6 +122,9 @@ export function AssetContextMenu({
     </button>
     {item.kind !== "folder" && <button type="button" role="menuitem" onClick={() => run(onDownload)}>
       <MenuIcon name="download" /><b>Download</b>
+    </button>}
+    {item.kind === "image" && onGenerate && <button type="button" role="menuitem" className="generate" onClick={() => run(onGenerate)}>
+      <MenuIcon name="generate" /><b>Generate square 1:1</b>
     </button>}
     <div className="asset-context-separator" role="separator" />
     <button type="button" role="menuitem" onClick={() => run(onCopy)}>

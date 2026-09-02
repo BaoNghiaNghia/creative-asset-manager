@@ -1187,6 +1187,15 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   white-space: nowrap;
 }
 
+.asset-context-menu .generate {
+  color: #315fc5;
+  font-weight: 700;
+}
+
+.asset-context-menu .generate > svg {
+  color: #315fc5;
+}
+
 .asset-context-menu .danger {
   color: #b3261e;
 }

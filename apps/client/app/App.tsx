@@ -240,6 +240,7 @@ export default function App() {
   const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextState | null>(null);
+  const [generationRequestKey, setGenerationRequestKey] = useState(0);
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
@@ -418,6 +419,10 @@ export default function App() {
     if (item.internal_asset_id) params.set("asset", item.internal_asset_id); else params.delete("asset");
     window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
+  function openGenerator(item: Asset) {
+    openDetails(item);
+    setGenerationRequestKey(value => value + 1);
+  }
   function openVideoDetails(item: VideoSearchItem) {
     setDetailsOpen(true);
     setDetailsItem({
@@ -439,7 +444,7 @@ export default function App() {
     window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
   function closeDetails() {
-    setDetailsOpen(false); setDetailsItem(null); setDetailsAssetId(null); setDetailsVideoAnalysis(null);
+    setDetailsOpen(false); setDetailsItem(null); setDetailsAssetId(null); setDetailsVideoAnalysis(null); setGenerationRequestKey(0);
     const params = new URLSearchParams(window.location.search); params.delete("asset"); params.delete("details");
     window.history.replaceState({}, "", window.location.pathname + (params.toString() ? "?" + params : ""));
   }
@@ -1019,6 +1024,7 @@ export default function App() {
       onCopy={() => copyContextItem(assetContextMenu.item)}
       onRename={() => renameContextItem(assetContextMenu.item)}
       onMove={() => moveContextItem(assetContextMenu.item)}
+      onGenerate={assetContextMenu.item.kind === "image" && Boolean(assetContextMenu.item.internal_asset_id) ? () => openGenerator(assetContextMenu.item) : undefined}
       onDetails={() => openDetails(assetContextMenu.item)}
       onDelete={() => deleteContextItem(assetContextMenu.item)}
       onClose={() => setAssetContextMenu(null)}
@@ -1050,6 +1056,7 @@ export default function App() {
         external_source_id: detailsItem?.external_source_id || explorer.activeExternalSourceId || undefined,
       })))}
       canManageContent={explorer.provider === "google-drive" && !explorer.pureViewer}
+      generationRequestKey={generationRequestKey}
       onOpenGeneratedAsset={generatedAssetId => {
         setDetailsItem(null);
         setDetailsVideoAnalysis(null);

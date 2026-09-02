@@ -24,6 +24,7 @@ type Props = {
   onOpenFolder?: (id: string, ancestors: Array<{ id: string; name: string }>) => void;
   canManageContent?: boolean;
   onOpenGeneratedAsset?: (assetId: string) => void;
+  generationRequestKey?: number;
 };
 
 type Section = "details" | "activity" | "analysis" | "metadata" | "history" | "jobs";
@@ -31,7 +32,7 @@ type Section = "details" | "activity" | "analysis" | "metadata" | "history" | "j
 type ActivityTone = "success" | "warning" | "danger" | "neutral";
 type ActivityEntry = { id: string; title: string; detail: string; category: string; tone: ActivityTone; at?: string };
 
-export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onClose, onPreview, onDelete, onMove, onOpenFolder, canManageContent = false, onOpenGeneratedAsset }: Props) {
+export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onClose, onPreview, onDelete, onMove, onOpenFolder, canManageContent = false, onOpenGeneratedAsset, generationRequestKey = 0 }: Props) {
   const [data, setData] = useState<AssetDetails | null>(null);
   const [section, setSection] = useState<Section>("details");
   const [coreDetailsError, setCoreDetailsError] = useState("");
@@ -49,6 +50,10 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
   const [loadedVideoAnalysis, setLoadedVideoAnalysis] = useState<VideoSearchItem | null>(null);
   const [videoDetailsLoading, setVideoDetailsLoading] = useState(false);
   const [videoDetailsError, setVideoDetailsError] = useState("");
+
+  useEffect(() => {
+    if (generationRequestKey > 0) setGenerationOpen(true);
+  }, [generationRequestKey]);
 
   async function load(signal?: AbortSignal) {
     if (!assetId) { setData(null); setLoading(false); return; }
