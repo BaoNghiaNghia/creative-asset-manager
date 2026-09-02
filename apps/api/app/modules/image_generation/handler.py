@@ -195,7 +195,7 @@ class ImageGenerateJobHandler:
             if exc.code == "gemini_image_rate_limited":
                 return DeferredJobOutcome(
                     "gemini_image_quota_deferred",
-                    "Gemini image generation is waiting for provider quota.",
+                    str(exc),
                     datetime.now(timezone.utc) + timedelta(hours=1),
                 )
             raise ImageGenerationHandlerError(exc.code, str(exc), retryable=exc.retryable) from exc

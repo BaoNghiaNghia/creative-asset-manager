@@ -23,6 +23,20 @@ class GeminiImageProviderError(RuntimeError):
         self.retryable = retryable
 
 
+def _safe_google_error_message(response: httpx.Response, fallback: str) -> str:
+    """Keep a bounded provider diagnostic without exposing request content or credentials."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return fallback
+    error = payload.get("error") if isinstance(payload, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(message, str):
+        return fallback
+    normalized = " ".join(message.split())
+    return normalized[:500] or fallback
+
+
 class GeminiSquareImageProvider:
     """Synchronous semantic expansion using only gemini-3.1-flash-image."""
 
@@ -86,7 +100,9 @@ class GeminiSquareImageProvider:
         if response.status_code == 429:
             raise GeminiImageProviderError(
                 "gemini_image_rate_limited",
-                "Gemini image generation rate limit reached.",
+                _safe_google_error_message(
+                    response, "Gemini image generation rate limit reached."
+                ),
                 retryable=True,
             )
         if response.status_code >= 500:

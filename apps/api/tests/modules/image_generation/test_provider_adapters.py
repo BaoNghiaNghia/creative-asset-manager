@@ -159,6 +159,23 @@ def test_gemini_errors(status, code, retryable):
     asyncio.run(client.aclose())
 
 
+def test_gemini_rate_limit_keeps_bounded_provider_diagnostic():
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                429,
+                json={"error": {"message": "Quota exceeded for GenerateContent requests."}},
+            )
+        )
+    )
+    provider = GeminiSquareImageProvider(api_key="secret", http_client=client)
+    with pytest.raises(GeminiImageProviderError) as raised:
+        asyncio.run(provider.generate_square(source=SOURCE, target_size=1024, prompt=None))
+    assert raised.value.code == "gemini_image_rate_limited"
+    assert str(raised.value) == "Quota exceeded for GenerateContent requests."
+    asyncio.run(client.aclose())
+
+
 def test_gemini_rejects_no_image_and_unsupported_mime():
     responses = iter([
         httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "no"}]}}]}),
