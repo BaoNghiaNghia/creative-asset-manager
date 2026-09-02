@@ -11,3 +11,11 @@ Makefile text eol=lf
 
 # Committed production frontend artifacts must compare byte-for-byte in CI.
 apps/client/dist/** text eol=lf
+
+# Binary media must never be line-ending normalized, including inside dist.
+*.png -text -eol
+*.jpg -text -eol
+*.jpeg -text -eol
+*.gif -text -eol
+*.webp -text -eol
+*.ico -text -eol
