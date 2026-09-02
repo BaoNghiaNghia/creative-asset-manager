@@ -1050,6 +1050,15 @@ export default function App() {
         external_source_id: detailsItem?.external_source_id || explorer.activeExternalSourceId || undefined,
       })))}
       canManageContent={explorer.provider === "google-drive" && !explorer.pureViewer}
+      onOpenGeneratedAsset={generatedAssetId => {
+        setDetailsItem(null);
+        setDetailsVideoAnalysis(null);
+        setDetailsAssetId(generatedAssetId);
+        const params = new URLSearchParams(window.location.search);
+        params.set("details", "1");
+        params.set("asset", generatedAssetId);
+        window.history.replaceState({}, "", window.location.pathname + "?" + params);
+      }}
       onDelete={() => setConfirm({ message: "Delete this file from Google Drive?", run: () => { setConfirm(null); void explorer.deleteItem(detailsItem?.id || "").catch(reason => console.error(reason)); } })}
       onMove={() => { const destination = window.prompt("Enter destination folder ID"); if (destination && detailsItem) setConfirm({ message: "Move this file to the selected folder?", run: () => { setConfirm(null); void explorer.moveItem(detailsItem.id, destination).catch(() => undefined); } }); }}
     />}

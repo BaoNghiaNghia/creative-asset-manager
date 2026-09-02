@@ -28,7 +28,7 @@ const noop = () => undefined;
 
 describe("Asset details inspector", () => {
   it("renders compact action icons before operator labels", () => {
-    for (const name of ["analyze", "move", "delete", "more", "rebuild", "index", "retry"] as const) {
+    for (const name of ["generate", "analyze", "move", "delete", "more", "rebuild", "index", "retry"] as const) {
       const markup = renderToStaticMarkup(<AssetActionIcon name={name} />);
       expect(markup).toContain('class="asset-action-icon"');
       expect(markup).toContain('aria-hidden="true"');

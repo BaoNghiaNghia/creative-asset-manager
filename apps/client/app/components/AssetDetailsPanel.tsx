@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Asset, AssetDetails, AssetMetadata } from "../types";
 import type { VideoSearchItem, VideoSearchMatch } from "../hooks/useVideoSearch";
 import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
+import { SquareImageGenerationDialog } from "./SquareImageGenerationDialog";
 import { AnalysisHistoryCard } from "./AnalysisHistoryCard";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { SafeJsonTree } from "./SafeJsonTree";
@@ -22,6 +23,7 @@ type Props = {
   onMove?: () => void;
   onOpenFolder?: (id: string, ancestors: Array<{ id: string; name: string }>) => void;
   canManageContent?: boolean;
+  onOpenGeneratedAsset?: (assetId: string) => void;
 };
 
 type Section = "details" | "activity" | "analysis" | "metadata" | "history" | "jobs";
@@ -29,7 +31,7 @@ type Section = "details" | "activity" | "analysis" | "metadata" | "history" | "j
 type ActivityTone = "success" | "warning" | "danger" | "neutral";
 type ActivityEntry = { id: string; title: string; detail: string; category: string; tone: ActivityTone; at?: string };
 
-export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onClose, onPreview, onDelete, onMove, onOpenFolder, canManageContent = false }: Props) {
+export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onClose, onPreview, onDelete, onMove, onOpenFolder, canManageContent = false, onOpenGeneratedAsset }: Props) {
   const [data, setData] = useState<AssetDetails | null>(null);
   const [section, setSection] = useState<Section>("details");
   const [coreDetailsError, setCoreDetailsError] = useState("");
@@ -39,6 +41,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [generationOpen, setGenerationOpen] = useState(false);
   const [forceAnalysis, setForceAnalysis] = useState(false);
   const [locationNodes, setLocationNodes] = useState<Array<{ id: string; name: string }>>([]);
   const [locationStatus, setLocationStatus] = useState<"available" | "unavailable" | null>(null);
@@ -178,12 +181,13 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
       </>}
       {section === "history" && data && <><p>{data.analysis_total} analysis attempt(s)</p><div className="analysis-history">{data.analysis_history.map(entry => <AnalysisHistoryCard key={String(entry.id)} analysis={entry} showCost={data.can_administer} />)}</div></>}
       {section === "jobs" && data && <><p>{data.job_total} related job(s)</p>{data.pipelines.map(entry => <Detail key={String(entry.id)} title={"Pipeline · " + String(entry.state)} value={entry} />)}{data.jobs.map(job => <div className="job-row" key={String(job.id)}><div><b>{String(job.job_type)}</b><small>{String(job.status)} · {String(job.attempt_count)}/{String(job.max_attempts)}</small></div>{job.cancelable && data.can_administer && <button disabled={busy === "cancel_job"} onClick={() => action("cancel_job", { job_id: job.id })}>Cancel</button>}</div>)}</>}
-      {data?.can_administer && <div className="asset-operations" aria-label="Asset actions">
+      {(data?.can_administer || data?.can_generate) && <div className="asset-operations" aria-label="Asset actions">
         <div className="asset-action-toolbar">
-        <button className="asset-action-primary" disabled={Boolean(busy)} onClick={() => { setForceAnalysis(false); setAnalysisOpen(true); }}><AssetActionIcon name="analyze" /><span>Analyze metadata</span></button>
-        {onMove && <button disabled={Boolean(busy)} onClick={onMove}><AssetActionIcon name="move" /><span>Move</span></button>}
-        {onDelete && <button className="asset-action-danger" disabled={Boolean(busy)} onClick={onDelete}><AssetActionIcon name="delete" /><span>Delete</span></button>}
-        <details className="asset-action-menu">
+        {data?.can_generate && kind === "image" && assetId && <button className="asset-action-primary" disabled={Boolean(busy)} onClick={() => setGenerationOpen(true)}><AssetActionIcon name="generate" /><span>Generate square</span></button>}
+        {data?.can_administer && <button className={data?.can_generate && kind === "image" ? "" : "asset-action-primary"} disabled={Boolean(busy)} onClick={() => { setForceAnalysis(false); setAnalysisOpen(true); }}><AssetActionIcon name="analyze" /><span>Analyze metadata</span></button>}
+        {data?.can_administer && onMove && <button disabled={Boolean(busy)} onClick={onMove}><AssetActionIcon name="move" /><span>Move</span></button>}
+        {data?.can_administer && onDelete && <button className="asset-action-danger" disabled={Boolean(busy)} onClick={onDelete}><AssetActionIcon name="delete" /><span>Delete</span></button>}
+        {data?.can_administer && <details className="asset-action-menu">
           <summary><AssetActionIcon name="more" /><span>More actions</span></summary>
           <div>
             <button disabled={Boolean(busy)} onClick={() => { setForceAnalysis(true); setAnalysisOpen(true); }}><AssetActionIcon name="analyze" /><span>Force reanalysis</span></button>
@@ -191,7 +195,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
             <button disabled={Boolean(busy)} onClick={() => action("reindex")}><AssetActionIcon name="index" /><span>Reindex asset</span></button>
             <button disabled={Boolean(busy)} onClick={() => action("retry_failed_stage")}><AssetActionIcon name="retry" /><span>Retry failed stage</span></button>
           </div>
-        </details>
+        </details>}
         </div>
       </div>}
     </div>}
@@ -206,13 +210,21 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
     includeProviderBatchId={data.can_administer}
     onClose={() => setAnalysisOpen(false)}
     onSubmitted={() => void load().catch(reason => setCoreDetailsError(reason.message))}
+  />}{data && assetId && <SquareImageGenerationDialog
+    open={generationOpen}
+    assetId={assetId}
+    sourceName={displayName}
+    sourcePreviewUrl={resolvePreviewUrl(item, source)}
+    onClose={() => setGenerationOpen(false)}
+    onOpenAsset={onOpenGeneratedAsset}
   />}</>;
 }
 
-type AssetActionIconName = "analyze" | "move" | "delete" | "more" | "rebuild" | "index" | "retry";
+type AssetActionIconName = "generate" | "analyze" | "move" | "delete" | "more" | "rebuild" | "index" | "retry";
 
 export function AssetActionIcon({ name }: { name: AssetActionIconName }) {
   const paths: Record<AssetActionIconName, string> = {
+    generate: "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z M5 17v4M3 19h4",
     analyze: "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15z",
     move: "M5 9l-3 3 3 3M2 12h14M12 5l3-3 3 3M15 2v14",
     delete: "M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5",
