@@ -11,8 +11,9 @@ const capabilities = {
   operations: ["square_expand"],
   target_sizes: [1024, 2048],
   providers: [
+    { id: "cloudflare_sd", name: "Cloudflare SD (Free)", available: true, preservation_mode: "semantic_expand", recommended: true, model: "@cf/runwayml/stable-diffusion-v1-5-img2img" },
     { id: "adobe_firefly", name: "Adobe Firefly", available: true, preservation_mode: "strict_expand", recommended: false },
-    { id: "gemini", name: "Gemini", available: true, preservation_mode: "semantic_expand", recommended: true, model: "gemini-3.1-flash-image" },
+    { id: "gemini", name: "Gemini", available: true, preservation_mode: "semantic_expand", recommended: false, model: "gemini-3.1-flash-image" },
   ],
 };
 
@@ -81,7 +82,7 @@ describe("Square image generation dialog", () => {
     expect(host.querySelector('img[src="/brands/adobe-firefly.svg"]')).not.toBeNull();
     expect(host.querySelector(".gemini-logo svg")).not.toBeNull();
     expect(host.textContent).toContain("Recommended");
-    expect(host.querySelector<HTMLInputElement>('input[value="gemini"]')?.checked).toBe(true);
+    expect(host.querySelector<HTMLInputElement>('input[value="cloudflare_sd"]')?.checked).toBe(true);
     expect(host.textContent).toContain("1024 x 1024");
     expect(host.textContent).toContain("2048 x 2048");
     expect(host.querySelector("textarea")).not.toBeNull();
@@ -143,7 +144,7 @@ describe("Square image generation dialog", () => {
     };
     const fetchMock = vi.fn(async () => response(unavailable));
     const { host, root } = await mount(fetchMock);
-    expect(host.querySelectorAll('input[name="image-provider"]:disabled')).toHaveLength(2);
+    expect(host.querySelectorAll('input[name="image-provider"]:disabled')).toHaveLength(3);
     expect(host.textContent).toContain("Unavailable");
     const generate = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Generate")!;
     expect(generate.disabled).toBe(true);

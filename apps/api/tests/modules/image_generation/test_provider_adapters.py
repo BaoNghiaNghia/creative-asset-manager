@@ -8,6 +8,7 @@ from PIL import Image
 
 from app.modules.image_generation.providers import PreparedImage
 from app.providers.ai.adobe_firefly import AdobeFireflySquareProvider, FireflyProviderError
+from app.providers.ai.cloudflare_workers_ai import CloudflareImageProviderError, CloudflareSquareImageProvider
 from app.providers.ai.gemini_image import GeminiImageProviderError, GeminiSquareImageProvider
 
 
@@ -109,6 +110,34 @@ def test_firefly_poll_complete_failed_and_cancel():
     asyncio.run(provider.cancel(cancel_url="https://firefly-api.adobe.io/jobs/1/cancel"))
     assert any(request.method == "POST" and request.url.path.endswith("/cancel") for request in calls)
     asyncio.run(client.aclose())
+
+
+def test_cloudflare_img2img_payload_output_and_rate_limit():
+    output = png(1024)
+    seen = {}
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["request"] = request
+        seen["body"] = __import__("json").loads(request.content)
+        return httpx.Response(200, headers={"content-type": "image/png", "cf-ray": "ray-1"}, content=output)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = CloudflareSquareImageProvider(account_id="account", api_token="token", http_client=client)
+    result = asyncio.run(provider.generate_square(source=SOURCE, target_size=1024, prompt="add sky"))
+    assert seen["request"].url.path.endswith("/accounts/account/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img")
+    assert seen["request"].headers["authorization"] == "Bearer token"
+    assert seen["body"]["width"] == 1024
+    assert seen["body"]["height"] == 1024
+    assert seen["body"]["image_b64"]
+    assert result.model == "@cf/runwayml/stable-diffusion-v1-5-img2img"
+    assert result.provider_request_id == "ray-1"
+    asyncio.run(client.aclose())
+
+    limited = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(429)))
+    provider = CloudflareSquareImageProvider(account_id="account", api_token="token", http_client=limited)
+    with pytest.raises(CloudflareImageProviderError) as raised:
+        asyncio.run(provider.generate_square(source=SOURCE, target_size=1024, prompt=None))
+    assert raised.value.code == "cloudflare_sd_rate_limited"
+    assert raised.value.retryable
+    asyncio.run(limited.aclose())
 
 
 @pytest.mark.parametrize("target,image_size", [(1024, "1K"), (2048, "2K")])

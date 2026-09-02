@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export type ImageGenerationProvider = {
-  id: "adobe_firefly" | "gemini";
+  id: "adobe_firefly" | "cloudflare_sd" | "gemini";
   name: string;
   available: boolean;
   preservation_mode: "strict_expand" | "semantic_expand";
@@ -18,7 +18,7 @@ export type ImageGeneration = {
   id: string;
   source_asset_id: string;
   status: "queued" | "preparing" | "submitted" | "running" | "storing" | "completed" | "failed" | "cancelled";
-  provider: "adobe_firefly" | "gemini";
+  provider: "adobe_firefly" | "cloudflare_sd" | "gemini";
   model: string | null;
   preservation_mode: "strict_expand" | "semantic_expand";
   target_width: number;
@@ -54,6 +54,11 @@ function ProviderLogo({ provider }: { provider: ImageGenerationProvider["id"] })
       <img src="/brands/adobe-firefly.svg" alt="" />
     </span>;
   }
+  if (provider === "cloudflare_sd") {
+    return <span className="image-generation-provider-logo cloudflare-logo" aria-hidden="true">
+      <svg viewBox="0 0 64 32"><path fill="#f48120" d="M18 26h28.5c5.2 0 9.5-3.8 10.3-8.8.2-.8.2-1.6.2-2.4 0-6.3-5.1-11.4-11.4-11.4-1.2 0-2.3.2-3.4.5C40.1 1.5 36.7 0 33 0c-5.8 0-10.7 3.7-12.5 8.9-.8-.3-1.7-.5-2.6-.5-4.3 0-7.9 3.3-8.2 7.6C4.2 16.5 0 20.8 0 26h18Z"/><path fill="#faad3d" d="M18 26h31.6c3.4 0 6.2-2.8 6.2-6.2 0-.4 0-.8-.1-1.2-1.1 4.3-5 7.4-9.6 7.4H18Z"/></svg>
+    </span>;
+  }
   return <span className="image-generation-provider-logo gemini-logo" aria-hidden="true">
     <svg viewBox="0 0 48 48">
       <defs>
@@ -80,7 +85,7 @@ type Props = {
 
 export function SquareImageGenerationDialog(props: Props) {
   const [capabilities, setCapabilities] = useState<ImageGenerationCapabilities | null>(null);
-  const [provider, setProvider] = useState<"adobe_firefly" | "gemini">("gemini");
+  const [provider, setProvider] = useState<"adobe_firefly" | "cloudflare_sd" | "gemini">("cloudflare_sd");
   const [size, setSize] = useState<1024 | 2048>(1024);
   const [prompt, setPrompt] = useState("");
   const [generation, setGeneration] = useState<ImageGeneration | null>(null);
@@ -116,7 +121,7 @@ export function SquareImageGenerationDialog(props: Props) {
     ]).then(([nextCapabilities, rememberedGeneration]) => {
       if (controller.signal.aborted) return;
       setCapabilities(nextCapabilities);
-      const available = nextCapabilities.providers.find(item => item.id === "gemini" && item.available)
+      const available = nextCapabilities.providers.find(item => item.id === "cloudflare_sd" && item.available)
         || nextCapabilities.providers.find(item => item.available);
       if (available) setProvider(available.id);
       if (rememberedGeneration) setGeneration(rememberedGeneration);
@@ -226,7 +231,7 @@ export function SquareImageGenerationDialog(props: Props) {
               <ProviderLogo provider={item.id} />
               <span className="image-generation-provider-copy">
                 <span className="image-generation-provider-title"><b>{item.name}</b>{item.recommended && <em className="recommended">Recommended</em>}</span>
-                <small>{item.id === "adobe_firefly" ? "Strict preservation: keeps the original canvas while extending the surrounding scene." : "Semantic expansion: creatively extends context while keeping the source visually consistent."}</small>
+                <small>{item.id === "adobe_firefly" ? "Strict preservation: keeps the original canvas while extending the surrounding scene." : item.id === "cloudflare_sd" ? "Free daily allowance: AI expands a square canvas with Stable Diffusion." : "Semantic expansion: creatively extends context while keeping the source visually consistent."}</small>
                 <span className={"image-generation-availability " + (item.available ? "is-available" : "is-unavailable")}>{item.available ? "Available" : "Unavailable"}</span>
               </span>
               <span className="image-generation-radio-mark" aria-hidden="true" />
@@ -251,7 +256,7 @@ export function SquareImageGenerationDialog(props: Props) {
           <div className="image-generation-status"><span aria-hidden="true" /><div><small>STATUS</small><b>{generationStatusLabel(generation.status)}</b><p>{generation.status === "completed" ? "Your generated image is stored in Managed Storage." : generation.status === "failed" ? generation.error?.message || "Generation failed." : generation.status === "cancelled" ? "This generation was cancelled." : "This durable job continues even if you close this dialog."}</p></div></div>
           {generation.status === "completed" && <div className="image-generation-result">
             <img src={"/api/v1/image-generations/" + encodeURIComponent(generation.id) + "/image"} alt="Generated square result" />
-            <dl><div><dt>Provider</dt><dd>{generation.model === "local-square-normalize" ? "Local square normalization" : generation.provider === "adobe_firefly" ? "Adobe Firefly" : "Gemini"}</dd></div><div><dt>Resolution</dt><dd>{generation.target_width} x {generation.target_height}</dd></div></dl>
+            <dl><div><dt>Provider</dt><dd>{generation.model === "local-square-normalize" ? "Local square normalization" : generation.provider === "adobe_firefly" ? "Adobe Firefly" : generation.provider === "cloudflare_sd" ? "Cloudflare SD (Free)" : "Gemini"}</dd></div><div><dt>Resolution</dt><dd>{generation.target_width} x {generation.target_height}</dd></div></dl>
           </div>}
         </div>}
         {error && <p className="image-generation-error" role="alert">{error}</p>}

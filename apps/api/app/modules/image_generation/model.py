@@ -21,7 +21,7 @@ class ImageGenerationRunModel(Base):
         ForeignKeyConstraint(["tenant_id", "output_asset_id"], ["assets.tenant_id", "assets.id"], ondelete="RESTRICT", name="fk_image_generation_runs_output_asset"),
         UniqueConstraint("tenant_id", "created_by_user_id", "client_request_id", name="uq_image_generation_runs_client_request"),
         CheckConstraint("operation = 'square_expand'", name="ck_image_generation_runs_operation"),
-        CheckConstraint("provider IN ('adobe_firefly', 'gemini')", name="ck_image_generation_runs_provider"),
+        CheckConstraint("provider IN ('adobe_firefly', 'cloudflare_sd', 'gemini')", name="ck_image_generation_runs_provider"),
         CheckConstraint("preservation_mode IN ('strict_expand', 'semantic_expand')", name="ck_image_generation_runs_preservation"),
         CheckConstraint("target_width IN (1024, 2048) AND target_height = target_width", name="ck_image_generation_runs_target"),
         CheckConstraint("status IN ('queued', 'preparing', 'submitted', 'running', 'storing', 'completed', 'failed', 'cancelled')", name="ck_image_generation_runs_status"),

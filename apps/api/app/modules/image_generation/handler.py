@@ -25,6 +25,7 @@ from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.storage.repository import ManagedStorageRepository
 from app.modules.storage.service import ManagedAssetStorageService
 from app.providers.ai.adobe_firefly import AdobeFireflySquareProvider, FireflyProviderError
+from app.providers.ai.cloudflare_workers_ai import CloudflareImageProviderError, CloudflareSquareImageProvider
 from app.providers.ai.gemini_image import GeminiImageProviderError, GeminiSquareImageProvider
 
 MAX_SOURCE_BYTES = 25 * 1024 * 1024
@@ -141,6 +142,8 @@ class ImageGenerateJobHandler:
 
         if provider == "adobe_firefly":
             return await self._submit_firefly(context, settings, source, target)
+        if provider == "cloudflare_sd":
+            return await self._run_cloudflare(context, settings, source, target, staged)
         if provider == "gemini":
             return await self._run_gemini(context, settings, source, target, staged)
         raise ImageGenerationHandlerError("image_generation_provider_invalid", "Image generation provider is invalid.")
@@ -182,6 +185,37 @@ class ImageGenerateJobHandler:
             "Adobe Firefly generation is running.",
             datetime.now(timezone.utc) + timedelta(seconds=10),
         )
+
+    async def _run_cloudflare(self, context, settings, source, target, staged):
+        if not settings.CLOUDFLARE_IMAGE_GENERATION_ENABLED:
+            raise ImageGenerationHandlerError("cloudflare_sd_not_configured", "Cloudflare SD is unavailable.")
+        adapter = CloudflareSquareImageProvider(
+            account_id=settings.CLOUDFLARE_AI_ACCOUNT_ID,
+            api_token=settings.CLOUDFLARE_AI_API_TOKEN,
+        )
+        try:
+            result = await adapter.generate_square(
+                source=source, target_size=target, prompt=self._prompt(context)
+            )
+        except CloudflareImageProviderError as exc:
+            if exc.code == "cloudflare_sd_rate_limited":
+                tomorrow = datetime.now(timezone.utc).replace(hour=0, minute=5, second=0, microsecond=0) + timedelta(days=1)
+                return DeferredJobOutcome(
+                    "cloudflare_sd_quota_deferred", str(exc), tomorrow
+                )
+            raise ImageGenerationHandlerError(exc.code, str(exc), retryable=exc.retryable) from exc
+        finally:
+            await adapter.aclose()
+        self._write_stage(staged, result.image_bytes)
+        with context.dependencies.session_factory() as session:
+            repository = ImageGenerationRepository(session)
+            run = repository.get_for_update(context.job.tenant_id, context.job.entity_id)
+            if run is None or run.status == "cancelled":
+                return JobHandlerResult.cancelled("Image generation was cancelled.")
+            run.provider_interaction_id = result.provider_request_id
+            repository.transition(run, "storing")
+            session.commit()
+        return await self._store(context, settings, staged)
 
     async def _run_gemini(self, context, settings, source, target, staged):
         if not settings.GEMINI_IMAGE_GENERATION_ENABLED:

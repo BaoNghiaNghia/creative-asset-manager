@@ -126,6 +126,9 @@ class Settings(BaseSettings):
     IMAGE_GENERATION_ENABLED: bool = False
     FIREFLY_IMAGE_GENERATION_ENABLED: bool = False
     GEMINI_IMAGE_GENERATION_ENABLED: bool = False
+    CLOUDFLARE_IMAGE_GENERATION_ENABLED: bool = False
+    CLOUDFLARE_AI_ACCOUNT_ID: str = ""
+    CLOUDFLARE_AI_API_TOKEN: str = ""
     GEMINI_IMAGE_API_KEY: str | None = None
     IMAGE_GENERATION_STAGING_ROOT: str = "/var/lib/creative-asset-manager/image-generation"
     FIREFLY_SERVICES_CLIENT_ID: str = ""

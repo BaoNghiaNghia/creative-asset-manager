@@ -11,7 +11,7 @@ from app.core.config import Settings
 from app.modules.ai_operations.credential_model import CreativeAiCredentialModel
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.image_generation.model import ImageGenerationRunModel
-from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
+from app.modules.image_generation.providers import CLOUDFLARE_SD_MODEL, GEMINI_IMAGE_MODEL
 from app.modules.image_generation.repository import ImageGenerationRepository, ImageGenerationStateError
 from app.modules.image_generation.schema import ImageGenerationCapability, ProviderCapability, SquareGenerationRequest
 from app.modules.processing.model import ProcessingJobModel
@@ -44,6 +44,12 @@ def provider_capability(
         and settings.FIREFLY_SERVICES_CLIENT_ID.strip()
         and settings.FIREFLY_SERVICES_CLIENT_SECRET.strip()
     )
+    cloudflare_available = bool(
+        settings.IMAGE_GENERATION_ENABLED
+        and settings.CLOUDFLARE_IMAGE_GENERATION_ENABLED
+        and settings.CLOUDFLARE_AI_ACCOUNT_ID.strip()
+        and settings.CLOUDFLARE_AI_API_TOKEN.strip()
+    )
     tenant_gemini = session.scalar(
         select(CreativeAiCredentialModel.id).where(
             CreativeAiCredentialModel.tenant_id == tenant_id,
@@ -62,6 +68,14 @@ def provider_capability(
         target_sizes=[1024, 2048],
         providers=[
             ProviderCapability(
+                id="cloudflare_sd",
+                name="Cloudflare SD (Free)",
+                available=cloudflare_available,
+                preservation_mode="semantic_expand",
+                recommended=True,
+                model=CLOUDFLARE_SD_MODEL,
+            ),
+            ProviderCapability(
                 id="adobe_firefly",
                 name="Adobe Firefly",
                 available=firefly_available,
@@ -73,7 +87,7 @@ def provider_capability(
                 name="Gemini",
                 available=gemini_available,
                 preservation_mode="semantic_expand",
-                recommended=True,
+                recommended=False,
                 model=GEMINI_IMAGE_MODEL,
             ),
         ],
@@ -148,7 +162,11 @@ class ImageGenerationService:
         if source.size_bytes is not None and source.size_bytes > MAX_SOURCE_BYTES:
             raise ImageGenerationServiceError("source_image_too_large", "Source image exceeds the size limit.")
         preservation = "strict_expand" if request.provider == "adobe_firefly" else "semantic_expand"
-        model = None if request.provider == "adobe_firefly" else GEMINI_IMAGE_MODEL
+        model = (
+            None if request.provider == "adobe_firefly"
+            else CLOUDFLARE_SD_MODEL if request.provider == "cloudflare_sd"
+            else GEMINI_IMAGE_MODEL
+        )
         run, created = self.runs.create_idempotent(
             tenant_id=tenant_id,
             source_asset_id=asset.id,

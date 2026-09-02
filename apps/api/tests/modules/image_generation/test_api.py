@@ -145,5 +145,5 @@ def test_capabilities_safe_shape(api):
     body = response.json()
     assert body["enabled"] is True
     assert body["target_sizes"] == [1024, 2048]
-    assert {item["id"] for item in body["providers"]} == {"adobe_firefly", "gemini"}
+    assert {item["id"] for item in body["providers"]} == {"adobe_firefly", "cloudflare_sd", "gemini"}
     assert all("secret" not in item for item in body["providers"])

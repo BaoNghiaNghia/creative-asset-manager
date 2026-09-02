@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-ProviderKey = Literal["adobe_firefly", "gemini"]
+ProviderKey = Literal["adobe_firefly", "cloudflare_sd", "gemini"]
 PreservationMode = Literal["strict_expand", "semantic_expand"]
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
+CLOUDFLARE_SD_MODEL = "@cf/runwayml/stable-diffusion-v1-5-img2img"
 
 GEMINI_SQUARE_EXPANSION_INSTRUCTION = """Convert the provided image into a square 1:1 image by extending the surrounding scene naturally.
 
