@@ -5,7 +5,7 @@ vi.mock("../../features/ai_operations", () => ({
   fetchAiOperationsJobQueue: vi.fn(),
 }));
 
-import { formatJobTime, formatJobType, GenerationResultModal, JobQueuePage, jobStatusLabel } from "./JobQueuePage";
+import { formatJobDuration, formatJobTime, formatJobType, GenerationResultModal, JobProviderIcon, JobQueuePage, jobStatusLabel } from "./JobQueuePage";
 import type { AiOpsJob } from "../../features/ai_operations";
 
 describe("JobQueuePage", () => {
@@ -26,7 +26,7 @@ describe("JobQueuePage", () => {
     for (const value of [
       "OPERATIONS", "Job Queue", "Workspace - Creative Assets", "Back to assets",
       "All generations", "Queued", "Running", "Completed", "Failed",
-      "FIND A JOB", "All providers", "25 per page", "Square generation jobs",
+      "FIND A JOB", "All providers", "25 per page", "Square generation jobs", "Duration",
     ]) expect(markup).toContain(value);
     expect(markup).toContain('class="job-queue-header"');
     expect(markup).toContain('class="job-queue-tabs"');
@@ -72,6 +72,23 @@ describe("JobQueuePage", () => {
     expect(markup).toContain('src="/api/assets/asset-1/thumbnail"');
     expect(markup).toContain('src="/api/assets/generated-1/content"');
     expect(markup).toContain("Open full size");
+  });
+
+  it("renders branded provider icons and formats accumulated active duration", () => {
+    const cloudflare = renderToStaticMarkup(<JobProviderIcon provider="cloudflare_sd" />);
+    const gemini = renderToStaticMarkup(<JobProviderIcon provider="gemini" />);
+    const firefly = renderToStaticMarkup(<JobProviderIcon provider="adobe_firefly" />);
+
+    expect(cloudflare).toContain('class="job-provider-icon cloudflare"');
+    expect(gemini).toContain("gemini-sparkle");
+    expect(firefly).toContain("/brands/adobe-firefly.svg");
+    expect(formatJobDuration({ status: "completed", claimed_at: null, processing_duration_ms: 1_500 })).toBe("1.5 s");
+    expect(formatJobDuration({
+      status: "processing",
+      claimed_at: "2026-09-02T10:00:00.000Z",
+      processing_duration_ms: 1_000,
+    }, new Date("2026-09-02T10:00:02.000Z").valueOf())).toBe("3.0 s");
+    expect(formatJobDuration({ status: "pending", claimed_at: null, processing_duration_ms: 0 })).toBe("—");
   });
 
   it("formats job types, times and deferred statuses safely", () => {
