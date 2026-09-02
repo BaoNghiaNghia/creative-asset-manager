@@ -122,12 +122,13 @@ def test_cloudflare_img2img_payload_output_and_rate_limit():
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     provider = CloudflareSquareImageProvider(account_id="account", api_token="token", http_client=client)
     result = asyncio.run(provider.generate_square(source=SOURCE, target_size=1024, prompt="add sky"))
-    assert seen["request"].url.path.endswith("/accounts/account/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img")
+    assert seen["request"].url.path.endswith("/accounts/account/ai/run/@cf/runwayml/stable-diffusion-v1-5-inpainting")
     assert seen["request"].headers["authorization"] == "Bearer token"
     assert seen["body"]["width"] == 1024
     assert seen["body"]["height"] == 1024
     assert seen["body"]["image_b64"]
-    assert result.model == "@cf/runwayml/stable-diffusion-v1-5-img2img"
+    assert seen["body"]["mask"]
+    assert result.model == "@cf/runwayml/stable-diffusion-v1-5-inpainting"
     assert result.provider_request_id == "ray-1"
     asyncio.run(client.aclose())
 

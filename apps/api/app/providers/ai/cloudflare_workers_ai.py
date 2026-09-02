@@ -44,14 +44,15 @@ class CloudflareSquareImageProvider:
             raise CloudflareImageProviderError("cloudflare_sd_not_configured", "Cloudflare SD is not configured.")
         if target_size not in (1024, 2048):
             raise CloudflareImageProviderError("image_generation_target_size_unsupported", "Unsupported square target size.")
-        canvas = _square_canvas(source, target_size)
+        canvas, mask = _square_canvas_and_mask(source, target_size)
         payload = {
             "prompt": _prompt(prompt),
             "negative_prompt": "cropped subject, distorted subject, changed logo, changed text, watermark, frame, border",
             "width": target_size,
             "height": target_size,
             "image_b64": base64.b64encode(canvas).decode("ascii"),
-            "strength": 0.45,
+            "mask": list(mask),
+            "strength": 1,
             "guidance": 7.5,
             "num_steps": 20,
         }
@@ -87,7 +88,7 @@ def _prompt(value: str | None) -> str:
     return instruction + (" " + value.strip() if value and value.strip() else "")
 
 
-def _square_canvas(source: PreparedImage, target_size: int) -> bytes:
+def _square_canvas_and_mask(source: PreparedImage, target_size: int) -> tuple[bytes, bytes]:
     try:
         with Image.open(BytesIO(source.image_bytes)) as decoded:
             image = ImageOps.exif_transpose(decoded).convert("RGB")
@@ -96,9 +97,13 @@ def _square_canvas(source: PreparedImage, target_size: int) -> bytes:
             left = (target_size - image.width) // 2
             top = (target_size - image.height) // 2
             canvas.paste(image, (left, top))
-            output = BytesIO()
-            canvas.save(output, "PNG")
-            return output.getvalue()
+            mask = Image.new("L", (target_size, target_size), 255)
+            mask.paste(0, (left, top, left + image.width, top + image.height))
+            canvas_output = BytesIO()
+            mask_output = BytesIO()
+            canvas.save(canvas_output, "PNG")
+            mask.save(mask_output, "PNG")
+            return canvas_output.getvalue(), mask_output.getvalue()
     except Exception as exc:
         raise CloudflareImageProviderError("cloudflare_sd_source_invalid", "Source image cannot be prepared.") from exc
 

@@ -11,7 +11,7 @@ const capabilities = {
   operations: ["square_expand"],
   target_sizes: [1024, 2048],
   providers: [
-    { id: "cloudflare_sd", name: "Cloudflare SD (Free)", available: true, preservation_mode: "semantic_expand", recommended: true, model: "@cf/runwayml/stable-diffusion-v1-5-img2img" },
+    { id: "cloudflare_sd", name: "Cloudflare SD (Free)", available: true, preservation_mode: "semantic_expand", recommended: true, model: "@cf/runwayml/stable-diffusion-v1-5-inpainting" },
     { id: "adobe_firefly", name: "Adobe Firefly", available: true, preservation_mode: "strict_expand", recommended: false },
     { id: "gemini", name: "Gemini", available: true, preservation_mode: "semantic_expand", recommended: false, model: "gemini-3.1-flash-image" },
   ],
