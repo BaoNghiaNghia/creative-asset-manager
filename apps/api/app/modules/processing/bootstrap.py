@@ -18,6 +18,7 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, El
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
+from app.modules.image_generation.handler import ImageGenerateJobHandler
 from app.modules.video_search.handler import VideoAnalyzeJobHandler
 from app.modules.video_search.index_handler import VideoSearchIndexJobHandler
 from app.modules.ai_batch.handlers import (
@@ -79,6 +80,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "metadata_sidecar_export": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DRIVE_METADATA_SIDECAR_ENABLED"),
     "retention_cleanup": ("PROCESSING_JOBS_ENABLED", "RETENTION_CLEANUP_ENABLED"),
     "managed_storage_cleanup": ("PROCESSING_JOBS_ENABLED", "MANAGED_STORAGE_AUTO_CLEANUP_ENABLED"),
+    "image_generate": ("PROCESSING_JOBS_ENABLED", "IMAGE_GENERATION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
@@ -245,6 +247,7 @@ def build_worker_runtime(
                 ("metadata_sidecar_export", MetadataSidecarExportJobHandler(settings)),
                 ("retention_cleanup", RetentionCleanupJobHandler(settings)),
                 ("managed_storage_cleanup", ManagedStorageCleanupJobHandler(settings)),
+                ("image_generate", ImageGenerateJobHandler(settings)),
             )
         ),
         health=WorkerHealthState(worker_id),

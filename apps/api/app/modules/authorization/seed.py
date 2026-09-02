@@ -13,6 +13,7 @@ PERMISSION_DEFINITIONS = {
     "assets.upload": "Upload files to authorized tenant folders",
     "assets.delete": "Delete files from authorized tenant folders",
     "assets.manage": "Manage tenant assets",
+    "assets.generate": "Generate derived tenant assets",
     "ai_operations.read": "Read AI operations",
     "ai_analysis.run": "Run AI analysis",
     "ai_analysis.force": "Force a new AI analysis",
@@ -34,6 +35,7 @@ PERMISSION_DEFINITIONS = {
 
 VIEWER_PERMISSIONS = {"assets.read", "assets.upload", "assets.delete", "search.read"}
 OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
+    "assets.generate",
     "ai_operations.read",
     "ai_analysis.run",
     "ai_jobs.retry",

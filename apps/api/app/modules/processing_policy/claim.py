@@ -18,7 +18,7 @@ from app.modules.processing.worker_roles import (
 )
 
 
-AI_JOB_TYPES = ("asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items")
+AI_JOB_TYPES = ("asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate")
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download")
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export")
 AI_MODEL_SLOT_PAYLOAD_KEY = "_ai_model_start_slot"
@@ -43,6 +43,7 @@ STAGE_POLICY = {
     "metadata_sidecar_export": "sidecar_enabled",
     "retention_cleanup": "pipeline_enabled",
     "managed_storage_cleanup": "pipeline_enabled",
+    "image_generate": "pipeline_enabled",
 }
 
 

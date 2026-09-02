@@ -17,13 +17,14 @@ class ImageGenerationRunModel(Base):
     __tablename__ = "image_generation_runs"
     __table_args__ = (
         ForeignKeyConstraint(["tenant_id", "source_asset_id"], ["assets.tenant_id", "assets.id"], ondelete="RESTRICT", name="fk_image_generation_runs_source_asset"),
+        ForeignKeyConstraint(["tenant_id", "source_source_asset_id"], ["source_assets.tenant_id", "source_assets.id"], ondelete="RESTRICT", name="fk_image_generation_runs_source_source_asset"),
         ForeignKeyConstraint(["tenant_id", "output_asset_id"], ["assets.tenant_id", "assets.id"], ondelete="RESTRICT", name="fk_image_generation_runs_output_asset"),
         UniqueConstraint("tenant_id", "created_by_user_id", "client_request_id", name="uq_image_generation_runs_client_request"),
         CheckConstraint("operation = 'square_expand'", name="ck_image_generation_runs_operation"),
         CheckConstraint("provider IN ('adobe_firefly', 'gemini')", name="ck_image_generation_runs_provider"),
         CheckConstraint("preservation_mode IN ('strict_expand', 'semantic_expand')", name="ck_image_generation_runs_preservation"),
         CheckConstraint("target_width IN (1024, 2048) AND target_height = target_width", name="ck_image_generation_runs_target"),
-        CheckConstraint("status IN ('queued', 'preparing', 'submitted', 'running', 'storing', 'completed', 'failed')", name="ck_image_generation_runs_status"),
+        CheckConstraint("status IN ('queued', 'preparing', 'submitted', 'running', 'storing', 'completed', 'failed', 'cancelled')", name="ck_image_generation_runs_status"),
         Index("ix_image_generation_runs_tenant_status", "tenant_id", "status", "created_at"),
         Index("ix_image_generation_runs_source", "tenant_id", "source_asset_id", "created_at"),
     )
@@ -41,6 +42,10 @@ class ImageGenerationRunModel(Base):
     source_height: Mapped[int] = mapped_column(Integer, nullable=False)
     normalized_width: Mapped[int] = mapped_column(Integer, nullable=False)
     normalized_height: Mapped[int] = mapped_column(Integer, nullable=False)
+    left: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    top: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    right: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    bottom: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     prompt: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
     provider_upload_id: Mapped[str | None] = mapped_column(String(255))
