@@ -11,8 +11,8 @@ const capabilities = {
   operations: ["square_expand"],
   target_sizes: [1024, 2048],
   providers: [
-    { id: "adobe_firefly", name: "Adobe Firefly", available: true, preservation_mode: "strict_expand", recommended: true },
-    { id: "gemini", name: "Gemini", available: true, preservation_mode: "semantic_expand", recommended: false, model: "gemini-3.1-flash-image" },
+    { id: "adobe_firefly", name: "Adobe Firefly", available: true, preservation_mode: "strict_expand", recommended: false },
+    { id: "gemini", name: "Gemini", available: true, preservation_mode: "semantic_expand", recommended: true, model: "gemini-3.1-flash-image" },
   ],
 };
 
@@ -81,6 +81,7 @@ describe("Square image generation dialog", () => {
     expect(host.querySelector('img[src="/brands/adobe-firefly.svg"]')).not.toBeNull();
     expect(host.querySelector(".gemini-logo svg")).not.toBeNull();
     expect(host.textContent).toContain("Recommended");
+    expect(host.querySelector<HTMLInputElement>('input[value="gemini"]')?.checked).toBe(true);
     expect(host.textContent).toContain("1024 x 1024");
     expect(host.textContent).toContain("2048 x 2048");
     expect(host.querySelector("textarea")).not.toBeNull();

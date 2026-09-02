@@ -80,7 +80,7 @@ type Props = {
 
 export function SquareImageGenerationDialog(props: Props) {
   const [capabilities, setCapabilities] = useState<ImageGenerationCapabilities | null>(null);
-  const [provider, setProvider] = useState<"adobe_firefly" | "gemini">("adobe_firefly");
+  const [provider, setProvider] = useState<"adobe_firefly" | "gemini">("gemini");
   const [size, setSize] = useState<1024 | 2048>(1024);
   const [prompt, setPrompt] = useState("");
   const [generation, setGeneration] = useState<ImageGeneration | null>(null);
@@ -116,7 +116,8 @@ export function SquareImageGenerationDialog(props: Props) {
     ]).then(([nextCapabilities, rememberedGeneration]) => {
       if (controller.signal.aborted) return;
       setCapabilities(nextCapabilities);
-      const available = nextCapabilities.providers.find(item => item.available);
+      const available = nextCapabilities.providers.find(item => item.id === "gemini" && item.available)
+        || nextCapabilities.providers.find(item => item.available);
       if (available) setProvider(available.id);
       if (rememberedGeneration) setGeneration(rememberedGeneration);
       else if (remembered) sessionStorage.removeItem(storageKey);
