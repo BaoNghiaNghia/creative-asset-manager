@@ -19,31 +19,29 @@ PERMISSION_DESCRIPTION = "Generate derived tenant assets"
 
 
 def upgrade() -> None:
-    op.drop_constraint("ck_image_generation_runs_status", "image_generation_runs", type_="check")
-    op.create_check_constraint(
-        "ck_image_generation_runs_status",
-        "image_generation_runs",
-        "status IN ('queued', 'preparing', 'submitted', 'running', 'storing', 'completed', 'failed', 'cancelled')",
-    )
-    for name in ("left", "top", "right", "bottom"):
-        op.add_column(
-            "image_generation_runs",
-            sa.Column(name, sa.Integer(), nullable=False, server_default=sa.text("0")),
+    with op.batch_alter_table("image_generation_runs") as batch_op:
+        batch_op.drop_constraint("ck_image_generation_runs_status", type_="check")
+        batch_op.create_check_constraint(
+            "ck_image_generation_runs_status",
+            "status IN ('queued', 'preparing', 'submitted', 'running', 'storing', 'completed', 'failed', 'cancelled')",
         )
-    op.create_foreign_key(
-        "fk_image_generation_runs_source_source_asset",
-        "image_generation_runs",
-        "source_assets",
-        ["tenant_id", "source_source_asset_id"],
-        ["tenant_id", "id"],
-        ondelete="RESTRICT",
-    )
-    op.drop_constraint("ck_creative_ai_credentials_provider", "creative_ai_credentials", type_="check")
-    op.create_check_constraint(
-        "ck_creative_ai_credentials_provider",
-        "creative_ai_credentials",
-        "provider IN ('gemini', 'gemini_video', 'gemini_image')",
-    )
+        for name in ("left", "top", "right", "bottom"):
+            batch_op.add_column(
+                sa.Column(name, sa.Integer(), nullable=False, server_default=sa.text("0")),
+            )
+        batch_op.create_foreign_key(
+            "fk_image_generation_runs_source_source_asset",
+            "source_assets",
+            ["tenant_id", "source_source_asset_id"],
+            ["tenant_id", "id"],
+            ondelete="RESTRICT",
+        )
+    with op.batch_alter_table("creative_ai_credentials") as batch_op:
+        batch_op.drop_constraint("ck_creative_ai_credentials_provider", type_="check")
+        batch_op.create_check_constraint(
+            "ck_creative_ai_credentials_provider",
+            "provider IN ('gemini', 'gemini_video', 'gemini_image')",
+        )
 
     bind = op.get_bind()
     now = datetime.now(timezone.utc)
@@ -109,10 +107,10 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Preserve the expanded status/credential constraints and permission so a
     # rollback cannot strand cancelled runs or encrypted gemini_image rows.
-    op.drop_constraint(
-        "fk_image_generation_runs_source_source_asset",
-        "image_generation_runs",
-        type_="foreignkey",
-    )
-    for name in ("bottom", "right", "top", "left"):
-        op.drop_column("image_generation_runs", name)
+    with op.batch_alter_table("image_generation_runs") as batch_op:
+        batch_op.drop_constraint(
+            "fk_image_generation_runs_source_source_asset",
+            type_="foreignkey",
+        )
+        for name in ("bottom", "right", "top", "left"):
+            batch_op.drop_column(name)
