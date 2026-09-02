@@ -48,6 +48,27 @@ function messageFrom(payload: any, fallback: string): string {
   return (typeof detail === "string" ? detail : detail?.message) || fallback;
 }
 
+function ProviderLogo({ provider }: { provider: ImageGenerationProvider["id"] }) {
+  if (provider === "adobe_firefly") {
+    return <span className="image-generation-provider-logo firefly-logo" aria-hidden="true">
+      <img src="/brands/adobe-firefly.svg" alt="" />
+    </span>;
+  }
+  return <span className="image-generation-provider-logo gemini-logo" aria-hidden="true">
+    <svg viewBox="0 0 48 48">
+      <defs>
+        <linearGradient id="gemini-provider-gradient" x1="8" y1="7" x2="40" y2="41" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#078EFB" />
+          <stop offset=".32" stopColor="#8E68FF" />
+          <stop offset=".64" stopColor="#E04BB3" />
+          <stop offset="1" stopColor="#F6B842" />
+        </linearGradient>
+      </defs>
+      <path d="M24 3C24.7 14.8 33.2 23.3 45 24c-11.8.7-20.3 9.2-21 21-.7-11.8-9.2-20.3-21-21 11.8-.7 20.3-9.2 21-21Z" fill="url(#gemini-provider-gradient)" />
+    </svg>
+  </span>;
+}
+
 type Props = {
   open: boolean;
   assetId: string;
@@ -181,20 +202,49 @@ export function SquareImageGenerationDialog(props: Props) {
 
   return <div className="image-generation-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && props.onClose()}>
     <section className="image-generation-dialog" role="dialog" aria-modal="true" aria-labelledby="image-generation-title">
-      <header><div><small>IMAGE GENERATOR</small><h2 id="image-generation-title">Generate square 1:1</h2></div><button type="button" onClick={props.onClose} aria-label="Close image generator">x</button></header>
+      <header>
+        <div className="image-generation-heading">
+          <span className="image-generation-heading-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 2.75c.3 5.05 3.9 8.65 8.95 8.95-5.05.3-8.65 3.9-8.95 8.95-.3-5.05-3.9-8.65-8.95-8.95 5.05-.3 8.65-3.9 8.95-8.95Z" /></svg>
+          </span>
+          <div><small>IMAGE GENERATOR</small><h2 id="image-generation-title">Generate square 1:1</h2><p>Expand your image into a polished square composition.</p></div>
+        </div>
+        <button type="button" onClick={props.onClose} aria-label="Close image generator">&times;</button>
+      </header>
       <div className="image-generation-body">
         <div className="image-generation-source">
           {props.sourcePreviewUrl ? <img src={props.sourcePreviewUrl} alt={"Source preview of " + props.sourceName} /> : <span aria-hidden="true">IMG</span>}
-          <div><small>SOURCE</small><b title={props.sourceName}>{props.sourceName}</b></div>
+          <div><small>SOURCE IMAGE</small><b title={props.sourceName}>{props.sourceName}</b><span>Original content is preserved as the starting canvas.</span></div>
         </div>
         {loading && <p role="status">Loading providers...</p>}
         {!loading && !generation && <>
-          <fieldset><legend>Provider</legend>{capabilities?.providers.map(item => <label key={item.id} className={!item.available ? "unavailable" : ""}>
-            <input type="radio" name="image-provider" value={item.id} checked={provider === item.id} disabled={!item.available} onChange={() => setProvider(item.id)} />
-            <span><b>{item.name}</b><small>{item.id === "adobe_firefly" ? "Strict preservation - preserves the source canvas and expands surrounding content." : "Semantic expansion - AI may reinterpret details while preserving the source as faithfully as possible."}</small>{!item.available && <em>Unavailable</em>}</span>
-          </label>)}</fieldset>
-          <fieldset><legend>Output size</legend><div className="image-generation-sizes">{([1024, 2048] as const).map(value => <label key={value}><input type="radio" name="image-size" checked={size === value} onChange={() => setSize(value)} /><span>{value} x {value}</span></label>)}</div></fieldset>
-          <label className="image-generation-prompt">Optional prompt<textarea maxLength={2000} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="Example: Extend the beach naturally." /></label>
+          <fieldset className="image-generation-providers">
+            <legend>Choose a provider <span>Each model expands the image differently.</span></legend>
+            <div className="image-generation-provider-grid">{capabilities?.providers.map(item => <label key={item.id} className={!item.available ? "unavailable" : ""}>
+              <input type="radio" name="image-provider" value={item.id} checked={provider === item.id} disabled={!item.available} onChange={() => setProvider(item.id)} />
+              <ProviderLogo provider={item.id} />
+              <span className="image-generation-provider-copy">
+                <span className="image-generation-provider-title"><b>{item.name}</b>{item.recommended && <em className="recommended">Recommended</em>}</span>
+                <small>{item.id === "adobe_firefly" ? "Strict preservation: keeps the original canvas while extending the surrounding scene." : "Semantic expansion: creatively extends context while keeping the source visually consistent."}</small>
+                <span className={"image-generation-availability " + (item.available ? "is-available" : "is-unavailable")}>{item.available ? "Available" : "Unavailable"}</span>
+              </span>
+              <span className="image-generation-radio-mark" aria-hidden="true" />
+            </label>)}</div>
+          </fieldset>
+          <fieldset className="image-generation-output">
+            <legend>Output size <span>Square format</span></legend>
+            <div className="image-generation-sizes">{([1024, 2048] as const).map(value => <label key={value}>
+              <input type="radio" name="image-size" checked={size === value} onChange={() => setSize(value)} />
+              <span className="image-generation-size-icon" aria-hidden="true" />
+              <span><b>{value} x {value}</b><small>{value === 1024 ? "Standard quality" : "High resolution"}</small></span>
+              <span className="image-generation-radio-mark" aria-hidden="true" />
+            </label>)}</div>
+          </fieldset>
+          <label className="image-generation-prompt">
+            <span>Optional prompt <small>{prompt.length} / 2000</small></span>
+            <textarea maxLength={2000} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="Describe how the surroundings should be extended..." />
+            <small>Leave blank to let the selected provider extend the image naturally.</small>
+          </label>
         </>}
         {generation && <div className={"image-generation-progress status-" + generation.status}>
           <div className="image-generation-status"><span aria-hidden="true" /><div><small>STATUS</small><b>{generationStatusLabel(generation.status)}</b><p>{generation.status === "completed" ? "Your generated image is stored in Managed Storage." : generation.status === "failed" ? generation.error?.message || "Generation failed." : generation.status === "cancelled" ? "This generation was cancelled." : "This durable job continues even if you close this dialog."}</p></div></div>

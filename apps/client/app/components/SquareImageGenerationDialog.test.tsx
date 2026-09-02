@@ -78,6 +78,9 @@ describe("Square image generation dialog", () => {
     expect(host.querySelector('img[alt="Source preview of beach.jpg"]')).not.toBeNull();
     expect(host.textContent).toContain("Strict preservation");
     expect(host.textContent).toContain("Semantic expansion");
+    expect(host.querySelector('img[src="/brands/adobe-firefly.svg"]')).not.toBeNull();
+    expect(host.querySelector(".gemini-logo svg")).not.toBeNull();
+    expect(host.textContent).toContain("Recommended");
     expect(host.textContent).toContain("1024 x 1024");
     expect(host.textContent).toContain("2048 x 2048");
     expect(host.querySelector("textarea")).not.toBeNull();

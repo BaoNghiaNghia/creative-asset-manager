@@ -8,6 +8,7 @@ import type { VideoSearchItem } from "./hooks/useVideoSearch";
 import { useVideoSearch } from "./hooks/useVideoSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
+import { SquareImageGenerationDialog } from "./components/SquareImageGenerationDialog";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchCategoryFilter, SearchControls } from "./components/SearchControls";
 import { DriveEmpty } from "./components/DriveEmpty";
@@ -18,7 +19,7 @@ import { FolderNoteDrawer } from "./components/FolderNoteDrawer";
 import { Sidebar } from "./components/Sidebar";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
-import { explorerAssetUrl } from "./utils/mediaUrls";
+import { assetPreviewUrl, explorerAssetUrl } from "./utils/mediaUrls";
 import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
 import type { Asset, SearchSuggestion } from "./types";
 
@@ -240,7 +241,7 @@ export default function App() {
   const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextState | null>(null);
-  const [generationRequestKey, setGenerationRequestKey] = useState(0);
+  const [generationItem, setGenerationItem] = useState<Asset | null>(null);
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
@@ -420,8 +421,19 @@ export default function App() {
     window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
   function openGenerator(item: Asset) {
-    openDetails(item);
-    setGenerationRequestKey(value => value + 1);
+    closeDetails();
+    setGenerationItem(item);
+  }
+  function openGeneratedAssetDetails(assetId: string) {
+    setGenerationItem(null);
+    setDetailsOpen(true);
+    setDetailsItem(null);
+    setDetailsVideoAnalysis(null);
+    setDetailsAssetId(assetId);
+    const params = new URLSearchParams(window.location.search);
+    params.set("details", "1");
+    params.set("asset", assetId);
+    window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
   function openVideoDetails(item: VideoSearchItem) {
     setDetailsOpen(true);
@@ -444,7 +456,7 @@ export default function App() {
     window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
   function closeDetails() {
-    setDetailsOpen(false); setDetailsItem(null); setDetailsAssetId(null); setDetailsVideoAnalysis(null); setGenerationRequestKey(0);
+    setDetailsOpen(false); setDetailsItem(null); setDetailsAssetId(null); setDetailsVideoAnalysis(null);
     const params = new URLSearchParams(window.location.search); params.delete("asset"); params.delete("details");
     window.history.replaceState({}, "", window.location.pathname + (params.toString() ? "?" + params : ""));
   }
@@ -1029,6 +1041,14 @@ export default function App() {
       onDelete={() => deleteContextItem(assetContextMenu.item)}
       onClose={() => setAssetContextMenu(null)}
     />}
+    {generationItem?.internal_asset_id && <SquareImageGenerationDialog
+      open
+      assetId={generationItem.internal_asset_id}
+      sourceName={generationItem.name}
+      sourcePreviewUrl={assetPreviewUrl(generationItem)}
+      onClose={() => setGenerationItem(null)}
+      onOpenAsset={openGeneratedAssetDetails}
+    />}
     {previewItem && <MediaViewer item={previewItem} onClose={() => setPreviewItem(null)} />}
     {playbackItem && <VideoSearchPlayer item={playbackItem} onClose={() => setPlaybackItem(null)} />}
     {folderNoteOpen && explorer.path.at(-1) && <FolderNoteDrawer
@@ -1056,16 +1076,7 @@ export default function App() {
         external_source_id: detailsItem?.external_source_id || explorer.activeExternalSourceId || undefined,
       })))}
       canManageContent={explorer.provider === "google-drive" && !explorer.pureViewer}
-      generationRequestKey={generationRequestKey}
-      onOpenGeneratedAsset={generatedAssetId => {
-        setDetailsItem(null);
-        setDetailsVideoAnalysis(null);
-        setDetailsAssetId(generatedAssetId);
-        const params = new URLSearchParams(window.location.search);
-        params.set("details", "1");
-        params.set("asset", generatedAssetId);
-        window.history.replaceState({}, "", window.location.pathname + "?" + params);
-      }}
+      onOpenGeneratedAsset={openGeneratedAssetDetails}
       onDelete={() => setConfirm({ message: "Delete this file from Google Drive?", run: () => { setConfirm(null); void explorer.deleteItem(detailsItem?.id || "").catch(reason => console.error(reason)); } })}
       onMove={() => { const destination = window.prompt("Enter destination folder ID"); if (destination && detailsItem) setConfirm({ message: "Move this file to the selected folder?", run: () => { setConfirm(null); void explorer.moveItem(detailsItem.id, destination).catch(() => undefined); } }); }}
     />}
