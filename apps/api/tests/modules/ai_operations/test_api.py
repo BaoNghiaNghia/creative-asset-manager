@@ -809,6 +809,7 @@ class AiOperationsApiTest(unittest.TestCase):
                 tenant_id="tenant-a", source_asset_id=self.asset_id,
                 source_source_asset_id=self.source_asset_id,
                 operation="square_expand", provider="adobe_firefly",
+                provider_model="firefly-image-3",
                 preservation_mode="strict_expand", target_width=1024,
                 target_height=1024, source_width=800, source_height=600,
                 normalized_width=1024, normalized_height=768,
@@ -840,6 +841,7 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(jobs["items"][0]["asset_id"], self.asset_id)
         self.assertEqual(jobs["items"][0]["filename"], "inventory-photo.avif")
         self.assertEqual(jobs["items"][0]["provider"], "adobe_firefly")
+        self.assertEqual(jobs["items"][0]["ai_model"], "firefly-image-3")
 
         summary = self.get(
             "/api/v1/admin/ai-operations/summary", job_type="image_generate",

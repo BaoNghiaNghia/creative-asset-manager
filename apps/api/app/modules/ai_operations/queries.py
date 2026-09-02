@@ -400,6 +400,7 @@ class AiOperationsRepository(BaseRepository):
                 analysis_for_job.asset_id.label("analysis_asset_id"),
                 pipeline_for_job.asset_id.label("pipeline_asset_id"),
                 generation_for_job.source_asset_id.label("generation_asset_id"),
+                generation_for_job.provider_model.label("generation_model"),
             ).outerjoin(
                 analysis_for_job,
                 and_(
@@ -427,7 +428,7 @@ class AiOperationsRepository(BaseRepository):
         ).all()
         resolved_asset_ids = {
             str(analysis_asset_id or pipeline_asset_id or generation_asset_id or job.entity_id)
-            for job, analysis_asset_id, pipeline_asset_id, generation_asset_id in rows
+            for job, analysis_asset_id, pipeline_asset_id, generation_asset_id, generation_model in rows
             if analysis_asset_id or pipeline_asset_id or generation_asset_id or job.entity_type == "asset"
         }
         asset_presentations: dict[str, dict[str, str | None]] = {}
@@ -476,7 +477,7 @@ class AiOperationsRepository(BaseRepository):
                 and retry_at > now
             )
         items = []
-        for job, analysis_asset_id, pipeline_asset_id, generation_asset_id in rows:
+        for job, analysis_asset_id, pipeline_asset_id, generation_asset_id, generation_model in rows:
             resolved_asset_id = analysis_asset_id or pipeline_asset_id or generation_asset_id
             asset_id = str(resolved_asset_id or job.entity_id) if resolved_asset_id or job.entity_type == "asset" else None
             presentation = asset_presentations.get(asset_id or "", {})
@@ -494,7 +495,9 @@ class AiOperationsRepository(BaseRepository):
                     and job.status == JobStatus.COMPLETED.value
                     else None
                 ),
-                "provider": job.provider_key, "status": job.status,
+                "provider": job.provider_key,
+                "ai_model": generation_model,
+                "status": job.status,
                 "priority": job.priority, "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,
                 "processing_duration_ms": job.processing_duration_ms,
