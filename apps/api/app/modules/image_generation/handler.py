@@ -58,6 +58,16 @@ class ImageGenerateJobHandler:
         except ImageGenerationHandlerError as exc:
             if not exc.retryable:
                 self._mark_failed(context, exc.code, str(exc))
+            context.logger.warning(
+                "image_generation_failed",
+                extra={
+                    "generation_id": context.job.entity_id,
+                    "tenant_id": context.job.tenant_id,
+                    "provider": context.job.provider_key,
+                    "error_code": exc.code,
+                    "retryable": exc.retryable,
+                },
+            )
             outcome = JobHandlerResult.retryable if exc.retryable else JobHandlerResult.non_retryable
             return outcome(exc.code, str(exc))
         except Exception:
@@ -87,9 +97,28 @@ class ImageGenerateJobHandler:
                     run.last_error_message or "Image generation failed.",
                 )
             if run.status == "cancelled" or context.is_cancelled:
+                context.logger.info(
+                    "image_generation_cancelled",
+                    extra={
+                        "generation_id": run_id,
+                        "tenant_id": context.job.tenant_id,
+                        "provider": run.provider,
+                        "status": "cancelled",
+                    },
+                )
                 return JobHandlerResult.cancelled("Image generation was cancelled.")
             state, provider, target = run.status, run.provider, run.target_width
             provider_job_id, status_url = run.provider_job_id, run.provider_status_url
+        context.logger.info(
+            "image_generation_started",
+            extra={
+                "generation_id": run_id,
+                "tenant_id": context.job.tenant_id,
+                "provider": provider,
+                "target_size": target,
+                "status": state,
+            },
+        )
         staged = self._staging_path(settings, run_id)
         if state == "storing":
             return await self._store(context, settings, staged)
@@ -264,6 +293,15 @@ class ImageGenerateJobHandler:
         try:
             polled = await adapter.poll(status_url=status_url)
             if polled.state == "running":
+                context.logger.info(
+                    "image_generation_provider_running",
+                    extra={
+                        "generation_id": context.job.entity_id,
+                        "tenant_id": context.job.tenant_id,
+                        "provider": "adobe_firefly",
+                        "status": "running",
+                    },
+                )
                 with context.dependencies.session_factory() as session:
                     repository = ImageGenerationRepository(session)
                     run = repository.get_for_update(
@@ -326,6 +364,15 @@ class ImageGenerateJobHandler:
         return await self._store(context, settings, staged)
 
     async def _store(self, context, settings, staged: Path) -> JobHandlerResult:
+        context.logger.info(
+            "image_generation_storing",
+            extra={
+                "generation_id": context.job.entity_id,
+                "tenant_id": context.job.tenant_id,
+                "provider": context.job.provider_key,
+                "status": "storing",
+            },
+        )
         provider = context.dependencies.storage_provider
         if provider is None or not settings.MANAGED_ASSET_STORAGE_ENABLED:
             raise ImageGenerationHandlerError(

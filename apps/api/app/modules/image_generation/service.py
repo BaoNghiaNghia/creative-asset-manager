@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -18,6 +19,7 @@ from app.modules.processing.repository import ProcessingRepository
 
 SUPPORTED_MIME_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 MAX_SOURCE_BYTES = 25 * 1024 * 1024
+LOGGER = logging.getLogger(__name__)
 
 
 class ImageGenerationServiceError(RuntimeError):
@@ -183,6 +185,18 @@ class ImageGenerationService:
                 provider_scope="image_generation",
             )
         self.session.commit()
+        if created:
+            LOGGER.info(
+                "image_generation_created",
+                extra={
+                    "generation_id": run.id,
+                    "tenant_id": tenant_id,
+                    "provider": run.provider,
+                    "model": run.provider_model,
+                    "target_size": run.target_width,
+                    "status": run.status,
+                },
+            )
         return CreatedGeneration(run, created)
 
     def get(self, tenant_id: str, generation_id: str) -> ImageGenerationRunModel:
