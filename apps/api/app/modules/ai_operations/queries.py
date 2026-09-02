@@ -27,7 +27,10 @@ from app.modules.pipeline.model import AssetPipelineModel
 
 
 LOCAL_RATE_LIMIT_DEFERRED_CODES = frozenset({"ai_model_rate_limited"})
-QUOTA_DEFERRED_CODES = frozenset({"gemini_quota_deferred"})
+QUOTA_DEFERRED_CODES = frozenset({
+    "gemini_quota_deferred",
+    "gemini_image_quota_deferred",
+})
 PROVIDER_COOLDOWN_DEFERRED_CODES = frozenset({
     "gemini_model_pool_temporarily_unavailable", "ai_provider_rate_limited",
 })
@@ -149,7 +152,7 @@ class AiOperationsRepository(BaseRepository):
     def _deferred_condition(status, job_type, error_code, next_attempt_at, now: datetime):
         return (
             status.in_(PROCESSING_JOB_QUEUED_STATUSES)
-            & (job_type == "asset_analyze")
+            & job_type.in_(("asset_analyze", "image_generate"))
             & error_code.in_(DEFERRED_AI_REASON_CODES)
             & next_attempt_at.is_not(None)
             & (next_attempt_at > now)

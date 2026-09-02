@@ -40,5 +40,6 @@ describe("JobQueuePage", () => {
     expect(formatJobTime("invalid")).toBe("Not available");
     expect(jobStatusLabel({ status: "pending", is_deferred: false })).toBe("Queued");
     expect(jobStatusLabel({ status: "pending", is_deferred: true })).toBe("Waiting");
+    expect(jobStatusLabel({ status: "pending", is_deferred: true, waiting_reason: "gemini_image_quota_deferred" })).toBe("Waiting for Gemini quota");
   });
 });

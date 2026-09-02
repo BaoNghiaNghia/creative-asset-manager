@@ -995,6 +995,33 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(summary["failed"], 1)
         self.assertIsNotNone(summary["next_deferred_retry_at"])
 
+    def test_image_generation_quota_deferred_job_is_reported_as_waiting(self):
+        retry_at = self.now + timedelta(minutes=10)
+        with self.factory() as session:
+            session.add(ProcessingJobModel(
+                tenant_id="tenant-a", job_type="image_generate",
+                entity_type="image_generation", entity_id="image-generation-run",
+                idempotency_key="gemini-image-quota-deferred", provider_key="gemini_image",
+                provider_scope="ai", status="pending", attempt_count=0, max_attempts=8,
+                next_attempt_at=retry_at, last_error_code="gemini_image_quota_deferred",
+                last_error_message="Gemini image generation is waiting for provider quota.",
+                payload_json={}, created_at=self.now - timedelta(minutes=1),
+            ))
+            session.commit()
+
+        waiting = self.get(
+            "/api/v1/admin/ai-operations/jobs", status="waiting", job_type="image_generate",
+        ).json()
+        self.assertEqual(waiting["total"], 1)
+        item = waiting["items"][0]
+        self.assertTrue(item["is_deferred"])
+        self.assertEqual(item["waiting_reason"], "gemini_image_quota_deferred")
+        self.assertEqual(item["job_type"], "image_generate")
+        summary = self.get(
+            "/api/v1/admin/ai-operations/summary", job_type="image_generate",
+        ).json()
+        self.assertEqual(summary["deferred"], 1)
+
     def test_daily_uses_completed_at_and_costs_are_not_double_counted(self):
         with self.factory() as session:
             analysis = session.get(AssetAiAnalysisModel, self.analysis_ids[0])

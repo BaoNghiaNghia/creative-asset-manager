@@ -25,7 +25,8 @@ export function formatJobTime(value: string | null | undefined) {
   return Number.isFinite(date.valueOf()) ? date.toLocaleString() : "Not available";
 }
 
-export function jobStatusLabel(job: Pick<AiOpsJob, "status" | "is_deferred">) {
+export function jobStatusLabel(job: Pick<AiOpsJob, "status" | "is_deferred"> & { waiting_reason?: string | null }) {
+  if (job.waiting_reason === "gemini_image_quota_deferred") return "Waiting for Gemini quota";
   if (job.is_deferred) return "Waiting";
   const labels: Record<string, string> = {
     pending: "Queued",
@@ -194,7 +195,7 @@ export function JobQueuePage() {
                     </div>
                   </td>
                   <td>{job.provider ? formatJobType(job.provider) : "Local"}</td>
-                  <td><span className={`job-status ${job.is_deferred ? "waiting" : job.status}`}><i />{jobStatusLabel(job)}</span>{job.waiting_reason && <small className="job-waiting-reason">{formatJobType(job.waiting_reason)}</small>}</td>
+                  <td><span className={`job-status ${job.is_deferred ? "waiting" : job.status}`}><i />{jobStatusLabel(job)}</span>{job.waiting_reason && <small className="job-waiting-reason">{job.waiting_reason === "gemini_image_quota_deferred" ? ("Next attempt " + formatJobTime(job.next_attempt_at)) : formatJobType(job.waiting_reason)}</small>}</td>
                   <td><b>{job.attempt_count}</b><span className="job-attempt-limit"> / {job.max_attempts}</span></td>
                   <td><time dateTime={job.updated_at}>{formatJobTime(job.updated_at)}</time></td>
                 </tr>)}
