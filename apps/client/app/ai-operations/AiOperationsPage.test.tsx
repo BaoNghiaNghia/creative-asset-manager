@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   cancelAiOperationsJob,
   fetchAiOperationsDashboard,
+  fetchAiOperationsJobQueue,
   filtersFromSearch,
   normalizeMediaDashboard,
   normalizePipelineSnapshot,
@@ -626,6 +627,31 @@ describe("AI Operations dashboard", () => {
     expect(result.data.daily).toEqual(data.daily);
     expect(result.data.jobs).toEqual(data.jobs);
     expect(result.data.usage).toEqual(data.usage);
+  });
+
+  it("loads Job Queue with only summary and jobs requests", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const payload = url.includes("/jobs?") ? data.jobs : summary;
+      return new Response(JSON.stringify(payload), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const result = await fetchAiOperationsJobQueue(
+      { ...filters, provider: "gemini", status: "failed", page: 2, pageSize: 50 },
+      fetcher,
+      new Date("2026-07-22T00:00:00Z"),
+    );
+    const urls = vi.mocked(fetcher).mock.calls.map(call => String(call[0]));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(urls.find(url => url.includes("/summary?"))).not.toContain("provider=");
+    expect(urls.find(url => url.includes("/summary?"))).not.toContain("status=");
+    expect(urls.find(url => url.includes("/jobs?"))).toContain("provider=gemini");
+    expect(urls.find(url => url.includes("/jobs?"))).toContain("status=failed");
+    expect(urls.find(url => url.includes("/jobs?"))).toContain("page=2");
+    expect(urls.find(url => url.includes("/jobs?"))).toContain("page_size=50");
+    expect(result.jobs).toEqual(data.jobs);
+    expect(result.summary).toEqual(summary);
   });
 
   it("limits dashboard aggregate requests so the API pool is not saturated", async () => {

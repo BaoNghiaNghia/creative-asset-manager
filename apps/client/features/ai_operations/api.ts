@@ -108,6 +108,31 @@ export type DashboardResult = {
   unauthorized: boolean;
 };
 
+export type JobQueueResult = {
+  jobs: Page<AiOpsJob>;
+  summary: AiOpsSummary | null;
+};
+
+export async function fetchAiOperationsJobQueue(
+  filters: AiOpsFilters,
+  fetcher: Fetcher = fetch,
+  now = new Date(),
+  signal?: AbortSignal,
+): Promise<JobQueueResult> {
+  const range = isoRange(filters.range, now);
+  const summaryParams = filteredParams({ ...filters, provider: "", status: "" }, range);
+  const jobParams = filteredParams(filters, range);
+  jobParams.set("page", String(filters.page));
+  jobParams.set("page_size", String(filters.pageSize || 25));
+  const base = "/api/v1/admin/ai-operations";
+  const [summary, jobs] = await Promise.all([
+    read<AiOpsSummary>(base + "/summary?" + summaryParams, fetcher, signal),
+    read<Page<AiOpsJob>>(base + "/jobs?" + jobParams, fetcher, signal),
+  ]);
+  return { summary, jobs };
+}
+
+
 const emptyMediaStage = (key: string, label: string): AiOpsMediaDashboard["image"] => ({
   key, label, queued: 0, eligible_now: 0, running: 0, completed: 0,
   failed: 0, waiting_rate_limit: 0, state: "idle",
