@@ -26,7 +26,7 @@ type Props = {
   onOpenGeneratedAsset?: (assetId: string) => void;
 };
 
-type Section = "details" | "activity" | "analysis" | "metadata" | "history" | "jobs";
+type Section = "details" | "activity" | "analysis" | "prompts" | "metadata" | "history" | "jobs";
 
 type ActivityTone = "success" | "warning" | "danger" | "neutral";
 type ActivityEntry = { id: string; title: string; detail: string; category: string; tone: ActivityTone; at?: string };
@@ -148,9 +148,9 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
   const effectiveVideoAnalysis = videoAnalysis || loadedVideoAnalysis;
   const hasVideoAnalysis = Boolean(effectiveVideoAnalysis?.analysis_run_id);
   const tabs: Section[] = data
-    ? ["details", "activity", ...(hasVideoAnalysis ? ["analysis" as const] : []), "metadata", "history", "jobs"]
+    ? ["details", "activity", ...(hasVideoAnalysis ? ["analysis" as const, "prompts" as const] : []), "metadata", "history", "jobs"]
     : hasVideoAnalysis
-      ? ["details", "activity", "analysis"]
+      ? ["details", "activity", "analysis", "prompts"]
       : ["details", "activity"];
   const activity = useMemo(() => buildActivity(item, data, effectiveVideoAnalysis), [item, data, effectiveVideoAnalysis]);
 
@@ -160,7 +160,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
       <div><small>{provider === "sharepoint" ? "SharePoint" : "Google Drive"}</small><h2 title={displayName}>{displayName}</h2></div>
       <button onClick={onClose} aria-label="Close file information" title="Close">×</button>
     </header>
-    <nav aria-label="File information sections">{tabs.map(name => <button key={name} className={section === name ? "active" : ""} aria-current={section === name ? "page" : undefined} onClick={() => setSection(name)}>{name === "analysis" ? "AI analysis" : name}</button>)}</nav>
+    <nav aria-label="File information sections">{tabs.map(name => <button key={name} className={section === name ? "active" : ""} aria-current={section === name ? "page" : undefined} onClick={() => setSection(name)}>{name === "analysis" ? "AI analysis" : name === "prompts" ? "Prompts" : name}</button>)}</nav>
     {coreDetailsError && !data && !item && <div className="panel-error" role="alert">{coreDetailsError}</div>}
     {notice && <div className="panel-notice" role="status">{notice}</div>}
     {loading && <div className="panel-loading" role="status" aria-label="Loading file information"><span className="panel-loading-spinner" aria-hidden="true" /></div>}
@@ -171,6 +171,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
       {section === "details" && <FriendlyDetails item={item} data={data} metadata={metadata} provider={provider} onPreview={onPreview} onOpenFolder={onOpenFolder} locationNodes={locationNodes} locationStatus={locationStatus} locationLoading={locationLoading} canManageContent={canManageContent} />}
       {section === "activity" && <Activity entries={activity} />}
       {section === "analysis" && effectiveVideoAnalysis && <VideoAnalysisDetails analysis={effectiveVideoAnalysis} />}
+      {section === "prompts" && effectiveVideoAnalysis && <VideoGenerationPrompts analysis={effectiveVideoAnalysis} />}
       {section === "metadata" && data && <>
         <Summary analysis={data.active_analysis} />
         <h3 className="panel-section-title">Metadata document</h3>
@@ -462,6 +463,115 @@ export function VideoAnalysisDetails({ analysis }: { analysis: VideoSearchItem }
       {match.speech && <p><b>Speech:</b> {match.speech}</p>}
     </li>)}</ol>
   </section>;
+}
+
+type VideoPromptProvider = "seedance" | "gemini";
+
+type VideoPromptSuggestion = {
+  provider: VideoPromptProvider;
+  label: string;
+  model: string;
+  description: string;
+  prompt: string;
+};
+
+export function buildVideoGenerationPrompts(analysis: VideoSearchItem): VideoPromptSuggestion[] {
+  const matches = [...analysis.matches]
+    .filter(match => Number.isFinite(match.start_ms) && Number.isFinite(match.end_ms))
+    .sort((left, right) => left.start_ms - right.start_ms)
+    .slice(0, 8);
+  const scenes = matches.length ? matches : [analysis.best_match];
+  const detectedDuration = Math.max(analysis.duration_ms || 0, ...scenes.map(scene => scene.end_ms));
+  const duration = detectedDuration > 0
+    ? `${Math.max(1, Math.ceil(detectedDuration / 1_000))} seconds`
+    : "the natural duration required by the shot sequence";
+  const timeline = scenes.map((scene, index) => {
+    const visual = cleanPromptText(scene.visual_description || scene.summary || "Continue the established action.");
+    const summary = cleanPromptText(scene.summary);
+    const speech = cleanPromptText(scene.speech);
+    return `${index + 1}. ${formatVideoTimestamp(scene.start_ms)}-${formatVideoTimestamp(scene.end_ms)}: ${summary ? summary + " " : ""}${visual}${speech ? ` Spoken audio: "${speech}".` : ""}`;
+  }).join("\n");
+  const continuity = cleanPromptText(analysis.best_match.visual_description || analysis.best_match.summary);
+  const evidenceNote = analysis.matches.length > scenes.length
+    ? ` Use these ${scenes.length} representative scenes as the visual backbone and maintain coherent transitions between them.`
+    : "";
+
+  const seedance = `Create a polished, realistic video with a target duration of ${duration}.
+
+Core visual direction:
+${continuity || "Recreate the analyzed subject, setting, and action faithfully."}
+
+Shot sequence:
+${timeline || "1. Recreate the analyzed video as one continuous, natural shot."}
+
+Direction: preserve the same subject, wardrobe, objects, environment, lighting, and spatial continuity from shot to shot. Use deliberate camera movement, physically believable motion, stable anatomy, natural timing, and clean transitions.${evidenceNote} Preserve visible words exactly when legible. Keep any quoted speech verbatim and naturally synchronized.
+
+Avoid: invented logos or text, subtitles, watermarks, flicker, jump cuts, duplicated objects, warped hands, inconsistent clothing, or unexplained scene changes.`;
+
+  const gemini = `Generate a coherent video from the following production brief.
+
+TARGET
+- Duration: ${duration}
+- Look: realistic, detailed, production-ready
+- Continuity: one consistent subject, wardrobe, environment, lighting, and object layout
+
+SCENE PLAN
+${timeline || "1. Recreate the analyzed action as a continuous scene."}
+
+GLOBAL VISUAL REFERENCE
+${continuity || "Follow the analyzed visual evidence faithfully."}
+
+MOTION AND CAMERA
+Use smooth, intentional framing and physically plausible movement. Let each action finish before the next begins. Maintain temporal continuity and consistent scale, anatomy, materials, and lighting.
+
+AUDIO AND TEXT
+Keep quoted dialogue verbatim when present and synchronize it naturally. Do not add narration, music, captions, logos, or written text unless explicitly described. Reproduce legible source text exactly; omit unclear text rather than guessing.
+
+NEGATIVE CONSTRAINTS
+No flicker, morphing, duplicate limbs or objects, warped hands, identity drift, wardrobe changes, random cuts, watermarks, or invented details.`;
+
+  return [
+    { provider: "seedance", label: "Seedance 2.5", model: "Seedance 2.5", description: "Cinematic prompt with shot flow, motion, and visual continuity.", prompt: seedance },
+    { provider: "gemini", label: "Gemini Omni", model: "Gemini Omni", description: "Structured production brief with explicit scene and safety constraints.", prompt: gemini },
+  ];
+}
+
+export function VideoGenerationPrompts({ analysis }: { analysis: VideoSearchItem }) {
+  const suggestions = useMemo(() => buildVideoGenerationPrompts(analysis), [analysis]);
+  const [provider, setProvider] = useState<VideoPromptProvider>("seedance");
+  const [copyStatus, setCopyStatus] = useState("");
+  const selected = suggestions.find(suggestion => suggestion.provider === provider) || suggestions[0];
+
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(selected.prompt);
+      setCopyStatus("Copied");
+    } catch {
+      setCopyStatus("Copy failed");
+    }
+  }
+
+  return <section className="video-prompt-panel" aria-label="Suggested video generation prompts">
+    <header>
+      <div><small>VIDEO GENERATION</small><h3>Recreate this video</h3><p>Suggested from {Math.min(analysis.matches.length || 1, 8)} analyzed scene{analysis.matches.length === 1 ? "" : "s"}.</p></div>
+      <span>AI draft</span>
+    </header>
+    <div className="video-prompt-providers" role="tablist" aria-label="Video generation provider">
+      {suggestions.map(suggestion => <button key={suggestion.provider} type="button" role="tab" aria-selected={provider === suggestion.provider} className={provider === suggestion.provider ? "active" : ""} onClick={() => { setProvider(suggestion.provider); setCopyStatus(""); }}>
+        <i aria-hidden="true">{suggestion.provider === "seedance" ? "S" : "G"}</i>
+        <span><b>{suggestion.label}</b><small>{suggestion.description}</small></span>
+      </button>)}
+    </div>
+    <div className="video-prompt-output">
+      <div><span>Suggested prompt - {selected.model}</span><button type="button" onClick={() => void copyPrompt()}>{copyStatus || "Copy prompt"}</button></div>
+      <pre>{selected.prompt}</pre>
+    </div>
+    <p className="video-prompt-note">Review names, visible text, and brand details before generating. The draft only uses evidence available in the current AI analysis.</p>
+  </section>;
+}
+
+function cleanPromptText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 export function formatVideoTimestamp(value: number): string {

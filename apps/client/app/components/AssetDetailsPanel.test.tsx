@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset, AssetMetadata } from "../types";
-import { AssetActionIcon, AssetDetailsPanel, VideoAnalysisDetails, buildActivity, formatBytes, formatVideoTimestamp, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl, resolveLocation } from "./AssetDetailsPanel";
+import { AssetActionIcon, AssetDetailsPanel, VideoAnalysisDetails, VideoGenerationPrompts, buildVideoGenerationPrompts, buildActivity, formatBytes, formatVideoTimestamp, inferKind, readableKind, resolvePreviewUrl, resolveProviderWebUrl, resolveLocation } from "./AssetDetailsPanel";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 
 const item: Asset = {
@@ -111,6 +111,28 @@ describe("Asset details inspector", () => {
     expect(entries.map(entry => entry.title)).toContain("Video analysis completed");
     expect(entries.map(entry => entry.title)).toContain("Video indexing completed");
     expect(formatVideoTimestamp(65_000)).toBe("01:05");
+  });
+
+  it("builds provider-specific recreation prompts from analyzed video scenes", () => {
+    const analysis: VideoSearchItem = {
+      source_asset_id: "source-video-1", analysis_run_id: "run-1", filename: "embroidery.mp4",
+      mime_type: "video/mp4", duration_ms: 10_000, source_type: "google_drive",
+      external_source_id: "source-1", external_asset_id: "drive-video-1", web_url: null,
+      thumbnail_url: null, score: 4.2,
+      best_match: { start_ms: 0, end_ms: 1_000, summary: "Place an embroidery hoop", visual_description: "Hands press a white hoop onto a black sweatshirt.", speech: "", confidence: 0.95, score: 4.2 },
+      matches: [
+        { start_ms: 0, end_ms: 1_000, summary: "Place an embroidery hoop", visual_description: "Hands press a white hoop onto a black sweatshirt.", speech: "", confidence: 0.95, score: 4.2 },
+        { start_ms: 1_000, end_ms: 4_000, summary: "Load the sweatshirt", visual_description: "The sweatshirt is inserted into an embroidery machine.", speech: "Ready", confidence: 0.95, score: 4.1 },
+      ],
+    };
+    const prompts = buildVideoGenerationPrompts(analysis);
+    expect(prompts.map(item => item.label)).toEqual(["Seedance 2.5", "Gemini Omni"]);
+    expect(prompts[0].prompt).toContain("target duration of 10 seconds");
+    expect(prompts[0].prompt).toContain("00:00-00:01");
+    expect(prompts[1].prompt).toContain("SCENE PLAN");
+    expect(prompts[1].prompt).toContain('Spoken audio: "Ready"');
+    const markup = renderToStaticMarkup(<VideoGenerationPrompts analysis={analysis} />);
+    for (const value of ["Recreate this video", "Seedance 2.5", "Gemini Omni", "Copy prompt", "AI draft"]) expect(markup).toContain(value);
   });
 
   it("uses a source preview when a detail panel was opened without an Explorer item", () => {

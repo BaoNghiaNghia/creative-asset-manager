@@ -1333,3 +1333,28 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .image-generation-dialog>footer{display:flex;justify-content:flex-end;gap:9px;flex-wrap:wrap;padding:14px 24px;border-top:1px solid #e8edf4;background:#fbfcfe}.image-generation-dialog>footer button,.image-generation-dialog>footer .button{display:inline-flex;min-height:40px;align-items:center;justify-content:center;padding:8px 16px;border-radius:10px;font-size:12px;font-weight:700;text-decoration:none;cursor:pointer;transition:.15s ease}.image-generation-dialog>footer .secondary{border:1px solid #d4ddea;background:#fff;color:#4c5c72}.image-generation-dialog>footer .primary{border:1px solid #2f61d5;background:linear-gradient(180deg,#4677e7,#3568df);color:#fff;box-shadow:0 4px 10px rgb(53 104 223 / 20%)}.image-generation-dialog>footer .danger{border:1px solid #d8a7a3;background:#fff5f4;color:#a33d37}.image-generation-dialog>footer :disabled{opacity:.5;box-shadow:none;cursor:not-allowed}
 @media(max-width:700px){.image-generation-provider-grid{grid-template-columns:1fr}.image-generation-dialog{width:min(620px,100%)}}
 @media(max-width:600px){.image-generation-backdrop{padding:0}.image-generation-dialog{width:100%;height:100dvh;max-height:none;border-radius:0}.image-generation-dialog>header{padding:17px}.image-generation-heading-icon{display:none}.image-generation-body{padding:16px}.image-generation-result{grid-template-columns:1fr}.image-generation-sizes{grid-template-columns:1fr}.image-generation-dialog>footer>*{flex:1 1 auto}}
+
+/* Video generation prompt suggestions */
+.video-prompt-panel{display:grid;gap:14px;padding-top:18px}
+.video-prompt-panel>header{display:flex;height:auto;align-items:flex-start;justify-content:space-between;gap:12px;padding:0;border:0}
+.video-prompt-panel>header small{color:#4264bd;font-size:9px;font-weight:800;letter-spacing:.08em}
+.video-prompt-panel>header h3{margin:4px 0 3px;color:#202c3a;font-size:15px}
+.video-prompt-panel>header p{margin:0;color:#718096;font-size:10px;line-height:1.4}
+.video-prompt-panel>header>span{flex:0 0 auto;padding:4px 7px;border-radius:999px;background:#edf2ff;color:#3154b5;font-size:9px;font-weight:750;text-transform:uppercase}
+.video-prompt-providers{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.video-prompt-providers>button{display:grid;grid-template-columns:30px minmax(0,1fr);gap:8px;align-items:start;min-width:0;padding:10px;border:1px solid #dfe6ef;border-radius:10px;background:#fff;color:#28374a;cursor:pointer;text-align:left}
+.video-prompt-providers>button:hover{border-color:#b7c8e8;background:#f8faff}
+.video-prompt-providers>button.active{border-color:#5d7fe3;background:#f3f6ff;box-shadow:0 0 0 2px #5d7fe31a}
+.video-prompt-providers i{display:grid;width:30px;height:30px;place-items:center;border-radius:8px;background:#eef2ff;color:#365dcc;font-size:12px;font-style:normal;font-weight:850}
+.video-prompt-providers button:last-child i{background:linear-gradient(135deg,#eee9ff,#fff0fb);color:#7a4bd3}
+.video-prompt-providers span{display:flex;min-width:0;flex-direction:column;gap:3px}
+.video-prompt-providers b{font-size:11px}
+.video-prompt-providers small{color:#718096;font-size:9px;line-height:1.35}
+.video-prompt-output{overflow:hidden;border:1px solid #dfe6ef;border-radius:11px;background:#f8fafc}
+.video-prompt-output>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 10px;border-bottom:1px solid #e4e9f0;background:#fff}
+.video-prompt-output>div>span{color:#596a80;font-size:9px;font-weight:750;text-transform:uppercase;letter-spacing:.04em}
+.video-prompt-output button{flex:0 0 auto;padding:6px 8px;border:1px solid #c8d5e8;border-radius:7px;background:#fff;color:#2458bd;cursor:pointer;font-size:10px;font-weight:750}
+.video-prompt-output button:hover{border-color:#8eabe0;background:#f1f6ff}
+.video-prompt-output pre{max-height:390px;margin:0;overflow:auto;padding:13px;white-space:pre-wrap;overflow-wrap:anywhere;color:#34445a;font:10.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+.video-prompt-note{margin:0;padding:9px 10px;border-radius:8px;background:#fff8e8;color:#765718;font-size:9.5px;line-height:1.45}
+@media(max-width:420px){.video-prompt-providers{grid-template-columns:1fr}}
