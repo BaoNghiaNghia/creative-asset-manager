@@ -41,10 +41,21 @@ class GeminiVideoAnalysisTest(unittest.IsolatedAsyncioTestCase):
         prompt=build_video_analysis_prompt("Describe",5000).lower(); self.assertIn("exactly as seen",prompt); self.assertIn("do not autocomplete",prompt); self.assertIn("do not invent",prompt)
 
     async def test_rejects_invalid_schema_and_types(self):
-        invalid=[{"schema_version":"wrong","summary":"x","segments":[]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":"no"}, {"schema_version":"video-search-metadata-v1","summary":1,"segments":[]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(end_ms=1000)]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(start_ms=True)]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(confidence=math.nan)]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(objects=[1])]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(unknown=True)]}]
+        invalid=[{"schema_version":"wrong","summary":"x","segments":[]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":"no"}, {"schema_version":"video-search-metadata-v1","summary":1,"segments":[]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(end_ms=1000)]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(start_ms=True)]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(confidence=math.nan)]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[_segment(objects=[1])]}, {"schema_version":"video-search-metadata-v1","summary":"x","segments":[{"start_ms":0}]}]
         for document in invalid:
             with self.subTest(document=document):
                 with self.assertRaises(AiProviderError): await GeminiVideoAnalysisService(_Client(document)).analyze_chunk(chunk=_chunk(), prompt_template="x")
+
+    async def test_ignores_unknown_root_and_segment_fields_but_keeps_normalized_contract(self):
+        document = {
+            "schema_version": "video-search-metadata-v1",
+            "summary": "all",
+            "provider_note": "safe extra field",
+            "segments": [_segment(provider_note={"ignored": True})],
+        }
+        result = await GeminiVideoAnalysisService(_Client(document)).analyze_chunk(chunk=_chunk(), prompt_template="x")
+        self.assertNotIn("provider_note", result.metadata_json)
+        self.assertNotIn("provider_note", result.metadata_json["segments"][0])
 
     async def test_default_free_scan_and_explicit_detail_are_forwarded_once(self):
         client = _Client({"schema_version":"video-search-metadata-v1","summary":"x","segments":[]})

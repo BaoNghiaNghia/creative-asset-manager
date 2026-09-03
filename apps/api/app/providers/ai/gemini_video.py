@@ -128,12 +128,12 @@ class GeminiVideoClient:
             "X-Goog-Upload-Header-Content-Type": "video/mp4",
             "Content-Type": "application/json",
         }
-        start = await self._request("POST", f"{_UPLOAD_ROOT}/files", headers=headers, json={"file": {"mimeType": "video/mp4"}})
+        start = await self._request("POST", f"{_UPLOAD_ROOT}/files", phase="upload_start", headers=headers, json={"file": {"mimeType": "video/mp4"}})
         session_url = start.headers.get("X-Goog-Upload-URL")
         if not session_url:
             raise AiProviderError("Gemini did not create a video upload session.", code="gemini_video_upload_session_missing", retryable=True)
         finalize = await self._request(
-            "POST", session_url,
+            "POST", session_url, phase="upload_finalize",
             headers={
                 "x-goog-api-key": self._api_key,
                 "X-Goog-Upload-Offset": "0",
@@ -159,7 +159,7 @@ class GeminiVideoClient:
             if self._monotonic() >= deadline:
                 raise AiProviderError("Gemini video processing timed out.", code="gemini_video_processing_timeout", retryable=True)
             await self._sleeper(self._poll_interval)
-            response = await self._request("GET", f"{_API_ROOT}/{current.name}", headers={"x-goog-api-key": self._api_key})
+            response = await self._request("GET", f"{_API_ROOT}/{current.name}", phase="file_poll", headers={"x-goog-api-key": self._api_key})
             current = self._uploaded_from_payload(self._json_object(response))
 
     async def _generate(self, uploaded: GeminiUploadedVideo, prompt: str, schema: Mapping[str, Any], media_resolution: str) -> GeminiVideoGeneration:
@@ -170,7 +170,7 @@ class GeminiVideoClient:
             ]}],
             "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": dict(schema), "mediaResolution": media_resolution},
         }
-        response = await self._request("POST", f"{_API_ROOT}/models/{self.model}:generateContent", headers={"x-goog-api-key": self._api_key}, json=body)
+        response = await self._request("POST", f"{_API_ROOT}/models/{self.model}:generateContent", phase="generate", headers={"x-goog-api-key": self._api_key}, json=body)
         payload = self._json_object(response)
         try:
             parts = payload["candidates"][0]["content"]["parts"]
@@ -190,7 +190,7 @@ class GeminiVideoClient:
 
     async def _delete_safely(self, name: str, primary_error: BaseException | None) -> bool:
         try:
-            await self._request("DELETE", f"{_API_ROOT}/{name}", headers={"x-goog-api-key": self._api_key})
+            await self._request("DELETE", f"{_API_ROOT}/{name}", phase="delete", headers={"x-goog-api-key": self._api_key})
             return True
         except asyncio.CancelledError:
             raise
@@ -200,24 +200,43 @@ class GeminiVideoClient:
                 return False
             return False
 
-    async def _request(self, method: str, url: str, *, headers: Mapping[str, str], **kwargs: Any) -> httpx.Response:
+    async def _request(
+        self, method: str, url: str, *, phase: str, headers: Mapping[str, str], **kwargs: Any
+    ) -> httpx.Response:
         try:
             async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
                 response = await client.request(method, url, headers=dict(headers), **kwargs)
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
-            raise AiProviderError("Gemini video request could not be completed.", code="gemini_video_transport_error", retryable=True) from exc
+            raise AiProviderError(
+                "Gemini video request could not be completed.",
+                code="gemini_video_transport_error",
+                retryable=True,
+                details={"request_phase": phase},
+            ) from exc
         if response.status_code >= 400:
             status = response.status_code
-            codes = {400: ("gemini_video_bad_request", False), 401: ("gemini_video_authentication_error", False), 403: ("gemini_video_permission_denied", False), 429: ("gemini_video_rate_limited", True)}
-            code, retryable = codes.get(status, ("gemini_video_http_error", status >= 500))
+            codes = {
+                400: ("gemini_video_bad_request", False),
+                401: ("gemini_video_authentication_error", False),
+                403: ("gemini_video_permission_denied", False),
+                408: ("gemini_video_request_timeout", True),
+                429: ("gemini_video_rate_limited", True),
+            }
+            if status == 404:
+                code = "gemini_video_file_not_found" if phase == "file_poll" else "gemini_video_resource_not_found"
+                retryable = phase == "file_poll"
+            elif status >= 500:
+                code, retryable = "gemini_video_service_unavailable", True
+            else:
+                code, retryable = codes.get(status, ("gemini_video_http_error", False))
             raise AiProviderError(
                 f"Gemini video request failed with HTTP {status}.",
                 code=code, retryable=retryable, status_code=status,
-                details=self._error_details(response),
+                details=self._error_details(response, phase=phase),
             )
         return response
 
-    def _error_details(self, response: httpx.Response) -> dict[str, Any]:
+    def _error_details(self, response: httpx.Response, *, phase: str) -> dict[str, Any]:
         payload: Mapping[str, Any] = {}
         try:
             value = response.json()
@@ -239,6 +258,7 @@ class GeminiVideoClient:
         excerpt = json.dumps({"error": dict(error)}, ensure_ascii=False, sort_keys=True) if error else response.text
         return {
             "http_status": response.status_code,
+            "request_phase": phase,
             "endpoint_path": self._sanitize_error_text(endpoint_path),
             "google_error_status": self._sanitize_error_text(error.get("status")),
             "google_error_message": self._sanitize_error_text(error.get("message")),

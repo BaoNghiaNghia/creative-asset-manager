@@ -855,6 +855,40 @@ export function visiblePages(currentPage: number, totalPages: number): Array<num
   return [1, "ellipsis", currentPage - 1, currentPage, currentPage + 1, "ellipsis", totalPages];
 }
 
+export type VideoFailureRemediation = {
+  tone: "retry" | "review";
+  action: string;
+};
+
+const VIDEO_FAILURE_REMEDIATIONS: Record<string, VideoFailureRemediation> = {
+  video_proxy_source_invalid: { tone: "review", action: "Refresh the source location and metadata, then verify the video is readable before retrying." },
+  video_source_unavailable: { tone: "review", action: "Restore or rediscover the source video in its current folder before retrying." },
+  video_source_changed: { tone: "review", action: "Refresh the source asset so the job uses the latest file version, then retry." },
+  video_source_too_large: { tone: "review", action: "Increase the configured proxy source limit or use a smaller source file before retrying." },
+  video_source_empty: { tone: "review", action: "Replace or re-sync the empty source file before retrying." },
+  video_source_size_mismatch: { tone: "review", action: "Re-sync source metadata and confirm the current file size before retrying." },
+  video_source_stream_invalid: { tone: "review", action: "Check the source-provider download adapter; retry only after it returns a valid byte stream." },
+  video_proxy_preparation_failed: { tone: "review", action: "Check temporary disk capacity and FFmpeg/FFprobe logs before retrying this legacy group." },
+  video_proxy_storage_exhausted: { tone: "retry", action: "Free temporary disk space or restore storage access; retry after capacity is healthy." },
+  video_proxy_materialization_failed: { tone: "retry", action: "Check temporary directory permissions and disk health, then retry." },
+  video_proxy_process_failed: { tone: "review", action: "Inspect FFmpeg/FFprobe logs and validate the source codec before retrying." },
+  gemini_video_permission_denied: { tone: "review", action: "Verify the Gemini API key project, Generative Language API access, and selected model permission before retrying." },
+  gemini_video_http_error: { tone: "review", action: "Legacy mixed error: inspect the HTTP status and request phase in error details before retrying." },
+  gemini_video_service_unavailable: { tone: "retry", action: "Gemini returned a temporary 5xx service error; wait briefly and retry." },
+  gemini_video_request_timeout: { tone: "retry", action: "Gemini timed out; retry with backoff." },
+  gemini_video_transport_error: { tone: "retry", action: "A transient network or timeout error occurred; retry with backoff." },
+  gemini_video_file_not_found: { tone: "retry", action: "The temporary Gemini upload expired or disappeared; retry to upload the proxy again." },
+  gemini_video_resource_not_found: { tone: "review", action: "Verify the configured Gemini model and endpoint before retrying." },
+  gemini_video_invalid_metadata: { tone: "review", action: "Review the returned metadata fields. Extra safe fields are now ignored; retry after deploying this parser update." },
+};
+
+export function videoFailureRemediation(errorCode: string): VideoFailureRemediation {
+  return VIDEO_FAILURE_REMEDIATIONS[errorCode] || {
+    tone: "review",
+    action: "Inspect the error detail and correct the underlying cause before retrying.",
+  };
+}
+
 function ProcessingFailureGroupRetry({
   failures, permissions, onAccepted, jobType = "asset_analyze",
 }: {
@@ -878,6 +912,7 @@ function ProcessingFailureGroupRetry({
   }, [groups, errorCode]);
   if (!permissions.includes("ai_jobs.retry") || !groups.length) return null;
   const selected = groups.find(group => group.error_code === errorCode);
+  const remediation = videoFailureRemediation(errorCode);
   async function submit() {
     if (!errorCode || !reason.trim()) return;
     setBusy(true); setMessage("");
@@ -898,10 +933,15 @@ function ProcessingFailureGroupRetry({
         {groups.map(group => <option key={group.error_code} value={group.error_code}>{group.error_code} ({group.count})</option>)}
       </select>
       <small>{selected ? selected.count + " matching failed jobs" : ""} - maximum 1,000 per action</small>
+      {errorCode && <p className={"ops-remediation ops-remediation-" + remediation.tone}>
+        <strong>{remediation.tone === "retry" ? "Safe to retry after a short delay" : "Fix or verify before retry"}</strong>
+        <span>{remediation.action}</span>
+      </p>}
     </div>
     <button type="button" disabled={!errorCode} onClick={() => { setConfirming(true); setReason(""); setMessage(""); }}>Retry failed group</button>
     {confirming && <div className="ops-confirm" role="dialog" aria-modal="true" aria-label="Confirm group retry">
       <strong>Retry {selected?.error_code || "failed jobs"}?</strong>
+      <p>{remediation.action}</p>
       <p>Only terminal failed AI jobs in this error group will be requeued. This action is audited.</p>
       <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} placeholder="Explain why these jobs should be retried" /></label>
       <div><button type="button" onClick={() => setConfirming(false)}>Cancel</button><button type="button" className="danger" disabled={busy || !reason.trim()} onClick={submit}>{busy ? "Retrying..." : "Confirm retry"}</button></div>

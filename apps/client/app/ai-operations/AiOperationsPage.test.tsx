@@ -33,6 +33,7 @@ import {
   handleTabKeyDown,
   pageFilters,
   usagePageFilters,
+  videoFailureRemediation,
   visiblePages,
   PipelineOverview,
   ProcessingJobAction,
@@ -806,6 +807,16 @@ describe("AI Operations interactions", () => {
     expect(renderToStaticMarkup(<ProcessingJobAction job={failed} permissions={["ai_jobs.retry"]} onAccepted={noop} />)).toContain("Retry failed job");
     expect(mayViewAiOperations(["ai_operations.read"])).toBe(true);
     expect(mayViewAiOperations(["assets.read"])).toBe(false);
+  });
+
+  it("explains whether a Video failure needs repair or is safe to retry", () => {
+    expect(videoFailureRemediation("gemini_video_permission_denied")).toEqual(expect.objectContaining({
+      tone: "review",
+    }));
+    expect(videoFailureRemediation("gemini_video_transport_error")).toEqual(expect.objectContaining({
+      tone: "retry",
+    }));
+    expect(videoFailureRemediation("video_proxy_source_invalid").action).toContain("source");
   });
 
   it("renders an error-group selector and bulk retry action for authorized operators", () => {

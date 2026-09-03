@@ -122,11 +122,12 @@ class GeminiVideoAnalysisService:
         raise AiProviderError(message, code="gemini_video_invalid_metadata", retryable=False)
 
     def _root(self, document: Mapping[str, Any]) -> None:
-        if set(document) != {"schema_version", "summary", "segments"} or document.get("schema_version") != "video-search-metadata-v1" or not isinstance(document.get("summary"), str) or not isinstance(document.get("segments"), list): self._fail("Gemini video metadata does not match the required schema.")
+        required = {"schema_version", "summary", "segments"}
+        if not required.issubset(document) or document.get("schema_version") != "video-search-metadata-v1" or not isinstance(document.get("summary"), str) or not isinstance(document.get("segments"), list): self._fail("Gemini video metadata does not match the required schema.")
 
     def _segment(self, chunk: PreparedVideoChunk, value: Any) -> VideoSegmentMetadata:
         fields = {"start_ms", "end_ms", "summary", "visual_description", "speech", "confidence", *_ARRAY_FIELDS}
-        if not isinstance(value, Mapping) or set(value) != fields: self._fail("Gemini video segment does not match the required schema.")
+        if not isinstance(value, Mapping) or not fields.issubset(value): self._fail("Gemini video segment does not match the required schema.")
         start, end = value["start_ms"], value["end_ms"]
         if any(not isinstance(item, int) or isinstance(item, bool) for item in (start, end)) or start < 0 or end <= start or end > chunk.duration_ms: self._fail("Gemini video timestamps are invalid.")
         if any(not isinstance(value[field], str) for field in _STRING_FIELDS): self._fail("Gemini video string fields are invalid.")

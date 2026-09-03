@@ -17,10 +17,16 @@ from app.modules.video_search.analysis import GeminiVideoAnalysisService
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.modules.video_search.proxy import (
     VideoProxyConfigurationError,
+    VideoProxyDiskSpaceError,
+    VideoProxyMaterializationError,
     VideoProxyPreparationService,
     VideoProxyProcessError,
+    VideoProxySourceEmptyError,
     VideoProxySourceError,
     VideoProxySourceChangedError,
+    VideoProxySourceSizeMismatchError,
+    VideoProxySourceStreamError,
+    VideoProxySourceTooLargeError,
     VideoProxyStorageError,
 )
 from app.modules.video_search.repository import (
@@ -236,11 +242,25 @@ class VideoAnalyzeJobHandler:
             return self._cancel(context, run_id)
         except VideoProxySourceChangedError:
             return self._non_retry(context, run_id, None, "video_source_changed", "Video source changed during proxy preparation.")
+        except VideoProxySourceTooLargeError:
+            return self._non_retry(context, run_id, None, "video_source_too_large", "Video source exceeds the configured proxy size limit.")
+        except VideoProxySourceEmptyError:
+            return self._non_retry(context, run_id, None, "video_source_empty", "Video source contains no downloadable content.")
+        except VideoProxySourceSizeMismatchError:
+            return self._non_retry(context, run_id, None, "video_source_size_mismatch", "Downloaded video size does not match current source metadata.")
+        except VideoProxySourceStreamError:
+            return self._non_retry(context, run_id, None, "video_source_stream_invalid", "Video provider returned an invalid download stream.")
         except VideoProxySourceError:
             return self._non_retry(context, run_id, None, "video_proxy_source_invalid", "Video source could not be prepared safely.")
         except VideoProxyConfigurationError:
             return self._non_retry(context, run_id, current_chunk_id, "video_proxy_configuration_error", "Video proxy preparation is not configured.")
-        except (VideoProxyStorageError, VideoProxyProcessError):
+        except VideoProxyDiskSpaceError:
+            return self._retry(context, run_id, current_chunk_id, "video_proxy_storage_exhausted", "Video proxy storage is unavailable or does not have enough free space.")
+        except VideoProxyMaterializationError:
+            return self._retry(context, run_id, current_chunk_id, "video_proxy_materialization_failed", "Video source could not be written to temporary proxy storage.")
+        except VideoProxyProcessError:
+            return self._retry(context, run_id, current_chunk_id, "video_proxy_process_failed", "FFmpeg or FFprobe could not prepare the video proxy.")
+        except VideoProxyStorageError:
             return self._retry(context, run_id, current_chunk_id, "video_proxy_preparation_failed", "Video proxy preparation could not be completed.")
         except VideoChunkLayoutConflictError:
             return self._non_retry(context, run_id, None, "video_chunk_layout_conflict", "Prepared video chunk layout differs from persisted layout.")
@@ -267,6 +287,9 @@ class VideoAnalyzeJobHandler:
     def _gemini_error_message(exc: AiProviderError) -> str:
         details = exc.details if isinstance(exc.details, dict) else {}
         values = [str(exc)]
+        phase = details.get("request_phase")
+        if isinstance(phase, str) and phase.strip():
+            values.append(f"phase={phase.strip()}")
         for key in ("google_error_status", "google_error_message", "provider_request_id"):
             value = details.get(key)
             if isinstance(value, str) and value.strip() and value not in values:

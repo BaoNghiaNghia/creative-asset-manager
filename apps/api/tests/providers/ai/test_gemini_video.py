@@ -99,8 +99,30 @@ class GeminiVideoClientTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AiProviderError) as raised: await self._run(handler, clock=lambda: next(ticks))
             self.assertEqual(raised.exception.code, code); self.assertEqual(calls[-1], "DELETE"); self.assertNotIn("POST", calls[2:])
 
+    async def test_http_error_includes_phase_and_retry_policy(self):
+        cases = (
+            (403, "gemini_video_permission_denied", False),
+            (404, "gemini_video_resource_not_found", False),
+            (500, "gemini_video_service_unavailable", True),
+        )
+        for status, code, retryable in cases:
+            async def handler(request, status=status):
+                if request.url.path == "/upload/v1beta/files":
+                    return httpx.Response(200, headers={"X-Goog-Upload-URL": "https://upload.test/session"})
+                if request.url.host == "upload.test":
+                    return httpx.Response(200, json={"file":{"name":"files/x","uri":"gemini://x","state":"ACTIVE"}})
+                if request.method == "POST":
+                    return httpx.Response(status, json={"error":{"status":"FAILED_PRECONDITION"}})
+                return httpx.Response(204)
+            with self.subTest(status=status):
+                with self.assertRaises(AiProviderError) as raised:
+                    await self._run(handler)
+                self.assertEqual(raised.exception.code, code)
+                self.assertEqual(raised.exception.retryable, retryable)
+                self.assertEqual(raised.exception.details["request_phase"], "generate")
+
     async def test_generation_invalid_json_and_error_cleanup_and_key_never_exposed(self):
-        for response, code in ((httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "{"}]}}]}), "gemini_video_invalid_json"), (httpx.Response(500, json={"error": {"message": "secret-video-key"}}), "gemini_video_http_error")):
+        for response, code in ((httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "{"}]}}]}), "gemini_video_invalid_json"), (httpx.Response(500, json={"error": {"message": "secret-video-key"}}), "gemini_video_service_unavailable")):
             calls=[]
             async def handler(request, response=response):
                 calls.append(request.method)

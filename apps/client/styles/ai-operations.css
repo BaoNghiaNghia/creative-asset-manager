@@ -289,6 +289,9 @@
 .ops-bulk-retry label{color:#526277;font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.03em}
 .ops-bulk-retry select{min-height:34px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#263446;font:inherit;font-size:12px}
 .ops-bulk-retry small{color:#718096;font-size:11px;text-transform:none;letter-spacing:normal}
+.ops-bulk-retry .ops-remediation{display:flex;flex-direction:column;gap:2px;margin:3px 0 0;padding:8px 10px;border-left:3px solid #d29a25;border-radius:5px;background:#fff8e8;color:#6f4b08;font-size:11px;line-height:1.4}
+.ops-bulk-retry .ops-remediation strong{font-size:11px}
+.ops-bulk-retry .ops-remediation-retry{border-left-color:#2f8f58;background:#edf9f2;color:#24683f}
 .ops-bulk-retry>button{min-height:34px;padding:7px 12px;border:1px solid #315fe9;border-radius:7px;background:#315fe9;color:#fff;font-size:12px;font-weight:700;cursor:pointer}
 .ops-bulk-retry>button:disabled{opacity:.5;cursor:not-allowed}
 .ops-bulk-retry .ops-confirm{position:fixed;inset:auto 24px 24px auto;width:min(420px,calc(100vw - 48px));z-index:30}

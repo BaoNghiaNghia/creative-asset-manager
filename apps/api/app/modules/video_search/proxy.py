@@ -48,6 +48,30 @@ class VideoProxySourceError(VideoProxyPreparationError):
     pass
 
 
+class VideoProxySourceEmptyError(VideoProxySourceError):
+    pass
+
+
+class VideoProxySourceSizeMismatchError(VideoProxySourceError):
+    pass
+
+
+class VideoProxySourceTooLargeError(VideoProxySourceError):
+    pass
+
+
+class VideoProxySourceStreamError(VideoProxySourceError):
+    pass
+
+
+class VideoProxyDiskSpaceError(VideoProxyStorageError):
+    pass
+
+
+class VideoProxyMaterializationError(VideoProxyStorageError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedVideoChunk:
     chunk_index: int
@@ -143,7 +167,7 @@ class VideoProxyPreparationService:
             )
             await process.wait()
             if storage_failed.is_set():
-                raise VideoProxyStorageError("insufficient free space while creating video proxy")
+                raise VideoProxyDiskSpaceError("insufficient free space while creating video proxy")
             stderr_tail = await stderr_task
             stderr_task = None
             if process.returncode != 0:
@@ -190,21 +214,21 @@ class VideoProxyPreparationService:
                 with source_path.open("xb") as destination:
                     async for block in stream.body:
                         if not isinstance(block, bytes):
-                            raise VideoProxySourceError("provider stream emitted a non-bytes block")
+                            raise VideoProxySourceStreamError("provider stream emitted a non-bytes block")
                         next_size = written + len(block)
                         if next_size > maximum_size:
-                            raise VideoProxySourceError("video source exceeds configured maximum size")
+                            raise VideoProxySourceTooLargeError("video source exceeds configured maximum size")
                         self._ensure_free_space(root, output_reserve)
                         destination.write(block)
                         written = next_size
         except VideoProxyPreparationError:
             raise
         except OSError as exc:
-            raise VideoProxyStorageError("cannot materialize video source locally") from exc
+            raise VideoProxyMaterializationError("cannot materialize video source locally") from exc
         if written <= 0:
-            raise VideoProxySourceError("video source is empty")
+            raise VideoProxySourceEmptyError("video source is empty")
         if size_is_authoritative and written != expected_size:
-            raise VideoProxySourceError("video source size does not match source metadata")
+            raise VideoProxySourceSizeMismatchError("video source size does not match source metadata")
 
     @staticmethod
     def _source_path(directory: Path, mime_type: str | None) -> Path:
@@ -246,7 +270,7 @@ class VideoProxyPreparationService:
         size = source.size_bytes
         if isinstance(size, int) and not isinstance(size, bool) and size >= 0:
             if size > maximum:
-                raise VideoProxySourceError("video source exceeds configured maximum size")
+                raise VideoProxySourceTooLargeError("video source exceeds configured maximum size")
             return size
         return maximum
 
@@ -263,9 +287,9 @@ class VideoProxyPreparationService:
         try:
             free = int(self._disk_usage(root).free)
         except OSError as exc:
-            raise VideoProxyStorageError("cannot inspect free proxy storage") from exc
+            raise VideoProxyDiskSpaceError("cannot inspect free proxy storage") from exc
         if free < required:
-            raise VideoProxyStorageError("insufficient free space for video proxy preparation")
+            raise VideoProxyDiskSpaceError("insufficient free space for video proxy preparation")
 
     def _load_source_asset(self, tenant_id: str, source_asset_id: str) -> SourceAssetModel | None:
         with self._session_factory() as session:

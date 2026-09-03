@@ -20,6 +20,8 @@ from app.modules.video_search.proxy import (
     VideoProxyPreparationService,
     VideoProxySourceChangedError,
     VideoProxySourceError,
+    VideoProxySourceSizeMismatchError,
+    VideoProxySourceTooLargeError,
     VideoProxyStorageError,
     VideoProxyProcessError,
 )
@@ -209,14 +211,14 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
     def test_truncated_source_is_rejected_and_cleaned(self):
         factory = FakeProcessFactory()
-        with self.assertRaises(VideoProxySourceError):
+        with self.assertRaises(VideoProxySourceSizeMismatchError):
             asyncio.run(self.service(factory, FakeResolver((b"short",))).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
         self.assertIsNone(factory.ffmpeg)
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
 
     def test_source_limit_is_enforced_and_cleaned(self):
         factory = FakeProcessFactory()
-        with self.assertRaises(VideoProxySourceError):
+        with self.assertRaises(VideoProxySourceTooLargeError):
             asyncio.run(self.service(factory, FakeResolver((b"a" * 21,)), settings=self.settings(VIDEO_PROXY_MAX_SOURCE_BYTES=20)).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
         self.assertIsNone(factory.ffmpeg)
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
