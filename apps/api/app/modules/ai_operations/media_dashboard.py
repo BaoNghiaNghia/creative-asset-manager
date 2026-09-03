@@ -132,6 +132,29 @@ def _video_analytics(
     }
 
 
+def _merge_video_job_failure_groups(
+    analytics: dict,
+    jobs: list[ProcessingJobModel],
+) -> dict:
+    """Expose pre-run failures and keep retry-group counts aligned with jobs."""
+    counts = {
+        item["error_code"]: int(item["count"])
+        for item in analytics["failures"]
+        if item.get("error_code")
+    }
+    job_counts = Counter(
+        job.last_error_code or "video_analysis_failed"
+        for job in jobs
+        if job.status == "failed"
+    )
+    counts.update(job_counts)
+    analytics["failures"] = [
+        {"source": VIDEO_JOB_TYPE, "error_code": code, "count": count}
+        for code, count in sorted(counts.items())
+    ]
+    return analytics
+
+
 def _parent_ids(source: SourceAssetModel) -> tuple[str, ...]:
     metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
     values = metadata.get("parents")
@@ -667,15 +690,18 @@ class MediaDashboardService:
                 worker("image", (IMAGE_JOB_TYPE,), image_probe),
                 worker("video", (VIDEO_JOB_TYPE, VIDEO_INDEX_JOB_TYPE), video_probe),
             ],
-            "analytics": _video_analytics(
-                analytics_runs,
-                from_at=from_at,
-                to_at=to_at,
-                provider=provider,
-                model=model,
-                processing_mode=processing_mode,
-                metadata_profile=metadata_profile,
-                status=status,
+            "analytics": _merge_video_job_failure_groups(
+                _video_analytics(
+                    analytics_runs,
+                    from_at=from_at,
+                    to_at=to_at,
+                    provider=provider,
+                    model=model,
+                    processing_mode=processing_mode,
+                    metadata_profile=metadata_profile,
+                    status=status,
+                ),
+                filtered_video,
             ),
             "generated_at": now.isoformat(),
         }

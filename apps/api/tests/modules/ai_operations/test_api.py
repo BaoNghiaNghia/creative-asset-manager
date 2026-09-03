@@ -239,6 +239,14 @@ class AiOperationsApiTest(unittest.TestCase):
                     completed_at=self.now - timedelta(seconds=1),
                     updated_at=self.now - timedelta(seconds=1),
                 ),
+                ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="video_analyze",
+                    entity_type="source_asset", entity_id=self.source_asset_id,
+                    idempotency_key="video-source-unavailable-failure",
+                    status="failed", last_error_code="video_source_unavailable",
+                    payload_json={}, completed_at=self.now - timedelta(seconds=3),
+                    updated_at=self.now - timedelta(seconds=3),
+                ),
             ])
             session.commit()
         probe = AsyncMock(return_value={"live": True, "ready": True, "probe": "available"})
@@ -261,11 +269,18 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(analytics["providers"][0]["provider"], "gemini")
         self.assertEqual(analytics["providers"][0]["model"], "gemini-video")
         self.assertEqual(analytics["providers"][0]["count"], 2)
-        self.assertEqual(analytics["failures"], [{
-            "source": "video_analyze",
-            "error_code": "video_provider_failed",
-            "count": 1,
-        }])
+        self.assertEqual(analytics["failures"], [
+            {
+                "source": "video_analyze",
+                "error_code": "video_provider_failed",
+                "count": 1,
+            },
+            {
+                "source": "video_analyze",
+                "error_code": "video_source_unavailable",
+                "count": 1,
+            },
+        ])
         self.assertGreater(analytics["latency"]["average_ms"], 0)
         self.assertFalse(analytics["cost_available"])
         failed_video = response.json()["recent_video"]["items"][0]
