@@ -30,6 +30,7 @@ PERMISSION_DEFINITIONS = {
     "search.rebuild": "Rebuild tenant search projections",
     "search.index.activate": "Activate a tenant search index",
     "audit.read": "Read tenant audit events",
+    "application_logs.manage": "Manage external log applications",
     **INVENTORY_PERMISSION_DEFINITIONS,
 }
 

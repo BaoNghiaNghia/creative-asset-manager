@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.modules.application_logs.model import LogApplicationModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.retention.service import CleanupAlreadyRunning, RetentionCleanupService
@@ -46,9 +47,11 @@ class RetentionCleanupScheduler:
             return 0
         current = now or datetime.now(timezone.utc)
         with self.session_factory() as session:
-            tenants = tuple(session.scalars(select(TenantProcessingPolicyModel.tenant_id).where(
+            policy_tenants = set(session.scalars(select(TenantProcessingPolicyModel.tenant_id).where(
                 TenantProcessingPolicyModel.pipeline_enabled.is_(True),
             )))
+            log_tenants = set(session.scalars(select(LogApplicationModel.tenant_id)))
+            tenants = tuple(sorted(policy_tenants | log_tenants))
         return sum(
             int(self.schedule_tenant(tenant_id, cutoff_at=current, next_attempt_at=current))
             for tenant_id in tenants

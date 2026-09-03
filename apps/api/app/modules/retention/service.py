@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.application_logs.model import ApplicationLogModel
 from app.modules.auth_persistence.model import AuthSessionModel, OAuthTransactionModel
 from app.modules.external_ingestion.model import (
     AssetIngestionItemModel, AssetIngestionModel,
@@ -23,7 +24,7 @@ RECORD_TYPES = (
     "ingestion_urls", "ingestion_payloads", "raw_ai_responses",
     "completed_job_payloads", "dead_letter_details", "expired_oauth_state",
     "expired_sessions", "rate_limit_buckets", "completed_outbox_events",
-    "temporary_export_records", "source_sync_runs",
+    "temporary_export_records", "source_sync_runs", "application_logs",
 )
 
 
@@ -192,6 +193,7 @@ class RetentionCleanupService:
             "completed_outbox_events": (self.settings.RETENTION_OUTBOX_DAYS, "days"),
             "temporary_export_records": (self.settings.RETENTION_TEMP_EXPORT_DAYS, "days"),
             "source_sync_runs": (self.settings.RETENTION_SOURCE_SYNC_RUN_DAYS, "days"),
+            "application_logs": (0, "hours"),
             "expired_oauth_state": (0, "hours"),
             "expired_sessions": (0, "hours"),
         }[record_type]
@@ -293,6 +295,14 @@ class RetentionCleanupService:
                 OutboxEventModel.status == "published",
                 OutboxEventModel.published_at <= cutoff,
             ).order_by(OutboxEventModel.id).limit(limit)))
+            ids = [row.id for row in rows]
+            if not run.dry_run:
+                for row in rows: session.delete(row)
+        elif record_type == "application_logs":
+            rows = list(session.scalars(select(ApplicationLogModel).where(
+                ApplicationLogModel.tenant_id == tenant,
+                ApplicationLogModel.expires_at <= run.cutoff_at,
+            ).order_by(ApplicationLogModel.id).limit(limit)))
             ids = [row.id for row in rows]
             if not run.dry_run:
                 for row in rows: session.delete(row)
