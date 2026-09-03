@@ -12,7 +12,7 @@ from app.domain.providers.contracts import AiProviderError
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
 from app.modules.assets.model import SourceAssetModel
 from app.modules.video_search.credentials import VideoGeminiCredentialError, VideoGeminiCredentialResolver
-from app.modules.pipeline.mime_types import is_eligible_video_source_asset
+from app.modules.pipeline.mime_types import is_supported_video_mime_type
 from app.modules.video_search.analysis import GeminiVideoAnalysisService
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.modules.video_search.proxy import (
@@ -66,7 +66,7 @@ class VideoAnalyzeJobHandler:
                 SourceAssetModel.tenant_id == context.job.tenant_id,
                 SourceAssetModel.id == source_id,
             ))
-            if source is None or not is_eligible_video_source_asset(source):
+            if source is None or not is_supported_video_mime_type(source.mime_type):
                 return JobHandlerResult.non_retryable("video_source_unavailable", "Video source is unavailable or unsupported.")
             repo = VideoSearchRepository(session)
             profile = repo.get_active_profile(context.job.tenant_id)

@@ -52,6 +52,16 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
         asset_id = asset_id or self.asset.id
         return JobHandlerContext(job=ClaimedJob(id="job-a", tenant_id="tenant-a", job_type="video_analyze", entity_type="source_asset", entity_id=asset_id, payload={"source_asset_id": asset_id}, attempt_count=1, lease_owner="worker"), dependencies=WorkerDependencies(session_factory=self.sessions), shutdown_requested=threading.Event(), cancellation_requested=threading.Event(), logger=logging.LoggerAdapter(logging.getLogger(__name__), {}))
 
+    def test_deleted_source_is_not_rejected_before_drive_refresh(self):
+        with self.sessions() as session:
+            asset = session.get(type(self.asset), self.asset.id)
+            asset.deleted_at = __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            )
+            session.commit()
+        result = VideoAnalyzeJobHandler(self._settings())(self._context())
+        self.assertEqual(result.outcome.value, "completed")
+
     def test_emergency_stop_defers_before_credentials_or_provider_request(self):
         settings = self._settings()
         settings.GEMINI_EMERGENCY_STOP_ENABLED = True

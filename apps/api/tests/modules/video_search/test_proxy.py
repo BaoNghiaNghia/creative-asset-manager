@@ -112,6 +112,23 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertIn("0:a?", command); self.assertIn("-segment_time", command); self.assertNotIn("Authorization", " ".join(command))
         self.assertEqual(chunks[0].source_start_ms, 0); self.assertEqual(chunks[0].source_end_ms, 1250); self.assertTrue(chunks[0].path.exists())
         service.cleanup(chunks); self.assertFalse(chunks[0].path.exists()); self.assertFalse(chunks[0].path.parent.exists())
+    def test_deleted_source_reaches_resolver_for_move_recovery(self):
+        with self.sessions() as session:
+            asset = session.get(SourceAssetModel, "asset-a")
+            asset.deleted_at = __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            )
+            session.commit()
+        resolver = FakeResolver()
+        service = self.service(resolver=resolver)
+        chunks = asyncio.run(service.prepare(
+            tenant_id="tenant-a",
+            source_asset_id="asset-a",
+            expected_source_fingerprint=self.fingerprint(),
+        ))
+        self.assertEqual(len(resolver.open_calls), 1)
+        service.cleanup(chunks)
+
     def test_quicktime_uses_a_private_mov_source_path(self):
         with self.sessions() as session:
             asset = session.get(SourceAssetModel, "asset-a")

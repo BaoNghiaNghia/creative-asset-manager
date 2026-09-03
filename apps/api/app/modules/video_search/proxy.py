@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.modules.assets.content_resolver import SourceAssetContentResolver
 from app.modules.assets.model import SourceAssetModel
-from app.modules.pipeline.mime_types import is_eligible_video_source_asset
+from app.modules.pipeline.mime_types import is_supported_video_mime_type
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 
 
@@ -97,7 +97,7 @@ class VideoProxyPreparationService:
         self, *, tenant_id: str, source_asset_id: str, expected_source_fingerprint: str
     ) -> tuple[PreparedVideoChunk, ...]:
         source_asset = self._load_source_asset(tenant_id, source_asset_id)
-        if source_asset is None or not is_eligible_video_source_asset(source_asset):
+        if source_asset is None or not is_supported_video_mime_type(source_asset.mime_type):
             raise VideoProxySourceChangedError("source asset is unavailable or not a supported video")
         if build_video_source_fingerprint(source_asset) != expected_source_fingerprint:
             raise VideoProxySourceChangedError("source asset fingerprint changed before proxy preparation")
@@ -272,7 +272,6 @@ class VideoProxyPreparationService:
             return session.scalar(select(SourceAssetModel).where(
                 SourceAssetModel.tenant_id == tenant_id,
                 SourceAssetModel.id == source_asset_id,
-                SourceAssetModel.deleted_at.is_(None),
             ))
 
     def _load_fingerprint(self, tenant_id: str, source_asset_id: str) -> str | None:
