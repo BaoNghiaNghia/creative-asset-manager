@@ -1346,7 +1346,9 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .video-prompt-providers>button:hover{border-color:#b7c8e8;background:#f8faff}
 .video-prompt-providers>button.active{border-color:#5d7fe3;background:#f3f6ff;box-shadow:0 0 0 2px #5d7fe31a}
 .video-prompt-providers i{display:grid;width:30px;height:30px;place-items:center;border-radius:8px;background:#eef2ff;color:#365dcc;font-size:12px;font-style:normal;font-weight:850}
-.video-prompt-providers button:last-child i{background:linear-gradient(135deg,#eee9ff,#fff0fb);color:#7a4bd3}
+.video-prompt-providers .video-prompt-provider-logo{overflow:hidden;padding:0;background:#fff;box-shadow:inset 0 0 0 1px #e2e8f0}
+.video-prompt-providers .video-prompt-provider-logo img{display:block;width:100%;height:100%;object-fit:contain}
+.video-prompt-providers .video-prompt-provider-logo.gemini{padding:5px;background:linear-gradient(135deg,#f1edff,#fff1fb)}
 .video-prompt-providers span{display:flex;min-width:0;flex-direction:column;gap:3px}
 .video-prompt-providers b{font-size:11px}
 .video-prompt-providers small{color:#718096;font-size:9px;line-height:1.35}

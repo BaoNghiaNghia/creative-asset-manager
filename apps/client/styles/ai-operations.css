@@ -284,19 +284,21 @@
 @media(max-width:760px){.pipeline-exclusions summary{align-items:flex-start}.pipeline-exclusions summary>span{grid-template-columns:22px minmax(0,1fr)}.pipeline-exclusions ul{grid-template-columns:1fr}.pipeline-queue-table{min-width:760px}}
 
 /* Grouped retry controls for terminal AI failures. */
-.ops-bulk-retry{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 16px;padding:12px 14px;border:1px solid #e0e7f1;border-radius:10px;background:#f8faff}
-.ops-bulk-retry>div:first-child{display:flex;flex-direction:column;gap:5px;min-width:min(360px,100%)}
-.ops-bulk-retry label{color:#526277;font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.03em}
-.ops-bulk-retry select{min-height:34px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#263446;font:inherit;font-size:12px}
-.ops-bulk-retry small{color:#718096;font-size:11px;text-transform:none;letter-spacing:normal}
-.ops-bulk-retry .ops-remediation{display:flex;flex-direction:column;gap:2px;margin:3px 0 0;padding:8px 10px;border-left:3px solid #d29a25;border-radius:5px;background:#fff8e8;color:#6f4b08;font-size:11px;line-height:1.4}
-.ops-bulk-retry .ops-remediation strong{font-size:11px}
+.ops-bulk-retry{display:flex;align-items:end;gap:12px;flex-wrap:nowrap;margin:0 0 16px;padding:12px 14px;border:1px solid #e0e7f1;border-radius:10px;background:#f8faff}
+.ops-bulk-retry-field{display:grid;grid-template-columns:minmax(240px,520px) auto;grid-template-areas:"label label" "select count";align-items:center;gap:5px 10px;min-width:0;flex:0 1 670px}
+.ops-bulk-retry label{grid-area:label;color:#526277;font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.03em}
+.ops-bulk-retry select{grid-area:select;min-width:0;min-height:34px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#263446;font:inherit;font-size:12px}
+.ops-bulk-retry small{grid-area:count;white-space:nowrap;color:#718096;font-size:11px;text-transform:none;letter-spacing:normal}
+.ops-bulk-retry .ops-remediation{display:flex;align-items:center;gap:7px;min-width:0;flex:1 1 360px;margin:0;padding:8px 10px;border-left:3px solid #d29a25;border-radius:5px;background:#fff8e8;color:#6f4b08;font-size:11px;line-height:1.35}
+.ops-bulk-retry .ops-remediation strong{flex:none;font-size:11px;white-space:nowrap}
+.ops-bulk-retry .ops-remediation span{min-width:0}
 .ops-bulk-retry .ops-remediation-retry{border-left-color:#2f8f58;background:#edf9f2;color:#24683f}
 .ops-bulk-retry>button{min-height:34px;padding:7px 12px;border:1px solid #315fe9;border-radius:7px;background:#315fe9;color:#fff;font-size:12px;font-weight:700;cursor:pointer}
 .ops-bulk-retry>button:disabled{opacity:.5;cursor:not-allowed}
 .ops-bulk-retry .ops-confirm{position:fixed;inset:auto 24px 24px auto;width:min(420px,calc(100vw - 48px));z-index:30}
 .ops-bulk-retry .ops-action-message{flex-basis:100%}
-@media(max-width:560px){.ops-bulk-retry{align-items:stretch;flex-direction:column}.ops-bulk-retry>button{width:100%}}
+@media(max-width:920px){.ops-bulk-retry{align-items:stretch;flex-wrap:wrap}.ops-bulk-retry .ops-remediation{flex-basis:100%}}
+@media(max-width:560px){.ops-bulk-retry{flex-direction:column}.ops-bulk-retry-field{width:100%;grid-template-columns:1fr;grid-template-areas:"label" "select" "count"}.ops-bulk-retry small{white-space:normal}.ops-bulk-retry>button{width:100%}.ops-bulk-retry .ops-remediation{align-items:flex-start;flex-direction:column}}
 
 
 /* Keep the active Operations tab aligned with the product navigation treatment. */

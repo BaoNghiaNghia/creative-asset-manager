@@ -10,6 +10,8 @@ import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, 
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 import { readTextPreview, TEXT_PREVIEW_RANGE } from "../utils/textPreview";
 import googleDriveLogoUrl from "../../assets/logos/google-drive-logo.svg";
+import geminiSparkleUrl from "../../assets/gemini-sparkle.svg";
+import seedanceLogoUrl from "../../assets/logos/seedance-logo.svg";
 import { LocationBreadcrumb, itemLocationBreadcrumb } from "./LocationBreadcrumb";
 
 type Props = {
@@ -558,7 +560,7 @@ export function VideoGenerationPrompts({ analysis }: { analysis: VideoSearchItem
     </header>
     <div className="video-prompt-providers" role="tablist" aria-label="Video generation provider">
       {suggestions.map(suggestion => <button key={suggestion.provider} type="button" role="tab" aria-selected={provider === suggestion.provider} className={provider === suggestion.provider ? "active" : ""} onClick={() => { setProvider(suggestion.provider); setCopyStatus(""); }}>
-        <i aria-hidden="true">{suggestion.provider === "seedance" ? "S" : "G"}</i>
+        <i aria-hidden="true" className={"video-prompt-provider-logo " + suggestion.provider}><img src={suggestion.provider === "seedance" ? seedanceLogoUrl : geminiSparkleUrl} alt="" /></i>
         <span><b>{suggestion.label}</b><small>{suggestion.description}</small></span>
       </button>)}
     </div>

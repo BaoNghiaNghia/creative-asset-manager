@@ -927,18 +927,18 @@ function ProcessingFailureGroupRetry({
     } finally { setBusy(false); }
   }
   return <section className="ops-bulk-retry" aria-label="Retry failed jobs by error group">
-    <div>
+    <div className="ops-bulk-retry-field">
       <label htmlFor={jobType + "-failed-error-group"}>Failed error group</label>
       <select id={jobType + "-failed-error-group"} value={errorCode} onChange={event => setErrorCode(event.target.value)}>
         {groups.map(group => <option key={group.error_code} value={group.error_code}>{group.error_code} ({group.count})</option>)}
       </select>
       <small>{selected ? selected.count + " matching failed jobs" : ""} - maximum 1,000 per action</small>
-      {errorCode && <p className={"ops-remediation ops-remediation-" + remediation.tone}>
-        <strong>{remediation.tone === "retry" ? "Safe to retry after a short delay" : "Fix or verify before retry"}</strong>
-        <span>{remediation.action}</span>
-      </p>}
     </div>
     <button type="button" disabled={!errorCode} onClick={() => { setConfirming(true); setReason(""); setMessage(""); }}>Retry failed group</button>
+    {errorCode && <p className={"ops-remediation ops-remediation-" + remediation.tone}>
+      <strong>{remediation.tone === "retry" ? "Safe to retry after a short delay" : "Fix or verify before retry"}</strong>
+      <span>{remediation.action}</span>
+    </p>}
     {confirming && <div className="ops-confirm" role="dialog" aria-modal="true" aria-label="Confirm group retry">
       <strong>Retry {selected?.error_code || "failed jobs"}?</strong>
       <p>{remediation.action}</p>
