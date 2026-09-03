@@ -96,6 +96,11 @@ export type AiOpsJob = {
   generated_image_url?: string | null;
   provider: string | null;
   ai_model?: string | null;
+  source_width?: number | null;
+  source_height?: number | null;
+  target_width?: number | null;
+  target_height?: number | null;
+  preservation_mode?: string | null;
   status: string;
   priority: number;
   attempt_count: number;

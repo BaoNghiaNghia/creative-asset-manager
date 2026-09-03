@@ -67,8 +67,16 @@ export function JobProviderIcon({ provider }: { provider: string | null }) {
   return <span className="job-provider-icon generic" aria-hidden="true">AI</span>;
 }
 
+export function formatImageDimensions(width: number | null | undefined, height: number | null | undefined) {
+  return width && height ? width.toLocaleString() + " \u00d7 " + height.toLocaleString() + " px" : "Not recorded";
+}
+
 export function GenerationResultModal({ job, onClose }: { job: AiOpsJob; onClose: () => void }) {
   if (!job.source_thumbnail_url || !job.generated_image_url) return null;
+
+  const providerLabel = job.provider ? formatJobType(job.provider) : "Local";
+  const sourceDimensions = formatImageDimensions(job.source_width, job.source_height);
+  const outputDimensions = formatImageDimensions(job.target_width, job.target_height);
 
   return <div
     className="generation-result-backdrop"
@@ -77,26 +85,71 @@ export function GenerationResultModal({ job, onClose }: { job: AiOpsJob; onClose
   >
     <section className="generation-result-modal" role="dialog" aria-modal="true" aria-labelledby="generation-result-title">
       <header>
-        <div>
-          <small>GENERATE SQUARE 1:1</small>
-          <h2 id="generation-result-title">Generation result</h2>
-          <p title={job.filename || undefined}>{job.filename || "Generated image"}</p>
+        <div className="generation-result-heading">
+          <span className="generation-result-heading-icon" aria-hidden="true">{"\u2726"}</span>
+          <div>
+            <small>GENERATE SQUARE 1:1</small>
+            <div className="generation-result-title-row">
+              <h2 id="generation-result-title">Generation result</h2>
+              <span className="generation-result-success"><i />Completed</span>
+            </div>
+            <p title={job.filename || undefined}>{job.filename || "Generated image"}</p>
+          </div>
         </div>
         <button type="button" className="generation-result-close-icon" onClick={onClose} aria-label="Close result comparison">&times;</button>
       </header>
-      <div className="generation-result-comparison">
+
+      <dl className="generation-result-metadata" aria-label="Generation details">
+        <div>
+          <dt>Provider</dt>
+          <dd><JobProviderIcon provider={job.provider} /><span>{providerLabel}</span></dd>
+        </div>
+        <div>
+          <dt>AI model</dt>
+          <dd title={job.ai_model || undefined}>{job.ai_model || "Default model"}</dd>
+        </div>
+        <div>
+          <dt>Output</dt>
+          <dd>{outputDimensions}</dd>
+        </div>
+        <div>
+          <dt>Processing time</dt>
+          <dd>{formatJobDuration(job)}</dd>
+        </div>
+        <div>
+          <dt>Attempts</dt>
+          <dd>{job.attempt_count} of {job.max_attempts}</dd>
+        </div>
+        <div>
+          <dt>Completed</dt>
+          <dd>{formatJobTime(job.completed_at)}</dd>
+        </div>
+      </dl>
+
+      <div className="generation-result-comparison" aria-label="Original and generated image comparison">
         <figure>
-          <figcaption><strong>Original</strong><span>Source image</span></figcaption>
-          <div><img src={job.source_thumbnail_url} alt="Original source" /></div>
+          <figcaption>
+            <span><strong>Original</strong><small>Source image</small></span>
+            <em>{sourceDimensions}</em>
+          </figcaption>
+          <div className="generation-result-canvas original"><img src={job.source_thumbnail_url} alt="Original source" /></div>
         </figure>
-        <figure>
-          <figcaption><strong>Generated</strong><span>{job.provider ? formatJobType(job.provider) : "Generated result"}</span></figcaption>
-          <div><img src={job.generated_image_url} alt="Generated result" /></div>
+        <figure className="generated">
+          <figcaption>
+            <span><strong>Generated</strong><small>{job.preservation_mode ? formatJobType(job.preservation_mode) : "Square expansion"}</small></span>
+            <em>{outputDimensions}</em>
+          </figcaption>
+          <div className="generation-result-canvas generated"><img src={job.generated_image_url} alt="Generated result" /></div>
         </figure>
       </div>
+
       <footer>
-        <a href={job.generated_image_url} target="_blank" rel="noreferrer">Open full size</a>
-        <button type="button" onClick={onClose}>Close</button>
+        <span className="generation-result-job-id" title={job.id}>Job <b>{job.id}</b></span>
+        <div>
+          <a className="secondary" href={job.source_thumbnail_url} target="_blank" rel="noreferrer">View original</a>
+          <a href={job.generated_image_url} target="_blank" rel="noreferrer">Open full size</a>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
       </footer>
     </section>
   </div>;

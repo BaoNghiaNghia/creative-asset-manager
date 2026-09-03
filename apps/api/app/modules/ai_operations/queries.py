@@ -401,6 +401,11 @@ class AiOperationsRepository(BaseRepository):
                 pipeline_for_job.asset_id.label("pipeline_asset_id"),
                 generation_for_job.source_asset_id.label("generation_asset_id"),
                 generation_for_job.provider_model.label("generation_model"),
+                generation_for_job.source_width.label("generation_source_width"),
+                generation_for_job.source_height.label("generation_source_height"),
+                generation_for_job.target_width.label("generation_target_width"),
+                generation_for_job.target_height.label("generation_target_height"),
+                generation_for_job.preservation_mode.label("generation_preservation_mode"),
             ).outerjoin(
                 analysis_for_job,
                 and_(
@@ -428,7 +433,11 @@ class AiOperationsRepository(BaseRepository):
         ).all()
         resolved_asset_ids = {
             str(analysis_asset_id or pipeline_asset_id or generation_asset_id or job.entity_id)
-            for job, analysis_asset_id, pipeline_asset_id, generation_asset_id, generation_model in rows
+            for (
+                job, analysis_asset_id, pipeline_asset_id, generation_asset_id, generation_model,
+                generation_source_width, generation_source_height, generation_target_width,
+                generation_target_height, generation_preservation_mode,
+            ) in rows
             if analysis_asset_id or pipeline_asset_id or generation_asset_id or job.entity_type == "asset"
         }
         asset_presentations: dict[str, dict[str, str | None]] = {}
@@ -477,7 +486,11 @@ class AiOperationsRepository(BaseRepository):
                 and retry_at > now
             )
         items = []
-        for job, analysis_asset_id, pipeline_asset_id, generation_asset_id, generation_model in rows:
+        for (
+            job, analysis_asset_id, pipeline_asset_id, generation_asset_id, generation_model,
+            generation_source_width, generation_source_height, generation_target_width,
+            generation_target_height, generation_preservation_mode,
+        ) in rows:
             resolved_asset_id = analysis_asset_id or pipeline_asset_id or generation_asset_id
             asset_id = str(resolved_asset_id or job.entity_id) if resolved_asset_id or job.entity_type == "asset" else None
             presentation = asset_presentations.get(asset_id or "", {})
@@ -497,6 +510,11 @@ class AiOperationsRepository(BaseRepository):
                 ),
                 "provider": job.provider_key,
                 "ai_model": generation_model,
+                "source_width": generation_source_width,
+                "source_height": generation_source_height,
+                "target_width": generation_target_width,
+                "target_height": generation_target_height,
+                "preservation_mode": generation_preservation_mode,
                 "status": job.status,
                 "priority": job.priority, "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,
