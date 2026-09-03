@@ -65,7 +65,6 @@ class VideoAnalyzeJobHandler:
             source = session.scalar(select(SourceAssetModel).where(
                 SourceAssetModel.tenant_id == context.job.tenant_id,
                 SourceAssetModel.id == source_id,
-                SourceAssetModel.deleted_at.is_(None),
             ))
             if source is None or not is_eligible_video_source_asset(source):
                 return JobHandlerResult.non_retryable("video_source_unavailable", "Video source is unavailable or unsupported.")

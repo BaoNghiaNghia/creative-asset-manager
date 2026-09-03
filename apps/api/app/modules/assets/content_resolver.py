@@ -7,7 +7,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.providers.contracts import AssetDownloadStream, OpenSourceAssetInput
+from app.domain.providers.contracts import (
+    AssetDownloadStream,
+    GetSourceAssetInput,
+    OpenSourceAssetInput,
+)
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.providers.google.auth import get_connection_access_token
 from app.providers.source_factory import create_source_provider
@@ -54,7 +58,6 @@ class SourceAssetContentResolver:
                 .where(
                     SourceAssetModel.tenant_id == tenant_id,
                     SourceAssetModel.id == source_asset_id,
-                    SourceAssetModel.deleted_at.is_(None),
                     ExternalSourceModel.tenant_id == tenant_id,
                 )
             ).one_or_none()
@@ -64,6 +67,7 @@ class SourceAssetContentResolver:
             source_type = source.source_type
             source_id = source.id
             external_asset_id = source_asset.external_asset_id
+            source_asset_deleted = source_asset.deleted_at is not None
             connection_id = (source.source_metadata or {}).get("oauth_connection_id")
 
         if source_type != "google_drive":
@@ -77,6 +81,40 @@ class SourceAssetContentResolver:
 
         provider = self.source_provider_factory("google-drive", access_token)
         async with provider:
+            if source_asset_deleted:
+                try:
+                    candidate = await provider.get_asset(GetSourceAssetInput(
+                        source_id=source_id,
+                        external_asset_id=external_asset_id,
+                    ))
+                except Exception as exc:
+                    raise SourceAssetContentUnavailable("source asset is unavailable") from exc
+                if candidate.external_asset_id != external_asset_id:
+                    raise SourceAssetContentUnavailable("source asset identity changed")
+
+                refreshed_metadata = dict(candidate.source_metadata or {})
+                parent_id = refreshed_metadata.get("parent_id")
+                if isinstance(parent_id, str) and parent_id:
+                    refreshed_metadata["parents"] = [parent_id]
+                with self.session_factory() as session:
+                    refreshed = session.scalar(select(SourceAssetModel).where(
+                        SourceAssetModel.tenant_id == tenant_id,
+                        SourceAssetModel.id == source_asset_id,
+                        SourceAssetModel.external_source_id == source_id,
+                        SourceAssetModel.external_asset_id == external_asset_id,
+                    ))
+                    if refreshed is None:
+                        raise SourceAssetContentUnavailable("source asset is unavailable")
+                    refreshed.filename = candidate.filename
+                    refreshed.mime_type = candidate.mime_type
+                    refreshed.size_bytes = candidate.size_bytes
+                    refreshed.source_metadata = {
+                        **dict(refreshed.source_metadata or {}),
+                        **refreshed_metadata,
+                    }
+                    refreshed.deleted_at = None
+                    session.commit()
+
             stream = await provider.open_download_stream(OpenSourceAssetInput(
                 source_id=source_id,
                 external_asset_id=external_asset_id,

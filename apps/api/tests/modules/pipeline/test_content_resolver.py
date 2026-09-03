@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
-from app.domain.providers.contracts import AssetDownloadStream
+from app.domain.providers.contracts import AssetDownloadStream, ExternalAssetCandidate
 from app.modules.assets.content_resolver import SourceAssetContentResolver, SourceAssetContentUnavailable
 from app.modules.assets.model import SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
@@ -23,6 +23,7 @@ class FakeProvider:
         self.exited = False
         self.stream_closed = False
         self.input = None
+        self.get_input = None
 
     async def __aenter__(self):
         self.entered = True
@@ -44,6 +45,18 @@ class FakeProvider:
             body=body(),
             close=close,
             content_type="image/png",
+        )
+
+    async def get_asset(self, input):
+        self.get_input = input
+        return ExternalAssetCandidate(
+            source_type="google_drive",
+            source_id=input.source_id,
+            external_asset_id=input.external_asset_id,
+            filename="moved-asset.png",
+            mime_type="image/png",
+            size_bytes=7,
+            source_metadata={"parent_id": "new-folder-id"},
         )
 
 
@@ -198,20 +211,72 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
         self.assertEqual(provider.input.range_header, "bytes=0-99")
         self.assertTrue(provider.stream_closed)
 
-    def test_generic_resolver_rejects_deleted_source_asset(self):
+    def test_generic_resolver_refreshes_moved_deleted_source_asset(self):
         pipeline = self.pipeline()
         with self.sessions() as session:
             from datetime import datetime, timezone
             asset = session.get(SourceAssetModel, pipeline.source_asset_id)
             asset.deleted_at = datetime.now(timezone.utc)
             session.commit()
-        resolver = SourceAssetContentResolver(self.sessions)
+        provider = FakeProvider()
+
+        async def token(_connection_id):
+            return "token"
+
+        resolver = SourceAssetContentResolver(
+            self.sessions,
+            token_resolver=token,
+            source_provider_factory=lambda _name, _token: provider,
+        )
+
+        async def open_moved():
+            async with resolver.open(
+                tenant_id="tenant-a",
+                source_asset_id=pipeline.source_asset_id,
+            ) as stream:
+                self.assertEqual(
+                    b"".join([chunk async for chunk in stream.body]),
+                    b"content",
+                )
+
+        asyncio.run(open_moved())
+        self.assertEqual(provider.get_input.external_asset_id, "drive-file-a")
+        with self.sessions() as session:
+            asset = session.get(SourceAssetModel, pipeline.source_asset_id)
+            self.assertIsNone(asset.deleted_at)
+            self.assertEqual(asset.filename, "moved-asset.png")
+            self.assertEqual(asset.source_metadata["parents"], ["new-folder-id"])
+
+    def test_generic_resolver_rejects_deleted_source_missing_from_provider(self):
+        pipeline = self.pipeline()
+        with self.sessions() as session:
+            from datetime import datetime, timezone
+            asset = session.get(SourceAssetModel, pipeline.source_asset_id)
+            asset.deleted_at = datetime.now(timezone.utc)
+            session.commit()
+        provider = FakeProvider()
+
+        async def missing(_input):
+            raise LookupError("not found")
+
+        provider.get_asset = missing
+        resolver = SourceAssetContentResolver(
+            self.sessions,
+            token_resolver=lambda _connection_id: asyncio.sleep(0, result="token"),
+            source_provider_factory=lambda _name, _token: provider,
+        )
 
         async def open_deleted():
-            async with resolver.open(tenant_id="tenant-a", source_asset_id=pipeline.source_asset_id):
+            async with resolver.open(
+                tenant_id="tenant-a",
+                source_asset_id=pipeline.source_asset_id,
+            ):
                 pass
 
-        with self.assertRaisesRegex(SourceAssetContentUnavailable, "source asset is unavailable"):
+        with self.assertRaisesRegex(
+            SourceAssetContentUnavailable,
+            "source asset is unavailable",
+        ):
             asyncio.run(open_deleted())
 
 
