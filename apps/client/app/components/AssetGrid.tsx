@@ -403,7 +403,7 @@ export function AssetGrid({
       className={(selected.has(item.id) ? "selected" : "") + ((item.kind === "image" || item.kind === "video") ? " media-card" : "")}
       key={item.id}
       data-asset-id={item.id}
-      draggable={item.kind !== "folder"}
+      draggable={item.kind !== "folder" && selected.has(item.id)}
       title={item.kind === "folder" ? undefined : "Drag the original file to another application"}
       onDragStart={event => dragOriginalFiles(event, item)}
       onClick={event => {
