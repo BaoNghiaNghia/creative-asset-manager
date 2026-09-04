@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
 import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
 import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
-import { DriveTreeNode } from "./DriveTree";
+import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
 
@@ -110,7 +110,9 @@ export function Sidebar({
             </svg>
           </button>}
           {active && session.authenticated && <div className="tree">
-            {rootFolders.map(folder => <DriveTreeNode
+            {loadingNodes.has(currentRoot) && rootFolders.length === 0
+              ? <TreeChildrenSkeleton rows={5} />
+              : rootFolders.map(folder => <DriveTreeNode
               key={folder.id} node={folder} ancestors={rootAncestors} activeId={activeId}
               activePathIds={activePathIds} childrenByParent={childrenByParent}
               expanded={expanded} loadingNodes={loadingNodes} onOpen={onOpen}

@@ -11,6 +11,15 @@
 .tree-toggle{display:grid;place-items:center;width:24px;height:32px;padding:0;font-size:11px}
 .tree-label{min-width:0;padding:7px 8px 7px 0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tree-children{margin-left:18px;border-left:1px solid #dce1e8;padding-left:4px}
+.tree-children-skeleton{display:grid;gap:7px;padding-top:5px;padding-bottom:5px}
+.tree-skeleton-row{display:grid;grid-template-columns:28px minmax(0,1fr);align-items:center;min-height:26px}
+.tree-skeleton-row i,.tree-skeleton-row span{display:block;border-radius:5px;background:linear-gradient(90deg,#e6ebf1 25%,#f4f6f8 48%,#e6ebf1 72%);background-size:220% 100%;animation:tree-pulse 1.3s ease-in-out infinite}
+.tree-skeleton-row i{width:14px;height:14px;justify-self:center;border-radius:4px}
+.tree-skeleton-row span{height:12px;width:var(--tree-skeleton-width,78%)}
+.tree-skeleton-row:nth-child(2) span{--tree-skeleton-width:62%;animation-delay:.08s}
+.tree-skeleton-row:nth-child(3) span{--tree-skeleton-width:85%;animation-delay:.16s}
+.tree-skeleton-row:nth-child(4) span{--tree-skeleton-width:56%;animation-delay:.24s}
+.tree-skeleton-row:nth-child(5) span{--tree-skeleton-width:71%;animation-delay:.32s}
 
 .google-login{display:flex;align-items:center;gap:9px;margin-top:10px;padding:9px 10px;border:1px solid #d8dde5;border-radius:8px;background:#fff;color:#344054;font-weight:650;cursor:pointer}
 .google-login span{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#4285f4;color:#fff;font-weight:800}
