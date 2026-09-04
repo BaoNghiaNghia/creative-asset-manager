@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
 import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
-import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, Tag, TreeCache } from "../types";
+import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
@@ -10,10 +10,6 @@ type Props = {
   provider: Provider;
   auth: AuthState;
   authByProvider: ProviderSessions;
-  cloudSources?: ConnectedSource[];
-  activeExternalSourceId?: string | null;
-  onSelectSource?: (sourceId: string) => void;
-  onDisconnectSource?: (sourceId: string) => void;
   tags: Tag[];
   path: Asset[];
   activeId?: string;
@@ -41,20 +37,10 @@ const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/connect-sharepoint" },
 ];
 
-function sourceLabel(source: ConnectedSource): string {
-  if (source.source_type === "onedrive") return "OneDrive";
-  if (source.source_type === "sharepoint") return "SharePoint";
-  return "Google Drive";
-}
 
-function sourceStatusLabel(source: ConnectedSource): string {
-  if (source.status === "reconnect_required") return "Reconnect required";
-  if (source.status === "disconnected") return "Disconnected";
-  return "Connected";
-}
 
 export function Sidebar({
-  provider, auth, authByProvider, cloudSources = [], activeExternalSourceId, onSelectSource, onDisconnectSource, tags, path, activeId, rootFolders,
+  provider, auth, authByProvider, tags, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onOpen,
   onToggle, onPrefetch, onCancelPrefetch, onCollapse, onResizeStart,
   applicationAuthenticated = false,
@@ -93,17 +79,6 @@ export function Sidebar({
     </div>
     <WorkspaceNavigation active="assets" showOperations={canViewAiOperations} />
     <p>SOURCES</p>
-    {cloudSources.map(source => <div className={"source-managed " + (source.id === activeExternalSourceId ? "active" : "")} key={source.id}>
-      <button className="source" disabled={source.status !== "active"} onClick={() => onSelectSource?.(source.id)}>
-        {source.source_type === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
-        <span className="source-managed-copy"><b>{sourceLabel(source)}</b><small>{source.account.email || sourceStatusLabel(source)}</small></span>
-        <i className={"source-managed-status " + source.status} aria-label={sourceStatusLabel(source)} title={sourceStatusLabel(source)} />
-      </button>
-      {applicationAuthenticated && source.status !== "disconnected" && <div className="source-actions">
-        <button className="source-action" type="button" onClick={() => window.location.assign(source.source_type === "google_drive" ? "/api/auth/google/connect-drive?external_source_id=" + encodeURIComponent(source.id) : "/api/auth/microsoft/" + (source.source_type === "onedrive" ? "connect-onedrive" : "connect-sharepoint") + "?external_source_id=" + encodeURIComponent(source.id))}>Reconnect</button>
-        <button className="source-action danger" type="button" onClick={() => onDisconnectSource?.(source.id)}>Disconnect</button>
-      </div>}
-    </div>)}
     {Object.values(authByProvider).some(session => session.checking)
       ? <div className="source-skeleton"><i /><i /><i /></div>
       : sources.map(source => {
