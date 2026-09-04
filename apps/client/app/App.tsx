@@ -626,6 +626,10 @@ export default function App() {
       provider={explorer.provider}
       auth={explorer.auth}
       authByProvider={explorer.authByProvider}
+      cloudSources={explorer.sources}
+      activeExternalSourceId={explorer.activeExternalSourceId}
+      onSelectSource={sourceId => void explorer.selectSource(sourceId)}
+      onDisconnectSource={sourceId => void explorer.disconnectSource(sourceId).catch(() => undefined)}
       tags={explorer.tags}
       path={explorer.path}
       activeId={activeId}

@@ -51,6 +51,7 @@ def identity(
         "is_processing_admin": principal.platform_admin
         or "tenant_admin" in principal.effective_roles,
         "authorization_source": principal.authorization_source,
+        "application_auth_provider": principal.external_identity.provider if principal.external_identity else None,
         "display_name": user.display_name if user else None,
         "email": user.primary_email if user else None,
         "avatar_url": user.avatar_url if user else None,
@@ -120,6 +121,7 @@ def select_active_tenant(
         "permissions": sorted(effective.permissions),
         "is_processing_admin": principal.platform_admin or "tenant_admin" in effective.roles,
         "authorization_source": principal.authorization_source,
+        "application_auth_provider": principal.external_identity.provider if principal.external_identity else None,
         "display_name": user.display_name if user else None,
         "email": user.primary_email if user else None,
         "avatar_url": user.avatar_url if user else None,

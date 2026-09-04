@@ -22,23 +22,26 @@ const sources: Array<{
     login: "/api/auth/google/login",
   },
   {
+    provider: "onedrive",
+    name: "OneDrive",
+    description: "Browse My Files and folders from the connected OneDrive.",
+    login: "/api/auth/microsoft/connect-onedrive",
+  },
+  {
     provider: "sharepoint",
     name: "SharePoint",
     description: "Browse SharePoint sites, document libraries and team assets.",
-    login: "/api/auth/microsoft/login",
+    login: "/api/auth/microsoft/connect-sharepoint",
   },
 ];
 
 export function sourceLoginRoute(provider: Provider, applicationAuthenticated: boolean): string {
-  return applicationAuthenticated && provider === "google-drive"
-    ? "/api/auth/google/connect-drive"
-    : provider === "google-drive"
-      ? "/api/auth/google/login"
-      : "/api/auth/microsoft/login";
+  if (provider === "google-drive") return applicationAuthenticated ? "/api/auth/google/connect-drive" : "/api/auth/google/login";
+  return provider === "onedrive" ? "/api/auth/microsoft/connect-onedrive" : "/api/auth/microsoft/connect-sharepoint";
 }
 
 export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelectProvider, applicationAuthenticated = false }: Props) {
-  const activeName = activeProvider === "sharepoint" ? "SharePoint" : "Google Drive";
+  const activeName = activeProvider === "onedrive" ? "OneDrive" : activeProvider === "sharepoint" ? "SharePoint" : "Google Drive";
 
   return <div className="drive-empty source-onboarding">
     {oauthError && <div className="oauth-error">
@@ -66,7 +69,7 @@ export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelec
             ? onSelectProvider(source.provider)
             : window.location.assign(sourceLoginRoute(source.provider, applicationAuthenticated))}
           >
-            {connected ? "Open source" : applicationAuthenticated ? "Connect " + (source.provider === "sharepoint" ? "SharePoint" : "Google Drive") : "Sign in with " + (source.provider === "sharepoint" ? "Microsoft" : "Google")}</button>
+            {connected ? "Open source" : applicationAuthenticated ? "Connect " + source.name : "Sign in with " + (source.provider === "google-drive" ? "Google" : "Microsoft")}</button>
           {connected && source.provider === "google-drive" && applicationAuthenticated && <button
             className="source-card-secondary-action"
             onClick={() => window.location.assign("/api/auth/google/connect-drive")}
