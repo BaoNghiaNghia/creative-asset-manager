@@ -509,7 +509,45 @@ export function useDriveExplorer(imageSearchEnabled = true) {
 
   async function restoreUrlLocation(source: Provider) {
     const folderId = folderIdFromPath(window.location.pathname);
-    return folderId ? open(folderId, [], source) : false;
+    if (!folderId) return false;
+
+    // Keep the complete persisted path when it belongs to this URL; this is
+    // both faster and preserves every expanded sidebar branch on reload.
+    const saved = parseSavedExplorerLocation(
+      window.localStorage.getItem(explorerLocationKey(source)), source,
+    );
+    if (saved?.path.at(-1)?.id === folderId) {
+      return restoreSavedLocation(source);
+    }
+
+    // A shared/deep link may not have local state. Resolve the server-side
+    // breadcrumb first so the selected folder and all of its source-tree
+    // ancestors are hydrated instead of showing an empty sidebar tree.
+    try {
+      const folder = await fetchFolder(folderId, source);
+      const externalSourceId = folder.parent.external_source_id || null;
+      const params = new URLSearchParams({ provider: source });
+      if (externalSourceId) params.set("external_source_id", externalSourceId);
+      const response = await fetch(
+        "/api/explorer/items/" + encodeURIComponent(folderId) + "/location?" + params.toString(),
+      );
+      const location = response.ok
+        ? await response.json() as { status?: string; breadcrumb?: Array<{ id: string; name: string }> }
+        : null;
+      const ancestors = location?.status === "available" && Array.isArray(location.breadcrumb)
+        ? location.breadcrumb.map(node => ({
+          provider: source,
+          id: node.id,
+          name: node.name,
+          kind: "folder" as const,
+          mime_type: "application/vnd.google-apps.folder",
+          external_source_id: externalSourceId || undefined,
+        }))
+        : [];
+      return open(folderId, ancestors, source, false, externalSourceId);
+    } catch {
+      return false;
+    }
   }
 
   async function restoreSavedLocation(source: Provider, bootstrap?: ViewerBootstrap) {
