@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import (
+    CheckConstraint,
     JSON,
     BigInteger,
     DateTime,
@@ -29,7 +30,18 @@ class ExternalSourceModel(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "source_key", name="uq_external_sources_tenant_key"),
         UniqueConstraint("tenant_id", "id", name="uq_external_sources_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "oauth_connection_id"],
+            ["oauth_connections.tenant_id", "oauth_connections.id"],
+            ondelete="SET NULL",
+            name="fk_external_sources_tenant_oauth_connection",
+        ),
+        CheckConstraint(
+            "status IN ('active','reconnect_required','disconnected')",
+            name="ck_external_sources_status",
+        ),
         Index("ix_external_sources_tenant_type", "tenant_id", "source_type"),
+        Index("ix_external_sources_tenant_connection", "tenant_id", "oauth_connection_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -38,6 +50,8 @@ class ExternalSourceModel(Base):
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(255))
     source_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    oauth_connection_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow

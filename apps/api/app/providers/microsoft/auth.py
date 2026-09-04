@@ -74,7 +74,7 @@ async def create_session(token):
                 "user_principal_name": profile.get("userPrincipalName"),
             },
         )
-        connection=repository.upsert_connection(tenant_id=account_id,provider="microsoft",provider_account_id=account_id,account_email=user["email"],access_token=token["access_token"],refresh_token=token.get("refresh_token"),expires_at=datetime.now(timezone.utc)+timedelta(seconds=int(token.get("expires_in") or 3500)),scopes=list(granted),token_type=token.get("token_type") or "Bearer",provider_metadata={})
+        connection=repository.upsert_connection(tenant_id=account_id,provider="microsoft",provider_account_id=account_id, connection_purpose="application_login",account_email=user["email"],access_token=token["access_token"],refresh_token=token.get("refresh_token"),expires_at=datetime.now(timezone.utc)+timedelta(seconds=int(token.get("expires_in") or 3500)),scopes=list(granted),token_type=token.get("token_type") or "Bearer",provider_metadata={})
         session_id,_=repository.create_session(
             connection=connection, user=user,
             ttl_seconds=settings.AUTH_SESSION_TTL_SECONDS,
@@ -137,3 +137,108 @@ def remove_session(request):
     if session_id and get_settings().PERSISTENT_AUTH_ENABLED:
         with auth_repository() as repository: repository.revoke_session(provider="microsoft",session_id=session_id)
         AUTH_METRICS.increment("session_revoked","microsoft")
+
+
+async def get_connection_access_token(connection_id: str, *, purpose: str) -> str:
+    """Return a token for a tenant-bound Microsoft source credential.
+
+    This intentionally accepts a connection ID from the authoritative source
+    resolver, never from a browser session. Refresh is scoped to this exact
+    connection, therefore OneDrive and SharePoint credentials for the same
+    Microsoft account cannot overwrite each other.
+    """
+    settings = get_settings()
+    with auth_repository() as repository:
+        from sqlalchemy import select
+        from app.modules.auth_persistence.model import OAuthConnectionModel
+        row = repository.session.scalar(
+            select(OAuthConnectionModel).where(
+                OAuthConnectionModel.id == connection_id,
+                OAuthConnectionModel.provider == "microsoft",
+                OAuthConnectionModel.connection_purpose == purpose,
+                OAuthConnectionModel.status.in_(("active", "refresh_error")),
+            )
+        )
+        cloud = repository.load_connection(provider="microsoft", connection_id=connection_id)
+    if row is None or cloud is None:
+        raise HTTPException(401, "Microsoft source connection is unavailable.")
+    if cloud.expires_at > time.time() + 60:
+        return cloud.access_token
+    if not cloud.refresh_token:
+        raise HTTPException(401, "Microsoft source connection requires reconnection.")
+
+    owner = "microsoft-source-refresh-" + secrets.token_urlsafe(16)
+    with auth_repository() as repository:
+        claimed = repository.claim_refresh(
+            tenant_id=cloud.tenant_id,
+            connection_id=connection_id,
+            owner=owner,
+            lease_seconds=settings.AUTH_REFRESH_LEASE_SECONDS,
+        )
+    if not claimed:
+        AUTH_METRICS.increment("refresh_lock_contention", "microsoft")
+        for _ in range(20):
+            await asyncio.sleep(.1)
+            with auth_repository() as repository:
+                latest = repository.load_connection(
+                    provider="microsoft", connection_id=connection_id
+                )
+            if latest and latest.expires_at > time.time() + 60:
+                return latest.access_token
+        raise HTTPException(503, "Microsoft source token refresh is in progress.")
+
+    client_id, client_secret, authority, _ = _settings()
+    scopes = list(cloud.scopes) or list(SCOPES)
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
+                f"https://login.microsoftonline.com/{authority}/oauth2/v2.0/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": cloud.refresh_token,
+                    "scope": " ".join(scopes),
+                },
+            )
+        if not response.is_success:
+            payload = response.json() if response.headers.get(
+                "content-type", ""
+            ).startswith("application/json") else {}
+            code = str(payload.get("error") or "refresh_failed")
+            permanent = code in {"invalid_grant", "interaction_required", "invalid_client"}
+            with auth_repository() as repository:
+                repository.fail_refresh(
+                    tenant_id=cloud.tenant_id, connection_id=connection_id,
+                    owner=owner, code=code, retryable=not permanent,
+                )
+            if permanent:
+                AUTH_METRICS.increment("reconnect_required", "microsoft")
+            raise HTTPException(
+                401 if permanent else 503,
+                "Microsoft source requires reconnection." if permanent
+                else "Microsoft source could not be refreshed.",
+            )
+        token = response.json()
+        with auth_repository() as repository:
+            repository.finish_refresh(
+                tenant_id=cloud.tenant_id, connection_id=connection_id, owner=owner,
+                access_token=token["access_token"],
+                refresh_token=token.get("refresh_token"),
+                expires_at=datetime.now(timezone.utc) + timedelta(
+                    seconds=int(token.get("expires_in") or 3500)
+                ),
+                scopes=str(token.get("scope") or "").split() or None,
+                token_type=token.get("token_type"),
+            )
+        AUTH_METRICS.increment("connection_refreshed", "microsoft")
+        return token["access_token"]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        with auth_repository() as repository:
+            repository.fail_refresh(
+                tenant_id=cloud.tenant_id, connection_id=connection_id,
+                owner=owner, code="refresh_failed", retryable=True,
+            )
+        raise HTTPException(503, "Microsoft source could not be refreshed.") from exc

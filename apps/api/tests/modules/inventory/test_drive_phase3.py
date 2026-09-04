@@ -543,6 +543,7 @@ class InventoryDrivePhase3Test(unittest.IsolatedAsyncioTestCase):
                 tenant_id="tenant-a",
                 provider="google",
                 provider_account_id="inventory-account",
+                connection_purpose="application_login",
                 account_email="inventory@example.test",
                 access_token=expired_access,
                 refresh_token=refresh_token,

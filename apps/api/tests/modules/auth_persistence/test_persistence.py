@@ -38,6 +38,7 @@ class PersistenceTest(unittest.TestCase):
     def connection(self,repository,tenant="tenant-a"):
         return repository.upsert_connection(
             tenant_id=tenant,provider="google",provider_account_id="account-a",
+            connection_purpose="application_login",
             account_email="a@example.com",access_token="access-old",refresh_token="refresh-old",
             expires_at=datetime.now(timezone.utc)+timedelta(hours=1),scopes=["drive"],token_type="Bearer",
         )

@@ -21,7 +21,7 @@ class AuthOperationsTest(unittest.TestCase):
         self.engine=create_engine("sqlite:///:memory:",connect_args={"check_same_thread":False},poolclass=StaticPool)
         Base.metadata.create_all(self.engine); self.factory=sessionmaker(self.engine,class_=Session,expire_on_commit=False)
         with self.factory() as session:
-            AuthPersistenceRepository(session,TokenCipher({"v1":b"1"*32},"v1")).upsert_connection(tenant_id="tenant-a",provider="google",provider_account_id="account-a",account_email=None,access_token="a",refresh_token="r",expires_at=datetime.now(timezone.utc)+timedelta(hours=1),scopes=[],token_type="Bearer")
+            AuthPersistenceRepository(session,TokenCipher({"v1":b"1"*32},"v1")).upsert_connection(tenant_id="tenant-a",provider="google",provider_account_id="account-a",connection_purpose="application_login",account_email=None,access_token="a",refresh_token="r",expires_at=datetime.now(timezone.utc)+timedelta(hours=1),scopes=[],token_type="Bearer")
             session.commit()
 
     def tearDown(self): self.engine.dispose()
