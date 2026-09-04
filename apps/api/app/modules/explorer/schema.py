@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 AssetKind = Literal["folder", "image", "video", "pdf", "document", "other"]
-Provider = Literal["google-drive", "sharepoint"]
+Provider = Literal["google-drive", "onedrive", "sharepoint"]
 
 
 class LocationBreadcrumbNode(BaseModel):

@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.assets.source_state import is_external_source_decommissioned
 from app.modules.auth_persistence.model import OAuthConnectionModel
+from app.modules.assets.source_credentials import source_credential_contract
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
@@ -65,17 +66,20 @@ class SourceSyncScheduler:
             self._stop.wait(self.settings.SOURCE_SYNC_POLL_INTERVAL_SECONDS)
 
     def _source_credentials(self, session: Session, source: ExternalSourceModel) -> OAuthConnectionModel | None:
-        metadata = dict(source.source_metadata or {})
-        connection_id = str(metadata.get("oauth_connection_id") or "").strip()
-        provider_account_id = str(metadata.get("provider_account_id") or "").strip()
-        statement = select(OAuthConnectionModel).where(OAuthConnectionModel.tenant_id == source.tenant_id, OAuthConnectionModel.provider == "google", OAuthConnectionModel.status == "active", OAuthConnectionModel.revoked_at.is_(None))
-        if connection_id:
-            statement = statement.where(OAuthConnectionModel.id == connection_id)
-        elif provider_account_id:
-            statement = statement.where(OAuthConnectionModel.provider_account_id == provider_account_id)
-        else:
+        if source.status != "active" or not source.oauth_connection_id:
             return None
-        connection = session.scalar(statement.limit(1))
+        try:
+            contract = source_credential_contract(source.source_type)
+        except ValueError:
+            return None
+        connection = session.scalar(select(OAuthConnectionModel).where(
+            OAuthConnectionModel.id == source.oauth_connection_id,
+            OAuthConnectionModel.tenant_id == source.tenant_id,
+            OAuthConnectionModel.provider == contract.provider,
+            OAuthConnectionModel.connection_purpose == contract.connection_purpose,
+            OAuthConnectionModel.status == "active",
+            OAuthConnectionModel.revoked_at.is_(None),
+        ).limit(1))
         return connection if connection is not None and (connection.access_token_ciphertext or connection.refresh_token_ciphertext) else None
 
     def _active_job(self, session: Session, tenant_id: str, source_id: str, now: datetime) -> ProcessingJobModel | None:
@@ -86,7 +90,7 @@ class SourceSyncScheduler:
     def enqueue_source(self, tenant_id: str, source_id: str, *, now: datetime | None = None, full: bool = False, dry_run: bool = False) -> SourceSyncScheduleResult:
         current = now or datetime.now(timezone.utc)
         with self.session_factory() as session:
-            source = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.id == source_id, ExternalSourceModel.source_type == "google_drive"))
+            source = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.id == source_id))
             if source is None:
                 return SourceSyncScheduleResult(tenant_id, source_id, None, None, False, "source_not_found")
             if is_external_source_decommissioned(source):
@@ -113,7 +117,7 @@ class SourceSyncScheduler:
             if existing is not None:
                 session.rollback()
                 return SourceSyncScheduleResult(tenant_id, source_id, mode, existing.id, False, "idempotency_key")
-            job = ProcessingRepository(session).create_job(tenant_id=tenant_id, job_type="source_sync", entity_type="external_source", entity_id=source_id, idempotency_key=key, payload={"external_source_id": source_id, "oauth_connection_id": str((source.source_metadata or {}).get("oauth_connection_id") or ""), "reconciliation": mode == "full"}, priority=5, provider_key="google_drive", provider_scope="source")
+            job = ProcessingRepository(session).create_job(tenant_id=tenant_id, job_type="source_sync", entity_type="external_source", entity_id=source_id, idempotency_key=key, payload={"external_source_id": source_id, "reconciliation": mode == "full"}, priority=5, provider_key=source.source_type, provider_scope="source")
             session.commit()
             self.logger.info("source_sync_job_scheduled", extra={"source_id": source_id, "tenant_id": tenant_id, "mode": mode, "job_id": job.id})
             return SourceSyncScheduleResult(tenant_id, source_id, mode, job.id, True)
@@ -125,7 +129,7 @@ class SourceSyncScheduler:
         with self.session_factory() as session:
             scheduled_sources = session.scalars(
                 select(ExternalSourceModel)
-                .where(ExternalSourceModel.source_type == "google_drive")
+                .where(ExternalSourceModel.status == "active")
                 .order_by(ExternalSourceModel.tenant_id, ExternalSourceModel.id)
                 .limit(self.settings.SOURCE_SYNC_MAX_SOURCES_PER_TICK)
             )

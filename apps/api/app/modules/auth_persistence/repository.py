@@ -97,17 +97,18 @@ class AuthPersistenceRepository:
         verifier = self.cipher.decrypt(row.code_verifier_ciphertext, key_version=row.key_version, aad=f"cam-state:{provider}:{state_hash}")
         return verifier, row.redirect_intent
 
-    def upsert_connection(self, *, tenant_id: str, provider: str, provider_account_id: str, account_email: str | None, access_token: str, refresh_token: str | None, expires_at: datetime, scopes: list[str], token_type: str | None, provider_metadata: dict[str, Any] | None = None) -> OAuthConnectionModel:
+    def upsert_connection(self, *, tenant_id: str, provider: str, provider_account_id: str, connection_purpose: str, account_email: str | None, access_token: str, refresh_token: str | None, expires_at: datetime, scopes: list[str], token_type: str | None, provider_metadata: dict[str, Any] | None = None) -> OAuthConnectionModel:
         row = self.session.scalar(select(OAuthConnectionModel).where(
             OAuthConnectionModel.tenant_id == tenant_id,
             OAuthConnectionModel.provider == provider,
             OAuthConnectionModel.provider_account_id == provider_account_id,
+            OAuthConnectionModel.connection_purpose == connection_purpose,
         ))
         created = row is None
         if row is None:
             try:
                 with self.session.begin_nested():
-                    row = OAuthConnectionModel(tenant_id=tenant_id, provider=provider, provider_account_id=provider_account_id, key_version=self.cipher.active_version)
+                    row = OAuthConnectionModel(tenant_id=tenant_id, provider=provider, provider_account_id=provider_account_id, connection_purpose=connection_purpose, key_version=self.cipher.active_version)
                     self.session.add(row)
                     self.session.flush()
             except IntegrityError:
@@ -115,6 +116,7 @@ class AuthPersistenceRepository:
                     OAuthConnectionModel.tenant_id == tenant_id,
                     OAuthConnectionModel.provider == provider,
                     OAuthConnectionModel.provider_account_id == provider_account_id,
+                    OAuthConnectionModel.connection_purpose == connection_purpose,
                 ))
                 if row is None:
                     raise

@@ -77,16 +77,24 @@ class TenantMembershipModel(Base):
 class OAuthConnectionModel(Base):
     __tablename__ = "oauth_connections"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "provider", "provider_account_id", name="uq_oauth_connections_identity"),
+        UniqueConstraint(
+            "tenant_id", "provider", "provider_account_id", "connection_purpose",
+            name="uq_oauth_connections_identity_purpose",
+        ),
         UniqueConstraint("tenant_id", "id", name="uq_oauth_connections_tenant_id"),
         UniqueConstraint("tenant_id", "id", "provider", name="uq_oauth_connections_tenant_id_provider"),
         CheckConstraint("status IN ('active','refresh_error','reconnect_required','revoked')", name="ck_oauth_connections_status"),
+        CheckConstraint(
+            "connection_purpose IN ('application_login','google_drive_source','onedrive_source','sharepoint_source','managed_storage','legacy_mixed')",
+            name="ck_oauth_connections_purpose",
+        ),
         Index("ix_oauth_connections_refresh", "status", "access_token_expires_at"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     provider_account_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    connection_purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="legacy_mixed")
     account_email: Mapped[str | None] = mapped_column(String(512))
     access_token_ciphertext: Mapped[str | None] = mapped_column(Text)
     refresh_token_ciphertext: Mapped[str | None] = mapped_column(Text)

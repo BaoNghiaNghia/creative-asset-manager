@@ -5,6 +5,7 @@ import { DriveEmpty, sourceLoginRoute } from "./DriveEmpty";
 
 const sessions: ProviderSessions = {
   "google-drive": { authenticated: false, user: null, checking: false },
+  onedrive: { authenticated: false, user: null, checking: false },
   sharepoint: { authenticated: false, user: null, checking: false },
 };
 
@@ -42,7 +43,8 @@ describe("public Google sign-in", () => {
   it("offers account switching through the dedicated Drive route", () => {
     const connected: ProviderSessions = {
       "google-drive": { authenticated: true, user: { id: "google-a" }, checking: false },
-      sharepoint: { authenticated: false, user: null, checking: false },
+      onedrive: { authenticated: false, user: null, checking: false },
+  sharepoint: { authenticated: false, user: null, checking: false },
     };
     const markup = renderToStaticMarkup(
       <DriveEmpty

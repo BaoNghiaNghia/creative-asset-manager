@@ -36,3 +36,12 @@ Source, storage and AI provider abstractions are independent.
 Status: Accepted
 
 Download, storage, AI analysis and indexing execute in workers, not ingestion HTTP requests.
+
+## ADR-007 - Application identity and source credentials are separate
+
+Status: Accepted
+
+Application sessions identify a CAM user and tenant. External sources bind explicitly
+to purpose-scoped OAuth connections. Workers resolve a credential from the source at
+runtime, so reconnects do not rewrite queued jobs. Provider account email equality is
+not required. A universal cam_session remains intentionally deferred.

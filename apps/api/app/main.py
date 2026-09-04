@@ -21,6 +21,7 @@ from app.modules.ai_metadata.bulk_router import router as ai_metadata_bulk_route
 from app.modules.application_logs.admin_router import router as application_log_admin_router
 from app.modules.application_logs.router import router as application_log_router
 from app.modules.asset_details.router import router as asset_details_router
+from app.modules.assets.source_router import router as source_router
 from app.modules.auth.microsoft_router import router as microsoft_auth_router
 from app.modules.auth.router import router as auth_router
 from app.modules.authorization.admin_router import router as access_management_router
@@ -111,6 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(authorization_router)
     api.include_router(access_management_router)
     api.include_router(explorer_router, prefix="/api")
+    api.include_router(source_router)
     api.include_router(tag_router, prefix="/api")
     api.include_router(external_ingestion_router)
     api.include_router(metadata_router, prefix="/api")

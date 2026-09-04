@@ -130,7 +130,7 @@ async def persist_drive_connection(credentials, *, tenant_id: str, user_id: str,
         user = repository.session.get(UserModel, user_id)
         if user is None or user.status != "active" or identity is None:
             raise PermissionError("Google account is not linked to the initiating user")
-        connection = repository.upsert_connection(tenant_id=tenant_id, provider="google", provider_account_id=account_id, account_email=profile.get("email"), access_token=credentials.token, refresh_token=credentials.refresh_token, expires_at=expiry, scopes=list(persisted_scopes), token_type="Bearer", provider_metadata={"picture": profile.get("picture"), "connection_purpose": "drive_source"})
+        connection = repository.upsert_connection(tenant_id=tenant_id, provider="google", provider_account_id=account_id, connection_purpose="google_drive_source", account_email=profile.get("email"), access_token=credentials.token, refresh_token=credentials.refresh_token, expires_at=expiry, scopes=list(persisted_scopes), token_type="Bearer", provider_metadata={"picture": profile.get("picture"), "connection_purpose": "drive_source"})
         repository.session.commit()
     AUTH_METRICS.increment("connection_reconnected", "google")
     return PersistentCloudSession("", connection.id, tenant_id, user_id, tenant_id, "google", credentials.token, credentials.refresh_token, expiry.timestamp(), {"id": account_id, "name": profile.get("name"), "email": profile.get("email"), "picture": profile.get("picture")})
@@ -166,6 +166,7 @@ async def create_session(credentials, *, require_drive_scope: bool = True, conne
         connection_tenant_id = connection_tenant_id or account_id
         connection=repository.upsert_connection(
             tenant_id=connection_tenant_id,provider="google",provider_account_id=account_id,
+            connection_purpose="google_drive_source" if require_drive_scope else "application_login",
             account_email=profile.get("email"),access_token=credentials.token,
             refresh_token=credentials.refresh_token,expires_at=expiry,
             scopes=list(persisted_scopes or (DRIVE_SCOPES if require_drive_scope else IDENTITY_SCOPES)),

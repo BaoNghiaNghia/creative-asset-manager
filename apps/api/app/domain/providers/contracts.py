@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-SourceType = Literal["google_drive", "sharepoint", "external_api"]
+SourceType = Literal["google_drive", "onedrive", "sharepoint", "external_api"]
 SourceChangeType = Literal["created", "updated", "deleted", "restored"]
 
 

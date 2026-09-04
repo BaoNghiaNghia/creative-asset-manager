@@ -1,4 +1,4 @@
-export type Provider = "google-drive" | "sharepoint";
+export type Provider = "google-drive" | "onedrive" | "sharepoint";
 export type VisibilityFilter = "all" | "public" | "draft";
 export type AssetProcessingStatus =
   | "discovered"
@@ -80,6 +80,17 @@ export type DriveIndexStatus = {
 
 
 export type ProviderSessions = Record<Provider, AuthState>;
+export type ConnectedSource = {
+  id: string;
+  source_type: "google_drive" | "onedrive" | "sharepoint";
+  display_name: string | null;
+  status: "active" | "reconnect_required" | "disconnected";
+  provider: "google" | "microsoft";
+  connection_purpose: string;
+  account: { provider_account_id: string | null; email: string | null };
+  metadata: { drive_type?: string; drive_name?: string; web_url?: string };
+  capabilities: { browse: boolean; sync: boolean; write: boolean; reconnect: boolean; disconnect: boolean };
+};
 
 export type ViewerBootstrapFolder = {
   id: string;

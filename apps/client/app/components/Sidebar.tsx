@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
 import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
-import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
+import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, Tag, TreeCache } from "../types";
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
@@ -10,6 +10,10 @@ type Props = {
   provider: Provider;
   auth: AuthState;
   authByProvider: ProviderSessions;
+  cloudSources?: ConnectedSource[];
+  activeExternalSourceId?: string | null;
+  onSelectSource?: (sourceId: string) => void;
+  onDisconnectSource?: (sourceId: string) => void;
   tags: Tag[];
   path: Asset[];
   activeId?: string;
@@ -33,16 +37,17 @@ export function mayViewAiOperations(permissions: readonly string[]): boolean {
 
 const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "google-drive", label: "Google Drive", login: "/api/auth/google/connect-drive" },
-  { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/login" },
+  { provider: "onedrive", label: "OneDrive", login: "/api/auth/microsoft/connect-onedrive" },
+  { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/connect-sharepoint" },
 ];
 
 export function Sidebar({
-  provider, auth, authByProvider, tags, path, activeId, rootFolders,
+  provider, auth, authByProvider, cloudSources = [], activeExternalSourceId, onSelectSource, onDisconnectSource, tags, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onOpen,
   onToggle, onPrefetch, onCancelPrefetch, onCollapse, onResizeStart,
   applicationAuthenticated = false,
 }: Props) {
-  const currentRoot = provider === "sharepoint" ? "sharepoint-root" : "root";
+  const currentRoot = provider === "sharepoint" ? "sharepoint-root" : provider === "onedrive" ? "onedrive-root" : "root";
   const rootAncestors = path.length > 0 && path[0].id === currentRoot ? [path[0]] : [];
   const activePathIds = new Set(path.map(folder => folder.id));
   const [canViewAiOperations, setCanViewAiOperations] = useState(false);
@@ -76,6 +81,16 @@ export function Sidebar({
     </div>
     <WorkspaceNavigation active="assets" showOperations={canViewAiOperations} />
     <p>SOURCES</p>
+    {cloudSources.map(source => <div className={"source-managed " + (source.id === activeExternalSourceId ? "active" : "")} key={source.id}>
+      <button className="source" disabled={source.status !== "active"} onClick={() => onSelectSource?.(source.id)}>
+        {source.source_type === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
+        <span><b>{source.display_name || (source.source_type === "onedrive" ? "OneDrive" : source.source_type === "sharepoint" ? "SharePoint" : "Google Drive")}</b><small>{source.account.email || (source.status === "active" ? "Connected" : source.status === "reconnect_required" ? "Reconnect required" : "Disconnected")}</small></span>
+      </button>
+      {applicationAuthenticated && source.status !== "disconnected" && <span className="source-actions">
+        <button onClick={() => window.location.assign(source.source_type === "google_drive" ? "/api/auth/google/connect-drive?external_source_id=" + encodeURIComponent(source.id) : "/api/auth/microsoft/" + (source.source_type === "onedrive" ? "connect-onedrive" : "connect-sharepoint") + "?external_source_id=" + encodeURIComponent(source.id))}>Reconnect</button>
+        <button onClick={() => onDisconnectSource?.(source.id)}>Disconnect</button>
+      </span>}
+    </div>)}
     {Object.values(authByProvider).some(session => session.checking)
       ? <div className="source-skeleton"><i /><i /><i /></div>
       : sources.map(source => {
@@ -140,7 +155,7 @@ export function Sidebar({
     </div>, document.body)}
     <p>TAGS</p>
     {tags.map(tag => <button className="tag" key={tag.id}><i style={{ background: tag.color }} />{tag.name}</button>)}
-    {auth.authenticated && <div className="connected-user"><span className="status-dot" /> Connected to {provider === "sharepoint" ? "SharePoint" : "Google Drive"}</div>}
+    {auth.authenticated && <div className="connected-user"><span className="status-dot" /> Connected to {provider === "onedrive" ? "OneDrive" : provider === "sharepoint" ? "SharePoint" : "Google Drive"}</div>}
     <div className="sidebar-resizer" onPointerDown={onResizeStart} role="separator" aria-label="Resize sidebar" aria-orientation="vertical" />
   </aside>;
 }

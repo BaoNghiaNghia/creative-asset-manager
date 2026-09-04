@@ -17,7 +17,7 @@ class SessionRotationTest(unittest.TestCase):
         memberships=TenantMembershipService(self.session); self.first=memberships.create_tenant(tenant_id="tenant-first",name="First",slug="first"); self.second=memberships.create_tenant(tenant_id="tenant-second",name="Second",slug="second")
         self.user=UserModel(primary_email="person@example.com",status="active"); self.session.add(self.user); self.session.flush()
         memberships.add_member(tenant_id=self.first.id,user_id=self.user.id,status="active"); memberships.add_member(tenant_id=self.second.id,user_id=self.user.id,status="active")
-        self.connection=self.repository.upsert_connection(tenant_id="google-account",provider="google",provider_account_id="google-subject",account_email="person@example.com",access_token="access-token",refresh_token="refresh-token",expires_at=datetime.now(timezone.utc)+timedelta(hours=1),scopes=["drive"],token_type="Bearer")
+        self.connection=self.repository.upsert_connection(tenant_id="google-account",provider="google",provider_account_id="google-subject",connection_purpose="application_login",account_email="person@example.com",access_token="access-token",refresh_token="refresh-token",expires_at=datetime.now(timezone.utc)+timedelta(hours=1),scopes=["drive"],token_type="Bearer")
         self.raw,_=self.repository.create_session(connection=self.connection,user={"id":"google-subject"},ttl_seconds=3600,user_id=self.user.id,active_tenant_id=self.first.id); self.session.commit()
     def tearDown(self): self.session.close(); self.engine.dispose()
     def test_rotation_replaces_session_and_switches_active_tenant(self):

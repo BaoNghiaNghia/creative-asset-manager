@@ -10,6 +10,7 @@ import type {
   OAuthErrorState,
   Provider,
   ProviderSessions,
+  ConnectedSource,
   Tag,
   TreeCache,
   VisibilityFilter,
@@ -28,7 +29,7 @@ const emptyIndexStatus: DriveIndexStatus = {
   skipped_folders: 0,
 };
 
-const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : "root";
+const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : provider === "onedrive" ? "onedrive-root" : "root";
 const explorerLocationKey = (provider: Provider) => "creative-asset-manager:explorer-location:" + provider;
 
 export function folderIdFromPath(pathname: string): string | null {
@@ -181,10 +182,13 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   const [explorerReady, setExplorerReady] = useState(false);
   const [applicationAuthenticated, setApplicationAuthenticated] = useState<boolean | null>(null);
   const [applicationUser, setApplicationUser] = useState<CloudUser | null>(null);
+  const [applicationAuthProvider, setApplicationAuthProvider] = useState<"google" | "microsoft" | null>(null);
   const [authByProvider, setAuthByProvider] = useState<ProviderSessions>({
     "google-drive": { authenticated: false, user: null, checking: true },
+    onedrive: { authenticated: false, user: null, checking: true },
     sharepoint: { authenticated: false, user: null, checking: true },
   });
+  const [sources, setSources] = useState<ConnectedSource[]>([]);
   const auth = authByProvider[provider];
   const [path, setPath] = useState<Asset[]>([]);
   const [items, setItems] = useState<Asset[]>([]);
@@ -876,24 +880,27 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         return { state: { authenticated: false, user: null }, error: "Provider session is temporarily unavailable" };
       }
     }
-    async function readIdentity(): Promise<{ user_id: string; roles: string[]; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null }> {
+    async function readIdentity(): Promise<{ user_id: string; roles: string[]; permissions: string[]; application_auth_provider?: "google" | "microsoft" | null; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null }> {
       const response = await fetch("/api/v1/auth/identity");
       if (response.status === 401) throw Object.assign(new Error("unauthenticated"), { status: 401 });
       if (!response.ok) throw Object.assign(new Error("Unable to verify workspace access"), { status: response.status });
       return await response.json();
     }
     async function initialize() {
-      let identity: { user_id: string; roles: string[]; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null };
+      let identity: { user_id: string; roles: string[]; permissions: string[]; application_auth_provider?: "google" | "microsoft" | null; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null };
       try {
         identity = await readIdentity();
         setApplicationAuthenticated(true);
         setApplicationUser({ id: identity.user_id, name: identity.display_name || undefined, email: identity.email || undefined, picture: identity.avatar_url || undefined });
+        setApplicationAuthProvider(identity.application_auth_provider || null);
       } catch (reason) {
         const status = typeof reason === "object" && reason && "status" in reason ? Number((reason as { status?: number }).status) : 0;
         setApplicationAuthenticated(status === 401 ? false : null);
         setApplicationUser(null);
+        setApplicationAuthProvider(null);
         setAuthByProvider({
           "google-drive": { authenticated: false, user: null, checking: false },
+          onedrive: { authenticated: false, user: null, checking: false },
           sharepoint: { authenticated: false, user: null, checking: false },
         });
         clearExplorer(provider);
@@ -901,24 +908,29 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         return;
       }
 
-      const [googleResult, sharepointResult] = await Promise.all([
-        readSession("/api/auth/google/session"),
-        readSession("/api/auth/microsoft/session"),
-      ]);
-      const google = googleResult.state;
-      const sharepoint = sharepointResult.state;
+      let connectedSources: ConnectedSource[] = [];
+      try {
+        const sourceResponse = await fetch("/api/sources");
+        if (!sourceResponse.ok) throw new Error("Unable to load connected sources");
+        connectedSources = await sourceResponse.json() as ConnectedSource[];
+      } catch {
+        setError("Unable to load connected cloud sources.");
+      }
+      setSources(connectedSources);
+      const activeByProvider = (item: Provider) => connectedSources.find(source =>
+        source.status === "active" && ((item === "google-drive" && source.source_type === "google_drive") || source.source_type === item)
+      );
       const sessions: ProviderSessions = {
-        "google-drive": { ...google, checking: false },
-        sharepoint: { ...sharepoint, checking: false },
+        "google-drive": { authenticated: Boolean(activeByProvider("google-drive")), user: null, checking: false },
+        onedrive: { authenticated: Boolean(activeByProvider("onedrive")), user: null, checking: false },
+        sharepoint: { authenticated: Boolean(activeByProvider("sharepoint")), user: null, checking: false },
       };
       setAuthByProvider(sessions);
-      const selected: Provider = preferred === "sharepoint" && sharepoint.authenticated ? "sharepoint"
-        : google.authenticated ? "google-drive" : sharepoint.authenticated ? "sharepoint" : preferred;
+      const activeSource = activeByProvider(preferred) || connectedSources.find(source => source.status === "active") || null;
+      const selected: Provider = activeSource ? (activeSource.source_type === "google_drive" ? "google-drive" : activeSource.source_type) : preferred;
       setProvider(selected);
+      setActiveExternalSourceId(activeSource?.id || null);
       setPureViewer(isPureViewerIdentity(identity));
-      if (googleResult.error || sharepointResult.error) {
-        setError("A cloud provider session could not be verified. Connect or reconnect the source to continue.");
-      }
       if (!sessions[selected].authenticated) {
         setPureViewer(null);
         clearExplorer(selected);
@@ -934,7 +946,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         const restored = await restoreUrlLocation(selected) || await restoreSavedLocation(selected);
         if (!restored) {
           setActiveAssignedRootId(rootId(selected));
-          await open(rootId(selected), [], selected);
+          await open(rootId(selected), [], selected, false, activeSource?.id || null);
         }
         setExplorerReady(true);
       } catch (reason) {
@@ -953,8 +965,9 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   }, [auth.authenticated, provider]);
 
   async function selectProvider(source: Provider) {
-    setProvider(source); setOauthError(null); clearExplorer(source);
-    if (!authByProvider[source].authenticated) return;
+    const selectedSource = sources.find(item => item.status === "active" && (source === "google-drive" ? item.source_type === "google_drive" : item.source_type === source));
+    setProvider(source); setActiveExternalSourceId(selectedSource?.id || null); setOauthError(null); clearExplorer(source);
+    if (!selectedSource) return;
     if (pureViewer) {
       await loadViewerBootstrap(source);
       return;
@@ -962,9 +975,29 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     const restored = await restoreUrlLocation(source) || await restoreSavedLocation(source);
     if (!restored) {
       setActiveAssignedRootId(rootId(source));
-      await open(rootId(source), [], source);
+      await open(rootId(source), [], source, false, selectedSource.id);
     }
     setExplorerReady(true);
+  }
+
+  async function selectSource(sourceId: string) {
+    const selectedSource = sources.find(item => item.id === sourceId && item.status === "active");
+    if (!selectedSource) return;
+    const nextProvider: Provider = selectedSource.source_type === "google_drive" ? "google-drive" : selectedSource.source_type;
+    setProvider(nextProvider); setActiveExternalSourceId(selectedSource.id); clearExplorer(nextProvider);
+    setActiveAssignedRootId(rootId(nextProvider));
+    await open(rootId(nextProvider), [], nextProvider, false, selectedSource.id);
+    setExplorerReady(true);
+  }
+
+  async function disconnectSource(sourceId: string) {
+    const response = await fetch("/api/sources/" + encodeURIComponent(sourceId) + "/disconnect", { method: "POST" });
+    if (!response.ok) throw Error("Unable to disconnect source");
+    const disconnected = await response.json() as ConnectedSource;
+    setSources(current => current.map(item => item.id === sourceId ? disconnected : item));
+    if (activeExternalSourceId === sourceId) {
+      setActiveExternalSourceId(null); clearExplorer(provider);
+    }
   }
 
   async function selectViewerSource(sourceId: string) {
@@ -973,7 +1006,8 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   }
 
   async function logout() {
-    await fetch(provider === "sharepoint" ? "/api/auth/microsoft/logout" : "/api/auth/google/logout", { method: "POST" });
+    if (!applicationAuthProvider) throw Error("Application session provider is unavailable.");
+    await fetch(applicationAuthProvider === "microsoft" ? "/api/auth/microsoft/logout" : "/api/auth/google/logout", { method: "POST" });
     setApplicationAuthenticated(false);
     setApplicationUser(null);
     setAuthByProvider(current => ({ ...current, [provider]: { authenticated: false, user: null, checking: false } }));
@@ -989,6 +1023,10 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  }
+
+  function replaceSelection(ids: Iterable<string>) {
+    setSelected(new Set(ids));
   }
 
   function mergeMetadata(metadata: AssetMetadata[]) {
@@ -1137,6 +1175,9 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     provider,
     auth,
     authByProvider,
+    sources,
+    selectSource,
+    disconnectSource,
     applicationAuthenticated,
     applicationUser,
     oauthError,
@@ -1161,6 +1202,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     cancelFolderPrefetch,
     logout,
     toggleSelection,
+    replaceSelection,
     applyTag,
     rateAsset,
     applyRating,

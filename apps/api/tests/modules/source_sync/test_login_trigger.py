@@ -57,10 +57,10 @@ class GoogleLoginSyncSchedulerTest(unittest.TestCase):
             job.payload_json,
             {
                 "external_source_id": result.external_source_id,
-                "oauth_connection_id": "connection-a",
                 "reconciliation": True,
             },
         )
+        self.assertNotIn("oauth_connection_id", job.payload_json)
         self.assertNotIn("access_token", job.payload_json)
         self.assertNotIn("refresh_token", job.payload_json)
 
@@ -111,7 +111,7 @@ class GoogleLoginSyncSchedulerTest(unittest.TestCase):
             1,
         )
         source = self.session.get(ExternalSourceModel, first.external_source_id)
-        self.assertEqual(source.source_metadata["oauth_connection_id"], "connection-new")
+        self.assertEqual(source.oauth_connection_id, "connection-new")
         self.assertEqual(source.source_metadata["provider_account_id"], "google-a")
 
     def test_reconnection_invalidates_existing_viewer_hierarchy_cache(self) -> None:
