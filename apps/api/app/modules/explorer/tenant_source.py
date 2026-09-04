@@ -7,23 +7,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.assets.model import ExternalSourceModel
+from app.modules.assets.source_credentials import source_credential_contract
 from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.providers.google.auth import get_connection_access_token as google_access_token
 from app.providers.microsoft.auth import get_connection_access_token as microsoft_access_token
-
-
-_PURPOSE_BY_SOURCE_TYPE = {
-    "google_drive": ("google", "google_drive_source"),
-    "onedrive": ("microsoft", "onedrive_source"),
-    "sharepoint": ("microsoft", "sharepoint_source"),
-}
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSourceAccess:
     external_source_id: str
     source_type: str
-    connection_id: str
+    oauth_connection_id: str
+    provider: str
+    connection_purpose: str
     provider_account_id: str
     access_token: str
 
@@ -60,13 +56,14 @@ class TenantSourceResolver:
             raise HTTPException(404, "The selected source is unavailable.")
         if source.status != "active":
             raise HTTPException(409, "The selected source requires reconnection.")
-        expected = _PURPOSE_BY_SOURCE_TYPE.get(source.source_type)
-        if expected is None:
-            raise HTTPException(400, "The selected source type is unsupported.")
+        try:
+            contract = source_credential_contract(source.source_type)
+        except ValueError as exc:
+            raise HTTPException(400, detail={"code": "source_type_unsupported", "message": "The selected source type is unsupported."}) from exc
         if not source.oauth_connection_id:
             raise HTTPException(409, "The selected source requires reconnection.")
 
-        provider, purpose = expected
+        provider, purpose = contract.provider, contract.connection_purpose
         connection = self.session.scalar(
             select(OAuthConnectionModel).where(
                 OAuthConnectionModel.id == source.oauth_connection_id,
@@ -94,7 +91,9 @@ class TenantSourceResolver:
         return ResolvedSourceAccess(
             external_source_id=external_source_id,
             source_type=source_type,
-            connection_id=connection_id,
+            oauth_connection_id=connection_id,
+            provider=provider,
+            connection_purpose=purpose,
             provider_account_id=provider_account_id,
             access_token=token,
         )
