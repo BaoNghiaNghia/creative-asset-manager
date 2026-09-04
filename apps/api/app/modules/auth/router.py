@@ -75,7 +75,11 @@ def _authorization_response(flow, *, redirect_intent: str, prompt: str | None = 
         redirect_intent=redirect_intent,
     )
     response = RedirectResponse(authorization_url)
-    clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/google")
+    # A Drive connection is performed by an already authenticated application
+    # user. Keep that session through its separate OAuth consent flow: its
+    # callback intentionally persists a source connection, not a new login.
+    if redirect_intent == "application_login":
+        clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/google")
     response.set_cookie(
         OAUTH_BINDING_COOKIE, binding, max_age=600, httponly=True,
         secure=cookie_options()["secure"], samesite="lax", path="/api/auth/google",

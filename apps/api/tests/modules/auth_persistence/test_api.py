@@ -143,12 +143,16 @@ class AuthApiExposureTest(unittest.TestCase):
                 "oauth-state",
             ),
         )
-        with patch("app.modules.auth.router.remember_state"), patch("app.modules.auth.router.clear_provider_session_cookies"):
+        with (
+            patch("app.modules.auth.router.remember_state"),
+            patch("app.modules.auth.router.clear_provider_session_cookies") as clear_session,
+        ):
             response = _authorization_response(
                 flow,
                 redirect_intent="drive_connect:tenant-a:-:user-a",
                 prompt="consent select_account",
             )
+        clear_session.assert_not_called()
         params = parse_qs(urlparse(response.headers["location"]).query)
         self.assertEqual(params["prompt"], ["consent select_account"])
         self.assertEqual(params["access_type"], ["offline"])
