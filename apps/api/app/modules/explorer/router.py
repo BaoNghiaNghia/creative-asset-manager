@@ -67,6 +67,8 @@ from app.providers.microsoft.auth import get_access_token as get_microsoft_token
 from app.providers.microsoft.auth import get_session as get_microsoft_session
 from app.providers.microsoft.sharepoint import close_media_stream as close_sharepoint_media
 from app.providers.microsoft.sharepoint import open_media_stream as open_sharepoint_media
+from app.providers.microsoft.onedrive import close_media_stream as close_onedrive_media
+from app.providers.microsoft.onedrive import open_media_stream as open_onedrive_media
 
 router = APIRouter(prefix="/explorer", tags=["explorer"])
 logger = logging.getLogger(__name__)
@@ -101,7 +103,7 @@ def _require_legacy_admin(principal: CurrentPrincipal) -> None:
 def _account_id(request: Request, provider: Provider) -> str:
     session = (
         get_microsoft_session(request)
-        if provider == "sharepoint"
+        if provider in {"sharepoint", "onedrive"}
         else get_google_session(request)
     )
     if not session:
@@ -112,7 +114,7 @@ def _account_id(request: Request, provider: Provider) -> str:
 def _tenant_id(request: Request, provider: Provider) -> str:
     session = (
         get_microsoft_session(request)
-        if provider == "sharepoint"
+        if provider in {"sharepoint", "onedrive"}
         else get_google_session(request)
     )
     if session and session.active_tenant_id:
@@ -122,10 +124,10 @@ def _tenant_id(request: Request, provider: Provider) -> str:
 async def _access_token(request: Request, provider: Provider) -> str | None:
     token = (
         await get_microsoft_token(request)
-        if provider == "sharepoint"
+        if provider in {"sharepoint", "onedrive"}
         else await get_google_token(request)
     )
-    if provider == "sharepoint" and not token:
+    if provider in {"sharepoint", "onedrive"} and not token:
         raise HTTPException(status_code=401, detail="Connect SharePoint before browsing files.")
     return token
 
@@ -279,7 +281,7 @@ async def _source_context(
     require_drive_write_scope: bool = False,
 ) -> tuple[str | None, str, str, str | None]:
     """Return the configured tenant source for Google, never the viewer token."""
-    if provider == "google-drive":
+    if provider in {"google-drive", "onedrive"}:
         if is_pure_viewer(principal) and not external_source_id:
             raise HTTPException(
                 status_code=422,
@@ -288,11 +290,14 @@ async def _source_context(
                     "message": "Select a Google Drive source before browsing as a viewer.",
                 },
             )
-        source = await TenantSourceResolver(session).google_drive(
+        source = await TenantSourceResolver(session).resolve(
             tenant_id=principal.active_tenant_id,
-            external_source_id=external_source_id,
+            external_source_id=external_source_id or "",
             require_drive_write_scope=require_drive_write_scope,
         )
+        expected_source_type = "google_drive" if provider == "google-drive" else "onedrive"
+        if source.source_type != expected_source_type:
+            raise HTTPException(status_code=400, detail="The selected source does not match this provider.")
         return source.access_token, source.provider_account_id, principal.active_tenant_id, source.external_source_id
     token = await _access_token(request, provider)
     return token, _account_id(request, provider), principal.active_tenant_id, external_source_id
@@ -362,7 +367,7 @@ def viewer_bootstrap(
                 "message": "Viewer bootstrap is available only to folder-scoped viewers.",
             },
         )
-    source_type = "google_drive" if provider == "google-drive" else "sharepoint"
+    source_type = {"google-drive": "google_drive", "onedrive": "onedrive", "sharepoint": "sharepoint"}[provider]
     rows = session.execute(
         select(ExternalSourceModel, ViewerFolderScopeModel)
         .join(
@@ -397,7 +402,7 @@ def viewer_bootstrap(
     for source, scope in rows:
         entry = sources.setdefault(source.id, {
             "external_source_id": source.id,
-            "display_name": source.display_name or ("Google Drive" if provider == "google-drive" else "SharePoint"),
+            "display_name": source.display_name or ({"google-drive": "Google Drive", "onedrive": "OneDrive", "sharepoint": "SharePoint"}[provider]),
             "folders": [],
         })
         entry["folders"].append({
@@ -1227,6 +1232,8 @@ async def preview(
     try:
         if provider == "sharepoint":
             client, upstream = await open_sharepoint_media(token, item_id, None)
+        elif provider == "onedrive":
+            client, upstream = await open_onedrive_media(token, item_id, None)
         else:
             client, upstream = await open_google_media(
                 token, item_id, None, http_client=shared_client,
@@ -1285,6 +1292,8 @@ async def preview(
         if client is not None and upstream is not None:
             if provider == "sharepoint":
                 await close_sharepoint_media(client, upstream)
+            elif provider == "onedrive":
+                await close_onedrive_media(client, upstream)
             else:
                 await close_google_media(client, upstream, close_client)
 
@@ -1303,10 +1312,11 @@ async def media(
             request, item_id, provider, session, principal, external_source_id
         )
         if provider == "sharepoint":
-            client, upstream = await open_sharepoint_media(
-                token, item_id, request.headers.get("range")
-            )
+            client, upstream = await open_sharepoint_media(token, item_id, request.headers.get("range"))
             close_stream = BackgroundTask(close_sharepoint_media, client, upstream)
+        elif provider == "onedrive":
+            client, upstream = await open_onedrive_media(token, item_id, request.headers.get("range"))
+            close_stream = BackgroundTask(close_onedrive_media, client, upstream)
         else:
             shared_client = getattr(request.app.state, "google_drive_stream_client", None)
             client, upstream = await open_google_media(

@@ -189,6 +189,7 @@ class AuthApiExposureTest(unittest.TestCase):
             patch("app.modules.auth.microsoft_router._reauthorize_source") as reauthorize,
             patch("app.modules.auth.microsoft_router.exchange_code", new=AsyncMock(return_value={"access_token": "secret"})),
             patch("app.modules.auth.microsoft_router.persist_source_connection", new=AsyncMock(return_value=(connection, {}))) as persist,
+            patch("app.modules.auth.microsoft_router.register_onedrive_source", new=AsyncMock(return_value=SimpleNamespace(id="source-onedrive"))),
             patch("app.modules.auth.microsoft_router.create_session", new=AsyncMock()) as create_session,
         ):
             client = TestClient(app)

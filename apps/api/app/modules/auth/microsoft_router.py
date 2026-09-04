@@ -18,6 +18,7 @@ from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.service import clear_provider_session_cookies, cookie_options
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.authorization.service import TenantAuthorizationService
+from app.providers.microsoft.onedrive_registration import register_onedrive_source
 from app.providers.microsoft.auth import (
     OAUTH_BINDING_COOKIE,
     SESSION_COOKIE,
@@ -194,9 +195,17 @@ async def _complete_source_connect(
         intent=intent.kind,
     )
     source_kind = "onedrive" if intent.kind == "onedrive_connect" else "sharepoint"
-    return client_redirect(
-        microsoft="source_connected", source=source_kind, connection=connection.id
-    )
+    source_id = None
+    if source_kind == "onedrive":
+        source = await register_onedrive_source(
+            tenant_id=intent.tenant_id or "", connection=connection, profile=_profile,
+            access_token=token["access_token"], reconnect_source_id=intent.reconnect_source_id,
+        )
+        source_id = source.id
+    params = {"microsoft": "source_connected", "source": source_kind, "connection": connection.id}
+    if source_id:
+        params["external_source_id"] = source_id
+    return client_redirect(**params)
 
 
 @router.get("/callback")
