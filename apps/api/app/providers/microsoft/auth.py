@@ -17,7 +17,31 @@ from app.modules.auth_persistence.service import AUTH_METRICS, auth_repository
 
 SESSION_COOKIE="cam_microsoft_session"
 OAUTH_BINDING_COOKIE="cam_oauth_binding"
-SCOPES=["openid","profile","email","offline_access","User.Read","Sites.Read.All","Files.Read.All"]
+APPLICATION_LOGIN_SCOPES = ("openid", "profile", "email", "offline_access", "User.Read")
+ONEDRIVE_SOURCE_SCOPES = ("openid", "profile", "email", "offline_access", "User.Read", "Files.Read")
+SHAREPOINT_SOURCE_SCOPES = ("openid", "profile", "email", "offline_access", "User.Read", "Sites.Read.All", "Files.Read.All")
+SCOPES = list(SHAREPOINT_SOURCE_SCOPES)  # legacy compatibility only
+
+
+def scopes_for_intent(intent: str) -> tuple[str, ...]:
+    if intent == "application_login":
+        return APPLICATION_LOGIN_SCOPES
+    if intent == "onedrive_connect":
+        return ONEDRIVE_SOURCE_SCOPES
+    if intent == "sharepoint_connect":
+        return SHAREPOINT_SOURCE_SCOPES
+    raise ValueError("unsupported Microsoft OAuth intent")
+
+
+def authority_for_intent(intent: str) -> str:
+    configured = os.getenv("MICROSOFT_TENANT_ID", "organizations").strip() or "organizations"
+    if intent == "onedrive_connect":
+        return os.getenv("MICROSOFT_ONEDRIVE_AUTHORITY", "common").strip() or "common"
+    if intent == "application_login":
+        return os.getenv("MICROSOFT_APPLICATION_AUTHORITY", configured).strip() or configured
+    if intent == "sharepoint_connect":
+        return os.getenv("MICROSOFT_SHAREPOINT_AUTHORITY", configured).strip() or configured
+    raise ValueError("unsupported Microsoft OAuth intent")
 MicrosoftSession=PersistentCloudSession
 
 def _settings():
@@ -28,35 +52,54 @@ def _settings():
         raise HTTPException(503,"Microsoft OAuth is not configured. Set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET.")
     return client_id,client_secret,tenant_id,redirect_uri
 
-def authorization_url(session_binding=None,redirect_intent="/"):
-    client_id,_,tenant_id,redirect_uri=_settings()
-    state=secrets.token_urlsafe(32); verifier=secrets.token_urlsafe(64)
-    challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    settings=get_settings()
+def authorization_url(session_binding=None, redirect_intent="application_login"):
+    client_id, _, _, redirect_uri = _settings()
+    state = secrets.token_urlsafe(32); verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     with auth_repository() as repository:
-        repository.remember_state(provider="microsoft",state=state,code_verifier=verifier,ttl_seconds=settings.AUTH_STATE_TTL_SECONDS,redirect_intent=redirect_intent,session_binding=session_binding)
-    params={"client_id":client_id,"response_type":"code","redirect_uri":redirect_uri,"response_mode":"query","scope":" ".join(SCOPES),"state":state,"code_challenge":challenge,"code_challenge_method":"S256","prompt":"select_account"}
-    return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?"+urlencode(params)
+        repository.remember_state(provider="microsoft", state=state, code_verifier=verifier,
+            ttl_seconds=get_settings().AUTH_STATE_TTL_SECONDS, redirect_intent=redirect_intent,
+            session_binding=session_binding)
+    params = {"client_id": client_id, "response_type": "code", "redirect_uri": redirect_uri,
+        "response_mode": "query", "scope": " ".join(scopes_for_intent(redirect_intent)),
+        "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
+        "prompt": "select_account"}
+    return f"https://login.microsoftonline.com/{authority_for_intent(redirect_intent)}/oauth2/v2.0/authorize?"+urlencode(params)
 
-def consume_state(state,session_binding=None):
+
+def consume_state_details(state, session_binding=None):
     try:
         with auth_repository() as repository:
-            verifier,_=repository.consume_state(provider="microsoft",state=state,session_binding=session_binding)
+            verifier, intent = repository.consume_state(provider="microsoft", state=state,
+                session_binding=session_binding)
             if not verifier: raise LookupError("missing_verifier")
-            return verifier
+            return verifier, intent
     except LookupError as exc:
-        raise HTTPException(400,"Invalid or expired Microsoft OAuth state.") from exc
+        raise HTTPException(400, "Invalid or expired Microsoft OAuth state.") from exc
 
-async def exchange_code(code,code_verifier):
-    client_id,client_secret,tenant_id,redirect_uri=_settings()
+
+def consume_state(state, session_binding=None):
+    return consume_state_details(state, session_binding)[0]
+
+
+async def exchange_code(code, code_verifier, *, intent="application_login"):
+    client_id, client_secret, _, redirect_uri = _settings()
+    authority = authority_for_intent(intent)
     async with httpx.AsyncClient(timeout=20) as client:
-        response=await client.post(f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",data={"client_id":client_id,"client_secret":client_secret,"grant_type":"authorization_code","code":code,"redirect_uri":redirect_uri,"scope":" ".join(SCOPES),"code_verifier":code_verifier})
-        response.raise_for_status(); return response.json()
+        response = await client.post(
+            f"https://login.microsoftonline.com/{authority}/oauth2/v2.0/token",
+            data={"client_id": client_id, "client_secret": client_secret,
+                "grant_type": "authorization_code", "code": code,
+                "redirect_uri": redirect_uri, "scope": " ".join(scopes_for_intent(intent)),
+                "code_verifier": code_verifier},
+        )
+        response.raise_for_status()
+        return response.json()
 
 async def create_session(token):
     granted=set(str(token.get("scope") or "").split())
-    if not {"Sites.Read.All","Files.Read.All"}.issubset(granted):
-        raise PermissionError("SharePoint read permissions were not granted.")
+    if not set(APPLICATION_LOGIN_SCOPES).issubset(granted):
+        raise PermissionError("Microsoft identity scopes were not granted.")
     async with httpx.AsyncClient(timeout=15) as client:
         response=await client.get("https://graph.microsoft.com/v1.0/me",params={"$select":"id,displayName,mail,userPrincipalName"},headers={"Authorization":f"Bearer {token['access_token']}"})
         response.raise_for_status(); profile=response.json()
@@ -242,3 +285,55 @@ async def get_connection_access_token(connection_id: str, *, purpose: str) -> st
                 owner=owner, code="refresh_failed", retryable=True,
             )
         raise HTTPException(503, "Microsoft source could not be refreshed.") from exc
+
+
+async def persist_source_connection(
+    token: dict,
+    *,
+    tenant_id: str,
+    initiating_user_id: str,
+    intent: str,
+):
+    """Persist a source credential without resolving or rotating CAM identity."""
+    if intent not in {"onedrive_connect", "sharepoint_connect"}:
+        raise ValueError("unsupported Microsoft source-connect intent")
+    granted = set(str(token.get("scope") or "").split())
+    required = set(scopes_for_intent(intent))
+    if not required.issubset(granted):
+        raise PermissionError("Microsoft source scopes were not granted.")
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            "https://graph.microsoft.com/v1.0/me",
+            params={"$select": "id,displayName,mail,userPrincipalName"},
+            headers={"Authorization": f"Bearer {token['access_token']}"},
+        )
+        response.raise_for_status()
+        profile = response.json()
+    account_id = str(profile.get("id") or "")
+    if not account_id:
+        raise ValueError("Microsoft profile has no account identity")
+    purpose = "onedrive_source" if intent == "onedrive_connect" else "sharepoint_source"
+    expiry = datetime.now(timezone.utc) + timedelta(seconds=int(token.get("expires_in") or 3500))
+    with auth_repository() as repository:
+        # The initiating CAM identity must already be valid; this check is
+        # deliberately not an identity-link/login operation.
+        from app.modules.auth_persistence.model import UserModel
+        user = repository.session.get(UserModel, initiating_user_id)
+        if user is None or user.status != "active":
+            raise PermissionError("CAM application user is inactive")
+        connection = repository.upsert_connection(
+            tenant_id=tenant_id, provider="microsoft", provider_account_id=account_id,
+            connection_purpose=purpose,
+            account_email=profile.get("mail") or profile.get("userPrincipalName"),
+            access_token=token["access_token"], refresh_token=token.get("refresh_token"),
+            expires_at=expiry, scopes=sorted(granted), token_type=token.get("token_type") or "Bearer",
+            provider_metadata={"user_principal_name": profile.get("userPrincipalName")},
+        )
+        repository.audit(
+            "source_connection_reconnected", tenant_id=tenant_id,
+            actor_id=initiating_user_id, provider="microsoft", connection_id=connection.id,
+            detail={"connection_purpose": purpose},
+        )
+        repository.session.commit()
+    AUTH_METRICS.increment("connection_reconnected", "microsoft")
+    return connection, profile
