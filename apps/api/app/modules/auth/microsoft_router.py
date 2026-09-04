@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/microsoft", tags=["auth"])
 ASSETS_MANAGE = require_permission("assets.manage")
 
+def _require_source_connections(*, onedrive: bool = False) -> None:
+    settings = get_settings()
+    if not settings.MICROSOFT_SOURCE_CONNECTIONS_ENABLED or (onedrive and not settings.ONEDRIVE_SOURCE_ENABLED):
+        raise HTTPException(503, detail={"code": "source_connections_disabled", "message": "Microsoft source connections are disabled."})
+
 
 @dataclass(frozen=True, slots=True)
 class MicrosoftOAuthIntent:
@@ -157,6 +162,7 @@ async def connect_onedrive(
     external_source_id: str | None = Query(None),
     principal: CurrentPrincipal = Depends(ASSETS_MANAGE),
 ):
+    _require_source_connections(onedrive=True)
     _validate_reconnect(principal=principal, source_id=external_source_id, expected_type="onedrive")
     return _oauth_response(MicrosoftOAuthIntent.source_connect(
         "onedrive_connect", tenant_id=principal.active_tenant_id,
@@ -169,6 +175,7 @@ async def connect_sharepoint(
     external_source_id: str | None = Query(None),
     principal: CurrentPrincipal = Depends(ASSETS_MANAGE),
 ):
+    _require_source_connections()
     _validate_reconnect(principal=principal, source_id=external_source_id, expected_type="sharepoint")
     return _oauth_response(MicrosoftOAuthIntent.source_connect(
         "sharepoint_connect", tenant_id=principal.active_tenant_id,

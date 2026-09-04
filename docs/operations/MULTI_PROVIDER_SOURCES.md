@@ -24,7 +24,7 @@ Disconnect marks only that ExternalSource as disconnected. It does not log out C
 
 ## Rollout and rollback
 
-1. Configure Microsoft client ID/secret, redirect URI, authority/audience, and delegated consent before enabling source connections.
+1. Keep MICROSOFT_SOURCE_CONNECTIONS_ENABLED=false and ONEDRIVE_SOURCE_ENABLED=false until Microsoft client ID/secret, redirect URI, authority/audience, and delegated consent are configured. These server-side gates reject new source OAuth but do not affect CAM login, Google Drive, or retained source data.
 2. Back up production according to the database-backup SOP, run python -m alembic upgrade head, and verify one head.
 3. Deploy API/workers, health-check Google and SharePoint, then deploy compatible frontend.
 4. Canary a tenant: connect OneDrive, browse root/folder, download one permitted file, sync, reconnect, disconnect, and confirm CAM identity/history remain intact.
