@@ -41,6 +41,18 @@ const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/connect-sharepoint" },
 ];
 
+function sourceLabel(source: ConnectedSource): string {
+  if (source.source_type === "onedrive") return "OneDrive";
+  if (source.source_type === "sharepoint") return "SharePoint";
+  return "Google Drive";
+}
+
+function sourceStatusLabel(source: ConnectedSource): string {
+  if (source.status === "reconnect_required") return "Reconnect required";
+  if (source.status === "disconnected") return "Disconnected";
+  return "Connected";
+}
+
 export function Sidebar({
   provider, auth, authByProvider, cloudSources = [], activeExternalSourceId, onSelectSource, onDisconnectSource, tags, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onOpen,
@@ -84,12 +96,13 @@ export function Sidebar({
     {cloudSources.map(source => <div className={"source-managed " + (source.id === activeExternalSourceId ? "active" : "")} key={source.id}>
       <button className="source" disabled={source.status !== "active"} onClick={() => onSelectSource?.(source.id)}>
         {source.source_type === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
-        <span><b>{source.display_name || (source.source_type === "onedrive" ? "OneDrive" : source.source_type === "sharepoint" ? "SharePoint" : "Google Drive")}</b><small>{source.account.email || (source.status === "active" ? "Connected" : source.status === "reconnect_required" ? "Reconnect required" : "Disconnected")}</small></span>
+        <span className="source-managed-copy"><b>{sourceLabel(source)}</b><small>{source.account.email || sourceStatusLabel(source)}</small></span>
+        <i className={"source-managed-status " + source.status} aria-label={sourceStatusLabel(source)} title={sourceStatusLabel(source)} />
       </button>
-      {applicationAuthenticated && source.status !== "disconnected" && <span className="source-actions">
-        <button onClick={() => window.location.assign(source.source_type === "google_drive" ? "/api/auth/google/connect-drive?external_source_id=" + encodeURIComponent(source.id) : "/api/auth/microsoft/" + (source.source_type === "onedrive" ? "connect-onedrive" : "connect-sharepoint") + "?external_source_id=" + encodeURIComponent(source.id))}>Reconnect</button>
-        <button onClick={() => onDisconnectSource?.(source.id)}>Disconnect</button>
-      </span>}
+      {applicationAuthenticated && source.status !== "disconnected" && <div className="source-actions">
+        <button className="source-action" type="button" onClick={() => window.location.assign(source.source_type === "google_drive" ? "/api/auth/google/connect-drive?external_source_id=" + encodeURIComponent(source.id) : "/api/auth/microsoft/" + (source.source_type === "onedrive" ? "connect-onedrive" : "connect-sharepoint") + "?external_source_id=" + encodeURIComponent(source.id))}>Reconnect</button>
+        <button className="source-action danger" type="button" onClick={() => onDisconnectSource?.(source.id)}>Disconnect</button>
+      </div>}
     </div>)}
     {Object.values(authByProvider).some(session => session.checking)
       ? <div className="source-skeleton"><i /><i /><i /></div>

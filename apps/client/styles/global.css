@@ -1369,3 +1369,23 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .video-prompt-output pre{max-height:390px;margin:0;overflow:auto;padding:13px;white-space:pre-wrap;overflow-wrap:anywhere;color:#34445a;font:10.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
 .video-prompt-note{margin:0;padding:9px 10px;border-radius:8px;background:#fff8e8;color:#765718;font-size:9.5px;line-height:1.45}
 @media(max-width:420px){.video-prompt-providers{grid-template-columns:1fr}}
+
+/* Connected cloud-source cards */
+.source-managed{margin:0 0 6px;border:1px solid #dbe3ef;border-radius:10px;background:#fff;overflow:hidden}
+.source-managed.active{border-color:#b8caf2;box-shadow:0 0 0 2px #2f65c814}
+.source-managed>.source{min-height:54px;padding:9px 10px;background:transparent;color:#344054}
+.source-managed>.source:hover{background:#f5f8fe;color:#1849b5}
+.source-managed>.source:disabled{cursor:default;opacity:.72}
+.source-managed-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}
+.source-managed-copy b,.source-managed-copy small{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.source-managed-copy b{font-size:13px;line-height:1.2}
+.source-managed-copy small{font-size:11px;font-weight:500;color:#718096}
+.source-managed-status{display:block;flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#94a3b8;box-shadow:0 0 0 3px #94a3b81c}
+.source-managed-status.active{background:#26a269;box-shadow:0 0 0 3px #26a2691f}
+.source-managed-status.reconnect_required{background:#e59b24;box-shadow:0 0 0 3px #e59b241f}
+.source-actions{display:flex;gap:7px;padding:0 10px 10px 36px}
+.source-action{flex:1;padding:6px 8px;border:1px solid #c9d7f3;border-radius:6px;background:#f6f9ff;color:#2454ac;font-size:11px;font-weight:700;cursor:pointer}
+.source-action:hover{border-color:#8facdf;background:#eaf1ff}
+.source-action.danger{border-color:#f0c5c5;background:#fff;color:#b42318}
+.source-action.danger:hover{border-color:#df9898;background:#fff4f4}
+.source-action:focus-visible{outline:2px solid #4f7ff0;outline-offset:2px}
