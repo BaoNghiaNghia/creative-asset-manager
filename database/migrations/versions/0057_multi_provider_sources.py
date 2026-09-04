@@ -76,6 +76,11 @@ def upgrade() -> None:
         sa.column("tenant_id", sa.String),
         sa.column("source_type", sa.String),
         sa.column("source_metadata", sa.JSON),
+        # Added immediately before the legacy-binding backfill below. Include
+        # both columns in this lightweight table so SQLAlchemy can compile the
+        # PostgreSQL UPDATE against the migrated schema.
+        sa.column("oauth_connection_id", sa.String),
+        sa.column("status", sa.String),
     )
 
     session_refs = {
