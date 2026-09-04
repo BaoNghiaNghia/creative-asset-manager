@@ -38,6 +38,7 @@ class PersistenceTest(unittest.TestCase):
     def connection(self,repository,tenant="tenant-a"):
         return repository.upsert_connection(
             tenant_id=tenant,provider="google",provider_account_id="account-a",
+            connection_purpose="application_login",
             account_email="a@example.com",access_token="access-old",refresh_token="refresh-old",
             expires_at=datetime.now(timezone.utc)+timedelta(hours=1),scopes=["drive"],token_type="Bearer",
         )
@@ -101,5 +102,23 @@ class PersistenceTest(unittest.TestCase):
             stored=session.get(OAuthConnectionModel,connection.id)
             serialized=str({key:value for key,value in stored.__dict__.items() if not key.startswith("_")})
             self.assertNotIn("access-old",serialized); self.assertNotIn("refresh-old",serialized)
+
+
+    def test_same_microsoft_account_can_hold_application_and_source_purposes(self):
+        with self.factory() as session:
+            repository = AuthPersistenceRepository(session, self.old)
+            base = dict(
+                tenant_id="tenant-a", provider="microsoft", provider_account_id="microsoft-account",
+                account_email="creative@example.com", access_token="access", refresh_token="refresh",
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1), scopes=["User.Read"], token_type="Bearer",
+            )
+            application = repository.upsert_connection(**base, connection_purpose="application_login")
+            onedrive = repository.upsert_connection(**base, connection_purpose="onedrive_source")
+            sharepoint = repository.upsert_connection(**base, connection_purpose="sharepoint_source")
+            self.assertEqual(
+                {application.connection_purpose, onedrive.connection_purpose, sharepoint.connection_purpose},
+                {"application_login", "onedrive_source", "sharepoint_source"},
+            )
+            self.assertEqual(len({application.id, onedrive.id, sharepoint.id}), 3)
 
 if __name__=="__main__": unittest.main()

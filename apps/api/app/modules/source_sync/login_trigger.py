@@ -121,12 +121,15 @@ class GoogleLoginSyncScheduler:
             source_type="google_drive",
             display_name=cloud_session.user.get("email") or cloud_session.user.get("name"),
             source_metadata={
+                # Legacy mirror only; the column is the runtime authority.
                 "oauth_connection_id": cloud_session.connection_id,
                 "provider_account_id": provider_account_id,
                 # Connecting a Drive is an explicit workspace-admin choice.
                 # Keep exactly one default so Explorer can reopen predictably.
                 "is_default": True,
             },
+            oauth_connection_id=cloud_session.connection_id,
+            status="active",
         )
         for configured_source in self.session.scalars(
             select(ExternalSourceModel).where(
@@ -204,7 +207,6 @@ class GoogleLoginSyncScheduler:
             idempotency_key=f"google-login-source-sync:{source.id}:{sequence}",
             payload={
                 "external_source_id": source.id,
-                "oauth_connection_id": cloud_session.connection_id,
                 "reconciliation": reconciliation,
             },
             priority=10,

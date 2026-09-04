@@ -188,6 +188,7 @@ class AuthMigrationOperationsTest(unittest.TestCase):
                     tenant_id=tenant.id,
                     provider=provider,
                     provider_account_id=subject,
+                    connection_purpose="application_login",
                     account_email="same@example.com",
                     access_token="access-secret",
                     refresh_token="refresh-secret",

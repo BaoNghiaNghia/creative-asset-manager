@@ -938,6 +938,7 @@ export default function App() {
             metadataByItem={explorer.metadataByItem}
             onOpen={explorer.openFolder}
             onToggle={explorer.toggleSelection}
+            onReplaceSelection={explorer.replaceSelection}
             onPrefetch={explorer.scheduleFolderPrefetch}
             onCancelPrefetch={explorer.cancelFolderPrefetch}
             onPreview={setPreviewItem}

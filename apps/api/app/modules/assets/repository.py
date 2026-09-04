@@ -32,6 +32,8 @@ class AssetRegistryRepository:
         source_type: str,
         display_name: str | None = None,
         source_metadata: Mapping[str, Any] | None = None,
+        oauth_connection_id: str | None = None,
+        status: str = "active",
     ) -> ExternalSourceModel:
         source = self.session.scalar(
             select(ExternalSourceModel).where(
@@ -49,6 +51,8 @@ class AssetRegistryRepository:
         source.source_type = source_type
         source.display_name = display_name
         source.source_metadata = dict(source_metadata or {})
+        source.oauth_connection_id = oauth_connection_id
+        source.status = status
         self.session.flush()
         return source
 

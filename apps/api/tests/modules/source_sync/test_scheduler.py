@@ -24,10 +24,11 @@ class SourceSyncSchedulerTest(unittest.TestCase):
         self.source = ExternalSourceModel(tenant_id="tenant-a", source_key="google-drive:source-a", source_type="google_drive", source_metadata={})
         self.session.add(self.source)
         self.session.flush()
-        connection = OAuthConnectionModel(tenant_id="tenant-a", provider="google", provider_account_id="account-a", access_token_ciphertext="encrypted", key_version="v1", status="active")
+        connection = OAuthConnectionModel(tenant_id="tenant-a", provider="google", provider_account_id="account-a", connection_purpose="google_drive_source", access_token_ciphertext="encrypted", key_version="v1", status="active")
         self.session.add(connection)
         self.session.flush()
-        self.source.source_metadata = {"oauth_connection_id": connection.id}
+        self.source.source_metadata = {}
+        self.source.oauth_connection_id = connection.id
         self.session.commit()
         self.factory = lambda: Session(self.engine, expire_on_commit=False)
         self.scheduler = SourceSyncScheduler(self.factory, self.settings)
@@ -105,7 +106,7 @@ class SourceSyncSchedulerTest(unittest.TestCase):
 
     def test_decommissioned_source_with_valid_credentials_is_not_scheduled(self):
         legacy = self._decommissioned_source(
-            oauth_connection_id=self.source.source_metadata["oauth_connection_id"]
+            oauth_connection_id=self.source.oauth_connection_id
         )
 
         result = self.scheduler.enqueue_source("tenant-a", legacy.id)
@@ -120,10 +121,11 @@ class SourceSyncSchedulerTest(unittest.TestCase):
             source_key="google-drive:canonical-reference-only",
             source_type="google_drive",
             source_metadata={
-                "oauth_connection_id": self.source.source_metadata["oauth_connection_id"],
+                "oauth_connection_id": self.source.oauth_connection_id,
                 "canonical_source_id": self.source.id,
                 "decommissioned_at": "   ",
             },
+            oauth_connection_id=self.source.oauth_connection_id,
         )
         self.session.add(source)
         self.session.commit()
@@ -136,11 +138,11 @@ class SourceSyncSchedulerTest(unittest.TestCase):
     def test_non_default_and_empty_decommissioned_at_remain_schedulable(self):
         for suffix, metadata in (
             ("non-default", {
-                "oauth_connection_id": self.source.source_metadata["oauth_connection_id"],
+                "oauth_connection_id": self.source.oauth_connection_id,
                 "is_default": False,
             }),
             ("empty-marker", {
-                "oauth_connection_id": self.source.source_metadata["oauth_connection_id"],
+                "oauth_connection_id": self.source.oauth_connection_id,
                 "decommissioned_at": "",
             }),
         ):
@@ -150,6 +152,7 @@ class SourceSyncSchedulerTest(unittest.TestCase):
                     source_key=f"google-drive:{suffix}",
                     source_type="google_drive",
                     source_metadata=metadata,
+                    oauth_connection_id=self.source.oauth_connection_id,
                 )
                 self.session.add(source)
                 self.session.commit()
@@ -209,7 +212,7 @@ class SourceSyncSchedulerTest(unittest.TestCase):
         )
 
     def test_one_failing_source_does_not_stop_other_sources(self):
-        second = ExternalSourceModel(tenant_id="tenant-a", source_key="google-drive:source-b", source_type="google_drive", source_metadata={"oauth_connection_id": self.source.source_metadata["oauth_connection_id"]})
+        second = ExternalSourceModel(tenant_id="tenant-a", source_key="google-drive:source-b", source_type="google_drive", source_metadata={"oauth_connection_id": self.source.oauth_connection_id}, oauth_connection_id=self.source.oauth_connection_id)
         self.session.add(second); self.session.commit()
         original = self.scheduler.enqueue_source
         def enqueue(tenant_id, source_id, **kwargs):

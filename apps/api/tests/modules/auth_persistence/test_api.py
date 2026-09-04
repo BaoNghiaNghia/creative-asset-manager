@@ -36,7 +36,7 @@ class AuthApiExposureTest(unittest.TestCase):
     def test_microsoft_callback_returns_stable_domain_denial(self):
         from app.modules.auth_persistence.login import LoginAdmissionError
         app=FastAPI(); app.include_router(microsoft_router,prefix="/api")
-        with patch("app.modules.auth.microsoft_router.consume_state",return_value="verifier"), patch("app.modules.auth.microsoft_router.exchange_code",new=AsyncMock(return_value={"access_token":"secret"})), patch("app.modules.auth.microsoft_router.create_session",new=AsyncMock(side_effect=LoginAdmissionError("email_domain_not_allowed","denied"))):
+        with patch("app.modules.auth.microsoft_router.consume_state_details",return_value=("verifier", "application_login")), patch("app.modules.auth.microsoft_router.exchange_code",new=AsyncMock(return_value={"access_token":"secret"})), patch("app.modules.auth.microsoft_router.create_session",new=AsyncMock(side_effect=LoginAdmissionError("email_domain_not_allowed","denied"))):
             response=TestClient(app).get("/api/auth/microsoft/callback?state=state&code=code",follow_redirects=False)
         self.assertEqual(response.status_code,307)
         self.assertIn("auth_provider=microsoft",response.headers["location"])
@@ -179,5 +179,68 @@ class AuthApiExposureTest(unittest.TestCase):
         self.assertEqual(response.status_code, 307)
         self.assertIn("auth_error=token_exchange", response.headers["location"])
         enqueue.assert_not_called()
+
+
+    def test_microsoft_source_callback_preserves_google_application_cookie(self):
+        app = FastAPI(); app.include_router(microsoft_router, prefix="/api")
+        connection = SimpleNamespace(id="connection-onedrive")
+        with (
+            patch("app.modules.auth.microsoft_router.consume_state_details", return_value=("verifier", "onedrive_connect:tenant-a:-:user-a")),
+            patch("app.modules.auth.microsoft_router._reauthorize_source") as reauthorize,
+            patch("app.modules.auth.microsoft_router.exchange_code", new=AsyncMock(return_value={"access_token": "secret"})),
+            patch("app.modules.auth.microsoft_router.persist_source_connection", new=AsyncMock(return_value=(connection, {}))) as persist,
+            patch("app.modules.auth.microsoft_router.create_session", new=AsyncMock()) as create_session,
+        ):
+            client = TestClient(app)
+            client.cookies.set("cam_google_session", "google-application-session")
+            response = client.get("/api/auth/microsoft/callback?state=state&code=code", follow_redirects=False)
+        self.assertEqual(response.status_code, 307)
+        self.assertIn("microsoft=source_connected", response.headers["location"])
+        self.assertIn("source=onedrive", response.headers["location"])
+        self.assertNotIn("cam_microsoft_session", response.headers.get("set-cookie", ""))
+        self.assertNotIn("cam_google_session=;", response.headers.get("set-cookie", ""))
+        create_session.assert_not_called()
+        reauthorize.assert_called_once()
+        self.assertEqual(persist.await_args.kwargs["tenant_id"], "tenant-a")
+
+    def test_microsoft_sharepoint_source_callback_never_sets_application_session(self):
+        app = FastAPI(); app.include_router(microsoft_router, prefix="/api")
+        connection = SimpleNamespace(id="connection-sharepoint")
+        with (
+            patch("app.modules.auth.microsoft_router.consume_state_details", return_value=("verifier", "sharepoint_connect:tenant-a:-:user-a")),
+            patch("app.modules.auth.microsoft_router._reauthorize_source"),
+            patch("app.modules.auth.microsoft_router.exchange_code", new=AsyncMock(return_value={"access_token": "secret"})),
+            patch("app.modules.auth.microsoft_router.persist_source_connection", new=AsyncMock(return_value=(connection, {}))),
+            patch("app.modules.auth.microsoft_router.create_session", new=AsyncMock()) as create_session,
+        ):
+            response = TestClient(app).get("/api/auth/microsoft/callback?state=state&code=code", follow_redirects=False)
+        self.assertEqual(response.status_code, 307)
+        self.assertIn("source=sharepoint", response.headers["location"])
+        self.assertNotIn("cam_microsoft_session", response.headers.get("set-cookie", ""))
+        create_session.assert_not_called()
+
+    def test_microsoft_source_token_exchange_failure_preserves_application_cookies(self):
+        app = FastAPI(); app.include_router(microsoft_router, prefix="/api")
+        with (
+            patch("app.modules.auth.microsoft_router.consume_state_details", return_value=("verifier", "onedrive_connect:tenant-a:-:user-a")),
+            patch("app.modules.auth.microsoft_router._reauthorize_source"),
+            patch("app.modules.auth.microsoft_router.exchange_code", new=AsyncMock(side_effect=RuntimeError("failed"))),
+        ):
+            response = TestClient(app).get("/api/auth/microsoft/callback?state=state&code=code", follow_redirects=False)
+        self.assertEqual(response.status_code, 307)
+        self.assertIn("auth_error=token_exchange_failed", response.headers["location"])
+        self.assertNotIn("cam_microsoft_session", response.headers.get("set-cookie", ""))
+
+    def test_microsoft_intent_scopes_and_authority_are_separated(self):
+        from app.providers.microsoft.auth import (
+            APPLICATION_LOGIN_SCOPES, ONEDRIVE_SOURCE_SCOPES,
+            SHAREPOINT_SOURCE_SCOPES, authority_for_intent, scopes_for_intent,
+        )
+        self.assertEqual(scopes_for_intent("application_login"), APPLICATION_LOGIN_SCOPES)
+        self.assertEqual(scopes_for_intent("onedrive_connect"), ONEDRIVE_SOURCE_SCOPES)
+        self.assertEqual(scopes_for_intent("sharepoint_connect"), SHAREPOINT_SOURCE_SCOPES)
+        self.assertNotIn("Sites.Read.All", APPLICATION_LOGIN_SCOPES)
+        self.assertNotIn("Sites.Read.All", ONEDRIVE_SOURCE_SCOPES)
+        self.assertEqual(authority_for_intent("onedrive_connect"), "common")
 
 if __name__=="__main__": unittest.main()

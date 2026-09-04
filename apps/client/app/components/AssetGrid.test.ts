@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   AssetGrid,
   AssetGridSkeleton,
+  assetIdsInSelectionRectangle,
+  originalAssetDragPayload,
+  isAdditiveSelectionClick,
   createThumbnailLoadQueue,
   INITIAL_HIGH_PRIORITY_THUMBNAILS,
   SEARCH_RESULT_SKELETON_COUNT,
@@ -41,6 +44,7 @@ describe("AssetGrid thumbnail loading", () => {
       metadataByItem: {},
       onOpen: noop,
       onToggle: noop,
+      onReplaceSelection: noop,
       onPrefetch: noop,
       onCancelPrefetch: noop,
       onPreview: noop,
@@ -107,5 +111,64 @@ describe("AssetGrid search skeleton", () => {
     expect(SEARCH_RESULT_SKELETON_COUNT).toBe(18);
     expect(markup).toContain('aria-label="Loading search results"');
     expect((markup.match(/asset-card-skeleton-preview/g) || []).length).toBe(18);
+  });
+});
+
+
+describe("AssetGrid marquee selection and drag-out", () => {
+  it("selects every card intersecting a drag rectangle", () => {
+    const ids = assetIdsInSelectionRectangle(
+      { startX: 10, startY: 10, currentX: 90, currentY: 90 },
+      [
+        { id: "inside", rect: { left: 20, top: 20, right: 60, bottom: 60 } },
+        { id: "edge", rect: { left: 80, top: 80, right: 120, bottom: 120 } },
+        { id: "outside", rect: { left: 91, top: 10, right: 130, bottom: 50 } },
+      ],
+    );
+    expect(ids).toEqual(["inside", "edge"]);
+  });
+
+  it("prepares original media URLs for an external native drag without browser drop data", () => {
+    const payload = originalAssetDragPayload([
+      { provider: "google-drive", id: "asset-1", name: "photo.jpg", kind: "image", mime_type: "image/jpeg", external_source_id: "source-1" },
+      { provider: "google-drive", id: "asset-2", name: "clip.mp4", kind: "video", mime_type: "video/mp4", external_source_id: "source-1" },
+    ], "https://creative-assets.example");
+    expect(payload.downloadUrl).toBe("image/jpeg:photo.jpg:https://creative-assets.example/api/explorer/media/asset-1?provider=google-drive&external_source_id=source-1");
+    expect(payload.uriList).toContain("/media/asset-1?");
+    expect(payload.uriList).toContain("/media/asset-2?");
+    expect(payload.sourceIds).toBe('["asset-1","asset-2"]');
+  });
+
+  it("marks files, but not folders, as draggable originals", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(AssetGrid, {
+      items: [
+        { provider: "google-drive", id: "file-1", name: "photo.jpg", kind: "image", mime_type: "image/jpeg" },
+        { provider: "google-drive", id: "folder-1", name: "Folder", kind: "folder", mime_type: "application/vnd.google-apps.folder" },
+      ],
+      path: [],
+      selected: new Set<string>(),
+      metadataByItem: {},
+      onOpen: noop,
+      onToggle: noop,
+      onReplaceSelection: noop,
+      onPrefetch: noop,
+      onCancelPrefetch: noop,
+      onPreview: noop,
+      onRate: noop,
+      onDetails: noop,
+      onFocus: noop,
+      onContextMenu: noop,
+    }));
+    expect(markup).toContain('data-asset-id="file-1" draggable="true"');
+    expect(markup).toContain('data-asset-id="folder-1" draggable="false"');
+  });
+});
+
+describe("AssetGrid additive selection", () => {
+  it("uses Ctrl+click on Windows and Cmd+click on macOS to toggle an item", () => {
+    expect(isAdditiveSelectionClick({ ctrlKey: true, metaKey: false })).toBe(true);
+    expect(isAdditiveSelectionClick({ ctrlKey: false, metaKey: true })).toBe(true);
+    expect(isAdditiveSelectionClick({ ctrlKey: false, metaKey: false })).toBe(false);
   });
 });
