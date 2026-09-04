@@ -6,6 +6,7 @@ import {
   AssetGridSkeleton,
   assetIdsInSelectionRectangle,
   originalAssetDragPayload,
+  isAdditiveSelectionClick,
   createThumbnailLoadQueue,
   INITIAL_HIGH_PRIORITY_THUMBNAILS,
   SEARCH_RESULT_SKELETON_COUNT,
@@ -161,5 +162,13 @@ describe("AssetGrid marquee selection and drag-out", () => {
     }));
     expect(markup).toContain('data-asset-id="file-1" draggable="true"');
     expect(markup).toContain('data-asset-id="folder-1" draggable="false"');
+  });
+});
+
+describe("AssetGrid additive selection", () => {
+  it("uses Ctrl+click on Windows and Cmd+click on macOS to toggle an item", () => {
+    expect(isAdditiveSelectionClick({ ctrlKey: true, metaKey: false })).toBe(true);
+    expect(isAdditiveSelectionClick({ ctrlKey: false, metaKey: true })).toBe(true);
+    expect(isAdditiveSelectionClick({ ctrlKey: false, metaKey: false })).toBe(false);
   });
 });

@@ -227,6 +227,10 @@ function dragTypesIncludeAssetPayload(types: Iterable<string>): boolean {
   return [...types].includes(ASSET_DRAG_OUT_MIME);
 }
 
+export function isAdditiveSelectionClick(event: Pick<MouseEvent, "ctrlKey" | "metaKey">): boolean {
+  return event.ctrlKey || event.metaKey;
+}
+
 export const SEARCH_RESULT_SKELETON_COUNT = 18;
 
 export function AssetGridSkeleton({ count = SEARCH_RESULT_SKELETON_COUNT }: { count?: number }) {
@@ -402,13 +406,19 @@ export function AssetGrid({
       draggable={item.kind !== "folder"}
       title={item.kind === "folder" ? undefined : "Drag the original file to another application"}
       onDragStart={event => dragOriginalFiles(event, item)}
-      onClick={() => onFocus(item)}
+      onClick={event => {
+        if (isAdditiveSelectionClick(event)) {
+          onToggle(item.id);
+          return;
+        }
+        onFocus(item);
+      }}
       onContextMenu={event => onContextMenu(item, event)}
       onPointerEnter={() => item.kind === "folder" && onPrefetch(item.id)}
       onPointerLeave={onCancelPrefetch}
     >
       <button className="asset-info" onClick={event => { event.stopPropagation(); onDetails(item); }} aria-label={"View details for " + item.name}>i</button>
-      <button className="check" onClick={() => onToggle(item.id)}>{selected.has(item.id) ? "✓" : ""}</button>
+      <button className="check" onClick={event => { event.stopPropagation(); onToggle(item.id); }}>{selected.has(item.id) ? "✓" : ""}</button>
       <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
         <AssetPreview item={item} fetchPriority={thumbnailFetchPriority(index)} />
         {item.kind === "video" && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
