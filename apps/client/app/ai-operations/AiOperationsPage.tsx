@@ -748,6 +748,9 @@ function opsKpiIcon(label: string): string {
 
 function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashboardData["media"]>; media: "image" | "video" }) {
   const primary = media === "image" ? dashboard.image : dashboard.video;
+  const videoEstimatedCost = dashboard.analytics.daily.reduce(
+    (total, day) => total + (day.estimated_cost_micros || 0), 0,
+  );
   const cards = [
     ...(media === "video" ? [
       { label: "Processed today", value: dashboard.video_processed_today, detail: "Completed video analyses today (UTC)", tone: "neutral" },
@@ -759,7 +762,7 @@ function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashb
     { label: "Queued", value: primary.queued, detail: primary.eligible_now + " eligible now", tone: "neutral" },
     ...(media === "video" ? [
       { label: "Indexed", value: dashboard.video_indexing.completed, detail: "Video search indexing (not AI)", tone: "neutral" },
-      { label: "Video cost", value: "—", detail: "Cost data unavailable", tone: "neutral" },
+      { label: "Video cost", value: dashboard.analytics.cost_available ? formatCost(videoEstimatedCost) : "—", detail: dashboard.analytics.cost_available ? "Estimated Video AI usage" : "Configure a cost rate to estimate usage", tone: "neutral" },
     ] : []),
   ];
   return <>

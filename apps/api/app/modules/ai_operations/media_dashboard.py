@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.core.redaction import redact_url_queries
 from app.core.config import Settings
+from app.modules.ai_governance.model import AiCostRateModel
+from app.modules.ai_governance.repository import micros
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
@@ -38,6 +40,8 @@ def _percentile(values: list[int], percentile: float) -> int:
 
 def _video_analytics(
     runs: list[VideoAnalysisRunModel],
+    chunks: list[VideoAnalysisChunkModel],
+    cost_rates: list[AiCostRateModel],
     *,
     from_at: datetime,
     to_at: datetime,
@@ -52,6 +56,28 @@ def _video_analytics(
     provider_latencies: dict[tuple[str, str | None], list[int]] = defaultdict(list)
     latencies: list[int] = []
     failure_counts = Counter()
+    chunks_by_run: dict[str, list[VideoAnalysisChunkModel]] = defaultdict(list)
+    cost_records = 0
+    for chunk in chunks:
+        if chunk.status == "completed": chunks_by_run[chunk.run_id].append(chunk)
+    def costs(run: VideoAnalysisRunModel) -> tuple[int, int, int]:
+        nonlocal cost_records
+        estimated = reported = 0
+        for chunk in chunks_by_run.get(run.id, []):
+            usage = chunk.usage_json if isinstance(chunk.usage_json, dict) else {}
+            occurred = _as_utc(chunk.completed_at) or _as_utc(chunk.updated_at)
+            rates = [rate for rate in cost_rates if rate.provider == (run.ai_provider or "unknown") and rate.model == (run.ai_model or "") and rate.processing_mode in {"single", "any"} and occurred and _as_utc(rate.effective_at) <= occurred]
+            rate = max(rates, key=lambda value: _as_utc(value.effective_at)) if rates else None
+            def units(*keys: str) -> int:
+                for key in keys:
+                    value = usage.get(key)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool): return max(0, int(value))
+                return 0
+            if rate is not None: estimated += micros(units("promptTokenCount", "input_tokens", "input") * rate.input_unit_cost + units("candidatesTokenCount", "output_tokens", "output") * rate.output_unit_cost)
+            raw = usage.get("costMicros")
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool): reported += max(0, int(raw))
+            if rate is not None or isinstance(raw, (int, float)) and not isinstance(raw, bool): cost_records += 1
+        return estimated, reported, reported or estimated
 
     for run in runs:
         if provider and run.ai_provider != provider:
@@ -67,10 +93,19 @@ def _video_analytics(
         occurred_at = _as_utc(run.completed_at) or _as_utc(run.updated_at)
         if run.status not in _TERMINAL or occurred_at is None or not (from_at <= occurred_at < to_at):
             continue
-        daily[occurred_at.date().isoformat()][run.status] += 1
+        counts = daily[occurred_at.date().isoformat()]
+        counts[run.status] += 1
         provider_key = (run.ai_provider or "unknown", run.ai_model)
+        estimated, reported, reconciled = costs(run)
+        counts["estimated_cost_micros"] += estimated
+        counts["provider_reported_cost_micros"] += reported
+        counts["reconciled_cost_micros"] += reconciled
+        counts[f"provider_cost:{provider_key[0]}"] += estimated
         providers[provider_key]["count"] += 1
         providers[provider_key][run.status] += 1
+        providers[provider_key]["estimated_cost_micros"] += estimated
+        providers[provider_key]["provider_reported_cost_micros"] += reported
+        providers[provider_key]["reconciled_cost_micros"] += reconciled
         if run.status == "failed":
             failure_counts[run.last_error_code or "video_analysis_failed"] += 1
         started_at = _as_utc(run.started_at)
@@ -86,10 +121,10 @@ def _video_analytics(
                 "requested": counts["completed"] + counts["failed"],
                 "completed": counts["completed"],
                 "failed": counts["failed"],
-                "estimated_cost_micros": 0,
-                "provider_reported_cost_micros": 0,
-                "reconciled_cost_micros": 0,
-                "provider_estimated_cost_micros": {},
+                "estimated_cost_micros": counts["estimated_cost_micros"],
+                "provider_reported_cost_micros": counts["provider_reported_cost_micros"],
+                "reconciled_cost_micros": counts["reconciled_cost_micros"],
+                "provider_estimated_cost_micros": {key.removeprefix("provider_cost:"): value for key, value in counts.items() if key.startswith("provider_cost:")},
                 "average_latency_ms": 0,
                 "p95_latency_ms": 0,
             }
@@ -111,9 +146,9 @@ def _video_analytics(
                 "p95_latency_ms": _percentile(provider_latencies[(provider, model)], 0.95),
                 "input_units": 0,
                 "output_units": 0,
-                "estimated_cost_micros": 0,
-                "provider_reported_cost_micros": 0,
-                "reconciled_cost_micros": 0,
+                "estimated_cost_micros": counts["estimated_cost_micros"],
+                "provider_reported_cost_micros": counts["provider_reported_cost_micros"],
+                "reconciled_cost_micros": counts["reconciled_cost_micros"],
                 "currency": "USD",
             }
             for (provider, model), counts in sorted(
@@ -128,7 +163,7 @@ def _video_analytics(
             "average_ms": sum(latencies) / len(latencies) if latencies else 0,
             "p95_ms": _percentile(latencies, 0.95),
         },
-        "cost_available": False,
+        "cost_available": bool(cost_records),
     }
 
 
@@ -610,9 +645,13 @@ class MediaDashboardService:
         analytics_runs = list(self.session.scalars(select(VideoAnalysisRunModel).where(
             VideoAnalysisRunModel.tenant_id == tenant_id,
         )))
+        analytics_chunks = list(self.session.scalars(select(VideoAnalysisChunkModel).where(
+            VideoAnalysisChunkModel.tenant_id == tenant_id,
+        )))
+        cost_rates = list(self.session.scalars(select(AiCostRateModel)))
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         today_analytics = _video_analytics(
-            analytics_runs,
+            analytics_runs, analytics_chunks, cost_rates,
             from_at=today_start,
             to_at=now,
             provider=provider,
@@ -692,7 +731,7 @@ class MediaDashboardService:
             ],
             "analytics": _merge_video_job_failure_groups(
                 _video_analytics(
-                    analytics_runs,
+                    analytics_runs, analytics_chunks, cost_rates,
                     from_at=from_at,
                     to_at=to_at,
                     provider=provider,

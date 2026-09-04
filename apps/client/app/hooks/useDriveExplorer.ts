@@ -31,6 +31,21 @@ const emptyIndexStatus: DriveIndexStatus = {
 const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : "root";
 const explorerLocationKey = (provider: Provider) => "creative-asset-manager:explorer-location:" + provider;
 
+export function folderIdFromPath(pathname: string): string | null {
+  const match = /^\/folder\/([^/]+)\/?$/.exec(pathname);
+  if (!match) return null;
+  try {
+    const folderId = decodeURIComponent(match[1]);
+    return folderId.trim() ? folderId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function folderPath(folderId: string): string {
+  return "/folder/" + encodeURIComponent(folderId);
+}
+
 type SavedExplorerLocation = {
   version: 3;
   provider: Provider;
@@ -484,8 +499,17 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     params.delete("q");
     [...params.keys()].filter(key => key.startsWith("facet.")).forEach(key => params.delete(key));
     const cleanQuery = params.toString();
-    window.history.replaceState({}, "", window.location.pathname + (cleanQuery ? "?" + cleanQuery : ""));
-    await open(id, ancestors, source);
+    const opened = await open(id, ancestors, source);
+    if (opened) {
+      const nextUrl = folderPath(id) + (cleanQuery ? "?" + cleanQuery : "");
+      if (window.location.pathname + window.location.search === nextUrl) window.history.replaceState({}, "", nextUrl);
+      else window.history.pushState({}, "", nextUrl);
+    }
+  }
+
+  async function restoreUrlLocation(source: Provider) {
+    const folderId = folderIdFromPath(window.location.pathname);
+    return folderId ? open(folderId, [], source) : false;
   }
 
   async function restoreSavedLocation(source: Provider, bootstrap?: ViewerBootstrap) {
@@ -845,7 +869,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
           await loadViewerBootstrap(selected);
           return;
         }
-        const restored = await restoreSavedLocation(selected);
+        const restored = await restoreUrlLocation(selected) || await restoreSavedLocation(selected);
         if (!restored) {
           setActiveAssignedRootId(rootId(selected));
           await open(rootId(selected), [], selected);
@@ -873,7 +897,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       await loadViewerBootstrap(source);
       return;
     }
-    const restored = await restoreSavedLocation(source);
+    const restored = await restoreUrlLocation(source) || await restoreSavedLocation(source);
     if (!restored) {
       setActiveAssignedRootId(rootId(source));
       await open(rootId(source), [], source);

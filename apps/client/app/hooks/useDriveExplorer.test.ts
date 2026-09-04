@@ -4,12 +4,26 @@ import {
   apiErrorMessage,
   appendUniqueFolderPage,
   clearSavedExplorerLocation,
+  folderIdFromPath,
+  folderPath,
   isPureViewerIdentity,
   oauthMessageFor,
   parseSavedExplorerLocation,
   savedLocationIsAuthorized,
   uploadErrorMessage,
 } from "./useDriveExplorer";
+
+describe("folder route helpers", () => {
+  it("round-trips an encoded folder id from the explorer URL", () => {
+    const folderId = "listing/4233505213 source";
+    expect(folderIdFromPath(folderPath(folderId))).toBe(folderId);
+  });
+
+  it("ignores non-folder and malformed folder URLs", () => {
+    expect(folderIdFromPath("/ai-operations")).toBeNull();
+    expect(folderIdFromPath("/folder/%E0%A4%A")).toBeNull();
+  });
+});
 
 describe("oauthMessageFor", () => {
   it("explains local bootstrap admission failures", () => {

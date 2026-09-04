@@ -539,7 +539,7 @@ export default function App() {
 
   function openContextItem(item: Asset) {
     if (item.kind === "folder") {
-      void explorer.open(item.id, contextAncestors(item));
+      void explorer.openFolder(item.id, contextAncestors(item));
       return;
     }
     if (isPreviewableAsset(item)) setPreviewItem(item);
@@ -614,7 +614,7 @@ export default function App() {
           visibilityFilter="all"
           onClearSearch={() => explorer.setQuery("")}
           onClearFilter={() => undefined}
-          onOpen={explorer.open}
+          onOpen={explorer.openFolder}
         />}
   </>;
 
@@ -778,7 +778,7 @@ export default function App() {
       {explorer.auth.authenticated && explorer.explorerReady && <nav>
         <div>{explorer.path.map((folder, index) => <button
           key={folder.id}
-          onClick={() => explorer.open(folder.id, explorer.path.slice(0, index))}
+          onClick={() => void explorer.openFolder(folder.id, explorer.path.slice(0, index))}
         >
           {folder.name}
         </button>)}</div>
@@ -936,7 +936,7 @@ export default function App() {
             path={explorer.path}
             selected={explorer.selected}
             metadataByItem={explorer.metadataByItem}
-            onOpen={explorer.open}
+            onOpen={explorer.openFolder}
             onToggle={explorer.toggleSelection}
             onPrefetch={explorer.scheduleFolderPrefetch}
             onCancelPrefetch={explorer.cancelFolderPrefetch}
@@ -977,7 +977,7 @@ export default function App() {
             visibilityFilter={explorer.visibilityFilter}
             onClearSearch={() => explorer.setQuery("")}
             onClearFilter={() => explorer.setVisibilityFilter("all")}
-            onOpen={explorer.open}
+            onOpen={explorer.openFolder}
           />}
           </div>
           {searchMediaMode === "all" && explorer.query.trim() && <section className="mixed-search-section" aria-label="Video results">
