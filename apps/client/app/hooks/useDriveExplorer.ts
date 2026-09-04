@@ -991,6 +991,10 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     });
   }
 
+  function replaceSelection(ids: Iterable<string>) {
+    setSelected(new Set(ids));
+  }
+
   function mergeMetadata(metadata: AssetMetadata[]) {
     setMetadataByItem(current => {
       const next = { ...current };
@@ -1161,6 +1165,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     cancelFolderPrefetch,
     logout,
     toggleSelection,
+    replaceSelection,
     applyTag,
     rateAsset,
     applyRating,

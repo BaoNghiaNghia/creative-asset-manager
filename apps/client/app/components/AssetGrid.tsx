@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from "react";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
-import { assetPreviewUrl } from "../utils/mediaUrls";
+import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 
 export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
@@ -181,6 +181,52 @@ function AssetMetadataBar({
   </div>;
 }
 
+export const ASSET_DRAG_OUT_MIME = "application/x-creative-asset-drag-out";
+
+export type SelectionRectangle = {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+};
+
+type CardBounds = {
+  id: string;
+  rect: Pick<DOMRect, "left" | "right" | "top" | "bottom">;
+};
+
+export function assetIdsInSelectionRectangle(
+  selection: SelectionRectangle,
+  cards: Iterable<CardBounds>,
+): string[] {
+  const left = Math.min(selection.startX, selection.currentX);
+  const right = Math.max(selection.startX, selection.currentX);
+  const top = Math.min(selection.startY, selection.currentY);
+  const bottom = Math.max(selection.startY, selection.currentY);
+  return [...cards].filter(({ rect }) =>
+    rect.left < right && rect.right > left && rect.top < bottom && rect.bottom > top,
+  ).map(({ id }) => id);
+}
+
+function safeDownloadName(name: string): string {
+  return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-") || "asset";
+}
+
+export function originalAssetDragPayload(items: Asset[], origin: string) {
+  const urls = items.map(item => new URL(explorerAssetUrl(item, "media"), origin).toString());
+  const first = items[0];
+  return {
+    downloadUrl: first ? `${first.mime_type || "application/octet-stream"}:${safeDownloadName(first.name)}:${urls[0]}` : "",
+    uriList: urls.join("\r\n"),
+    text: urls.join("\n"),
+    sourceIds: JSON.stringify(items.map(item => item.id)),
+  };
+}
+
+function dragTypesIncludeAssetPayload(types: Iterable<string>): boolean {
+  return [...types].includes(ASSET_DRAG_OUT_MIME);
+}
+
 export const SEARCH_RESULT_SKELETON_COUNT = 18;
 
 export function AssetGridSkeleton({ count = SEARCH_RESULT_SKELETON_COUNT }: { count?: number }) {
@@ -203,6 +249,7 @@ type Props = {
   metadataByItem: AssetMetadataMap;
   onOpen: (id: string, ancestors: Asset[]) => void;
   onToggle: (id: string) => void;
+  onReplaceSelection: (ids: Iterable<string>) => void;
   onPrefetch: (id: string) => void;
   onCancelPrefetch: () => void;
   onPreview: (item: Asset) => void;
@@ -219,6 +266,7 @@ export function AssetGrid({
   metadataByItem,
   onOpen,
   onToggle,
+  onReplaceSelection,
   onPrefetch,
   onCancelPrefetch,
   onPreview,
@@ -250,10 +298,110 @@ export function AssetGrid({
     if (isPreviewableAsset(item)) onPreview(item);
   }
 
-  return <div className="grid">
+  const gridRef = useRef<HTMLDivElement>(null);
+  const marqueeRef = useRef<{ pointerId: number; baseline: Set<string>; selection: SelectionRectangle; moved: boolean } | null>(null);
+  const [marquee, setMarquee] = useState<SelectionRectangle | null>(null);
+
+  useEffect(() => {
+    const rejectInternalDrop = (event: globalThis.DragEvent) => {
+      if (!dragTypesIncludeAssetPayload(event.dataTransfer?.types || [])) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+    };
+    document.addEventListener("dragover", rejectInternalDrop, true);
+    document.addEventListener("drop", rejectInternalDrop, true);
+    return () => {
+      document.removeEventListener("dragover", rejectInternalDrop, true);
+      document.removeEventListener("drop", rejectInternalDrop, true);
+    };
+  }, []);
+
+  function updateMarquee(event: PointerEvent<HTMLDivElement>) {
+    const active = marqueeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const selection = { ...active.selection, currentX: event.clientX, currentY: event.clientY };
+    if (!active.moved && Math.hypot(selection.currentX - selection.startX, selection.currentY - selection.startY) < 4) return;
+    active.moved = true;
+    active.selection = selection;
+    const cards = [...(gridRef.current?.querySelectorAll<HTMLElement>("[data-asset-id]") || [])]
+      .map(card => ({ id: card.dataset.assetId || "", rect: card.getBoundingClientRect() }))
+      .filter(card => Boolean(card.id));
+    onReplaceSelection(new Set([...active.baseline, ...assetIdsInSelectionRectangle(selection, cards)]));
+    setMarquee(selection);
+  }
+
+  function finishMarquee(event: PointerEvent<HTMLDivElement>) {
+    const active = marqueeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    marqueeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (!active.moved && event.target === event.currentTarget && !event.ctrlKey && !event.metaKey) onReplaceSelection([]);
+    setMarquee(null);
+  }
+
+  function startMarquee(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !(event.target instanceof Element) || event.target.closest("button, a, input, textarea, select, [draggable=\"true\"]")) return;
+    const selection = { startX: event.clientX, startY: event.clientY, currentX: event.clientX, currentY: event.clientY };
+    marqueeRef.current = {
+      pointerId: event.pointerId,
+      baseline: event.ctrlKey || event.metaKey ? new Set(selected) : new Set(),
+      selection,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function dragOriginalFiles(event: DragEvent<HTMLElement>, item: Asset) {
+    marqueeRef.current = null;
+    setMarquee(null);
+    if (item.kind === "folder") {
+      event.preventDefault();
+      return;
+    }
+    const dragItems = selected.has(item.id)
+      ? items.filter(candidate => selected.has(candidate.id) && candidate.kind !== "folder")
+      : [item];
+    const payload = originalAssetDragPayload(dragItems, window.location.origin);
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData(ASSET_DRAG_OUT_MIME, payload.sourceIds);
+    event.dataTransfer.setData("DownloadURL", payload.downloadUrl);
+    event.dataTransfer.setData("text/uri-list", payload.uriList);
+    event.dataTransfer.setData("text/plain", payload.text);
+  }
+
+  function blockInternalDrop(event: DragEvent<HTMLDivElement>) {
+    if (!dragTypesIncludeAssetPayload(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "none";
+  }
+
+  const marqueeStyle = marquee ? {
+    left: Math.min(marquee.startX, marquee.currentX),
+    top: Math.min(marquee.startY, marquee.currentY),
+    width: Math.abs(marquee.currentX - marquee.startX),
+    height: Math.abs(marquee.currentY - marquee.startY),
+  } : undefined;
+
+  return <div
+    ref={gridRef}
+    className="grid"
+    onPointerDown={startMarquee}
+    onPointerMove={updateMarquee}
+    onPointerUp={finishMarquee}
+    onPointerCancel={finishMarquee}
+    onDragOverCapture={blockInternalDrop}
+    onDropCapture={blockInternalDrop}
+  >
+    {marquee && <span className="asset-selection-marquee" style={marqueeStyle} aria-hidden="true" />}
     {items.map((item, index) => <article
       className={(selected.has(item.id) ? "selected" : "") + ((item.kind === "image" || item.kind === "video") ? " media-card" : "")}
       key={item.id}
+      data-asset-id={item.id}
+      draggable={item.kind !== "folder"}
+      title={item.kind === "folder" ? undefined : "Drag the original file to another application"}
+      onDragStart={event => dragOriginalFiles(event, item)}
       onClick={() => onFocus(item)}
       onContextMenu={event => onContextMenu(item, event)}
       onPointerEnter={() => item.kind === "folder" && onPrefetch(item.id)}
