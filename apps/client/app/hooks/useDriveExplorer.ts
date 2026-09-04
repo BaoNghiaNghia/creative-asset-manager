@@ -507,6 +507,16 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     }
   }
 
+  async function hydrateExplorerRoot(
+    source: Provider,
+    externalSourceId: string | null,
+  ): Promise<void> {
+    const id = rootId(source);
+    const roots = await fetchTreeFolders(id, source, externalSourceId);
+    cacheFolders(id, roots, source, externalSourceId);
+    setExpanded(current => new Set(current).add(id));
+  }
+
   async function restoreUrlLocation(source: Provider) {
     const folderId = folderIdFromPath(window.location.pathname);
     if (!folderId) return false;
@@ -544,7 +554,9 @@ export function useDriveExplorer(imageSearchEnabled = true) {
           external_source_id: externalSourceId || undefined,
         }))
         : [];
-      return open(folderId, ancestors, source, false, externalSourceId);
+      const opened = await open(folderId, ancestors, source, false, externalSourceId);
+      if (opened) await hydrateExplorerRoot(source, externalSourceId);
+      return opened;
     } catch {
       return false;
     }
@@ -570,7 +582,9 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       const current = restoredPath.at(-1);
       if (!current) throw Error("Saved folder is unavailable");
       setExpanded(new Set(restoredPath.slice(0, -1).map(folder => folder.id)));
-      return await open(current.id, restoredPath.slice(0, -1), source, false, savedSourceId);
+      const opened = await open(current.id, restoredPath.slice(0, -1), source, false, savedSourceId);
+      if (opened) await hydrateExplorerRoot(source, savedSourceId);
+      return opened;
     } catch {
       clearSavedExplorerLocation(source);
       return false;
