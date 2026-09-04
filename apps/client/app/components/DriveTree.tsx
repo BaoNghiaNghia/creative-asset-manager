@@ -1,6 +1,14 @@
 import type { Asset, TreeCache } from "../types";
 import { ChevronIcon, SourceFolderIcon } from "./Icons";
 
+export function TreeChildrenSkeleton({ rows = 3 }: { rows?: number }) {
+  return <div className="tree-children tree-children-skeleton" aria-label="Loading folders" aria-busy="true">
+    {Array.from({ length: rows }, (_, index) => <div className="tree-skeleton-row" key={index}>
+      <i aria-hidden="true" /><span aria-hidden="true" />
+    </div>)}
+  </div>;
+}
+
 type Props = {
   node: Asset;
   ancestors: Asset[];
@@ -56,21 +64,24 @@ export function DriveTreeNode({
         <span>{node.name}</span>
       </button>
     </div>
-    {isExpanded && children.length > 0 && <div className="tree-children">
-      {children.map(child => <DriveTreeNode
-        key={child.id}
-        node={child}
-        ancestors={[...ancestors, node]}
-        activeId={activeId}
-        activePathIds={activePathIds}
-        childrenByParent={childrenByParent}
-        expanded={expanded}
-        loadingNodes={loadingNodes}
-        onOpen={onOpen}
-        onToggle={onToggle}
-        onPrefetch={onPrefetch}
-        onCancelPrefetch={onCancelPrefetch}
-      />)}
-    </div>}
+    {isExpanded && (isLoading
+      ? <TreeChildrenSkeleton />
+      : children.length > 0 && <div className="tree-children">
+        {children.map(child => <DriveTreeNode
+          key={child.id}
+          node={child}
+          ancestors={[...ancestors, node]}
+          activeId={activeId}
+          activePathIds={activePathIds}
+          childrenByParent={childrenByParent}
+          expanded={expanded}
+          loadingNodes={loadingNodes}
+          onOpen={onOpen}
+          onToggle={onToggle}
+          onPrefetch={onPrefetch}
+          onCancelPrefetch={onCancelPrefetch}
+        />)}
+      </div>
+    )}
   </div>;
 }

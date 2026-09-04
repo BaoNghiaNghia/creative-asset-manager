@@ -512,9 +512,18 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     externalSourceId: string | null,
   ): Promise<void> {
     const id = rootId(source);
-    const roots = await fetchTreeFolders(id, source, externalSourceId);
-    cacheFolders(id, roots, source, externalSourceId);
     setExpanded(current => new Set(current).add(id));
+    setLoadingTreeIds(current => new Set(current).add(id));
+    try {
+      const roots = await fetchTreeFolders(id, source, externalSourceId);
+      cacheFolders(id, roots, source, externalSourceId);
+    } finally {
+      setLoadingTreeIds(current => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
   }
 
   async function restoreUrlLocation(source: Provider) {
@@ -701,6 +710,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       return;
     }
 
+    setExpanded(current => new Set(current).add(node.id));
     setLoadingTreeIds(current => new Set(current).add(node.id));
     setError("");
     const controller = newBrowseController();
