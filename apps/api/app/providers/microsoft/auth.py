@@ -24,6 +24,10 @@ SCOPES = list(SHAREPOINT_SOURCE_SCOPES)  # legacy compatibility only
 
 
 def scopes_for_intent(intent: str) -> tuple[str, ...]:
+    # Source-connect intents retain tenant, source and actor bindings in the
+    # OAuth state (for example, onedrive_connect:<tenant>:...). The
+    # provider-specific scope decision, however, depends only on the prefix.
+    intent = intent.split(":", 1)[0]
     if intent == "application_login":
         return APPLICATION_LOGIN_SCOPES
     if intent == "onedrive_connect":
@@ -34,6 +38,9 @@ def scopes_for_intent(intent: str) -> tuple[str, ...]:
 
 
 def authority_for_intent(intent: str) -> str:
+    # See scopes_for_intent: state bindings are appended to source intents
+    # and must not make an otherwise valid provider intent unrecognised.
+    intent = intent.split(":", 1)[0]
     configured = os.getenv("MICROSOFT_TENANT_ID", "organizations").strip() or "organizations"
     if intent == "onedrive_connect":
         return os.getenv("MICROSOFT_ONEDRIVE_AUTHORITY", "common").strip() or "common"
