@@ -76,16 +76,22 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
 
-    def pipeline(self, *, tenant_id="tenant-a", metadata=None):
+    def pipeline(
+        self,
+        *,
+        tenant_id="tenant-a",
+        metadata=None,
+        source_type="google_drive",
+        oauth_connection_id="connection-a",
+    ):
         with self.sessions() as session:
             assets = AssetRegistryRepository(session)
             source = assets.upsert_external_source(
                 tenant_id=tenant_id,
-                source_key="google-drive:connection-a",
-                source_type="google_drive",
-                source_metadata=metadata
-                if metadata is not None
-                else {"oauth_connection_id": "connection-a"},
+                source_key=f"{source_type}:connection-a",
+                source_type=source_type,
+                source_metadata=metadata or {},
+                oauth_connection_id=oauth_connection_id,
             )
             source_asset = assets.upsert_source_asset(
                 tenant_id=tenant_id,
@@ -160,7 +166,10 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
             asyncio.run(open_wrong_tenant())
 
     def test_missing_oauth_connection_fails_safely(self):
-        pipeline = self.pipeline(metadata={})
+        pipeline = self.pipeline(
+            metadata={"oauth_connection_id": "legacy-metadata-connection"},
+            oauth_connection_id=None,
+        )
         called = False
 
         async def resolve_token(_connection_id):
@@ -187,6 +196,42 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
             asyncio.run(open_missing_connection())
         self.assertFalse(called)
 
+
+    def test_generic_resolver_uses_column_binding_and_onedrive_adapter(self):
+        pipeline = self.pipeline(
+            source_type="onedrive",
+            metadata={"oauth_connection_id": "legacy-metadata-connection"},
+            oauth_connection_id="column-connection",
+        )
+        provider = FakeProvider()
+        token_calls = []
+        provider_calls = []
+
+        async def token(connection_id):
+            token_calls.append(connection_id)
+            return "microsoft-access-token"
+
+        def provider_factory(provider_name, access_token):
+            provider_calls.append((provider_name, access_token))
+            return provider
+
+        resolver = SourceAssetContentResolver(
+            self.sessions,
+            token_resolver=token,
+            source_provider_factory=provider_factory,
+        )
+
+        async def consume():
+            async with resolver.open(
+                tenant_id="tenant-a", source_asset_id=pipeline.source_asset_id
+            ) as stream:
+                self.assertEqual(
+                    b"".join([chunk async for chunk in stream.body]), b"content"
+                )
+
+        asyncio.run(consume())
+        self.assertEqual(token_calls, ["column-connection"])
+        self.assertEqual(provider_calls, [("onedrive", "microsoft-access-token")])
 
     def test_generic_resolver_passes_range_header(self):
         pipeline = self.pipeline()

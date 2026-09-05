@@ -13,7 +13,8 @@ from app.domain.providers.contracts import (
     OpenSourceAssetInput,
 )
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
-from app.providers.google.auth import get_connection_access_token
+from app.modules.assets.source_credentials import source_credential_contract
+from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.providers.source_factory import create_source_provider
 
 
@@ -32,7 +33,7 @@ class SourceAssetContentResolver:
         self,
         session_factory: Callable[[], Session],
         *,
-        token_resolver: TokenResolver = get_connection_access_token,
+        token_resolver: TokenResolver | None = None,
         source_provider_factory: SourceProviderFactory = create_source_provider,
     ):
         self.session_factory = session_factory
@@ -68,18 +69,28 @@ class SourceAssetContentResolver:
             source_id = source.id
             external_asset_id = source_asset.external_asset_id
             source_asset_deleted = source_asset.deleted_at is not None
-            connection_id = (source.source_metadata or {}).get("oauth_connection_id")
+            connection_id = source.oauth_connection_id
 
-        if source_type != "google_drive":
-            raise SourceAssetContentUnavailable("source provider is unsupported")
+        try:
+            contract = source_credential_contract(source_type)
+        except ValueError as exc:
+            raise SourceAssetContentUnavailable("source provider is unsupported") from exc
         if not isinstance(connection_id, str) or not connection_id:
             raise SourceAssetContentUnavailable("source OAuth connection is unavailable")
         try:
-            access_token = await self.token_resolver(connection_id)
+            if self.token_resolver is not None:
+                access_token = await self.token_resolver(connection_id)
+            else:
+                with self.session_factory() as session:
+                    resolved = await TenantSourceResolver(session).resolve(
+                        tenant_id=tenant_id,
+                        external_source_id=source_id,
+                    )
+                access_token = resolved.access_token
         except Exception as exc:
             raise SourceAssetContentUnavailable("source OAuth connection is unavailable") from exc
 
-        provider = self.source_provider_factory("google-drive", access_token)
+        provider = self.source_provider_factory(contract.adapter_key, access_token)
         async with provider:
             if source_asset_deleted:
                 try:

@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.domain.providers.contracts import AssetDownloadStream
+from app.modules.assets.content_resolver import SourceAssetContentUnavailable
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.modules.video_search.proxy import (
@@ -194,6 +195,18 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         with self.assertRaises(VideoProxySourceChangedError):
             asyncio.run(self.service(factory).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint="wrong"))
         self.assertEqual(factory.calls, [])
+    def test_unavailable_source_is_classified_and_cleaned(self):
+        factory = FakeProcessFactory()
+        resolver = FakeResolver(error=SourceAssetContentUnavailable("source provider is unsupported"))
+        with self.assertRaisesRegex(VideoProxySourceError, "video source content is unavailable"):
+            asyncio.run(self.service(factory, resolver).prepare(
+                tenant_id="tenant-a",
+                source_asset_id="asset-a",
+                expected_source_fingerprint=self.fingerprint(),
+            ))
+        self.assertIsNone(factory.ffmpeg)
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+
     def test_source_failure_terminates_process_and_removes_partial_files(self):
         factory = FakeProcessFactory()
         with self.assertRaisesRegex(RuntimeError, "provider failed"):

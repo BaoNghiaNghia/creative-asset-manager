@@ -9,14 +9,13 @@ from sqlalchemy.orm import Session
 from app.modules.assets.content_resolver import SourceAssetContentResolver, SourceAssetContentUnavailable
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.pipeline.stages import InvalidPipelineContent
-from app.providers.google.auth import get_connection_access_token
 from app.providers.source_factory import create_source_provider
 
 TokenResolver = Callable[[str], Awaitable[str]]
 SourceProviderFactory = Callable[[str, str], Any]
 
 class SourceAssetPipelineContentResolver:
-    def __init__(self, session_factory: Callable[[], Session], *, token_resolver: TokenResolver = get_connection_access_token, source_provider_factory: SourceProviderFactory = create_source_provider):
+    def __init__(self, session_factory: Callable[[], Session], *, token_resolver: TokenResolver | None = None, source_provider_factory: SourceProviderFactory = create_source_provider):
         self.resolver = SourceAssetContentResolver(session_factory, token_resolver=token_resolver, source_provider_factory=source_provider_factory)
 
     @asynccontextmanager

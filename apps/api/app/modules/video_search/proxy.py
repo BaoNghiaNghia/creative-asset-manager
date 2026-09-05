@@ -14,7 +14,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.modules.assets.content_resolver import SourceAssetContentResolver
+from app.modules.assets.content_resolver import (
+    SourceAssetContentResolver,
+    SourceAssetContentUnavailable,
+)
 from app.modules.assets.model import SourceAssetModel
 from app.modules.pipeline.mime_types import is_supported_video_mime_type
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
@@ -223,6 +226,8 @@ class VideoProxyPreparationService:
                         written = next_size
         except VideoProxyPreparationError:
             raise
+        except SourceAssetContentUnavailable as exc:
+            raise VideoProxySourceError("video source content is unavailable") from exc
         except OSError as exc:
             raise VideoProxyMaterializationError("cannot materialize video source locally") from exc
         if written <= 0:
