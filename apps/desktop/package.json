@@ -1,0 +1,22 @@
+{
+  "name": "@cam/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "electron-vite build"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "electron": "34.0.2",
+    "electron-vite": "3.0.0",
+    "typescript": "5.7.3",
+    "vitest": "2.1.9"
+  }
+}
