@@ -21,9 +21,13 @@ APPLICATION_LOGIN_SCOPES = ("openid", "profile", "email", "offline_access", "Use
 ONEDRIVE_SOURCE_SCOPES = ("openid", "profile", "email", "offline_access", "User.Read", "Files.Read")
 SHAREPOINT_SOURCE_SCOPES = ("openid", "profile", "email", "offline_access", "User.Read", "Sites.Read.All", "Files.Read.All")
 SCOPES = list(SHAREPOINT_SOURCE_SCOPES)  # legacy compatibility only
+OIDC_RESPONSE_SCOPES = frozenset(("openid", "profile", "email", "offline_access"))
 
 
 def scopes_for_intent(intent: str) -> tuple[str, ...]:
+    # Source-connect intents retain tenant, source and actor bindings in the
+    # OAuth state (for example, onedrive_connect:<tenant>:...). The
+    # provider-specific scope decision, however, depends only on the prefix.
     intent = intent.split(":", 1)[0]
     if intent == "application_login":
         return APPLICATION_LOGIN_SCOPES
@@ -34,7 +38,18 @@ def scopes_for_intent(intent: str) -> tuple[str, ...]:
     raise ValueError("unsupported Microsoft OAuth intent")
 
 
+def required_resource_scopes_for_intent(intent: str) -> frozenset[str]:
+    """Return only Microsoft Graph scopes expected in a token response.
+
+    OpenID Connect and offline_access scopes affect authorization, but Microsoft
+    does not consistently echo them in the access-token scope claim.
+    """
+    return frozenset(scopes_for_intent(intent)) - OIDC_RESPONSE_SCOPES
+
+
 def authority_for_intent(intent: str) -> str:
+    # See scopes_for_intent: state bindings are appended to source intents
+    # and must not make an otherwise valid provider intent unrecognised.
     intent = intent.split(":", 1)[0]
     configured = os.getenv("MICROSOFT_TENANT_ID", "organizations").strip() or "organizations"
     if intent == "onedrive_connect":
@@ -300,7 +315,7 @@ async def persist_source_connection(
     if intent not in {"onedrive_connect", "sharepoint_connect"}:
         raise ValueError("unsupported Microsoft source-connect intent")
     granted = set(str(token.get("scope") or "").split())
-    required = set(scopes_for_intent(intent))
+    required = required_resource_scopes_for_intent(intent)
     if not required.issubset(granted):
         raise PermissionError("Microsoft source scopes were not granted.")
     async with httpx.AsyncClient(timeout=15) as client:

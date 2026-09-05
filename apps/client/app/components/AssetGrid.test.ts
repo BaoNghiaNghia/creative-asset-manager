@@ -147,7 +147,7 @@ describe("AssetGrid marquee selection and drag-out", () => {
         { provider: "google-drive", id: "folder-1", name: "Folder", kind: "folder", mime_type: "application/vnd.google-apps.folder" },
       ],
       path: [],
-      selected: new Set<string>(),
+      selected: new Set<string>(["file-1"]),
       metadataByItem: {},
       onOpen: noop,
       onToggle: noop,

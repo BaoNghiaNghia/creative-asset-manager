@@ -482,9 +482,9 @@ export default function App() {
     window.history.replaceState({}, "", window.location.pathname + "?" + params);
   }
   const activeId = explorer.path.at(-1)?.id;
-  const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : "root";
+  const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : explorer.provider === "onedrive" ? "onedrive-root" : "root";
   const rootFolders = explorer.childrenByParent[sourceRootId] ?? [];
-  const sourceName = explorer.provider === "sharepoint" ? "SharePoint" : "Google Drive";
+  const sourceName = explorer.provider === "sharepoint" ? "SharePoint" : explorer.provider === "onedrive" ? "OneDrive" : "Google Drive";
   const analysisSelection = getAnalysisSelectionState(explorer.selected, explorer.visibleItems);
   const analysisAssetIds = analysisSelection.assetIds;
   const completeAnalysisSelection = analysisSelection.complete;
@@ -647,10 +647,6 @@ export default function App() {
       provider={explorer.provider}
       auth={explorer.auth}
       authByProvider={explorer.authByProvider}
-      cloudSources={explorer.sources}
-      activeExternalSourceId={explorer.activeExternalSourceId}
-      onSelectSource={sourceId => void explorer.selectSource(sourceId)}
-      onDisconnectSource={sourceId => void explorer.disconnectSource(sourceId).catch(() => undefined)}
       tags={explorer.tags}
       path={explorer.path}
       activeId={activeId}

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
 import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
-import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, Tag, TreeCache } from "../types";
+import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
@@ -10,10 +10,6 @@ type Props = {
   provider: Provider;
   auth: AuthState;
   authByProvider: ProviderSessions;
-  cloudSources?: ConnectedSource[];
-  activeExternalSourceId?: string | null;
-  onSelectSource?: (sourceId: string) => void;
-  onDisconnectSource?: (sourceId: string) => void;
   tags: Tag[];
   path: Asset[];
   activeId?: string;
@@ -41,8 +37,10 @@ const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/connect-sharepoint" },
 ];
 
+
+
 export function Sidebar({
-  provider, auth, authByProvider, cloudSources = [], activeExternalSourceId, onSelectSource, onDisconnectSource, tags, path, activeId, rootFolders,
+  provider, auth, authByProvider, tags, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onOpen,
   onToggle, onPrefetch, onCancelPrefetch, onCollapse, onResizeStart,
   applicationAuthenticated = false,
@@ -81,22 +79,6 @@ export function Sidebar({
     </div>
     <WorkspaceNavigation active="assets" showOperations={canViewAiOperations} />
     <p>SOURCES</p>
-    {cloudSources.map(source => <div className={"source-managed " + (source.id === activeExternalSourceId ? "active" : "")} key={source.id}>
-      <button className="source" disabled={source.status !== "active"} onClick={() => onSelectSource?.(source.id)}>
-        {source.source_type === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
-        <span><b>{source.display_name || (source.source_type === "onedrive" ? "OneDrive" : source.source_type === "sharepoint" ? "SharePoint" : "Google Drive")}</b><small>{source.account.email || (source.status === "active" ? "Connected" : source.status === "reconnect_required" ? "Reconnect required" : "Disconnected")}</small></span>
-      </button>
-      {applicationAuthenticated && source.status !== "disconnected" && <span className="source-actions">
-        <button onClick={() => {
-          if (window.camDesktop && source.source_type !== "sharepoint") {
-            void window.camDesktop.beginOAuth({ intent: source.source_type === "google_drive" ? "google_drive_connect" : "onedrive_connect", externalSourceId: source.id });
-            return;
-          }
-          window.location.assign(source.source_type === "google_drive" ? "/api/auth/google/connect-drive?external_source_id=" + encodeURIComponent(source.id) : "/api/auth/microsoft/" + (source.source_type === "onedrive" ? "connect-onedrive" : "connect-sharepoint") + "?external_source_id=" + encodeURIComponent(source.id));
-        }}>Reconnect</button>
-        <button onClick={() => onDisconnectSource?.(source.id)}>Disconnect</button>
-      </span>}
-    </div>)}
     {Object.values(authByProvider).some(session => session.checking)
       ? <div className="source-skeleton"><i /><i /><i /></div>
       : sources.map(source => {
@@ -107,21 +89,11 @@ export function Sidebar({
           {session.authenticated ? <button className={"source " + sourceState} onClick={() => onSelectProvider(source.provider)}>
             {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
             <span>{source.label}</span>{active && <i className="source-connected" title="Connected" />}
-          </button> : <button className="source provider-login" onClick={() => {
-            if (!applicationAuthenticated && window.camDesktop) {
-              void window.camDesktop.beginOAuth({
-                provider: source.provider === "google-drive" ? "google" : "microsoft",
-              });
-              return;
-            }
-            window.location.assign(
-              applicationAuthenticated && source.provider === "google-drive"
-                ? "/api/auth/google/connect-drive"
-                : !applicationAuthenticated && source.provider !== "google-drive"
-                  ? "/api/auth/microsoft/login"
-                  : source.login,
-            );
-          }}>
+          </button> : <button className="source provider-login" onClick={() => window.location.assign(
+            applicationAuthenticated && source.provider === "google-drive"
+              ? "/api/auth/google/connect-drive"
+              : source.login
+          )}>
             {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}
