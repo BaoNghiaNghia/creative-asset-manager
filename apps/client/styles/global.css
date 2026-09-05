@@ -69,6 +69,7 @@
 
 .source{display:flex;align-items:center;gap:9px;width:100%}
 .source .drive-icon{flex:0 0 auto;width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.45;stroke-linecap:round;stroke-linejoin:round}
+.source-provider-logo{display:block;width:18px;height:18px;flex:0 0 18px;object-fit:contain}
 .source span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .tree-row{grid-template-columns:28px minmax(0,1fr)}
@@ -519,7 +520,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 }
 .source-reconnect:focus-visible{outline:3px solid #8eb0ff66;outline-offset:2px}
 .source-reconnect-icon{display:grid;place-items:center;width:34px;height:34px;border:1px solid #e0e6f0;border-radius:9px;background:#fff;box-shadow:0 1px 3px rgb(15 23 42 / 8%)}
-.source-reconnect-icon svg{width:20px;height:20px}
+.source-reconnect-icon svg,.source-reconnect-icon .source-provider-logo{width:20px;height:20px}
 .source-reconnect-copy{display:flex;min-width:0;flex-direction:column;gap:2px}
 .source-reconnect-copy strong{overflow:hidden;color:#294b8d;font-size:12px;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
 .source-reconnect-copy small{overflow:hidden;color:#758198;font-size:10px;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}

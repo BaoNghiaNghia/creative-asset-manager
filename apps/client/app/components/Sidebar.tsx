@@ -5,6 +5,8 @@ import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } fro
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
+import googleDrivePlatformLogo from "../../assets/logos/google-drive-platform.png";
+import oneDrivePlatformLogo from "../../assets/logos/onedrive-platform.png";
 
 type Props = {
   provider: Provider;
@@ -36,6 +38,12 @@ const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "onedrive", label: "OneDrive", login: "/api/auth/microsoft/connect-onedrive" },
   { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/connect-sharepoint" },
 ];
+
+function SourceIcon({ provider }: { provider: Provider }) {
+  if (provider === "google-drive") return <img className="source-provider-logo" src={googleDrivePlatformLogo} alt="" aria-hidden="true" />;
+  if (provider === "onedrive") return <img className="source-provider-logo" src={oneDrivePlatformLogo} alt="" aria-hidden="true" />;
+  return <SharePointIcon />;
+}
 
 
 
@@ -87,14 +95,14 @@ export function Sidebar({
         const sourceState = active ? activeId === currentRoot ? "active" : "active-path" : "";
         return <Fragment key={source.provider}>
           {session.authenticated ? <button className={"source " + sourceState} onClick={() => onSelectProvider(source.provider)}>
-            {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
+            <SourceIcon provider={source.provider} />
             <span>{source.label}</span>{active && <i className="source-connected" title="Connected" />}
           </button> : <button className="source provider-login" onClick={() => window.location.assign(
             applicationAuthenticated && source.provider === "google-drive"
               ? "/api/auth/google/connect-drive"
               : source.login
           )}>
-            {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
+            <SourceIcon provider={source.provider} />
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}
           {active && session.authenticated && source.provider === "google-drive" && applicationAuthenticated && <button
@@ -103,7 +111,7 @@ export function Sidebar({
             onClick={() => setShowSwitchGoogleConfirm(true)}
             aria-label="Switch Google account"
           >
-            <span className="source-reconnect-icon"><DriveIcon /></span>
+            <span className="source-reconnect-icon"><SourceIcon provider="google-drive" /></span>
             <span className="source-reconnect-copy">
               <strong>Switch Google account</strong>
               <small>Connect a different Drive account</small>
