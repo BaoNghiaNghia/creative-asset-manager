@@ -473,7 +473,7 @@ class AiOperationsRepository(BaseRepository):
                 if source_type == "google_drive":
                     query = urlencode({"provider": "google-drive", "external_source_id": external_source_id})
                     thumbnail_url = f"/api/explorer/thumbnail/{quote(str(external_asset_id), safe='')}?{query}"
-                asset_presentations[str(asset_id)] = {"filename": filename, "mime_type": mime_type, "thumbnail_url": thumbnail_url}
+                asset_presentations[str(asset_id)] = {"filename": filename, "mime_type": mime_type, "thumbnail_url": thumbnail_url, "source_type": source_type}
         now = datetime.now(timezone.utc)
         def is_deferred(job: ProcessingJobModel) -> bool:
             retry_at = job.next_attempt_at
@@ -502,6 +502,7 @@ class AiOperationsRepository(BaseRepository):
                 "mime_type": presentation.get("mime_type"),
                 "thumbnail_url": presentation.get("thumbnail_url"),
                 "source_thumbnail_url": presentation.get("thumbnail_url"),
+                "source_type": presentation.get("source_type"),
                 "generated_image_url": (
                     f"/api/v1/image-generations/{quote(str(job.entity_id), safe='')}/image"
                     if job.entity_type == "image_generation_run"

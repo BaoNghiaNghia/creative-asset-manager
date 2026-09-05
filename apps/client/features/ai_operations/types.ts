@@ -93,6 +93,7 @@ export type AiOpsJob = {
   mime_type?: string | null;
   thumbnail_url?: string | null;
   source_thumbnail_url?: string | null;
+  source_type?: string | null;
   generated_image_url?: string | null;
   provider: string | null;
   ai_model?: string | null;
@@ -171,7 +172,7 @@ export type AiOpsVideoDetail = {
 };
 export type AiOpsRecentVideo = {
   job_id: string; source_asset_id: string; asset_id: string | null; filename: string | null;
-  mime_type?: string | null; location: string | null; thumbnail_url: string | null;
+  mime_type?: string | null; source_type?: string | null; location: string | null; thumbnail_url: string | null;
   duration_ms: number | null; completed_chunks?: number; total_chunks?: number; status: string;
   attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null;
   error_message?: string | null;
@@ -315,5 +316,5 @@ export type PipelineSnapshot = {
   skipped_breakdown?: Array<{ category: string; count: number }>;
   diagnostics?: { decommissioned_sources_excluded: number; raw_attempts: Record<string, { total_attempts: number; completed_attempts: number; failed_attempts: number }> };
   definitions?: { snapshot: string; attempt_diagnostics: string };
-  recent_assets: Page<{ asset_id: string | null; filename: string; mime_type?: string | null; thumbnail_url?: string | null; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
+  recent_assets: Page<{ asset_id: string | null; filename: string; mime_type?: string | null; thumbnail_url?: string | null; source_type?: string | null; state: string; stage_statuses: Record<string, string>; updated_at: string; error_code: string | null }>;
 };

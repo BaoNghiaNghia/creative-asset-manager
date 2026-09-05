@@ -682,6 +682,7 @@ class MediaDashboardService:
                 "asset_id": logical_asset_ids.get(job.entity_id),
                 "filename": source.filename if source is not None else None,
                 "mime_type": source.mime_type if source is not None else None,
+                "source_type": external.source_type if external is not None else None,
                 "location": locations.get(source.id) if source is not None else None,
                 "thumbnail_url": thumbnail_url,
                 "duration_ms": _video_duration_ms(source, run),
