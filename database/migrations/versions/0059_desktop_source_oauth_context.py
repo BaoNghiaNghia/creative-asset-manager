@@ -1,12 +1,12 @@
 """add desktop source OAuth handoff context
 
-Revision ID: 0059_desktop_source_oauth_context
+Revision ID: 0059_desktop_source_ctx
 Revises: 0058_desktop_oauth_handoff
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0059_desktop_source_oauth_context"
+revision = "0059_desktop_source_ctx"
 down_revision = "0058_desktop_oauth_handoff"
 branch_labels = None
 depends_on = None
