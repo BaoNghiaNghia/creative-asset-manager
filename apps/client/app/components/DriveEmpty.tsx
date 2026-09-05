@@ -37,7 +37,16 @@ const sources: Array<{
 
 export function sourceLoginRoute(provider: Provider, applicationAuthenticated: boolean): string {
   if (provider === "google-drive") return applicationAuthenticated ? "/api/auth/google/connect-drive" : "/api/auth/google/login";
+  if (!applicationAuthenticated) return "/api/auth/microsoft/login";
   return provider === "onedrive" ? "/api/auth/microsoft/connect-onedrive" : "/api/auth/microsoft/connect-sharepoint";
+}
+
+function beginApplicationLogin(provider: Provider, applicationAuthenticated: boolean): boolean {
+  if (applicationAuthenticated || !window.camDesktop) return false;
+  void window.camDesktop.beginOAuth({
+    provider: provider === "google-drive" ? "google" : "microsoft",
+  });
+  return true;
 }
 
 export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelectProvider, applicationAuthenticated = false }: Props) {
@@ -65,9 +74,12 @@ export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelec
             <strong>{source.name}</strong>
             <small>{source.description}</small>
           </div>
-          <button onClick={() => connected
-            ? onSelectProvider(source.provider)
-            : window.location.assign(sourceLoginRoute(source.provider, applicationAuthenticated))}
+          <button onClick={() => {
+            if (connected) onSelectProvider(source.provider);
+            else if (!beginApplicationLogin(source.provider, applicationAuthenticated)) {
+              window.location.assign(sourceLoginRoute(source.provider, applicationAuthenticated));
+            }
+          }}
           >
             {connected ? "Open source" : applicationAuthenticated ? "Connect " + source.name : "Sign in with " + (source.provider === "google-drive" ? "Google" : "Microsoft")}</button>
           {connected && source.provider === "google-drive" && applicationAuthenticated && <button

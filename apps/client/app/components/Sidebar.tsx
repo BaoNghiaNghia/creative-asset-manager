@@ -101,11 +101,21 @@ export function Sidebar({
           {session.authenticated ? <button className={"source " + sourceState} onClick={() => onSelectProvider(source.provider)}>
             {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
             <span>{source.label}</span>{active && <i className="source-connected" title="Connected" />}
-          </button> : <button className="source provider-login" onClick={() => window.location.assign(
-            applicationAuthenticated && source.provider === "google-drive"
-              ? "/api/auth/google/connect-drive"
-              : source.login
-          )}>
+          </button> : <button className="source provider-login" onClick={() => {
+            if (!applicationAuthenticated && window.camDesktop) {
+              void window.camDesktop.beginOAuth({
+                provider: source.provider === "google-drive" ? "google" : "microsoft",
+              });
+              return;
+            }
+            window.location.assign(
+              applicationAuthenticated && source.provider === "google-drive"
+                ? "/api/auth/google/connect-drive"
+                : !applicationAuthenticated && source.provider !== "google-drive"
+                  ? "/api/auth/microsoft/login"
+                  : source.login,
+            );
+          }}>
             {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}

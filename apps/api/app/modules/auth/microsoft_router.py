@@ -14,6 +14,8 @@ from app.core.database import SessionLocal
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import TenantModel, TenantMembershipModel, UserModel
 from app.modules.auth_persistence.login import LoginAdmissionError
+from app.modules.auth.desktop_oauth import handoff_id_from_intent
+from app.modules.auth.desktop_router import complete_provider_callback
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.service import clear_provider_session_cookies, cookie_options
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
@@ -231,12 +233,22 @@ async def callback(
         return client_redirect(auth_provider="microsoft", auth_error="incomplete", auth_request=request_id)
     try:
         verifier, raw_intent = consume_state_details(state, request.cookies.get(OAUTH_BINDING_COOKIE))
-        intent = MicrosoftOAuthIntent.parse(raw_intent)
-        response = (
-            await _complete_application_login(verifier, code)
-            if intent.kind == "application_login"
-            else await _complete_source_connect(intent, verifier, code)
-        )
+        desktop_handoff_id = handoff_id_from_intent(raw_intent)
+        if desktop_handoff_id:
+            token = await exchange_code(code, verifier, intent="application_login")
+            response = complete_provider_callback(
+                provider="microsoft",
+                handoff_id=desktop_handoff_id,
+                browser_binding=request.cookies.get(OAUTH_BINDING_COOKIE) or "",
+                payload=token,
+            )
+        else:
+            intent = MicrosoftOAuthIntent.parse(raw_intent)
+            response = (
+                await _complete_application_login(verifier, code)
+                if intent.kind == "application_login"
+                else await _complete_source_connect(intent, verifier, code)
+            )
     except LoginAdmissionError as exc:
         return client_redirect(auth_provider="microsoft", auth_error=exc.code, auth_request=request_id)
     except ApplicationUserInactiveError:

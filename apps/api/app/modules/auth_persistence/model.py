@@ -149,6 +149,26 @@ class OAuthTransactionModel(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
+class DesktopOAuthHandoffModel(Base):
+    __tablename__ = "desktop_oauth_handoffs"
+    __table_args__ = (
+        CheckConstraint("provider IN ('google','microsoft')", name="ck_desktop_oauth_handoffs_provider"),
+        Index("ix_desktop_oauth_handoffs_expiry", "expires_at", "consumed_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    desktop_instance_binding_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    browser_binding_hash: Mapped[str | None] = mapped_column(String(64))
+    launch_token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    ticket_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    pending_payload_ciphertext: Mapped[str | None] = mapped_column(Text)
+    key_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    launch_consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    callback_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
 class AuthAuditEventModel(Base):
     __tablename__ = "auth_audit_events"
     __table_args__ = (Index("ix_auth_audit_tenant_time", "tenant_id", "occurred_at"),)

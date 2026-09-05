@@ -209,6 +209,10 @@ export function curateSearchSuggestions(query: string, values: SearchSuggestion[
 }
 
 export default function App() {
+  useEffect(() => {
+    return window.camDesktop?.onAuthComplete(() => window.location.reload());
+  }, []);
+
   const [searchMediaMode, setSearchMediaMode] = useState<SearchMediaMode>(
     () => parseSearchMediaMode(new URLSearchParams(window.location.search).get("media")),
   );

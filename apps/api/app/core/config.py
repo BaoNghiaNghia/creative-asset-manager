@@ -55,6 +55,7 @@ FEATURE_FLAG_NAMES = (
     "INVENTORY_WORKER_ENABLED",
     "MICROSOFT_SOURCE_CONNECTIONS_ENABLED",
     "ONEDRIVE_SOURCE_ENABLED",
+    "DESKTOP_OAUTH_ENABLED",
 )
 
 
@@ -97,6 +98,8 @@ class Settings(BaseSettings):
     # Source OAuth routes are independently gateable during production rollout.
     MICROSOFT_SOURCE_CONNECTIONS_ENABLED: bool = True
     ONEDRIVE_SOURCE_ENABLED: bool = True
+    # Desktop application login remains disabled until an explicit rollout.
+    DESKTOP_OAUTH_ENABLED: bool = False
     PROCESSING_JOBS_ENABLED: bool = False
     EXTERNAL_ASSET_DOWNLOADER_ENABLED: bool = False
     MANAGED_ASSET_STORAGE_ENABLED: bool = False

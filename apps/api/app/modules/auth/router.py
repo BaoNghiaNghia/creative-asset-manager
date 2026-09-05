@@ -20,6 +20,8 @@ from app.modules.authorization.platform_admin import PlatformAdminService
 from app.modules.authorization.service import TenantAuthorizationService
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.login import LoginAdmissionError
+from app.modules.auth.desktop_oauth import handoff_id_from_intent
+from app.modules.auth.desktop_router import complete_provider_callback
 from app.modules.storage.managed_oauth import (
     ManagedStorageCredentialUnavailableError,
     ManagedStorageCredentialValidationError,
@@ -290,6 +292,27 @@ async def callback(
             type(exc).__name__,
         )
         return client_redirect(auth_error="token_exchange", auth_request=request_id)
+
+    desktop_handoff_id = handoff_id_from_intent(redirect_intent)
+    if desktop_handoff_id:
+        granted_scopes = resolve_granted_scopes(
+            flow.credentials,
+            token_response if isinstance(token_response, dict) else None,
+        )
+        expiry = flow.credentials.expiry
+        response = complete_provider_callback(
+            provider="google",
+            handoff_id=desktop_handoff_id,
+            browser_binding=request.cookies.get(OAUTH_BINDING_COOKIE) or "",
+            payload={
+                "access_token": flow.credentials.token,
+                "refresh_token": flow.credentials.refresh_token,
+                "expiry": expiry.isoformat() if expiry else None,
+                "scopes": list(granted_scopes),
+            },
+        )
+        response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/google")
+        return response
 
     try:
         granted_scopes = resolve_granted_scopes(flow.credentials, token_response if isinstance(token_response, dict) else None)
