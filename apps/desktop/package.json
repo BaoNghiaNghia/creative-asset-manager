@@ -10,13 +10,54 @@
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "electron-vite build"
+    "build": "electron-vite build",
+    "package:win": "npm run build && electron-builder --win nsis --publish never"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
     "electron": "34.0.2",
+    "electron-builder": "26.0.12",
     "electron-vite": "3.0.0",
     "typescript": "5.7.3",
     "vitest": "2.1.9"
-  }
+  },
+  "build": {
+    "appId": "com.creativeassetmanager.desktop",
+    "productName": "Creative Asset Manager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**"
+    ],
+    "asar": true,
+    "protocols": [
+      {
+        "name": "Creative Asset Manager",
+        "schemes": [
+          "cam"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "perMachine": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "main": "out/main/index.js",
+  "description": "Creative Asset Manager Windows desktop application"
 }

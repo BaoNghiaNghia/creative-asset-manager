@@ -15,6 +15,12 @@ describe("resolveDesktopUrl", () => {
     ).toBe("http://127.0.0.1:5173/");
   });
 
+  it("uses the configured HTTPS CAM origin in packaged builds", () => {
+    expect(resolveDesktopUrl(undefined, true).toString()).toBe(
+      "https://creative-assets.ddns.net/",
+    );
+  });
+
   it("rejects remote HTTP in production", () => {
     expect(() =>
       resolveDesktopUrl("http://cam.example.com", true),
