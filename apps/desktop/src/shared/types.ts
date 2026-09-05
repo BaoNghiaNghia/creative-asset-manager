@@ -1,12 +1,6 @@
-export interface CamDesktopApi {
-  isDesktop: true;
-  platform: string;
-}
-
-declare global {
-  interface Window {
-    camDesktop?: CamDesktopApi;
-  }
-}
-
+export type DesktopIngestionStatus = "scanning" | "hashing" | "duplicate" | "ready" | "uploading" | "paused" | "completed" | "failed" | "cancelled" | "unsupported" | "changed";
+export interface DesktopIngestionItem { id: string; jobId: string; filename: string; relativePath: string; mimeType: string; size: number; status: DesktopIngestionStatus; bytesUploaded: number; attempts: number; errorCode?: string; }
+export interface DesktopIngestionJob { id: string; status: "scanning" | "ready" | "paused" | "completed" | "cancelled" | "failed"; rootCount: number; discovered: number; supported: number; duplicates: number; completed: number; failed: number; skipped: number; uploading: number; items: DesktopIngestionItem[]; }
+export interface CamDesktopApi { isDesktop: true; platform: string; beginOAuth(request: { provider?: "google" | "microsoft"; intent?: "google_drive_connect" | "onedrive_connect"; externalSourceId?: string }): Promise<void>; onAuthComplete(callback: () => void): () => void; ingestion: { acceptDrop(files: FileList, destination: { parentId: string; provider: "google-drive"; externalSourceId?: string }): Promise<DesktopIngestionJob>; chooseFolders(destination: { parentId: string; provider: "google-drive"; externalSourceId?: string }): Promise<DesktopIngestionJob | undefined>; snapshot(jobId: string): Promise<DesktopIngestionJob>; pause(jobId: string): Promise<DesktopIngestionJob>; resume(jobId: string): Promise<DesktopIngestionJob>; cancel(jobId: string): Promise<DesktopIngestionJob>; retry(jobId: string, itemId: string): Promise<DesktopIngestionJob>; onProgress(callback: (job: DesktopIngestionJob) => void): () => void; }; }
+declare global { interface Window { camDesktop?: CamDesktopApi; } }
 export {};

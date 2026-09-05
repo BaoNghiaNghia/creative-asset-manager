@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -14,7 +15,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.modules.assets.status_service import AssetProcessingStatusService
-from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.assets.model import AssetModel, ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.cache import (
     CachedThumbnail,
     invalidate_drive_listings,
@@ -26,6 +27,8 @@ from app.modules.explorer.indexing import get_index_status, start_index_job
 from app.modules.explorer.folder_notes import FolderNoteModel, resolve_note_owner_from_nodes
 from app.modules.explorer.schema import (
     AssetNode,
+    ContentHashPreflightRequest,
+    ContentHashPreflightResponse,
     AssetLocationResponse,
     FolderListing,
     FolderNoteResponse,
@@ -733,6 +736,38 @@ async def put_folder_note(
     return _folder_note_response(folder_id, owner, note)
 
 
+_SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+
+
+@router.post("/upload/dedupe-preflight", response_model=ContentHashPreflightResponse)
+def upload_dedupe_preflight(
+    body: ContentHashPreflightRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_permission("assets.upload")),
+):
+    hashes = [value.lower() for value in body.hashes]
+    if any(not _SHA256_RE.fullmatch(value) for value in hashes):
+        raise HTTPException(status_code=422, detail="Each hash must be a lowercase SHA-256 digest.")
+    existing_hashes = set(session.scalars(
+        select(AssetModel.content_hash).where(
+            AssetModel.tenant_id == principal.active_tenant_id,
+            AssetModel.content_hash.in_(set(hashes)),
+        )
+    ))
+    return ContentHashPreflightResponse(existing={value: value in existing_hashes for value in hashes})
+
+
+async def _bounded_upload_stream(request: Request):
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Files larger than 100 MB cannot be uploaded.")
+        if chunk:
+            yield chunk
+
+
 @router.post("/upload")
 async def upload_file(
     request: Request,
@@ -748,10 +783,8 @@ async def upload_file(
         raise HTTPException(status_code=501, detail="Upload is not supported for this provider yet.")
     if not filename.strip():
         raise HTTPException(status_code=422, detail="A file name is required.")
-    content = await request.body()
-    if not content:
-        raise HTTPException(status_code=422, detail="The selected file is empty.")
-    if len(content) > 100 * 1024 * 1024:
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Files larger than 100 MB cannot be uploaded.")
     try:
         token, _account, tenant_id, resolved_source_id = await _source_context(
@@ -782,7 +815,7 @@ async def upload_file(
             parent = await client.get_node(parent_id)
             if parent.kind != "folder":
                 raise HTTPException(status_code=422, detail="Destination must be a folder.")
-            node = await client.upload_file(parent_id, filename, mime_type, content)
+            node = await client.upload_file_stream(parent_id, filename, mime_type, _bounded_upload_stream(request))
     except HTTPException:
         raise
     except httpx.HTTPStatusError as exc:

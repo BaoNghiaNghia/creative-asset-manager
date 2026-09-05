@@ -1,6 +1,7 @@
 import asyncio
 import time
 from collections import OrderedDict
+from collections.abc import AsyncIterator
 from threading import Lock
 
 import httpx
@@ -105,6 +106,32 @@ class GoogleDriveClient:
         import json
         effective_mime_type = infer_media_type(filename, mime_type)
         response = await self.client.post("https://www.googleapis.com/upload/drive/v3/files", params={"uploadType": "multipart", "supportsAllDrives": "true", "fields": FIELDS}, files={"metadata": (None, json.dumps({"name": filename, "parents": [parent_id]}), "application/json"), "file": (filename, content, effective_mime_type)}); response.raise_for_status(); return map_drive_file(response.json())
+
+    async def upload_file_stream(
+        self, parent_id: str, filename: str, mime_type: str, content: AsyncIterator[bytes]
+    ):
+        """Forward an async byte stream to Google Drive without buffering the file."""
+        import json
+        boundary = "cam-desktop-upload"
+        metadata = json.dumps({"name": filename, "parents": [parent_id]}).encode()
+        effective_mime_type = infer_media_type(filename, mime_type)
+
+        async def multipart() -> AsyncIterator[bytes]:
+            marker = boundary.encode()
+            yield b"--" + marker + b"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + metadata
+            yield b"\r\n--" + marker + b"\r\nContent-Type: " + effective_mime_type.encode() + b"\r\n\r\n"
+            async for chunk in content:
+                yield chunk
+            yield b"\r\n--" + marker + b"--\r\n"
+
+        response = await self.client.post(
+            "https://www.googleapis.com/upload/drive/v3/files",
+            params={"uploadType": "multipart", "supportsAllDrives": "true", "fields": FIELDS},
+            headers={"Content-Type": f"multipart/related; boundary={boundary}"},
+            content=multipart(),
+        )
+        response.raise_for_status()
+        return map_drive_file(response.json())
 
     async def create_folder(self, parent_id: str, name: str):
         response = await self.client.post(

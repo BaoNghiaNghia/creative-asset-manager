@@ -57,6 +57,12 @@ export function isExternalFileDrag(dataTransfer: FileDragTransfer): boolean {
   return items.length === 0 || items.some(item => item.kind === "file");
 }
 
+type DesktopIngestionJob = {
+  id: string; status: string; discovered: number; supported: number; duplicates: number;
+  completed: number; failed: number; skipped: number; uploading: number;
+  items: Array<{ id: string; filename: string; relativePath: string; size: number; status: string; bytesUploaded: number; errorCode?: string }>;
+};
+
 type ExplorerClipboard = {
   items: Asset[];
   operation: "copy" | "cut";
@@ -248,10 +254,13 @@ export default function App() {
   const [generationItem, setGenerationItem] = useState<Asset | null>(null);
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [desktopIngestion, setDesktopIngestion] = useState<DesktopIngestionJob | null>(null);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [folderNoteOpen, setFolderNoteOpen] = useState(false);
   const [folderNoteSummary, setFolderNoteSummary] = useState("");
   const [folderNoteAvailable, setFolderNoteAvailable] = useState(false);
+  useEffect(() => window.camDesktop?.ingestion.onProgress(setDesktopIngestion), []);
+
   const dragDepthRef = useRef(0);
   const newMenuRef = useRef<HTMLDivElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -518,7 +527,15 @@ export default function App() {
     setIsDraggingFiles(false);
     if (!isExternalFileDrag(event.dataTransfer)) return;
     const files = Array.from(event.dataTransfer.files);
-    if (files.length && explorer.auth.authenticated) void explorer.uploadFiles(files);
+    if (!files.length || !explorer.auth.authenticated) return;
+    if (window.camDesktop?.ingestion && explorer.provider === "google-drive") {
+      const parentId = explorer.path.at(-1)?.id || "root";
+      void window.camDesktop.ingestion.acceptDrop(event.dataTransfer.files, {
+        parentId, provider: "google-drive", externalSourceId: explorer.activeExternalSourceId || undefined,
+      }).then(setDesktopIngestion).catch(() => setShortcutNotice({ tone: "error", message: "Desktop ingestion could not start." }));
+      return;
+    }
+    void explorer.uploadFiles(files);
   }
   function preventInternalFileDrag(event: DragEvent<HTMLElement>) {
     event.preventDefault();
@@ -798,6 +815,7 @@ export default function App() {
               <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Text file name"); if (name?.trim()) void explorer.createTextFile(name.trim()).catch(() => window.alert("Unable to create text file.")); }}><span className="explorer-new-icon text" aria-hidden="true">T</span><span><b>Text file</b><small>Create a TXT file</small></span></button>
               <div className="explorer-new-menu-divider" role="separator" />
             </>}
+            {window.camDesktop?.ingestion && explorer.provider === "google-drive" && <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const parentId = explorer.path.at(-1)?.id || "root"; void window.camDesktop?.ingestion.chooseFolders({ parentId, provider: "google-drive", externalSourceId: explorer.activeExternalSourceId || undefined }).then(job => { if (job) setDesktopIngestion(job); }); }}><span className="explorer-new-icon folder" aria-hidden="true">[]</span><span><b>Add folder</b><small>Choose local folders</small></span></button>}
             <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); uploadInputRef.current?.click(); }}><span className="explorer-new-icon upload-icon" aria-hidden="true">^</span><span><b>Upload files</b><small>Choose one or more files</small></span></button>
           </div>}
           <input ref={uploadInputRef} hidden type="file" multiple onChange={event => {
@@ -1089,6 +1107,14 @@ export default function App() {
       onDelete={() => setConfirm({ message: "Delete this file from Google Drive?", run: () => { setConfirm(null); void explorer.deleteItem(detailsItem?.id || "").catch(reason => console.error(reason)); } })}
       onMove={() => { const destination = window.prompt("Enter destination folder ID"); if (destination && detailsItem) setConfirm({ message: "Move this file to the selected folder?", run: () => { setConfirm(null); void explorer.moveItem(detailsItem.id, destination).catch(() => undefined); } }); }}
     />}
+    {desktopIngestion && <aside className="upload-panel desktop-ingestion-panel" aria-label="Desktop upload progress" aria-live="polite">
+      <header><div><b>{desktopIngestion.status === "paused" ? "Upload queue paused" : desktopIngestion.uploading ? "Uploading " + desktopIngestion.uploading + " file" + (desktopIngestion.uploading === 1 ? "" : "s") : "Desktop ingestion"}</b><small>{desktopIngestion.discovered} found - {desktopIngestion.supported} supported - {desktopIngestion.duplicates} duplicates</small></div><button onClick={() => setDesktopIngestion(null)} aria-label="Close upload progress">x</button></header>
+      <div className="desktop-ingestion-actions">
+        {desktopIngestion.status === "paused" ? <button onClick={() => void window.camDesktop?.ingestion.resume(desktopIngestion.id).then(setDesktopIngestion)}>Resume queue</button> : <button onClick={() => void window.camDesktop?.ingestion.pause(desktopIngestion.id).then(setDesktopIngestion)} disabled={desktopIngestion.status !== "ready"}>Pause queue</button>}
+        <button className="danger" onClick={() => void window.camDesktop?.ingestion.cancel(desktopIngestion.id).then(setDesktopIngestion)} disabled={["completed", "cancelled"].includes(desktopIngestion.status)}>Cancel</button>
+      </div>
+      <div className="upload-list" role="list">{desktopIngestion.items.map(item => <div className={"upload-row upload-" + item.status} key={item.id} role="listitem"><span className="upload-file-icon" aria-hidden="true"></span><span className="upload-file-name" title={item.relativePath}>{item.relativePath}</span><small>{item.status === "uploading" ? String(Math.round(item.bytesUploaded / Math.max(1, item.size) * 100)) + "%" : item.status === "duplicate" ? "Already in CAM" : item.errorCode || item.status}</small>{item.status === "failed" && <button onClick={() => void window.camDesktop?.ingestion.retry(desktopIngestion.id, item.id).then(setDesktopIngestion)}>Retry</button>}</div>)}</div>
+    </aside>}
     {explorer.uploads.length > 0 && <aside className="upload-panel" aria-label="Upload progress" aria-live="polite">
       <header>
         <div><b>{activeUploadCount ? `Uploading ${activeUploadCount} file${activeUploadCount === 1 ? "" : "s"}` : failedUploadCount ? "Uploads need attention" : "Uploads complete"}</b><small>{explorer.uploads.length} file{explorer.uploads.length === 1 ? "" : "s"} in this upload</small></div>

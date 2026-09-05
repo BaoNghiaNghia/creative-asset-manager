@@ -116,3 +116,11 @@ class FolderNoteResponse(BaseModel):
 
 class FolderNoteUpdateRequest(BaseModel):
     content_markdown: str = Field(default="", max_length=50_000)
+
+
+class ContentHashPreflightRequest(BaseModel):
+    hashes: list[str] = Field(min_length=1, max_length=500)
+
+
+class ContentHashPreflightResponse(BaseModel):
+    existing: dict[str, bool]
