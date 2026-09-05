@@ -6,6 +6,7 @@ const PROVIDERS = new Set(["google", "microsoft"]);
 const LAUNCH_TOKEN_RE = /^[A-Za-z0-9_-]{32,256}$/;
 
 export type DesktopOAuthProvider = "google" | "microsoft";
+export type DesktopOAuthIntent = "google_drive_connect" | "onedrive_connect";
 
 export function createDesktopInstanceNonce(): string {
   return randomBytes(32).toString("base64url");
@@ -44,17 +45,17 @@ function apiUrl(camUrl: URL, path: string): string {
 export async function beginDesktopOAuth(
   window: BrowserWindow,
   nonce: string,
-  provider: DesktopOAuthProvider,
+  request: { provider?: DesktopOAuthProvider; intent?: DesktopOAuthIntent; externalSourceId?: string },
 ): Promise<void> {
-  if (!isDesktopOAuthProvider(provider)) {
-    throw new Error("Unsupported OAuth provider.");
+  if ((!request.intent && !isDesktopOAuthProvider(request.provider)) || (request.intent && !["google_drive_connect", "onedrive_connect"].includes(request.intent))) {
+    throw new Error("Unsupported OAuth request.");
   }
   const camUrl = resolveDesktopUrl(process.env.CAM_DESKTOP_URL, app.isPackaged);
   const response = await window.webContents.session.fetch(apiUrl(camUrl, "/api/v1/desktop/oauth/start"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      provider,
+      ...(request.intent ? { intent: request.intent, external_source_id: request.externalSourceId } : { provider: request.provider }),
       desktop_instance_binding: instanceBinding(nonce),
     }),
   });

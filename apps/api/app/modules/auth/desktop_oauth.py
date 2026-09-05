@@ -54,7 +54,7 @@ def require_desktop_oauth(settings: Settings | None = None) -> None:
         raise HTTPException(503, detail={"code": "desktop_oauth_disabled"})
 
 
-def start_handoff(*, provider: str, desktop_instance_binding: str) -> str:
+def start_handoff(*, provider: str, desktop_instance_binding: str, intent: str = "application_login", initiating_user_id: str | None = None, initiating_tenant_id: str | None = None, reconnect_external_source_id: str | None = None) -> str:
     require_desktop_oauth()
     if provider not in {"google", "microsoft"}:
         raise HTTPException(422, detail={"code": "unsupported_provider"})
@@ -64,6 +64,10 @@ def start_handoff(*, provider: str, desktop_instance_binding: str) -> str:
         row = DesktopOAuthHandoffModel(
             id=str(uuid4()),
             provider=provider,
+            intent=intent,
+            initiating_user_id=initiating_user_id,
+            initiating_tenant_id=initiating_tenant_id,
+            reconnect_external_source_id=reconnect_external_source_id,
             desktop_instance_binding_hash=binding,
             launch_token_hash=digest(launch_token),
             expires_at=utcnow() + timedelta(seconds=DESKTOP_HANDOFF_TTL_SECONDS),
@@ -144,7 +148,7 @@ def complete_callback(
     return ticket
 
 
-def claim_handoff(*, ticket: str, desktop_instance_nonce: str) -> tuple[str, dict[str, Any]]:
+def claim_handoff(*, ticket: str, desktop_instance_nonce: str) -> tuple[DesktopOAuthHandoffModel, dict[str, Any]]:
     require_desktop_oauth()
     raw_ticket = validate_secret(ticket, field="ticket")
     if not _TOKEN_RE.fullmatch(desktop_instance_nonce):
@@ -177,4 +181,4 @@ def claim_handoff(*, ticket: str, desktop_instance_nonce: str) -> tuple[str, dic
             provider=row.provider,
             actor_id=None,
         )
-        return row.provider, json.loads(plaintext)
+        return row, json.loads(plaintext)

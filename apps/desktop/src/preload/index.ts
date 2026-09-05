@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     isDesktop: true as const,
     platform: process.platform,
-    beginOAuth: (request: { provider: "google" | "microsoft" }) =>
+    beginOAuth: (request: { provider?: "google" | "microsoft"; intent?: "google_drive_connect" | "onedrive_connect"; externalSourceId?: string }) =>
       ipcRenderer.invoke("desktop:oauth:begin", request),
     onAuthComplete: (callback: () => void) => {
       const listener = () => callback();

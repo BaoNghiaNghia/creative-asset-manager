@@ -21,6 +21,7 @@ from app.modules.authorization.service import TenantAuthorizationService
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.auth_persistence.login import LoginAdmissionError
 from app.modules.auth.desktop_oauth import handoff_id_from_intent
+from app.modules.auth_persistence.model import DesktopOAuthHandoffModel
 from app.modules.auth.desktop_router import complete_provider_callback
 from app.modules.storage.managed_oauth import (
     ManagedStorageCredentialUnavailableError,
@@ -240,6 +241,12 @@ async def callback(
         logger.warning("Google OAuth state is invalid or expired request_id=%s", request_id)
         return client_redirect(auth_error="state", auth_request=request_id)
 
+    desktop_handoff_id = handoff_id_from_intent(redirect_intent)
+    desktop_drive_connect = False
+    if desktop_handoff_id:
+        with SessionLocal() as db:
+            row = db.get(DesktopOAuthHandoffModel, desktop_handoff_id)
+            desktop_drive_connect = bool(row and row.intent == "google_drive_connect")
     drive_connect = redirect_intent.startswith("drive_connect:")
     connection_tenant_id = None
     reconnect_source_id = None
@@ -276,7 +283,7 @@ async def callback(
             if user is None or user.status != "active" or not is_platform_admin:
                 logger.warning("Managed Storage callback authorization failed request_id=%s", request_id)
                 return managed_storage_redirect("error", auth_request=request_id)
-    flow = oauth_flow(state, require_drive_scope=drive_connect or managed_storage_connect)
+    flow = oauth_flow(state, require_drive_scope=drive_connect or managed_storage_connect or desktop_drive_connect)
     if code_verifier:
         flow.code_verifier = code_verifier
 
@@ -293,7 +300,6 @@ async def callback(
         )
         return client_redirect(auth_error="token_exchange", auth_request=request_id)
 
-    desktop_handoff_id = handoff_id_from_intent(redirect_intent)
     if desktop_handoff_id:
         granted_scopes = resolve_granted_scopes(
             flow.credentials,

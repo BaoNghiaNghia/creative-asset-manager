@@ -87,7 +87,13 @@ export function Sidebar({
         <span><b>{source.display_name || (source.source_type === "onedrive" ? "OneDrive" : source.source_type === "sharepoint" ? "SharePoint" : "Google Drive")}</b><small>{source.account.email || (source.status === "active" ? "Connected" : source.status === "reconnect_required" ? "Reconnect required" : "Disconnected")}</small></span>
       </button>
       {applicationAuthenticated && source.status !== "disconnected" && <span className="source-actions">
-        <button onClick={() => window.location.assign(source.source_type === "google_drive" ? "/api/auth/google/connect-drive?external_source_id=" + encodeURIComponent(source.id) : "/api/auth/microsoft/" + (source.source_type === "onedrive" ? "connect-onedrive" : "connect-sharepoint") + "?external_source_id=" + encodeURIComponent(source.id))}>Reconnect</button>
+        <button onClick={() => {
+          if (window.camDesktop && source.source_type !== "sharepoint") {
+            void window.camDesktop.beginOAuth({ intent: source.source_type === "google_drive" ? "google_drive_connect" : "onedrive_connect", externalSourceId: source.id });
+            return;
+          }
+          window.location.assign(source.source_type === "google_drive" ? "/api/auth/google/connect-drive?external_source_id=" + encodeURIComponent(source.id) : "/api/auth/microsoft/" + (source.source_type === "onedrive" ? "connect-onedrive" : "connect-sharepoint") + "?external_source_id=" + encodeURIComponent(source.id));
+        }}>Reconnect</button>
         <button onClick={() => onDisconnectSource?.(source.id)}>Disconnect</button>
       </span>}
     </div>)}

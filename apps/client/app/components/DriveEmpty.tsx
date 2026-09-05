@@ -42,10 +42,10 @@ export function sourceLoginRoute(provider: Provider, applicationAuthenticated: b
 }
 
 function beginApplicationLogin(provider: Provider, applicationAuthenticated: boolean): boolean {
-  if (applicationAuthenticated || !window.camDesktop) return false;
-  void window.camDesktop.beginOAuth({
-    provider: provider === "google-drive" ? "google" : "microsoft",
-  });
+  if (!window.camDesktop || provider === "sharepoint") return false;
+  void window.camDesktop.beginOAuth(applicationAuthenticated
+    ? { intent: provider === "google-drive" ? "google_drive_connect" : "onedrive_connect" }
+    : { provider: provider === "google-drive" ? "google" : "microsoft" });
   return true;
 }
 

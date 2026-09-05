@@ -234,11 +234,12 @@ async def callback(
     try:
         verifier, raw_intent = consume_state_details(state, request.cookies.get(OAUTH_BINDING_COOKIE))
         desktop_handoff_id = handoff_id_from_intent(raw_intent)
-        if desktop_handoff_id:
-            token = await exchange_code(code, verifier, intent="application_login")
+        desktop_source_id = raw_intent.removeprefix("onedrive_connect:") if raw_intent.startswith("onedrive_connect:") and raw_intent.count(":") == 1 else None
+        if desktop_handoff_id or desktop_source_id:
+            token = await exchange_code(code, verifier, intent="onedrive_connect" if desktop_source_id else "application_login")
             response = complete_provider_callback(
                 provider="microsoft",
-                handoff_id=desktop_handoff_id,
+                handoff_id=desktop_handoff_id or desktop_source_id or "",
                 browser_binding=request.cookies.get(OAUTH_BINDING_COOKIE) or "",
                 payload=token,
             )

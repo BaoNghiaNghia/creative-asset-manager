@@ -46,11 +46,11 @@ if (!app.requestSingleInstanceLock()) {
       if (!mainWindow || !request || typeof request !== "object") {
         throw new Error("Desktop sign-in is unavailable.");
       }
-      const provider = (request as { provider?: unknown }).provider;
-      if (!isDesktopOAuthProvider(provider)) {
+      const oauthRequest = request as { provider?: "google" | "microsoft"; intent?: "google_drive_connect" | "onedrive_connect"; externalSourceId?: string };
+      if (!isDesktopOAuthProvider(oauthRequest.provider) && !oauthRequest.intent) {
         throw new Error("Unsupported OAuth provider.");
       }
-      await beginDesktopOAuth(mainWindow, desktopInstanceNonce, provider);
+      await beginDesktopOAuth(mainWindow, desktopInstanceNonce, oauthRequest);
     });
     void processDeepLink(process.argv);
 

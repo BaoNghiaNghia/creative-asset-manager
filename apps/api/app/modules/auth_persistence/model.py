@@ -168,6 +168,10 @@ class DesktopOAuthHandoffModel(Base):
     callback_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    intent: Mapped[str] = mapped_column(String(32), nullable=False, default="application_login")
+    initiating_user_id: Mapped[str | None] = mapped_column(String(36))
+    initiating_tenant_id: Mapped[str | None] = mapped_column(String(255))
+    reconnect_external_source_id: Mapped[str | None] = mapped_column(String(36))
 
 class AuthAuditEventModel(Base):
     __tablename__ = "auth_audit_events"

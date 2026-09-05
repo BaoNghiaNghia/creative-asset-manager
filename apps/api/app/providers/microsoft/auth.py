@@ -24,6 +24,7 @@ SCOPES = list(SHAREPOINT_SOURCE_SCOPES)  # legacy compatibility only
 
 
 def scopes_for_intent(intent: str) -> tuple[str, ...]:
+    intent = intent.split(":", 1)[0]
     if intent == "application_login":
         return APPLICATION_LOGIN_SCOPES
     if intent == "onedrive_connect":
@@ -34,6 +35,7 @@ def scopes_for_intent(intent: str) -> tuple[str, ...]:
 
 
 def authority_for_intent(intent: str) -> str:
+    intent = intent.split(":", 1)[0]
     configured = os.getenv("MICROSOFT_TENANT_ID", "organizations").strip() or "organizations"
     if intent == "onedrive_connect":
         return os.getenv("MICROSOFT_ONEDRIVE_AUTHORITY", "common").strip() or "common"
