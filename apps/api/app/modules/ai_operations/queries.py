@@ -470,8 +470,9 @@ class AiOperationsRepository(BaseRepository):
                 if str(asset_id) in asset_presentations:
                     continue
                 thumbnail_url = None
-                if source_type == "google_drive":
-                    query = urlencode({"provider": "google-drive", "external_source_id": external_source_id})
+                provider = {"google_drive": "google-drive", "onedrive": "onedrive"}.get(source_type)
+                if provider:
+                    query = urlencode({"provider": provider, "external_source_id": external_source_id})
                     thumbnail_url = f"/api/explorer/thumbnail/{quote(str(external_asset_id), safe='')}?{query}"
                 asset_presentations[str(asset_id)] = {"filename": filename, "mime_type": mime_type, "thumbnail_url": thumbnail_url, "source_type": source_type}
         now = datetime.now(timezone.utc)

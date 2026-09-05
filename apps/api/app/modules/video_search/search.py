@@ -29,8 +29,9 @@ def _thumbnail_url(source: Mapping[str, Any]) -> str | None:
     source_type = source.get("source_type")
     external_source_id = source.get("external_source_id")
     external_asset_id = source.get("external_asset_id")
-    if source_type in {"google_drive", "google-drive"} and isinstance(external_source_id, str) and isinstance(external_asset_id, str):
-        query = urlencode({"provider": "google-drive", "external_source_id": external_source_id, "fallback": "video"})
+    provider = {"google_drive": "google-drive", "google-drive": "google-drive", "onedrive": "onedrive"}.get(source_type)
+    if provider and isinstance(external_source_id, str) and isinstance(external_asset_id, str):
+        query = urlencode({"provider": provider, "external_source_id": external_source_id, "fallback": "video"})
         return f"/api/explorer/thumbnail/{quote(external_asset_id, safe='')}?{query}"
     return source.get("thumbnail_url") if isinstance(source.get("thumbnail_url"), str) else None
 

@@ -4,6 +4,9 @@ from urllib.parse import urlparse
 import httpx
 from app.providers.microsoft.onedrive_mapper import ONEDRIVE_ROOT_ID,map_item,parse_item_id,root_node
 TRANSIENT={429,500,502,503,504}
+class OneDriveThumbnailUnavailable(Exception):
+    pass
+
 def validate_graph_url(value:str)->str:
     parsed=urlparse(value)
     if parsed.scheme!="https" or parsed.hostname!="graph.microsoft.com" or not parsed.path.startswith("/v1.0/"):raise ValueError("Microsoft Graph continuation URL is invalid")
@@ -51,3 +54,20 @@ async def open_media_stream(access_token:str,item_id:str,range_header:str|None):
     except Exception:await response.aclose();await client.aclose();raise
     return client,response
 async def close_media_stream(client:httpx.AsyncClient,response:httpx.Response):await response.aclose();await client.aclose()
+
+async def open_thumbnail_stream(access_token:str,item_id:str):
+    drive_id,graph_id=parse_item_id(item_id)
+    client=httpx.AsyncClient(timeout=httpx.Timeout(25,read=None),follow_redirects=True)
+    response=await client.send(client.build_request(
+        "GET",
+        f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{graph_id}/thumbnails/0/large/content",
+        headers={"Authorization":f"Bearer {access_token}"},
+    ),stream=True)
+    if response.status_code in {400,404}:
+        await response.aclose();await client.aclose()
+        raise OneDriveThumbnailUnavailable(item_id)
+    try:response.raise_for_status()
+    except Exception:await response.aclose();await client.aclose();raise
+    return client,response
+
+async def close_thumbnail_stream(client:httpx.AsyncClient,response:httpx.Response):await response.aclose();await client.aclose()

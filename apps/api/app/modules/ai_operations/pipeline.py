@@ -180,8 +180,9 @@ class PipelineOperationsRepository:
         items = []
         for row in rows:
             thumbnail_url = None
-            if row["source_type"] == "google_drive":
-                query = urlencode({"provider": "google-drive", "external_source_id": row["external_source_id"]})
+            provider = {"google_drive": "google-drive", "onedrive": "onedrive"}.get(row["source_type"])
+            if provider:
+                query = urlencode({"provider": provider, "external_source_id": row["external_source_id"]})
                 thumbnail_url = f"/api/explorer/thumbnail/{quote(str(row['external_asset_id']), safe='')}?{query}"
             items.append({"asset_id": row["asset_id"], "filename": row["filename"] or "Untitled source asset", "mime_type": normalize_source_mime_type(row["mime_type"]), "thumbnail_url": thumbnail_url, "state": row["pipeline_state"] or "discovered", "stage_statuses": self._asset_stage_statuses(row["pipeline_state"] or "discovered"), "updated_at": row["pipeline_updated_at"] or row["source_updated_at"], "error_code": row["pipeline_error_code"], "source_type": row["source_type"]})
         return {"page": page, "page_size": page_size, "total": total, "items": items}

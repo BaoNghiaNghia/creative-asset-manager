@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from math import ceil
+from urllib.parse import quote, urlencode
 
 import httpx
 from sqlalchemy import select
@@ -461,8 +462,10 @@ class MediaDashboardService:
         }
         metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
         thumbnail_url = None
-        if external.source_type == "google_drive":
-            thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
+        provider = {"google_drive": "google-drive", "onedrive": "onedrive"}.get(external.source_type)
+        if provider:
+            query = urlencode({"provider": provider, "external_source_id": source.external_source_id, "fallback": "video"})
+            thumbnail_url = f"/api/explorer/thumbnail/{quote(str(source.external_asset_id), safe='')}?{query}"
         analysis_job = self.session.scalar(
             select(ProcessingJobModel)
             .where(
@@ -675,8 +678,10 @@ class MediaDashboardService:
                 latest_index_jobs,
             )
             thumbnail_url = None
-            if source is not None and external is not None and external.source_type == "google_drive":
-                thumbnail_url = f"/api/explorer/thumbnail/{source.external_asset_id}?provider=google-drive&external_source_id={source.external_source_id}&fallback=video"
+            provider = {"google_drive": "google-drive", "onedrive": "onedrive"}.get(external.source_type) if external is not None else None
+            if source is not None and provider:
+                query = urlencode({"provider": provider, "external_source_id": source.external_source_id, "fallback": "video"})
+                thumbnail_url = f"/api/explorer/thumbnail/{quote(str(source.external_asset_id), safe='')}?{query}"
             recent_video.append({
                 "job_id": job.id, "source_asset_id": job.entity_id,
                 "asset_id": logical_asset_ids.get(job.entity_id),

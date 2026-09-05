@@ -72,6 +72,9 @@ from app.providers.microsoft.sharepoint import close_media_stream as close_share
 from app.providers.microsoft.sharepoint import open_media_stream as open_sharepoint_media
 from app.providers.microsoft.onedrive import close_media_stream as close_onedrive_media
 from app.providers.microsoft.onedrive import open_media_stream as open_onedrive_media
+from app.providers.microsoft.onedrive import close_thumbnail_stream as close_onedrive_thumbnail
+from app.providers.microsoft.onedrive import open_thumbnail_stream as open_onedrive_thumbnail
+from app.providers.microsoft.onedrive import OneDriveThumbnailUnavailable
 
 router = APIRouter(prefix="/explorer", tags=["explorer"])
 logger = logging.getLogger(__name__)
@@ -1132,7 +1135,7 @@ async def thumbnail(
     external_source_id: str | None = Query(None),
     fallback: str | None = Query(None),
 ):
-    if provider != "google-drive":
+    if provider not in {"google-drive", "onedrive"}:
         raise HTTPException(status_code=404, detail="Thumbnail proxy is unavailable for this provider.")
     cache_key = None
     negative_cache_hit = False
@@ -1163,24 +1166,39 @@ async def thumbnail(
             # Do not refresh the negative-cache TTL merely because the
             # browser requested the same unavailable thumbnail again.
             negative_cache_hit = True
-            raise GoogleDriveThumbnailUnavailable(item_id)
+            unavailable = OneDriveThumbnailUnavailable if provider == "onedrive" else GoogleDriveThumbnailUnavailable
+            raise unavailable(item_id)
 
-        shared_client = getattr(request.app.state, "google_drive_stream_client", None)
+        shared_client = (
+            getattr(request.app.state, "google_drive_stream_client", None)
+            if provider == "google-drive" else None
+        )
+
+        async def open_provider_thumbnail():
+            if provider == "onedrive":
+                return await open_onedrive_thumbnail(token, item_id)
+            return await open_google_thumbnail(
+                token,
+                item_id,
+                cache_key=(
+                    str(tenant_id_value),
+                    str(resolved_source_id),
+                    item_id,
+                ),
+                http_client=shared_client,
+            )
+
+        async def close_provider_thumbnail(client, upstream) -> None:
+            if provider == "onedrive":
+                await close_onedrive_thumbnail(client, upstream)
+            else:
+                await close_google_thumbnail(client, upstream, client is not shared_client)
 
         async def load_thumbnail() -> CachedThumbnail:
             client = None
             upstream = None
             try:
-                client, upstream = await open_google_thumbnail(
-                    token,
-                    item_id,
-                    cache_key=(
-                        str(tenant_id_value),
-                        str(resolved_source_id),
-                        item_id,
-                    ),
-                    http_client=shared_client,
-                )
+                client, upstream = await open_provider_thumbnail()
                 content = bytearray()
                 async for chunk in upstream.aiter_raw():
                     content.extend(chunk)
@@ -1198,9 +1216,7 @@ async def thumbnail(
                 )
             finally:
                 if client is not None and upstream is not None:
-                    await close_google_thumbnail(
-                        client, upstream, client is not shared_client
-                    )
+                    await close_provider_thumbnail(client, upstream)
 
         cached = await thumbnail_cache.get_or_load(cache_key, load_thumbnail)
         headers = dict(cached.headers)
@@ -1215,7 +1231,7 @@ async def thumbnail(
             media_type=cached.content_type,
             headers=headers,
         )
-    except GoogleDriveThumbnailUnavailable as exc:
+    except (GoogleDriveThumbnailUnavailable, OneDriveThumbnailUnavailable) as exc:
         # Cache only a fresh upstream "thumbnail unavailable" result.
         # A cache hit must not extend its own 60-second negative TTL.
         if cache_key is not None and not negative_cache_hit:
@@ -1226,7 +1242,7 @@ async def thumbnail(
     except HTTPException:
         raise
     except (httpx.HTTPError, PermissionError, ValueError) as exc:
-        raise _provider_error(exc, "Unable to load google-drive thumbnail") from exc
+        raise _provider_error(exc, f"Unable to load {provider} thumbnail") from exc
 
 
 @router.get("/preview/{item_id}")

@@ -134,7 +134,7 @@ class ExplorerService:
             return items
         for item in items:
             if item.kind in {"image", "video"}:
-                endpoint = "thumbnail" if provider == "google-drive" else "media"
+                endpoint = "thumbnail" if provider in {"google-drive", "onedrive"} else "media"
                 cache_version = (
                     f"&v={quote(item.modified_at.isoformat(), safe='')}"
                     if item.modified_at
