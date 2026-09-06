@@ -1,11 +1,21 @@
 from __future__ import annotations
 import asyncio
+import json
 from urllib.parse import urlparse
 import httpx
 from app.providers.microsoft.onedrive_mapper import ONEDRIVE_ROOT_ID,map_item,parse_item_id,root_node
 TRANSIENT={429,500,502,503,504}
 class OneDriveThumbnailUnavailable(Exception):
     pass
+
+
+class OneDriveDownloadError(RuntimeError):
+    """A Microsoft Graph error enriched with its stable service error code."""
+
+    def __init__(self, *, status_code: int, graph_code: str | None, message: str):
+        self.status_code = status_code
+        self.graph_code = graph_code
+        super().__init__(message)
 
 def validate_graph_url(value:str)->str:
     parsed=urlparse(value)
@@ -58,9 +68,54 @@ async def open_media_stream(access_token:str,item_id:str,range_header:str|None):
     drive_id,graph_id=parse_item_id(item_id);client=httpx.AsyncClient(timeout=httpx.Timeout(25,read=None),follow_redirects=True);headers={"Authorization":f"Bearer {access_token}"}
     if range_header:headers["Range"]=range_header
     response=await client.send(client.build_request("GET",f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{graph_id}/content",headers=headers),stream=True)
+    if response.status_code == 400:
+        # Consumer OneDrive can reject the Graph /content redirect for an item
+        # even though its metadata remains readable. Request Graph's short-lived
+        # download URL in that case; it is scoped to the same delegated item.
+        await response.aclose()
+        try:
+            metadata = await client.get(
+                f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{graph_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={"$select": "id,@microsoft.graph.downloadUrl"},
+            )
+            if metadata.status_code >= 400:
+                await _raise_download_error(metadata)
+            download_url = (metadata.json() or {}).get("@microsoft.graph.downloadUrl")
+            if not isinstance(download_url, str) or not download_url.startswith("https://"):
+                raise OneDriveDownloadError(
+                    status_code=400,
+                    graph_code="download_url_unavailable",
+                    message="OneDrive did not provide a usable download URL.",
+                )
+            fallback_headers = {"Range": range_header} if range_header else {}
+            response = await client.send(client.build_request("GET", download_url, headers=fallback_headers), stream=True)
+        except Exception:
+            await client.aclose()
+            raise
     try:response.raise_for_status()
-    except Exception:await response.aclose();await client.aclose();raise
+    except httpx.HTTPStatusError:
+        try:
+            await _raise_download_error(response)
+        finally:
+            await response.aclose();await client.aclose()
     return client,response
+
+
+async def _raise_download_error(response: httpx.Response) -> None:
+    """Raise a safe, stable error while preserving the Graph response for logs."""
+    try:
+        payload = json.loads((await response.aread()).decode("utf-8", errors="replace"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        payload = {}
+    error = payload.get("error") if isinstance(payload, dict) else None
+    graph_code = error.get("code") if isinstance(error, dict) and isinstance(error.get("code"), str) else None
+    detail = error.get("message") if isinstance(error, dict) and isinstance(error.get("message"), str) else None
+    raise OneDriveDownloadError(
+        status_code=response.status_code,
+        graph_code=graph_code,
+        message=f"OneDrive download failed ({graph_code or f'HTTP {response.status_code}'}): {detail or 'Microsoft Graph rejected the request.'}",
+    )
 async def close_media_stream(client:httpx.AsyncClient,response:httpx.Response):await response.aclose();await client.aclose()
 
 async def open_thumbnail_stream(access_token:str,item_id:str):

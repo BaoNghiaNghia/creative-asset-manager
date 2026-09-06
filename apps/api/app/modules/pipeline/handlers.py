@@ -26,6 +26,7 @@ from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.pipeline.service import AssetPipelineService
 from app.modules.pipeline.state import PipelineState
 from app.modules.processing.repository import ProcessingRepository
+from app.providers.microsoft.onedrive import OneDriveDownloadError
 from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider, build_search_index_document
 from app.modules.search.source_index import SearchSourceIndexResolver
 from app.modules.search.governance_model import ActiveAssetAnalysisModel
@@ -174,6 +175,14 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
             return self._failed(
                 context, exc, retryable=False,
                 error_code="source_content_too_large",
+            )
+        except OneDriveDownloadError as exc:
+            code = f"onedrive_{exc.graph_code or f'http_{exc.status_code}'}"
+            return self._failed(
+                context,
+                exc,
+                retryable=exc.status_code in {408, 429, 500, 502, 503, 504},
+                error_code=code,
             )
         except Exception as exc:
             return self._failed(context, exc)

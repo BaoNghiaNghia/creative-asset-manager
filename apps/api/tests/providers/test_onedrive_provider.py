@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import httpx
 from app.providers.source_factory import create_source_provider
-from app.providers.microsoft.onedrive import OneDriveClient,OneDriveThumbnailUnavailable,close_thumbnail_stream,open_thumbnail_stream,validate_graph_url
+from app.providers.microsoft.onedrive import OneDriveClient,OneDriveDownloadError,OneDriveThumbnailUnavailable,close_thumbnail_stream,open_media_stream,open_thumbnail_stream,validate_graph_url
 from app.providers.microsoft.onedrive_mapper import ONEDRIVE_ROOT_ID,make_item_id,map_item,parse_item_id,root_node
 
 def test_item_id_round_trip_and_sharepoint_rejected():
@@ -60,6 +60,40 @@ def test_missing_thumbnail_closes_graph_response_and_client():
         with pytest.raises(OneDriveThumbnailUnavailable):
             asyncio.run(open_thumbnail_stream("secret",make_item_id("drive-id","item-id")))
     response.aclose.assert_awaited_once()
+    client.aclose.assert_awaited_once()
+
+def test_media_stream_uses_graph_download_url_when_consumer_content_endpoint_returns_400():
+    client=MagicMock()
+    client.build_request.side_effect=["content-request", "download-request"]
+    rejected=MagicMock(status_code=400)
+    rejected.aclose=AsyncMock()
+    metadata=MagicMock(status_code=200)
+    metadata.json.return_value={"@microsoft.graph.downloadUrl":"https://public.files.1drv.com/content"}
+    downloaded=MagicMock(status_code=200)
+    downloaded.raise_for_status=MagicMock()
+    client.send=AsyncMock(side_effect=[rejected, downloaded])
+    client.get=AsyncMock(return_value=metadata)
+    client.aclose=AsyncMock()
+    with patch("app.providers.microsoft.onedrive.httpx.AsyncClient",return_value=client):
+        returned_client,returned_response=asyncio.run(open_media_stream("secret",make_item_id("drive-id","item-id"),None))
+    assert returned_client is client and returned_response is downloaded
+    assert client.get.await_args.kwargs["params"]=={"$select":"id,@microsoft.graph.downloadUrl"}
+    assert client.build_request.call_args_list[1].args==("GET","https://public.files.1drv.com/content")
+
+def test_media_stream_exposes_graph_error_code_when_fallback_metadata_is_rejected():
+    client=MagicMock()
+    client.build_request.return_value="content-request"
+    rejected=MagicMock(status_code=400)
+    rejected.aclose=AsyncMock()
+    metadata=MagicMock(status_code=404)
+    metadata.aread=AsyncMock(return_value=b'{"error":{"code":"itemNotFound","message":"Missing"}}')
+    client.send=AsyncMock(return_value=rejected)
+    client.get=AsyncMock(return_value=metadata)
+    client.aclose=AsyncMock()
+    with patch("app.providers.microsoft.onedrive.httpx.AsyncClient",return_value=client):
+        with pytest.raises(OneDriveDownloadError, match="itemNotFound") as exc:
+            asyncio.run(open_media_stream("secret",make_item_id("drive-id","item-id"),None))
+    assert exc.value.status_code==404 and exc.value.graph_code=="itemNotFound"
     client.aclose.assert_awaited_once()
 
 def test_drive_retries_without_owner_projection_after_consumer_forbidden():
