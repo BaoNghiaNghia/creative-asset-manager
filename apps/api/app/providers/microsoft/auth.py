@@ -260,6 +260,12 @@ async def get_connection_access_token(connection_id: str, *, purpose: str) -> st
         raise HTTPException(503, "Microsoft source token refresh is in progress.")
 
     client_id, client_secret, authority, _ = _settings()
+    # A OneDrive source may be a personal Microsoft account. Refreshing its
+    # token through an organisation-specific authority can produce a token
+    # that cannot open that personal drive. `common` supports both consumer
+    # and work/school accounts and preserves the source connection boundary.
+    if purpose == "onedrive_source":
+        authority = "common"
     scopes = list(cloud.scopes) or list(SCOPES)
     try:
         async with httpx.AsyncClient(timeout=20) as client:
