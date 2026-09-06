@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
 import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
-import type { Asset, AuthState, Provider, ProviderSessions, Tag, TreeCache } from "../types";
+import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, Tag, TreeCache } from "../types";
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
@@ -12,6 +12,8 @@ type Props = {
   provider: Provider;
   auth: AuthState;
   authByProvider: ProviderSessions;
+  sources: ConnectedSource[];
+  activeExternalSourceId: string | null;
   tags: Tag[];
   path: Asset[];
   activeId?: string;
@@ -20,6 +22,9 @@ type Props = {
   expanded: Set<string>;
   loadingNodes: Set<string>;
   onSelectProvider: (provider: Provider) => void;
+  onSelectSource: (sourceId: string) => Promise<void>;
+  onDisconnectSource: (sourceId: string) => Promise<void>;
+  onSyncSource: (sourceId: string) => Promise<void>;
   onOpen: (id: string, ancestors: Asset[]) => void;
   onToggle: (node: Asset) => void;
   onPrefetch: (id: string) => void;
@@ -45,11 +50,31 @@ function SourceIcon({ provider }: { provider: Provider }) {
   return <SharePointIcon />;
 }
 
+function sourceProvider(source: ConnectedSource): Provider {
+  return source.source_type === "google_drive" ? "google-drive" : source.source_type;
+}
+
+function sourceLogin(provider: Provider, sourceId?: string) {
+  const route = provider === "google-drive" ? "/api/auth/google/connect-drive"
+    : provider === "onedrive" ? "/api/auth/microsoft/connect-onedrive"
+      : "/api/auth/microsoft/connect-sharepoint";
+  return sourceId ? route + "?external_source_id=" + encodeURIComponent(sourceId) : route;
+}
+
+function beginSourceOAuth(provider: Provider, sourceId?: string): boolean {
+  if (!window.camDesktop || provider === "sharepoint") return false;
+  void window.camDesktop.beginOAuth({
+    intent: provider === "google-drive" ? "google_drive_connect" : "onedrive_connect",
+    ...(sourceId ? { externalSourceId: sourceId } : {}),
+  });
+  return true;
+}
+
 
 
 export function Sidebar({
-  provider, auth, authByProvider, tags, path, activeId, rootFolders,
-  childrenByParent, expanded, loadingNodes, onSelectProvider, onOpen,
+  provider, auth, authByProvider, sources: connectedSources, activeExternalSourceId, tags, path, activeId, rootFolders,
+  childrenByParent, expanded, loadingNodes, onSelectProvider, onSelectSource, onDisconnectSource, onSyncSource, onOpen,
   onToggle, onPrefetch, onCancelPrefetch, onCollapse, onResizeStart,
   applicationAuthenticated = false,
 }: Props) {
@@ -58,6 +83,7 @@ export function Sidebar({
   const activePathIds = new Set(path.map(folder => folder.id));
   const [canViewAiOperations, setCanViewAiOperations] = useState(false);
   const [showSwitchGoogleConfirm, setShowSwitchGoogleConfirm] = useState(false);
+  const [busySourceId, setBusySourceId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -90,14 +116,50 @@ export function Sidebar({
     {Object.values(authByProvider).some(session => session.checking)
       ? <div className="source-skeleton"><i /><i /><i /></div>
       : sources.map(source => {
-        const session = authByProvider[source.provider];
+        const providerSources = connectedSources.filter(item => sourceProvider(item) === source.provider);
         const active = provider === source.provider;
-        const sourceState = active ? activeId === currentRoot ? "active" : "active-path" : "";
         return <Fragment key={source.provider}>
-          {session.authenticated ? <button className={"source " + sourceState} onClick={() => onSelectProvider(source.provider)}>
-            <SourceIcon provider={source.provider} />
-            <span className="source-label"><strong>{source.label}</strong>{session.user?.email && <small>({session.user.email})</small>}</span>{active && <i className="source-connected" title="Connected" />}
-          </button> : <button className="source provider-login" onClick={() => window.location.assign(
+          {providerSources.length ? providerSources.map(connected => {
+            const selected = connected.status === "active" && activeExternalSourceId === connected.id;
+            const account = connected.account.email || connected.display_name || "Connected account";
+            const reconnectRequired = connected.status === "reconnect_required";
+            return <div className="source-entry" key={connected.id}>
+              <button className={"source " + (selected ? "active" : "")} onClick={() => {
+                if (connected.status === "active") void onSelectSource(connected.id);
+              }}>
+                <SourceIcon provider={source.provider} />
+                <span className="source-label"><strong>{source.label}</strong><small>({account})</small></span>
+                {connected.status === "active" && <i className="source-connected" title="Connected" />}
+                {reconnectRequired && <i className="source-attention" title="Reconnect required" />}
+              </button>
+              <div className="source-entry-actions" aria-label={source.label + " account actions"}>
+                {connected.status === "active" && <button type="button" onClick={() => void onSelectSource(connected.id)}>Open</button>}
+                {connected.status === "active" && connected.capabilities.sync && <button type="button" disabled={busySourceId === connected.id} onClick={() => {
+                  setBusySourceId(connected.id);
+                  void onSyncSource(connected.id).catch(() => undefined).finally(() => setBusySourceId(null));
+                }}>{busySourceId === connected.id ? "Syncing..." : "Sync"}</button>}
+                {connected.capabilities.reconnect && connected.status !== "disconnected" && <button type="button" onClick={() => {
+                  if (!beginSourceOAuth(source.provider, connected.id)) window.location.assign(sourceLogin(source.provider, connected.id));
+                }}>{reconnectRequired ? "Reconnect" : "Reauthorize"}</button>}
+                {connected.capabilities.disconnect && connected.status !== "disconnected" && <button type="button" className="danger" disabled={busySourceId === connected.id} onClick={() => {
+                  if (!window.confirm("Disconnect " + source.label + " account " + account + "?")) return;
+                  setBusySourceId(connected.id);
+                  void onDisconnectSource(connected.id).catch(() => undefined).finally(() => setBusySourceId(null));
+                }}>{busySourceId === connected.id ? "Disconnecting..." : "Disconnect"}</button>}
+                {connected.status === "disconnected" && <small className="source-disconnected">Disconnected</small>}
+              </div>
+              {selected && active && <div className="tree">
+                {loadingNodes.has(currentRoot) && rootFolders.length === 0
+                  ? <TreeChildrenSkeleton rows={5} />
+                  : rootFolders.map(folder => <DriveTreeNode
+                  key={folder.id} node={folder} ancestors={rootAncestors} activeId={activeId}
+                  activePathIds={activePathIds} childrenByParent={childrenByParent}
+                  expanded={expanded} loadingNodes={loadingNodes} onOpen={onOpen}
+                  onToggle={onToggle} onPrefetch={onPrefetch} onCancelPrefetch={onCancelPrefetch}
+                />)}
+              </div>}
+            </div>;
+          }) : <button className="source provider-login" onClick={() => window.location.assign(
             applicationAuthenticated && source.provider === "google-drive"
               ? "/api/auth/google/connect-drive"
               : source.login
@@ -105,7 +167,10 @@ export function Sidebar({
             <SourceIcon provider={source.provider} />
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}
-          {active && session.authenticated && source.provider === "google-drive" && applicationAuthenticated && <button
+          {source.provider === "onedrive" && applicationAuthenticated && <button className="source-add-account" type="button" onClick={() => {
+            if (!beginSourceOAuth("onedrive")) window.location.assign(sourceLogin("onedrive"));
+          }}>+ Add OneDrive account</button>}
+          {active && authByProvider[source.provider].authenticated && source.provider === "google-drive" && applicationAuthenticated && <button
             className="source-reconnect"
             type="button"
             onClick={() => setShowSwitchGoogleConfirm(true)}
@@ -120,16 +185,6 @@ export function Sidebar({
               <path d="M7 7h10l-2.5-2.5M17 7l-2.5 2.5M17 17H7l2.5 2.5M7 17l2.5-2.5" />
             </svg>
           </button>}
-          {active && session.authenticated && <div className="tree">
-            {loadingNodes.has(currentRoot) && rootFolders.length === 0
-              ? <TreeChildrenSkeleton rows={5} />
-              : rootFolders.map(folder => <DriveTreeNode
-              key={folder.id} node={folder} ancestors={rootAncestors} activeId={activeId}
-              activePathIds={activePathIds} childrenByParent={childrenByParent}
-              expanded={expanded} loadingNodes={loadingNodes} onOpen={onOpen}
-              onToggle={onToggle} onPrefetch={onPrefetch} onCancelPrefetch={onCancelPrefetch}
-            />)}
-          </div>}
         </Fragment>;
       })}
     {showSwitchGoogleConfirm && createPortal(<div

@@ -3,13 +3,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.core.database import get_db
+from app.core.config import get_settings
+from app.core.database import get_db, SessionLocal
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.assets.source_credentials import source_credential_contract
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal, require_permission
 from app.modules.explorer.cache import invalidate_drive_listings, invalidate_drive_source
 from app.modules.authorization.folder_scope_cache import viewer_folder_hierarchy_cache, viewer_folder_remote_parent_cache
+from app.modules.source_sync.scheduler import SourceSyncScheduler
 
 router=APIRouter(prefix="/api/sources",tags=["sources"])
 ASSETS_MANAGE=require_permission("assets.manage")
@@ -47,6 +49,33 @@ def list_sources(principal:CurrentPrincipal=Depends(require_authenticated_princi
     if connection_ids:
         connection_emails = dict(session.execute(select(OAuthConnectionModel.id, OAuthConnectionModel.account_email).where(OAuthConnectionModel.tenant_id==principal.active_tenant_id, OAuthConnectionModel.id.in_(connection_ids))).all())
     return [summary(row, connection_emails.get(row.oauth_connection_id)) for row in rows]
+
+
+class SourceSyncResponse(BaseModel):
+    source_id: str
+    job_id: str | None
+    mode: str | None
+    queued: bool
+    detail: str | None = None
+
+
+@router.post("/{source_id}/sync", response_model=SourceSyncResponse)
+def sync_source(source_id: str, principal: CurrentPrincipal = Depends(ASSETS_MANAGE)):
+    """Queue a durable sync for exactly one tenant-scoped source."""
+    result = SourceSyncScheduler(SessionLocal, get_settings()).enqueue_source(
+        principal.active_tenant_id, source_id
+    )
+    if result.skipped_reason in {"source_not_found", "source_decommissioned"}:
+        raise HTTPException(404, detail={"code": result.skipped_reason, "message": "Source is unavailable"})
+    if result.skipped_reason == "credentials_unavailable":
+        raise HTTPException(409, detail={"code": "source_credentials_unavailable", "message": "Source requires reconnection"})
+    if result.skipped_reason == "tenant_policy_disabled_or_paused":
+        raise HTTPException(409, detail={"code": "source_sync_disabled", "message": "Source synchronization is disabled"})
+    return SourceSyncResponse(
+        source_id=source_id, job_id=result.job_id, mode=result.mode,
+        queued=bool(result.created or result.skipped_reason in {"active_job", "idempotency_key"}),
+        detail=result.skipped_reason,
+    )
 
 @router.post("/{source_id}/disconnect",response_model=ExternalSourceSummary)
 def disconnect_source(source_id:str,principal:CurrentPrincipal=Depends(ASSETS_MANAGE),session:Session=Depends(get_db)):

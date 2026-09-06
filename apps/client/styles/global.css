@@ -1371,3 +1371,17 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .video-prompt-note{margin:0;padding:9px 10px;border-radius:8px;background:#fff8e8;color:#765718;font-size:9.5px;line-height:1.45}
 @media(max-width:420px){.video-prompt-providers{grid-template-columns:1fr}}
 .desktop-ingestion-actions{display:flex;gap:8px;margin:0 0 8px}.desktop-ingestion-actions button{border:1px solid #b9c8e8;border-radius:7px;background:#f7f9ff;color:#244fa7;padding:6px 10px;font:600 12px inherit;cursor:pointer}.desktop-ingestion-actions .danger{border-color:#efb7b2;color:#b42318;background:#fff8f7}.desktop-ingestion-panel .upload-row{grid-template-columns:22px minmax(0,1fr) auto}.desktop-ingestion-panel .upload-row button{border:0;border-radius:5px;background:#eef3ff;color:#285ecc;font:600 11px inherit;padding:4px 7px;cursor:pointer}.upload-duplicate .upload-status-icon{background:#eef2f7}.upload-unsupported .upload-status-icon,.upload-cancelled .upload-status-icon{background:#f4f0e9}.upload-paused .upload-status-icon{background:#f5e6a8}
+
+/* Source-specific account management */
+.source-entry{margin:0 0 6px}
+.source-entry .source{border:1px solid transparent}
+.source-entry .source.active{border-color:#c8d8fa}
+.source-entry-actions{display:flex;flex-wrap:wrap;gap:5px;padding:3px 7px 0 34px}
+.source-entry-actions button,.source-add-account{min-height:25px;padding:4px 7px;border:1px solid #ced8e6;border-radius:6px;background:#fff;color:#526174;font-size:9px;font-weight:700;cursor:pointer}
+.source-entry-actions button:hover,.source-add-account:hover{border-color:#8daaf0;background:#f2f6ff;color:#2457b8}
+.source-entry-actions .danger{border-color:#e4beb9;color:#a64137}
+.source-entry-actions .danger:hover{border-color:#d9837a;background:#fff4f2;color:#98352d}
+.source-entry-actions button:disabled{cursor:wait;opacity:.55}
+.source-add-account{display:block;width:calc(100% - 14px);margin:3px 7px 7px;border-style:dashed;text-align:left;color:#3159b8}
+.source-attention{width:8px;height:8px;margin-left:auto;border-radius:50%;background:#d79020;box-shadow:0 0 0 3px #d7902024}
+.source-disconnected{display:inline-flex;padding:4px 7px;color:#788596;font-size:9px;font-weight:700}

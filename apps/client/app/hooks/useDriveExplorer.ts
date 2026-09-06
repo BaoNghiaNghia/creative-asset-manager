@@ -994,6 +994,14 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     setExplorerReady(true);
   }
 
+  async function syncSource(sourceId: string) {
+    const response = await fetch("/api/sources/" + encodeURIComponent(sourceId) + "/sync", { method: "POST" });
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null);
+      throw Error(apiErrorMessage(body, "Unable to queue source sync"));
+    }
+  }
+
   async function disconnectSource(sourceId: string) {
     const response = await fetch("/api/sources/" + encodeURIComponent(sourceId) + "/disconnect", { method: "POST" });
     if (!response.ok) throw Error("Unable to disconnect source");
@@ -1181,6 +1189,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     authByProvider,
     sources,
     selectSource,
+    syncSource,
     disconnectSource,
     applicationAuthenticated,
     applicationUser,

@@ -647,6 +647,8 @@ export default function App() {
       provider={explorer.provider}
       auth={explorer.auth}
       authByProvider={explorer.authByProvider}
+      sources={explorer.sources}
+      activeExternalSourceId={explorer.activeExternalSourceId}
       tags={explorer.tags}
       path={explorer.path}
       activeId={activeId}
@@ -655,6 +657,9 @@ export default function App() {
       expanded={explorer.expanded}
       loadingNodes={explorer.loadingTreeIds}
       onSelectProvider={explorer.selectProvider}
+      onSelectSource={explorer.selectSource}
+      onDisconnectSource={explorer.disconnectSource}
+      onSyncSource={explorer.syncSource}
       onOpen={explorer.openFolder}
       onToggle={explorer.toggleTree}
       onPrefetch={explorer.scheduleFolderPrefetch}
