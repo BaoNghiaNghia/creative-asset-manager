@@ -191,6 +191,12 @@ def build_worker_runtime(
             session_factory, resolver,
             temp_directory=settings.PIPELINE_TEMP_DIRECTORY or None,
             max_temp_files=settings.PIPELINE_TEMP_MAX_FILES,
+            google_drive_temp_folder_id=(
+                settings.PIPELINE_TEMP_GOOGLE_DRIVE_FOLDER_ID or None
+            ),
+            google_drive_file_counter=getattr(
+                storage_provider, "count_folder_files_up_to", None
+            ),
         ),
     }
     if storage_configured:

@@ -119,6 +119,54 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
         """
         return await self._get_access_token()
 
+    async def count_folder_files_up_to(self, folder_id: str, limit: int) -> int:
+        """Count active direct children, stopping once ``limit`` is reached.
+
+        The bounded count is used as a back-pressure check for a managed
+        Google Drive staging folder; it never exposes credentials to callers.
+        """
+        folder_id = str(folder_id or "").strip()
+        if not folder_id:
+            raise ValueError("Google Drive temporary folder ID is required")
+        if limit < 1:
+            return 0
+
+        access_token = await self._get_access_token()
+        files = 0
+        page_token: str | None = None
+        try:
+            async with httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=httpx.Timeout(30, connect=10, read=30),
+                transport=self._transport,
+            ) as client:
+                while files < limit:
+                    params: dict[str, str] = {
+                        "q": f"'{_escape_query(folder_id)}' in parents and trashed = false",
+                        "pageSize": str(min(1000, limit - files)),
+                        "fields": "nextPageToken,files(id)",
+                        "supportsAllDrives": "true",
+                        "includeItemsFromAllDrives": "true",
+                    }
+                    if page_token:
+                        params["pageToken"] = page_token
+                    response = await client.get(
+                        "https://www.googleapis.com/drive/v3/files", params=params
+                    )
+                    self._raise_for_status(response)
+                    payload = response.json()
+                    files += len(payload.get("files") or [])
+                    page_token = str(payload.get("nextPageToken") or "") or None
+                    if not page_token:
+                        break
+        except StorageProviderError:
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise StorageProviderError(
+                "Google Drive temporary folder count failed.", retryable=True
+            ) from exc
+        return files
+
     async def delete_asset(self, input: DeleteStoredAssetInput) -> None:
         """Delete only a tracked managed-storage object, never a source object."""
         access_token = await self._get_access_token()

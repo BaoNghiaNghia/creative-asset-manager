@@ -11,7 +11,7 @@ from app.core.database import Base
 from app.domain.providers.contracts import AssetDownloadStream
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.repository import AssetPipelineRepository
-from app.modules.pipeline.stages import ProviderDownloadStage, SourceContentTooLarge
+from app.modules.pipeline.stages import ProviderDownloadStage, SourceContentTooLarge, TemporaryDownloadCapacityReached
 
 
 async def _close():
@@ -156,4 +156,20 @@ class ProviderDownloadStageTest(unittest.TestCase):
             max_bytes=1,
         )
         with self.assertRaises(SourceContentTooLarge):
+            asyncio.run(stage.execute(tenant_id="tenant-a", pipeline=pipeline))
+
+    def test_google_drive_temp_folder_at_capacity_pauses_before_download(self):
+        pipeline = self.pipeline("google_drive", "drive", "gdrive-capacity", "one.png")
+
+        async def count_files(folder_id, limit):
+            self.assertEqual(folder_id, "temporary-folder")
+            self.assertEqual(limit, 2000)
+            return 2000
+
+        stage = ProviderDownloadStage(
+            self.sessions, BytesResolver(png("red")),
+            google_drive_temp_folder_id="temporary-folder",
+            google_drive_file_counter=count_files,
+        )
+        with self.assertRaises(TemporaryDownloadCapacityReached):
             asyncio.run(stage.execute(tenant_id="tenant-a", pipeline=pipeline))

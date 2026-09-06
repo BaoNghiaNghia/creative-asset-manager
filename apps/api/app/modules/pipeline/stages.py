@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncContextManager, Protocol
@@ -34,13 +34,17 @@ class ProviderDownloadStage:
 
     def __init__(self, session_factory: Callable[[], Session], resolver: PipelineContentResolver, *,
                  max_bytes: int = 25_000_000, max_pixels: int = 80_000_000,
-                 temp_directory: str | None = None, max_temp_files: int = 2000):
+                 temp_directory: str | None = None, max_temp_files: int = 2000,
+                 google_drive_temp_folder_id: str | None = None,
+                 google_drive_file_counter: Callable[[str, int], Awaitable[int]] | None = None):
         self.session_factory = session_factory
         self.resolver = resolver
         self.max_bytes = max_bytes
         self.max_pixels = max_pixels
         self.temp_directory = temp_directory
         self.max_temp_files = max_temp_files
+        self.google_drive_temp_folder_id = google_drive_temp_folder_id
+        self.google_drive_file_counter = google_drive_file_counter
 
     async def execute(self, *, tenant_id: str, pipeline: AssetPipelineModel) -> DownloadStageResult:
         path: Path | None = None
@@ -71,6 +75,17 @@ class ProviderDownloadStage:
                 path.unlink(missing_ok=True)
 
     async def _bounded_copy(self, body: AsyncIterator[bytes]) -> tuple[Path, int]:
+        if self.google_drive_temp_folder_id and self.google_drive_file_counter:
+            files = await self.google_drive_file_counter(
+                self.google_drive_temp_folder_id, self.max_temp_files
+            )
+            if files >= self.max_temp_files:
+                raise TemporaryDownloadCapacityReached(
+                    "Google Drive temporary folder has "
+                    f"{files} files; downloads pause at {self.max_temp_files}"
+                )
+            return await self._copy_to_local_temp_file(body)
+
         directory = Path(self.temp_directory or tempfile.gettempdir())
         try:
             files = sum(1 for entry in directory.iterdir() if entry.is_file())
@@ -80,6 +95,9 @@ class ProviderDownloadStage:
             raise TemporaryDownloadCapacityReached(
                 f"pipeline temporary directory has {files} files; downloads pause at {self.max_temp_files}"
             )
+        return await self._copy_to_local_temp_file(body)
+
+    async def _copy_to_local_temp_file(self, body: AsyncIterator[bytes]) -> tuple[Path, int]:
         descriptor, name = tempfile.mkstemp(prefix="cam-pipeline-", suffix=".asset", dir=self.temp_directory)
         os.close(descriptor)
         path = Path(name)
