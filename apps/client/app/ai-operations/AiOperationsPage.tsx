@@ -536,7 +536,16 @@ const recentVideoSteps = [
 
 type RecentVideoItem = NonNullable<AiOpsDashboardData["media"]>["recent_video"]["items"][number];
 
-function SourcePlatform({ value }: { value?: string | null }) {  const normalized = value === "google_drive" ? "google-drive" : value === "onedrive" ? "onedrive" : value === "sharepoint" ? "sharepoint" : "unknown";  const label = normalized === "google-drive" ? "Google Drive" : normalized === "onedrive" ? "OneDrive" : normalized === "sharepoint" ? "SharePoint" : "Unknown source";  const logo = normalized === "google-drive" ? googleDrivePlatformLogo : normalized === "onedrive" ? oneDrivePlatformLogo : undefined;  return <span className={"source-platform " + normalized} title={label}>{logo ? <img src={logo} alt="" aria-hidden="true" /> : <i aria-hidden="true">{normalized === "sharepoint" ? "S" : "?"}</i>}<span>{label}</span></span>;}
+function SourcePlatform({ value, username }: { value?: string | null; username?: string | null }) {
+  const normalized = value === "google_drive" ? "google-drive" : value === "onedrive" ? "onedrive" : value === "sharepoint" ? "sharepoint" : "unknown";
+  const label = normalized === "google-drive" ? "Google Drive" : normalized === "onedrive" ? "OneDrive" : normalized === "sharepoint" ? "SharePoint" : "Unknown source";
+  const logo = normalized === "google-drive" ? googleDrivePlatformLogo : normalized === "onedrive" ? oneDrivePlatformLogo : undefined;
+  const accountLabel = username?.trim() || "—";
+  return <span className={"source-platform " + normalized} title={username ? label + " (" + username + ")" : label}>
+    {logo ? <img src={logo} alt="" aria-hidden="true" /> : <i aria-hidden="true">{normalized === "sharepoint" ? "S" : "?"}</i>}
+    <span className="source-platform-copy"><strong>{label}</strong><small>{accountLabel}</small></span>
+  </span>;
+}
 
 function VideoPipelineFlow({ item }: { item: RecentVideoItem }) {
   return <td className="video-pipeline-flow-cell"><ol className="video-pipeline-flow" aria-label="Video processing flow">
@@ -586,7 +595,7 @@ function RecentVideoProgress({ recent, onPage, onOpenVideo }: {
         const stepErrors = Array.from(new Set((item.steps || []).map(step => step.error_code).filter(Boolean)));
         return <tr key={item.job_id}>
           <td className="video-recent-title"><VideoThumbnailWithDuration thumbnailUrl={item.thumbnail_url} durationMs={item.duration_ms} /><span className="video-recent-copy"><button type="button" className="video-recent-title-button" onClick={() => onOpenVideo(item.source_asset_id)} aria-label={"Mở chi tiết " + title}>{title}</button><small className="asset-mime-type">{item.mime_type || "\u2014"}</small></span></td>
-          <td><SourcePlatform value={item.source_type} /></td>
+          <td><SourcePlatform value={item.source_type} username={item.source_username} /></td>
           <td className="video-recent-location" title={item.location || undefined}>{item.location || "—"}</td>
           <VideoPipelineFlow item={item} />
           <td>{new Date(item.updated_at).toLocaleString()}</td>
@@ -731,7 +740,7 @@ function PipelineRecentAssets({ recent, onPage, onOpenAsset }: { recent: Pipelin
   const page = Math.min(recent.page, pages);
   const first = (page - 1) * recent.page_size + 1;
   const last = Math.min(page * recent.page_size, recent.total);
-  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Tiến độ tài sản gần đây</h2><p>Hiển thị {first}-{last} trên tổng số {recent.total} tài sản logic. Chọn tên để xem chi tiết ngay trong AI Operations.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Số mục mỗi trang<select aria-label="Số mục pipeline mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table pipeline-recent-table"><thead><tr><th>Tài sản</th><th>Platform</th><th>Giai đoạn hiện tại</th><th>Luồng xử lý</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetThumbnail filename={item.filename} thumbnailUrl={item.thumbnail_url} /><div>{item.asset_id ? <button type="button" className="pipeline-asset-link" onClick={() => onOpenAsset(item.asset_id!)} title={item.filename}>{pipelineAssetTitle(item.filename)}</button> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small className="asset-mime-type">{item.mime_type || "—"}</small></div></div></td><td><SourcePlatform value={item.source_type} /></td><td><PipelineCurrentState state={item.state} /></td><td className="pipeline-flow-cell"><PipelineAssetFlow statuses={item.stage_statuses} /></td><td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "—"}</td></tr>)}</tbody></table></div></section>;
+  return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Tiến độ tài sản gần đây</h2><p>Hiển thị {first}-{last} trên tổng số {recent.total} tài sản logic. Chọn tên để xem chi tiết ngay trong AI Operations.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Số mục mỗi trang<select aria-label="Số mục pipeline mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table pipeline-recent-table"><thead><tr><th>Tài sản</th><th>Platform</th><th>Giai đoạn hiện tại</th><th>Luồng xử lý</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetThumbnail filename={item.filename} thumbnailUrl={item.thumbnail_url} /><div>{item.asset_id ? <button type="button" className="pipeline-asset-link" onClick={() => onOpenAsset(item.asset_id!)} title={item.filename}>{pipelineAssetTitle(item.filename)}</button> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small className="asset-mime-type">{item.mime_type || "—"}</small></div></div></td><td><SourcePlatform value={item.source_type} username={item.source_username} /></td><td><PipelineCurrentState state={item.state} /></td><td className="pipeline-flow-cell"><PipelineAssetFlow statuses={item.stage_statuses} /></td><td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "—"}</td></tr>)}</tbody></table></div></section>;
 }
 
 function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: string; label: string; value: number; detail: string; tone?: string }) {
@@ -1113,7 +1122,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted, o
               {assetId && job.filename ? <code title={assetId}>{assetId}</code> : null}
             </div>
           </div></td>
-          <td><SourcePlatform value={job.source_type} /></td><td>{providerLabel(job.provider)}</td><td>{usage?.model || "\u2014"}</td><td>{modeLabel(mode)}</td>
+          <td><SourcePlatform value={job.source_type} username={job.source_username} /></td><td>{providerLabel(job.provider)}</td><td>{usage?.model || "\u2014"}</td><td>{modeLabel(mode)}</td>
           <td>{usage?.metadata_profile || "\u2014"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
           <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
           <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><ErrorDetailPopover code={job.error?.code} message={job.error?.message} /></td>
@@ -1165,7 +1174,7 @@ function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }
           <VideoThumbnailWithDuration thumbnailUrl={job.thumbnail_url} durationMs={job.duration_ms} />
           <span><button type="button" className="video-processing-title-button" onClick={() => onOpenVideo(job.source_asset_id)} aria-label={"Mở chi tiết " + (job.filename || job.source_asset_id)}>{job.filename || job.source_asset_id}</button><small>{job.location || job.source_asset_id}</small></span>
         </div></td>
-        <td><SourcePlatform value={job.source_type} /></td>
+        <td><SourcePlatform value={job.source_type} username={job.source_username} /></td>
         <td>{providerLabel(job.ai_provider)}</td>
         <td>{job.ai_model || "—"}</td>
         <td title="Completed processing segments / total segments">{job.total_chunks ? (job.completed_chunks || 0) + "/" + job.total_chunks : "—"}</td>

@@ -1374,6 +1374,12 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 
 /* Source-specific account management */
 .source-entry{margin:0 0 6px}
+.source-platform{display:inline-flex;align-items:flex-start;gap:6px;white-space:nowrap}
+.source-platform img{width:18px;height:18px;object-fit:contain;margin-top:1px}
+.source-platform i{display:grid;place-items:center;width:18px;height:18px;border-radius:4px;background:#eaf0fb;color:#3159b8;font-size:11px;font-style:normal;font-weight:800}
+.source-platform-copy{display:grid;gap:1px;line-height:1.15}
+.source-platform-copy strong{font-size:12px;color:#38506f}
+.source-platform-copy small{max-width:180px;overflow:hidden;color:#7a879a;font-size:10px;text-overflow:ellipsis}
 .source-entry .source{border:1px solid transparent}
 .source-entry .source.active{border-color:#c8d8fa}
 .source-context-menu-backdrop{position:fixed;inset:0;z-index:1000}

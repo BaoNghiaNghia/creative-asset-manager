@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.domain.processing.types import JobStatus
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.assets.source_account import source_account_username
+from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.assets.source_state import is_external_source_decommissioned
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import PROCESSING_JOB_QUEUED_STATUSES, PROCESSING_JOB_RUNNING_STATUSES, ProcessingJobModel
@@ -58,6 +60,8 @@ class PipelineOperationsRepository:
             SourceAssetModel.external_asset_id.label("external_asset_id"),
             SourceAssetModel.external_source_id.label("external_source_id"),
             ExternalSourceModel.source_type.label("source_type"),
+            ExternalSourceModel.source_metadata.label("source_metadata"),
+            OAuthConnectionModel.account_email.label("source_account_email"),
             AssetPipelineModel.id.label("pipeline_id"), AssetPipelineModel.asset_id.label("asset_id"),
             AssetPipelineModel.state.label("pipeline_state"), AssetPipelineModel.last_error_code.label("pipeline_error_code"),
             AssetPipelineModel.last_error_message.label("pipeline_error_message"), AssetPipelineModel.updated_at.label("pipeline_updated_at"),
@@ -67,6 +71,9 @@ class PipelineOperationsRepository:
         )).outerjoin(AssetPipelineModel, and_(
             AssetPipelineModel.tenant_id == SourceAssetModel.tenant_id,
             AssetPipelineModel.source_asset_id == SourceAssetModel.id,
+        )).outerjoin(OAuthConnectionModel, and_(
+            OAuthConnectionModel.tenant_id == ExternalSourceModel.tenant_id,
+            OAuthConnectionModel.id == ExternalSourceModel.oauth_connection_id,
         )).where(
             SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.deleted_at.is_(None),
             SourceAssetModel.mime_type.in_(SUPPORTED_IMAGE_MIME_TYPES),
@@ -184,7 +191,7 @@ class PipelineOperationsRepository:
             if provider:
                 query = urlencode({"provider": provider, "external_source_id": row["external_source_id"]})
                 thumbnail_url = f"/api/explorer/thumbnail/{quote(str(row['external_asset_id']), safe='')}?{query}"
-            items.append({"asset_id": row["asset_id"], "filename": row["filename"] or "Untitled source asset", "mime_type": normalize_source_mime_type(row["mime_type"]), "thumbnail_url": thumbnail_url, "state": row["pipeline_state"] or "discovered", "stage_statuses": self._asset_stage_statuses(row["pipeline_state"] or "discovered"), "updated_at": row["pipeline_updated_at"] or row["source_updated_at"], "error_code": row["pipeline_error_code"], "source_type": row["source_type"]})
+            items.append({"asset_id": row["asset_id"], "filename": row["filename"] or "Untitled source asset", "mime_type": normalize_source_mime_type(row["mime_type"]), "thumbnail_url": thumbnail_url, "state": row["pipeline_state"] or "discovered", "stage_statuses": self._asset_stage_statuses(row["pipeline_state"] or "discovered"), "updated_at": row["pipeline_updated_at"] or row["source_updated_at"], "error_code": row["pipeline_error_code"], "source_type": row["source_type"], "source_username": source_account_username(row["source_metadata"], row["source_account_email"])})
         return {"page": page, "page_size": page_size, "total": total, "items": items}
 
     def snapshot(self, tenant_id: str, *, recent_page: int = 1, recent_page_size: int = 25) -> dict[str, Any]:

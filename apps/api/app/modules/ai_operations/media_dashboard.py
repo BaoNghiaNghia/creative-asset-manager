@@ -15,6 +15,8 @@ from app.modules.ai_governance.model import AiCostRateModel
 from app.modules.ai_governance.repository import micros
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.assets.source_account import source_account_username
+from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
 
 IMAGE_JOB_TYPE = "asset_analyze"
@@ -678,6 +680,16 @@ class MediaDashboardService:
             source.external_source_id: self.session.get(ExternalSourceModel, source.external_source_id)
             for source in page_sources
         }
+        connection_ids = {
+            source.oauth_connection_id for source in external_sources.values()
+            if source is not None and source.oauth_connection_id
+        }
+        connection_emails = dict(self.session.execute(
+            select(OAuthConnectionModel.id, OAuthConnectionModel.account_email).where(
+                OAuthConnectionModel.tenant_id == tenant_id,
+                OAuthConnectionModel.id.in_(connection_ids),
+            )
+        ).all()) if connection_ids else {}
         locations = _video_locations(
             self.session,
             tenant_id,
@@ -786,6 +798,10 @@ class MediaDashboardService:
                 "filename": source.filename if source is not None else None,
                 "mime_type": source.mime_type if source is not None else None,
                 "source_type": external.source_type if external is not None else None,
+                "source_username": source_account_username(
+                    external.source_metadata if external is not None else None,
+                    connection_emails.get(external.oauth_connection_id) if external is not None else None,
+                ),
                 "location": locations.get(source.id) if source is not None else None,
                 "ai_provider": run.ai_provider if run is not None else None,
                 "ai_model": run.ai_model if run is not None else None,

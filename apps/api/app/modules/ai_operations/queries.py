@@ -16,6 +16,8 @@ from app.modules.image_generation.model import ImageGenerationRunModel
 from app.modules.assets.model import (
     AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel,
 )
+from app.modules.assets.source_account import source_account_username
+from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.ai_operations.repository import AiOperationsRepository as BaseRepository
 from app.modules.ai_operations.schema import AI_JOB_TYPES, AiOperationsFilters
 from app.domain.processing.types import JobStatus
@@ -450,6 +452,8 @@ class AiOperationsRepository(BaseRepository):
                     SourceAssetModel.external_asset_id,
                     SourceAssetModel.external_source_id,
                     ExternalSourceModel.source_type,
+                    ExternalSourceModel.source_metadata,
+                    OAuthConnectionModel.account_email,
                 )
                 .join(SourceAssetModel, and_(
                     SourceAssetModel.tenant_id == AssetSourceLinkModel.tenant_id,
@@ -459,6 +463,10 @@ class AiOperationsRepository(BaseRepository):
                     ExternalSourceModel.tenant_id == SourceAssetModel.tenant_id,
                     ExternalSourceModel.id == SourceAssetModel.external_source_id,
                 ))
+                .outerjoin(OAuthConnectionModel, and_(
+                    OAuthConnectionModel.tenant_id == ExternalSourceModel.tenant_id,
+                    OAuthConnectionModel.id == ExternalSourceModel.oauth_connection_id,
+                ))
                 .where(
                     AssetSourceLinkModel.tenant_id == f.tenant_id,
                     AssetSourceLinkModel.asset_id.in_(resolved_asset_ids),
@@ -466,7 +474,7 @@ class AiOperationsRepository(BaseRepository):
                 )
                 .order_by(AssetSourceLinkModel.created_at.desc())
             ).all()
-            for asset_id, filename, mime_type, external_asset_id, external_source_id, source_type in source_rows:
+            for asset_id, filename, mime_type, external_asset_id, external_source_id, source_type, source_metadata, account_email in source_rows:
                 if str(asset_id) in asset_presentations:
                     continue
                 thumbnail_url = None
@@ -474,7 +482,7 @@ class AiOperationsRepository(BaseRepository):
                 if provider:
                     query = urlencode({"provider": provider, "external_source_id": external_source_id})
                     thumbnail_url = f"/api/explorer/thumbnail/{quote(str(external_asset_id), safe='')}?{query}"
-                asset_presentations[str(asset_id)] = {"filename": filename, "mime_type": mime_type, "thumbnail_url": thumbnail_url, "source_type": source_type}
+                asset_presentations[str(asset_id)] = {"filename": filename, "mime_type": mime_type, "thumbnail_url": thumbnail_url, "source_type": source_type, "source_username": source_account_username(source_metadata, account_email)}
         now = datetime.now(timezone.utc)
         def is_deferred(job: ProcessingJobModel) -> bool:
             retry_at = job.next_attempt_at
@@ -504,6 +512,7 @@ class AiOperationsRepository(BaseRepository):
                 "thumbnail_url": presentation.get("thumbnail_url"),
                 "source_thumbnail_url": presentation.get("thumbnail_url"),
                 "source_type": presentation.get("source_type"),
+                "source_username": presentation.get("source_username"),
                 "generated_image_url": (
                     f"/api/v1/image-generations/{quote(str(job.entity_id), safe='')}/image"
                     if job.entity_type == "image_generation_run"
