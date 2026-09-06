@@ -43,6 +43,7 @@ def _video_analytics(
     runs: list[VideoAnalysisRunModel],
     chunks: list[VideoAnalysisChunkModel],
     cost_rates: list[AiCostRateModel],
+    jobs: list[ProcessingJobModel] = (),
     *,
     from_at: datetime,
     to_at: datetime,
@@ -57,6 +58,7 @@ def _video_analytics(
     provider_latencies: dict[tuple[str, str | None], list[int]] = defaultdict(list)
     latencies: list[int] = []
     failure_counts = Counter()
+    represented_source_assets: set[str] = set()
     chunks_by_run: dict[str, list[VideoAnalysisChunkModel]] = defaultdict(list)
     cost_records = 0
     for chunk in chunks:
@@ -94,6 +96,7 @@ def _video_analytics(
         occurred_at = _as_utc(run.completed_at) or _as_utc(run.updated_at)
         if run.status not in _TERMINAL or occurred_at is None or not (from_at <= occurred_at < to_at):
             continue
+        represented_source_assets.add(run.source_asset_id)
         counts = daily[occurred_at.date().isoformat()]
         counts[run.status] += 1
         provider_key = (run.ai_provider or "unknown", run.ai_model)
@@ -110,6 +113,39 @@ def _video_analytics(
         if run.status == "failed":
             failure_counts[run.last_error_code or "video_analysis_failed"] += 1
         started_at = _as_utc(run.started_at)
+        if started_at is not None and occurred_at >= started_at:
+            latency = int((occurred_at - started_at).total_seconds() * 1000)
+            latencies.append(latency)
+            provider_latencies[provider_key].append(latency)
+
+    # Historical video jobs predate VideoAnalysisRun rows.  Include those
+    # terminal attempts in reporting, but never count a source twice when the
+    # richer run record is present for the selected period.
+    for job in jobs:
+        if job.entity_type != "source_asset" or job.entity_id in represented_source_assets:
+            continue
+        if job.status not in _TERMINAL:
+            continue
+        if provider and job.provider_key != provider:
+            continue
+        # Old job records do not carry a trustworthy model/profile.  They are
+        # intentionally visible only in the unfiltered aggregate rather than
+        # being misattributed to a selected model or profile.
+        if model or metadata_profile or processing_mode == "batch":
+            continue
+        if status and job.status != status:
+            continue
+        occurred_at = _as_utc(job.completed_at) or _as_utc(job.updated_at)
+        if occurred_at is None or not (from_at <= occurred_at < to_at):
+            continue
+        counts = daily[occurred_at.date().isoformat()]
+        counts[job.status] += 1
+        provider_key = (job.provider_key or "unknown", None)
+        providers[provider_key]["count"] += 1
+        providers[provider_key][job.status] += 1
+        if job.status == "failed":
+            failure_counts[job.last_error_code or "video_analysis_failed"] += 1
+        started_at = _as_utc(job.claimed_at) or _as_utc(job.created_at)
         if started_at is not None and occurred_at >= started_at:
             latency = int((occurred_at - started_at).total_seconds() * 1000)
             latencies.append(latency)
@@ -710,7 +746,7 @@ class MediaDashboardService:
         cost_rates = list(self.session.scalars(select(AiCostRateModel)))
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         today_analytics = _video_analytics(
-            analytics_runs, analytics_chunks, cost_rates,
+            analytics_runs, analytics_chunks, cost_rates, video_jobs,
             from_at=today_start,
             to_at=now,
             provider=provider,
@@ -793,7 +829,7 @@ class MediaDashboardService:
             ],
             "analytics": _merge_video_job_failure_groups(
                 _video_analytics(
-                    analytics_runs, analytics_chunks, cost_rates,
+                    analytics_runs, analytics_chunks, cost_rates, video_jobs,
                     from_at=from_at,
                     to_at=to_at,
                     provider=provider,
