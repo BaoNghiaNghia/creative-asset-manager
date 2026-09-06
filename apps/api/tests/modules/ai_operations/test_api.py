@@ -286,6 +286,8 @@ class AiOperationsApiTest(unittest.TestCase):
         failed_video = response.json()["recent_video"]["items"][0]
         self.assertEqual(failed_video["error_code"], "video_provider_failed")
         self.assertEqual(failed_video["error_message"], "Gemini request failed at https://video.example/run")
+        self.assertEqual(failed_video["ai_provider"], "gemini")
+        self.assertEqual(failed_video["ai_model"], "gemini-video")
         self.assertNotIn("secret", str(response.json()))
 
         with patch("app.modules.ai_operations.router.SessionLocal", self.factory), patch(

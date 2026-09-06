@@ -243,6 +243,8 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(processingMarkup).toContain("Google Drive / Campaigns");
     expect(processingMarkup).toContain("/api/explorer/thumbnail/asset");
     expect(processingMarkup).toContain("Segments");
+    expect(processingMarkup).toContain("Provider");
+    expect(processingMarkup).toContain("Model");
     expect(processingMarkup).toContain("2/5");
     expect(processingMarkup).toContain("Video processing page numbers");
     expect(processingMarkup).toContain('aria-label="Thời lượng 1:05"');

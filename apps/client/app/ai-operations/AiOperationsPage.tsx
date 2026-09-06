@@ -1158,14 +1158,17 @@ function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }
     />
     <div className="ops-table-scroll"><table className="ops-data-table">
       <caption className="sr-only">Video processing jobs</caption>
-      <thead><tr>{["Status", "Video", "Platform", "Segments", "Attempts", "Updated", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
+      <thead><tr>{["Status", "Video", "Platform", "Provider", "Model", "Segments", "Attempts", "Updated", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
       <tbody>{recent.items.map(job => <tr key={job.job_id}>
         <td><StatusText status={job.status} /></td>
         <td><div className="video-processing-title">
           <VideoThumbnailWithDuration thumbnailUrl={job.thumbnail_url} durationMs={job.duration_ms} />
           <span><button type="button" className="video-processing-title-button" onClick={() => onOpenVideo(job.source_asset_id)} aria-label={"Mở chi tiết " + (job.filename || job.source_asset_id)}>{job.filename || job.source_asset_id}</button><small>{job.location || job.source_asset_id}</small></span>
         </div></td>
-        <td><SourcePlatform value={job.source_type} /></td><td title="Completed processing segments / total segments">{job.total_chunks ? (job.completed_chunks || 0) + "/" + job.total_chunks : "—"}</td>
+        <td><SourcePlatform value={job.source_type} /></td>
+        <td>{providerLabel(job.ai_provider)}</td>
+        <td>{job.ai_model || "—"}</td>
+        <td title="Completed processing segments / total segments">{job.total_chunks ? (job.completed_chunks || 0) + "/" + job.total_chunks : "—"}</td>
         <td>{job.attempt_count}/{job.max_attempts}</td>
         <td><time dateTime={job.updated_at}>{new Date(job.updated_at).toLocaleString()}</time></td>
         <td><ErrorDetailPopover code={job.error_code} message={job.error_message} /></td>
