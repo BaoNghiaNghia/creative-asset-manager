@@ -77,7 +77,6 @@ async def open_media_stream(access_token:str,item_id:str,range_header:str|None):
             metadata = await client.get(
                 f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{graph_id}",
                 headers={"Authorization": f"Bearer {access_token}"},
-                params={"$select": "id,@microsoft.graph.downloadUrl"},
             )
             if metadata.status_code >= 400:
                 await _raise_download_error(metadata)

@@ -77,7 +77,7 @@ def test_media_stream_uses_graph_download_url_when_consumer_content_endpoint_ret
     with patch("app.providers.microsoft.onedrive.httpx.AsyncClient",return_value=client):
         returned_client,returned_response=asyncio.run(open_media_stream("secret",make_item_id("drive-id","item-id"),None))
     assert returned_client is client and returned_response is downloaded
-    assert client.get.await_args.kwargs["params"]=={"$select":"id,@microsoft.graph.downloadUrl"}
+    assert client.get.await_args.kwargs["headers"]=={"Authorization":"Bearer secret"}
     assert client.build_request.call_args_list[1].args==("GET","https://public.files.1drv.com/content")
 
 def test_media_stream_exposes_graph_error_code_when_fallback_metadata_is_rejected():
