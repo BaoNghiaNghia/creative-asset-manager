@@ -28,6 +28,7 @@ from app.modules.search.router import (
     _search_scope_filters,
     _search_thumbnail_url,
     _source_pair_rank,
+    _source_type_provider,
     _source_provider_filter,
     _suggestion_values,
     _typed_filters,
@@ -546,6 +547,11 @@ class SearchV3ApiTest(unittest.TestCase):
             external_source_id=source_ids[0], generation="v3",
         )
         self.assertEqual(scoped, {"terms": {"source_id": source_ids}})
+
+    def test_source_type_provider_preserves_onedrive(self):
+        self.assertEqual(_source_type_provider("google_drive"), "google-drive")
+        self.assertEqual(_source_type_provider("onedrive"), "onedrive")
+        self.assertEqual(_source_type_provider("sharepoint"), "sharepoint")
 
     def test_viewer_suggestion_filters_are_source_and_folder_scoped(self):
         with self.factory() as session:

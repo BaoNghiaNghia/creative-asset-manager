@@ -197,6 +197,17 @@ def _source_provider_filter(session, tenant: str, source_provider: str | None, *
         )
     ]
     return {"terms": {"source_id": source_ids or ["__none__"]}}
+
+
+def _source_type_provider(source_type: object) -> str:
+    """Translate persisted source types to the public search-provider value."""
+    return {
+        "google_drive": "google-drive",
+        "onedrive": "onedrive",
+        "sharepoint": "sharepoint",
+    }.get(str(source_type or "").casefold(), "google-drive")
+
+
 def _viewer_scope_filter(
     session,
     principal: CurrentPrincipal,
@@ -375,7 +386,7 @@ def _search_folder_items(session, principal: CurrentPrincipal, *, value: str, so
             allowed_roots = set(viewer_scopes.get(source.external_source_id, ()))
             if not allowed_roots.intersection([source.external_asset_id, *ancestor_ids]):
                 continue
-        provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
+        provider = _source_type_provider(external.source_type)
         items.append({
             "provider": provider,
             "id": source.external_asset_id,
@@ -759,7 +770,7 @@ def _hydrate_search_hits(session, tenant: str, hits: list[dict], *, viewer_restr
             hydration_drops += 1
             continue
         source, external = pair
-        provider = "sharepoint" if external.source_type == "sharepoint" else "google-drive"
+        provider = _source_type_provider(external.source_type)
         mime = infer_media_type(source.filename or doc.get("filename"), source.mime_type)
         kind = "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "pdf" if mime == "application/pdf" else "document"
         items.append({"provider": provider, "id": source.external_asset_id, "internal_asset_id": aid, "external_source_id": source.external_source_id, "name": source.filename or doc.get("filename") or "Untitled", "kind": kind, "mime_type": mime, "modified_at": source.source_modified_at.isoformat() if source.source_modified_at else None, "thumbnail_url": _search_thumbnail_url(provider=provider, external_asset_id=source.external_asset_id, external_source_id=source.external_source_id, kind=kind), "web_url": resolve_source_web_url(provider=provider, external_asset_id=source.external_asset_id, source_metadata=source.source_metadata), "folder_path": doc.get("folder_path"), "score": hit.get("_score")})
