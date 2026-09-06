@@ -54,17 +54,23 @@ function sourceProvider(source: ConnectedSource): Provider {
   return source.source_type === "google_drive" ? "google-drive" : source.source_type;
 }
 
-function sourceLogin(provider: Provider, sourceId?: string) {
+type OneDriveAccountType = "personal" | "work";
+
+function sourceLogin(provider: Provider, sourceId?: string, accountType?: OneDriveAccountType) {
   const route = provider === "google-drive" ? "/api/auth/google/connect-drive"
     : provider === "onedrive" ? "/api/auth/microsoft/connect-onedrive"
       : "/api/auth/microsoft/connect-sharepoint";
-  return sourceId ? route + "?external_source_id=" + encodeURIComponent(sourceId) : route;
+  const params = new URLSearchParams();
+  if (sourceId) params.set("external_source_id", sourceId);
+  if (provider === "onedrive" && accountType) params.set("account_type", accountType);
+  return route + (params.size ? "?" + params.toString() : "");
 }
 
-function beginSourceOAuth(provider: Provider, sourceId?: string): boolean {
+function beginSourceOAuth(provider: Provider, sourceId?: string, accountType?: OneDriveAccountType): boolean {
   if (!window.camDesktop || provider === "sharepoint") return false;
   void window.camDesktop.beginOAuth({
-    intent: provider === "google-drive" ? "google_drive_connect" : "onedrive_connect",
+    intent: provider === "google-drive" ? "google_drive_connect"
+      : accountType === "personal" ? "onedrive_personal_connect" : "onedrive_work_connect",
     ...(sourceId ? { externalSourceId: sourceId } : {}),
   });
   return true;
@@ -139,7 +145,8 @@ export function Sidebar({
                   void onSyncSource(connected.id).catch(() => undefined).finally(() => setBusySourceId(null));
                 }}>{busySourceId === connected.id ? "Syncing..." : "Sync"}</button>}
                 {connected.capabilities.reconnect && connected.status !== "disconnected" && <button type="button" onClick={() => {
-                  if (!beginSourceOAuth(source.provider, connected.id)) window.location.assign(sourceLogin(source.provider, connected.id));
+                  const accountType = connected.metadata.drive_type === "personal" ? "personal" : "work";
+                  if (!beginSourceOAuth(source.provider, connected.id, accountType)) window.location.assign(sourceLogin(source.provider, connected.id, accountType));
                 }}>{reconnectRequired ? "Reconnect" : "Reauthorize"}</button>}
                 {connected.capabilities.disconnect && connected.status !== "disconnected" && <button type="button" className="danger" disabled={busySourceId === connected.id} onClick={() => {
                   if (!window.confirm("Disconnect " + source.label + " account " + account + "?")) return;
@@ -168,8 +175,11 @@ export function Sidebar({
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}
           {source.provider === "onedrive" && applicationAuthenticated && <button className="source-add-account" type="button" onClick={() => {
-            if (!beginSourceOAuth("onedrive")) window.location.assign(sourceLogin("onedrive"));
-          }}>+ Add OneDrive account</button>}
+            if (!beginSourceOAuth("onedrive", undefined, "personal")) window.location.assign(sourceLogin("onedrive", undefined, "personal"));
+          }}>+ Add personal OneDrive</button>}
+          {source.provider === "onedrive" && applicationAuthenticated && providerSources.length > 0 && <button className="source-add-account" type="button" onClick={() => {
+            if (!beginSourceOAuth("onedrive", undefined, "work")) window.location.assign(sourceLogin("onedrive", undefined, "work"));
+          }}>+ Add work/school OneDrive</button>}
           {active && authByProvider[source.provider].authenticated && source.provider === "google-drive" && applicationAuthenticated && <button
             className="source-reconnect"
             type="button"

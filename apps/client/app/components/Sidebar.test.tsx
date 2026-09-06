@@ -32,7 +32,8 @@ describe("Sidebar multi-source accounts", () => {
 
     expect(markup).toContain("(one@example.com)");
     expect(markup).toContain("(two@example.com)");
-    expect(markup).toContain("+ Add OneDrive account");
+    expect(markup).toContain("+ Add personal OneDrive");
+    expect(markup).toContain("+ Add work/school OneDrive");
     expect(markup.match(/>Sync</g)).toHaveLength(2);
     expect(markup.match(/>Reauthorize</g)).toHaveLength(2);
     expect(markup.match(/>Disconnect</g)).toHaveLength(2);

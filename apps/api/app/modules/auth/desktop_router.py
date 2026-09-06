@@ -24,7 +24,12 @@ from app.providers.microsoft import auth as microsoft_auth
 from app.providers.microsoft.onedrive_registration import register_onedrive_source
 
 router = APIRouter(prefix="/v1/desktop/oauth", tags=["desktop-oauth"])
-SOURCE_INTENTS = {"google_drive_connect": ("google", "google_drive"), "onedrive_connect": ("microsoft", "onedrive")}
+SOURCE_INTENTS = {
+    "google_drive_connect": ("google", "google_drive"),
+    "onedrive_connect": ("microsoft", "onedrive"),
+    "onedrive_personal_connect": ("microsoft", "onedrive"),
+    "onedrive_work_connect": ("microsoft", "onedrive"),
+}
 
 
 class StartRequest(BaseModel):
@@ -98,7 +103,7 @@ def start(body: StartRequest, request: Request):
     elif intent in SOURCE_INTENTS:
         provider = SOURCE_INTENTS[intent][0]
         principal = _source_principal(request)
-        if intent == "onedrive_connect":
+        if intent.startswith("onedrive_"):
             settings = get_settings()
             if not settings.MICROSOFT_SOURCE_CONNECTIONS_ENABLED or not settings.ONEDRIVE_SOURCE_ENABLED:
                 raise HTTPException(503, detail={"code": "source_connections_disabled"})
@@ -133,8 +138,8 @@ async def _persist_source(handoff, payload: dict, request: Request) -> dict:
         result = enqueue_google_login_sync(cloud, external_source_id=handoff.reconnect_external_source_id)
         if result is None: raise HTTPException(409, detail={"code": "source_registration_failed"})
         return {"success": True, "external_source_id": result.external_source_id, "source_type": "google_drive", "status": "active"}
-    if handoff.intent == "onedrive_connect":
-        connection, profile = await microsoft_auth.persist_source_connection(payload, tenant_id=principal.active_tenant_id, initiating_user_id=principal.user_id, intent="onedrive_connect")
+    if handoff.intent.startswith("onedrive_"):
+        connection, profile = await microsoft_auth.persist_source_connection(payload, tenant_id=principal.active_tenant_id, initiating_user_id=principal.user_id, intent=handoff.intent)
         source = await register_onedrive_source(tenant_id=principal.active_tenant_id, connection=connection, profile=profile, access_token=payload["access_token"], reconnect_source_id=handoff.reconnect_external_source_id)
         return {"success": True, "external_source_id": source.id, "source_type": "onedrive", "status": source.status}
     raise HTTPException(400, detail={"code": "invalid_desktop_source_intent"})

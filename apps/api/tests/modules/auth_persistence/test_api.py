@@ -243,5 +243,9 @@ class AuthApiExposureTest(unittest.TestCase):
         self.assertNotIn("Sites.Read.All", APPLICATION_LOGIN_SCOPES)
         self.assertNotIn("Sites.Read.All", ONEDRIVE_SOURCE_SCOPES)
         self.assertEqual(authority_for_intent("onedrive_connect"), "common")
+        self.assertEqual(authority_for_intent("onedrive_personal_connect"), "consumers")
+        self.assertEqual(authority_for_intent("onedrive_work_connect"), "organizations")
+        self.assertEqual(scopes_for_intent("onedrive_personal_connect"), ONEDRIVE_SOURCE_SCOPES)
+        self.assertEqual(scopes_for_intent("onedrive_work_connect"), ONEDRIVE_SOURCE_SCOPES)
 
 if __name__=="__main__": unittest.main()

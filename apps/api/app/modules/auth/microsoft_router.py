@@ -58,7 +58,7 @@ class MicrosoftOAuthIntent:
     def source_connect(
         cls, kind: str, *, tenant_id: str, user_id: str, reconnect_source_id: str | None
     ) -> "MicrosoftOAuthIntent":
-        if kind not in {"onedrive_connect", "sharepoint_connect"}:
+        if kind not in {"onedrive_connect", "onedrive_personal_connect", "onedrive_work_connect", "sharepoint_connect"}:
             raise ValueError("unsupported source OAuth intent")
         return cls(kind, tenant_id, user_id, reconnect_source_id)
 
@@ -74,7 +74,7 @@ class MicrosoftOAuthIntent:
         if value == "application_login":
             return cls.application_login()
         parts = value.split(":", 3)
-        if len(parts) != 4 or parts[0] not in {"onedrive_connect", "sharepoint_connect"}:
+        if len(parts) != 4 or parts[0] not in {"onedrive_connect", "onedrive_personal_connect", "onedrive_work_connect", "sharepoint_connect"}:
             raise ValueError("invalid Microsoft OAuth intent")
         kind, tenant_id, source_id, user_id = parts
         if not tenant_id or not user_id:
@@ -122,7 +122,7 @@ def _validate_reconnect(
 
 def _reauthorize_source(intent: MicrosoftOAuthIntent) -> None:
     assert intent.tenant_id and intent.user_id
-    expected_type = "onedrive" if intent.kind == "onedrive_connect" else "sharepoint"
+    expected_type = "onedrive" if intent.kind.startswith("onedrive_") else "sharepoint"
     with SessionLocal() as session:
         user = session.get(UserModel, intent.user_id)
         tenant = session.get(TenantModel, intent.tenant_id)
@@ -162,12 +162,14 @@ async def login():
 @router.get("/connect-onedrive")
 async def connect_onedrive(
     external_source_id: str | None = Query(None),
+    account_type: str = Query("work", pattern="^(personal|work)$"),
     principal: CurrentPrincipal = Depends(ASSETS_MANAGE),
 ):
     _require_source_connections(onedrive=True)
     _validate_reconnect(principal=principal, source_id=external_source_id, expected_type="onedrive")
+    intent = "onedrive_personal_connect" if account_type == "personal" else "onedrive_work_connect"
     return _oauth_response(MicrosoftOAuthIntent.source_connect(
-        "onedrive_connect", tenant_id=principal.active_tenant_id,
+        intent, tenant_id=principal.active_tenant_id,
         user_id=principal.user_id, reconnect_source_id=external_source_id,
     ))
 
@@ -203,7 +205,7 @@ async def _complete_source_connect(
         token, tenant_id=intent.tenant_id or "", initiating_user_id=intent.user_id or "",
         intent=intent.kind,
     )
-    source_kind = "onedrive" if intent.kind == "onedrive_connect" else "sharepoint"
+    source_kind = "onedrive" if intent.kind.startswith("onedrive_") else "sharepoint"
     source_id = None
     if source_kind == "onedrive":
         source = await register_onedrive_source(
@@ -234,9 +236,14 @@ async def callback(
     try:
         verifier, raw_intent = consume_state_details(state, request.cookies.get(OAUTH_BINDING_COOKIE))
         desktop_handoff_id = handoff_id_from_intent(raw_intent)
-        desktop_source_id = raw_intent.removeprefix("onedrive_connect:") if raw_intent.startswith("onedrive_connect:") and raw_intent.count(":") == 1 else None
+        desktop_source_intent = next((candidate for candidate in (
+            "onedrive_connect", "onedrive_personal_connect", "onedrive_work_connect"
+        ) if raw_intent.startswith(candidate + ":") and raw_intent.count(":") == 1), None)
+        desktop_source_id = raw_intent.split(":", 1)[1] if desktop_source_intent else None
         if desktop_handoff_id or desktop_source_id:
-            token = await exchange_code(code, verifier, intent="onedrive_connect" if desktop_source_id else "application_login")
+            token = await exchange_code(
+                code, verifier, intent=desktop_source_intent or "application_login"
+            )
             response = complete_provider_callback(
                 provider="microsoft",
                 handoff_id=desktop_handoff_id or desktop_source_id or "",

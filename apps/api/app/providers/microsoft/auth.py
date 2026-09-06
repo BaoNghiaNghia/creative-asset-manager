@@ -24,11 +24,18 @@ SCOPES = list(SHAREPOINT_SOURCE_SCOPES)  # legacy compatibility only
 OIDC_RESPONSE_SCOPES = frozenset(("openid", "profile", "email", "offline_access"))
 
 
+def normalize_intent(intent: str) -> str:
+    intent = intent.split(":", 1)[0]
+    if intent in {"onedrive_personal_connect", "onedrive_work_connect"}:
+        return "onedrive_connect"
+    return intent
+
+
 def scopes_for_intent(intent: str) -> tuple[str, ...]:
     # Source-connect intents retain tenant, source and actor bindings in the
     # OAuth state (for example, onedrive_connect:<tenant>:...). The
     # provider-specific scope decision, however, depends only on the prefix.
-    intent = intent.split(":", 1)[0]
+    intent = normalize_intent(intent)
     if intent == "application_login":
         return APPLICATION_LOGIN_SCOPES
     if intent == "onedrive_connect":
@@ -50,7 +57,12 @@ def required_resource_scopes_for_intent(intent: str) -> frozenset[str]:
 def authority_for_intent(intent: str) -> str:
     # See scopes_for_intent: state bindings are appended to source intents
     # and must not make an otherwise valid provider intent unrecognised.
-    intent = intent.split(":", 1)[0]
+    raw_intent = intent.split(":", 1)[0]
+    if raw_intent == "onedrive_personal_connect":
+        return "consumers"
+    if raw_intent == "onedrive_work_connect":
+        return "organizations"
+    intent = normalize_intent(raw_intent)
     configured = os.getenv("MICROSOFT_TENANT_ID", "organizations").strip() or "organizations"
     if intent == "onedrive_connect":
         return os.getenv("MICROSOFT_ONEDRIVE_AUTHORITY", "common").strip() or "common"
@@ -312,6 +324,7 @@ async def persist_source_connection(
     intent: str,
 ):
     """Persist a source credential without resolving or rotating CAM identity."""
+    intent = normalize_intent(intent)
     if intent not in {"onedrive_connect", "sharepoint_connect"}:
         raise ValueError("unsupported Microsoft source-connect intent")
     granted = set(str(token.get("scope") or "").split())

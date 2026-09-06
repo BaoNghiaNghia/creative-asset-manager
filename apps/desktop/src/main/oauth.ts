@@ -6,7 +6,7 @@ const PROVIDERS = new Set(["google", "microsoft"]);
 const LAUNCH_TOKEN_RE = /^[A-Za-z0-9_-]{32,256}$/;
 
 export type DesktopOAuthProvider = "google" | "microsoft";
-export type DesktopOAuthIntent = "google_drive_connect" | "onedrive_connect";
+export type DesktopOAuthIntent = "google_drive_connect" | "onedrive_connect" | "onedrive_personal_connect" | "onedrive_work_connect";
 
 export function createDesktopInstanceNonce(): string {
   return randomBytes(32).toString("base64url");
@@ -47,7 +47,7 @@ export async function beginDesktopOAuth(
   nonce: string,
   request: { provider?: DesktopOAuthProvider; intent?: DesktopOAuthIntent; externalSourceId?: string },
 ): Promise<void> {
-  if ((!request.intent && !isDesktopOAuthProvider(request.provider)) || (request.intent && !["google_drive_connect", "onedrive_connect"].includes(request.intent))) {
+  if ((!request.intent && !isDesktopOAuthProvider(request.provider)) || (request.intent && !["google_drive_connect", "onedrive_connect", "onedrive_personal_connect", "onedrive_work_connect"].includes(request.intent))) {
     throw new Error("Unsupported OAuth request.");
   }
   const camUrl = resolveDesktopUrl(process.env.CAM_DESKTOP_URL, app.isPackaged);

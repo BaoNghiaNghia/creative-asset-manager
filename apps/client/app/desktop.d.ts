@@ -9,7 +9,7 @@ interface Window {
   camDesktop?: {
     isDesktop: true;
     platform: string;
-    beginOAuth: (request: { provider?: "google" | "microsoft"; intent?: "google_drive_connect" | "onedrive_connect"; externalSourceId?: string }) => Promise<void>;
+    beginOAuth: (request: { provider?: "google" | "microsoft"; intent?: "google_drive_connect" | "onedrive_connect" | "onedrive_personal_connect" | "onedrive_work_connect"; externalSourceId?: string }) => Promise<void>;
     onAuthComplete: (callback: () => void) => () => void;
     ingestion: {
       acceptDrop: (files: FileList, destination: { parentId: string; provider: "google-drive"; externalSourceId?: string }) => Promise<DesktopIngestionJob>;
