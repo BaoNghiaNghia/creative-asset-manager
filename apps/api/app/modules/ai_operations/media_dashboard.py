@@ -770,9 +770,15 @@ class MediaDashboardService:
                 latest_index_jobs,
             )
             thumbnail_url = None
-            provider = {"google_drive": "google-drive", "onedrive": "onedrive"}.get(external.source_type) if external is not None else None
-            if source is not None and provider:
-                query = urlencode({"provider": provider, "external_source_id": source.external_source_id, "fallback": "video"})
+            source_provider = {"google_drive": "google-drive", "onedrive": "onedrive"}.get(
+                external.source_type
+            ) if external is not None else None
+            if source is not None and source_provider:
+                query = urlencode({
+                    "provider": source_provider,
+                    "external_source_id": source.external_source_id,
+                    "fallback": "video",
+                })
                 thumbnail_url = f"/api/explorer/thumbnail/{quote(str(source.external_asset_id), safe='')}?{query}"
             recent_video.append({
                 "job_id": job.id, "source_asset_id": job.entity_id,
