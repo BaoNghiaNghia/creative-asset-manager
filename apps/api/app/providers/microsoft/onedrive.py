@@ -25,7 +25,15 @@ class OneDriveClient:
             except ValueError:delay=.25*(2**attempt)
             await self._sleeper(delay)
         response.raise_for_status();return response.json()
-    async def drive(self)->dict:return await self._get("/me/drive",{"$select":"id,driveType,name,webUrl,owner"})
+    async def drive(self)->dict:
+        try:
+            return await self._get("/me/drive", {"$select": "id,driveType,name,webUrl,owner"})
+        except httpx.HTTPStatusError as exc:
+            # Consumer OneDrive can reject the owner projection although the
+            # delegated Files.Read scope permits reading the current drive.
+            if exc.response.status_code != 403:
+                raise
+            return await self._get("/me/drive", {"$select": "id,driveType,name,webUrl"})
     async def get(self,item_id:str):
         if item_id==ONEDRIVE_ROOT_ID:return root_node()
         drive_id,graph_id=parse_item_id(item_id);item=await self._get(f"/drives/{drive_id}/items/{graph_id}",{"$select":"id,name,size,lastModifiedDateTime,webUrl,parentReference,file,folder"});return map_item(item,drive_id)

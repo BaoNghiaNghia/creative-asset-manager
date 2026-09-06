@@ -2,8 +2,9 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import httpx
 from app.providers.source_factory import create_source_provider
-from app.providers.microsoft.onedrive import OneDriveThumbnailUnavailable,close_thumbnail_stream,open_thumbnail_stream,validate_graph_url
+from app.providers.microsoft.onedrive import OneDriveClient,OneDriveThumbnailUnavailable,close_thumbnail_stream,open_thumbnail_stream,validate_graph_url
 from app.providers.microsoft.onedrive_mapper import ONEDRIVE_ROOT_ID,make_item_id,map_item,parse_item_id,root_node
 
 def test_item_id_round_trip_and_sharepoint_rejected():
@@ -60,3 +61,11 @@ def test_missing_thumbnail_closes_graph_response_and_client():
             asyncio.run(open_thumbnail_stream("secret",make_item_id("drive-id","item-id")))
     response.aclose.assert_awaited_once()
     client.aclose.assert_awaited_once()
+
+def test_drive_retries_without_owner_projection_after_consumer_forbidden():
+    client=MagicMock()
+    forbidden=httpx.HTTPStatusError("forbidden", request=httpx.Request("GET", "https://graph.microsoft.com/v1.0/me/drive"), response=MagicMock(status_code=403))
+    graph=OneDriveClient("token", client=client)
+    graph._get=AsyncMock(side_effect=[forbidden,{"id":"drive-id","name":"Personal"}])
+    assert asyncio.run(graph.drive())["id"]=="drive-id"
+    assert graph._get.await_args_list[1].args==("/me/drive", {"$select":"id,driveType,name,webUrl"})
