@@ -96,7 +96,7 @@ export function Sidebar({
         return <Fragment key={source.provider}>
           {session.authenticated ? <button className={"source " + sourceState} onClick={() => onSelectProvider(source.provider)}>
             <SourceIcon provider={source.provider} />
-            <span>{source.label}</span>{active && <i className="source-connected" title="Connected" />}
+            <span className="source-label"><strong>{source.label}</strong>{session.user?.email && <small>({session.user.email})</small>}</span>{active && <i className="source-connected" title="Connected" />}
           </button> : <button className="source provider-login" onClick={() => window.location.assign(
             applicationAuthenticated && source.provider === "google-drive"
               ? "/api/auth/google/connect-drive"

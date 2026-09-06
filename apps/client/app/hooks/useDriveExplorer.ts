@@ -920,10 +920,14 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       const activeByProvider = (item: Provider) => connectedSources.find(source =>
         source.status === "active" && ((item === "google-drive" && source.source_type === "google_drive") || source.source_type === item)
       );
+      const sourceUser = (item: Provider): CloudUser | null => {
+        const source = activeByProvider(item);
+        return source ? { id: source.account.provider_account_id || source.id, email: source.account.email || undefined } : null;
+      };
       const sessions: ProviderSessions = {
-        "google-drive": { authenticated: Boolean(activeByProvider("google-drive")), user: null, checking: false },
-        onedrive: { authenticated: Boolean(activeByProvider("onedrive")), user: null, checking: false },
-        sharepoint: { authenticated: Boolean(activeByProvider("sharepoint")), user: null, checking: false },
+        "google-drive": { authenticated: Boolean(activeByProvider("google-drive")), user: sourceUser("google-drive"), checking: false },
+        onedrive: { authenticated: Boolean(activeByProvider("onedrive")), user: sourceUser("onedrive"), checking: false },
+        sharepoint: { authenticated: Boolean(activeByProvider("sharepoint")), user: sourceUser("sharepoint"), checking: false },
       };
       setAuthByProvider(sessions);
       const activeSource = activeByProvider(preferred) || connectedSources.find(source => source.status === "active") || null;
