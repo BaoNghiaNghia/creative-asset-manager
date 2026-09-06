@@ -353,6 +353,36 @@ def _stage(key: str, label: str, rows: list[ProcessingJobModel], now: datetime) 
     }
 
 
+def _source_breakdown(
+    rows: list[ProcessingJobModel], source_types_by_job_id: dict[str, str],
+) -> list[dict[str, int | str]]:
+    """Aggregate stage states by source type from tenant-scoped relational data."""
+    counts: dict[str, Counter] = defaultdict(Counter)
+    for row in rows:
+        source_type = source_types_by_job_id.get(row.id)
+        if source_type is None:
+            continue
+        bucket = counts[source_type]
+        if row.status in _QUEUED:
+            bucket["queued"] += 1
+        if row.status in _RUNNING:
+            bucket["running"] += 1
+        if row.status == "completed":
+            bucket["completed"] += 1
+        if row.status == "failed":
+            bucket["failed"] += 1
+    return [
+        {
+            "source_type": source_type,
+            "queued": int(bucket["queued"]),
+            "running": int(bucket["running"]),
+            "completed": int(bucket["completed"]),
+            "failed": int(bucket["failed"]),
+        }
+        for source_type, bucket in sorted(counts.items())
+    ]
+
+
 def _index_job_for_current_video_analysis(
     analysis_job: ProcessingJobModel | None,
     run: VideoAnalysisRunModel | None,
@@ -648,6 +678,32 @@ class MediaDashboardService:
         analytics_runs = list(self.session.scalars(select(VideoAnalysisRunModel).where(
             VideoAnalysisRunModel.tenant_id == tenant_id,
         )))
+        source_asset_ids = video_source_ids | {run.source_asset_id for run in analytics_runs}
+        source_types_by_source_asset: dict[str, str] = {}
+        if source_asset_ids:
+            source_rows = self.session.execute(
+                select(SourceAssetModel.id, ExternalSourceModel.source_type)
+                .join(ExternalSourceModel, (
+                    (ExternalSourceModel.tenant_id == SourceAssetModel.tenant_id)
+                    & (ExternalSourceModel.id == SourceAssetModel.external_source_id)
+                ))
+                .where(SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.id.in_(source_asset_ids))
+            )
+            source_types_by_source_asset = {
+                source_asset_id: source_type for source_asset_id, source_type in source_rows
+            }
+        source_types_by_run = {
+            run.id: source_types_by_source_asset[run.source_asset_id]
+            for run in analytics_runs if run.source_asset_id in source_types_by_source_asset
+        }
+        video["source_breakdown"] = _source_breakdown(
+            video_jobs,
+            {job.id: source_types_by_source_asset[job.entity_id] for job in video_jobs if job.entity_id in source_types_by_source_asset},
+        )
+        indexing["source_breakdown"] = _source_breakdown(
+            by_type[VIDEO_INDEX_JOB_TYPE],
+            {job.id: source_types_by_run[job.entity_id] for job in by_type[VIDEO_INDEX_JOB_TYPE] if job.entity_id in source_types_by_run},
+        )
         analytics_chunks = list(self.session.scalars(select(VideoAnalysisChunkModel).where(
             VideoAnalysisChunkModel.tenant_id == tenant_id,
         )))

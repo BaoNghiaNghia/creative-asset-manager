@@ -504,11 +504,11 @@ function VideoPipelineOverview({ dashboard, onPage, onOpenVideo }: {
   const recent = dashboard.recent_video;
   return <div className="ops-content pipeline-content">
     <section className="pipeline-summary" aria-label="Tóm tắt video pipeline">
-      <PipelineMetric icon="eligible" label="Video analysis" value={analysis.completed} detail="Video AI analyses completed" />
-      <PipelineMetric icon="ready" label="Video indexed" value={indexing.completed} detail="Ready for video search" tone="success" />
-      <PipelineMetric icon="active" label={"Đang xử lý"} value={analysis.running + indexing.running} detail="Video jobs currently processing" tone="info" />
-      <PipelineMetric icon="queued" label={"Đang chờ xử lý"} value={analysis.queued + indexing.queued} detail="Video jobs waiting to start or retry" tone="warning" />
-      <PipelineMetric icon="attention" label={"Cần xử lý"} value={analysis.failed + indexing.failed} detail="Video jobs that need review" tone="attention" />
+      <PipelineMetric icon="eligible" label="Video analysis" value={analysis.completed} detail={sourceMetricDetail(analysis, "completed", "Video AI analyses completed")} />
+      <PipelineMetric icon="ready" label="Video indexed" value={indexing.completed} detail={sourceMetricDetail(indexing, "completed", "Ready for video search")} tone="success" />
+      <PipelineMetric icon="active" label={"Đang xử lý"} value={analysis.running + indexing.running} detail={sourceMetricDetail(analysis, "running", "Video jobs currently processing")} tone="info" />
+      <PipelineMetric icon="queued" label={"Đang chờ xử lý"} value={analysis.queued + indexing.queued} detail={sourceMetricDetail(analysis, "queued", "Video jobs waiting to start or retry")} tone="warning" />
+      <PipelineMetric icon="attention" label={"Cần xử lý"} value={analysis.failed + indexing.failed} detail={sourceMetricDetail(analysis, "failed", "Video jobs that need review")} tone="attention" />
     </section>
     <section className="pipeline-stage-section" aria-label="Video pipeline stages"><header><div><small>VIDEO PIPELINE</small><h2>Phân tích và lập chỉ mục video</h2><p>Video analysis và video indexing là hai giai đoạn độc lập.</p></div></header><div className="pipeline-stage-grid pipeline-video-stage-grid">{stages.map(stage => <article key={stage.key} className={stage.failed ? "attention" : stage.running ? "active" : stage.queued ? "waiting" : "complete"}><div className="pipeline-video-stage-primary"><header><div><small>GIAI ĐOẠN</small><h2>{stage.label}</h2></div></header><div className="pipeline-video-stage-total"><strong>{stage.completed.toLocaleString()}</strong><span>đã hoàn tất</span></div></div><dl><div><dt>Đã xếp hàng</dt><dd>{stage.queued.toLocaleString()}</dd></div><div><dt>Đang chạy</dt><dd>{stage.running.toLocaleString()}</dd></div><div><dt>Cần xử lý</dt><dd>{stage.failed.toLocaleString()}</dd></div></dl></article>)}</div></section>
     <section className="pipeline-queue" aria-label="Hàng đợi video hiện tại"><header><div><small>HÀNG ĐỢI TRỰC TIẾP</small><h2>Phân bổ hàng đợi video</h2><p>Chỉ các job video được tính ở đây; không dùng dữ liệu Image.</p></div><span className="pipeline-queue-total">{(analysis.queued + indexing.queued).toLocaleString()} đang chờ xử lý</span></header></section>
@@ -736,6 +736,12 @@ function PipelineRecentAssets({ recent, onPage, onOpenAsset }: { recent: Pipelin
 
 function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: string; label: string; value: number; detail: string; tone?: string }) {
   return <article className={tone}><span className={"pipeline-metric-heading pipeline-icon-" + icon}><i aria-hidden="true" /><span>{label}</span></span><strong>{value.toLocaleString()}</strong><small>{detail}</small></article>;
+}
+
+function sourceMetricDetail(stage: { source_breakdown?: { source_type: string; queued: number; running: number; completed: number; failed: number }[] }, metric: "queued" | "running" | "completed" | "failed", fallback: string) {
+  const labels: Record<string, string> = { google_drive: "Google Drive", onedrive: "OneDrive", sharepoint: "SharePoint" };
+  const values = (stage.source_breakdown || []).filter(item => labels[item.source_type]).map(item => labels[item.source_type] + ": " + item[metric].toLocaleString());
+  return values.length ? fallback + " · " + values.join(" · ") : fallback;
 }
 
 function assetProgressLabel(key: string): string {

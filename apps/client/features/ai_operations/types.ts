@@ -142,9 +142,13 @@ export type AiOpsUsage = {
 
 export type Page<T> = { page: number; page_size: number; total: number; items: T[] };
 
+export type AiOpsSourceMetric = {
+  source_type: string; queued: number; running: number; completed: number; failed: number;
+};
+
 export type AiOpsMediaStage = {
   key: string; label: string; queued: number; eligible_now: number; running: number;
-  completed: number; failed: number; waiting_rate_limit: number; deferred_by_quota?: number; next_quota_retry_at?: string | null; state?: "idle" | "running" | "waiting_rate_limit";
+  completed: number; failed: number; waiting_rate_limit: number; deferred_by_quota?: number; next_quota_retry_at?: string | null; state?: "idle" | "running" | "waiting_rate_limit"; source_breakdown?: AiOpsSourceMetric[];
 };
 export type AiOpsWorkerStatus = {
   role: "image" | "video"; live: boolean | null; ready: boolean | null;
