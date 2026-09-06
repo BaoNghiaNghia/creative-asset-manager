@@ -188,7 +188,9 @@ def build_worker_runtime(
     default_resources: dict[str, Any] = {
         "pipeline_content_resolver": resolver,
         "pipeline_download_stage": ProviderDownloadStage(
-            session_factory, resolver
+            session_factory, resolver,
+            temp_directory=settings.PIPELINE_TEMP_DIRECTORY or None,
+            max_temp_files=settings.PIPELINE_TEMP_MAX_FILES,
         ),
     }
     if storage_configured:

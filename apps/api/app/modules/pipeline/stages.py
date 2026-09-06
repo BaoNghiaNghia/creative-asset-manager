@@ -15,7 +15,7 @@ from app.modules.assets.content_dedup_service import ContentDeduplicationService
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.handlers import DownloadStageResult
 from app.modules.ai_metadata.image_codecs import register_heif_decoder
-from app.modules.pipeline.mime_types import SourceContentTooLarge, normalize_source_mime_type
+from app.modules.pipeline.mime_types import SourceContentTooLarge, TemporaryDownloadCapacityReached, normalize_source_mime_type
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.storage.repository import ManagedStorageRepository
 from app.modules.storage.service import ManagedAssetStorageService
@@ -34,12 +34,13 @@ class ProviderDownloadStage:
 
     def __init__(self, session_factory: Callable[[], Session], resolver: PipelineContentResolver, *,
                  max_bytes: int = 25_000_000, max_pixels: int = 80_000_000,
-                 temp_directory: str | None = None):
+                 temp_directory: str | None = None, max_temp_files: int = 2000):
         self.session_factory = session_factory
         self.resolver = resolver
         self.max_bytes = max_bytes
         self.max_pixels = max_pixels
         self.temp_directory = temp_directory
+        self.max_temp_files = max_temp_files
 
     async def execute(self, *, tenant_id: str, pipeline: AssetPipelineModel) -> DownloadStageResult:
         path: Path | None = None
@@ -70,6 +71,15 @@ class ProviderDownloadStage:
                 path.unlink(missing_ok=True)
 
     async def _bounded_copy(self, body: AsyncIterator[bytes]) -> tuple[Path, int]:
+        directory = Path(self.temp_directory or tempfile.gettempdir())
+        try:
+            files = sum(1 for entry in directory.iterdir() if entry.is_file())
+        except OSError as exc:
+            raise TemporaryDownloadCapacityReached("pipeline temporary directory is unavailable") from exc
+        if files >= self.max_temp_files:
+            raise TemporaryDownloadCapacityReached(
+                f"pipeline temporary directory has {files} files; downloads pause at {self.max_temp_files}"
+            )
         descriptor, name = tempfile.mkstemp(prefix="cam-pipeline-", suffix=".asset", dir=self.temp_directory)
         os.close(descriptor)
         path = Path(name)

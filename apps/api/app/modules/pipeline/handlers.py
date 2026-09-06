@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
@@ -10,7 +11,7 @@ from typing import Protocol
 from sqlalchemy import select
 
 from app.core.config import Settings, get_settings
-from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
+from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import StorageProviderError
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
 from app.modules.ai_metadata.projection import SearchProjectionBuilder
@@ -21,6 +22,7 @@ from app.modules.pipeline.mime_types import (
     SourceContentTooLarge, UnsupportedSourceMimeType,
     is_supported_google_drive_image_mime_type,
 )
+from app.modules.pipeline.mime_types import TemporaryDownloadCapacityReached
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.pipeline.service import AssetPipelineService
@@ -175,6 +177,12 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
             return self._failed(
                 context, exc, retryable=False,
                 error_code="source_content_too_large",
+            )
+        except TemporaryDownloadCapacityReached as exc:
+            return DeferredJobOutcome(
+                reason_code="pipeline_temp_capacity_reached",
+                reason_message=str(exc),
+                retry_at=datetime.now(timezone.utc) + timedelta(minutes=1),
             )
         except OneDriveDownloadError as exc:
             code = f"onedrive_{exc.graph_code or f'http_{exc.status_code}'}"

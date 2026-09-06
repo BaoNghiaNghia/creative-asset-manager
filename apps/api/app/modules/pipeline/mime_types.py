@@ -67,3 +67,5 @@ def is_eligible_video_source_asset(source_asset) -> bool:
 
 def is_ignored_image_analysis_mime_type(mime_type: str | None) -> bool:
     return normalize_source_mime_type(mime_type) in IGNORED_IMAGE_ANALYSIS_MIME_TYPES
+class TemporaryDownloadCapacityReached(RuntimeError):
+    """The bounded pipeline staging directory must drain before more downloads."""
