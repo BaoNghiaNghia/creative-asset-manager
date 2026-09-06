@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.assets.model import ExternalSourceModel
+from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.assets.source_credentials import source_credential_contract
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal, require_permission
 from app.modules.explorer.cache import invalidate_drive_listings, invalidate_drive_source
@@ -33,15 +34,19 @@ class ExternalSourceSummary(BaseModel):
     metadata:dict
     capabilities:SourceCapabilities
 
-def summary(source:ExternalSourceModel)->ExternalSourceSummary:
+def summary(source:ExternalSourceModel, connection_email: str | None = None)->ExternalSourceSummary:
     contract=source_credential_contract(source.source_type)
     metadata=dict(source.source_metadata or {})
-    return ExternalSourceSummary(id=source.id,source_type=source.source_type,display_name=source.display_name,status=source.status,provider=contract.provider,connection_purpose=contract.connection_purpose,account=SourceAccount(provider_account_id=metadata.get("provider_account_id"),email=metadata.get("account_email")),metadata={key:metadata[key] for key in ("drive_type","drive_name","web_url") if key in metadata},capabilities=SourceCapabilities(write=source.source_type=="google_drive"))
+    return ExternalSourceSummary(id=source.id,source_type=source.source_type,display_name=source.display_name,status=source.status,provider=contract.provider,connection_purpose=contract.connection_purpose,account=SourceAccount(provider_account_id=metadata.get("provider_account_id"),email=metadata.get("account_email") or connection_email),metadata={key:metadata[key] for key in ("drive_type","drive_name","web_url") if key in metadata},capabilities=SourceCapabilities(write=source.source_type=="google_drive"))
 
 @router.get("",response_model=list[ExternalSourceSummary])
 def list_sources(principal:CurrentPrincipal=Depends(require_authenticated_principal),session:Session=Depends(get_db)):
     rows=session.scalars(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id==principal.active_tenant_id).order_by(ExternalSourceModel.display_name,ExternalSourceModel.id)).all()
-    return [summary(row) for row in rows]
+    connection_ids={row.oauth_connection_id for row in rows if row.oauth_connection_id}
+    connection_emails = {}
+    if connection_ids:
+        connection_emails = dict(session.execute(select(OAuthConnectionModel.id, OAuthConnectionModel.account_email).where(OAuthConnectionModel.tenant_id==principal.active_tenant_id, OAuthConnectionModel.id.in_(connection_ids))).all())
+    return [summary(row, connection_emails.get(row.oauth_connection_id)) for row in rows]
 
 @router.post("/{source_id}/disconnect",response_model=ExternalSourceSummary)
 def disconnect_source(source_id:str,principal:CurrentPrincipal=Depends(ASSETS_MANAGE),session:Session=Depends(get_db)):
