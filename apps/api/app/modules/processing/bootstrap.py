@@ -201,7 +201,9 @@ def build_worker_runtime(
     }
     if storage_configured:
         default_resources["pipeline_storage_stage"] = ProviderStorageStage(
-            session_factory, resolver, storage_provider
+            session_factory, resolver, storage_provider,
+            staging_folder_id=settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID,
+            staging_max_bytes=settings.MANAGED_STORAGE_STAGING_MAX_BYTES,
         )
     if settings.ELASTICSEARCH_URL:
         default_resources["search_index_provider"] = ElasticsearchV3Index(

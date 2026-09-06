@@ -67,6 +67,7 @@ class AssetPipelineService:
             entity_type=entity_type, entity_id=entity_id or pipeline.id,
             idempotency_key=f"pipeline:{pipeline.id}:{job_type}:{self._identity(pipeline, job_type)}",
             payload={"pipeline_id": pipeline.id, "correlation_id": pipeline.correlation_id, **dict(payload or {})},
+            priority=100 if job_type == "asset_store" else 0,
             provider_key=provider_key, provider_scope=provider_scope,
         )
 

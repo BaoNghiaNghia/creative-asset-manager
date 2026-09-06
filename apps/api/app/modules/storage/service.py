@@ -19,6 +19,8 @@ class ManagedAssetStorageService:
         *,
         enabled: bool = False,
         max_attempts: int = 5,
+        staging_folder_id: str | None = None,
+        staging_max_bytes: int = 0,
     ):
         if assets.session is not storage.session:
             raise ValueError("asset and storage repositories must share one session")
@@ -26,6 +28,8 @@ class ManagedAssetStorageService:
         self.storage = storage
         self.enabled = enabled
         self.max_attempts = max_attempts
+        self.staging_folder_id = str(staging_folder_id or "").strip() or None
+        self.staging_max_bytes = max(0, int(staging_max_bytes))
 
     async def store(
         self, input: StoreAssetInput, provider: AssetStorageProvider
@@ -53,7 +57,15 @@ class ManagedAssetStorageService:
                 remote_folder_id=record.remote_folder_id,
                 web_url=record.web_url,
             )
-        self.storage.mark_uploading(record)
+        if self.staging_folder_id:
+            self.storage.reserve_staging_upload(
+                record,
+                remote_folder_id=self.staging_folder_id,
+                bytes_required=asset.size_bytes or input.size_bytes or 0,
+                maximum_bytes=self.staging_max_bytes,
+            )
+        else:
+            self.storage.mark_uploading(record)
         self.storage.session.commit()
         try:
             result = await provider.store_asset(input)

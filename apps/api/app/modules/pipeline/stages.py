@@ -201,10 +201,13 @@ class ProviderStorageStage:
     """Reopens authoritative source bytes and delegates idempotent storage."""
 
     def __init__(self, session_factory: Callable[[], Session], resolver: PipelineContentResolver,
-                 provider: AssetStorageProvider):
+                 provider: AssetStorageProvider, *, staging_folder_id: str | None = None,
+                 staging_max_bytes: int = 0):
         self.session_factory = session_factory
         self.resolver = resolver
         self.provider = provider
+        self.staging_folder_id = staging_folder_id
+        self.staging_max_bytes = staging_max_bytes
 
     async def execute(self, *, tenant_id: str, pipeline: AssetPipelineModel) -> None:
         if not pipeline.asset_id or not pipeline.content_hash:
@@ -214,6 +217,8 @@ class ProviderStorageStage:
                 with self.session_factory() as session:
                     await ManagedAssetStorageService(
                         AssetRegistryRepository(session), ManagedStorageRepository(session), enabled=True,
+                        staging_folder_id=self.staging_folder_id,
+                        staging_max_bytes=self.staging_max_bytes,
                     ).store(
                         StoreAssetInput(
                             tenant_id=tenant_id, asset_id=pipeline.asset_id,

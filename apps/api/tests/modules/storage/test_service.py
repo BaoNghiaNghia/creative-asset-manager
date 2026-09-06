@@ -11,7 +11,7 @@ from app.domain.providers.contracts import (
     StoredAsset,
 )
 from app.modules.assets.repository import AssetRegistryRepository
-from app.modules.storage.repository import ManagedStorageRepository
+from app.modules.storage.repository import ManagedStorageRepository, StagingCapacityExceeded
 from app.modules.storage.service import ManagedAssetStorageService
 
 
@@ -54,7 +54,7 @@ class ManagedAssetStorageServiceTest(unittest.IsolatedAsyncioTestCase):
         self.session = Session(self.engine, expire_on_commit=False)
         self.assets = AssetRegistryRepository(self.session)
         self.asset = self.assets.create_asset(
-            tenant_id="tenant-a", content_hash="d" * 64, mime_type="image/png"
+            tenant_id="tenant-a", content_hash="d" * 64, mime_type="image/png", size_bytes=8
         )
         self.session.commit()
         self.storage = ManagedStorageRepository(self.session)
@@ -122,3 +122,20 @@ class ManagedAssetStorageServiceTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "disabled"):
             await service.store(self.input(), provider)
         self.assertEqual(provider.calls, 0)
+
+    async def test_staging_quota_rejects_an_upload_that_would_exceed_the_limit(self) -> None:
+        provider = FakeStorageProvider()
+        service = ManagedAssetStorageService(
+            self.assets, self.storage, enabled=True,
+            staging_folder_id="managed-root", staging_max_bytes=10,
+        )
+        await service.store(self.input(), provider)
+        second = self.assets.create_asset(
+            tenant_id="tenant-a", content_hash="e" * 64, mime_type="image/png", size_bytes=5,
+        )
+        self.session.commit()
+        with self.assertRaises(StagingCapacityExceeded):
+            await service.store(StoreAssetInput(
+                tenant_id="tenant-a", asset_id=second.id,
+                content_hash=second.content_hash, body=body(b"other"), filename="other.png",
+            ), provider)

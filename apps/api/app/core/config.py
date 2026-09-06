@@ -322,6 +322,8 @@ class Settings(BaseSettings):
     MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS: int = 3600
     MANAGED_STORAGE_CLEANUP_BATCH_SIZE: int = 100
     MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN: int = 500
+    # Bounded Google Drive staging capacity. Zero disables byte-based admission.
+    MANAGED_STORAGE_STAGING_MAX_BYTES: int = 0
     AUTH_SESSION_TTL_SECONDS: int = 30 * 24 * 60 * 60
     AUTH_STATE_TTL_SECONDS: int = 600
     AUTH_REFRESH_LEASE_SECONDS: int = 30
@@ -875,6 +877,8 @@ class Settings(BaseSettings):
             raise ValueError("MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS must be at least 60")
         if self.MANAGED_STORAGE_CLEANUP_BATCH_SIZE > self.MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN:
             raise ValueError("MANAGED_STORAGE_CLEANUP_BATCH_SIZE cannot exceed MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN")
+        if self.MANAGED_STORAGE_STAGING_MAX_BYTES < 0:
+            raise ValueError("MANAGED_STORAGE_STAGING_MAX_BYTES cannot be negative")
         if not 0 < self.SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS <= 5:
             raise ValueError("SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS must be between 0 and 5")
         if not 0 < self.SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS <= 5000:

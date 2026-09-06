@@ -35,6 +35,7 @@ from app.modules.search.governance_model import ActiveAssetAnalysisModel
 from app.modules.storage.sidecar_document import MetadataSidecarDocumentBuilder
 from app.modules.storage.sidecar_repository import MetadataSidecarRepository
 from app.modules.storage.sidecar_service import MetadataSidecarExportService
+from app.modules.storage.repository import StagingCapacityExceeded
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +313,12 @@ class AssetStoreJobHandler(_PipelineHandler):
                 exc,
                 retryable=exc.retryable,
                 error_code=exc.code,
+            )
+        except StagingCapacityExceeded as exc:
+            return DeferredJobOutcome(
+                reason_code="managed_storage_staging_capacity_reached",
+                reason_message=str(exc),
+                retry_at=datetime.now(timezone.utc) + timedelta(minutes=1),
             )
         except Exception as exc:
             return self._failed(context, exc)
