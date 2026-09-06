@@ -33,7 +33,7 @@ class OneDriveClient:
             # delegated Files.Read scope permits reading the current drive.
             if exc.response.status_code != 403:
                 raise
-            return await self._get("/me/drive", {"$select": "id,driveType,name,webUrl"})
+            return await self._get("/me/drive")
     async def get(self,item_id:str):
         if item_id==ONEDRIVE_ROOT_ID:return root_node()
         drive_id,graph_id=parse_item_id(item_id);item=await self._get(f"/drives/{drive_id}/items/{graph_id}",{"$select":"id,name,size,lastModifiedDateTime,webUrl,parentReference,file,folder"});return map_item(item,drive_id)

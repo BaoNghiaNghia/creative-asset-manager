@@ -68,4 +68,4 @@ def test_drive_retries_without_owner_projection_after_consumer_forbidden():
     graph=OneDriveClient("token", client=client)
     graph._get=AsyncMock(side_effect=[forbidden,{"id":"drive-id","name":"Personal"}])
     assert asyncio.run(graph.drive())["id"]=="drive-id"
-    assert graph._get.await_args_list[1].args==("/me/drive", {"$select":"id,driveType,name,webUrl"})
+    assert graph._get.await_args_list[1].args == ("/me/drive",)
