@@ -182,7 +182,7 @@ def _source_provider_filter(session, tenant: str, source_provider: str | None, *
         return None
     if source_provider and not external_source_id:
         return {"term": {"source_provider": source_provider}}
-    source_type = "google_drive" if source_provider == "google-drive" else "sharepoint" if source_provider == "sharepoint" else None
+    source_type = {"google-drive": "google_drive", "onedrive": "onedrive", "sharepoint": "sharepoint"}.get(source_provider or "")
     source_where = [ExternalSourceModel.tenant_id == tenant]
     if source_type:
         source_where.append(ExternalSourceModel.source_type == source_type)
@@ -344,7 +344,7 @@ def _search_folder_items(session, principal: CurrentPrincipal, *, value: str, so
             SourceAssetModel.source_metadata["is_folder"].as_boolean().is_(True),
         ),
     ]
-    source_type = "google_drive" if source_provider == "google-drive" else "sharepoint" if source_provider == "sharepoint" else None
+    source_type = {"google-drive": "google_drive", "onedrive": "onedrive", "sharepoint": "sharepoint"}.get(source_provider or "")
     if source_type:
         conditions.append(ExternalSourceModel.source_type == source_type)
     if external_source_id:
@@ -415,7 +415,7 @@ async def _provider_folder_breadcrumb(client, folder, cache: dict[str, object]) 
 async def search_folders(
     request: Request,
     q: str = Query(min_length=1, max_length=500),
-    source_provider: str | None = Query(default=None, pattern="^(google-drive|sharepoint)$"),
+    source_provider: str | None = Query(default=None, pattern="^(google-drive|onedrive|sharepoint)$"),
     external_source_id: str | None = Query(default=None, max_length=128),
     limit: int = Query(default=20, ge=1, le=50),
     principal: CurrentPrincipal = Depends(SEARCH_READ),
@@ -649,7 +649,7 @@ def _suggestion_values(document: dict, query: str) -> list[tuple[str, str, str]]
 @router.get("/suggestions", response_model=SearchSuggestionsResponse)
 async def suggestions(
     q: str = Query(min_length=2, max_length=160),
-    source_provider: str | None = Query(default=None, pattern="^(google-drive|sharepoint)$"),
+    source_provider: str | None = Query(default=None, pattern="^(google-drive|onedrive|sharepoint)$"),
     external_source_id: str | None = Query(default=None, max_length=128),
     limit: int = Query(default=7, ge=1, le=10),
     principal: CurrentPrincipal = Depends(SEARCH_READ),

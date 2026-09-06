@@ -68,6 +68,12 @@ class SearchSourceIndexResolverTest(unittest.TestCase):
         self.assertEqual(details.file_size_bytes, 2048)
         self.assertEqual(details.source_created_at, "2026-08-01T00:00:00+00:00")
 
+    def test_onedrive_is_a_searchable_source_provider(self):
+        details = self._resolver({"file-a": ()}).for_source(
+            self._source("file-a"), source_type="onedrive"
+        )
+        self.assertEqual(details.source_provider, "onedrive")
+
     def test_cycles_are_bounded_and_cannot_escape_source(self):
         resolver = self._resolver({"file-a": ("folder-a",), "folder-a": ("file-a",)})
         self.assertEqual(resolver.for_source(self._source("file-a")).ancestor_ids, ("file-a", "folder-a"))

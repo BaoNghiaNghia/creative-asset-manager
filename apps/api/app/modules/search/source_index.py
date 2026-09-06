@@ -232,6 +232,7 @@ class SearchSourceIndexResolver:
     def _source_provider(source_type: str) -> str:
         return {
             "google_drive": "google-drive",
+            "onedrive": "onedrive",
             "sharepoint": "sharepoint",
         }.get(str(source_type or "").casefold(), "")
 

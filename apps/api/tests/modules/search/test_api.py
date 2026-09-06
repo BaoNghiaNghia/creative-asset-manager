@@ -103,6 +103,10 @@ class SearchV3ApiTest(unittest.TestCase):
         response = self.client.post("/api/v1/search", json={"query": "   "})
         self.assertEqual(response.status_code, 422)
 
+    def test_search_request_accepts_onedrive_source_provider(self):
+        request = SearchV3Request(query="cat", source_provider="onedrive")
+        self.assertEqual(request.source_provider, "onedrive")
+
     def test_typed_filter_only_request_and_filter_dsl(self):
         request = SearchV3Request(
             query="",

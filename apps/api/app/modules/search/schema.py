@@ -64,7 +64,7 @@ class SearchCoreFilters(BaseModel):
 
 class SearchV3Request(BaseModel):
     query: str | None = Field(default=None, max_length=500)
-    source_provider: Literal["google-drive", "sharepoint"] | None = None
+    source_provider: Literal["google-drive", "onedrive", "sharepoint"] | None = None
     external_source_id: str | None = Field(default=None, max_length=128)
     facets: dict[str, list[str]] = Field(default_factory=dict)
     filters: SearchCoreFilters = Field(default_factory=SearchCoreFilters)

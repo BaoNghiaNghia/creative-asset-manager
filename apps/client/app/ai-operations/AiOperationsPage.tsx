@@ -153,7 +153,7 @@ export function AiOperationsPage() {
       setDetailsAssetId(null);
       setDetailsVideo({
         item: {
-          provider: detail.source_type?.includes("sharepoint") ? "sharepoint" : "google-drive",
+          provider: detail.source_type === "onedrive" ? "onedrive" : detail.source_type?.includes("sharepoint") ? "sharepoint" : "google-drive",
           id: detail.external_asset_id || detail.source_asset_id,
           name: detail.filename,
           kind: "video",

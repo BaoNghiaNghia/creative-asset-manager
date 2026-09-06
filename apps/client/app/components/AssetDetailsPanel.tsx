@@ -143,8 +143,8 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
   const source = data?.sources[0] || {};
   const assetRecord = data?.asset || {};
   const displayName = item?.name || stringValue(source.filename) || stringValue(assetRecord.filename) || (loading ? "Loading..." : "Select a file");
-  const provider = item?.provider || (String(source.source_type || "").includes("sharepoint") ? "sharepoint" : "google-drive");
-  const sourceProvider = provider === "sharepoint" ? "sharepoint" : "google-drive";
+  const provider = item?.provider || (source.source_type === "onedrive" ? "onedrive" : String(source.source_type || "").includes("sharepoint") ? "sharepoint" : "google-drive");
+  const sourceProvider = provider === "sharepoint" ? "sharepoint" : provider === "onedrive" ? "onedrive" : "google-drive";
   const kind = item?.kind === "folder" ? "folder" : inferKind(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), displayName);
   const fileType = getFileType(item?.mime_type || stringValue(source.mime_type) || stringValue(assetRecord.mime_type), kind);
   const effectiveVideoAnalysis = videoAnalysis || loadedVideoAnalysis;
@@ -159,7 +159,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
   return <><aside className="asset-details asset-inspector" aria-label="File information">
     <header className="asset-inspector-header">
       <span className={"asset-kind-mark " + kind + " " + fileTypeTone(fileType)} aria-hidden="true">{fileTypeLogo(fileType) ? <img className="google-workspace-file-logo" src={fileTypeLogo(fileType)!} alt="" /> : fileTypeGlyph(fileType)}</span>
-      <div><small>{provider === "sharepoint" ? "SharePoint" : "Google Drive"}</small><h2 title={displayName}>{displayName}</h2></div>
+      <div><small>{provider === "sharepoint" ? "SharePoint" : provider === "onedrive" ? "OneDrive" : "Google Drive"}</small><h2 title={displayName}>{displayName}</h2></div>
       <button onClick={onClose} aria-label="Close file information" title="Close">×</button>
     </header>
     <nav aria-label="File information sections">{tabs.map(name => <button key={name} className={section === name ? "active" : ""} aria-current={section === name ? "page" : undefined} onClick={() => setSection(name)}>{name === "analysis" ? "AI analysis" : name === "prompts" ? "Prompts" : name}</button>)}</nav>

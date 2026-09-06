@@ -82,7 +82,10 @@ def video_document_id(run: VideoAnalysisRunModel) -> str:
     return "video:" + hashlib.sha256(json.dumps(values, separators=(",", ":")).encode()).hexdigest()
 
 
-def build_video_document(*, run: VideoAnalysisRunModel, source: SourceAssetModel, chunks: Sequence[VideoAnalysisChunkModel]) -> dict[str, Any]:
+def build_video_document(
+    *, run: VideoAnalysisRunModel, source: SourceAssetModel,
+    chunks: Sequence[VideoAnalysisChunkModel], source_type: str | None = None,
+) -> dict[str, Any]:
     if run.status != "completed" or run.completed_chunks != run.total_chunks:
         raise VideoIndexDataError("completed video run is required")
     if source.tenant_id != run.tenant_id or source.id != run.source_asset_id:
@@ -112,7 +115,8 @@ def build_video_document(*, run: VideoAnalysisRunModel, source: SourceAssetModel
         "metadata_profile": run.metadata_profile, "metadata_profile_version": run.metadata_profile_version,
         "prompt_version": run.prompt_version, "analysis_version": run.analysis_version,
         "ai_provider": run.ai_provider, "ai_model": run.ai_model, "duration_ms": run.duration_ms,
-        "summary": (run.summary_json or {}).get("summary", ""), "source_type": metadata.get("source_type", "google_drive"),
+        "summary": (run.summary_json or {}).get("summary", ""),
+        "source_type": source_type or metadata.get("source_type", "google_drive"),
         "external_source_id": source.external_source_id, "external_asset_id": source.external_asset_id,
         "filename": source.filename or "", "mime_type": source.mime_type or "",
         "web_url": metadata.get("web_url") or metadata.get("webViewLink"), "thumbnail_url": metadata.get("thumbnail_url"),

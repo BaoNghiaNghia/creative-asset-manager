@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
-from app.modules.assets.model import SourceAssetModel
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.video_search.elasticsearch import VideoSearchElasticsearchIndex
 from app.modules.video_search.indexing import VideoIndexDataError, build_video_document
 from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
@@ -19,9 +19,10 @@ class VideoSearchIndexJobHandler:
         with context.dependencies.session_factory() as session:
             run=session.scalar(select(VideoAnalysisRunModel).where(VideoAnalysisRunModel.tenant_id==context.job.tenant_id,VideoAnalysisRunModel.id==run_id))
             source=None if run is None else session.scalar(select(SourceAssetModel).where(SourceAssetModel.tenant_id==context.job.tenant_id,SourceAssetModel.id==run.source_asset_id))
+            external=None if source is None else session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id==context.job.tenant_id,ExternalSourceModel.id==source.external_source_id))
             chunks=[] if run is None else list(session.scalars(select(VideoAnalysisChunkModel).where(VideoAnalysisChunkModel.tenant_id==context.job.tenant_id,VideoAnalysisChunkModel.run_id==run.id)))
-            if run is None or source is None: return JobHandlerResult.non_retryable("video_index_source_unavailable","completed video source is unavailable")
-            try: document=build_video_document(run=run,source=source,chunks=chunks)
+            if run is None or source is None or external is None: return JobHandlerResult.non_retryable("video_index_source_unavailable","completed video source is unavailable")
+            try: document=build_video_document(run=run,source=source,chunks=chunks,source_type=external.source_type)
             except VideoIndexDataError as exc: return JobHandlerResult.non_retryable("invalid_video_index_data",str(exc))
         async def upsert() -> None:
             index=VideoSearchElasticsearchIndex(ElasticsearchV3Config(settings.ELASTICSEARCH_URL,index_prefix=settings.ELASTICSEARCH_INDEX_PREFIX,index_generation="v3"))

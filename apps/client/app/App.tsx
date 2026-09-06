@@ -451,7 +451,7 @@ export default function App() {
   function openVideoDetails(item: VideoSearchItem) {
     setDetailsOpen(true);
     setDetailsItem({
-      provider: item.source_type?.includes("sharepoint") ? "sharepoint" : "google-drive",
+      provider: item.source_type === "onedrive" ? "onedrive" : item.source_type?.includes("sharepoint") ? "sharepoint" : "google-drive",
       id: item.external_asset_id || item.source_asset_id,
       name: item.filename,
       kind: "video",
