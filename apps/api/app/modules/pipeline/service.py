@@ -24,6 +24,17 @@ STATE_FOR_JOB = {
     "metadata_sidecar_export": PipelineState.SIDECAR_PENDING,
 }
 
+# Run work that releases staging capacity or advances a ready asset before
+# admitting more source downloads. This avoids a large storage backlog starving
+# AI/index work on the shared image worker.
+PRIORITY_FOR_JOB = {
+    "asset_analyze": 40,
+    "search_projection_build": 35,
+    "asset_index": 35,
+    "asset_store": 30,
+    "source_asset_download": 0,
+}
+
 
 class AssetPipelineService:
     """Atomically persists a transition and its next idempotent job."""
@@ -67,7 +78,7 @@ class AssetPipelineService:
             entity_type=entity_type, entity_id=entity_id or pipeline.id,
             idempotency_key=f"pipeline:{pipeline.id}:{job_type}:{self._identity(pipeline, job_type)}",
             payload={"pipeline_id": pipeline.id, "correlation_id": pipeline.correlation_id, **dict(payload or {})},
-            priority=100 if job_type == "asset_store" else 0,
+            priority=PRIORITY_FOR_JOB.get(job_type, 0),
             provider_key=provider_key, provider_scope=provider_scope,
         )
 
