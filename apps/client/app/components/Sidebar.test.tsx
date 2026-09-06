@@ -17,7 +17,7 @@ const source = (id: string, email: string): ConnectedSource => ({
 });
 
 describe("Sidebar multi-source accounts", () => {
-  it("renders each OneDrive account independently with source-scoped actions", () => {
+  it("renders each OneDrive account independently and keeps actions in its context menu", () => {
     const markup = renderToStaticMarkup(<Sidebar
       provider="onedrive" auth={sessions.onedrive} authByProvider={sessions}
       sources={[source("one", "one@example.com"), source("two", "two@example.com")]}
@@ -34,8 +34,10 @@ describe("Sidebar multi-source accounts", () => {
     expect(markup).toContain("(two@example.com)");
     expect(markup).toContain("+ Add personal OneDrive");
     expect(markup).toContain("+ Add work/school OneDrive");
-    expect(markup.match(/>Sync</g)).toHaveLength(2);
-    expect(markup.match(/>Reauthorize</g)).toHaveLength(2);
-    expect(markup.match(/>Disconnect</g)).toHaveLength(2);
+    expect(markup).toContain('title="Right-click for source actions"');
+    expect(markup).not.toContain(">Open</button>");
+    expect(markup).not.toContain(">Sync</button>");
+    expect(markup).not.toContain(">Reauthorize</button>");
+    expect(markup).not.toContain(">Disconnect</button>");
   });
 });

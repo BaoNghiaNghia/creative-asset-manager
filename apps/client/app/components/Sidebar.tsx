@@ -56,6 +56,16 @@ function sourceProvider(source: ConnectedSource): Provider {
 
 type OneDriveAccountType = "personal" | "work";
 
+type SourceContextMenu = {
+  account: string;
+  connected: ConnectedSource;
+  label: string;
+  provider: Provider;
+  reconnectRequired: boolean;
+  x: number;
+  y: number;
+};
+
 function sourceLogin(provider: Provider, sourceId?: string, accountType?: OneDriveAccountType) {
   const route = provider === "google-drive" ? "/api/auth/google/connect-drive"
     : provider === "onedrive" ? "/api/auth/microsoft/connect-onedrive"
@@ -90,6 +100,7 @@ export function Sidebar({
   const [canViewAiOperations, setCanViewAiOperations] = useState(false);
   const [showSwitchGoogleConfirm, setShowSwitchGoogleConfirm] = useState(false);
   const [busySourceId, setBusySourceId] = useState<string | null>(null);
+  const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenu | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -108,6 +119,22 @@ export function Sidebar({
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [showSwitchGoogleConfirm]);
+
+  useEffect(() => {
+    if (!sourceContextMenu) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSourceContextMenu(null);
+    };
+    const closeOnWindowChange = () => setSourceContextMenu(null);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeOnWindowChange);
+    window.addEventListener("scroll", closeOnWindowChange, true);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeOnWindowChange);
+      window.removeEventListener("scroll", closeOnWindowChange, true);
+    };
+  }, [sourceContextMenu]);
 
   return <aside className="sidebar">
     <button className="sidebar-collapse" onClick={onCollapse} aria-label="Collapse sidebar" title="Collapse sidebar">
@@ -130,31 +157,26 @@ export function Sidebar({
             const account = connected.account.email || connected.display_name || "Connected account";
             const reconnectRequired = connected.status === "reconnect_required";
             return <div className="source-entry" key={connected.id}>
-              <button className={"source " + (selected ? "active" : "")} onClick={() => {
+              <button className={"source " + (selected ? "active" : "")} title="Right-click for source actions" onClick={() => {
                 if (connected.status === "active") void onSelectSource(connected.id);
+              }} onContextMenu={event => {
+                event.preventDefault();
+                setSourceContextMenu({
+                  account,
+                  connected,
+                  label: source.label,
+                  provider: source.provider,
+                  reconnectRequired,
+                  x: Math.min(event.clientX, window.innerWidth - 196),
+                  y: Math.min(event.clientY, window.innerHeight - 172),
+                });
               }}>
                 <SourceIcon provider={source.provider} />
                 <span className="source-label"><strong>{source.label}</strong><small>({account})</small></span>
                 {connected.status === "active" && <i className="source-connected" title="Connected" />}
                 {reconnectRequired && <i className="source-attention" title="Reconnect required" />}
               </button>
-              <div className="source-entry-actions" aria-label={source.label + " account actions"}>
-                {connected.status === "active" && <button type="button" onClick={() => void onSelectSource(connected.id)}>Open</button>}
-                {connected.status === "active" && connected.capabilities.sync && <button type="button" disabled={busySourceId === connected.id} onClick={() => {
-                  setBusySourceId(connected.id);
-                  void onSyncSource(connected.id).catch(() => undefined).finally(() => setBusySourceId(null));
-                }}>{busySourceId === connected.id ? "Syncing..." : "Sync"}</button>}
-                {connected.capabilities.reconnect && connected.status !== "disconnected" && <button type="button" onClick={() => {
-                  const accountType = connected.metadata.drive_type === "personal" ? "personal" : "work";
-                  if (!beginSourceOAuth(source.provider, connected.id, accountType)) window.location.assign(sourceLogin(source.provider, connected.id, accountType));
-                }}>{reconnectRequired ? "Reconnect" : "Reauthorize"}</button>}
-                {connected.capabilities.disconnect && connected.status !== "disconnected" && <button type="button" className="danger" disabled={busySourceId === connected.id} onClick={() => {
-                  if (!window.confirm("Disconnect " + source.label + " account " + account + "?")) return;
-                  setBusySourceId(connected.id);
-                  void onDisconnectSource(connected.id).catch(() => undefined).finally(() => setBusySourceId(null));
-                }}>{busySourceId === connected.id ? "Disconnecting..." : "Disconnect"}</button>}
-                {connected.status === "disconnected" && <small className="source-disconnected">Disconnected</small>}
-              </div>
+              {connected.status === "disconnected" && <small className="source-disconnected">Disconnected</small>}
               {selected && active && <div className="tree">
                 {loadingNodes.has(currentRoot) && rootFolders.length === 0
                   ? <TreeChildrenSkeleton rows={5} />
@@ -197,6 +219,40 @@ export function Sidebar({
           </button>}
         </Fragment>;
       })}
+    {sourceContextMenu && createPortal(<div className="source-context-menu-backdrop" onMouseDown={() => setSourceContextMenu(null)}>
+      <div
+        className="source-context-menu"
+        role="menu"
+        aria-label={sourceContextMenu.label + " account actions"}
+        style={{ left: sourceContextMenu.x, top: sourceContextMenu.y }}
+        onMouseDown={event => event.stopPropagation()}
+      >
+        {sourceContextMenu.connected.status === "active" && <button type="button" role="menuitem" onClick={() => {
+          setSourceContextMenu(null);
+          void onSelectSource(sourceContextMenu.connected.id);
+        }}>Open</button>}
+        {sourceContextMenu.connected.status === "active" && sourceContextMenu.connected.capabilities.sync && <button type="button" role="menuitem" disabled={busySourceId === sourceContextMenu.connected.id} onClick={() => {
+          const sourceId = sourceContextMenu.connected.id;
+          setSourceContextMenu(null);
+          setBusySourceId(sourceId);
+          void onSyncSource(sourceId).catch(() => undefined).finally(() => setBusySourceId(null));
+        }}>{busySourceId === sourceContextMenu.connected.id ? "Syncing..." : "Sync"}</button>}
+        {sourceContextMenu.connected.capabilities.reconnect && sourceContextMenu.connected.status !== "disconnected" && <button type="button" role="menuitem" onClick={() => {
+          const { connected, provider } = sourceContextMenu;
+          const accountType = connected.metadata.drive_type === "personal" ? "personal" : "work";
+          setSourceContextMenu(null);
+          if (!beginSourceOAuth(provider, connected.id, accountType)) window.location.assign(sourceLogin(provider, connected.id, accountType));
+        }}>{sourceContextMenu.reconnectRequired ? "Reconnect" : "Reauthorize"}</button>}
+        {sourceContextMenu.connected.capabilities.disconnect && sourceContextMenu.connected.status !== "disconnected" && <button type="button" role="menuitem" className="danger" disabled={busySourceId === sourceContextMenu.connected.id} onClick={() => {
+          const { account, connected, label } = sourceContextMenu;
+          if (!window.confirm("Disconnect " + label + " account " + account + "?")) return;
+          const sourceId = connected.id;
+          setSourceContextMenu(null);
+          setBusySourceId(sourceId);
+          void onDisconnectSource(sourceId).catch(() => undefined).finally(() => setBusySourceId(null));
+        }}>{busySourceId === sourceContextMenu.connected.id ? "Disconnecting..." : "Disconnect"}</button>}
+      </div>
+    </div>, document.body)}
     {showSwitchGoogleConfirm && createPortal(<div
       className="source-switch-dialog-backdrop"
       onMouseDown={event => event.target === event.currentTarget && setShowSwitchGoogleConfirm(false)}

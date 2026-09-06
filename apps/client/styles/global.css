@@ -1376,12 +1376,15 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .source-entry{margin:0 0 6px}
 .source-entry .source{border:1px solid transparent}
 .source-entry .source.active{border-color:#c8d8fa}
-.source-entry-actions{display:flex;flex-wrap:wrap;gap:5px;padding:3px 7px 0 34px}
-.source-entry-actions button,.source-add-account{min-height:25px;padding:4px 7px;border:1px solid #ced8e6;border-radius:6px;background:#fff;color:#526174;font-size:9px;font-weight:700;cursor:pointer}
-.source-entry-actions button:hover,.source-add-account:hover{border-color:#8daaf0;background:#f2f6ff;color:#2457b8}
-.source-entry-actions .danger{border-color:#e4beb9;color:#a64137}
-.source-entry-actions .danger:hover{border-color:#d9837a;background:#fff4f2;color:#98352d}
-.source-entry-actions button:disabled{cursor:wait;opacity:.55}
+.source-context-menu-backdrop{position:fixed;inset:0;z-index:1000}
+.source-context-menu{position:fixed;z-index:1001;display:grid;min-width:184px;padding:5px;border:1px solid #cbd8ee;border-radius:9px;background:#fff;box-shadow:0 12px 28px rgb(15 23 42 / 18%)}
+.source-context-menu button{min-height:30px;padding:6px 9px;border:0;border-radius:5px;background:transparent;color:#34445f;font-size:12px;font-weight:700;text-align:left;cursor:pointer}
+.source-context-menu button:hover,.source-context-menu button:focus-visible{background:#eef4ff;color:#2457b8;outline:none}
+.source-context-menu button.danger{color:#a64137}
+.source-context-menu button.danger:hover,.source-context-menu button.danger:focus-visible{background:#fff1ef;color:#98352d}
+.source-context-menu button:disabled{cursor:wait;opacity:.55}
+.source-add-account{min-height:25px;padding:4px 7px;border:1px solid #ced8e6;border-radius:6px;background:#fff;color:#526174;font-size:9px;font-weight:700;cursor:pointer}
+.source-add-account:hover{border-color:#8daaf0;background:#f2f6ff;color:#2457b8}
 .source-add-account{display:block;width:calc(100% - 14px);margin:3px 7px 7px;border-style:dashed;text-align:left;color:#3159b8}
 .source-attention{width:8px;height:8px;margin-left:auto;border-radius:50%;background:#d79020;box-shadow:0 0 0 3px #d7902024}
 .source-disconnected{display:inline-flex;padding:4px 7px;color:#788596;font-size:9px;font-weight:700}
