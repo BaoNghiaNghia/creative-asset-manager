@@ -65,9 +65,12 @@ class OneDriveClient:
             page,token=await self.children_page(parent_id,folders_only=folders_only,page_token=token,page_size=200);nodes.extend(page)
             if not token:return nodes
 async def open_media_stream(access_token:str,item_id:str,range_header:str|None):
-    drive_id,graph_id=parse_item_id(item_id);client=httpx.AsyncClient(timeout=httpx.Timeout(25,read=None),follow_redirects=True);headers={"Authorization":f"Bearer {access_token}"}
+    _,graph_id=parse_item_id(item_id);client=httpx.AsyncClient(timeout=httpx.Timeout(25,read=None),follow_redirects=True);headers={"Authorization":f"Bearer {access_token}"}
     if range_header:headers["Range"]=range_header
-    response=await client.send(client.build_request("GET",f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{graph_id}/content",headers=headers),stream=True)
+    # Sources are enumerated from the connected account's own drive.  The
+    # /me path is required for some OneDrive Personal drive identifiers, while
+    # /drives/{id} can reject the same identifier as malformed.
+    response=await client.send(client.build_request("GET",f"https://graph.microsoft.com/v1.0/me/drive/items/{graph_id}/content",headers=headers),stream=True)
     if response.status_code == 400:
         # Consumer OneDrive can reject the Graph /content redirect for an item
         # even though its metadata remains readable. Request Graph's short-lived
@@ -75,7 +78,7 @@ async def open_media_stream(access_token:str,item_id:str,range_header:str|None):
         await response.aclose()
         try:
             metadata = await client.get(
-                f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{graph_id}",
+                f"https://graph.microsoft.com/v1.0/me/drive/items/{graph_id}",
                 headers={"Authorization": f"Bearer {access_token}"},
             )
             if metadata.status_code >= 400:

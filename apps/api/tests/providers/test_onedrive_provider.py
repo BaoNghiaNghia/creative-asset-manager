@@ -78,6 +78,8 @@ def test_media_stream_uses_graph_download_url_when_consumer_content_endpoint_ret
         returned_client,returned_response=asyncio.run(open_media_stream("secret",make_item_id("drive-id","item-id"),None))
     assert returned_client is client and returned_response is downloaded
     assert client.get.await_args.kwargs["headers"]=={"Authorization":"Bearer secret"}
+    assert client.get.await_args.args[0]=="https://graph.microsoft.com/v1.0/me/drive/items/item-id"
+    assert client.build_request.call_args_list[0].args[1]=="https://graph.microsoft.com/v1.0/me/drive/items/item-id/content"
     assert client.build_request.call_args_list[1].args==("GET","https://public.files.1drv.com/content")
 
 def test_media_stream_exposes_graph_error_code_when_fallback_metadata_is_rejected():
