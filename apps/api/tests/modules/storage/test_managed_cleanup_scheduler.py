@@ -47,3 +47,21 @@ class ManagedStorageCleanupSchedulerTest(unittest.TestCase):
             job = session.scalar(select(ProcessingJobModel))
             self.assertEqual(job.tenant_id, "tenant-enabled")
             self.assertEqual(job.job_type, "managed_storage_cleanup")
+            self.assertEqual(job.priority, 1_000)
+
+    def test_scheduler_promotes_stale_pending_cleanup_jobs(self):
+        settings = Settings(
+            PROCESSING_JOBS_ENABLED=True,
+            MANAGED_STORAGE_AUTO_CLEANUP_ENABLED=True,
+            MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS=3600,
+        )
+        first_run = datetime.now(timezone.utc)
+        scheduler = ManagedStorageCleanupScheduler(self.sessions, settings)
+        self.assertEqual(scheduler.schedule_known_tenants(now=first_run), 1)
+        with self.sessions.begin() as session:
+            job = session.scalar(select(ProcessingJobModel))
+            job.priority = 0
+        self.assertEqual(scheduler.schedule_known_tenants(now=first_run), 1)
+        with self.sessions() as session:
+            job = session.scalar(select(ProcessingJobModel))
+            self.assertEqual(job.priority, 1_000)
