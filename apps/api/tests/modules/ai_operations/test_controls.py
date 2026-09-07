@@ -261,6 +261,26 @@ class AiOperationsControlsTest(unittest.TestCase):
         )
         response = self.request("GET", "/api/v1/admin/ai-operations/configuration", {}, tenant_id="tenant-a")
         self.assertTrue(response.json()["permissions"]["can_manage_global"])
+
+    def test_job_priorities_update_pending_jobs_and_are_returned(self):
+        priorities = {
+            "source_asset_download": 5, "asset_store": 30,
+            "asset_analyze": 40, "asset_index": 75,
+            "video_analyze": 50, "video_search_index": 45,
+        }
+        response = self.request("PATCH", "/api/v1/admin/ai-operations/configuration", {
+            "job_priorities": priorities, "reason": "prioritize search",
+        })
+        self.assertEqual(response.status_code, 200)
+        with self.factory() as session:
+            policy = session.get(TenantProcessingPolicyModel, "tenant-a")
+            queued = session.get(ProcessingJobModel, self.ids[1])
+            self.assertEqual(policy.job_priorities_json, priorities)
+            self.assertEqual(queued.priority, 40)
+        self.assertEqual(
+            self.request("GET", "/api/v1/admin/ai-operations/configuration", {}).json()["tenant"]["job_priorities"],
+            priorities,
+        )
     def test_retry_is_idempotent_and_cancel_distinguishes_states(self):
         failed_id, queued_id, running_id = self.ids
         first = self.request("POST", f"/api/v1/admin/ai-operations/jobs/{failed_id}/retry", {"reason": "transient"})

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.redaction import redact_url_queries
 from app.domain.processing.types import JOB_TYPES, JobStatus, OutboxStatus
 from app.modules.processing.model import OutboxEventModel, ProcessingJobModel
+from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.processing_policy.claim import TenantAwareJobClaimer
 
 
@@ -48,6 +49,7 @@ class ProcessingRepository:
     ) -> ProcessingJobModel:
         if job_type not in JOB_TYPES:
             raise ValueError(f"Unsupported job type: {job_type}")
+        priority = self._configured_priority(tenant_id, job_type, priority)
         existing = self._job_by_key(tenant_id, idempotency_key)
         if existing is not None:
             return existing
@@ -74,6 +76,16 @@ class ProcessingRepository:
             if existing is None:
                 raise
             return existing
+
+    def _configured_priority(self, tenant_id: str, job_type: str, fallback: int) -> int:
+        policy = self.session.get(TenantProcessingPolicyModel, tenant_id)
+        values = policy.job_priorities_json if policy is not None else None
+        value = values.get(job_type) if isinstance(values, dict) else None
+        try:
+            resolved = int(value)
+        except (TypeError, ValueError):
+            return fallback
+        return resolved if 0 <= resolved <= 100 else fallback
 
     def create_outbox_event(
         self,

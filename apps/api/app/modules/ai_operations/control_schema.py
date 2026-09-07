@@ -65,12 +65,13 @@ class AiConfigurationUpdate(_Mutation):
     daily_item_limit: int | None = Field(default=None, ge=1, le=10_000)
     retry_count: int | None = Field(default=None, ge=0, le=20)
     timeout_seconds: int | None = Field(default=None, ge=1, le=3_600)
+    job_priorities: dict[str, int] | None = None
 
     @model_validator(mode="after")
     def require_change(self) -> "AiConfigurationUpdate":
         if all(getattr(self, name) is None for name in (
             "default_mode", "default_metadata_profile", "auto_analyze_new_assets",
-            "daily_item_limit", "retry_count", "timeout_seconds",
+            "daily_item_limit", "retry_count", "timeout_seconds", "job_priorities",
         )):
             raise ValueError("At least one configuration field is required")
         return self

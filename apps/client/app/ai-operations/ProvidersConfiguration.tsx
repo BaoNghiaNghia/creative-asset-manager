@@ -12,6 +12,11 @@ import { ManagedStorageCredentialSettings } from "./ManagedStorageCredentialSett
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
 import openAiLogo from "../../assets/openai-logo.svg";
 
+const DEFAULT_JOB_PRIORITIES = {
+  source_asset_download: 0, asset_store: 30, asset_analyze: 40,
+  asset_index: 35, video_analyze: 50, video_search_index: 45,
+} as const;
+
 const DEFAULT_VIDEO_PROMPT_PROFILE: NonNullable<AiOpsConfiguration["video_prompt_template"]> = {
   id: null,
   profile_name: "video-default",
@@ -195,7 +200,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
 }) {
   const [form, setForm] = useState(() => {
     const fallback = configuration.providers.find(item => item.connection_configured) || configuration.providers[0];
-    return { ...configuration.tenant, default_provider: configuration.tenant.default_provider || fallback?.id || null, default_model: configuration.tenant.default_model || fallback?.default_model || null };
+    return { ...configuration.tenant, job_priorities: { ...DEFAULT_JOB_PRIORITIES, ...configuration.tenant.job_priorities }, default_provider: configuration.tenant.default_provider || fallback?.id || null, default_model: configuration.tenant.default_model || fallback?.default_model || null };
   });
   const [budget, setBudget] = useState(() => configuration.budget || { enabled: false, daily_limit_micros: null, monthly_limit_micros: null, warning_threshold_percent: 80, hard_stop_threshold_percent: 100, currency: "USD" });
   const [reason, setReason] = useState("");
@@ -222,7 +227,8 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
       const result = await updateAiOperationsConfiguration({
         default_mode: form.default_mode, default_metadata_profile: form.default_metadata_profile,
         auto_analyze_new_assets: form.auto_analyze_new_assets, daily_item_limit: form.daily_item_limit,
-        retry_count: form.retry_count, timeout_seconds: form.timeout_seconds, reason: reason.trim(),
+        retry_count: form.retry_count, timeout_seconds: form.timeout_seconds,
+        job_priorities: form.job_priorities, reason: reason.trim(),
       });
       setAudit((result.audit || defaults.audit) as AiOpsAudit); onReload();
     } catch (failure) { setError(String((failure as Error)?.message || "Configuration update failed")); }
@@ -281,6 +287,16 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
             <label>Daily item limit<input disabled={!canEdit} type="number" min="1" max="10000" value={form.daily_item_limit} onChange={event => setForm({ ...form, daily_item_limit: Number(event.target.value) })} /><small>Số tài sản tối đa được xử lý mỗi ngày.</small></label>
             <label>Retry count<input disabled={!canEdit} type="number" min="0" max="20" value={form.retry_count} onChange={event => setForm({ ...form, retry_count: Number(event.target.value) })} /></label>
             <label>Timeout (seconds)<input disabled={!canEdit} type="number" min="1" max="3600" value={form.timeout_seconds} onChange={event => setForm({ ...form, timeout_seconds: Number(event.target.value) })} /></label>
+          </div>
+        </div>
+        <div className="ops-form-section">
+          <div className="ops-form-section-heading"><h4>Ưu tiên job</h4><p>Số lớn chạy trước. Lưu thay đổi sẽ áp dụng ngay cho cả các job đang chờ của tenant.</p></div>
+          <div className="ops-field-grid">
+            {([
+              ["source_asset_download", "Tải xuống"], ["asset_store", "Lưu trữ"],
+              ["asset_analyze", "Phân tích ảnh"], ["asset_index", "Lập chỉ mục tìm kiếm"],
+              ["video_analyze", "Phân tích video"], ["video_search_index", "Lập chỉ mục video"],
+            ] as const).map(([jobType, label]) => <label key={jobType}>{label}<input disabled={!canEdit} type="number" min="0" max="100" value={form.job_priorities[jobType]} onChange={event => setForm({ ...form, job_priorities: { ...form.job_priorities, [jobType]: Number(event.target.value) } })} /><small>0–100; số lớn được chọn trước.</small></label>)}
           </div>
         </div>
         <div className="ops-form-footer">

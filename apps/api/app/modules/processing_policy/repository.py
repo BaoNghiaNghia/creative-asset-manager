@@ -23,6 +23,7 @@ TENANT_EDITABLE_FIELDS = {
     "default_ai_provider", "default_ai_model",
     "default_ai_mode", "default_metadata_profile", "auto_analyze_new_assets",
     "daily_ai_item_limit", "ai_retry_count", "ai_timeout_seconds",
+    "job_priorities_json",
 }
 
 

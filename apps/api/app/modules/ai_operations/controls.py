@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from sqlalchemy import select
+from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -15,6 +15,14 @@ from app.modules.ai_metadata.selection import AiProviderSelectionService
 from app.modules.ai_operations.schema import AI_JOB_TYPES
 
 RETRYABLE_AI_JOB_TYPES = AI_JOB_TYPES + ("video_analyze", "video_search_index")
+JOB_PRIORITY_DEFAULTS = {
+    "source_asset_download": 0,
+    "asset_store": 30,
+    "asset_analyze": 40,
+    "asset_index": 35,
+    "video_analyze": 50,
+    "video_search_index": 45,
+}
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.repository import ProcessingPolicyRepository, policy_document
@@ -311,6 +319,10 @@ class AiOperationsControlService:
                 "total_ai_concurrency": tenant.ai_active_jobs_limit,
                 "retry_count": tenant.ai_retry_count,
                 "timeout_seconds": tenant.ai_timeout_seconds,
+                "job_priorities": {
+                    **JOB_PRIORITY_DEFAULTS,
+                    **(tenant.job_priorities_json if isinstance(tenant.job_priorities_json, dict) else {}),
+                },
             },
             "global": {
                 "ai_auto_analyze_enabled": self.settings.AI_AUTO_ANALYZE_ENABLED,
@@ -499,6 +511,12 @@ class AiOperationsControlService:
             "retry_count": "ai_retry_count",
             "timeout_seconds": "ai_timeout_seconds",
         }
+        priority_values = changes.get("job_priorities")
+        if priority_values is not None:
+            if not isinstance(priority_values, dict) or set(priority_values) != set(JOB_PRIORITY_DEFAULTS):
+                raise AiOperationsControlError("job_priority_invalid", "Set every supported job priority.")
+            if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 or value > 100 for value in priority_values.values()):
+                raise AiOperationsControlError("job_priority_invalid", "Job priorities must be whole numbers from 0 to 100.")
         profile = changes.get("default_metadata_profile")
         if profile and self.session.scalar(select(MetadataProfileModel.id).where(
             MetadataProfileModel.tenant_id == tenant_id,
@@ -516,9 +534,22 @@ class AiOperationsControlService:
             if selected is None or mode not in selected["supported_modes"]:
                 raise AiOperationsControlError("ai_mode_unavailable", "The selected provider does not support this mode.")
         policy = self.policy_service.update(
-            tenant_id, {mapped[key]: value for key, value in changes.items()},
+            tenant_id, {
+                **{mapped[key]: value for key, value in changes.items() if key in mapped},
+                **({"job_priorities_json": dict(priority_values)} if priority_values is not None else {}),
+            },
             actor_id=actor_id, reason=reason,
         )
+        if priority_values is not None:
+            self.session.execute(
+                update(ProcessingJobModel)
+                .where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type.in_(tuple(priority_values)),
+                    ProcessingJobModel.status.in_(("pending", "retry")),
+                )
+                .values(priority=case(priority_values, value=ProcessingJobModel.job_type))
+            )
         return policy_document(policy)
     def retry_job(
         self, tenant_id: str, job_id: str, *, actor_id: str, reason: str,

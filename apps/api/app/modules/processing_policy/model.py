@@ -61,6 +61,7 @@ class TenantProcessingPolicyModel(Base):
     daily_ai_item_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     ai_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     ai_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    job_priorities_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
 

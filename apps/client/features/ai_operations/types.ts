@@ -257,6 +257,7 @@ export type AiOpsConfiguration = {
     total_ai_concurrency: number;
     retry_count: number;
     timeout_seconds: number;
+    job_priorities?: Record<"source_asset_download" | "asset_store" | "asset_analyze" | "asset_index" | "video_analyze" | "video_search_index", number>;
   };
   global: { ai_auto_analyze_enabled: boolean; single_enabled: boolean; batch_enabled: boolean; emergency_stop: boolean };
   providers: AiOpsProviderConfiguration[];
