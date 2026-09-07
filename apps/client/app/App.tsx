@@ -21,6 +21,7 @@ import { useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
 import { assetPreviewUrl, explorerAssetUrl } from "./utils/mediaUrls";
 import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
+import { addSearchHistory, loadSearchHistory, saveSearchHistory } from "./utils/searchHistory";
 import type { Asset, SearchSuggestion } from "./types";
 
 const visibilityFilters = ["all", "public", "draft"] as const;
@@ -248,6 +249,8 @@ export default function App() {
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => loadSearchHistory());
+  const [searchHistoryOpen, setSearchHistoryOpen] = useState(false);
   const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextState | null>(null);
@@ -273,6 +276,7 @@ export default function App() {
     && explorer.searchV3.active
     && explorer.query.trim().length >= 2
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
+  const showSearchHistory = searchHistoryOpen && !showSuggestions && !explorer.query.trim() && searchHistory.length > 0;
   useEffect(() => {
     const restoreMediaMode = () => {
       setSearchMediaMode(parseSearchMediaMode(new URLSearchParams(window.location.search).get("media")));
@@ -329,17 +333,45 @@ export default function App() {
   }, [newMenuOpen]);
 
   useEffect(() => {
-    if (!showSuggestions) return;
+    if (!showSuggestions && !showSearchHistory) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!searchBoxRef.current?.contains(event.target as Node)) { setSuggestionIndex(-1); setSuggestionsDismissed(true); }
+      if (!searchBoxRef.current?.contains(event.target as Node)) {
+        setSuggestionIndex(-1);
+        setSuggestionsDismissed(true);
+        setSearchHistoryOpen(false);
+      }
     };
     document.addEventListener("pointerdown", closeOnOutsidePointer);
     return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [showSuggestions]);
+  }, [showSuggestions, showSearchHistory]);
+  useEffect(() => {
+    const query = explorer.query.trim();
+    if (!explorer.applicationAuthenticated || query.length < 2) return;
+    const timer = window.setTimeout(() => {
+      setSearchHistory(current => {
+        const next = addSearchHistory(current, query);
+        saveSearchHistory(next);
+        return next;
+      });
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [explorer.applicationAuthenticated, explorer.query]);
   function applySuggestion(value: string) {
     setSuggestionIndex(-1);
     setSuggestionsDismissed(true);
+    setSearchHistoryOpen(false);
     explorer.setQuery(value);
+  }
+  function removeSearchHistory(value: string) {
+    setSearchHistory(current => {
+      const next = current.filter(item => item !== value);
+      saveSearchHistory(next);
+      return next;
+    });
+  }
+  function clearSearchHistory() {
+    setSearchHistory([]);
+    saveSearchHistory([]);
   }
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     const action = getSearchSuggestionKeyAction(event.key, suggestions.length, suggestionIndex);
@@ -709,6 +741,7 @@ export default function App() {
               <input
                 value={explorer.query}
                 disabled={!explorer.applicationAuthenticated || !explorer.explorerReady}
+                onFocus={() => setSearchHistoryOpen(true)}
                 onChange={event => { setSuggestionIndex(-1); setSuggestionsDismissed(false); explorer.setQuery(event.target.value); }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={!explorer.applicationAuthenticated
@@ -727,6 +760,13 @@ export default function App() {
                 aria-label="Clear search"
                 title="Clear search"
               >{"\u00d7"}</button>}
+              {showSearchHistory && <div className="search-history" role="listbox" aria-label="Recent searches">
+                <div className="search-history-header"><strong>Recent searches</strong><button type="button" onClick={clearSearchHistory}>Clear all</button></div>
+                {searchHistory.map(entry => <div className="search-history-item" key={entry}>
+                  <button type="button" role="option" onMouseDown={event => event.preventDefault()} onClick={() => applySuggestion(entry)}><span aria-hidden="true">◷</span><b>{entry}</b></button>
+                  <button type="button" className="search-history-remove" onMouseDown={event => event.preventDefault()} onClick={() => removeSearchHistory(entry)} aria-label={"Remove " + entry + " from search history"}>×</button>
+                </div>)}
+              </div>}
               {showSuggestions && <div id="asset-search-suggestions" className="search-suggestions" role="listbox" aria-label="Search suggestions">
                 <div className="search-suggestions-header"><strong>Suggestions</strong><span>Use ↑ ↓ then Enter</span></div>
                 {explorer.searchV3.suggestionsError && <div className="search-suggestions-error" role="alert">
