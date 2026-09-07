@@ -228,11 +228,11 @@ export default function App() {
   const videoSearchEnabled = searchIncludesVideos(searchMediaMode);
   const explorer = useDriveExplorer(imageSearchEnabled);
   const videoSearch = useVideoSearch({
-    authenticated: explorer.auth.authenticated,
+    authenticated: explorer.applicationAuthenticated === true,
     enabled: videoSearchEnabled,
     query: explorer.query,
     provider: explorer.provider,
-    externalSourceId: explorer.activeExternalSourceId,
+    externalSourceId: null,
     designTypes: explorer.searchV3.selectedFacets.__design_type || [],
   });
   const searchBusy = explorer.query.trim().length > 0
@@ -708,11 +708,11 @@ export default function App() {
               <span aria-hidden="true">⌕</span>
               <input
                 value={explorer.query}
-                disabled={!explorer.auth.authenticated || explorer.auth.checking || !explorer.explorerReady}
+                disabled={!explorer.applicationAuthenticated || !explorer.explorerReady}
                 onChange={event => { setSuggestionIndex(-1); setSuggestionsDismissed(false); explorer.setQuery(event.target.value); }}
                 onKeyDown={handleSearchKeyDown}
-                placeholder={!explorer.auth.authenticated
-                  ? "Connect Google Drive or SharePoint to search"
+                placeholder={!explorer.applicationAuthenticated
+                  ? "Sign in to search connected sources"
                   : searchMediaMode === "all" ? "Search images & videos" : searchMediaMode === "videos" ? "Search videos" : "Search images"}
                 aria-label="Search images and videos"
                 aria-autocomplete="list"

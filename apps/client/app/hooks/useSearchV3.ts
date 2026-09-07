@@ -79,12 +79,12 @@ export function normalizeAsinFolderQuery(query: string): string | null {
 
 export function buildFolderSearchParams(
   query: string,
-  provider: Provider,
+  provider: Provider | null,
   externalSourceId?: string | null,
 ): URLSearchParams {
   return new URLSearchParams({
     q: query.trim(),
-    source_provider: provider,
+    ...(provider ? { source_provider: provider } : {}),
     ...(externalSourceId ? { external_source_id: externalSourceId } : {}),
     limit: "50",
   });
@@ -98,7 +98,7 @@ export const DESIGN_TYPE_FILTER_KEY = "__design_type";
 
 export function buildSearchRequestBody(
   query: string,
-  provider: Provider,
+  provider: Provider | null,
   facets: Record<string, string[]>,
   cursor: string | null,
   append: boolean,
@@ -109,7 +109,7 @@ export function buildSearchRequestBody(
 
   return {
     query: query.trim(),
-    source_provider: provider,
+    ...(provider ? { source_provider: provider } : {}),
     ...(externalSourceId ? { external_source_id: externalSourceId } : {}),
     facets: apiFacets,
     design_types: designTypes,
@@ -120,7 +120,7 @@ export function buildSearchRequestBody(
   };
 }
 
-export function useSearchV3(authenticated: boolean, provider: Provider, query: string, externalSourceId?: string | null, paginationResetKey?: string | null) {
+export function useSearchV3(authenticated: boolean, provider: Provider | null, query: string, externalSourceId?: string | null, paginationResetKey?: string | null) {
   const [capabilities, setCapabilities] = useState(emptyCapabilities);
   const [items, setItems] = useState<Asset[]>([]);
   const [facets, setFacets] = useState<Record<string, SearchFacetBucket[]>>({});
@@ -198,7 +198,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider, query: s
     suggestionController.current = null;
     const normalizedQuery = query.trim();
     const sourceId = externalSourceId?.trim() || "";
-    const scope = provider + ":" + sourceId;
+    const scope = (provider || "all") + ":" + sourceId;
     const requestScope = scope + ":" + normalizedQuery.toLocaleLowerCase();
     suggestionRequestScope.current = requestScope;
     const previous = lastSuccessfulSuggestions.current;
@@ -237,7 +237,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider, query: s
       setSuggestionsLoading(true);
       setSuggestionsError("");
       try {
-        const params = new URLSearchParams({ q: normalizedQuery, source_provider: provider, ...(sourceId ? { external_source_id: sourceId } : {}), limit: "10" });
+        const params = new URLSearchParams({ q: normalizedQuery, ...(provider ? { source_provider: provider } : {}), ...(sourceId ? { external_source_id: sourceId } : {}), limit: "10" });
         const response = await fetch("/api/v1/search/suggestions?" + params, { signal: controller.signal });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {

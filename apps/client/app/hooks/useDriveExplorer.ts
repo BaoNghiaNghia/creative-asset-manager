@@ -205,7 +205,9 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   const [error, setError] = useState("");
   const [oauthError, setOauthError] = useState<OAuthErrorState>(null);
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
-  const searchV3 = useSearchV3(auth.authenticated && explorerReady, provider, imageSearchEnabled ? query : "", activeExternalSourceId, `${activeAssignedRootId || ""}:${visibilityFilter}`);
+  // The header search is tenant-wide: media tabs filter kind, not cloud source.
+  // Result items retain their own provider/source identity for open and preview.
+  const searchV3 = useSearchV3(Boolean(applicationAuthenticated) && explorerReady, null, imageSearchEnabled ? query : "", undefined, visibilityFilter);
 
   const folderCache = useRef(new Map<string, Folder>());
   const folderRequests = useRef(new Map<string, Promise<Folder>>());

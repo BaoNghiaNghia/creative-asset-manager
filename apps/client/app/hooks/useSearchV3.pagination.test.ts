@@ -29,6 +29,12 @@ describe("Search result pagination", () => {
     expect(nextPage).not.toHaveProperty("offset");
   });
 
+  it("omits source filters for a tenant-wide search", () => {
+    const request = buildSearchRequestBody("alone", null, {}, null, false, false);
+    expect(request).not.toHaveProperty("source_provider");
+    expect(request).not.toHaveProperty("external_source_id");
+  });
+
   it("sends the design taxonomy through its dedicated backend filter", () => {
     const request = buildSearchRequestBody("dad", "google-drive", {
       subject: ["family"],
