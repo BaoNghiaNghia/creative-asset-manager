@@ -929,6 +929,20 @@ class SearchV3ApiTest(unittest.TestCase):
         )
         self.assertNotIn("/api/explorer/media/", thumbnail_url)
 
+    def test_search_onedrive_image_uses_thumbnail_proxy(self):
+        thumbnail_url = _search_thumbnail_url(
+            provider="onedrive",
+            external_asset_id="od:item:drive:item",
+            external_source_id="source-id",
+            kind="image",
+        )
+
+        self.assertEqual(
+            thumbnail_url,
+            "/api/explorer/thumbnail/od%3Aitem%3Adrive%3Aitem"
+            "?provider=onedrive&external_source_id=source-id",
+        )
+
     def test_search_thumbnail_is_not_emitted_for_unsupported_items(self):
         self.assertIsNone(
             _search_thumbnail_url(

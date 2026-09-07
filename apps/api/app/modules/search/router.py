@@ -489,7 +489,10 @@ async def search_folders(
             raise _provider_error(exc, "Unable to search Google Drive folders") from exc
 
 def _search_thumbnail_url(*, provider: str, external_asset_id: str, external_source_id: str, kind: str) -> str | None:
-    if provider != "google-drive" or kind not in {"image", "video"}:
+    # Both connected Drive providers use the tenant-scoped explorer proxy.  Do
+    # not expose Microsoft Graph URLs or omit OneDrive thumbnails from global
+    # search results.
+    if provider not in {"google-drive", "onedrive"} or kind not in {"image", "video"}:
         return None
     query = urlencode(
         {
