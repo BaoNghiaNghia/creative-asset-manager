@@ -26,6 +26,23 @@ def test_sharepoint_requires_stored_allowed_link():
     ) is None
 
 
+def test_onedrive_personal_falls_back_to_a_specific_item_link_when_metadata_is_root():
+    external_asset_id = "od:item:NUFFMjdDN0JGMjk4M0M4QQ:NUFFMjdDN0JGMjk4M0M4QSE0MDUwNQ"
+    assert resolve_source_web_url(
+        provider="onedrive",
+        external_asset_id=external_asset_id,
+        source_metadata={"web_url": "https://onedrive.live.com"},
+    ) == "https://onedrive.live.com/?cid=5AE27C7BF2983C8A&id=5AE27C7BF2983C8A%2140505"
+
+
+def test_onedrive_keeps_an_existing_item_link():
+    assert resolve_source_web_url(
+        provider="onedrive",
+        external_asset_id="od:item:NUFFMjdDN0JGMjk4M0M4QQ:NUFFMjdDN0JGMjk4M0M4QSE0MDUwNQ",
+        source_metadata={"web_url": "https://onedrive.live.com/?id=existing-file&cid=existing-drive"},
+    ) == "https://onedrive.live.com/?id=existing-file&cid=existing-drive"
+
+
 def test_rejects_unsafe_or_wrong_provider_hosts():
     assert resolve_source_web_url(
         provider="google-drive",

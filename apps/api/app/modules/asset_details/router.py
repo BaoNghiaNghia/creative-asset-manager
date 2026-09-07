@@ -95,8 +95,11 @@ def source_preview_url(
     if source.deleted_at is not None or not is_previewable_media(source.filename, mime_type):
         return None
     provider = source_provider(external_source.source_type)
+    # OneDrive and Google thumbnails are browser-compatible images. This avoids
+    # returning an original HEIC byte stream to browsers which cannot decode it.
+    endpoint = "thumbnail" if provider in {"google-drive", "onedrive"} else "media"
     return (
-        f"/api/explorer/media/{quote(source.external_asset_id, safe='')}"
+        f"/api/explorer/{endpoint}/{quote(source.external_asset_id, safe='')}"
         f"?provider={provider}&external_source_id={quote(source.external_source_id, safe='')}"
     )
 
