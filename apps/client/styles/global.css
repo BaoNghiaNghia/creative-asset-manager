@@ -1454,6 +1454,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 
 
 .video-search-thumbnail .video-hover-preview-loading{display:block;text-align:center}
-.video-search-thumbnail .video-hover-preview-loading:before{position:absolute;top:50%;left:50%;width:19px;height:19px;margin:0;transform:translate(-50%,-50%)}
+.video-search-thumbnail .video-hover-preview-loading:before{position:absolute;top:50%;left:50%;width:19px;height:19px;margin:0;animation:video-preview-spin-centered .75s linear infinite;transform:translate(-50%,-50%)}
+@keyframes video-preview-spin-centered{to{transform:translate(-50%,-50%) rotate(360deg)}}
 .video-search-thumbnail .video-hover-preview-loading>span{position:absolute;top:calc(50% + 27px);left:0;right:0;line-height:1.2}
 @media(prefers-reduced-motion:reduce){.video-search-thumbnail .video-hover-preview-loading:before{animation-duration:1.5s}}
