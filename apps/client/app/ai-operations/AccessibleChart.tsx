@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { ChartDatum } from "./presentation";
 
 type Props = {
@@ -10,9 +11,11 @@ type Props = {
 const colors = ["#3769e8", "#d84a4a", "#8b5cf6", "#0f9f79"];
 
 export function AccessibleChart({ title, description, data, valueLabel = String }: Props) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [chartWidth, setChartWidth] = useState(640);
   const series = [...new Set(data.flatMap(item => Object.keys(item.values)))];
   const maximum = Math.max(1, ...data.flatMap(item => Object.values(item.values)));
-  const width = 640;
+  const width = chartWidth;
   const height = 210;
   const plotHeight = 145;
   const groupWidth = data.length ? width / data.length : width;
@@ -20,6 +23,17 @@ export function AccessibleChart({ title, description, data, valueLabel = String 
   const barWidth = Math.max(4, Math.min(preferredBarWidth, (groupWidth - 16) / Math.max(1, series.length)));
   const isEmpty = data.length === 0;
   const bucketLabel = `${data.length} ${data.length === 1 ? "period" : "periods"}`;
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const updateWidth = () => setChartWidth(Math.max(1, Math.round(svg.getBoundingClientRect().width)));
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
+
   return <figure className={`ops-chart${isEmpty ? " is-empty" : ""}`} aria-labelledby={`chart-${slug(title)}`}>
     <div className="ops-chart-heading">
       <div>
@@ -30,7 +44,7 @@ export function AccessibleChart({ title, description, data, valueLabel = String 
       <span className="ops-chart-legend">{series.map((name, index) => <i key={name}><b style={{ background: colors[index % colors.length] }} />{name}</i>)}</span>
     </div>
     {isEmpty ? <div className="ops-chart-empty"><strong>No data in this period</strong><span>Try a wider date range or different filters.</span></div> : <>
-      <svg role="img" aria-label={`${title}. ${description}`} viewBox={`0 0 ${width} ${height}`}>
+      <svg ref={svgRef} role="img" aria-label={`${title}. ${description}`} viewBox={`0 0 ${width} ${height}`}>
         {[.25, .5, .75].map(ratio => <line key={ratio} x1="0" x2={width} y1={plotHeight * ratio} y2={plotHeight * ratio} className="ops-chart-gridline" />)}
         <line x1="0" x2={width} y1={plotHeight} y2={plotHeight} stroke="#d9e0e8" />
         {data.map((item, groupIndex) => <g key={item.label}>
@@ -42,10 +56,10 @@ export function AccessibleChart({ title, description, data, valueLabel = String 
               <title>{`${item.label}, ${name}: ${valueLabel(value)}`}</title>
             </rect>;
           })}
-          {(data.length <= 12 || groupIndex % Math.ceil(data.length / 12) === 0) && <text
+          {(data.length <= 7 || groupIndex % Math.ceil(data.length / 6) === 0) && <text
             x={groupIndex * groupWidth + groupWidth / 2} y={plotHeight + 17}
             textAnchor="middle" className="ops-chart-label"
-          >{chartLabelLines(item.label).map((line, lineIndex) => <tspan key={line} x={groupIndex * groupWidth + groupWidth / 2} dy={lineIndex ? 10 : 0}>{line}</tspan>)}</text>}
+          ><title>{item.label}</title>{chartLabelLines(item.label).map((line, lineIndex) => <tspan key={line} x={groupIndex * groupWidth + groupWidth / 2} dy={lineIndex ? 10 : 0}>{line}</tspan>)}</text>}
         </g>)}
       </svg>
       <details className="ops-chart-table">
