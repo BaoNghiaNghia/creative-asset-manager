@@ -85,7 +85,9 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
           poster={item.thumbnail_url || undefined}
           muted
           autoPlay
-          controls={visible}
+          controls={false}
+          disablePictureInPicture
+          controlsList="nodownload nofullscreen noremoteplayback"
           playsInline
           preload="auto"
           aria-label={"Preview " + item.filename}

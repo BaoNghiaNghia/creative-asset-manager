@@ -54,6 +54,8 @@ describe("VideoSearchResults hover preview", () => {
     expect(video.dataset.previewStartSeconds).toBe("12");
     expect(video.dataset.previewEndSeconds).toBe("18");
     expect(video.muted).toBe(true);
+    expect(video.controls).toBe(false);
+    expect(video.getAttribute("controlsList")).toContain("nofullscreen");
 
     await act(async () => root.unmount());
   });
