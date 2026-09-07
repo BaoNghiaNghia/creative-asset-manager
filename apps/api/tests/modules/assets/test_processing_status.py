@@ -197,6 +197,51 @@ class AssetProcessingStatusTest(unittest.TestCase):
             },
         )
 
+    def test_onedrive_indexed_asset_uses_its_own_source_identity(self) -> None:
+        onedrive_source = self.assets.upsert_external_source(
+            tenant_id=TENANT,
+            source_key="onedrive-personal",
+            source_type="onedrive",
+        )
+        source_asset = self.assets.upsert_source_asset(
+            tenant_id=TENANT,
+            external_source_id=onedrive_source.id,
+            external_asset_id="od:item:personal:indexed",
+            filename="indexed.jpg",
+            mime_type="image/jpeg",
+        )
+        asset = self.assets.create_asset(
+            tenant_id=TENANT,
+            content_hash="z" * 64,
+            mime_type="image/jpeg",
+        )
+        self.assets.link_source_asset(
+            tenant_id=TENANT,
+            asset_id=asset.id,
+            source_asset_id=source_asset.id,
+        )
+        self.session.add(
+            ProcessingJobModel(
+                tenant_id=TENANT,
+                job_type="asset_index",
+                entity_type="asset",
+                entity_id=asset.id,
+                idempotency_key="onedrive-indexed",
+                payload_json={},
+                status="completed",
+            )
+        )
+        self.session.commit()
+
+        statuses = AssetProcessingStatusService(self.session).list(
+            TENANT,
+            "onedrive",
+            ["od:item:personal:indexed"],
+            external_source_id=onedrive_source.id,
+        )
+
+        self.assertEqual(statuses, {"od:item:personal:indexed": "indexed"})
+
     def test_video_analysis_and_index_jobs_drive_provider_item_status(self) -> None:
         profile = VideoMetadataProfileModel(
             tenant_id=TENANT,

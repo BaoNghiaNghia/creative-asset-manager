@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import driveExplorerSource from "./useDriveExplorer.ts?raw";
+import type { Asset } from "../types";
 import {
   apiErrorMessage,
   appendUniqueFolderPage,
   clearSavedExplorerLocation,
   folderIdFromPath,
   folderPath,
+  groupMetadataRequests,
   isPureViewerIdentity,
   oauthMessageFor,
   parseSavedExplorerLocation,
@@ -158,6 +160,21 @@ describe("saved explorer location clearing", () => {
   });
 });
 
+
+describe("groupMetadataRequests", () => {
+  it("keeps global search metadata scoped to each result source", () => {
+    const groups = groupMetadataRequests([
+      { id: "google-item", provider: "google-drive", external_source_id: "google-source" },
+      { id: "one-item", provider: "onedrive", external_source_id: "personal-source" },
+      { id: "another-one", provider: "onedrive", external_source_id: "personal-source" },
+    ] as Asset[]);
+
+    expect(groups).toEqual([
+      { provider: "google-drive", externalSourceId: "google-source", itemIds: ["google-item"] },
+      { provider: "onedrive", externalSourceId: "personal-source", itemIds: ["one-item", "another-one"] },
+    ]);
+  });
+});
 
 describe("appendUniqueFolderPage", () => {
   it("appends the next normal-browse page without duplicating assets", () => {

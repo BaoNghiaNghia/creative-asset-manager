@@ -43,6 +43,14 @@ describe("Asset details inspector", () => {
     expect(markup).not.toContain("Operator actions");
   });
 
+  it("labels OneDrive assets correctly in file details", () => {
+    const oneDriveItem = { ...item, provider: "onedrive" as const, external_source_id: "personal-source", web_url: "https://onedrive.live.com/?id=drive-image-1" };
+    const markup = renderToStaticMarkup(<AssetDetailsPanel item={oneDriveItem} metadata={metadata} onClose={noop} onPreview={noop} />);
+    expect(markup).toContain("OneDrive");
+    expect(markup).toContain("Open in OneDrive");
+    expect(markup).not.toContain('Provider</dt><dd>Google Drive');
+  });
+
   it("shows the longest available breadcrumb and ignores placeholder location values", () => {
     expect(resolveLocation({ ...item, folder_path: "Current folder", ancestor_names: ["Desify - Image & Video Assets", "Etsy - VienLuna", "listing - 4467905366"] }, {})).toBe("Desify - Image & Video Assets / Etsy - VienLuna / listing - 4467905366");
     expect(resolveLocation({ ...item, folder_path: "Current folder", ancestor_names: [] }, { source_metadata: { path: "Desify - Image & Video Assets / Etsy - VienLuna" } })).toBe("Desify - Image & Video Assets / Etsy - VienLuna");

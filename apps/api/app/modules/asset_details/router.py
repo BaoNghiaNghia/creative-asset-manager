@@ -77,6 +77,14 @@ def safe_url(value):
     return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
+def source_provider(source_type: str | None) -> str:
+    normalized = str(source_type or "").strip().lower().replace("_", "-")
+    if normalized == "onedrive":
+        return "onedrive"
+    if "sharepoint" in normalized:
+        return "sharepoint"
+    return "google-drive"
+
 def source_preview_url(
     source: SourceAssetModel,
     external_source: ExternalSourceModel,
@@ -86,7 +94,7 @@ def source_preview_url(
     mime_type = infer_media_type(source.filename, source.mime_type or asset_mime_type)
     if source.deleted_at is not None or not is_previewable_media(source.filename, mime_type):
         return None
-    provider = "sharepoint" if "sharepoint" in (external_source.source_type or "").lower() else "google-drive"
+    provider = source_provider(external_source.source_type)
     return (
         f"/api/explorer/media/{quote(source.external_asset_id, safe='')}"
         f"?provider={provider}&external_source_id={quote(source.external_source_id, safe='')}"
@@ -283,7 +291,7 @@ async def details(request: Request, asset_id: str, external_source_id: str | Non
                 except (httpx.HTTPError, ValueError) as exc:
                     logger.warning("Folder breadcrumb provider_error file_provider_id=%s missing_parent_id=%s external_source_id=%s error=%s", source.external_asset_id, parent_id, source.external_source_id, type(exc).__name__)
             location_unavailable = True
-        sources = [{"source_asset_id": s.id, "external_source_id": s.external_source_id, "external_asset_id": s.external_asset_id, "source_type": e.source_type, "source_key": e.source_key, "display_name": e.display_name, "filename": s.filename, "mime_type": s.mime_type or asset.mime_type, "size_bytes": s.size_bytes, "provider_checksum": s.provider_checksum, "provider_version": s.provider_version, "preview_url": source_preview_url(s, e, asset.mime_type), "web_url": resolve_source_web_url(provider="sharepoint" if e.source_type == "sharepoint" else "google-drive", external_asset_id=s.external_asset_id, source_metadata=s.source_metadata), "deleted": s.deleted_at is not None, "created_at": iso(s.source_created_at), "modified_at": iso(s.source_modified_at)} for s, e in source_rows]
+        sources = [{"source_asset_id": s.id, "external_source_id": s.external_source_id, "external_asset_id": s.external_asset_id, "source_type": e.source_type, "source_key": e.source_key, "display_name": e.display_name, "filename": s.filename, "mime_type": s.mime_type or asset.mime_type, "size_bytes": s.size_bytes, "provider_checksum": s.provider_checksum, "provider_version": s.provider_version, "preview_url": source_preview_url(s, e, asset.mime_type), "web_url": resolve_source_web_url(provider=source_provider(e.source_type), external_asset_id=s.external_asset_id, source_metadata=s.source_metadata), "deleted": s.deleted_at is not None, "created_at": iso(s.source_created_at), "modified_at": iso(s.source_modified_at)} for s, e in source_rows]
         storage = [{"id": row.id, "provider": row.storage_provider, "status": row.status, "remote_file_id": row.remote_file_id, "remote_folder_id": row.remote_folder_id, "web_url": safe_url(row.web_url), "verified": row.status == "stored" and bool(row.remote_file_id), "attempt_count": row.attempt_count, "last_error_code": row.last_error_code, "last_error_message": row.last_error_message, "stored_at": iso(row.stored_at)} for row in session.scalars(select(AssetStorageObjectModel).where(AssetStorageObjectModel.tenant_id == tenant, AssetStorageObjectModel.asset_id == asset_id).order_by(AssetStorageObjectModel.updated_at.desc()))]
         base_analysis = select(AssetAiAnalysisModel).where(AssetAiAnalysisModel.tenant_id == tenant, AssetAiAnalysisModel.asset_id == asset_id)
         analysis_total = int(session.scalar(select(func.count()).select_from(base_analysis.subquery())) or 0)

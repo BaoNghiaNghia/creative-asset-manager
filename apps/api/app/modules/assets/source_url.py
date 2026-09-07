@@ -24,6 +24,15 @@ def _allowed_host(provider: str, hostname: str) -> bool:
             or host == "microsoft365.com"
             or host.endswith(".microsoft365.com")
         )
+    if provider in {"onedrive", "one-drive"}:
+        return (
+            host == "onedrive.live.com"
+            or host.endswith(".sharepoint.com")
+            or host.endswith(".sharepoint-df.com")
+            or host == "my.microsoftpersonalcontent.com"
+            or host.endswith(".microsoftpersonalcontent.com")
+            or host == "1drv.ms"
+        )
     return False
 
 

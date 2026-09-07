@@ -37,6 +37,7 @@ AssetProcessingStatus = Literal[
 
 _SOURCE_TYPES = {
     "google-drive": "google_drive",
+    "onedrive": "onedrive",
     "sharepoint": "sharepoint",
 }
 _ACTIVE_JOB_STATUSES = {"pending", "processing", "retry"}

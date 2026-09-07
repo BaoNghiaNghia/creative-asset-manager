@@ -270,7 +270,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
         {item && onPreview && isPreviewableAsset(item) && <button type="button" onClick={() => onPreview(item)}>Open preview</button>}
         {webUrl && <a className={"open-provider-link" + (provider === "google-drive" ? " open-provider-link--drive" : "")} href={webUrl} target="_blank" rel="noopener noreferrer">
           {provider === "google-drive" && <img src={googleDriveLogoUrl} alt="" aria-hidden="true" />}
-          <span>Open in {provider === "sharepoint" ? "SharePoint" : "Google Drive"}</span>
+          <span>Open in {provider === "sharepoint" ? "SharePoint" : provider === "onedrive" ? "OneDrive" : "Google Drive"}</span>
         </a>}
       </div>
     </div>
@@ -282,7 +282,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
         <Info label="Size" value={formatBytes(size)} />
         <Info className="inspector-location" label="Location" value={locationLoading ? <span className="location-loading" aria-busy="true">Resolving location...</span> : <LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationStatus !== "available"} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} />} />
         {kind === "image" && <Info label="Resolution" value={formatResolution(data?.image_width ?? item?.image_width, data?.image_height ?? item?.image_height)} />}
-        <Info label="Provider" value={provider === "sharepoint" ? "Microsoft SharePoint" : "Google Drive"} />
+        <Info label="Provider" value={provider === "sharepoint" ? "Microsoft SharePoint" : provider === "onedrive" ? "OneDrive" : "Google Drive"} />
         <Info label="Modified" value={humanDate(modified)} />
         {created && <Info label="Created" value={humanDate(created)} />}
       </dl>
@@ -650,7 +650,8 @@ export function resolveProviderWebUrl(item: Asset | null, source: Record<string,
       const host = url.hostname.toLowerCase().replace(/\.$/, "");
       const google = ["google-drive", "google"].includes(selectedProvider) && ["drive.google.com", "docs.google.com"].includes(host);
       const sharepoint = ["sharepoint", "microsoft", "microsoft-sharepoint"].includes(selectedProvider) && (host.endsWith(".sharepoint.com") || host.endsWith(".sharepoint-df.com") || host === "office.com" || host.endsWith(".office.com") || host === "microsoft365.com" || host.endsWith(".microsoft365.com"));
-      if (google || sharepoint) { url.hash = ""; return url.toString(); }
+      const onedrive = ["onedrive", "one-drive"].includes(selectedProvider) && (host === "onedrive.live.com" || host.endsWith(".sharepoint.com") || host.endsWith(".sharepoint-df.com") || host === "my.microsoftpersonalcontent.com" || host.endsWith(".microsoftpersonalcontent.com") || host === "1drv.ms");
+      if (google || sharepoint || onedrive) { url.hash = ""; return url.toString(); }
     } catch { /* ignore malformed provider links */ }
   }
   return undefined;

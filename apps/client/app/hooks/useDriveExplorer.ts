@@ -154,6 +154,25 @@ export function appendUniqueFolderPage(current: Asset[], incoming: Asset[]): Ass
   return appended.length ? [...current, ...appended] : current;
 }
 
+export type MetadataRequestGroup = {
+  provider: Provider;
+  externalSourceId?: string;
+  itemIds: string[];
+};
+
+export function groupMetadataRequests(items: Asset[]): MetadataRequestGroup[] {
+  const groups = new Map<string, MetadataRequestGroup>();
+  for (const item of items) {
+    const provider = item.provider;
+    const externalSourceId = item.external_source_id || undefined;
+    const key = provider + "\u0000" + (externalSourceId || "");
+    const group = groups.get(key) || { provider, externalSourceId, itemIds: [] };
+    if (!groups.has(key)) groups.set(key, group);
+    if (!group.itemIds.includes(item.id)) group.itemIds.push(item.id);
+  }
+  return [...groups.values()];
+}
+
 const oauthMessages: Record<string, string> = {
   denied: "Google access was cancelled or denied.",
   incomplete: "Google returned an incomplete authorization response.",
@@ -1123,32 +1142,35 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     );
 
   useEffect(() => {
-    if (!auth.authenticated || matchedItems.length === 0) return;
+    if (applicationAuthenticated !== true || matchedItems.length === 0) return;
 
     const controller = new AbortController();
-    const itemIds = [...new Set(matchedItems.map(item => item.id))];
+    const groups = groupMetadataRequests(matchedItems);
 
     async function loadMetadata() {
       try {
-        const batches: string[][] = [];
-        for (let index = 0; index < itemIds.length; index += 500) {
-          batches.push(itemIds.slice(index, index + 500));
-        }
-        const metadata = await Promise.all(batches.map(async batch => {
-          const response = await fetch("/api/metadata/query", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: controller.signal,
-            body: JSON.stringify({
-              provider,
-              item_ids: batch,
-              ...(activeExternalSourceId ? { external_source_id: activeExternalSourceId } : {}),
-            }),
+        const requests = groups.flatMap(group => {
+          const batches: string[][] = [];
+          for (let index = 0; index < group.itemIds.length; index += 500) {
+            batches.push(group.itemIds.slice(index, index + 500));
+          }
+          return batches.map(async itemIds => {
+            const response = await fetch("/api/metadata/query", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: controller.signal,
+              body: JSON.stringify({
+                provider: group.provider,
+                item_ids: itemIds,
+                ...(group.externalSourceId ? { external_source_id: group.externalSourceId } : {}),
+              }),
+            });
+            if (!response.ok) throw Error("Unable to load asset metadata");
+            const body = await response.json() as { items: AssetMetadata[] };
+            return body.items;
           });
-          if (!response.ok) throw Error("Unable to load asset metadata");
-          const body = await response.json() as { items: AssetMetadata[] };
-          return body.items;
-        }));
+        });
+        const metadata = await Promise.all(requests);
         if (!controller.signal.aborted) mergeMetadata(metadata.flat());
       } catch (reason) {
         if (!controller.signal.aborted) {
@@ -1159,7 +1181,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
 
     void loadMetadata();
     return () => controller.abort();
-  }, [auth.authenticated, provider, matchedItems, activeExternalSourceId]);
+  }, [applicationAuthenticated, matchedItems]);
 
   return {
     path,
