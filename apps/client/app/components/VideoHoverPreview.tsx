@@ -14,6 +14,7 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [portrait, setPortrait] = useState(false);
   const mediaUrl = buildVideoPlaybackUrl(item);
   const startSeconds = Math.max(0, item.best_match.start_ms / 1000);
   const endSeconds = Math.max(startSeconds, item.best_match.end_ms / 1000);
@@ -23,6 +24,12 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
     if (!video) return;
     seekVideoAt(video, item.best_match.start_ms);
     void video.play().catch(() => undefined);
+  }
+
+  function handleLoadedMetadata() {
+    const video = videoRef.current;
+    if (video) setPortrait(video.videoHeight > video.videoWidth);
+    startPlayback();
   }
 
   function loopBestMatch() {
@@ -46,6 +53,7 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
   useEffect(() => {
     setFailed(false);
     setLoading(true);
+    setPortrait(false);
     const video = videoRef.current;
     return () => {
       if (!video) return;
@@ -56,7 +64,7 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
   }, [item.analysis_run_id, item.best_match.start_ms]);
 
   return <section
-    className={visible ? "video-hover-preview" : "video-hover-preloader"}
+    className={(visible ? "video-hover-preview" : "video-hover-preloader") + (portrait ? " video-hover-preview--portrait" : "")}
     role={visible ? "dialog" : undefined}
     aria-label={visible ? "Hover preview for " + item.filename : undefined}
     aria-hidden={visible ? undefined : true}
@@ -79,7 +87,7 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
           playsInline
           preload="auto"
           aria-label={"Preview " + item.filename}
-          onLoadedMetadata={startPlayback}
+          onLoadedMetadata={handleLoadedMetadata}
           onCanPlay={() => setLoading(false)}
           onTimeUpdate={loopBestMatch}
           onError={() => { setLoading(false); setFailed(true); }}
