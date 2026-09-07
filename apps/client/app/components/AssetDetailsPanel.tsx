@@ -10,6 +10,8 @@ import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, 
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 import { readTextPreview, TEXT_PREVIEW_RANGE } from "../utils/textPreview";
 import googleDriveLogoUrl from "../../assets/logos/google-drive-logo.svg";
+import googleDrivePlatformUrl from "../../assets/logos/google-drive-platform.png";
+import oneDrivePlatformUrl from "../../assets/logos/onedrive-platform.png";
 import geminiSparkleUrl from "../../assets/gemini-sparkle.svg";
 import seedanceLogoUrl from "../../assets/logos/seedance-logo.svg";
 import { LocationBreadcrumb, itemLocationBreadcrumb } from "./LocationBreadcrumb";
@@ -282,7 +284,7 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
         <Info label="Size" value={formatBytes(size)} />
         <Info className="inspector-location" label="Location" value={locationLoading ? <span className="location-loading" aria-busy="true">Resolving location...</span> : <LocationBreadcrumb nodes={displayBreadcrumb} unavailable={locationStatus !== "available"} onOpenFolder={breadcrumb.length ? onOpenFolder : undefined} />} />
         {kind === "image" && <Info label="Resolution" value={formatResolution(data?.image_width ?? item?.image_width, data?.image_height ?? item?.image_height)} />}
-        <Info label="Provider" value={provider === "sharepoint" ? "Microsoft SharePoint" : provider === "onedrive" ? "OneDrive" : "Google Drive"} />
+        <Info label="Provider" value={<ProviderLabel provider={provider} />} />
         <Info label="Modified" value={humanDate(modified)} />
         {created && <Info label="Created" value={humanDate(created)} />}
       </dl>
@@ -304,6 +306,12 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
       <Detail title="Managed storage" value={data.storage} />
     </section>}
   </>;
+}
+
+function ProviderLabel({ provider }: { provider: Asset["provider"] }) {
+  const isGoogleDrive = provider === "google-drive";
+  const label = provider === "sharepoint" ? "Microsoft SharePoint" : provider === "onedrive" ? "OneDrive" : "Google Drive";
+  return <span className="inspector-provider"><img src={isGoogleDrive ? googleDrivePlatformUrl : oneDrivePlatformUrl} alt="" aria-hidden="true" /><span>{label}</span></span>;
 }
 
 function TextInspectorPreview({ item, canEdit }: { item: Asset; canEdit: boolean }) {
