@@ -10,19 +10,10 @@ type Props = {
   onMouseLeave: () => void;
 };
 
-function formatTimestamp(milliseconds: number): string {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const remainder = String(seconds % 60).padStart(2, "0");
-  return hours
-    ? hours + ":" + String(minutes).padStart(2, "0") + ":" + remainder
-    : String(minutes).padStart(2, "0") + ":" + remainder;
-}
-
 export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMouseLeave }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
   const mediaUrl = buildVideoPlaybackUrl(item);
   const startSeconds = Math.max(0, item.best_match.start_ms / 1000);
   const endSeconds = Math.max(startSeconds, item.best_match.end_ms / 1000);
@@ -54,6 +45,7 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
 
   useEffect(() => {
     setFailed(false);
+    setLoading(true);
     const video = videoRef.current;
     return () => {
       if (!video) return;
@@ -71,10 +63,6 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
     onMouseEnter={onMouseEnter}
     onMouseLeave={onMouseLeave}
   >
-    {visible && <header>
-      <div><strong title={item.filename}>{item.filename}</strong><small>Best match · {formatTimestamp(item.best_match.start_ms)}–{formatTimestamp(item.best_match.end_ms)}</small></div>
-      <button type="button" onClick={onClose} aria-label="Close hover preview" title="Close preview">×</button>
-    </header>}
     <div className="video-hover-preview-stage">
       {!mediaUrl || failed
         ? <div className="video-hover-preview-error" role="alert">Video preview is unavailable.</div>
@@ -92,11 +80,13 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
           preload="auto"
           aria-label={"Preview " + item.filename}
           onLoadedMetadata={startPlayback}
+          onCanPlay={() => setLoading(false)}
           onTimeUpdate={loopBestMatch}
-          onError={() => setFailed(true)}
+          onError={() => { setLoading(false); setFailed(true); }}
           data-preview-start-seconds={startSeconds}
           data-preview-end-seconds={endSeconds}
         />}
+      {loading && !failed && <div className="video-hover-preview-loading" role="status">Đang tải video…</div>}
     </div>
   </section>;
 }

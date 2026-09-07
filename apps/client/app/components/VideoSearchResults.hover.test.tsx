@@ -50,6 +50,9 @@ describe("VideoSearchResults hover preview", () => {
     const video = preview.querySelector("video")!;
     expect(video).toBe(preloadedVideo);
     expect(preview.getAttribute("aria-label")).toContain("ride.mp4");
+    expect(preview.querySelector("header")).toBeNull();
+    expect(preview.textContent).toContain("Đang tải video…");
+    expect(preview.textContent).not.toContain("Best match");
     expect(video.getAttribute("src")).toContain("/api/explorer/media/file-a");
     expect(video.dataset.previewStartSeconds).toBe("12");
     expect(video.dataset.previewEndSeconds).toBe("18");
