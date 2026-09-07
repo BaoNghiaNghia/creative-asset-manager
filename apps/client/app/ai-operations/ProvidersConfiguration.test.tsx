@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { AiOpsConfiguration, AiOpsProviderBreakdown } from "../../features/ai_operations";
 import { fetchAiOperationsConfiguration, getManagedStorageOAuthStatus, saveManagedStorageRefreshToken, testManagedStorageRefreshToken, updateAiBudget, updateAiProvider } from "../../features/ai_operations";
-import { ConfigurationForm, ProviderCards, replaceProviderConfiguration } from "./ProvidersConfiguration";
+import { ConfigurationForm, JOB_PRIORITY_MODES, ProviderCards, jobPriorityModeFor, replaceProviderConfiguration } from "./ProvidersConfiguration";
 import { ManagedStorageCredentialStatus, ManagedStorageRefreshTokenForm } from "./ManagedStorageCredentialSettings";
 
 const configuration: AiOpsConfiguration = {
@@ -34,6 +34,17 @@ describe("AI Operations provider and configuration tabs", () => {
     const markup = renderToStaticMarkup(<ConfigurationForm configuration={configuration} onChanged={noop} onReload={noop} />);
     for (const value of ["Thiết lập mặc định", "gpt-5-mini", "Default metadata profile", "Prompt template", "Describe {{ asset }}", "Describe video scenes", "Image AI", "Video AI", "Save image prompt template", "Save video prompt template", "Expand", "Daily item limit", "Retry count", "Timeout", "Daily budget", "Monthly budget", "Warning threshold", "Hard-stop threshold", "Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục"]) expect(markup).toContain(value);
     expect(markup).not.toContain("Emergency stop all AI");
+  });
+
+  it("renders job-priority modes with a visual chart instead of raw priority inputs", () => {
+    const markup = renderToStaticMarkup(<ConfigurationForm configuration={configuration} onChanged={noop} onReload={noop} />);
+    for (const value of ["Cân bằng", "Ưu tiên phân tích AI", "Ưu tiên lập chỉ mục", "Biểu đồ mức ưu tiên các job", "Phân tích ảnh", "Lập chỉ mục video"]) expect(markup).toContain(value);
+    expect(markup).not.toContain("0–100; số lớn được chọn trước.");
+  });
+
+  it("maps each named priority mode to its preset and detects custom values", () => {
+    for (const mode of JOB_PRIORITY_MODES) expect(jobPriorityModeFor(mode.priorities)).toBe(mode.id);
+    expect(jobPriorityModeFor({ ...JOB_PRIORITY_MODES[0].priorities, asset_store: 31 })).toBeNull();
   });
 
   it("renders an editable default Video prompt when the API has no active video profile", () => {
