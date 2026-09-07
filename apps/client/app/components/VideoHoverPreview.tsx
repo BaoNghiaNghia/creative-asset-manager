@@ -86,7 +86,7 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
           data-preview-start-seconds={startSeconds}
           data-preview-end-seconds={endSeconds}
         />}
-      {loading && !failed && <div className="video-hover-preview-loading" role="status">Đang tải video…</div>}
+      {loading && !failed && <div className="video-hover-preview-loading" role="status"><span>Đang tải video…</span></div>}
     </div>
   </section>;
 }

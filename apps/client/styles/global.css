@@ -1451,3 +1451,9 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .video-search-thumbnail .video-hover-preview-loading:before{width:17px;height:17px;margin-right:7px;border:2px solid #ffffff52;border-top-color:#fff;border-radius:50%;content:"";animation:video-preview-spin .75s linear infinite}
 @keyframes video-preview-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.video-search-thumbnail .video-hover-preview-loading:before{animation-duration:1.5s}}
+
+
+.video-search-thumbnail .video-hover-preview-loading{display:block;text-align:center}
+.video-search-thumbnail .video-hover-preview-loading:before{position:absolute;top:50%;left:50%;width:19px;height:19px;margin:0;transform:translate(-50%,-50%)}
+.video-search-thumbnail .video-hover-preview-loading>span{position:absolute;top:calc(50% + 27px);left:0;right:0;line-height:1.2}
+@media(prefers-reduced-motion:reduce){.video-search-thumbnail .video-hover-preview-loading:before{animation-duration:1.5s}}
