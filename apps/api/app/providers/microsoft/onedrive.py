@@ -121,11 +121,16 @@ async def _raise_download_error(response: httpx.Response) -> None:
 async def close_media_stream(client:httpx.AsyncClient,response:httpx.Response):await response.aclose();await client.aclose()
 
 async def open_thumbnail_stream(access_token:str,item_id:str):
-    drive_id,graph_id=parse_item_id(item_id)
+    _,graph_id=parse_item_id(item_id)
     client=httpx.AsyncClient(timeout=httpx.Timeout(25,read=None),follow_redirects=True)
+    # OneDrive Personal can reject a valid personal drive identifier at the
+    # /drives/{drive-id} endpoint. The item was enumerated from the connected
+    # account's own drive, so use its delegated /me/drive route instead.
+    # This works for both Personal and work/school OneDrive and matches media
+    # proxy downloads above.
     response=await client.send(client.build_request(
         "GET",
-        f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{graph_id}/thumbnails/0/large/content",
+        f"https://graph.microsoft.com/v1.0/me/drive/items/{graph_id}/thumbnails/0/large/content",
         headers={"Authorization":f"Bearer {access_token}"},
     ),stream=True)
     if response.status_code in {400,404}:

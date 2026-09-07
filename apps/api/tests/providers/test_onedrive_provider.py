@@ -29,7 +29,7 @@ def test_graph_cursor_is_strictly_graph_v1():
 def test_factory_creates_onedrive_adapter():
     assert create_source_provider("onedrive","token").source_type=="onedrive"
 
-def test_thumbnail_stream_uses_graph_drive_item_and_closes():
+def test_thumbnail_stream_uses_connected_account_drive_and_closes():
     client=MagicMock()
     client.build_request.return_value=object()
     response=MagicMock(status_code=200)
@@ -43,7 +43,7 @@ def test_thumbnail_stream_uses_graph_drive_item_and_closes():
     assert returned_client is client and returned_response is response
     args,kwargs=client.build_request.call_args
     assert args[0]=="GET"
-    assert args[1]=="https://graph.microsoft.com/v1.0/drives/drive-id/items/item-id/thumbnails/0/large/content"
+    assert args[1]=="https://graph.microsoft.com/v1.0/me/drive/items/item-id/thumbnails/0/large/content"
     assert kwargs["headers"]=={"Authorization":"Bearer secret"}
     asyncio.run(close_thumbnail_stream(client,response))
     response.aclose.assert_awaited_once()
