@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.modules.assets.content_resolver import (
     SourceAssetContentResolver,
+    SourceAssetContentTransient,
     SourceAssetContentUnavailable,
 )
 from app.modules.assets.model import SourceAssetModel
@@ -48,6 +49,10 @@ class VideoProxyProcessError(VideoProxyPreparationError):
 
 
 class VideoProxySourceError(VideoProxyPreparationError):
+    pass
+
+
+class VideoProxySourceTemporarilyUnavailable(VideoProxyPreparationError):
     pass
 
 
@@ -226,6 +231,10 @@ class VideoProxyPreparationService:
                         written = next_size
         except VideoProxyPreparationError:
             raise
+        except SourceAssetContentTransient as exc:
+            raise VideoProxySourceTemporarilyUnavailable(
+                "video source provider is temporarily unavailable"
+            ) from exc
         except SourceAssetContentUnavailable as exc:
             raise VideoProxySourceError("video source content is unavailable") from exc
         except OSError as exc:

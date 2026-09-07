@@ -26,6 +26,10 @@ class SourceAssetContentUnavailable(ValueError):
     """A tenant-scoped source asset cannot be streamed safely."""
 
 
+class SourceAssetContentTransient(SourceAssetContentUnavailable):
+    """A source provider failed temporarily and the stream can be retried."""
+
+
 class SourceAssetContentResolver:
     """Open a provider stream for a tenant-owned source asset without buffering it."""
 
@@ -126,11 +130,20 @@ class SourceAssetContentResolver:
                     refreshed.deleted_at = None
                     session.commit()
 
-            stream = await provider.open_download_stream(OpenSourceAssetInput(
-                source_id=source_id,
-                external_asset_id=external_asset_id,
-                range_header=range_header,
-            ))
+            try:
+                stream = await provider.open_download_stream(OpenSourceAssetInput(
+                    source_id=source_id,
+                    external_asset_id=external_asset_id,
+                    range_header=range_header,
+                ))
+            except Exception as exc:
+                if self._is_transient_provider_error(exc):
+                    raise SourceAssetContentTransient(
+                        "source provider is temporarily unavailable"
+                    ) from exc
+                raise SourceAssetContentUnavailable(
+                    "source provider rejected the download request"
+                ) from exc
             closed = False
 
             async def close() -> None:
@@ -146,3 +159,12 @@ class SourceAssetContentResolver:
                 )
             finally:
                 await close()
+
+    @staticmethod
+    def _is_transient_provider_error(exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        if isinstance(status_code, int) and (
+            status_code == 408 or status_code == 429 or 500 <= status_code <= 599
+        ):
+            return True
+        return isinstance(exc, (TimeoutError, ConnectionError, OSError))

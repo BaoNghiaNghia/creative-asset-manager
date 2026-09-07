@@ -23,6 +23,7 @@ from app.modules.video_search.proxy import (
     VideoProxyProcessError,
     VideoProxySourceEmptyError,
     VideoProxySourceError,
+    VideoProxySourceTemporarilyUnavailable,
     VideoProxySourceChangedError,
     VideoProxySourceSizeMismatchError,
     VideoProxySourceStreamError,
@@ -250,6 +251,8 @@ class VideoAnalyzeJobHandler:
             return self._non_retry(context, run_id, None, "video_source_size_mismatch", "Downloaded video size does not match current source metadata.")
         except VideoProxySourceStreamError:
             return self._non_retry(context, run_id, None, "video_source_stream_invalid", "Video provider returned an invalid download stream.")
+        except VideoProxySourceTemporarilyUnavailable:
+            return self._retry(context, run_id, None, "video_proxy_source_temporarily_unavailable", "Video source provider is temporarily unavailable.")
         except VideoProxySourceError:
             return self._non_retry(context, run_id, None, "video_proxy_source_invalid", "Video source could not be prepared safely.")
         except VideoProxyConfigurationError:

@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.domain.providers.contracts import AssetDownloadStream
-from app.modules.assets.content_resolver import SourceAssetContentUnavailable
+from app.modules.assets.content_resolver import SourceAssetContentTransient, SourceAssetContentUnavailable
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.modules.video_search.proxy import (
@@ -21,6 +21,7 @@ from app.modules.video_search.proxy import (
     VideoProxyPreparationService,
     VideoProxySourceChangedError,
     VideoProxySourceError,
+    VideoProxySourceTemporarilyUnavailable,
     VideoProxySourceSizeMismatchError,
     VideoProxySourceTooLargeError,
     VideoProxyStorageError,
@@ -199,6 +200,18 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         factory = FakeProcessFactory()
         resolver = FakeResolver(error=SourceAssetContentUnavailable("source provider is unsupported"))
         with self.assertRaisesRegex(VideoProxySourceError, "video source content is unavailable"):
+            asyncio.run(self.service(factory, resolver).prepare(
+                tenant_id="tenant-a",
+                source_asset_id="asset-a",
+                expected_source_fingerprint=self.fingerprint(),
+            ))
+        self.assertIsNone(factory.ffmpeg)
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+
+    def test_transient_source_error_is_classified_for_retry(self):
+        factory = FakeProcessFactory()
+        resolver = FakeResolver(error=SourceAssetContentTransient("rate limited"))
+        with self.assertRaisesRegex(VideoProxySourceTemporarilyUnavailable, "temporarily unavailable"):
             asyncio.run(self.service(factory, resolver).prepare(
                 tenant_id="tenant-a",
                 source_asset_id="asset-a",
