@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { buildVideoPlaybackUrl, playbackSeekSeconds } from "../utils/videoPlayback";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 import { VideoHoverPreview } from "./VideoHoverPreview";
@@ -51,7 +51,7 @@ export function videoThumbnailRequestUrl(url: string | null): string | null {
   return url.slice(0, separator) + (query ? "?" + query : "");
 }
 
-function VideoThumbnail({ item, fallbackFrame, overlay }: { item: VideoSearchItem; fallbackFrame?: string; overlay?: ReactNode }) {
+function VideoThumbnail({ item, fallbackFrame }: { item: VideoSearchItem; fallbackFrame?: string }) {
   const [failed, setFailed] = useState(false);
   const timestamp = formatVideoTimestamp(item.best_match.start_ms);
   const providerThumbnail = videoThumbnailRequestUrl(item.thumbnail_url);
@@ -67,7 +67,6 @@ function VideoThumbnail({ item, fallbackFrame, overlay }: { item: VideoSearchIte
     >
       <span className="video-search-play" aria-hidden="true"><PlayIcon compact /></span>
       <span className="video-search-time" aria-hidden="true">{timestamp}</span>
-      {overlay}
     </div>;
   }
 
@@ -81,7 +80,6 @@ function VideoThumbnail({ item, fallbackFrame, overlay }: { item: VideoSearchIte
     />
     <span className="video-search-play" aria-hidden="true"><PlayIcon compact /></span>
     <span className="video-search-time" aria-hidden="true">{timestamp}</span>
-    {overlay}
   </div>;
 }
 
@@ -331,13 +329,7 @@ export function VideoSearchResults({
           aria-label={"View details for " + item.filename}
           title="View details"
         >i</button>
-        <VideoThumbnail item={item} fallbackFrame={generatedThumbnails[item.analysis_run_id]} overlay={hoverPreview?.item.analysis_run_id === item.analysis_run_id ? <VideoHoverPreview
-          item={hoverPreview.item}
-          visible={hoverPreview.visible}
-          onClose={closeNow}
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
-        /> : undefined} />
+        <VideoThumbnail item={item} fallbackFrame={generatedThumbnails[item.analysis_run_id]} />
         <div className="video-search-card-body">
           <header className="video-search-card-header">
             <h3 title={item.filename}>{item.filename}</h3>
@@ -372,6 +364,13 @@ export function VideoSearchResults({
             <span className="video-search-open-copy"><b>Phát đoạn phù hợp</b><small>{matchWindow}</small></span>
           </button>
         </div>
+        {hoverPreview?.item.analysis_run_id === item.analysis_run_id && <VideoHoverPreview
+          item={hoverPreview.item}
+          visible={hoverPreview.visible}
+          onClose={closeNow}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
+        />}
       </article>;
     })}
   </div></>;
