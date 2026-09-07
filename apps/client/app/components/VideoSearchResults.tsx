@@ -6,6 +6,12 @@ import { VideoHoverPreview } from "./VideoHoverPreview";
 export const VIDEO_HOVER_PREVIEW_DELAY_MS = 1000;
 const VIDEO_HOVER_PREVIEW_CLOSE_DELAY_MS = 220;
 
+function PlayIcon({ compact = false }: { compact?: boolean }) {
+  return <svg className={compact ? "video-play-icon video-play-icon-compact" : "video-play-icon"} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M8.5 5.9v12.2L18 12 8.5 5.9Z" fill="currentColor" />
+  </svg>;
+}
+
 export function formatVideoTimestamp(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
   const hours = Math.floor(seconds / 3600);
@@ -59,7 +65,7 @@ function VideoThumbnail({ item, fallbackFrame }: { item: VideoSearchItem; fallba
       role="img"
       aria-label={"Video placeholder for " + item.filename}
     >
-      <span className="video-search-play" aria-hidden="true">Play</span>
+      <span className="video-search-play" aria-hidden="true"><PlayIcon compact /></span>
       <span className="video-search-time" aria-hidden="true">{timestamp}</span>
     </div>;
   }
@@ -72,7 +78,7 @@ function VideoThumbnail({ item, fallbackFrame }: { item: VideoSearchItem; fallba
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
     />
-    <span className="video-search-play" aria-hidden="true">Play</span>
+    <span className="video-search-play" aria-hidden="true"><PlayIcon compact /></span>
     <span className="video-search-time" aria-hidden="true">{timestamp}</span>
   </div>;
 }
@@ -343,7 +349,7 @@ export function VideoSearchResults({
           })} />
 
           <div className="video-search-best-match">
-            <b>Best match - {timestamp}</b>
+            <div className="video-search-best-match-heading"><span>Best match</span><time>{timestamp}</time></div>
             <p>{item.best_match.summary}</p>
             {excerpt && <small>{excerpt}</small>}
           </div>
@@ -354,8 +360,8 @@ export function VideoSearchResults({
             onClick={() => onOpen(item)}
             aria-label={"Play " + item.filename + " from " + formatVideoTimestamp(item.best_match.start_ms) + " to " + formatVideoTimestamp(item.best_match.end_ms) + " (" + formatVideoSegmentDuration(item.best_match.start_ms, item.best_match.end_ms) + ")"}
           >
-            <span aria-hidden="true">Play</span>
-            {"Phát " + matchWindow}
+            <span className="video-search-open-icon" aria-hidden="true"><PlayIcon /></span>
+            <span className="video-search-open-copy"><b>Phát đoạn phù hợp</b><small>{matchWindow}</small></span>
           </button>
         </div>
       </article>;
