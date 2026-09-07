@@ -38,7 +38,8 @@ describe("AI Operations provider and configuration tabs", () => {
 
   it("renders job-priority modes with a visual chart instead of raw priority inputs", () => {
     const markup = renderToStaticMarkup(<ConfigurationForm configuration={configuration} onChanged={noop} onReload={noop} />);
-    for (const value of ["Cân bằng", "Ưu tiên phân tích AI", "Ưu tiên lập chỉ mục", "Biểu đồ mức ưu tiên job Image", "Biểu đồ mức ưu tiên job Video", "Ưu tiên job Video", "Phân tích ảnh", "Lập chỉ mục video"]) expect(markup).toContain(value);
+    for (const value of ["Cân bằng", "Ưu tiên phân tích AI", "Ưu tiên lập chỉ mục", "Biểu đồ mức ưu tiên job Image", "Biểu đồ mức ưu tiên job Video", "Ưu tiên job Image", "Ưu tiên job Video", "Phân tích ảnh", "Lập chỉ mục video", "Save image job priorities", "Save video job priorities"]) expect(markup).toContain(value);
+    expect((markup.match(/ops-config-priority/g) || []).length).toBe(2);
     expect(markup).not.toContain("0–100; số lớn được chọn trước.");
   });
 

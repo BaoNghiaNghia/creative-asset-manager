@@ -252,6 +252,10 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
   const canUpdateBudget = configuration.permissions.can_update_budget ?? configuration.permissions.can_manage_tenant;
   const canEmergencyStop = configuration.permissions.can_emergency_stop ?? configuration.permissions.can_manage_tenant;
   const videoPromptProfile = configuration.video_prompt_template || DEFAULT_VIDEO_PROMPT_PROFILE;
+  const jobPriorities = useMemo(
+    () => ({ ...DEFAULT_JOB_PRIORITIES, ...configuration.tenant.job_priorities }),
+    [configuration.tenant.job_priorities],
+  );
 
   async function saveConfiguration() {
     if (!reason.trim()) { setError("A reason is required for the audit log."); return; }
@@ -264,7 +268,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
         default_mode: form.default_mode, default_metadata_profile: form.default_metadata_profile,
         auto_analyze_new_assets: form.auto_analyze_new_assets, daily_item_limit: form.daily_item_limit,
         retry_count: form.retry_count, timeout_seconds: form.timeout_seconds,
-        job_priorities: form.job_priorities, reason: reason.trim(),
+        reason: reason.trim(),
       });
       setAudit((result.audit || defaults.audit) as AiOpsAudit); onReload();
     } catch (failure) { setError(String((failure as Error)?.message || "Configuration update failed")); }
@@ -325,19 +329,13 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
             <label>Timeout (seconds)<input disabled={!canEdit} type="number" min="1" max="3600" value={form.timeout_seconds} onChange={event => setForm({ ...form, timeout_seconds: Number(event.target.value) })} /></label>
           </div>
         </div>
-        <div className="ops-form-section ops-priority-section">
-          <div className="ops-form-section-heading"><h4>Ưu tiên job Image</h4><p>Chọn chế độ cho tải xuống, phân tích ảnh và lập chỉ mục ảnh.</p></div>
-          <JobPriorityModeChart priorities={form.job_priorities} canEdit={canEdit} modes={JOB_PRIORITY_MODES} items={IMAGE_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Image" onSelect={changes => setForm({ ...form, job_priorities: { ...form.job_priorities, ...changes } })} />
-        </div>
-        <div className="ops-form-section ops-priority-section">
-          <div className="ops-form-section-heading"><h4>Ưu tiên job Video</h4><p>Chọn chế độ cho phân tích video và lập chỉ mục video. Lưu thay đổi áp dụng ngay cho các job video đang chờ.</p></div>
-          <JobPriorityModeChart priorities={form.job_priorities} canEdit={canEdit} modes={VIDEO_JOB_PRIORITY_MODES} items={VIDEO_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Video" onSelect={changes => setForm({ ...form, job_priorities: { ...form.job_priorities, ...changes } })} />
-        </div>
         <div className="ops-form-footer">
           <label>Change reason<input disabled={!canEdit} required value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: tăng giới hạn xử lý cho chiến dịch tháng 7" /><small>Lý do được lưu trong nhật ký kiểm toán.</small></label>
           <button className="primary" disabled={!canEdit || saving} type="submit">Save tenant defaults</button>
         </div>
       </form>
+      <JobPriorityConfigurationCard title="Ưu tiên job Image" description="Chọn chế độ cho tải xuống, phân tích ảnh và lập chỉ mục ảnh." saveLabel="Save image job priorities" priorities={jobPriorities} canEdit={canEdit} modes={JOB_PRIORITY_MODES} items={IMAGE_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Image" onReload={onReload} />
+      <JobPriorityConfigurationCard title="Ưu tiên job Video" description="Chọn chế độ cho phân tích video và lập chỉ mục video. Lưu thay đổi áp dụng ngay cho các job video đang chờ." saveLabel="Save video job priorities" priorities={jobPriorities} canEdit={canEdit} modes={VIDEO_JOB_PRIORITY_MODES} items={VIDEO_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Video" onReload={onReload} />
       <MetadataPromptTemplateCard key={configuration.metadata_prompt_template?.id || "image-missing"} media="image" profile={configuration.metadata_prompt_template} canEdit={canEdit} onReload={onReload} />
       <MetadataPromptTemplateCard key={videoPromptProfile.id || "video-draft"} media="video" profile={videoPromptProfile} canEdit={canEdit} onReload={onReload} />
       {configuration.permissions.can_read_budget !== false ? <form className="ops-config-card ops-config-budget" onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
@@ -366,6 +364,52 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
     </div>
     {confirmAction && <div className="ops-confirm ops-confirm-wide" role="dialog" aria-label="Confirm configuration change"><h3>Confirm {confirmAction === "budget" ? "budget override" : "emergency action"}</h3><p>This action is audited. Enter a reason before continuing.</p><label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label><div><button type="button" onClick={() => setConfirmAction(null)}>Cancel</button><button className="danger" type="button" disabled={!reason.trim() || saving} onClick={confirmAction === "budget" ? saveBudget : confirmAction === "global-stop" ? toggleGlobal : toggleTenant}>Confirm</button></div></div>}
   </section>;
+}
+
+export function JobPriorityConfigurationCard({ title, description, saveLabel, priorities: configuredPriorities, canEdit, modes, items, ariaLabel, onReload }: {
+  title: string;
+  description: string;
+  saveLabel: string;
+  priorities: JobPriorities;
+  canEdit: boolean;
+  modes: ReadonlyArray<{ id: string; label: string; description: string; priorities: JobPriorities }>;
+  items: ReadonlyArray<readonly [JobPriorityKey, string]>;
+  ariaLabel: string;
+  onReload: () => void;
+}) {
+  const [priorities, setPriorities] = useState<JobPriorities>(() => ({ ...configuredPriorities }));
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => setPriorities({ ...configuredPriorities }), [configuredPriorities]);
+
+  async function savePriorities() {
+    if (!reason.trim()) { setError("Nhập lý do thay đổi để lưu nhật ký kiểm toán."); return; }
+    setSaving(true); setError(""); setNotice("");
+    try {
+      const result = await updateAiOperationsConfiguration({ job_priorities: priorities, reason: reason.trim() });
+      setNotice(result.audit ? "Đã lưu ưu tiên job." : "Đã gửi cập nhật ưu tiên job.");
+      setReason("");
+      onReload();
+    } catch (failure) {
+      setError(String((failure as Error)?.message || "Không thể lưu ưu tiên job."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <form className="ops-config-card ops-config-priority" onSubmit={event => { event.preventDefault(); savePriorities(); }}>
+    <header className="ops-config-card-header"><div><h3>{title}</h3><p>{description}</p></div><span className="ops-card-kicker">Queue</span></header>
+    {error && <div className="ops-inline-error" role="alert">{error}</div>}
+    {notice && <div className="ops-audit" role="status">{notice}</div>}
+    <JobPriorityModeChart priorities={priorities} canEdit={canEdit} modes={modes} items={items} ariaLabel={ariaLabel} onSelect={changes => setPriorities({ ...priorities, ...changes })} />
+    <div className="ops-form-footer">
+      <label>Change reason<input disabled={!canEdit || saving} required value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: ưu tiên xử lý chiến dịch mới" /><small>Lý do được lưu trong nhật ký kiểm toán.</small></label>
+      <button className="primary" disabled={!canEdit || saving} type="submit">{saving ? "Saving…" : saveLabel}</button>
+    </div>
+  </form>;
 }
 
 function JobPriorityModeChart({ priorities, canEdit, modes, items, ariaLabel, onSelect }: {
