@@ -20,9 +20,12 @@ const DEFAULT_JOB_PRIORITIES: JobPriorities = {
   asset_index: 35, video_analyze: 50, video_search_index: 45,
 };
 
-const JOB_PRIORITY_ITEMS: ReadonlyArray<readonly [JobPriorityKey, string]> = [
+const IMAGE_JOB_PRIORITY_ITEMS: ReadonlyArray<readonly [JobPriorityKey, string]> = [
   ["source_asset_download", "Tải xuống"], ["asset_store", "Lưu trữ"],
   ["asset_analyze", "Phân tích ảnh"], ["asset_index", "Lập chỉ mục tìm kiếm"],
+];
+
+const VIDEO_JOB_PRIORITY_ITEMS: ReadonlyArray<readonly [JobPriorityKey, string]> = [
   ["video_analyze", "Phân tích video"], ["video_search_index", "Lập chỉ mục video"],
 ];
 
@@ -32,8 +35,22 @@ export const JOB_PRIORITY_MODES: ReadonlyArray<{ id: string; label: string; desc
   { id: "search-index", label: "Ưu tiên lập chỉ mục", description: "Đẩy nhanh khả năng tìm kiếm sau khi phân tích.", priorities: { source_asset_download: 15, asset_store: 25, asset_analyze: 50, asset_index: 90, video_analyze: 55, video_search_index: 95 } },
 ];
 
+export const VIDEO_JOB_PRIORITY_MODES: ReadonlyArray<{ id: string; label: string; description: string; priorities: JobPriorities }> = [
+  { id: "video-balanced", label: "Cân bằng", description: "Phân bổ đều giữa phân tích và lập chỉ mục video.", priorities: DEFAULT_JOB_PRIORITIES },
+  { id: "video-analysis", label: "Ưu tiên phân tích AI", description: "Đẩy nhanh phân tích video trước.", priorities: { ...DEFAULT_JOB_PRIORITIES, video_analyze: 90, video_search_index: 50 } },
+  { id: "video-index", label: "Ưu tiên lập chỉ mục", description: "Đẩy nhanh video xuất hiện trong tìm kiếm.", priorities: { ...DEFAULT_JOB_PRIORITIES, video_analyze: 55, video_search_index: 95 } },
+];
+
+function priorityModeForItems(
+  priorities: JobPriorities,
+  modes: ReadonlyArray<{ id: string; priorities: JobPriorities }>,
+  items: ReadonlyArray<readonly [JobPriorityKey, string]>,
+): string | null {
+  return modes.find(mode => items.every(([key]) => mode.priorities[key] === priorities[key]))?.id ?? null;
+}
+
 export function jobPriorityModeFor(priorities: JobPriorities): string | null {
-  return JOB_PRIORITY_MODES.find(mode => JOB_PRIORITY_ITEMS.every(([key]) => mode.priorities[key] === priorities[key]))?.id ?? null;
+  return priorityModeForItems(priorities, JOB_PRIORITY_MODES, IMAGE_JOB_PRIORITY_ITEMS);
 }
 
 const DEFAULT_VIDEO_PROMPT_PROFILE: NonNullable<AiOpsConfiguration["video_prompt_template"]> = {
@@ -309,8 +326,12 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
           </div>
         </div>
         <div className="ops-form-section ops-priority-section">
-          <div className="ops-form-section-heading"><h4>Ưu tiên job</h4><p>Chọn chế độ vận hành. Số lớn chạy trước; lưu thay đổi sẽ áp dụng ngay cho các job đang chờ của tenant.</p></div>
-          <JobPriorityModeChart priorities={form.job_priorities} canEdit={canEdit} onSelect={job_priorities => setForm({ ...form, job_priorities })} />
+          <div className="ops-form-section-heading"><h4>Ưu tiên job Image</h4><p>Chọn chế độ cho tải xuống, phân tích ảnh và lập chỉ mục ảnh.</p></div>
+          <JobPriorityModeChart priorities={form.job_priorities} canEdit={canEdit} modes={JOB_PRIORITY_MODES} items={IMAGE_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Image" onSelect={changes => setForm({ ...form, job_priorities: { ...form.job_priorities, ...changes } })} />
+        </div>
+        <div className="ops-form-section ops-priority-section">
+          <div className="ops-form-section-heading"><h4>Ưu tiên job Video</h4><p>Chọn chế độ cho phân tích video và lập chỉ mục video. Lưu thay đổi áp dụng ngay cho các job video đang chờ.</p></div>
+          <JobPriorityModeChart priorities={form.job_priorities} canEdit={canEdit} modes={VIDEO_JOB_PRIORITY_MODES} items={VIDEO_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Video" onSelect={changes => setForm({ ...form, job_priorities: { ...form.job_priorities, ...changes } })} />
         </div>
         <div className="ops-form-footer">
           <label>Change reason<input disabled={!canEdit} required value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: tăng giới hạn xử lý cho chiến dịch tháng 7" /><small>Lý do được lưu trong nhật ký kiểm toán.</small></label>
@@ -347,17 +368,24 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
   </section>;
 }
 
-function JobPriorityModeChart({ priorities, canEdit, onSelect }: { priorities: JobPriorities; canEdit: boolean; onSelect: (priorities: JobPriorities) => void }) {
-  const selectedMode = jobPriorityModeFor(priorities);
+function JobPriorityModeChart({ priorities, canEdit, modes, items, ariaLabel, onSelect }: {
+  priorities: JobPriorities;
+  canEdit: boolean;
+  modes: ReadonlyArray<{ id: string; label: string; description: string; priorities: JobPriorities }>;
+  items: ReadonlyArray<readonly [JobPriorityKey, string]>;
+  ariaLabel: string;
+  onSelect: (changes: Partial<JobPriorities>) => void;
+}) {
+  const selectedMode = priorityModeForItems(priorities, modes, items);
   return <div className="ops-priority-control">
     <div className="ops-priority-mode-picker" role="group" aria-label="Chế độ ưu tiên job">
-      {JOB_PRIORITY_MODES.map(mode => <button key={mode.id} type="button" disabled={!canEdit} className={selectedMode === mode.id ? "active" : ""} aria-pressed={selectedMode === mode.id} onClick={() => onSelect({ ...mode.priorities })}>
+      {modes.map(mode => <button key={mode.id} type="button" disabled={!canEdit} className={selectedMode === mode.id ? "active" : ""} aria-pressed={selectedMode === mode.id} onClick={() => onSelect(Object.fromEntries(items.map(([key]) => [key, mode.priorities[key]])) as Partial<JobPriorities>)}>
         <strong>{mode.label}</strong><span>{mode.description}</span>
       </button>)}
     </div>
     {!selectedMode && <small className="ops-priority-custom">Thiết lập hiện tại là tuỳ chỉnh. Chọn một chế độ để áp dụng preset mới.</small>}
-    <div className="ops-priority-chart" role="img" aria-label="Biểu đồ mức ưu tiên các job">
-      {JOB_PRIORITY_ITEMS.map(([jobType, label]) => {
+    <div className="ops-priority-chart" role="img" aria-label={ariaLabel}>
+      {items.map(([jobType, label]) => {
         const value = Math.max(0, Math.min(100, priorities[jobType] ?? 0));
         return <div className="ops-priority-bar" key={jobType}><div><span>{label}</span><strong>{value}</strong></div><i><b style={{ "--priority-width": value + "%" } as CSSProperties} /></i></div>;
       })}
