@@ -1,12 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 import { buildVideoPlaybackUrl, seekVideoAt } from "../utils/videoPlayback";
 
-type Position = { left: number; top: number; width: number };
 type Props = {
   item: VideoSearchItem;
-  anchor: HTMLElement;
   visible: boolean;
   onClose: () => void;
   onMouseEnter: () => void;
@@ -23,22 +20,9 @@ function formatTimestamp(milliseconds: number): string {
     : String(minutes).padStart(2, "0") + ":" + remainder;
 }
 
-export function hoverPreviewPosition(anchor: Pick<DOMRect, "left" | "top" | "width">, viewportWidth: number): Position {
-  const gutter = 12;
-  const width = Math.min(420, Math.max(280, viewportWidth - gutter * 2));
-  const estimatedHeight = width * 9 / 16 + 46;
-  const centered = anchor.left + anchor.width / 2 - width / 2;
-  return {
-    left: Math.max(gutter, Math.min(centered, viewportWidth - width - gutter)),
-    top: Math.max(gutter, anchor.top - estimatedHeight - 10),
-    width,
-  };
-}
-
-export function VideoHoverPreview({ item, anchor, visible, onClose, onMouseEnter, onMouseLeave }: Props) {
+export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMouseLeave }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [failed, setFailed] = useState(false);
-  const [position, setPosition] = useState<Position>(() => hoverPreviewPosition(anchor.getBoundingClientRect(), window.innerWidth));
   const mediaUrl = buildVideoPlaybackUrl(item);
   const startSeconds = Math.max(0, item.best_match.start_ms / 1000);
   const endSeconds = Math.max(startSeconds, item.best_match.end_ms / 1000);
@@ -56,13 +40,6 @@ export function VideoHoverPreview({ item, anchor, visible, onClose, onMouseEnter
     video.currentTime = startSeconds;
     void video.play().catch(() => undefined);
   }
-
-  useLayoutEffect(() => {
-    const updatePosition = () => setPosition(hoverPreviewPosition(anchor.getBoundingClientRect(), window.innerWidth));
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    return () => window.removeEventListener("resize", updatePosition);
-  }, [anchor]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -86,9 +63,8 @@ export function VideoHoverPreview({ item, anchor, visible, onClose, onMouseEnter
     };
   }, [item.analysis_run_id, item.best_match.start_ms]);
 
-  return createPortal(<section
+  return <section
     className={visible ? "video-hover-preview" : "video-hover-preloader"}
-    style={visible ? position : undefined}
     role={visible ? "dialog" : undefined}
     aria-label={visible ? "Hover preview for " + item.filename : undefined}
     aria-hidden={visible ? undefined : true}
@@ -120,5 +96,5 @@ export function VideoHoverPreview({ item, anchor, visible, onClose, onMouseEnter
           data-preview-end-seconds={endSeconds}
         />}
     </div>
-  </section>, document.body);
+  </section>;
 }

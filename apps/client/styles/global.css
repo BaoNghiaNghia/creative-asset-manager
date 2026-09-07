@@ -1431,3 +1431,17 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .video-search-best-match{display:block;position:relative;padding-left:16px}
 .video-search-best-match:before{position:absolute;top:0;bottom:0;left:0;width:3px;margin:0;border-radius:10px 0 0 10px}
 .video-search-best-match-heading{width:100%}
+
+
+/* Preview stays inside its thumbnail: no floating card, no overlap with neighbours. */
+.video-search-thumbnail .video-hover-preview,.video-search-thumbnail .video-hover-preloader{position:absolute;inset:0;z-index:4;overflow:hidden;border:0;border-radius:0;background:#06080d;color:#fff;box-shadow:none;animation:none}
+.video-search-thumbnail .video-hover-preview:after,.video-search-thumbnail .video-hover-preloader:after{display:none}
+.video-search-thumbnail .video-hover-preloader{pointer-events:none;opacity:0}
+.video-search-thumbnail .video-hover-preview>header{position:absolute;z-index:2;top:0;right:0;left:0;height:43px;padding:7px 8px 7px 11px;border:0;background:linear-gradient(180deg,#07101fde,transparent)}
+.video-search-thumbnail .video-hover-preview>header>div{min-width:0}
+.video-search-thumbnail .video-hover-preview>header strong{font-size:11px}
+.video-search-thumbnail .video-hover-preview>header small{font-size:9px}
+.video-search-thumbnail .video-hover-preview>header button{width:27px;height:27px;border-radius:8px}
+.video-search-thumbnail .video-hover-preview-stage{width:100%;height:100%;aspect-ratio:auto;border-radius:0}
+.video-search-thumbnail .video-hover-preview-stage video{width:100%;height:100%;object-fit:contain}
+.video-search-thumbnail .video-hover-preview-error{font-size:11px}

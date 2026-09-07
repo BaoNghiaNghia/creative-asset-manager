@@ -46,6 +46,7 @@ describe("VideoSearchResults hover preview", () => {
 
     await act(async () => vi.advanceTimersByTime(1));
     const preview = document.querySelector(".video-hover-preview")!;
+    expect(host.querySelector(".video-search-thumbnail")?.contains(preview)).toBe(true);
     const video = preview.querySelector("video")!;
     expect(video).toBe(preloadedVideo);
     expect(preview.getAttribute("aria-label")).toContain("ride.mp4");
