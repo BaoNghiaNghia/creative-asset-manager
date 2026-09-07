@@ -13,6 +13,7 @@ from app.modules.ai_operations.cache import (
     cached_ai_operations_async,
     cached_ai_operations_read,
     filters_cache_key,
+    media_dashboard_cache_key,
 )
 from app.modules.ai_operations.export import EXPORT_COLUMNS, audit_export, csv_stream, export_rows
 from app.modules.ai_operations.queries import AiOperationsRepository
@@ -326,9 +327,12 @@ async def media_dashboard(
     video_page_size: int = Query(default=25, ge=1, le=100),
 ):
     target = filters.tenant_id
-    async def load():
+    def load_sync():
+        # MediaDashboardService issues blocking SQLAlchemy work. Keep it out of
+        # the API event loop so this endpoint does not serialize concurrent
+        # pipeline/dashboard refreshes.
         with SessionLocal() as session:
-            return await MediaDashboardService(
+            return asyncio.run(MediaDashboardService(
                 session, get_settings()
             ).snapshot(
                 target,
@@ -341,11 +345,14 @@ async def media_dashboard(
                 processing_mode=filters.processing_mode,
                 metadata_profile=filters.metadata_profile,
                 status=filters.status,
-            )
+            ))
+
+    async def load():
+        return await asyncio.to_thread(load_sync)
 
     return await cached_ai_operations_async(
         "media-dashboard",
-        filters_cache_key(filters) + (video_page, video_page_size),
+        media_dashboard_cache_key(filters) + (video_page, video_page_size),
         load,
     )
 

@@ -16,8 +16,8 @@ AI_OPERATIONS_TTLS = {
     "failures": 5,
     "usage": 5,
     "jobs": 3,
-    "pipeline": 3,
-    "media-dashboard": 3,
+    "pipeline": 15,
+    "media-dashboard": 15,
 }
 
 ai_operations_caches = {
@@ -42,6 +42,27 @@ def filters_cache_key(filters: AiOperationsFilters) -> tuple[object, ...]:
         filters.job_type or "",
     )
 
+
+
+
+def media_dashboard_cache_key(filters: AiOperationsFilters) -> tuple[object, ...]:
+    """Use a short, minute-bucketed cache for live dashboard refreshes.
+
+    The dashboard reports aggregate operational state, so sub-minute changes to
+    the requested time window do not warrant recomputing its expensive
+    historical aggregates on every UI refresh.
+    """
+    return (
+        filters.tenant_id,
+        filters.from_at.replace(second=0, microsecond=0).isoformat(),
+        filters.to_at.replace(second=0, microsecond=0).isoformat(),
+        filters.provider or "",
+        filters.model or "",
+        filters.processing_mode or "",
+        filters.metadata_profile or "",
+        filters.status or "",
+        filters.source_provider or "",
+    )
 
 def cached_ai_operations_read(
     name: str,
