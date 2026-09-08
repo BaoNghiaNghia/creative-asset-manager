@@ -16,7 +16,6 @@ def backup_is_active(session: Session, settings: Settings, tenant_id: str, now: 
         ProcessingJobModel.tenant_id == tenant_id,
         ProcessingJobModel.status.in_(("pending", "retry")),
         ProcessingJobModel.last_error_code.in_(DEFERRED_CODES),
-        ProcessingJobModel.next_attempt_at > now,
     )) or 0
     return int(count) >= threshold
 
