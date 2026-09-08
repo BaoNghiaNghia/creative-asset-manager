@@ -30,6 +30,7 @@ from app.modules.pipeline.state import PipelineState
 from app.modules.processing.repository import ProcessingRepository
 from app.providers.microsoft.onedrive import OneDriveDownloadError
 from app.modules.search.index_types import SearchIndexDocument, SearchIndexProvider, build_search_index_document
+from app.modules.visual_search.lifecycle import enqueue_visual_index_sync
 from app.modules.search.source_index import SearchSourceIndexResolver
 from app.modules.search.governance_model import ActiveAssetAnalysisModel
 from app.modules.storage.sidecar_document import MetadataSidecarDocumentBuilder
@@ -298,6 +299,12 @@ class AssetStoreJobHandler(_PipelineHandler):
                     repository.transition(pipeline, PipelineState.STORED)
                 coordinator = AssetPipelineService(repository, ProcessingRepository(session))
                 SourceAssetDownloadJobHandler._enqueue_after_storage(coordinator, pipeline, settings)
+                if pipeline.asset_id and pipeline.source_asset_id and pipeline.content_hash:
+                    enqueue_visual_index_sync(
+                        ProcessingRepository(session), settings=settings, tenant_id=pipeline.tenant_id,
+                        asset_id=pipeline.asset_id, source_asset_id=pipeline.source_asset_id,
+                        content_sha256=pipeline.content_hash,
+                    )
                 session.commit()
             finally:
                 session.close()

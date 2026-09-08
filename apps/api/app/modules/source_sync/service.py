@@ -18,6 +18,7 @@ from app.modules.video_search.enqueue import enqueue_video_analysis_job
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.core.config import Settings
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.visual_search.lifecycle import enqueue_visual_retire_sync
 from app.modules.source_sync.repository import SourceSyncRepository
 from app.modules.explorer.breadcrumb import location_breadcrumb_cache
 from app.modules.explorer.cache import (
@@ -164,6 +165,10 @@ class SourceSyncService:
             tenant_id=tenant_id, source_asset_id=source_asset.id
         )
         if linked is not None:
+            enqueue_visual_retire_sync(
+                self.processing, settings=self.settings, tenant_id=tenant_id,
+                asset_id=str(linked.id), identity=identity,
+            )
             self._enqueue_search_index_sync(
                 tenant_id=tenant_id,
                 asset_id=str(linked.id),
@@ -394,6 +399,10 @@ class SourceSyncService:
                         tenant_id, source_asset.id
                     )
                     if linked is not None:
+                        enqueue_visual_retire_sync(
+                            self.processing, settings=self.settings, tenant_id=tenant_id,
+                            asset_id=str(linked.id), identity=f"reconciliation:{run.id}",
+                        )
                         self._enqueue_search_index_sync(
                             tenant_id=tenant_id,
                             asset_id=str(linked.id),

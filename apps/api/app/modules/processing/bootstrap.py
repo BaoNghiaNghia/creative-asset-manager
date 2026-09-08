@@ -34,6 +34,10 @@ from app.modules.pipeline.stages import (
     ProviderStorageStage,
 )
 from app.modules.search.index_sync_handler import SearchIndexSyncJobHandler
+from app.modules.visual_search.index_handler import VisualIndexSyncJobHandler
+from app.modules.visual_search.encoder import SiglipVisualEncoder
+from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex
+from app.modules.assets.content_resolver import SourceAssetContentResolver
 from app.modules.pipeline.handlers import (
     AssetIndexJobHandler,
     AssetStoreJobHandler,
@@ -77,6 +81,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "search_projection_build": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "SEARCH_PROJECTION_ENABLED"),
     "asset_index": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
     "search_index_sync": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "ELASTICSEARCH_V2_ENABLED"),
+    "visual_index_sync": ("PROCESSING_JOBS_ENABLED", "VISUAL_SEARCH_ENABLED", "ELASTICSEARCH_URL"),
     "metadata_sidecar_export": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DRIVE_METADATA_SIDECAR_ENABLED"),
     "retention_cleanup": ("PROCESSING_JOBS_ENABLED", "RETENTION_CLEANUP_ENABLED"),
     "managed_storage_cleanup": ("PROCESSING_JOBS_ENABLED", "MANAGED_STORAGE_AUTO_CLEANUP_ENABLED"),
@@ -213,6 +218,13 @@ def build_worker_runtime(
                 index_generation="v3" if settings.SEARCH_V3_ENABLED else "v2",
             )
         )
+    if settings.VISUAL_SEARCH_ENABLED and settings.ELASTICSEARCH_URL:
+        default_resources["visual_index_provider"] = VisualSearchElasticsearchIndex(
+            ElasticsearchV3Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX, index_generation="v3"),
+            SiglipVisualEncoder.descriptor,
+        )
+        default_resources["visual_content_resolver"] = SourceAssetContentResolver(session_factory)
+
     # Explicit resources are deliberate test/operational overrides.
     default_resources.update(resources or {})
     dependencies = WorkerDependencies(
@@ -254,6 +266,7 @@ def build_worker_runtime(
                 ("search_projection_build", SearchProjectionBuildJobHandler(settings)),
                 ("asset_index", AssetIndexJobHandler(settings)),
                 ("search_index_sync", SearchIndexSyncJobHandler(settings)),
+                ("visual_index_sync", VisualIndexSyncJobHandler(settings)),
                 ("metadata_sidecar_export", MetadataSidecarExportJobHandler(settings)),
                 ("retention_cleanup", RetentionCleanupJobHandler(settings)),
                 ("managed_storage_cleanup", ManagedStorageCleanupJobHandler(settings)),
