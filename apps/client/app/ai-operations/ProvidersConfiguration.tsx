@@ -262,6 +262,7 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
             <CreativeGeminiCredentialSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
             <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} embedded />
             <CreativeGeminiCredentialSettings kind="video" canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
+            <CreativeGeminiCredentialSettings kind="backup" canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
           </div>
         </section>}
         {confirmProvider === provider.id && <div className="ops-confirm" role="dialog" aria-label={`${provider.paused ? "Resume" : "Pause"} ${provider.label}`}>

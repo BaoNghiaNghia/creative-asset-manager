@@ -429,7 +429,7 @@ export const repairSearchCoverage = (body: { confirmed: true; limit: number; ver
   mutate("/api/v1/admin/ai-operations/coverage/repair", "POST", body, fetcher);
 
 
-export type CreativeGeminiCredential = { provider:"gemini"|"gemini_video"; configured:boolean; source:"configuration"|"environment"|"unavailable"; masked_key:string|null; label:string|null; status:string; last_tested_at:string|null; updated_at:string|null; updated_by:string|null };
+export type CreativeGeminiCredential = { provider:"gemini"|"gemini_video"|"gemini_backup"; configured:boolean; source:"configuration"|"environment"|"unavailable"; masked_key:string|null; label:string|null; status:string; last_tested_at:string|null; updated_at:string|null; updated_by:string|null };
 export type CreativeGeminiCredentialStatus = "VALID"|"INVALID_KEY"|"PERMISSION_DENIED"|"RATE_LIMITED"|"PROVIDER_UNAVAILABLE";
 export const getCreativeGeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", fetcher);
 export const testCreativeGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<{provider:"gemini";status:CreativeGeminiCredentialStatus}>("/api/v1/admin/ai-operations/configuration/credentials/gemini/test", "POST", api_key ? {api_key,label} : {}, fetcher);
@@ -439,6 +439,9 @@ export type VideoGeminiCredential = Omit<CreativeGeminiCredential, "provider"> &
 export const getVideoGeminiCredential = (fetcher: Fetcher = fetch) => read<VideoGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-video", fetcher);
 export const testVideoGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<{provider:"gemini_video";status:CreativeGeminiCredentialStatus}>("/api/v1/admin/ai-operations/configuration/credentials/gemini-video/test", "POST", api_key ? {api_key,label} : {}, fetcher);
 export const replaceVideoGeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<VideoGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-video", "PUT", {api_key,label}, fetcher);
+export const getBackupGeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup", fetcher);
+export const testBackupGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<{provider:"gemini_backup";status:CreativeGeminiCredentialStatus}>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup/test", "POST", api_key ? {api_key,label} : {}, fetcher);
+export const replaceBackupGeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup", "PUT", {api_key,label}, fetcher);
 
 export type ManagedStorageOAuthStatus = {
   root_folder_configured: boolean;

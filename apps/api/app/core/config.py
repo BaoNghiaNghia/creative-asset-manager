@@ -185,6 +185,7 @@ class Settings(BaseSettings):
     AUTH_SELF_SIGNUP_ENABLED: bool = False
     AI_STORE_RAW_RESPONSE_ENABLED: bool = False
     GEMINI_API_KEY: str | None = None
+    GEMINI_FAILOVER_DEFERRED_THRESHOLD: int = 100
     # Separate AES-256-GCM master key for tenant-configured Creative AI secrets.
     # This is intentionally independent from Inventory credentials and OAuth keys.
     CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY: str = ""

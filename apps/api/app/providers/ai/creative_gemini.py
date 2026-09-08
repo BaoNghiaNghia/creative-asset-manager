@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.domain.providers.contracts import AiBatchResult, AiBatchResultsInput, AiBatchStatus, AiBatchStatusInput, AiBatchSubmission, AiBatchSubmissionInput, AiMetadataAnalysisInput, AiMetadataAnalysisResult, AiProviderError
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
+from app.modules.ai_operations.gemini_failover import backup_is_active
 from app.modules.ai_operations.credentials import (
     CreativeCredentialError,
     CreativeGeminiCredential,
@@ -73,7 +74,9 @@ class RuntimeCreativeGeminiProvider:
 
     def _credential(self, tenant_id: str) -> CreativeGeminiCredential:
         try:
-            credential = self._resolver.resolve(tenant_id)
+            with self.session_factory() as session:
+                use_backup = backup_is_active(session, self.settings, tenant_id)
+            credential = self._resolver.resolve(tenant_id, provider="gemini_backup" if use_backup else "gemini")
         except CreativeCredentialError as exc:
             raise AiProviderError("Creative Gemini credential is unavailable.", code=exc.code, retryable=False, status_code=503) from exc
         scope = self.settings.GEMINI_PROJECT_QUOTA_SCOPE
@@ -86,7 +89,7 @@ class RuntimeCreativeGeminiProvider:
         if cached is not None and cached.expires_at > now:
             self._providers[credential.fingerprint] = cached
             return cached.provider
-        scope = self.settings.GEMINI_PROJECT_QUOTA_SCOPE
+        scope = f"{self.settings.GEMINI_PROJECT_QUOTA_SCOPE}:{tenant_id}:{credential.fingerprint}"
         coordinator = _CredentialQuotaCoordinator(self.session_factory, scope, self.settings.gemini_project_daily_request_limit)
         provider = self._provider_factory(credential.secret, model=self.settings.GEMINI_MODEL, timeout_seconds=self.settings.GEMINI_TIMEOUT_SECONDS, model_pool=self.settings.gemini_model_pool, model_limits=self.settings.gemini_model_limits, cooldown_seconds=self.settings.GEMINI_MODEL_COOLDOWN_SECONDS, quota_coordinator=coordinator)
         self._providers[credential.fingerprint] = _CachedProvider(provider, now + self._cache_ttl)

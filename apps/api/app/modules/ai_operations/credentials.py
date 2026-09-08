@@ -105,17 +105,17 @@ class CreativeGeminiCredentialResolver:
     def __init__(self, session_factory: Callable[[], Session], settings: Settings):
         self.session_factory, self.settings = session_factory, settings
 
-    def resolve(self, tenant_id: str) -> CreativeGeminiCredential:
+    def resolve(self, tenant_id: str, *, provider: str = "gemini") -> CreativeGeminiCredential:
         with self.session_factory() as session:
-            override = CreativeAiCredentialRepository(session, None).get_metadata(tenant_id)
+            override = CreativeAiCredentialRepository(session, None).get_metadata(tenant_id, provider=provider)
         if override is not None and override.status == "active":
             cipher = creative_credential_cipher(self.settings)
             with self.session_factory() as session:
-                resolved = CreativeAiCredentialRepository(session, cipher).get_active_secret(tenant_id)
+                resolved = CreativeAiCredentialRepository(session, cipher).get_active_secret(tenant_id, provider=provider)
             if resolved is None:
                 raise CreativeCredentialError("creative_ai_credential_decryption_failed")
             return resolved
-        fallback = (self.settings.GEMINI_API_KEY or "").strip()
+        fallback = (self.settings.GEMINI_API_KEY or "").strip() if provider == "gemini" else ""
         if fallback:
             return CreativeGeminiCredential(fallback, hashlib.sha256(fallback.encode()).hexdigest(), "environment", fallback[-4:])
-        raise CreativeCredentialError("creative_gemini_credential_unavailable")
+        raise CreativeCredentialError("creative_gemini_credential_unavailable" if provider == "gemini" else "gemini_backup_credential_unavailable")

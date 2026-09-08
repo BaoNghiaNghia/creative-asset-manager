@@ -197,6 +197,41 @@ def replace_video_gemini_credential(
     return result
 
 
+
+@router.get("/configuration/credentials/gemini-backup")
+def get_backup_gemini_credential(tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ)):
+    target = _tenant(principal, tenant_id)
+    with SessionLocal() as session:
+        metadata = CreativeAiCredentialRepository(session, None).get_metadata(target, provider="gemini_backup")
+    result = _creative_credential_view(metadata, source="configuration" if metadata else "unavailable")
+    result["provider"] = "gemini_backup"
+    return result
+
+@router.post("/configuration/credentials/gemini-backup/test")
+def test_backup_gemini_credential(body: CreativeGeminiCredentialRequest, tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE)):
+    target = _tenant(principal, tenant_id)
+    if body.api_key is not None:
+        result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+    else:
+        with SessionLocal() as session:
+            credential = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings())).get_active_secret(target, provider="gemini_backup")
+        result = validate_gemini_api_key(credential.secret, timeout_seconds=10) if credential else "PROVIDER_UNAVAILABLE"
+    return {"provider": "gemini_backup", "status": result}
+
+@router.put("/configuration/credentials/gemini-backup")
+def replace_backup_gemini_credential(body: CreativeGeminiCredentialRequest, tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE)):
+    if body.api_key is None: raise HTTPException(422, detail={"code": "gemini_backup_credential_required"})
+    result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+    if result != "VALID": raise HTTPException(422, detail={"code": "gemini_backup_credential_invalid", "status": result})
+    target = _tenant(principal, tenant_id)
+    with SessionLocal() as session:
+        repository = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings()))
+        metadata = repository.replace(target, secret=body.api_key, provider="gemini_backup", label=body.label, updated_by=principal.user_id)
+        repository.audit(target, provider="gemini_backup", actor_id=principal.user_id, action="credential_replaced", result="VALID", new_fingerprint=metadata.secret_fingerprint)
+        session.commit()
+    result = _creative_credential_view(metadata, source="configuration"); result["provider"] = "gemini_backup"
+    return result
+
 def _cache() -> TenantPolicyCache:
     global _policy_cache
     ttl = get_settings().PROCESSING_POLICY_CACHE_TTL_SECONDS

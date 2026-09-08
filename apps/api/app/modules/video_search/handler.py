@@ -10,6 +10,8 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import AiProviderError
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
+from app.modules.ai_operations.gemini_failover import backup_is_active
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, creative_credential_cipher
 from app.modules.assets.model import SourceAssetModel
 from app.modules.video_search.credentials import VideoGeminiCredentialError, VideoGeminiCredentialResolver
 from app.modules.pipeline.mime_types import is_supported_video_mime_type
@@ -104,7 +106,10 @@ class VideoAnalyzeJobHandler:
         if self._interrupted(context):
             return self._cancel(context, resumable_id)
         try:
-            credential = VideoGeminiCredentialResolver(context.dependencies.session_factory, settings).resolve(context.job.tenant_id)
+            with context.dependencies.session_factory() as session:
+                use_backup = backup_is_active(session, settings, context.job.tenant_id)
+                backup = CreativeAiCredentialRepository(session, creative_credential_cipher(settings)).get_active_secret(context.job.tenant_id, provider="gemini_backup") if use_backup else None
+            credential = backup or VideoGeminiCredentialResolver(context.dependencies.session_factory, settings).resolve(context.job.tenant_id)
         except VideoGeminiCredentialError:
             return JobHandlerResult.non_retryable("video_gemini_credential_unavailable", "Video Gemini credential is unavailable.")
 
