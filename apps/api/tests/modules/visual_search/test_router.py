@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.core.config import Settings
+from app.core.database import Base
+from app.main import app
+from app.modules.assets.model import AssetModel, ExternalSourceModel
+from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
+from app.modules.visual_search.contracts import VisualEmbedding
+from app.modules.visual_search.elasticsearch import VisualSearchHit
+
+
+class _Index:
+    descriptor = __import__("app.modules.visual_search.encoder", fromlist=["SiglipVisualEncoder"]).SiglipVisualEncoder.descriptor
+    calls = []
+
+    def __init__(self, *_args, **_kwargs): pass
+    async def get_document(self, _document_id):
+        return {"_source": {"visual_embedding": [0.0] * self.descriptor.dimension}}
+    async def search(self, embedding, **kwargs):
+        self.calls.append((embedding, kwargs))
+        return [
+            VisualSearchHit("hit-a", "tenant-a", "other-a", 0.9, "b" * 64, "source-a"),
+            VisualSearchHit("hit-b", "tenant-b", "other-b", 0.8, "c" * 64, "source-b"),
+        ]
+    async def aclose(self): pass
+
+
+class _PendingIndex(_Index):
+    async def get_document(self, _document_id):
+        raise ElasticsearchV3RequestError("missing", status_code=404)
+
+
+class VisualByAssetApiTest(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        Base.metadata.create_all(self.engine)
+        self.factory = sessionmaker(self.engine, class_=Session, expire_on_commit=False)
+        with self.factory() as session:
+            session.add(AssetModel(id="asset-a", tenant_id="tenant-a", content_hash="a" * 64))
+            session.add(ExternalSourceModel(id="source-a", tenant_id="tenant-a", source_key="source-a", source_type="google_drive"))
+            session.commit()
+        self.client = TestClient(app)
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="",
+            external_identity=None, effective_roles=frozenset({"operator"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id="session", authorization_source="tenant_rbac",
+        )
+        _Index.calls.clear()
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+        self.client.close()
+        self.engine.dispose()
+
+    def _settings(self, **changes):
+        values = dict(VISUAL_SEARCH_ENABLED=True, ELASTICSEARCH_URL="http://elasticsearch.test")
+        values.update(changes)
+        return Settings(**values)
+
+    def _post(self, payload):
+        with patch("app.modules.visual_search.router.SessionLocal", self.factory),              patch("app.modules.visual_search.router.get_settings", return_value=self._settings()),              patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _Index),              patch("app.modules.visual_search.router._hydrate_search_hits", return_value=[{"internal_asset_id": "other-a"}]):
+            return self.client.post("/api/v1/search/visual/by-asset", json=payload)
+
+    def test_disabled_and_cross_tenant_asset_are_rejected(self):
+        with patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_ENABLED=False)):
+            response = self.client.post("/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"})
+        self.assertEqual(response.status_code, 503)
+        response = self._post({"asset_id": "tenant-b-asset"})
+        self.assertEqual(response.status_code, 404)
+
+    def test_reuses_stored_embedding_excludes_query_and_preserves_filters(self):
+        response = self._post({"asset_id": "asset-a", "external_source_id": "source-a", "filters": {"mime_type": ["image/jpeg"]}, "limit": 1})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [{"internal_asset_id": "other-a"}])
+        _embedding, kwargs = _Index.calls[-1]
+        self.assertEqual(kwargs["exclude_asset_id"], "asset-a")
+        self.assertIn({"terms": {"mime_type": ["image/jpeg"]}}, kwargs["scope"].access_filters)
+
+    def test_viewer_cannot_use_query_asset_outside_folder_scope(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="viewer-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id="session", authorization_source="tenant_rbac",
+        )
+        response = self._post({"asset_id": "asset-a", "external_source_id": "source-a"})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"]["code"], "visual_query_asset_not_found")
+
+    def test_embedding_pending_and_elasticsearch_unavailable_are_controlled(self):
+        with patch("app.modules.visual_search.router.SessionLocal", self.factory), \
+             patch("app.modules.visual_search.router.get_settings", return_value=self._settings()), \
+             patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _PendingIndex):
+            response = self.client.post("/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"]["code"], "visual_query_embedding_pending")
+        with patch("app.modules.visual_search.router.get_settings", return_value=self._settings(ELASTICSEARCH_URL="")):
+            response = self.client.post("/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "visual_search_unavailable")
+
+    def test_cursor_is_tenant_request_bound(self):
+        response = self._post({"asset_id": "asset-a", "limit": 1})
+        self.assertEqual(response.status_code, 200)
+        cursor = response.json()["next_cursor"]
+        self.assertIsNotNone(cursor)
+        response = self._post({"asset_id": "asset-a", "filters": {"extension": ["png"]}, "cursor": cursor, "limit": 1})
+        self.assertEqual(response.status_code, 422)
+
+
+if __name__ == "__main__":
+    unittest.main()

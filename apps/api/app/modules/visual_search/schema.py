@@ -28,6 +28,8 @@ class VisualSearchByAssetRequest(BaseModel):
     """Public request contract for a later tenant-authorized by-asset endpoint."""
 
     asset_id: str = Field(min_length=1, max_length=36)
+    source_provider: Literal["google-drive", "onedrive", "sharepoint"] | None = None
+    external_source_id: str | None = Field(default=None, max_length=128)
     crop: NormalizedCrop | None = None
     text: str | None = Field(default=None, max_length=500)
     filters: SearchCoreFilters = Field(default_factory=SearchCoreFilters)

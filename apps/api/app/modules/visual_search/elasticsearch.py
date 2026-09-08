@@ -116,6 +116,7 @@ class VisualSearchHit:
     asset_id: str
     score: float
     content_sha256: str
+    source_id: str | None = None
 
 
 def visual_index_mapping(descriptor: EmbeddingDescriptor) -> dict[str, Any]:
@@ -166,22 +167,29 @@ class VisualSearchElasticsearchIndex:
         self._validate_embedding(document.embedding)
         await self._index._request("PUT", f"/{self.write_alias}/_doc/{document.document_id}?refresh=wait_for", json_body=document.to_document())
 
+    async def get_document(self, document_id: str) -> Mapping[str, Any]:
+        if not document_id.strip():
+            raise VisualSearchIndexError("document_id must be non-empty")
+        return await self._index._request("GET", f"/{self.read_alias}/_doc/{document_id}")
+
     async def delete_asset(self, *, tenant_id: str, asset_id: str) -> int:
         scope = VisualSearchScope(tenant_id)
         if not asset_id.strip(): raise VisualSearchIndexError("asset_id must be non-empty")
         response = await self._index._request("POST", f"/{self.write_alias}/_delete_by_query?refresh=true", json_body={"query": {"bool": {"filter": [*scope.filters()[:1], {"term": {"asset_id": asset_id}}]}}})
         return int(response.get("deleted") or 0)
 
-    def knn_query(self, embedding: VisualEmbedding, *, scope: VisualSearchScope, metadata_filters: VisualMetadataFilters | None = None, limit: int = 40, num_candidates: int | None = None) -> dict[str, Any]:
+    def knn_query(self, embedding: VisualEmbedding, *, scope: VisualSearchScope, metadata_filters: VisualMetadataFilters | None = None, limit: int = 40, num_candidates: int | None = None, exclude_asset_id: str | None = None) -> dict[str, Any]:
         self._validate_embedding(embedding)
         if not 1 <= limit <= _MAX_RESULTS: raise VisualSearchIndexError(f"limit must be between 1 and {_MAX_RESULTS}")
         candidates = num_candidates if num_candidates is not None else max(limit * 4, 100)
         if not limit <= candidates <= _MAX_CANDIDATES: raise VisualSearchIndexError("num_candidates must be between limit and 1000")
         filters = [*scope.filters(), *((metadata_filters or VisualMetadataFilters()).filters())]
+        if exclude_asset_id:
+            filters.append({"bool": {"must_not": [{"term": {"asset_id": exclude_asset_id}}]}})
         return {"size": limit, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "source_id", "source_provider", "media_kind", "mime_type", "extension", "design_type"], "knn": {"field": "visual_embedding", "query_vector": list(embedding.values), "k": limit, "num_candidates": candidates, "filter": filters}}
 
-    async def search(self, embedding: VisualEmbedding, *, scope: VisualSearchScope, metadata_filters: VisualMetadataFilters | None = None, limit: int = 40, num_candidates: int | None = None) -> list[VisualSearchHit]:
-        payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=self.knn_query(embedding, scope=scope, metadata_filters=metadata_filters, limit=limit, num_candidates=num_candidates))
+    async def search(self, embedding: VisualEmbedding, *, scope: VisualSearchScope, metadata_filters: VisualMetadataFilters | None = None, limit: int = 40, num_candidates: int | None = None, exclude_asset_id: str | None = None) -> list[VisualSearchHit]:
+        payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=self.knn_query(embedding, scope=scope, metadata_filters=metadata_filters, limit=limit, num_candidates=num_candidates, exclude_asset_id=exclude_asset_id))
         return self._hits(payload, tenant_id=scope.tenant_id)
 
     @staticmethod
@@ -195,7 +203,7 @@ class VisualSearchElasticsearchIndex:
             if not isinstance(source, Mapping) or source.get("tenant_id") != tenant_id: continue
             asset_id, content_sha256, score = source.get("asset_id"), source.get("content_sha256"), raw.get("_score")
             if not isinstance(asset_id, str) or not isinstance(content_sha256, str) or not isinstance(score, (int, float)) or not isfinite(float(score)): continue
-            hits.append(VisualSearchHit(str(raw.get("_id") or ""), tenant_id, asset_id, float(score), content_sha256))
+            hits.append(VisualSearchHit(str(raw.get("_id") or ""), tenant_id, asset_id, float(score), content_sha256, str(source.get("source_id") or "") or None))
         return hits
 
     def _validate_embedding(self, embedding: VisualEmbedding) -> None:
