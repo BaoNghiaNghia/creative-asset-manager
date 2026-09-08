@@ -27,6 +27,7 @@ from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchInd
 from app.modules.visual_search.encoder import SiglipVisualEncoder
 from app.modules.visual_search.schema import NormalizedCrop, VisualSearchByAssetRequest, VisualSearchResponse
 from app.modules.visual_search.preprocess import VisualImagePreparationError, VisualPreprocessLimits, decode_visual_image
+from app.modules.visual_search.ranking import VisualRankingWeights, diversify_hits, fuse_embeddings
 from app.modules.visual_search.service import VisualSearchDisabledError, VisualSearchService
 
 router = APIRouter(prefix="/api/v1/search/visual", tags=["visual-search"])
@@ -63,6 +64,39 @@ def _next_cursor(offset: int, count: int, limit: int, *, fingerprint: str) -> st
     return base64.urlsafe_b64encode(json.dumps({"f": fingerprint, "o": offset + count}, separators=(",", ":")).encode()).decode()
 
 
+def _ranking_weights(settings) -> VisualRankingWeights:
+    return VisualRankingWeights(
+        image=settings.VISUAL_SEARCH_RANKING_IMAGE_WEIGHT,
+        text=settings.VISUAL_SEARCH_RANKING_TEXT_WEIGHT,
+        max_per_source=settings.VISUAL_SEARCH_RANKING_MAX_PER_SOURCE,
+    )
+
+
+async def _text_embedding(request: Request, text: str) -> VisualEmbedding:
+    value = text.strip()
+    if not value:
+        raise HTTPException(422, detail={"code": "visual_refinement_invalid", "message": "Text refinement is required."})
+    if _ENCODER_CAPACITY.locked():
+        raise HTTPException(503, detail={"code": "visual_encoder_capacity", "message": "Visual search is busy. Please retry shortly.", "retryable": True})
+    await _ENCODER_CAPACITY.acquire()
+    try:
+        client = getattr(request.app.state, "visual_encoder_client", None)
+        encoder = client.get_encoder() if client is not None and callable(getattr(client, "get_encoder", None)) else None
+        if encoder is None or not callable(getattr(encoder, "encode_text", None)):
+            raise HTTPException(503, detail={"code": "visual_encoder_unavailable", "message": "Visual search text refinement is temporarily unavailable.", "retryable": True})
+        try:
+            return await asyncio.to_thread(encoder.encode_text, value)
+        except (VisualEncoderUnavailableError, ValueError) as exc:
+            raise HTTPException(503, detail={"code": "visual_encoder_unavailable", "message": "Visual search text refinement is temporarily unavailable.", "retryable": True}) from exc
+    finally:
+        _ENCODER_CAPACITY.release()
+
+
+def _rank_hits(hits, *, offset: int, limit: int, settings):
+    ranked = diversify_hits(hits, weights=_ranking_weights(settings))
+    return ranked[offset: offset + limit + 1], len(ranked)
+
+
 @router.post("/by-asset", response_model=VisualSearchResponse)
 async def find_similar_by_asset(
     request: Request,
@@ -71,13 +105,14 @@ async def find_similar_by_asset(
 ) -> dict[str, Any]:
     settings = get_settings()
     try:
-        VisualSearchService(settings).require_operation("crop" if body.crop is not None else "asset")
+        service = VisualSearchService(settings)
+        service.require_operation("crop" if body.crop is not None else "asset")
+        if body.text is not None:
+            service.require_operation("hybrid_text")
     except VisualSearchDisabledError as exc:
         raise HTTPException(503, detail={"code": exc.code, "message": "Visual search is disabled.", "retryable": False}) from exc
     if not settings.ELASTICSEARCH_URL:
         raise HTTPException(503, detail={"code": "visual_search_unavailable", "message": "Visual search is temporarily unavailable.", "retryable": True})
-    if body.text is not None:
-        raise HTTPException(422, detail={"code": "visual_search_refinement_unsupported", "message": "Text refinement is not available yet."})
     if is_pure_viewer(principal) and not (body.external_source_id or "").strip():
         raise HTTPException(422, detail={"code": "viewer_source_required", "message": "A search source is required for scoped Viewer search."})
     if body.crop is not None:
@@ -109,6 +144,7 @@ async def find_similar_by_asset(
     document_id = _document_id(tenant, asset.id, asset.content_hash, descriptor.embedding_schema_version)
     fingerprint = hashlib.sha256(json.dumps({
         "tenant": tenant, "asset": asset.id, "hash": asset.content_hash,
+        "text": body.text,
         "filters": body.filters.model_dump(mode="json", exclude_none=True),
         "source_provider": body.source_provider, "external_source_id": body.external_source_id,
         "viewer": viewer_scope_key, "schema": descriptor.embedding_schema_version,
@@ -134,21 +170,27 @@ async def find_similar_by_asset(
             embedding = VisualEmbedding(descriptor, tuple(float(value) for value in values))
         except (TypeError, ValueError) as exc:
             raise HTTPException(409, detail={"code": "visual_query_embedding_pending", "message": "Visual embedding is not ready yet.", "retryable": True}) from exc
+        if body.text is not None:
+            embedding = fuse_embeddings(
+                embedding,
+                await _text_embedding(request, body.text),
+                weights=_ranking_weights(settings),
+            )
         scope = VisualSearchScope(tenant, tuple([*filters, *_typed_filters(body.filters)]))
-        hits = await index.search(embedding, scope=scope, limit=search_limit, num_candidates=_MAX_CANDIDATES, exclude_asset_id=asset.id)
+        hits = await index.search(embedding, scope=scope, limit=_MAX_CANDIDATES, num_candidates=_MAX_CANDIDATES, exclude_asset_id=asset.id)
     except ElasticsearchV3RequestError as exc:
         raise HTTPException(503, detail={"code": "visual_search_unavailable", "message": "Visual search is temporarily unavailable.", "retryable": True}) from exc
     finally:
         await index.aclose()
 
-    candidates = hits[offset: offset + body.limit + 1]
+    candidates, ranked_count = _rank_hits(hits, offset=offset, limit=body.limit, settings=settings)
     raw_hits = [{"_id": hit.document_id, "_score": hit.score, "_source": {"asset_id": hit.asset_id, "source_id": hit.source_id}} for hit in candidates[:body.limit]]
     with SessionLocal() as session:
         items = _hydrate_search_hits(session, tenant, raw_hits, viewer_restricted=viewer_restricted, limit=body.limit)
         session.commit()
     for item in items:
         item.pop("score", None)
-    cursor = _next_cursor(offset, len(candidates), body.limit, fingerprint=fingerprint)
+    cursor = _next_cursor(offset, ranked_count - offset, body.limit, fingerprint=fingerprint)
     logger.info(
         "visual_search_by_asset_completed tenant_id=%s result_count=%s duration_ms=%s",
         tenant,
@@ -286,14 +328,19 @@ async def find_similar_by_upload(
     external_source_id: str | None = Query(default=None, max_length=128),
     filters: str | None = Query(default=None, max_length=4096),
     crop: str | None = Query(default=None, max_length=512),
+    text: str | None = Query(default=None, max_length=500),
     cursor: str | None = Query(default=None, max_length=4096),
     limit: int = Query(default=40, ge=1, le=100),
     principal: CurrentPrincipal = Depends(VISUAL_SEARCH_READ),
 ) -> dict[str, Any]:
     settings = get_settings()
     parsed_crop = _parse_crop(crop)
+    text = (text or "").strip() or None
     try:
-        VisualSearchService(settings).require_operation("crop" if parsed_crop is not None else "upload")
+        service = VisualSearchService(settings)
+        service.require_operation("crop" if parsed_crop is not None else "upload")
+        if text is not None:
+            service.require_operation("hybrid_text")
     except VisualSearchDisabledError as exc:
         raise HTTPException(
             503,
@@ -326,6 +373,12 @@ async def find_similar_by_upload(
     finally:
         await file.close()
     embedding = await _upload_embedding(request, content, crop=parsed_crop)
+    if text is not None:
+        embedding = fuse_embeddings(
+            embedding,
+            await _text_embedding(request, text),
+            weights=_ranking_weights(settings),
+        )
     parsed_filters = _parse_upload_filters(filters)
     tenant = principal.active_tenant_id
     started = time.monotonic()
@@ -343,6 +396,7 @@ async def find_similar_by_upload(
             {
                 "tenant": tenant,
                 "content": hashlib.sha256(content).hexdigest(),
+                "text": text,
                 "filters": parsed_filters.model_dump(mode="json", exclude_none=True),
                 "source_provider": source_provider,
                 "external_source_id": external_source_id,
@@ -371,7 +425,7 @@ async def find_similar_by_upload(
         hits = await index.search(
             embedding,
             scope=scope,
-            limit=search_limit,
+            limit=_MAX_CANDIDATES,
             num_candidates=_MAX_CANDIDATES,
         )
     except ElasticsearchV3RequestError as exc:
@@ -386,7 +440,7 @@ async def find_similar_by_upload(
     finally:
         await index.aclose()
 
-    candidates = hits[offset : offset + limit + 1]
+    candidates, ranked_count = _rank_hits(hits, offset=offset, limit=limit, settings=settings)
     raw_hits = [
         {
             "_id": hit.document_id,
@@ -406,7 +460,7 @@ async def find_similar_by_upload(
         session.commit()
     for item in items:
         item.pop("score", None)
-    next_cursor = _next_cursor(offset, len(candidates), limit, fingerprint=fingerprint)
+    next_cursor = _next_cursor(offset, ranked_count - offset, limit, fingerprint=fingerprint)
     logger.info(
         "visual_search_upload_completed tenant_id=%s result_count=%s duration_ms=%s",
         tenant,
@@ -564,6 +618,12 @@ async def _find_similar_by_asset_crop(
         expected_sha256=asset.content_hash,
     )
     embedding = await _upload_embedding(request, content, crop=body.crop)
+    if body.text is not None:
+        embedding = fuse_embeddings(
+            embedding,
+            await _text_embedding(request, body.text),
+            weights=_ranking_weights(settings),
+        )
     started = time.monotonic()
     fingerprint = hashlib.sha256(
         json.dumps(
@@ -572,6 +632,7 @@ async def _find_similar_by_asset_crop(
                 "asset": asset.id,
                 "hash": asset.content_hash,
                 "crop": body.crop.model_dump(mode="json"),
+                "text": body.text,
                 "filters": body.filters.model_dump(mode="json", exclude_none=True),
                 "source_provider": body.source_provider,
                 "external_source_id": body.external_source_id,
@@ -600,7 +661,7 @@ async def _find_similar_by_asset_crop(
         hits = await index.search(
             embedding,
             scope=scope,
-            limit=search_limit,
+            limit=_MAX_CANDIDATES,
             num_candidates=_MAX_CANDIDATES,
             exclude_asset_id=asset.id,
         )
@@ -616,7 +677,7 @@ async def _find_similar_by_asset_crop(
     finally:
         await index.aclose()
 
-    candidates = hits[offset : offset + body.limit + 1]
+    candidates, ranked_count = _rank_hits(hits, offset=offset, limit=body.limit, settings=settings)
     raw_hits = [
         {
             "_id": hit.document_id,
@@ -638,7 +699,7 @@ async def _find_similar_by_asset_crop(
         item.pop("score", None)
     next_cursor = _next_cursor(
         offset,
-        len(candidates),
+        ranked_count - offset,
         body.limit,
         fingerprint=fingerprint,
     )

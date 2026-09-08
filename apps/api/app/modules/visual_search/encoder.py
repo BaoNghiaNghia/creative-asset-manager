@@ -102,3 +102,19 @@ class SiglipVisualEncoder:
             vector = self._torch.nn.functional.normalize(vector, dim=-1)
             values = tuple(float(value) for value in vector.squeeze(0).tolist())
         return VisualEmbedding(self.descriptor, values)
+
+    def encode_text(self, text: str) -> VisualEmbedding:
+        value = text.strip()
+        if not value:
+            raise ValueError("text must be non-empty")
+        with self._torch.inference_mode():
+            inputs = self._processor(
+                text=[value],
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt",
+            )
+            vector = self._model.get_text_features(**inputs)
+            vector = self._torch.nn.functional.normalize(vector, dim=-1)
+            values = tuple(float(item) for item in vector.squeeze(0).tolist())
+        return VisualEmbedding(self.descriptor, values)

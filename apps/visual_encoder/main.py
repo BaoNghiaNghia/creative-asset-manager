@@ -13,6 +13,8 @@ encoder: SiglipVisualEncoder | None=None
 
 class EncodeRequest(BaseModel):
     image_base64: str
+class EncodeTextRequest(BaseModel):
+    text: str
 class EncodeResponse(BaseModel):
     descriptor: dict[str, object]
     values: list[float]
@@ -49,5 +51,17 @@ async def encode(body: EncodeRequest):
     if _lock.locked(): raise HTTPException(503,"encoder busy",headers={"Retry-After":"1"})
     async with _lock:
         result=await asyncio.to_thread(encoder.encode_image,image)
+    d=result.descriptor
+    return {"descriptor":{"encoder_name":d.encoder_name,"encoder_revision":d.encoder_revision,"embedding_schema_version":d.embedding_schema_version,"dimension":d.dimension,"preprocess_version":d.preprocess_version,"similarity":d.similarity},"values":list(result.values)}
+
+@app.post("/v1/encode-text", response_model=EncodeResponse)
+async def encode_text(body: EncodeTextRequest):
+    if encoder is None: raise HTTPException(503, "encoder unavailable")
+    text=body.text.strip()
+    if not text: raise HTTPException(422, "text is required")
+    if len(text)>500: raise HTTPException(422, "text exceeds limit")
+    if _lock.locked(): raise HTTPException(503, "encoder busy",headers={"Retry-After":"1"})
+    async with _lock:
+        result=await asyncio.to_thread(encoder.encode_text,text)
     d=result.descriptor
     return {"descriptor":{"encoder_name":d.encoder_name,"encoder_revision":d.encoder_revision,"embedding_schema_version":d.embedding_schema_version,"dimension":d.dimension,"preprocess_version":d.preprocess_version,"similarity":d.similarity},"values":list(result.values)}

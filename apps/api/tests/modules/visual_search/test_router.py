@@ -41,6 +41,11 @@ class _Index:
     async def aclose(self): pass
 
 
+class _TextIndex(_Index):
+    async def get_document(self, _document_id):
+        return {"_source": {"visual_embedding": [1.0] + [0.0] * (self.descriptor.dimension - 1)}}
+
+
 class _PendingIndex(_Index):
     async def get_document(self, _document_id):
         raise ElasticsearchV3RequestError("missing", status_code=404)
@@ -50,6 +55,9 @@ class _UploadEncoder:
     descriptor = _Index.descriptor
 
     def encode_image(self, _image):
+        return VisualEmbedding(self.descriptor, tuple(0.0 for _ in range(self.descriptor.dimension)))
+
+    def encode_text(self, _text):
         return VisualEmbedding(self.descriptor, tuple(0.0 for _ in range(self.descriptor.dimension)))
 
 
@@ -244,6 +252,17 @@ class VisualByAssetApiTest(unittest.TestCase):
             app.state.visual_encoder_client = None
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json()["detail"]["code"], "visual_image_invalid")
+
+    def test_text_refinement_requires_flag_and_uses_encoder(self):
+        response = self._post({"asset_id": "asset-a", "text": "outdoor"})
+        self.assertEqual(response.status_code, 503)
+        app.state.visual_encoder_client = _UploadEncoderClient()
+        try:
+            with patch("app.modules.visual_search.router.SessionLocal", self.factory),                  patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_HYBRID_TEXT_ENABLED=True)),                  patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _TextIndex),                  patch("app.modules.visual_search.router._hydrate_search_hits", return_value=[]):
+                response = self.client.post("/api/v1/search/visual/by-asset", json={"asset_id": "asset-a", "text": "outdoor"})
+        finally:
+            app.state.visual_encoder_client = None
+        self.assertEqual(response.status_code, 200)
 
     def test_cursor_is_tenant_request_bound(self):
         response = self._post({"asset_id": "asset-a", "limit": 1})
