@@ -457,11 +457,16 @@
   font-size:11px;
   line-height:1.4;
 }
-.pipeline-context-row>.pipeline-scan-card dl,
-.pipeline-context-row>.pipeline-active-job dl{
+.pipeline-context-row>.pipeline-scan-card dl{
   width:100%;
   margin-top:auto;
   grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px 16px;
+}
+.pipeline-context-row>.pipeline-active-job dl{
+  width:100%;
+  margin-top:auto;
+  grid-template-columns:repeat(5,minmax(0,1fr));
   gap:10px 16px;
 }
 .pipeline-context-row>.pipeline-active-job dl{
