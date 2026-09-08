@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.domain.processing.types import JobStatus
 from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository, configured_model_rates
+from app.modules.ai_operations.gemini_failover import rate_limit_provider_key
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
@@ -468,10 +469,17 @@ class TenantAwareJobClaimer:
                 "next_eligible_at": now,
             }
         limiter = AiModelRateLimitRepository(self.session)
+        # Preserve the logical Gemini provider in the job marker, but reserve
+        # its local start slot against the active credential's quota bucket.
+        # Without this distinction, failover selected at request time still
+        # waits behind the primary key's exhausted local schedule.
+        limiter_provider = rate_limit_provider_key(
+            self.session, self.settings, job.tenant_id, provider
+        )
         for model, rpm in model_rates:
             decision = limiter.reserve_start(
                 tenant_id=job.tenant_id,
-                provider=provider,
+                provider=limiter_provider,
                 model=model,
                 rpm=rpm,
                 minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,

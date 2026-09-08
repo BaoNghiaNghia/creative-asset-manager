@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -159,6 +160,39 @@ class RateLimitedClaimTest(unittest.TestCase):
                 },
             )
             self.assertIsNotNone(state)
+
+    def test_active_gemini_failover_reserves_backup_rate_limit_bucket(self):
+        job_id = self._analysis_job("backup-slot")
+
+        with patch(
+            "app.modules.processing_policy.claim.rate_limit_provider_key",
+            return_value="gemini_backup",
+        ):
+            claimed = self._claim("worker-backup")
+
+        self.assertEqual(claimed.id, job_id)
+        marker = claimed.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
+        # The pipeline remains Gemini; only the quota bucket changes.
+        self.assertEqual(marker["provider"], "gemini")
+        with self.sessions() as session:
+            backup_state = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant",
+                    "provider": "gemini_backup",
+                    "model": marker["model"],
+                },
+            )
+            primary_state = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant",
+                    "provider": "gemini",
+                    "model": marker["model"],
+                },
+            )
+            self.assertIsNotNone(backup_state)
+            self.assertIsNone(primary_state)
 
     def test_null_gemini_model_resolves_configured_pool(self):
         rates = configured_model_rates(self.settings, "gemini", None)
