@@ -76,7 +76,10 @@ class RuntimeCreativeGeminiProvider:
         try:
             with self.session_factory() as session:
                 use_backup = backup_is_active(session, self.settings, tenant_id)
-            credential = self._resolver.resolve(tenant_id, provider="gemini_backup" if use_backup else "gemini")
+            try:
+                credential = self._resolver.resolve(tenant_id, provider="gemini_backup" if use_backup else "gemini")
+            except CreativeCredentialError:
+                credential = self._resolver.resolve(tenant_id)
         except CreativeCredentialError as exc:
             raise AiProviderError("Creative Gemini credential is unavailable.", code=exc.code, retryable=False, status_code=503) from exc
         scope = self.settings.GEMINI_PROJECT_QUOTA_SCOPE
