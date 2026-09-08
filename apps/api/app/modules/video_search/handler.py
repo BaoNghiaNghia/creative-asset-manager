@@ -139,10 +139,14 @@ class VideoAnalyzeJobHandler:
     @staticmethod
     def _duration_ms(source: SourceAssetModel, settings: Settings) -> int:
         metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
-        raw = (metadata.get("videoMediaMetadata") or {}).get("durationMillis") if isinstance(metadata.get("videoMediaMetadata"), dict) else None
+        raw = (
+            (metadata.get("videoMediaMetadata") or {}).get("durationMillis")
+            if isinstance(metadata.get("videoMediaMetadata"), dict)
+            else metadata.get("video_duration_ms", metadata.get("duration_ms"))
+        )
         duration = settings.VIDEO_CHUNK_SECONDS * 1000
-        if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
-            duration = min(raw, duration)
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+            duration = min(int(raw), duration)
         return duration
 
     @staticmethod

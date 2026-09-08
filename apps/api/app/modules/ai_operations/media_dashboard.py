@@ -305,13 +305,19 @@ def _video_duration_ms(source: SourceAssetModel | None, run: VideoAnalysisRunMod
     if run is not None and run.duration_ms is not None:
         return run.duration_ms
     metadata = source.source_metadata if source is not None and isinstance(source.source_metadata, dict) else {}
-    for key in ("video_duration_ms", "duration_ms"):
+    candidates = (
+        metadata.get("video_duration_ms"),
+        metadata.get("duration_ms"),
+        (metadata.get("video") or {}).get("duration")
+        if isinstance(metadata.get("video"), dict) else None,
+    )
+    for value in candidates:
         try:
-            value = int(metadata.get(key))
+            duration = int(value)
         except (TypeError, ValueError):
             continue
-        if value >= 0:
-            return value
+        if duration >= 0:
+            return duration
     return None
 
 

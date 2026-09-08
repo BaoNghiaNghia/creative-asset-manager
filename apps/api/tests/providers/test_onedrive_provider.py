@@ -6,6 +6,7 @@ import httpx
 from app.providers.source_factory import create_source_provider
 from app.providers.microsoft.onedrive import OneDriveClient,OneDriveDownloadError,OneDriveThumbnailUnavailable,close_thumbnail_stream,open_media_stream,open_thumbnail_stream,validate_graph_url
 from app.providers.microsoft.onedrive_mapper import ONEDRIVE_ROOT_ID,make_item_id,map_item,parse_item_id,root_node
+from app.providers.microsoft.onedrive_delta import _candidate
 
 def test_item_id_round_trip_and_sharepoint_rejected():
     value=make_item_id("drive:alpha","item/with+chars")
@@ -105,3 +106,16 @@ def test_drive_retries_without_owner_projection_after_consumer_forbidden():
     graph._get=AsyncMock(side_effect=[forbidden,{"id":"drive-id","name":"Personal"}])
     assert asyncio.run(graph.drive())["id"]=="drive-id"
     assert graph._get.await_args_list[1].args == ("/me/drive",)
+
+
+def test_onedrive_delta_persists_graph_video_duration_ms():
+    candidate = _candidate(
+        {
+            "id": "clip", "name": "clip.mov", "size": 42,
+            "file": {"mimeType": "video/quicktime"},
+            "parentReference": {"driveId": "drive"},
+            "video": {"duration": 65_000},
+        },
+        "source", "drive",
+    )
+    assert candidate.source_metadata["video_duration_ms"] == 65_000
