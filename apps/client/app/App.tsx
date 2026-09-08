@@ -6,11 +6,13 @@ import { VideoSearchResults } from "./components/VideoSearchResults";
 import { VideoSearchPlayer } from "./components/VideoSearchPlayer";
 import type { VideoSearchItem } from "./hooks/useVideoSearch";
 import { useVideoSearch } from "./hooks/useVideoSearch";
+import { useVisualSearch } from "./hooks/useVisualSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { SquareImageGenerationDialog } from "./components/SquareImageGenerationDialog";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchCategoryFilter, SearchControls } from "./components/SearchControls";
+import { VisualSearchPanel } from "./components/VisualSearchPanel";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
 import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, SidebarIcon, sourceFolderBrand } from "./components/Icons";
@@ -228,6 +230,8 @@ export default function App() {
   const imageSearchEnabled = searchIncludesImages(searchMediaMode);
   const videoSearchEnabled = searchIncludesVideos(searchMediaMode);
   const explorer = useDriveExplorer(imageSearchEnabled);
+  const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId);
+  const [visualSearchOpen, setVisualSearchOpen] = useState(false);
   const videoSearch = useVideoSearch({
     authenticated: explorer.applicationAuthenticated === true,
     enabled: videoSearchEnabled,
@@ -788,6 +792,7 @@ export default function App() {
                   ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
               </div>}
             </div>
+            <button type="button" className="visual-search-entry" onClick={() => setVisualSearchOpen(true)} aria-expanded={visualSearchOpen}>Visual search</button>
             <div className="search-mode-tabs" role="radiogroup" aria-label="Search media type">
               {(["all", "images", "videos"] as SearchMediaMode[]).map(mode => <button
                 key={mode}
@@ -983,6 +988,15 @@ export default function App() {
             </div>
           </div>
 
+          {visualSearchOpen && <VisualSearchPanel
+            reference={visualSearch.reference}
+            loading={visualSearch.loading}
+            error={visualSearch.error}
+            onUpload={visualSearch.chooseUpload}
+            onApplyCrop={crop => visualSearch.retry(crop)}
+            onRetry={visualSearch.retry}
+            onClose={() => { visualSearch.clear(); setVisualSearchOpen(false); }}
+          />}
           <div className={explorer.query.trim() && imageSearchEnabled ? "search-results-layout has-category-filter" : "search-results-layout"}>
           {explorer.query.trim() && imageSearchEnabled && <SearchCategoryFilter
             selected={explorer.searchV3.selectedFacets}
@@ -998,8 +1012,8 @@ export default function App() {
             <span>{explorer.searchError} Showing the current folder contents.</span>
             <button type="button" onClick={explorer.retrySearch}>Retry Search V3</button>
           </div>}
-          {explorer.loading || explorer.searching ? <AssetGridSkeleton /> : <AssetGrid
-            items={explorer.visibleItems}
+          {visualSearchOpen && visualSearch.reference && visualSearch.loading ? <AssetGridSkeleton /> : explorer.loading || explorer.searching ? <AssetGridSkeleton /> : <AssetGrid
+            items={visualSearchOpen && visualSearch.reference ? visualSearch.items : explorer.visibleItems}
             path={explorer.path}
             selected={explorer.selected}
             metadataByItem={explorer.metadataByItem}
@@ -1013,16 +1027,18 @@ export default function App() {
             onDetails={openDetails}
             onFocus={item => detailsOpen && openDetails(item)}
             onContextMenu={(item, event) => { event.preventDefault(); setAssetContextMenu({ item, position: { x: event.clientX, y: event.clientY } }); }}
+            onFindSimilar={item => { setVisualSearchOpen(true); visualSearch.chooseAsset(item); }}
           />}
 
-          {explorer.searchV3.active && <LoadMoreSentinel
+          {!visualSearchOpen && explorer.searchV3.active && <LoadMoreSentinel
             enabled={explorer.searchV3.hasMore}
             loading={explorer.searchV3.loadingMore}
             onLoadMore={explorer.searchV3.loadMore}
             root={resultContainerRef.current}
             resetKey={`${paginationResetKey}:${explorer.searchV3.items.length}`}
           />}
-          {explorer.searchV3.active && explorer.searchV3.hasMore && <button type="button" className="search-load-more-button" onClick={explorer.searchV3.loadMore} disabled={explorer.searchV3.loadingMore}>Load more results</button>}
+          {!visualSearchOpen && explorer.searchV3.active && explorer.searchV3.hasMore && <button type="button" className="search-load-more-button" onClick={explorer.searchV3.loadMore} disabled={explorer.searchV3.loadingMore}>Load more results</button>}
+          {visualSearchOpen && visualSearch.hasMore && <button type="button" className="search-load-more-button" onClick={() => visualSearch.loadMore()} disabled={visualSearch.loading}>Load more similar images</button>}
           {!explorer.query.trim() && !explorer.searchV3.active && <LoadMoreSentinel
             enabled={explorer.hasMoreFolderItems}
             loading={explorer.loadingMoreFolderItems}

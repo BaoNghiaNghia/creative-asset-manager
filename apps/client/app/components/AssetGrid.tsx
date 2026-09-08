@@ -261,6 +261,7 @@ type Props = {
   onDetails: (item: Asset) => void;
   onFocus: (item: Asset) => void;
   onContextMenu: (item: Asset, event: MouseEvent<HTMLElement>) => void;
+  onFindSimilar?: (item: Asset) => void;
 };
 
 export function AssetGrid({
@@ -278,6 +279,7 @@ export function AssetGrid({
   onDetails,
   onFocus,
   onContextMenu,
+  onFindSimilar,
 }: Props) {
   function resultAncestors(item: Asset) {
     if (
@@ -425,6 +427,7 @@ export function AssetGrid({
       </button>
       <div>
         <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>
+        {onFindSimilar && item.kind === "image" && item.internal_asset_id && <button type="button" className="asset-find-similar" onClick={event => { event.stopPropagation(); onFindSimilar(item); }}>Find similar</button>}
         <small>{fileTypeLabel(getFileType(item.mime_type, item.kind, item.name))}{item.modified_at && item.kind !== "folder" ? " - " + new Date(item.modified_at).toLocaleDateString() : ""}</small>
         <AssetMetadataBar item={item} metadata={metadataByItem[item.id]} onRate={onRate} />
       </div>
