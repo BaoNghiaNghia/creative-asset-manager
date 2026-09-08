@@ -1,7 +1,7 @@
 # Visual Search  Repository-specific ADR and implementation plan
 
-**Status:** VS-00 architecture audit only. No application or production changes are authorized.  
-**Audit date:** 2026-09-07. **Audited main:** `65603905a9be766de32b4f39f33199822281ae77`.  
+**Status:** VS-00 architecture audit only. No application or production changes are authorized.
+**Audit date:** 2026-09-07. **Audited main:** `65603905a9be766de32b4f39f33199822281ae77`.
 **Master guide:** [CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md](CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md), whose `f393dfc` baseline is superseded by current source.
 
 ## Baseline and verified source map
