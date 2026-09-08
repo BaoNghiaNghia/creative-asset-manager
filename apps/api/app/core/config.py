@@ -161,6 +161,7 @@ class Settings(BaseSettings):
     GEMINI_IMAGE_MODEL: str = "gemini-3.1-flash-image"
     VIDEO_ANALYSIS_ENABLED: bool = False
     VIDEO_PROXY_ENABLED: bool = False
+    VIDEO_PROXY_STALE_RETENTION_HOURS: int = 24
     VIDEO_AI_TOKEN_SAFETY_RATIO: float = 0.80
     VIDEO_AI_DAILY_BUDGET_RATIO: float = 0.90
     # Video uses an independent Gemini project on the Free Tier. It must never
