@@ -51,6 +51,11 @@ FEATURE_FLAG_NAMES = (
     "DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED",
     "SEARCH_SHADOW_COMPARISON_ENABLED",
     "ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED",
+    "VISUAL_SEARCH_ENABLED",
+    "VISUAL_SEARCH_UPLOAD_ENABLED",
+    "VISUAL_SEARCH_CROP_ENABLED",
+    "VISUAL_SEARCH_HYBRID_TEXT_ENABLED",
+    "VISUAL_SEARCH_BACKFILL_ENABLED",
     "INVENTORY_AUTOMATION_ENABLED",
     "INVENTORY_WORKER_ENABLED",
     "MICROSOFT_SOURCE_CONNECTIONS_ENABLED",
@@ -128,6 +133,13 @@ class Settings(BaseSettings):
     DETERMINISTIC_ACTIVE_ANALYSIS_ENABLED: bool = False
     SEARCH_SHADOW_COMPARISON_ENABLED: bool = False
     ELASTICSEARCH_INDEX_LIFECYCLE_ENABLED: bool = False
+    # Visual search remains fully opt-in until a later canary rollout. These
+    # flags intentionally do not load an encoder or change Search V3.
+    VISUAL_SEARCH_ENABLED: bool = False
+    VISUAL_SEARCH_UPLOAD_ENABLED: bool = False
+    VISUAL_SEARCH_CROP_ENABLED: bool = False
+    VISUAL_SEARCH_HYBRID_TEXT_ENABLED: bool = False
+    VISUAL_SEARCH_BACKFILL_ENABLED: bool = False
     VIDEO_SEARCH_ENABLED: bool = False
     # Image generation is deny-by-default. Provider selection is explicit and
     # Firefly/Gemini never fall back to one another.
