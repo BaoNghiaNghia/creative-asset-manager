@@ -31,6 +31,7 @@ from app.modules.ai_metadata.result_importer import AiAnalysisResultImporter
 from app.modules.ai_metadata.validator import MetadataDocumentValidator
 from app.modules.ai_governance.metrics import AI_METRICS
 from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
+from app.modules.ai_operations.gemini_failover import rate_limit_provider_key
 from app.modules.ai_governance.repository import AiGovernanceRepository, MissingCostRateError, ProviderGovernanceBlocked
 from app.modules.ai_governance.service import AiBudgetService, usage_units
 from app.modules.pipeline.mime_types import is_ignored_image_analysis_mime_type
@@ -593,9 +594,10 @@ class AiAnalysisService:
         if rpm is None:
             return None
         with self.session_factory() as session:
+            limiter_provider = rate_limit_provider_key(session, self.settings, tenant_id, provider)
             decision = AiModelRateLimitRepository(session).next_start(
                 tenant_id=tenant_id,
-                provider=provider,
+                provider=limiter_provider,
                 model=model,
                 rpm=rpm,
                 minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
@@ -637,9 +639,10 @@ class AiAnalysisService:
         if rpm is None:
             return None
         with self.session_factory() as session:
+            limiter_provider = rate_limit_provider_key(session, self.settings, tenant_id, provider)
             decision = AiModelRateLimitRepository(session).reserve_start(
                 tenant_id=tenant_id,
-                provider=provider,
+                provider=limiter_provider,
                 model=model,
                 rpm=rpm,
                 minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
