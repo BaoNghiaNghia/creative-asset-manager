@@ -7,6 +7,7 @@ import {
   clearSavedExplorerLocation,
   folderIdFromPath,
   folderPath,
+  folderRouteFromPath,
   groupMetadataRequests,
   isPureViewerIdentity,
   oauthMessageFor,
@@ -16,14 +17,25 @@ import {
 } from "./useDriveExplorer";
 
 describe("folder route helpers", () => {
-  it("round-trips an encoded folder id from the explorer URL", () => {
+  it("round-trips an encoded source and folder id from the canonical explorer URL", () => {
+    const sourceId = "source / personal";
     const folderId = "listing/4233505213 source";
-    expect(folderIdFromPath(folderPath(folderId))).toBe(folderId);
+    const path = folderPath(sourceId, folderId);
+    expect(folderRouteFromPath(path)).toEqual({
+      externalSourceId: sourceId, folderId, legacy: false,
+    });
+    expect(folderIdFromPath(path)).toBe(folderId);
+  });
+
+  it("accepts a legacy folder URL for migration", () => {
+    expect(folderRouteFromPath("/folder/legacy-folder")).toEqual({
+      externalSourceId: null, folderId: "legacy-folder", legacy: true,
+    });
   });
 
   it("ignores non-folder and malformed folder URLs", () => {
     expect(folderIdFromPath("/ai-operations")).toBeNull();
-    expect(folderIdFromPath("/folder/%E0%A4%A")).toBeNull();
+    expect(folderIdFromPath("/source/%E0%A4%A/folder/folder-a")).toBeNull();
   });
 });
 

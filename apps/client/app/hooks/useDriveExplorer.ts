@@ -32,19 +32,40 @@ const emptyIndexStatus: DriveIndexStatus = {
 const rootId = (provider: Provider) => provider === "sharepoint" ? "sharepoint-root" : provider === "onedrive" ? "onedrive-root" : "root";
 const explorerLocationKey = (provider: Provider) => "creative-asset-manager:explorer-location:" + provider;
 
-export function folderIdFromPath(pathname: string): string | null {
-  const match = /^\/folder\/([^/]+)\/?$/.exec(pathname);
-  if (!match) return null;
+export type FolderRoute = {
+  externalSourceId: string | null;
+  folderId: string;
+  legacy: boolean;
+};
+
+export function folderRouteFromPath(pathname: string): FolderRoute | null {
+  const sourceMatch = /^\/source\/([^/]+)\/folder\/([^/]+)\/?$/.exec(pathname);
+  const legacyMatch = /^\/folder\/([^/]+)\/?$/.exec(pathname);
   try {
-    const folderId = decodeURIComponent(match[1]);
-    return folderId.trim() ? folderId : null;
+    if (sourceMatch) {
+      const externalSourceId = decodeURIComponent(sourceMatch[1]);
+      const folderId = decodeURIComponent(sourceMatch[2]);
+      return externalSourceId.trim() && folderId.trim()
+        ? { externalSourceId, folderId, legacy: false }
+        : null;
+    }
+    if (legacyMatch) {
+      const folderId = decodeURIComponent(legacyMatch[1]);
+      return folderId.trim() ? { externalSourceId: null, folderId, legacy: true } : null;
+    }
   } catch {
-    return null;
+    // A malformed encoded segment is not a valid explorer route.
   }
+  return null;
 }
 
-export function folderPath(folderId: string): string {
-  return "/folder/" + encodeURIComponent(folderId);
+export function folderIdFromPath(pathname: string): string | null {
+  return folderRouteFromPath(pathname)?.folderId || null;
+}
+
+export function folderPath(externalSourceId: string, folderId: string): string {
+  return "/source/" + encodeURIComponent(externalSourceId)
+    + "/folder/" + encodeURIComponent(folderId);
 }
 
 type SavedExplorerLocation = {
@@ -517,16 +538,23 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   }
 
   /** Navigate from an explicit folder selection and leave search mode behind. */
-  async function openFolder(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider) {
+  async function openFolder(
+    id = rootId(provider),
+    ancestors: Asset[] = [],
+    source: Provider = provider,
+    sourceId: string | null = ancestors.at(-1)?.external_source_id || activeExternalSourceId,
+  ) {
     setQuery("");
     searchV3.clearSearchFilters();
     const params = new URLSearchParams(window.location.search);
     params.delete("q");
     [...params.keys()].filter(key => key.startsWith("facet.")).forEach(key => params.delete(key));
     const cleanQuery = params.toString();
-    const opened = await open(id, ancestors, source);
+    const opened = await open(id, ancestors, source, false, sourceId);
     if (opened) {
-      const nextUrl = folderPath(id) + (cleanQuery ? "?" + cleanQuery : "");
+      const nextUrl = sourceId
+        ? folderPath(sourceId, id) + (cleanQuery ? "?" + cleanQuery : "")
+        : "/folder/" + encodeURIComponent(id) + (cleanQuery ? "?" + cleanQuery : "");
       if (window.location.pathname + window.location.search === nextUrl) window.history.replaceState({}, "", nextUrl);
       else window.history.pushState({}, "", nextUrl);
     }
@@ -552,15 +580,20 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   }
 
   async function restoreUrlLocation(source: Provider) {
-    const folderId = folderIdFromPath(window.location.pathname);
-    if (!folderId) return false;
+    const route = folderRouteFromPath(window.location.pathname);
+    if (!route) return false;
+    const { folderId } = route;
+    const routeSourceId = route.externalSourceId;
 
     // Keep the complete persisted path when it belongs to this URL; this is
     // both faster and preserves every expanded sidebar branch on reload.
     const saved = parseSavedExplorerLocation(
       window.localStorage.getItem(explorerLocationKey(source)), source,
     );
-    if (saved?.path.at(-1)?.id === folderId) {
+    if (
+      saved?.path.at(-1)?.id === folderId
+      && (!routeSourceId || saved.external_source_id === routeSourceId)
+    ) {
       return restoreSavedLocation(source);
     }
 
@@ -568,8 +601,8 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     // breadcrumb first so the selected folder and all of its source-tree
     // ancestors are hydrated instead of showing an empty sidebar tree.
     try {
-      const folder = await fetchFolder(folderId, source);
-      const externalSourceId = folder.parent.external_source_id || null;
+      const folder = await fetchFolder(folderId, source, undefined, undefined, routeSourceId);
+      const externalSourceId = routeSourceId || folder.parent.external_source_id || null;
       const params = new URLSearchParams({ provider: source });
       if (externalSourceId) params.set("external_source_id", externalSourceId);
       const response = await fetch(
@@ -589,7 +622,14 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         }))
         : [];
       const opened = await open(folderId, ancestors, source, false, externalSourceId);
-      if (opened) await hydrateExplorerRoot(source, externalSourceId);
+      if (opened) {
+        await hydrateExplorerRoot(source, externalSourceId);
+        if (route.legacy && externalSourceId) {
+          window.history.replaceState(
+            {}, "", folderPath(externalSourceId, folderId) + window.location.search,
+          );
+        }
+      }
       return opened;
     } catch {
       return false;
@@ -951,7 +991,11 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         sharepoint: { authenticated: Boolean(activeByProvider("sharepoint")), user: sourceUser("sharepoint"), checking: false },
       };
       setAuthByProvider(sessions);
-      const activeSource = activeByProvider(preferred) || connectedSources.find(source => source.status === "active") || null;
+      const requestedRoute = folderRouteFromPath(window.location.pathname);
+      const routedSource = requestedRoute?.externalSourceId
+        ? connectedSources.find(source => source.id === requestedRoute.externalSourceId && source.status === "active") || null
+        : null;
+      const activeSource = routedSource || activeByProvider(preferred) || connectedSources.find(source => source.status === "active") || null;
       const selected: Provider = activeSource ? (activeSource.source_type === "google_drive" ? "google-drive" : activeSource.source_type) : preferred;
       setProvider(selected);
       setActiveExternalSourceId(activeSource?.id || null);
