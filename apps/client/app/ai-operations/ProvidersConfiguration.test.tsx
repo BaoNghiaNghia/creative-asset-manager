@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { AiOpsConfiguration, AiOpsProviderBreakdown } from "../../features/ai_operations";
 import { fetchAiOperationsConfiguration, getManagedStorageOAuthStatus, saveManagedStorageRefreshToken, testManagedStorageRefreshToken, updateAiBudget, updateAiProvider } from "../../features/ai_operations";
-import { ConfigurationForm, JOB_PRIORITY_MODES, ProviderCards, jobPriorityModeFor, replaceProviderConfiguration } from "./ProvidersConfiguration";
+import { ConfigurationForm, JOB_PRIORITY_MODES, ProviderCards, jobPriorityModeFor, masonryRowSpan, replaceProviderConfiguration } from "./ProvidersConfiguration";
 import { ManagedStorageCredentialStatus, ManagedStorageRefreshTokenForm } from "./ManagedStorageCredentialSettings";
 
 const configuration: AiOpsConfiguration = {
@@ -41,6 +41,13 @@ describe("AI Operations provider and configuration tabs", () => {
     for (const value of ["Cân bằng", "Ưu tiên phân tích AI", "Ưu tiên lập chỉ mục", "Biểu đồ mức ưu tiên job Image", "Biểu đồ mức ưu tiên job Video", "Ưu tiên job Image", "Ưu tiên job Video", "Phân tích ảnh", "Lập chỉ mục video", "Save image job priorities", "Save video job priorities"]) expect(markup).toContain(value);
     expect((markup.match(/ops-config-priority/g) || []).length).toBe(2);
     expect(markup).not.toContain("0–100; số lớn được chọn trước.");
+  });
+
+  it("calculates compact masonry row spans from card height and grid gap", () => {
+    expect(masonryRowSpan(100, 18)).toBe(5);
+    expect(masonryRowSpan(101, 18)).toBe(5);
+    expect(masonryRowSpan(113, 18)).toBe(6);
+    expect(masonryRowSpan(1, 18)).toBe(1);
   });
 
   it("maps each named priority mode to its preset and detects custom values", () => {

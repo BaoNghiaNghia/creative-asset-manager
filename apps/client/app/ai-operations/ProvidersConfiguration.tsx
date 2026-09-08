@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   fetchAiOperationsConfiguration, setAiProviderPaused, setGlobalAiEmergencyStop,
   setTenantAiPaused, updateAiBudget, updateAiDefaults, updateAiMetadataPromptTemplate, updateAiVideoPromptTemplate, updateAiOperationsConfiguration,
@@ -28,6 +28,50 @@ const IMAGE_JOB_PRIORITY_ITEMS: ReadonlyArray<readonly [JobPriorityKey, string]>
 const VIDEO_JOB_PRIORITY_ITEMS: ReadonlyArray<readonly [JobPriorityKey, string]> = [
   ["video_analyze", "Phân tích video"], ["video_search_index", "Lập chỉ mục video"],
 ];
+
+const MASONRY_ROW_HEIGHT = 8;
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+export function masonryRowSpan(cardHeight: number, rowGap: number, rowHeight = MASONRY_ROW_HEIGHT) {
+  return Math.max(1, Math.ceil((cardHeight + rowGap) / (rowHeight + rowGap)));
+}
+
+function ConfigurationMasonryGrid({ children }: { children: ReactNode }) {
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  useIsomorphicLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || typeof ResizeObserver === "undefined") return;
+
+    const cards = Array.from(grid.children).filter((element): element is HTMLElement => element instanceof HTMLElement);
+    let frame = 0;
+    const updateSpans = () => {
+      frame = 0;
+      const styles = window.getComputedStyle(grid);
+      const rowGap = Number.parseFloat(styles.rowGap) || 18;
+      grid.dataset.masonry = "ready";
+      for (const card of cards) {
+        const span = masonryRowSpan(card.getBoundingClientRect().height, rowGap);
+        const gridRowEnd = `span ${span}`;
+        if (card.style.gridRowEnd !== gridRowEnd) card.style.gridRowEnd = gridRowEnd;
+      }
+    };
+    const scheduleUpdate = () => {
+      if (!frame) frame = window.requestAnimationFrame(updateSpans);
+    };
+    const observer = new ResizeObserver(scheduleUpdate);
+    observer.observe(grid);
+    cards.forEach(card => observer.observe(card));
+    scheduleUpdate();
+
+    return () => {
+      observer.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  return <div ref={gridRef} className="ops-config-grid ops-config-masonry-grid">{children}</div>;
+}
 
 export const JOB_PRIORITY_MODES: ReadonlyArray<{ id: string; label: string; description: string; priorities: JobPriorities }> = [
   { id: "balanced", label: "Cân bằng", description: "Phân bổ đều giữa phân tích và lập chỉ mục.", priorities: DEFAULT_JOB_PRIORITIES },
@@ -304,7 +348,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
   return <section className="ops-content ops-configuration" aria-labelledby="configuration-title">
     <div className="ops-section-heading"><div><h2 id="configuration-title">Configuration</h2><p>Tenant settings are editable. Global upper bounds are deployment-managed and read-only.</p></div><span className="ops-scope">Tenant: {configuration.tenant_id}</span></div>
     {error && <div className="ops-inline-error" role="alert">{error}</div>}{audit && <AuditNotice audit={audit} />}
-    <div className="ops-config-grid">
+    <ConfigurationMasonryGrid>
       <form className="ops-config-card ops-config-defaults" onSubmit={event => { event.preventDefault(); saveConfiguration(); }}>
         <header className="ops-config-card-header"><div><h3>Thiết lập mặc định</h3><p>Chọn cách hệ thống xử lý tài sản mới trong workspace này.</p></div><span className="ops-card-kicker">Tenant</span></header>
         <div className="ops-form-section">
@@ -361,7 +405,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
         {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục.</small>}
         <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
       </section>
-    </div>
+    </ConfigurationMasonryGrid>
     {confirmAction && <div className="ops-confirm ops-confirm-wide" role="dialog" aria-label="Confirm configuration change"><h3>Confirm {confirmAction === "budget" ? "budget override" : "emergency action"}</h3><p>This action is audited. Enter a reason before continuing.</p><label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label><div><button type="button" onClick={() => setConfirmAction(null)}>Cancel</button><button className="danger" type="button" disabled={!reason.trim() || saving} onClick={confirmAction === "budget" ? saveBudget : confirmAction === "global-stop" ? toggleGlobal : toggleTenant}>Confirm</button></div></div>}
   </section>;
 }
