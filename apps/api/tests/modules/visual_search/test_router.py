@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import io
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,6 +17,8 @@ from app.main import app
 from app.modules.assets.model import AssetModel, ExternalSourceModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
+from PIL import Image
+
 from app.modules.visual_search.contracts import VisualEmbedding
 from app.modules.visual_search.elasticsearch import VisualSearchHit
 
@@ -38,6 +42,24 @@ class _Index:
 class _PendingIndex(_Index):
     async def get_document(self, _document_id):
         raise ElasticsearchV3RequestError("missing", status_code=404)
+
+
+class _UploadEncoder:
+    descriptor = _Index.descriptor
+
+    def encode_image(self, _image):
+        return VisualEmbedding(self.descriptor, tuple(0.0 for _ in range(self.descriptor.dimension)))
+
+
+class _UploadEncoderClient:
+    def get_encoder(self):
+        return _UploadEncoder()
+
+
+def _png_bytes() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (16, 16), "white").save(output, format="PNG")
+    return output.getvalue()
 
 
 class VisualByAssetApiTest(unittest.TestCase):
@@ -71,6 +93,18 @@ class VisualByAssetApiTest(unittest.TestCase):
     def _post(self, payload):
         with patch("app.modules.visual_search.router.SessionLocal", self.factory),              patch("app.modules.visual_search.router.get_settings", return_value=self._settings()),              patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _Index),              patch("app.modules.visual_search.router._hydrate_search_hits", return_value=[{"internal_asset_id": "other-a"}]):
             return self.client.post("/api/v1/search/visual/by-asset", json=payload)
+
+    def _upload(self, *, payload=None, settings=None):
+        app.state.visual_encoder_client = _UploadEncoderClient()
+        try:
+            with patch("app.modules.visual_search.router.SessionLocal", self.factory),                  patch("app.modules.visual_search.router.get_settings", return_value=settings or self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=True)),                  patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _Index),                  patch("app.modules.visual_search.router._hydrate_search_hits", return_value=[{"internal_asset_id": "other-a", "score": 0.9}]):
+                return self.client.post(
+                    "/api/v1/search/visual/upload",
+                    params=payload or {},
+                    files={"file": ("query.txt", _png_bytes(), "application/octet-stream")},
+                )
+        finally:
+            app.state.visual_encoder_client = None
 
     def test_disabled_and_cross_tenant_asset_are_rejected(self):
         with patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_ENABLED=False)):
@@ -109,6 +143,38 @@ class VisualByAssetApiTest(unittest.TestCase):
             response = self.client.post("/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"]["code"], "visual_search_unavailable")
+
+    def test_upload_uses_safe_decode_encoder_and_existing_search_contract(self):
+        response = self._upload(payload={"filters": '{"mime_type":["image/jpeg"]}', "limit": "1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["query_kind"], "upload")
+        self.assertEqual(response.json()["items"], [{"internal_asset_id": "other-a"}])
+        _embedding, kwargs = _Index.calls[-1]
+        self.assertIn({"terms": {"mime_type": ["image/jpeg"]}}, kwargs["scope"].access_filters)
+        with self.factory() as session:
+            self.assertEqual(session.query(AssetModel).count(), 1)
+
+    def test_upload_disabled_invalid_and_capacity_are_controlled(self):
+        response = self._upload(settings=self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=False))
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "visual_search_operation_disabled")
+        response = self._upload(payload={"filters": "not-json"})
+        self.assertEqual(response.status_code, 422)
+        with patch("app.modules.visual_search.router._ENCODER_CAPACITY", asyncio.Semaphore(0)):
+            response = self._upload()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "visual_encoder_capacity")
+        app.state.visual_encoder_client = _UploadEncoderClient()
+        try:
+            with patch("app.modules.visual_search.router.SessionLocal", self.factory),                  patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=True)),                  patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _Index):
+                response = self.client.post(
+                    "/api/v1/search/visual/upload",
+                    files={"file": ("query.png", b"not-an-image", "image/png")},
+                )
+        finally:
+            app.state.visual_encoder_client = None
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["code"], "visual_image_invalid")
 
     def test_cursor_is_tenant_request_bound(self):
         response = self._post({"asset_id": "asset-a", "limit": 1})

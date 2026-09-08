@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -18,15 +20,19 @@ from app.modules.assets.model import AssetModel
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.search.router import _hydrate_search_hits, _search_scope_filters, _typed_filters
-from app.modules.visual_search.contracts import VisualEmbedding
+from app.modules.search.schema import SearchCoreFilters
+from app.modules.visual_search.contracts import VisualEmbedding, VisualEncoderUnavailableError
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex, VisualSearchScope
 from app.modules.visual_search.encoder import SiglipVisualEncoder
 from app.modules.visual_search.schema import VisualSearchByAssetRequest, VisualSearchResponse
+from app.modules.visual_search.preprocess import VisualImagePreparationError, VisualPreprocessLimits, decode_visual_image
 from app.modules.visual_search.service import VisualSearchDisabledError, VisualSearchService
 
 router = APIRouter(prefix="/api/v1/search/visual", tags=["visual-search"])
 VISUAL_SEARCH_READ = require_permission("search.read")
 _MAX_CANDIDATES = 100
+_UPLOAD_READ_CHUNK_BYTES = 1_048_576
+_ENCODER_CAPACITY = asyncio.Semaphore(1)
 logger = logging.getLogger(__name__)
 
 
@@ -146,3 +152,247 @@ async def find_similar_by_asset(
         round((time.monotonic() - started) * 1000),
     )
     return {"query_kind": "asset", "items": items, "next_cursor": cursor, "has_more": cursor is not None}
+
+
+def _parse_upload_filters(value: str | None) -> SearchCoreFilters:
+    if not value:
+        return SearchCoreFilters()
+    try:
+        return SearchCoreFilters.model_validate_json(value)
+    except ValidationError as exc:
+        raise HTTPException(
+            422,
+            detail={
+                "code": "visual_filters_invalid",
+                "message": "Visual-search filters are invalid.",
+            },
+        ) from exc
+
+
+async def _read_upload_bytes(file: UploadFile) -> bytes:
+    limit = VisualPreprocessLimits().max_source_bytes
+    parts: list[bytes] = []
+    total = 0
+    while chunk := await file.read(_UPLOAD_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(
+                413,
+                detail={
+                    "code": "visual_upload_too_large",
+                    "message": "Visual-search image exceeds the byte limit.",
+                },
+            )
+        parts.append(chunk)
+    return b"".join(parts)
+
+
+async def _upload_embedding(request: Request, content: bytes) -> VisualEmbedding:
+    if _ENCODER_CAPACITY.locked():
+        raise HTTPException(
+            503,
+            detail={
+                "code": "visual_encoder_capacity",
+                "message": "Visual search is busy. Please retry shortly.",
+                "retryable": True,
+            },
+        )
+    await _ENCODER_CAPACITY.acquire()
+    try:
+        prepared = await asyncio.to_thread(decode_visual_image, content)
+        client = getattr(request.app.state, "visual_encoder_client", None)
+        if client is None or not callable(getattr(client, "get_encoder", None)):
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "visual_encoder_unavailable",
+                    "message": "Visual search is temporarily unavailable.",
+                    "retryable": True,
+                },
+            )
+        try:
+            embedding = await asyncio.to_thread(
+                lambda: client.get_encoder().encode_image(prepared.image)
+            )
+        except VisualEncoderUnavailableError as exc:
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "visual_encoder_unavailable",
+                    "message": "Visual search is temporarily unavailable.",
+                    "retryable": True,
+                },
+            ) from exc
+        except Exception as exc:
+            logger.warning("visual_encoder_request_failed error_type=%s", type(exc).__name__)
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "visual_encoder_unavailable",
+                    "message": "Visual search is temporarily unavailable.",
+                    "retryable": True,
+                },
+            ) from exc
+        if embedding.descriptor != SiglipVisualEncoder.descriptor:
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "visual_encoder_unavailable",
+                    "message": "Visual search is temporarily unavailable.",
+                    "retryable": True,
+                },
+            )
+        return embedding
+    except VisualImagePreparationError as exc:
+        status_code = 413 if exc.code in {
+            "visual_image_too_large",
+            "visual_image_dimensions",
+            "visual_image_decode_pixels",
+        } else 422
+        raise HTTPException(
+            status_code,
+            detail={"code": exc.code, "message": str(exc), "retryable": False},
+        ) from exc
+    finally:
+        _ENCODER_CAPACITY.release()
+
+
+@router.post("/upload", response_model=VisualSearchResponse)
+async def find_similar_by_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    source_provider: Literal["google-drive", "onedrive", "sharepoint"] | None = Query(None),
+    external_source_id: str | None = Query(default=None, max_length=128),
+    filters: str | None = Query(default=None, max_length=4096),
+    cursor: str | None = Query(default=None, max_length=4096),
+    limit: int = Query(default=40, ge=1, le=100),
+    principal: CurrentPrincipal = Depends(VISUAL_SEARCH_READ),
+) -> dict[str, Any]:
+    settings = get_settings()
+    try:
+        VisualSearchService(settings).require_operation("upload")
+    except VisualSearchDisabledError as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code": exc.code,
+                "message": "Visual-search uploads are disabled.",
+                "retryable": False,
+            },
+        ) from exc
+    if not settings.ELASTICSEARCH_URL:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "visual_search_unavailable",
+                "message": "Visual search is temporarily unavailable.",
+                "retryable": True,
+            },
+        )
+    if is_pure_viewer(principal) and not (external_source_id or "").strip():
+        raise HTTPException(
+            422,
+            detail={
+                "code": "viewer_source_required",
+                "message": "A search source is required for scoped Viewer search.",
+            },
+        )
+
+    try:
+        content = await _read_upload_bytes(file)
+    finally:
+        await file.close()
+    embedding = await _upload_embedding(request, content)
+    parsed_filters = _parse_upload_filters(filters)
+    tenant = principal.active_tenant_id
+    started = time.monotonic()
+    with SessionLocal() as session:
+        access_filters, viewer_scope_key, viewer_restricted = _search_scope_filters(
+            session,
+            principal,
+            source_provider=source_provider,
+            external_source_id=external_source_id,
+        )
+        session.commit()
+
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            {
+                "tenant": tenant,
+                "content": hashlib.sha256(content).hexdigest(),
+                "filters": parsed_filters.model_dump(mode="json", exclude_none=True),
+                "source_provider": source_provider,
+                "external_source_id": external_source_id,
+                "viewer": viewer_scope_key,
+                "schema": embedding.descriptor.embedding_schema_version,
+            },
+            sort_keys=True,
+            default=str,
+        ).encode()
+    ).hexdigest()
+    offset = _cursor_offset(cursor, fingerprint=fingerprint)
+    search_limit = min(_MAX_CANDIDATES, offset + limit + 1)
+    index = VisualSearchElasticsearchIndex(
+        ElasticsearchV3Config(
+            settings.ELASTICSEARCH_URL,
+            settings.ELASTICSEARCH_INDEX_PREFIX,
+            index_generation="v3",
+        ),
+        embedding.descriptor,
+    )
+    try:
+        scope = VisualSearchScope(
+            tenant,
+            tuple([*access_filters, *_typed_filters(parsed_filters)]),
+        )
+        hits = await index.search(
+            embedding,
+            scope=scope,
+            limit=search_limit,
+            num_candidates=_MAX_CANDIDATES,
+        )
+    except ElasticsearchV3RequestError as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "visual_search_unavailable",
+                "message": "Visual search is temporarily unavailable.",
+                "retryable": True,
+            },
+        ) from exc
+    finally:
+        await index.aclose()
+
+    candidates = hits[offset : offset + limit + 1]
+    raw_hits = [
+        {
+            "_id": hit.document_id,
+            "_score": hit.score,
+            "_source": {"asset_id": hit.asset_id, "source_id": hit.source_id},
+        }
+        for hit in candidates[:limit]
+    ]
+    with SessionLocal() as session:
+        items = _hydrate_search_hits(
+            session,
+            tenant,
+            raw_hits,
+            viewer_restricted=viewer_restricted,
+            limit=limit,
+        )
+        session.commit()
+    for item in items:
+        item.pop("score", None)
+    next_cursor = _next_cursor(offset, len(candidates), limit, fingerprint=fingerprint)
+    logger.info(
+        "visual_search_upload_completed tenant_id=%s result_count=%s duration_ms=%s",
+        tenant,
+        len(items),
+        round((time.monotonic() - started) * 1000),
+    )
+    return {
+        "query_kind": "upload",
+        "items": items,
+        "next_cursor": next_cursor,
+        "has_more": next_cursor is not None,
+    }
