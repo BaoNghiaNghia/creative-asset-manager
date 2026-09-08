@@ -127,3 +127,91 @@
 
 /* Keep Access navigation identical to the shared workspace sidebar. */
 .access-shell{grid-template-columns:260px minmax(0,1fr)}.access-sidebar{width:260px}.access-sidebar .workspace-navigation{width:100%;margin:16px 0 2px}.access-sidebar .workspace-navigation a{width:100%;padding:9px 11px;gap:11px}.access-sidebar .workspace-navigation a>span:last-child{overflow:visible;text-overflow:clip;white-space:nowrap}.access-nav-icon{display:none}
+
+/* One shared, vertical workspace navigation at every viewport. */
+.ops-sidebar,.access-sidebar{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  width:260px;
+  min-width:260px;
+  min-height:100vh;
+  padding:22px 18px;
+  gap:4px;
+  background:#fff;
+  color:#1d2939;
+  border-right:1px solid #e3e8ef;
+}
+.ops-sidebar .brand,.access-sidebar .brand{margin:0;gap:11px}
+.ops-sidebar .brand small,.access-sidebar .brand small{color:#6b7785}
+.ops-sidebar .workspace-navigation,.access-sidebar .workspace-navigation{
+  display:flex;
+  width:100%;
+  margin:16px 0 2px;
+  flex-direction:column;
+  align-items:stretch;
+  gap:7px;
+}
+.ops-sidebar .workspace-navigation a,.access-sidebar .workspace-navigation a{
+  display:flex;
+  width:100%;
+  min-height:42px;
+  align-items:center;
+  gap:11px;
+  padding:9px 11px;
+  border-radius:8px;
+  color:#536173;
+  font-size:13px;
+  font-weight:700;
+  text-decoration:none;
+  white-space:nowrap;
+}
+.ops-sidebar .workspace-navigation a:hover,.ops-sidebar .workspace-navigation a:focus-visible,
+.access-sidebar .workspace-navigation a:hover,.access-sidebar .workspace-navigation a:focus-visible{
+  background:#eaf0fb;
+  color:#2455b5;
+  outline:none;
+}
+.ops-sidebar .workspace-navigation a[aria-current=page],
+.access-sidebar .workspace-navigation a[aria-current=page]{
+  background:#e4ebfb;
+  color:#214eae;
+}
+.ops-sidebar .workspace-navigation a>span:last-child,.access-sidebar .workspace-navigation a>span:last-child{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+@media(max-width:900px){
+  .ops-shell,.access-shell{grid-template-columns:1fr}
+  .ops-sidebar,.access-sidebar{
+    position:static;
+    width:100%;
+    min-width:0;
+    min-height:0;
+    height:auto;
+    padding:18px;
+    border-right:0;
+    border-bottom:1px solid #e3e8ef;
+  }
+  .ops-sidebar .workspace-navigation,.access-sidebar .workspace-navigation{
+    margin:16px 0 0;
+  }
+  .ops-sidebar-note,.access-sidebar .access-sidebar-note{display:none}
+}
+@media(max-width:760px){
+  .shell,.shell.sidebar-collapsed{grid-template-columns:1fr}
+  .shell .sidebar{
+    display:flex;
+    position:static;
+    width:100%;
+    height:auto;
+    min-height:0;
+    padding:18px;
+    border-right:0;
+    border-bottom:1px solid #e3e8ef;
+    overflow:visible;
+  }
+  .shell .sidebar .workspace-navigation{display:flex}
+  .sidebar-collapse,.sidebar-restore,.sidebar-resizer{display:none}
+}
