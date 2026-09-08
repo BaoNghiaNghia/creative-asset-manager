@@ -3,6 +3,7 @@ uvicorn[standard]==0.35.0
 httpx==0.28.1
 pydantic-settings==2.10.1
 python-dotenv==1.2.2
+python-multipart==0.0.20
 google-auth==2.55.2
 google-auth-oauthlib==1.4.0
 SQLAlchemy==2.0.41
