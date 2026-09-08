@@ -1,7 +1,6 @@
 """Foundation contracts for optional, tenant-safe visual search."""
 
 from .contracts import EmbeddingDescriptor, VisualEmbedding, VisualEncoder
-from .service import VisualSearchService
 
 __all__ = [
     "EmbeddingDescriptor",
@@ -9,3 +8,11 @@ __all__ = [
     "VisualEncoder",
     "VisualSearchService",
 ]
+
+
+def __getattr__(name: str):
+    if name == "VisualSearchService":
+        from .service import VisualSearchService
+
+        return VisualSearchService
+    raise AttributeError(name)

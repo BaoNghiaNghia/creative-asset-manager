@@ -57,7 +57,7 @@ Reuse `SourceAssetContentResolver.open`: it joins tenant-scoped source data, res
 | Tenant safety | filter after KNN / filter during KNN | **During KNN** | Include tenant plus source/viewer-folder filters in the ES candidate request. DB hydration is a second safety check, never primary isolation. |
 | Queue | new queue / existing durable processing | **Existing queue** | Reuse lease, retry, idempotency, worker health and tenant/provider concurrency. |
 | Encoder location | FastAPI / worker interpreter / isolated service | **Isolated local encoder process/venv, client used by image worker** | Avoid model RSS/dependency failure affecting API/general worker. No service is created in VS-00. |
-| Model | hardcode now / benchmark first | **Benchmark first** | Current VPS has no demonstrated memory headroom. |
+| Model | hardcode now / benchmark first | **SigLIP baseline, pinned revision** | User decision on 2026-09-08 after isolated CPU technical benchmark; relevance benchmark is explicitly deferred. |
 
 ### Encoder candidates
 
@@ -67,6 +67,16 @@ Reuse `SourceAssetContentResolver.open`: it joins tenant-scoped source data, res
 | `openai/clip-vit-base-patch32` | Verify fixed revision/checkpoint license before approval; Transformers/OpenCLIP/ONNX | image/text; commonly 512-D, verify in VS-02 | Reasonable CPU baseline and ONNX path; relevance and legal metadata must be tested. |
 
 The SigLIP model card documents Apache-2.0 licensing, 224px model use and image-text retrieval. [Source](https://huggingface.co/google/siglip-base-patch16-224)
+
+### Baseline selection update — 2026-09-08
+
+Per explicit user direction, V1 uses google/siglip-base-patch16-224 at
+revision 7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed as the baseline encoder:
+768 dimensions, cosine-normalized vectors, and preprocess version
+siglip-224-transformers-4.46.3-v1. The relevance/image-fixture benchmark is
+deferred by that direction; it remains required before broad production
+rollout. The model is still loaded only by the isolated encoder environment,
+never by FastAPI or the shared worker.
 
 **VS-02 benchmark gate:** development-only pinned model, fixed CAM corpus; cold load, RSS after load, single/20-sequential image and crop p50/p95, dimension/normalization, and relevance labels. No model is installed in production before this gate.
 
