@@ -11,7 +11,7 @@ DEFERRED_CODES = ("video_gemini_quota_deferred", "video_gemini_rate_limited", "g
 
 def backup_is_active(session: Session, settings: Settings, tenant_id: str, now: datetime | None = None) -> bool:
     now = now or datetime.now(timezone.utc)
-    threshold = max(1, int(settings.GEMINI_FAILOVER_DEFERRED_THRESHOLD))
+    threshold = max(1, int(getattr(settings, "GEMINI_FAILOVER_DEFERRED_THRESHOLD", 100)))
     count = session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
         ProcessingJobModel.tenant_id == tenant_id,
         ProcessingJobModel.status.in_(("pending", "retry")),

@@ -190,7 +190,17 @@ class VideoAnalyzeJobHandler:
                     repo.mark_run_preparing(tenant_id=context.job.tenant_id, run_id=run.id)
                 session.commit()
 
-            chunks = await proxy.prepare(tenant_id=context.job.tenant_id, source_asset_id=identity["source_asset_id"], expected_source_fingerprint=identity["source_fingerprint"])
+            proxy_timeout_seconds = max(
+                1, int(getattr(settings, "VIDEO_PROXY_PREPARATION_TIMEOUT_SECONDS", 900))
+            )
+            chunks = await asyncio.wait_for(
+                proxy.prepare(
+                    tenant_id=context.job.tenant_id,
+                    source_asset_id=identity["source_asset_id"],
+                    expected_source_fingerprint=identity["source_fingerprint"],
+                ),
+                timeout=proxy_timeout_seconds,
+            )
             if self._interrupted(context):
                 return self._cancel(context, run_id)
 
@@ -246,6 +256,11 @@ class VideoAnalyzeJobHandler:
             return JobHandlerResult.completed()
         except asyncio.CancelledError:
             return self._cancel(context, run_id)
+        except asyncio.TimeoutError:
+            return self._retry(
+                context, run_id, current_chunk_id, "video_proxy_timeout",
+                "Video proxy preparation timed out.",
+            )
         except VideoProxySourceChangedError:
             return self._non_retry(context, run_id, None, "video_source_changed", "Video source changed during proxy preparation.")
         except VideoProxySourceTooLargeError:

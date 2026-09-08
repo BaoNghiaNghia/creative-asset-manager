@@ -162,6 +162,7 @@ class Settings(BaseSettings):
     VIDEO_ANALYSIS_ENABLED: bool = False
     VIDEO_PROXY_ENABLED: bool = False
     VIDEO_PROXY_STALE_RETENTION_HOURS: int = 24
+    VIDEO_PROXY_PREPARATION_TIMEOUT_SECONDS: int = 900
     VIDEO_AI_TOKEN_SAFETY_RATIO: float = 0.80
     VIDEO_AI_DAILY_BUDGET_RATIO: float = 0.90
     # Video uses an independent Gemini project on the Free Tier. It must never
@@ -998,6 +999,8 @@ class Settings(BaseSettings):
             raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive")
         if self.GEMINI_MODEL_COOLDOWN_SECONDS < 0:
             raise ValueError("GEMINI_MODEL_COOLDOWN_SECONDS cannot be negative")
+        if self.VIDEO_PROXY_PREPARATION_TIMEOUT_SECONDS <= 0:
+            raise ValueError("VIDEO_PROXY_PREPARATION_TIMEOUT_SECONDS must be positive")
         if not 0 < self.VIDEO_AI_TOKEN_SAFETY_RATIO <= 1 or not 0 < self.VIDEO_AI_DAILY_BUDGET_RATIO <= 1:
             raise ValueError("VIDEO AI safety ratios must be between 0 and 1")
         if any(not isinstance(value, str) or not value.strip() for value in (self.VIDEO_AI_PROMPT_VERSION, self.VIDEO_AI_ANALYSIS_VERSION)):

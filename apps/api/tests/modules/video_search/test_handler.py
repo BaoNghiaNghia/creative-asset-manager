@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import tempfile
 from pathlib import Path
@@ -188,6 +189,33 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
         with patch("app.modules.video_search.handler.VideoGeminiCredentialResolver") as resolver,patch("app.modules.video_search.handler.VideoFreeTierModelPlanner") as planner,patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy:
             result=VideoAnalyzeJobHandler(self._settings())(context)
         self.assertEqual(result.error_code,"video_source_unavailable"); resolver.assert_not_called(); planner.assert_not_called(); proxy.assert_not_called()
+
+    def test_proxy_preparation_timeout_is_retryable_and_cleans_up(self):
+        settings = self._settings()
+        settings.VIDEO_PROXY_PREPARATION_TIMEOUT_SECONDS = 1
+        identity = {
+            "tenant_id": "tenant-a",
+            "source_asset_id": self.asset.id,
+            "source_fingerprint": build_video_source_fingerprint(self.asset),
+            "video_metadata_profile_id": self.profile.id,
+            "metadata_profile": "video",
+            "metadata_profile_version": "v1",
+            "prompt_version": "video-search-prompt-v1",
+            "analysis_version": "video-search-prompt-v1",
+            "ai_provider": "gemini",
+            "prompt_template": "describe",
+        }
+        selection = VideoModelSelection("model-b", 10000, 8110, 10, 10, "scope")
+        with patch("app.modules.video_search.handler.VideoProxyPreparationService") as proxy_type:
+            proxy_type.return_value.prepare = AsyncMock(side_effect=asyncio.TimeoutError())
+            result = asyncio.run(
+                VideoAnalyzeJobHandler(settings)._execute(
+                    self._context(), settings, identity, selection, "key", None,
+                )
+            )
+        self.assertEqual(result.outcome.value, "retryable_failure")
+        self.assertEqual(result.error_code, "video_proxy_timeout")
+        proxy_type.return_value.cleanup.assert_called_once_with(())
 
     def test_shutdown_between_chunks_preserves_completed_work(self):
         with self.sessions() as session:

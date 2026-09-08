@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.domain.processing.types import JobStatus
 from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository, configured_model_rates
-from app.modules.ai_operations.gemini_failover import rate_limit_provider_key
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
@@ -18,6 +17,11 @@ from app.modules.processing.worker_roles import (
     VIDEO_AI_JOB_TYPES, VIDEO_WORKER_JOB_TYPES,
 )
 
+def rate_limit_provider_key(session: Session, settings: Settings, tenant_id: str, provider: str) -> str:
+    """Resolve the active Gemini quota bucket without package-init cycles."""
+    from app.modules.ai_operations.gemini_failover import rate_limit_provider_key as resolve_provider_key
+
+    return resolve_provider_key(session, settings, tenant_id, provider)
 
 AI_JOB_TYPES = ("asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate")
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download")
@@ -469,6 +473,7 @@ class TenantAwareJobClaimer:
                 "next_eligible_at": now,
             }
         limiter = AiModelRateLimitRepository(self.session)
+
         # Preserve the logical Gemini provider in the job marker, but reserve
         # its local start slot against the active credential's quota bucket.
         # Without this distinction, failover selected at request time still
