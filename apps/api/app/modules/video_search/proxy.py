@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -135,6 +136,7 @@ class VideoProxyPreparationService:
             raise VideoProxySourceChangedError("source asset fingerprint changed before proxy preparation")
 
         root = self._configured_root()
+        self.cleanup_stale()
         source_limit = self._max_source_bytes()
         expected_source_size = self._expected_source_size(source_asset, source_limit)
         output_reserve = self._output_storage_requirement()
@@ -444,6 +446,21 @@ class VideoProxyPreparationService:
     @staticmethod
     def _remove_working_directory(directory: Path) -> None:
         shutil.rmtree(directory, ignore_errors=True)
+
+    def cleanup_stale(self, *, dry_run: bool = False) -> tuple[int, int]:
+        """Remove abandoned proxy workspaces older than the configured TTL."""
+        root = self._configured_root().resolve()
+        cutoff = time.time() - (getattr(self._settings, "VIDEO_PROXY_STALE_RETENTION_HOURS", 24) * 3600)
+        removed = bytes_freed = 0
+        for directory in root.glob("video-proxy-*"):
+            if not directory.is_dir() or directory.is_symlink() or directory.stat().st_mtime >= cutoff:
+                continue
+            size = sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
+            if not dry_run:
+                shutil.rmtree(directory, ignore_errors=True)
+            removed += 1
+            bytes_freed += size
+        return removed, bytes_freed
 
     def cleanup(self, chunks: tuple[PreparedVideoChunk, ...] | list[PreparedVideoChunk]) -> None:
         """Remove only proxy directories owned by this service."""
