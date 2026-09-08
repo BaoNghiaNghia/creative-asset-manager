@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
+from contextlib import asynccontextmanager
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings
 from app.core.database import Base
 from app.main import app
-from app.modules.assets.model import AssetModel, ExternalSourceModel
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
 from PIL import Image
@@ -56,9 +58,20 @@ class _UploadEncoderClient:
         return _UploadEncoder()
 
 
-def _png_bytes() -> bytes:
+class _MemoryResolver:
+    def __init__(self, content: bytes):
+        self.content = content
+
+    @asynccontextmanager
+    async def open(self, **_kwargs):
+        async def body():
+            yield self.content
+        yield SimpleNamespace(body=body())
+
+
+def _png_bytes(size: int = 16) -> bytes:
     output = io.BytesIO()
-    Image.new("RGB", (16, 16), "white").save(output, format="PNG")
+    Image.new("RGB", (size, size), "white").save(output, format="PNG")
     return output.getvalue()
 
 
@@ -112,6 +125,13 @@ class VisualByAssetApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         response = self._post({"asset_id": "tenant-b-asset"})
         self.assertEqual(response.status_code, 404)
+        with patch("app.modules.visual_search.router.SessionLocal", self.factory), \
+             patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_CROP_ENABLED=True)):
+            response = self.client.post(
+                "/api/v1/search/visual/by-asset",
+                json={"asset_id": "tenant-b-asset", "crop": {"x": 0, "y": 0, "width": 1, "height": 1}},
+            )
+        self.assertEqual(response.status_code, 404)
 
     def test_reuses_stored_embedding_excludes_query_and_preserves_filters(self):
         response = self._post({"asset_id": "asset-a", "external_source_id": "source-a", "filters": {"mime_type": ["image/jpeg"]}, "limit": 1})
@@ -153,6 +173,55 @@ class VisualByAssetApiTest(unittest.TestCase):
         self.assertIn({"terms": {"mime_type": ["image/jpeg"]}}, kwargs["scope"].access_filters)
         with self.factory() as session:
             self.assertEqual(session.query(AssetModel).count(), 1)
+
+    def test_crop_search_uses_post_orientation_pixels_for_upload_and_asset(self):
+        content = _png_bytes(64)
+        with self.factory() as session:
+            session.add(AssetModel(
+                id="crop-a", tenant_id="tenant-a",
+                content_hash=hashlib.sha256(content).hexdigest(),
+            ))
+            session.add(SourceAssetModel(
+                id="source-asset-crop", tenant_id="tenant-a",
+                external_source_id="source-a", external_asset_id="provider-crop-a",
+                filename="crop.png", mime_type="image/png",
+            ))
+            session.add(AssetSourceLinkModel(
+                id="link-crop", tenant_id="tenant-a",
+                asset_id="crop-a", source_asset_id="source-asset-crop",
+            ))
+            session.commit()
+        app.state.visual_encoder_client = _UploadEncoderClient()
+        app.state.visual_content_resolver = _MemoryResolver(content)
+        crop = {"x": 0, "y": 0, "width": 1, "height": 1}
+        try:
+            with patch("app.modules.visual_search.router.SessionLocal", self.factory),                  patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_CROP_ENABLED=True)),                  patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _Index),                  patch("app.modules.visual_search.router._hydrate_search_hits", return_value=[]):
+                response = self.client.post(
+                    "/api/v1/search/visual/by-asset",
+                    json={"asset_id": "crop-a", "crop": crop},
+                )
+                self.assertEqual(response.status_code, 200)
+                response = self.client.post(
+                    "/api/v1/search/visual/upload",
+                    params={"crop": '{"x":0,"y":0,"width":1,"height":1}'},
+                    files={"file": ("query.png", content, "image/png")},
+                )
+        finally:
+            app.state.visual_encoder_client = None
+            app.state.visual_content_resolver = None
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["query_kind"], "upload")
+        response = self._upload(
+            payload={"crop": '{"x":0,"y":0,"width":0.1,"height":0.1}'},
+            settings=self._settings(VISUAL_SEARCH_CROP_ENABLED=True),
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["code"], "visual_crop_too_small")
+        response = self._upload(
+            payload={"crop": '{"x":0.9,"y":0,"width":0.2,"height":1}'},
+            settings=self._settings(VISUAL_SEARCH_CROP_ENABLED=True),
+        )
+        self.assertEqual(response.status_code, 422)
 
     def test_upload_disabled_invalid_and_capacity_are_controlled(self):
         response = self._upload(settings=self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=False))

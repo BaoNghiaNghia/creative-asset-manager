@@ -16,7 +16,8 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
-from app.modules.assets.model import AssetModel
+from app.modules.assets.content_resolver import SourceAssetContentTransient, SourceAssetContentUnavailable
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.search.router import _hydrate_search_hits, _search_scope_filters, _typed_filters
@@ -24,7 +25,7 @@ from app.modules.search.schema import SearchCoreFilters
 from app.modules.visual_search.contracts import VisualEmbedding, VisualEncoderUnavailableError
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex, VisualSearchScope
 from app.modules.visual_search.encoder import SiglipVisualEncoder
-from app.modules.visual_search.schema import VisualSearchByAssetRequest, VisualSearchResponse
+from app.modules.visual_search.schema import NormalizedCrop, VisualSearchByAssetRequest, VisualSearchResponse
 from app.modules.visual_search.preprocess import VisualImagePreparationError, VisualPreprocessLimits, decode_visual_image
 from app.modules.visual_search.service import VisualSearchDisabledError, VisualSearchService
 
@@ -64,20 +65,23 @@ def _next_cursor(offset: int, count: int, limit: int, *, fingerprint: str) -> st
 
 @router.post("/by-asset", response_model=VisualSearchResponse)
 async def find_similar_by_asset(
+    request: Request,
     body: VisualSearchByAssetRequest,
     principal: CurrentPrincipal = Depends(VISUAL_SEARCH_READ),
 ) -> dict[str, Any]:
     settings = get_settings()
     try:
-        VisualSearchService(settings).require_operation("asset")
+        VisualSearchService(settings).require_operation("crop" if body.crop is not None else "asset")
     except VisualSearchDisabledError as exc:
         raise HTTPException(503, detail={"code": exc.code, "message": "Visual search is disabled.", "retryable": False}) from exc
     if not settings.ELASTICSEARCH_URL:
         raise HTTPException(503, detail={"code": "visual_search_unavailable", "message": "Visual search is temporarily unavailable.", "retryable": True})
-    if body.crop is not None or body.text is not None:
-        raise HTTPException(422, detail={"code": "visual_search_refinement_unsupported", "message": "Crop and text refinement are not available yet."})
+    if body.text is not None:
+        raise HTTPException(422, detail={"code": "visual_search_refinement_unsupported", "message": "Text refinement is not available yet."})
     if is_pure_viewer(principal) and not (body.external_source_id or "").strip():
         raise HTTPException(422, detail={"code": "viewer_source_required", "message": "A search source is required for scoped Viewer search."})
+    if body.crop is not None:
+        return await _find_similar_by_asset_crop(request, body, principal, settings)
 
     tenant = principal.active_tenant_id
     started = time.monotonic()
@@ -154,6 +158,18 @@ async def find_similar_by_asset(
     return {"query_kind": "asset", "items": items, "next_cursor": cursor, "has_more": cursor is not None}
 
 
+def _parse_crop(value: str | None) -> NormalizedCrop | None:
+    if not value:
+        return None
+    try:
+        return NormalizedCrop.model_validate_json(value)
+    except ValidationError as exc:
+        raise HTTPException(
+            422,
+            detail={"code": "visual_crop_invalid", "message": "Visual-search crop is invalid."},
+        ) from exc
+
+
 def _parse_upload_filters(value: str | None) -> SearchCoreFilters:
     if not value:
         return SearchCoreFilters()
@@ -187,7 +203,12 @@ async def _read_upload_bytes(file: UploadFile) -> bytes:
     return b"".join(parts)
 
 
-async def _upload_embedding(request: Request, content: bytes) -> VisualEmbedding:
+async def _upload_embedding(
+    request: Request,
+    content: bytes,
+    *,
+    crop: NormalizedCrop | None = None,
+) -> VisualEmbedding:
     if _ENCODER_CAPACITY.locked():
         raise HTTPException(
             503,
@@ -199,7 +220,7 @@ async def _upload_embedding(request: Request, content: bytes) -> VisualEmbedding
         )
     await _ENCODER_CAPACITY.acquire()
     try:
-        prepared = await asyncio.to_thread(decode_visual_image, content)
+        prepared = await asyncio.to_thread(decode_visual_image, content, crop=crop)
         client = getattr(request.app.state, "visual_encoder_client", None)
         if client is None or not callable(getattr(client, "get_encoder", None)):
             raise HTTPException(
@@ -264,13 +285,15 @@ async def find_similar_by_upload(
     source_provider: Literal["google-drive", "onedrive", "sharepoint"] | None = Query(None),
     external_source_id: str | None = Query(default=None, max_length=128),
     filters: str | None = Query(default=None, max_length=4096),
+    crop: str | None = Query(default=None, max_length=512),
     cursor: str | None = Query(default=None, max_length=4096),
     limit: int = Query(default=40, ge=1, le=100),
     principal: CurrentPrincipal = Depends(VISUAL_SEARCH_READ),
 ) -> dict[str, Any]:
     settings = get_settings()
+    parsed_crop = _parse_crop(crop)
     try:
-        VisualSearchService(settings).require_operation("upload")
+        VisualSearchService(settings).require_operation("crop" if parsed_crop is not None else "upload")
     except VisualSearchDisabledError as exc:
         raise HTTPException(
             503,
@@ -302,7 +325,7 @@ async def find_similar_by_upload(
         content = await _read_upload_bytes(file)
     finally:
         await file.close()
-    embedding = await _upload_embedding(request, content)
+    embedding = await _upload_embedding(request, content, crop=parsed_crop)
     parsed_filters = _parse_upload_filters(filters)
     tenant = principal.active_tenant_id
     started = time.monotonic()
@@ -392,6 +415,241 @@ async def find_similar_by_upload(
     )
     return {
         "query_kind": "upload",
+        "items": items,
+        "next_cursor": next_cursor,
+        "has_more": next_cursor is not None,
+    }
+
+
+
+async def _read_authorized_source_content(
+    request: Request,
+    *,
+    tenant_id: str,
+    source_asset_id: str,
+    expected_sha256: str,
+) -> bytes:
+    resolver = getattr(request.app.state, "visual_content_resolver", None)
+    if resolver is None or not callable(getattr(resolver, "open", None)):
+        raise HTTPException(
+            503,
+            detail={
+                "code": "visual_source_unavailable",
+                "message": "Visual search is temporarily unavailable.",
+                "retryable": True,
+            },
+        )
+    parts: list[bytes] = []
+    total = 0
+    limit = VisualPreprocessLimits().max_source_bytes
+    try:
+        async with resolver.open(tenant_id=tenant_id, source_asset_id=source_asset_id) as stream:
+            async for chunk in stream.body:
+                total += len(chunk)
+                if total > limit:
+                    raise HTTPException(
+                        413,
+                        detail={
+                            "code": "visual_image_too_large",
+                            "message": "Visual-search image exceeds the byte limit.",
+                            "retryable": False,
+                        },
+                    )
+                parts.append(chunk)
+    except HTTPException:
+        raise
+    except (SourceAssetContentTransient, SourceAssetContentUnavailable) as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "visual_source_unavailable",
+                "message": "Visual search is temporarily unavailable.",
+                "retryable": True,
+            },
+        ) from exc
+    content = b"".join(parts)
+    if hashlib.sha256(content).hexdigest() != expected_sha256:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "visual_query_asset_stale",
+                "message": "Asset content changed before visual search.",
+                "retryable": True,
+            },
+        )
+    return content
+
+
+async def _find_similar_by_asset_crop(
+    request: Request,
+    body: VisualSearchByAssetRequest,
+    principal: CurrentPrincipal,
+    settings,
+) -> dict[str, Any]:
+    tenant = principal.active_tenant_id
+    with SessionLocal() as session:
+        asset = session.scalar(
+            select(AssetModel).where(
+                AssetModel.tenant_id == tenant,
+                AssetModel.id == body.asset_id,
+            )
+        )
+        if asset is None:
+            raise HTTPException(
+                404,
+                detail={
+                    "code": "visual_query_asset_not_found",
+                    "message": "Asset is unavailable.",
+                },
+            )
+        access_filters, viewer_scope_key, viewer_restricted = _search_scope_filters(
+            session,
+            principal,
+            source_provider=body.source_provider,
+            external_source_id=body.external_source_id,
+        )
+        source_query = (
+            select(SourceAssetModel)
+            .join(
+                AssetSourceLinkModel,
+                AssetSourceLinkModel.source_asset_id == SourceAssetModel.id,
+            )
+            .where(
+                AssetSourceLinkModel.tenant_id == tenant,
+                AssetSourceLinkModel.asset_id == asset.id,
+                SourceAssetModel.tenant_id == tenant,
+                SourceAssetModel.deleted_at.is_(None),
+            )
+            .order_by(SourceAssetModel.id)
+        )
+        if body.external_source_id:
+            source_query = source_query.where(
+                SourceAssetModel.external_source_id == body.external_source_id
+            )
+        source = session.scalar(source_query)
+        if viewer_restricted:
+            access = ViewerFolderScopeService(session).access(
+                tenant_id=tenant,
+                membership_id=principal.membership_id,
+                roles=principal.effective_roles,
+                external_source_id=body.external_source_id,
+            )
+            allowed_pairs = ViewerFolderScopeService(session).allowed_asset_source_pairs(
+                tenant_id=tenant,
+                access=access,
+            )
+            if source is None or (asset.id, source.id) not in allowed_pairs:
+                source = next(
+                    (
+                        row
+                        for row in session.scalars(source_query)
+                        if (asset.id, row.id) in allowed_pairs
+                    ),
+                    None,
+                )
+        session.commit()
+    if source is None:
+        raise HTTPException(
+            404,
+            detail={
+                "code": "visual_query_asset_not_found",
+                "message": "Asset is unavailable.",
+            },
+        )
+
+    content = await _read_authorized_source_content(
+        request,
+        tenant_id=tenant,
+        source_asset_id=source.id,
+        expected_sha256=asset.content_hash,
+    )
+    embedding = await _upload_embedding(request, content, crop=body.crop)
+    started = time.monotonic()
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            {
+                "tenant": tenant,
+                "asset": asset.id,
+                "hash": asset.content_hash,
+                "crop": body.crop.model_dump(mode="json"),
+                "filters": body.filters.model_dump(mode="json", exclude_none=True),
+                "source_provider": body.source_provider,
+                "external_source_id": body.external_source_id,
+                "viewer": viewer_scope_key,
+                "schema": embedding.descriptor.embedding_schema_version,
+            },
+            sort_keys=True,
+            default=str,
+        ).encode()
+    ).hexdigest()
+    offset = _cursor_offset(body.cursor, fingerprint=fingerprint)
+    search_limit = min(_MAX_CANDIDATES, offset + body.limit + 1)
+    index = VisualSearchElasticsearchIndex(
+        ElasticsearchV3Config(
+            settings.ELASTICSEARCH_URL,
+            settings.ELASTICSEARCH_INDEX_PREFIX,
+            index_generation="v3",
+        ),
+        embedding.descriptor,
+    )
+    try:
+        scope = VisualSearchScope(
+            tenant,
+            tuple([*access_filters, *_typed_filters(body.filters)]),
+        )
+        hits = await index.search(
+            embedding,
+            scope=scope,
+            limit=search_limit,
+            num_candidates=_MAX_CANDIDATES,
+            exclude_asset_id=asset.id,
+        )
+    except ElasticsearchV3RequestError as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "visual_search_unavailable",
+                "message": "Visual search is temporarily unavailable.",
+                "retryable": True,
+            },
+        ) from exc
+    finally:
+        await index.aclose()
+
+    candidates = hits[offset : offset + body.limit + 1]
+    raw_hits = [
+        {
+            "_id": hit.document_id,
+            "_score": hit.score,
+            "_source": {"asset_id": hit.asset_id, "source_id": hit.source_id},
+        }
+        for hit in candidates[:body.limit]
+    ]
+    with SessionLocal() as session:
+        items = _hydrate_search_hits(
+            session,
+            tenant,
+            raw_hits,
+            viewer_restricted=viewer_restricted,
+            limit=body.limit,
+        )
+        session.commit()
+    for item in items:
+        item.pop("score", None)
+    next_cursor = _next_cursor(
+        offset,
+        len(candidates),
+        body.limit,
+        fingerprint=fingerprint,
+    )
+    logger.info(
+        "visual_search_asset_crop_completed tenant_id=%s result_count=%s duration_ms=%s",
+        tenant,
+        len(items),
+        round((time.monotonic() - started) * 1000),
+    )
+    return {
+        "query_kind": "asset",
         "items": items,
         "next_cursor": next_cursor,
         "has_more": next_cursor is not None,
