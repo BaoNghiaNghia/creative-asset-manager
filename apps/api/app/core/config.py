@@ -140,6 +140,8 @@ class Settings(BaseSettings):
     VISUAL_SEARCH_CROP_ENABLED: bool = False
     VISUAL_SEARCH_HYBRID_TEXT_ENABLED: bool = False
     VISUAL_SEARCH_BACKFILL_ENABLED: bool = False
+    VISUAL_ENCODER_URL: str = 'http://127.0.0.1:8091'
+    VISUAL_ENCODER_TIMEOUT_SECONDS: float = 30.0
     VIDEO_SEARCH_ENABLED: bool = False
     # Image generation is deny-by-default. Provider selection is explicit and
     # Firefly/Gemini never fall back to one another.

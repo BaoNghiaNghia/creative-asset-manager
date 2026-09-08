@@ -36,6 +36,7 @@ from app.modules.pipeline.stages import (
 from app.modules.search.index_sync_handler import SearchIndexSyncJobHandler
 from app.modules.visual_search.index_handler import VisualIndexSyncJobHandler
 from app.modules.visual_search.encoder import SiglipVisualEncoder
+from app.modules.visual_search.encoder_client import HttpVisualEncoderClient
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex
 from app.modules.assets.content_resolver import SourceAssetContentResolver
 from app.modules.pipeline.handlers import (
@@ -224,6 +225,7 @@ def build_worker_runtime(
             SiglipVisualEncoder.descriptor,
         )
         default_resources["visual_content_resolver"] = SourceAssetContentResolver(session_factory)
+        default_resources["visual_encoder_client"] = HttpVisualEncoderClient(settings.VISUAL_ENCODER_URL, settings.VISUAL_ENCODER_TIMEOUT_SECONDS)
 
     # Explicit resources are deliberate test/operational overrides.
     default_resources.update(resources or {})

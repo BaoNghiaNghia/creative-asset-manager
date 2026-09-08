@@ -1647,6 +1647,7 @@ for unit in \
   creative-asset-manager-api.service \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-video-worker.service \
+  creative-asset-manager-visual-encoder.service \
   creative-asset-manager-inventory-v41-snapshot.service \
   creative-asset-manager-inventory-v41-snapshot.timer \
   creative-asset-manager-inventory-v41-reconcile.service \

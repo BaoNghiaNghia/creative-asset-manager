@@ -64,6 +64,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             "creative-asset-manager-api.service",
             "creative-asset-manager-image-worker.service",
             "creative-asset-manager-video-worker.service",
+            "creative-asset-manager-visual-encoder.service",
             "creative-asset-manager-worker.service", "--rollback",
         ):
             self.assertIn(required, source)

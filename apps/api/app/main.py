@@ -36,6 +36,7 @@ from app.modules.processing_policy.router import router as processing_policy_rou
 from app.modules.search.governance_router import router as search_governance_router
 from app.modules.search.router import router as search_router
 from app.modules.visual_search.router import router as visual_search_router
+from app.modules.visual_search.encoder_client import HttpVisualEncoderClient
 from app.modules.video_search.router import router as video_search_router
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
@@ -82,6 +83,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/openapi.json" if settings.API_DOCS_ENABLED else None,
     )
     api.state.settings = settings
+    if settings.VISUAL_SEARCH_ENABLED:
+        api.state.visual_encoder_client = HttpVisualEncoderClient(settings.VISUAL_ENCODER_URL, settings.VISUAL_ENCODER_TIMEOUT_SECONDS)
     api.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=list(settings.trusted_hosts),
