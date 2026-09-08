@@ -35,6 +35,7 @@ class WorkerRuntimeConfig:
     enforce_tenant_policy: bool = False
     allowed_job_types: tuple[str, ...] = ()
     borrowed_job_types: tuple[str, ...] = ()
+    source_download_fairness_every: int = 5
 
     def __post_init__(self) -> None:
         if not self.worker_id:
@@ -49,6 +50,8 @@ class WorkerRuntimeConfig:
             raise ValueError("idle_poll_seconds must be positive")
         if self.drain_timeout_seconds < 0:
             raise ValueError("drain_timeout_seconds cannot be negative")
+        if self.source_download_fairness_every < 1:
+            raise ValueError("source_download_fairness_every must be positive")
 
 
 class _ActiveExecution:
@@ -153,6 +156,7 @@ class WorkerRuntime:
         self._active: _ActiveExecution | None = None
         self._active_lock = threading.Lock()
         self._closed = False
+        self._claims_since_source_download = 0
         self._async_executor = WorkerAsyncExecutor()
         resources = dict(self.dependencies.resources)
         resources.setdefault("async_executor", self._async_executor)
@@ -237,13 +241,23 @@ class WorkerRuntime:
         try:
             with self.dependencies.session_factory() as session:
                 service = ProcessingJobService(ProcessingRepository(session, self.dependencies.settings))
+                allowed_job_types = tuple(dict.fromkeys(
+                    self.config.allowed_job_types + self.config.borrowed_job_types
+                ))
+                prefers_download = (
+                    self.config.worker_role in {"all", "image"}
+                    and "source_asset_download" in allowed_job_types
+                    and self._claims_since_source_download
+                    >= self.config.source_download_fairness_every
+                )
                 model = service.claim_next(
                     worker_id=self.config.worker_id,
                     lease_seconds=self.config.lease_seconds,
                     enforce_tenant_policy=self.config.enforce_tenant_policy,
-                    allowed_job_types=tuple(dict.fromkeys(
-                        self.config.allowed_job_types + self.config.borrowed_job_types
-                    )),
+                    allowed_job_types=allowed_job_types,
+                    preferred_job_types=(
+                        ("source_asset_download",) if prefers_download else ()
+                    ),
                     worker_role=self.config.worker_role,
                 )
             self.health.set_database_available(True)
@@ -261,6 +275,10 @@ class WorkerRuntime:
             self._log(logging.DEBUG, "worker_poll_empty")
             return False
 
+        if model.job_type == "source_asset_download":
+            self._claims_since_source_download = 0
+        else:
+            self._claims_since_source_download += 1
         job = self._snapshot(model)
         active: _ActiveExecution
         active = _ActiveExecution(

@@ -288,6 +288,7 @@ class Settings(BaseSettings):
     WORKER_HEARTBEAT_SECONDS: float = 15.0
     WORKER_IDLE_POLL_SECONDS: float = 2.0
     WORKER_DRAIN_TIMEOUT_SECONDS: float = 30.0
+    WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY: int = 5
     WORKER_HEALTH_HOST: str = "127.0.0.1"
     WORKER_HEALTH_PORT: int = 8081
     WORKER_LOG_LEVEL: str = "INFO"
@@ -933,6 +934,8 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_IDLE_POLL_SECONDS must be positive")
         if self.WORKER_DRAIN_TIMEOUT_SECONDS < 0:
             raise ValueError("WORKER_DRAIN_TIMEOUT_SECONDS cannot be negative")
+        if self.WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY < 1:
+            raise ValueError("WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY must be positive")
         if not 1 <= self.WORKER_HEALTH_PORT <= 65535:
             raise ValueError("WORKER_HEALTH_PORT must be between 1 and 65535")
         if self.INVENTORY_WORKER_ENABLED and not self.INVENTORY_AUTOMATION_ENABLED:

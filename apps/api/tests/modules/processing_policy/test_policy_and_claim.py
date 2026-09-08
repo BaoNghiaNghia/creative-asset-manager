@@ -12,6 +12,7 @@ from app.core.database import Base
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing.bootstrap import globally_enabled_job_types
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
 from app.modules.processing.worker_roles import IMAGE_WORKER_JOB_TYPES, VIDEO_WORKER_JOB_TYPES
@@ -59,12 +60,37 @@ class ProcessingPolicyTest(unittest.TestCase):
                 idempotency_key=key, payload=payload, next_attempt_at=NOW, provider_key=provider, provider_scope=scope,
             ).id
 
-    def claim(self, worker, allowed_job_types=("asset_analyze", "asset_store"), *, worker_role="all"):
+    def claim(
+        self, worker, allowed_job_types=("asset_analyze", "asset_store"), *,
+        preferred_job_types=(), worker_role="all",
+    ):
         with self.sessions() as session:
             return ProcessingJobService(ProcessingRepository(session)).claim_next(
                 worker_id=worker, lease_seconds=60, now=NOW, enforce_tenant_policy=True,
-                allowed_job_types=allowed_job_types, worker_role=worker_role,
+                allowed_job_types=allowed_job_types,
+                preferred_job_types=preferred_job_types,
+                worker_role=worker_role,
             )
+
+    def test_preferred_download_claim_prevents_priority_starvation(self):
+        self.policy("tenant", total=4, ai=4)
+        download = self.job(
+            "tenant", "download", kind="source_asset_download",
+            provider="onedrive", scope="source",
+        )
+        analysis = self.job("tenant", "analysis")
+        with self.sessions.begin() as session:
+            session.get(ProcessingJobModel, analysis).priority = 85
+
+        claimed = self.claim(
+            "image-worker",
+            ("asset_analyze", "source_asset_download"),
+            preferred_job_types=("source_asset_download",),
+            worker_role="image",
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, download)
 
     def test_disabled_and_paused_tenants_are_skipped_without_starvation(self):
         self.policy("disabled", enabled=False); self.policy("paused", paused=True); self.policy("enabled")

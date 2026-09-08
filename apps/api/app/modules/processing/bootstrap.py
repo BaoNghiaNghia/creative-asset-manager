@@ -250,6 +250,9 @@ def build_worker_runtime(
             enforce_tenant_policy=True,
             allowed_job_types=allowed_job_types,
             borrowed_job_types=borrowed_job_types,
+            source_download_fairness_every=(
+                settings.WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY
+            ),
         ),
         dependencies=dependencies,
         registry=build_handler_registry(

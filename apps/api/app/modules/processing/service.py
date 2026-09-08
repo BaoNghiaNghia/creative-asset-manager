@@ -33,12 +33,14 @@ class ProcessingJobService:
         self, *, worker_id: str, lease_seconds: int, now: datetime | None = None,
         enforce_tenant_policy: bool = False,
         allowed_job_types: tuple[str, ...] | None = None,
+        preferred_job_types: tuple[str, ...] = (),
         worker_role: str = "all",
     ) -> ProcessingJobModel | None:
         job = self.repository.claim_next_job(
             worker_id=worker_id, lease_seconds=lease_seconds, now=now,
             enforce_tenant_policy=enforce_tenant_policy,
             allowed_job_types=allowed_job_types or (),
+            preferred_job_types=preferred_job_types,
             worker_role=worker_role,
         )
         self.repository.session.commit()

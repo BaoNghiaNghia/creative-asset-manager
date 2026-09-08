@@ -60,7 +60,9 @@ class TenantAwareJobClaimer:
         self.settings = settings or get_settings()
 
     def claim(self, *, worker_id: str, lease_seconds: int, now: datetime,
-              allowed_job_types: tuple[str, ...], worker_role: str = "all") -> ProcessingJobModel | None:
+              allowed_job_types: tuple[str, ...],
+              preferred_job_types: tuple[str, ...] = (),
+              worker_role: str = "all") -> ProcessingJobModel | None:
         if not allowed_job_types:
             return None
         excluded_ai_scopes: set[tuple[str, str | None]] = set()
@@ -69,19 +71,11 @@ class TenantAwareJobClaimer:
                 now, allowed_job_types, excluded_ai_scopes=excluded_ai_scopes,
                 worker_role=worker_role,
             )
-            statement = (
-                select(ProcessingJobModel)
-                .where(eligibility)
-                .order_by(
-                    ProcessingJobModel.priority.desc(),
-                    ProcessingJobModel.next_attempt_at,
-                    ProcessingJobModel.created_at,
-                )
-                .limit(1)
+            candidate = self._next_candidate(
+                eligibility, preferred_job_types=preferred_job_types,
             )
-            if self.session.get_bind().dialect.name == "postgresql":
-                statement = statement.with_for_update(skip_locked=True)
-            candidate = self.session.scalar(statement)
+            if candidate is None and preferred_job_types:
+                candidate = self._next_candidate(eligibility)
             if candidate is None:
                 return None
 
@@ -139,6 +133,26 @@ class TenantAwareJobClaimer:
             if claimed is None and not already_accounted:
                 self.release(candidate)
             return claimed
+
+    def _next_candidate(
+        self, eligibility, *, preferred_job_types: tuple[str, ...] = (),
+    ) -> ProcessingJobModel | None:
+        conditions = [eligibility]
+        if preferred_job_types:
+            conditions.append(ProcessingJobModel.job_type.in_(preferred_job_types))
+        statement = (
+            select(ProcessingJobModel)
+            .where(*conditions)
+            .order_by(
+                ProcessingJobModel.priority.desc(),
+                ProcessingJobModel.next_attempt_at,
+                ProcessingJobModel.created_at,
+            )
+            .limit(1)
+        )
+        if self.session.get_bind().dialect.name == "postgresql":
+            statement = statement.with_for_update(skip_locked=True)
+        return self.session.scalar(statement)
 
     def release(self, job: ProcessingJobModel) -> None:
         if not job.concurrency_accounted:
