@@ -106,6 +106,7 @@ class AiAnalysisService:
         reservation_finalized = False
         provider_name = str(getattr(self.ai_provider, "provider_name", "gemini"))
         provider_model = str(getattr(self.ai_provider, "model", self.settings.GEMINI_MODEL))
+        credential_provider: str | None = None
         model_start_reserved = False
         estimated_cost_micros = 0
         profile_name = profile_version = prompt_version = asset_id = None
@@ -223,6 +224,9 @@ class AiAnalysisService:
                         and marker.get("attempt_count") == job.attempt_count
                     ):
                         provider_model = marker["model"]
+                        selected_credential = marker.get("credential_provider")
+                        if provider_name == "gemini" and selected_credential in {"gemini", "gemini_backup"}:
+                            credential_provider = selected_credential
                         model_start_reserved = True
                 session.commit()
 
@@ -257,11 +261,21 @@ class AiAnalysisService:
                 repository.set_stage(analysis_id, "analyzing")
                 session.commit()
 
+            if not model_start_reserved and provider_name == "gemini":
+                rpm = self.settings.ai_model_rpm(provider_name, provider_model)
+                if rpm is not None:
+                    with self.session_factory() as session:
+                        credential_provider = rate_limit_provider_key(
+                            session, self.settings, tenant_id, provider_name,
+                            model=provider_model, rpm=rpm,
+                            minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+                        )
             deferred = None if model_start_reserved else self._check_model_start(
                 tenant_id=tenant_id,
                 provider=provider_name,
                 model=provider_model,
                 retry_count=max(0, attempt_count - 1),
+                rate_limit_provider=credential_provider,
             )
             if deferred is not None:
                 await self._record_deferred(
@@ -323,6 +337,7 @@ class AiAnalysisService:
                 provider=provider_name,
                 model=provider_model,
                 retry_count=max(0, attempt_count - 1),
+                rate_limit_provider=credential_provider,
             )
             if deferred is not None:
                 self._release_budget_reservation(
@@ -354,6 +369,7 @@ class AiAnalysisService:
                     analysis_id=analysis_id,
                     pipeline_id=pipeline_id,
                     preferred_model=provider_model if model_start_reserved else None,
+                    preferred_credential_provider=credential_provider,
                 )
             )
             provider_latency_ms = int((time.monotonic() - provider_started) * 1000)
@@ -589,12 +605,17 @@ class AiAnalysisService:
         provider: str,
         model: str,
         retry_count: int,
+        rate_limit_provider: str | None = None,
     ) -> AiAnalysisOutcome | None:
         rpm = self.settings.ai_model_rpm(provider, model)
         if rpm is None:
             return None
         with self.session_factory() as session:
-            limiter_provider = rate_limit_provider_key(session, self.settings, tenant_id, provider)
+            limiter_provider = rate_limit_provider or rate_limit_provider_key(
+                session, self.settings, tenant_id, provider,
+                model=model, rpm=rpm,
+                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+            )
             decision = AiModelRateLimitRepository(session).next_start(
                 tenant_id=tenant_id,
                 provider=limiter_provider,
@@ -634,12 +655,17 @@ class AiAnalysisService:
         provider: str,
         model: str,
         retry_count: int,
+        rate_limit_provider: str | None = None,
     ) -> AiAnalysisOutcome | None:
         rpm = self.settings.ai_model_rpm(provider, model)
         if rpm is None:
             return None
         with self.session_factory() as session:
-            limiter_provider = rate_limit_provider_key(session, self.settings, tenant_id, provider)
+            limiter_provider = rate_limit_provider or rate_limit_provider_key(
+                session, self.settings, tenant_id, provider,
+                model=model, rpm=rpm,
+                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+            )
             decision = AiModelRateLimitRepository(session).reserve_start(
                 tenant_id=tenant_id,
                 provider=limiter_provider,

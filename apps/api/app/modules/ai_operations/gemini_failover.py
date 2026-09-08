@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.processing.model import ProcessingJobModel
 
-DEFERRED_CODES = ("video_gemini_quota_deferred", "video_gemini_rate_limited", "gemini_quota_deferred", "gemini_image_quota_deferred", "ai_model_rate_limited", "ai_provider_rate_limited")
+DEFERRED_CODES = (
+    "video_gemini_quota_deferred", "video_gemini_rate_limited",
+    "gemini_quota_deferred", "gemini_image_quota_deferred",
+    "ai_model_rate_limited", "ai_provider_rate_limited",
+)
+
 
 def backup_is_active(session: Session, settings: Settings, tenant_id: str, now: datetime | None = None) -> bool:
     now = now or datetime.now(timezone.utc)
@@ -19,5 +26,35 @@ def backup_is_active(session: Session, settings: Settings, tenant_id: str, now: 
     )) or 0
     return int(count) >= threshold
 
-def rate_limit_provider_key(session: Session, settings: Settings, tenant_id: str, provider: str) -> str:
-    return "gemini_backup" if provider == "gemini" and backup_is_active(session, settings, tenant_id) else provider
+
+def _backup_is_configured(session: Session, tenant_id: str) -> bool:
+    metadata = CreativeAiCredentialRepository(session, None).get_metadata(tenant_id, provider="gemini_backup")
+    return metadata is not None and metadata.status == "active"
+
+
+def rate_limit_provider_key(
+    session: Session, settings: Settings, tenant_id: str, provider: str, *,
+    model: str | None = None, rpm: int | None = None,
+    minimum_interval_seconds: float | None = None, now: datetime | None = None,
+) -> str:
+    """Select primary/backup by availability, keeping primary as tie-breaker."""
+    if provider != "gemini" or not _backup_is_configured(session, tenant_id):
+        return provider
+    if not model or not rpm or not minimum_interval_seconds:
+        return "gemini_backup" if backup_is_active(session, settings, tenant_id, now) else provider
+    from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
+    limiter = AiModelRateLimitRepository(session)
+    candidates = ("gemini", "gemini_backup")
+    decisions = {
+        candidate: limiter.next_start(
+            tenant_id=tenant_id, provider=candidate, model=model, rpm=rpm,
+            minimum_interval_seconds=minimum_interval_seconds, now=now,
+        )
+        for candidate in candidates
+    }
+    for candidate in candidates:
+        if decisions[candidate].allowed:
+            return candidate
+    return min(candidates, key=lambda candidate: (
+        decisions[candidate].next_eligible_at, candidate != "gemini"
+    ))

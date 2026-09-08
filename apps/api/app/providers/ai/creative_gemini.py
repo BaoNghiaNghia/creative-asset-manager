@@ -72,13 +72,16 @@ class RuntimeCreativeGeminiProvider:
         self._provider_factory, self._cache_ttl, self._cache_size = provider_factory, cache_ttl_seconds, cache_size
         self._providers: OrderedDict[str, _CachedProvider] = OrderedDict()
 
-    def _credential(self, tenant_id: str) -> CreativeGeminiCredential:
+    def _credential(self, tenant_id: str, *, preferred_provider: str | None = None) -> CreativeGeminiCredential:
         try:
             with self.session_factory() as session:
                 use_backup = backup_is_active(session, self.settings, tenant_id)
+            selected_provider = preferred_provider if preferred_provider in {"gemini", "gemini_backup"} else ("gemini_backup" if use_backup else "gemini")
             try:
-                credential = self._resolver.resolve(tenant_id, provider="gemini_backup" if use_backup else "gemini")
+                credential = self._resolver.resolve(tenant_id, provider=selected_provider)
             except CreativeCredentialError:
+                if selected_provider == "gemini_backup" and preferred_provider == "gemini_backup":
+                    raise
                 credential = self._resolver.resolve(tenant_id)
         except CreativeCredentialError as exc:
             raise AiProviderError("Creative Gemini credential is unavailable.", code=exc.code, retryable=False, status_code=503) from exc
@@ -119,7 +122,8 @@ class RuntimeCreativeGeminiProvider:
         return current
 
     async def analyze_single(self, input: AiMetadataAnalysisInput) -> AiMetadataAnalysisResult:
-        return await self._delegate_for(input.tenant_id, self._credential(input.tenant_id)).analyze_single(input)
+        credential = self._credential(input.tenant_id, preferred_provider=input.preferred_credential_provider)
+        return await self._delegate_for(input.tenant_id, credential).analyze_single(input)
 
     def _batch_affinity(self, tenant_id: str, credential: CreativeGeminiCredential) -> tuple[str | None, str | None]:
         if credential.encrypted_secret and credential.key_version:

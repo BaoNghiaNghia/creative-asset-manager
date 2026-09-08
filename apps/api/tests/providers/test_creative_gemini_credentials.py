@@ -103,18 +103,49 @@ class CreativeGeminiCredentialTest(unittest.TestCase):
             [row[0] for row in captured],
             ["env-creative-key-0000", "creative-rotated-key-5678"],
         )
-        self.assertEqual(
-            captured[0][1].quota_scope, settings.GEMINI_PROJECT_QUOTA_SCOPE
+        self.assertTrue(
+            captured[0][1].quota_scope.startswith(
+                f"{settings.GEMINI_PROJECT_QUOTA_SCOPE}:tenant-a:"
+            )
         )
-        self.assertEqual(captured[0][1].quota_scope, captured[1][1].quota_scope)
+        self.assertNotEqual(captured[0][1].quota_scope, captured[1][1].quota_scope)
 
         now = datetime(2040, 1, 1, tzinfo=timezone.utc)
         self.assertIsNone(
             captured[0][1].reserve_request(model="model", rpd=1, now=now)
         )
-        denied = captured[1][1].reserve_request(model="model", rpd=1, now=now)
-        self.assertIsNotNone(denied)
-        self.assertEqual(denied.reason, "project_rpd_exhausted")
+        # Credential-specific scopes let an independently provisioned backup
+        # project continue after the primary project reaches its daily cap.
+        self.assertIsNone(
+            captured[1][1].reserve_request(model="model", rpd=1, now=now)
+        )
+
+    def test_explicit_backup_credential_is_honored_for_single_analysis(self):
+        calls = []
+
+        class FakeProvider:
+            provider_name = "gemini"; supports_single = True; supports_batch = True
+            def __init__(self, key, **kwargs): self.key = key; self.default_model = kwargs["model"]
+            async def analyze_single(self, input):
+                calls.append(self.key)
+                return AiMetadataAnalysisResult(metadata={}, provider="gemini")
+
+        with self.sessions() as session:
+            CreativeAiCredentialRepository(
+                session, creative_credential_cipher(self.settings)
+            ).replace("tenant-a", secret="backup-key-1234", provider="gemini_backup")
+            session.commit()
+        provider = RuntimeCreativeGeminiProvider(
+            self.settings, self.sessions,
+            provider_factory=lambda key, **kwargs: FakeProvider(key, **kwargs),
+        )
+        asyncio.run(provider.analyze_single(AiMetadataAnalysisInput(
+            tenant_id="tenant-a", asset_id="asset", prompt="x",
+            image_bytes=b"jpeg", image_mime_type="image/jpeg",
+            metadata_profile="general", metadata_profile_version="1",
+            preferred_credential_provider="gemini_backup",
+        )))
+        self.assertEqual(calls, ["backup-key-1234"])
 
     def test_missing_everything_is_explicitly_unavailable(self):
         with self.assertRaises(CreativeCredentialError) as context:

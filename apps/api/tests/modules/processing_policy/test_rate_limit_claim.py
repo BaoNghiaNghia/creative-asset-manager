@@ -1,3 +1,4 @@
+import base64
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,8 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.modules.ai_governance.model import AiModelRateLimitStateModel
 from app.modules.ai_governance.rate_limit import configured_model_rates
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, creative_credential_cipher
+from app.modules.ai_operations.gemini_failover import rate_limit_provider_key
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -190,8 +193,10 @@ class RateLimitedClaimTest(unittest.TestCase):
 
         self.assertEqual(claimed.id, job_id)
         marker = claimed.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
-        # The pipeline remains Gemini; only the quota bucket changes.
+        # The pipeline remains Gemini, while the selected credential and
+        # rate-limit bucket are persisted together for the handler.
         self.assertEqual(marker["provider"], "gemini")
+        self.assertEqual(marker["credential_provider"], "gemini_backup")
         with self.sessions() as session:
             backup_state = session.get(
                 AiModelRateLimitStateModel,
@@ -211,6 +216,30 @@ class RateLimitedClaimTest(unittest.TestCase):
             )
             self.assertIsNotNone(backup_state)
             self.assertIsNone(primary_state)
+
+    def test_active_active_selector_uses_backup_when_primary_slot_is_busy(self):
+        key = base64.urlsafe_b64encode(b"B" * 32).decode().rstrip("=")
+        self.settings = Settings(
+            GEMINI_API_KEY="primary-key",
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=key,
+        )
+        model, rpm = configured_model_rates(self.settings, "gemini", None)[0]
+        with self.sessions.begin() as session:
+            CreativeAiCredentialRepository(
+                session, creative_credential_cipher(self.settings)
+            ).replace("tenant", secret="backup-key", provider="gemini_backup")
+            session.add(AiModelRateLimitStateModel(
+                tenant_id="tenant", provider="gemini", model=model,
+                last_started_at=NOW,
+                next_eligible_at=NOW + timedelta(minutes=5),
+                blocked_until=None, updated_at=NOW,
+            ))
+        with self.sessions() as session:
+            selected = rate_limit_provider_key(
+                session, self.settings, "tenant", "gemini",
+                model=model, rpm=rpm, minimum_interval_seconds=1, now=NOW,
+            )
+        self.assertEqual(selected, "gemini_backup")
 
     def test_null_gemini_model_resolves_configured_pool(self):
         rates = configured_model_rates(self.settings, "gemini", None)

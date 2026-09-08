@@ -17,11 +17,13 @@ from app.modules.processing.worker_roles import (
     VIDEO_AI_JOB_TYPES, VIDEO_WORKER_JOB_TYPES,
 )
 
-def rate_limit_provider_key(session: Session, settings: Settings, tenant_id: str, provider: str) -> str:
+def rate_limit_provider_key(
+    session: Session, settings: Settings, tenant_id: str, provider: str, **kwargs: object,
+) -> str:
     """Resolve the active Gemini quota bucket without package-init cycles."""
     from app.modules.ai_operations.gemini_failover import rate_limit_provider_key as resolve_provider_key
 
-    return resolve_provider_key(session, settings, tenant_id, provider)
+    return resolve_provider_key(session, settings, tenant_id, provider, **kwargs)
 
 AI_JOB_TYPES = ("asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate")
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download")
@@ -117,6 +119,7 @@ class TenantAwareJobClaimer:
                 payload = dict(candidate.payload_json or {})
                 payload[AI_MODEL_SLOT_PAYLOAD_KEY] = {
                     "provider": model_slot["provider"],
+                    "credential_provider": model_slot.get("credential_provider", model_slot["provider"]),
                     "model": model_slot["model"],
                     "reserved_at": now.isoformat(),
                     "next_eligible_at": model_slot["next_eligible_at"].isoformat(),
@@ -478,10 +481,13 @@ class TenantAwareJobClaimer:
         # its local start slot against the active credential's quota bucket.
         # Without this distinction, failover selected at request time still
         # waits behind the primary key's exhausted local schedule.
-        limiter_provider = rate_limit_provider_key(
-            self.session, self.settings, job.tenant_id, provider
-        )
         for model, rpm in model_rates:
+            limiter_provider = rate_limit_provider_key(
+                self.session, self.settings, job.tenant_id, provider,
+                model=model, rpm=rpm,
+                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+                now=now,
+            )
             decision = limiter.reserve_start(
                 tenant_id=job.tenant_id,
                 provider=limiter_provider,
@@ -493,6 +499,7 @@ class TenantAwareJobClaimer:
             if decision.allowed:
                 return {
                     "provider": provider,
+                    "credential_provider": limiter_provider,
                     "model": model,
                     "next_eligible_at": decision.next_eligible_at,
                 }
