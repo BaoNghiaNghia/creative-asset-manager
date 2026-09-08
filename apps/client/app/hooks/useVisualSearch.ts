@@ -34,6 +34,7 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [refinement, setRefinement] = useState("");
   const requestRef = useRef(0);
 
   const clear = useCallback(() => {
@@ -42,16 +43,18 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
       if (current?.kind === "upload") URL.revokeObjectURL(current.previewUrl);
       return null;
     });
-    setItems([]); setError(""); setLoading(false); setNextCursor(null);
+    setItems([]); setError(""); setLoading(false); setNextCursor(null); setRefinement("");
   }, []);
 
   const run = useCallback(async (
     nextReference: VisualReference,
     crop?: VisualCrop,
     cursor?: string | null,
+    text?: string,
   ) => {
     const epoch = ++requestRef.current;
     setLoading(true); setError("");
+    const refinedText = (text ?? refinement).trim();
     try {
       let response: Response;
       if (nextReference.kind === "asset") {
@@ -66,6 +69,7 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
             ...(externalSourceId ? { external_source_id: externalSourceId } : {}),
             ...(crop ? { crop: normalizeCrop(crop) } : {}),
             ...(cursor ? { cursor } : {}),
+            ...(refinedText ? { text: refinedText } : {}),
           }),
         });
       } else {
@@ -74,6 +78,7 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
           ...(externalSourceId ? { external_source_id: externalSourceId } : {}),
           ...(crop ? { crop: JSON.stringify(normalizeCrop(crop)) } : {}),
           ...(cursor ? { cursor } : {}),
+          ...(refinedText ? { text: refinedText } : {}),
         });
         const data = new FormData();
         data.append("file", nextReference.file);
@@ -89,12 +94,12 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
     } finally {
       if (epoch === requestRef.current) setLoading(false);
     }
-  }, [externalSourceId, provider]);
+  }, [externalSourceId, provider, refinement]);
 
   const chooseAsset = useCallback((asset: Asset, crop?: VisualCrop) => {
     const next = { kind: "asset" as const, asset };
-    setReference(next);
-    void run(next, crop);
+    setReference(next); setRefinement("");
+    void run(next, crop, undefined, "");
   }, [run]);
 
   const chooseUpload = useCallback((file: File, crop?: VisualCrop) => {
@@ -103,11 +108,12 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
       if (current?.kind === "upload") URL.revokeObjectURL(current.previewUrl);
       return next;
     });
-    void run(next, crop);
+    setRefinement("");
+    void run(next, crop, undefined, "");
   }, [run]);
 
-  const retry = useCallback((crop?: VisualCrop) => {
-    if (reference) void run(reference, crop);
+  const retry = useCallback((crop?: VisualCrop, text?: string) => {
+    if (reference) void run(reference, crop, undefined, text);
   }, [reference, run]);
 
   const loadMore = useCallback((crop?: VisualCrop) => {
@@ -115,5 +121,5 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
     void run(reference, crop, nextCursor);
   }, [loading, nextCursor, reference, run]);
 
-  return { reference, items, loading, error, hasMore: Boolean(nextCursor), chooseAsset, chooseUpload, retry, loadMore, clear };
+  return { reference, items, loading, error, refinement, setRefinement, hasMore: Boolean(nextCursor), chooseAsset, chooseUpload, retry, loadMore, clear };
 }

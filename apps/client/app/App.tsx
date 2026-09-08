@@ -992,6 +992,8 @@ export default function App() {
             reference={visualSearch.reference}
             loading={visualSearch.loading}
             error={visualSearch.error}
+            refinement={visualSearch.refinement}
+            onRefinementChange={visualSearch.setRefinement}
             onUpload={visualSearch.chooseUpload}
             onApplyCrop={crop => visualSearch.retry(crop)}
             onRetry={visualSearch.retry}
