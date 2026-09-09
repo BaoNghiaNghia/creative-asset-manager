@@ -10,9 +10,10 @@ _OLD = "provider IN ('gemini','gemini_video','gemini_image','gemini_backup','gem
 
 def upgrade():
     # Existing configured backups retain their encrypted values and audit lineage.
-    op.execute("UPDATE creative_ai_credentials SET provider = 'gemini_backup_1' WHERE provider = 'gemini_backup'")
     with op.batch_alter_table("creative_ai_credentials") as batch:
         batch.drop_constraint("ck_creative_ai_credentials_provider", type_="check")
+    op.execute("UPDATE creative_ai_credentials SET provider = 'gemini_backup_1' WHERE provider = 'gemini_backup'")
+    with op.batch_alter_table("creative_ai_credentials") as batch:
         batch.create_check_constraint("ck_creative_ai_credentials_provider", _NEW)
 
 def downgrade():
