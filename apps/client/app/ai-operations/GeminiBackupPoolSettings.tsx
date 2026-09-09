@@ -92,12 +92,12 @@ export function GeminiBackupPoolSettings({ canManage = true, embedded = false }:
   const rows = items.filter(item => item.configured || drafts[item.slot]);
   const canAdd = canManage && items.some(item => !item.configured && !drafts[item.slot]);
 
-  return <section className={"inventory-settings-card gemini-backup-pool" + (embedded ? " inventory-settings-card-embedded" : "")} aria-label="Gemini Image backup key pool">
-    <div className="inventory-settings-heading">
+  return <section className={"gemini-backup-pool" + (embedded ? " gemini-backup-pool-embedded" : " inventory-settings-card")} aria-label="Gemini Image backup key pool">
+    <div className="gemini-backup-pool-heading">
       <div>
         <p className="inventory-kicker">FAILOVER AI</p>
-        <h2>Gemini Image key pool</h2>
-        <p className="inventory-muted">Các key backup c~¡y luân phiên. Rê chÙt vào mÙt dòng!Ã q£n lý key!ó.</p>
+        <h3>Backup key pool</h3>
+        <p className="inventory-muted">Active keys rotate automatically. Hover a row to manage it.</p>
       </div>
       <span className="inventory-credential-status status-connected">{items.filter(item => item.configured).length}/10 active</span>
     </div>
@@ -106,7 +106,7 @@ export function GeminiBackupPoolSettings({ canManage = true, embedded = false }:
       <div className="gemini-backup-pool-head" role="row">
         <span role="columnheader">Backup key</span>
         <span role="columnheader">Label</span>
-        <span role="columnheader">Status &amp; updated</span>
+        <span role="columnheader">Status and updated</span>
       </div>
       {rows.map(item => <div key={item.slot} className="gemini-backup-pool-entry">
         <div className="gemini-backup-pool-row" role="row" tabIndex={0}>
@@ -117,7 +117,7 @@ export function GeminiBackupPoolSettings({ canManage = true, embedded = false }:
             <small>{formatTime(item.updated_at)}</small>
           </div>
           {canManage && item.configured && <div className="gemini-backup-pool-actions">
-            <button type="button" className="secondary" disabled={testing === item.slot} onClick={() => void testCurrent(item.slot)}>{testing === item.slot ? "Testing&" : "Test"}</button>
+            <button type="button" className="secondary" disabled={testing === item.slot} onClick={() => void testCurrent(item.slot)}>{testing === item.slot ? "Testing..." : "Test"}</button>
             <button type="button" onClick={() => startDraft(item.slot)}>Replace</button>
             <button type="button" className="danger" onClick={() => void remove(item.slot)}>Delete</button>
           </div>}
@@ -125,10 +125,10 @@ export function GeminiBackupPoolSettings({ canManage = true, embedded = false }:
         {canManage && drafts[item.slot] && <form className="gemini-backup-pool-editor" onSubmit={event => { event.preventDefault(); void save(item.slot); }}>
           <label>New API key<input aria-label={`Backup ${item.slot} API key`} type="password" autoComplete="off" value={drafts[item.slot].apiKey} onChange={event => update(item.slot, "apiKey", event.target.value)} /></label>
           <label>Label<input aria-label={`Backup ${item.slot} label`} value={drafts[item.slot].label} onChange={event => update(item.slot, "label", event.target.value)} /></label>
-          <div><button type="submit" disabled={!drafts[item.slot].apiKey}>{item.configured ? "Test & replace" : "Test & save"}</button><button type="button" className="secondary" onClick={() => discard(item.slot)}>Cancel</button></div>
+          <div><button type="submit" disabled={!drafts[item.slot].apiKey}>{item.configured ? "Test and replace" : "Test and save"}</button><button type="button" className="secondary" onClick={() => discard(item.slot)}>Cancel</button></div>
         </form>}
       </div>)}
-      {canAdd && <button type="button" className="gemini-backup-pool-add" onClick={add}>+ Thêm key backup</button>}
+      {canAdd && <button type="button" className="gemini-backup-pool-add" onClick={add}>+ Add backup key</button>}
     </div>
 
     {!rows.length && <p className="inventory-muted">No backup key has been configured yet.</p>}

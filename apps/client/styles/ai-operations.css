@@ -1202,3 +1202,35 @@
     padding-bottom: 10px !important;
   }
 }
+
+/* Render Creative and Image backup credentials as one cohesive card. */
+.ops-provider-gemini-credentials-grid > .gemini-creative-key-pool {
+  overflow: hidden;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(42, 61, 95, .05);
+}
+.ops-provider-gemini-credentials-grid > .gemini-creative-key-pool > .inventory-settings-card {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.ops-provider-gemini-credentials-grid > .gemini-creative-key-pool > .gemini-backup-pool {
+  padding: 16px;
+  border-top: 1px solid #dbe4f0;
+  background: #fbfdff;
+}
+.gemini-backup-pool-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.gemini-backup-pool-heading h3 {
+  margin: 2px 0 4px;
+  color: #27364d;
+  font-size: 16px;
+  line-height: 1.25;
+}

@@ -260,10 +260,10 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
         </div>
         {provider.id === "gemini" && <section className="ops-provider-gemini-credentials" aria-label="Google Gemini credential settings">
           <div className="ops-provider-gemini-credentials-grid">
-            <CreativeGeminiCredentialSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
+            <div className="gemini-creative-key-pool"><CreativeGeminiCredentialSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
             <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} embedded />
             <CreativeGeminiCredentialSettings kind="video" canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
-            <GeminiBackupPoolSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
+            <GeminiBackupPoolSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded /></div>
           </div>
         </section>}
         {confirmProvider === provider.id && <div className="ops-confirm" role="dialog" aria-label={`${provider.paused ? "Resume" : "Pause"} ${provider.label}`}>
