@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlencode
 
-from sqlalchemy import and_, case, func, literal, select
+from sqlalchemy import and_, case, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.processing.types import JobStatus
@@ -104,18 +104,62 @@ class PipelineOperationsRepository:
         return select(ranked).where(ranked.c.rn == 1).subquery()
 
     def _stage_rows(self, tenant_id: str, logical, now: datetime) -> list[dict[str, Any]]:
+        # Read the pipeline state once. A completed pipeline stage does not need
+        # a latest-job lookup, so the expensive window query below is limited to
+        # assets that have not reached that stage.
+        base_rows = self.session.execute(select(
+            logical.c.logical_id,
+            logical.c.pipeline_state,
+            logical.c.pipeline_error_code,
+            logical.c.pipeline_error_message,
+        )).all()
         results: list[dict[str, Any]] = []
         for key, label, subtitle in PIPELINE_STAGES:
-            latest = self._latest_stage_job(logical, tenant_id, key)
-            rows = self.session.execute(select(
-                logical.c.logical_id, logical.c.pipeline_state, logical.c.pipeline_error_code, logical.c.pipeline_error_message,
-                latest.c.job_status, latest.c.next_attempt_at, latest.c.error_code, latest.c.error_message,
-            ).select_from(logical.outerjoin(latest, latest.c.logical_id == logical.c.logical_id))).all()
-            counts = {name: 0 for name in ("total_logical_assets", "completed_assets", "queued_assets", "eligible_now_assets", "waiting_assets", "processing_assets", "needs_attention_assets", "skipped_assets", "not_started_assets")}
             position = _STAGE_POSITION[key]
-            for logical_id, state, pcode, pmessage, status, next_at, jcode, jmessage in rows:
+            completed_states = [
+                state for state, ordinal in _STATE_POSITION.items()
+                if ordinal >= position
+            ]
+            candidates = select(
+                logical.c.logical_id,
+                logical.c.pipeline_id,
+                logical.c.pipeline_state,
+                logical.c.pipeline_error_code,
+                logical.c.pipeline_error_message,
+            ).where(
+                or_(
+                    logical.c.pipeline_state.is_(None),
+                    logical.c.pipeline_state.not_in(completed_states),
+                )
+            ).cte(f"pipeline_{key}_candidates")
+            latest = self._latest_stage_job(candidates, tenant_id, key)
+            latest_by_id = {
+                row.logical_id: (
+                    row.job_status,
+                    row.next_attempt_at,
+                    row.error_code,
+                    row.error_message,
+                )
+                for row in self.session.execute(select(
+                    latest.c.logical_id,
+                    latest.c.job_status,
+                    latest.c.next_attempt_at,
+                    latest.c.error_code,
+                    latest.c.error_message,
+                ))
+            }
+            counts = {name: 0 for name in (
+                "total_logical_assets", "completed_assets", "queued_assets",
+                "eligible_now_assets", "waiting_assets", "processing_assets",
+                "needs_attention_assets", "skipped_assets", "not_started_assets",
+            )}
+            for logical_id, state, pcode, pmessage in base_rows:
+                status, next_at, jcode, jmessage = latest_by_id.get(
+                    logical_id, (None, None, None, None)
+                )
                 counts["total_logical_assets"] += 1
-                state_position, state_failure = _STATE_POSITION.get(state or "discovered", 0), _FAILURE_STAGE.get(state or "") == key
+                state_position = _STATE_POSITION.get(state or "discovered", 0)
+                state_failure = _FAILURE_STAGE.get(state or "") == key
                 code, message = (jcode or pcode), (jmessage or pmessage)
                 if state_position >= position:
                     effective = "completed"
@@ -123,26 +167,57 @@ class PipelineOperationsRepository:
                     effective = "processing"
                 elif status == JobStatus.FAILED.value or state_failure:
                     effective = "skipped" if self._skip_category(code, message) else "needs_attention"
-                elif status == JobStatus.RETRY.value or (status in PROCESSING_JOB_QUEUED_STATUSES and (code in _DEFERRED_CODES or (next_at is not None and self._aware(next_at) and self._aware(next_at) > now))):
+                elif status == JobStatus.RETRY.value or (
+                    status in PROCESSING_JOB_QUEUED_STATUSES and (
+                        code in _DEFERRED_CODES
+                        or (
+                            next_at is not None
+                            and self._aware(next_at)
+                            and self._aware(next_at) > now
+                        )
+                    )
+                ):
                     effective = "waiting"
                 elif status in PROCESSING_JOB_QUEUED_STATUSES:
                     effective = "queued"
                 else:
                     effective = "not_started"
                 counts[effective + "_assets"] += 1
-                results.append({"logical_id": logical_id, "stage": key, "state": effective, "error_code": code, "error_message": message, "pipeline_state": state})
+                results.append({
+                    "logical_id": logical_id,
+                    "stage": key,
+                    "state": effective,
+                    "error_code": code,
+                    "error_message": message,
+                    "pipeline_state": state,
+                })
             raw = self.session.execute(select(
                 func.count(ProcessingJobModel.id),
-                func.coalesce(func.sum(case((ProcessingJobModel.status == JobStatus.COMPLETED.value, 1), else_=0)), 0),
-                func.coalesce(func.sum(case((ProcessingJobModel.status == JobStatus.FAILED.value, 1), else_=0)), 0),
-            ).where(ProcessingJobModel.tenant_id == tenant_id, ProcessingJobModel.job_type == key)).one()
+                func.coalesce(func.sum(case((
+                    ProcessingJobModel.status == JobStatus.COMPLETED.value, 1
+                ), else_=0)), 0),
+                func.coalesce(func.sum(case((
+                    ProcessingJobModel.status == JobStatus.FAILED.value, 1
+                ), else_=0)), 0),
+            ).where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.job_type == key,
+            )).one()
             denominator = counts["total_logical_assets"]
-            results.append({"stage_summary": {"key": key, "label": label, "subtitle": subtitle, **counts,
-                "percentage": round(100 * counts["completed_assets"] / denominator, 1) if denominator else None,
-                "total_attempts": int(raw[0] or 0), "completed_attempts": int(raw[1] or 0), "failed_attempts": int(raw[2] or 0),
-                # legacy aliases are intentionally retained for rolling frontend deployments.
-                "total": denominator, "pending": counts["queued_assets"] + counts["waiting_assets"], "eligible_now": counts["eligible_now_assets"],
-                "waiting": counts["waiting_assets"], "processing": counts["processing_assets"], "completed": counts["completed_assets"], "failed": counts["needs_attention_assets"],
+            results.append({"stage_summary": {
+                "key": key, "label": label, "subtitle": subtitle, **counts,
+                "percentage": round(100 * counts["completed_assets"] / denominator, 1)
+                if denominator else None,
+                "total_attempts": int(raw[0] or 0),
+                "completed_attempts": int(raw[1] or 0),
+                "failed_attempts": int(raw[2] or 0),
+                "total": denominator,
+                "pending": counts["queued_assets"] + counts["waiting_assets"],
+                "eligible_now": counts["eligible_now_assets"],
+                "waiting": counts["waiting_assets"],
+                "processing": counts["processing_assets"],
+                "completed": counts["completed_assets"],
+                "failed": counts["needs_attention_assets"],
             }})
         return results
 
