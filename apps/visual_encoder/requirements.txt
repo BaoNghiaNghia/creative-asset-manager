@@ -1,4 +1,6 @@
-torch==2.6.0
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+torch==2.6.0+cpu
 transformers==4.46.3
 Pillow==12.3.0
 sentencepiece==0.2.0
