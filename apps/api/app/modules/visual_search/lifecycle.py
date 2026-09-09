@@ -5,6 +5,7 @@ from app.modules.processing.repository import ProcessingRepository
 from app.modules.visual_search.encoder import SIGLIP_BASELINE_PREPROCESS_VERSION
 
 VISUAL_EMBEDDING_SCHEMA_VERSION = "visual_embedding_v1"
+VISUAL_INDEX_SYNC_PRIORITY = 20
 
 
 def visual_index_job_enabled(settings: Settings | None) -> bool:
@@ -55,6 +56,7 @@ def enqueue_visual_index_sync(
         },
         provider_key="visual_encoder",
         provider_scope="visual",
+        priority=VISUAL_INDEX_SYNC_PRIORITY,
     )
     return before is None
 
@@ -86,5 +88,6 @@ def enqueue_visual_retire_sync(
         },
         provider_key="visual_encoder",
         provider_scope="visual",
+        priority=VISUAL_INDEX_SYNC_PRIORITY,
     )
     return before is None

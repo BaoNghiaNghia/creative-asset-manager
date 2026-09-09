@@ -59,6 +59,7 @@ def test_visual_index_enqueue_is_content_and_schema_idempotent() -> None:
     assert len(jobs) == 2
     assert all(job["job_type"] == "visual_index_sync" for job in jobs)
     assert jobs[0]["payload"]["embedding_schema_version"] == VISUAL_EMBEDDING_SCHEMA_VERSION
+    assert all(job["priority"] == 20 for job in jobs)
 
 
 def test_visual_retire_enqueue_is_idempotent_and_does_not_need_content() -> None:
