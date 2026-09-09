@@ -30,7 +30,7 @@ def backup_is_active(session: Session, settings: Settings, tenant_id: str, now: 
 
 def _backup_is_configured(session: Session, tenant_id: str) -> bool:
     repo = CreativeAiCredentialRepository(session, None)
-    return any((item := repo.get_metadata(tenant_id, provider=name)) is not None and item.status == "active" for name in ("gemini_backup", "gemini_backup_2"))
+    return bool(repo.list_active_backup_providers(tenant_id))
 
 
 def rate_limit_provider_key(
@@ -42,15 +42,11 @@ def rate_limit_provider_key(
     if provider != "gemini" or not _backup_is_configured(session, tenant_id):
         return provider
     if not model or not rpm or not minimum_interval_seconds:
-        return "gemini_backup" if backup_is_active(session, settings, tenant_id, now) else provider
+        return repo.list_active_backup_providers(tenant_id)[0] if backup_is_active(session, settings, tenant_id, now) else provider
     from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
     limiter = AiModelRateLimitRepository(session)
     repository = CreativeAiCredentialRepository(session, None)
-    candidates = ("gemini",) + tuple(
-        candidate for candidate in ("gemini_backup", "gemini_backup_2")
-        if (metadata := repository.get_metadata(tenant_id, provider=candidate))
-        is not None and metadata.status == "active"
-    )
+    candidates = ("gemini",) + repository.list_active_backup_providers(tenant_id)
     decisions = {
         candidate: limiter.next_start(
             tenant_id=tenant_id, provider=candidate, model=model, rpm=rpm,

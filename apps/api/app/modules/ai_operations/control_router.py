@@ -18,7 +18,7 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.processing_policy.service import TenantPolicyCache
 from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.ai.gemini import probe_gemini_api_key, validate_gemini_api_key
-from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, CreativeCredentialError, CreativeGeminiCredentialResolver, creative_credential_cipher
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, CreativeCredentialError, CreativeGeminiCredentialResolver, creative_credential_cipher, gemini_backup_provider, gemini_backup_providers
 import logging
 
 _CREDENTIAL_LOGGER = logging.getLogger("cam.creative_gemini_credential")
@@ -350,6 +350,77 @@ def replace_backup_2_gemini_credential(body: CreativeGeminiCredentialRequest, te
         session.commit()
     result = _creative_credential_view(metadata, source="configuration"); result["provider"] = "gemini_backup_2"
     return result
+
+
+def _backup_slot_provider(slot: int) -> str:
+    try:
+        return gemini_backup_provider(slot)
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": "gemini_backup_slot_invalid"}) from exc
+
+
+@router.get("/configuration/credentials/gemini-backups")
+def list_backup_gemini_credentials(
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+):
+    target = _tenant(principal, tenant_id)
+    with SessionLocal() as session:
+        items = {item.provider: item for item in CreativeAiCredentialRepository(session, None).list_backup_metadata(target)}
+    return [
+        {**_creative_credential_view(items.get(provider), source="configuration" if provider in items else "unavailable"), "provider": provider, "slot": slot}
+        for slot, provider in enumerate(gemini_backup_providers(), start=1)
+    ]
+
+
+@router.post("/configuration/credentials/gemini-backups/{slot}/test")
+def test_dynamic_backup_gemini_credential(
+    slot: int, body: CreativeGeminiCredentialRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    provider, target = _backup_slot_provider(slot), _tenant(principal, tenant_id)
+    api_key = body.api_key
+    if api_key is None:
+        try:
+            with SessionLocal() as session:
+                credential = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings())).get_active_secret(target, provider=provider)
+            api_key = credential.secret if credential else None
+        except CreativeCredentialError:
+            api_key = None
+    return _gemini_test_result(provider, api_key)
+
+
+@router.put("/configuration/credentials/gemini-backups/{slot}")
+def replace_dynamic_backup_gemini_credential(
+    slot: int, body: CreativeGeminiCredentialRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    provider = _backup_slot_provider(slot)
+    if body.api_key is None:
+        raise HTTPException(422, detail={"code": "gemini_backup_credential_required"})
+    result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+    if result != "VALID":
+        raise HTTPException(422, detail={"code": "gemini_backup_credential_invalid", "status": result})
+    target = _tenant(principal, tenant_id)
+    try:
+        with SessionLocal() as session:
+            repo = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings()))
+            metadata = repo.replace(target, secret=body.api_key, provider=provider, label=body.label, updated_by=principal.user_id)
+            repo.audit(target, provider=provider, actor_id=principal.user_id, action="credential_replaced", result="VALID", new_fingerprint=metadata.secret_fingerprint)
+            session.commit()
+    except (CreativeCredentialError, SQLAlchemyError) as exc:
+        raise _creative_credential_error(exc) from exc
+    return {**_creative_credential_view(metadata, source="configuration"), "provider": provider, "slot": slot}
+
+
+@router.delete("/configuration/credentials/gemini-backups/{slot}")
+def delete_dynamic_backup_gemini_credential(
+    slot: int, tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    return _delete_gemini_credential(_tenant(principal, tenant_id), _backup_slot_provider(slot), principal)
 
 def _cache() -> TenantPolicyCache:
     global _policy_cache
