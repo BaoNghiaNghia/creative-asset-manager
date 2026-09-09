@@ -21,7 +21,8 @@ class FakeSession:
 
 
 class FakeProcessing:
-    def __init__(self, session): self.session = session
+    def __init__(self, session, existing=()): self.session = session; self.existing = set(existing)
+    def get_job_by_key(self, _tenant_id, key): return key if key in self.existing else None
 
 
 def asset(asset_id, mime_type="image/jpeg", content_hash="a" * 64):
@@ -60,3 +61,12 @@ def test_unsupported_and_missing_hash_are_skipped():
     assert result.enqueued == 0
     assert result.skipped_missing_hash == 1
     assert result.skipped_unsupported == 1
+
+
+def test_dry_run_skips_existing_idempotency_key():
+    from app.modules.visual_search.lifecycle import visual_index_job_key
+    key = visual_index_job_key("a", "a" * 64)
+    service = VisualSearchBackfillService(FakeProcessing(FakeSession([[asset("a")]]), [key]), settings=Settings())
+    result = service.run(tenant_id="tenant-a", schema_version=VISUAL_EMBEDDING_SCHEMA_VERSION, max_assets=1)
+    assert result.enqueued == 0
+    assert result.skipped_existing == 1

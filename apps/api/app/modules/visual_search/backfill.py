@@ -7,7 +7,7 @@ from app.core.config import Settings
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.pipeline.mime_types import is_supported_image_mime_type
 from app.modules.processing.repository import ProcessingRepository
-from app.modules.visual_search.lifecycle import VISUAL_EMBEDDING_SCHEMA_VERSION, enqueue_visual_index_sync
+from app.modules.visual_search.lifecycle import VISUAL_EMBEDDING_SCHEMA_VERSION, enqueue_visual_index_sync, visual_index_job_key
 
 @dataclass
 class VisualSearchBackfillResult:
@@ -44,7 +44,13 @@ class VisualSearchBackfillService:
                 if not asset.content_hash: result.skipped_missing_hash += 1; continue
                 if not is_supported_image_mime_type(source.mime_type): result.skipped_unsupported += 1; continue
                 result.eligible += 1
-                if dry_run: result.enqueued += 1; continue
+                key = visual_index_job_key(asset.id, asset.content_hash)
+                if self.processing.get_job_by_key(tenant_id, key) is not None:
+                    result.skipped_existing += 1
+                    continue
+                if dry_run:
+                    result.enqueued += 1
+                    continue
                 try:
                     created = enqueue_visual_index_sync(self.processing, settings=self.settings, tenant_id=tenant_id, asset_id=asset.id, source_asset_id=source.id, content_sha256=asset.content_hash)
                     result.enqueued += int(created)

@@ -17,6 +17,10 @@ def visual_index_job_enabled(settings: Settings | None) -> bool:
     )
 
 
+def visual_index_job_key(asset_id: str, content_sha256: str) -> str:
+    return f"visual-index:{asset_id}:{content_sha256}:{VISUAL_EMBEDDING_SCHEMA_VERSION}"
+
+
 def enqueue_visual_index_sync(
     processing: ProcessingRepository,
     *,
@@ -34,7 +38,7 @@ def enqueue_visual_index_sync(
     """
     if not visual_index_job_enabled(settings):
         return False
-    key = f"visual-index:{asset_id}:{content_sha256}:{VISUAL_EMBEDDING_SCHEMA_VERSION}"
+    key = visual_index_job_key(asset_id, content_sha256)
     before = processing.get_job_by_key(tenant_id, key)
     processing.create_job(
         tenant_id=tenant_id,
