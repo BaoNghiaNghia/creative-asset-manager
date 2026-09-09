@@ -1270,3 +1270,57 @@
   grid-template-columns: none !important;
   grid-column: 1 / -1;
 }
+
+/* Inset editor for adding or replacing a backup credential. */
+.gemini-backup-pool-editor {
+  align-items: end;
+  gap: 10px;
+  margin: 0 10px 10px;
+  border: 1px solid #d8e3f7;
+  border-radius: 9px;
+  background: #f7faff;
+}
+.gemini-backup-pool-editor > label {
+  padding: 10px 12px !important;
+  color: #526176;
+  font-size: 11px;
+  letter-spacing: .02em;
+}
+.gemini-backup-pool-editor > label input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  margin-top: 1px;
+  border: 1px solid #cbd8eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #27364d;
+  font: inherit;
+}
+.gemini-backup-pool-editor > label input:focus {
+  border-color: #4266d8;
+  outline: 2px solid rgba(66, 102, 216, .14);
+  outline-offset: 1px;
+}
+.gemini-backup-pool-editor > div {
+  min-width: max-content;
+  padding: 10px 12px !important;
+  align-items: end;
+}
+.gemini-backup-pool-editor > div button {
+  display: inline-flex;
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .gemini-backup-pool-editor {
+    margin: 0 8px 8px;
+    gap: 0;
+  }
+  .gemini-backup-pool-editor > div {
+    align-items: center;
+    flex-wrap: wrap;
+  }
+}
