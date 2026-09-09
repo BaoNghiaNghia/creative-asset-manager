@@ -504,6 +504,7 @@ function VideoPipelineOverview({ dashboard, onPage, onOpenVideo }: {
   const recent = dashboard.recent_video;
   return <div className="ops-content pipeline-content">
     <section className="pipeline-summary" aria-label="Tóm tắt video pipeline">
+      <PipelineMetric icon="eligible" label="Video đủ điều kiện" value={recent.total} detail="Bản ghi video duy nhất từ các nguồn đang hoạt động" />
       <PipelineMetric icon="eligible" label="Video analysis" value={analysis.completed} todayDelta={dashboard.video_processed_today} detail={sourceMetricDetail(analysis, "completed", "Video AI analyses completed")} />
       <PipelineMetric icon="ready" label="Video indexed" value={indexing.completed} detail={sourceMetricDetail(indexing, "completed", "Ready for video search")} tone="success" />
       <PipelineMetric icon="active" label={"Đang xử lý"} value={analysis.running + indexing.running} detail={sourceMetricDetail(analysis, "running", "Video jobs currently processing")} tone="info" />
