@@ -14,6 +14,7 @@ from app.modules.auth_persistence.encryption import TokenCipher, TokenEncryption
 
 
 MAX_GEMINI_BACKUPS = 10
+_LEGACY_GEMINI_BACKUP_PROVIDER = "gemini_backup"
 
 def gemini_backup_provider(slot: int) -> str:
     if not 1 <= slot <= MAX_GEMINI_BACKUPS:
@@ -96,7 +97,16 @@ class CreativeAiCredentialRepository:
         try:
             secret = self.cipher.decrypt(row.encrypted_secret, key_version=row.key_version, aad=self._aad(tenant_id, provider))
         except (TokenEncryptionError, ValueError) as exc:
-            raise CreativeCredentialError("creative_ai_credential_decryption_failed") from exc
+            # Migration 0064 renamed the first legacy backup row. Its ciphertext
+            # remains bound to the provider name through AAD, so accept the old
+            # AAD for that one historical slot without weakening other slots.
+            if provider == gemini_backup_provider(1):
+                try:
+                    secret = self.cipher.decrypt(row.encrypted_secret, key_version=row.key_version, aad=self._aad(tenant_id, _LEGACY_GEMINI_BACKUP_PROVIDER))
+                except (TokenEncryptionError, ValueError) as legacy_exc:
+                    raise CreativeCredentialError("creative_ai_credential_decryption_failed") from legacy_exc
+            else:
+                raise CreativeCredentialError("creative_ai_credential_decryption_failed") from exc
         if not secret:
             raise CreativeCredentialError("creative_ai_credential_decryption_failed")
         return CreativeGeminiCredential(secret, row.secret_fingerprint, "configuration", row.secret_last4, row.encrypted_secret, row.key_version)

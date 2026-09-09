@@ -187,7 +187,7 @@ class RateLimitedClaimTest(unittest.TestCase):
 
         with patch(
             "app.modules.processing_policy.claim.rate_limit_provider_key",
-            return_value="gemini_backup",
+            return_value="gemini_backup_1",
         ):
             claimed = self._claim("worker-backup")
 
@@ -196,13 +196,13 @@ class RateLimitedClaimTest(unittest.TestCase):
         # The pipeline remains Gemini, while the selected credential and
         # rate-limit bucket are persisted together for the handler.
         self.assertEqual(marker["provider"], "gemini")
-        self.assertEqual(marker["credential_provider"], "gemini_backup")
+        self.assertEqual(marker["credential_provider"], "gemini_backup_1")
         with self.sessions() as session:
             backup_state = session.get(
                 AiModelRateLimitStateModel,
                 {
                     "tenant_id": "tenant",
-                    "provider": "gemini_backup",
+                    "provider": "gemini_backup_1",
                     "model": marker["model"],
                 },
             )
@@ -227,7 +227,7 @@ class RateLimitedClaimTest(unittest.TestCase):
         with self.sessions.begin() as session:
             CreativeAiCredentialRepository(
                 session, creative_credential_cipher(self.settings)
-            ).replace("tenant", secret="backup-key", provider="gemini_backup")
+            ).replace("tenant", secret="backup-key", provider="gemini_backup_1")
             session.add(AiModelRateLimitStateModel(
                 tenant_id="tenant", provider="gemini", model=model,
                 last_started_at=NOW,
@@ -239,7 +239,7 @@ class RateLimitedClaimTest(unittest.TestCase):
                 session, self.settings, "tenant", "gemini",
                 model=model, rpm=rpm, minimum_interval_seconds=1, now=NOW,
             )
-        self.assertEqual(selected, "gemini_backup")
+        self.assertEqual(selected, "gemini_backup_1")
 
     def test_active_active_selector_alternates_to_less_recent_key(self):
         key = base64.urlsafe_b64encode(b"C" * 32).decode().rstrip("=")
@@ -251,7 +251,7 @@ class RateLimitedClaimTest(unittest.TestCase):
         with self.sessions.begin() as session:
             CreativeAiCredentialRepository(
                 session, creative_credential_cipher(self.settings)
-            ).replace("tenant", secret="backup-key", provider="gemini_backup")
+            ).replace("tenant", secret="backup-key", provider="gemini_backup_1")
             session.add_all((
                 AiModelRateLimitStateModel(
                     tenant_id="tenant", provider="gemini", model=model,
@@ -259,7 +259,7 @@ class RateLimitedClaimTest(unittest.TestCase):
                     blocked_until=None, updated_at=NOW,
                 ),
                 AiModelRateLimitStateModel(
-                    tenant_id="tenant", provider="gemini_backup", model=model,
+                    tenant_id="tenant", provider="gemini_backup_1", model=model,
                     last_started_at=NOW - timedelta(seconds=1),
                     next_eligible_at=NOW, blocked_until=None, updated_at=NOW,
                 ),
@@ -269,7 +269,7 @@ class RateLimitedClaimTest(unittest.TestCase):
                 session, self.settings, "tenant", "gemini",
                 model=model, rpm=rpm, minimum_interval_seconds=1, now=NOW,
             )
-        self.assertEqual(selected, "gemini_backup")
+        self.assertEqual(selected, "gemini_backup_1")
 
     def test_null_gemini_model_resolves_configured_pool(self):
         rates = configured_model_rates(self.settings, "gemini", None)

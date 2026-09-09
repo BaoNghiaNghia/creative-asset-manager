@@ -133,7 +133,7 @@ class CreativeGeminiCredentialTest(unittest.TestCase):
         with self.sessions() as session:
             CreativeAiCredentialRepository(
                 session, creative_credential_cipher(self.settings)
-            ).replace("tenant-a", secret="backup-key-1234", provider="gemini_backup")
+            ).replace("tenant-a", secret="backup-key-1234", provider="gemini_backup_1")
             session.commit()
         provider = RuntimeCreativeGeminiProvider(
             self.settings, self.sessions,
@@ -143,7 +143,7 @@ class CreativeGeminiCredentialTest(unittest.TestCase):
             tenant_id="tenant-a", asset_id="asset", prompt="x",
             image_bytes=b"jpeg", image_mime_type="image/jpeg",
             metadata_profile="general", metadata_profile_version="1",
-            preferred_credential_provider="gemini_backup",
+            preferred_credential_provider="gemini_backup_1",
         )))
         self.assertEqual(calls, ["backup-key-1234"])
 

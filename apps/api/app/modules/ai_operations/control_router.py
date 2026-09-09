@@ -250,7 +250,7 @@ def replace_video_gemini_credential(
 def get_backup_gemini_credential(tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ)):
     target = _tenant(principal, tenant_id)
     with SessionLocal() as session:
-        metadata = CreativeAiCredentialRepository(session, None).get_metadata(target, provider="gemini_backup")
+        metadata = CreativeAiCredentialRepository(session, None).get_metadata(target, provider=gemini_backup_provider(1))
     result = _creative_credential_view(metadata, source="configuration" if metadata else "unavailable")
     result["provider"] = "gemini_backup"
     return result
@@ -269,7 +269,7 @@ def test_backup_gemini_credential(
             with SessionLocal() as session:
                 credential = CreativeAiCredentialRepository(
                     session, creative_credential_cipher(get_settings())
-                ).get_active_secret(target, provider="gemini_backup")
+                ).get_active_secret(target, provider=gemini_backup_provider(1))
             api_key = credential.secret if credential else None
         except CreativeCredentialError:
             api_key = None
@@ -280,7 +280,7 @@ def delete_backup_gemini_credential(
     principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
 ):
     return _delete_gemini_credential(
-        _tenant(principal, tenant_id), "gemini_backup", principal
+        _tenant(principal, tenant_id), gemini_backup_provider(1), principal
     )
 
 
@@ -292,8 +292,8 @@ def replace_backup_gemini_credential(body: CreativeGeminiCredentialRequest, tena
     target = _tenant(principal, tenant_id)
     with SessionLocal() as session:
         repository = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings()))
-        metadata = repository.replace(target, secret=body.api_key, provider="gemini_backup", label=body.label, updated_by=principal.user_id)
-        repository.audit(target, provider="gemini_backup", actor_id=principal.user_id, action="credential_replaced", result="VALID", new_fingerprint=metadata.secret_fingerprint)
+        metadata = repository.replace(target, secret=body.api_key, provider=gemini_backup_provider(1), label=body.label, updated_by=principal.user_id)
+        repository.audit(target, provider=gemini_backup_provider(1), actor_id=principal.user_id, action="credential_replaced", result="VALID", new_fingerprint=metadata.secret_fingerprint)
         session.commit()
     result = _creative_credential_view(metadata, source="configuration"); result["provider"] = "gemini_backup"
     return result

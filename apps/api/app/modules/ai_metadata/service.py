@@ -225,7 +225,10 @@ class AiAnalysisService:
                     ):
                         provider_model = marker["model"]
                         selected_credential = marker.get("credential_provider")
-                        if provider_name == "gemini" and selected_credential == "gemini" or (isinstance(selected_credential, str) and selected_credential.startswith("gemini_backup_")):
+                        if (
+                            provider_name == "gemini"
+                            and (selected_credential == "gemini" or (isinstance(selected_credential, str) and selected_credential.startswith("gemini_backup_")))
+                        ):
                             credential_provider = selected_credential
                         model_start_reserved = True
                 session.commit()
