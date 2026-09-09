@@ -13,7 +13,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONPATH=/opt/creative-asset-manager/current/apps/api
 ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
-ExecStart=/opt/creative-asset-manager/current/apps/visual_encoder/.venv/bin/python -m uvicorn --app-dir /opt/creative-asset-manager/current/apps/visual_encoder main:app --host 127.0.0.1 --port 8091 --no-proxy-headers
+ExecStart=/var/lib/creative-asset-manager/visual-encoder-runtime/bin/python -m uvicorn --app-dir /opt/creative-asset-manager/current/apps/visual_encoder main:app --host 127.0.0.1 --port 8091 --no-proxy-headers
 Restart=on-failure
 RestartSec=10s
 TimeoutStartSec=300s

@@ -26,6 +26,7 @@ LOG_DIR="${CAM_BACKEND_LOG_DIR:-/var/log/creative-asset-manager}"
 
 IMAGE_WORKER_HEALTH_PORT="${CAM_IMAGE_WORKER_HEALTH_PORT:-8081}"
 VIDEO_WORKER_HEALTH_PORT="${CAM_VIDEO_WORKER_HEALTH_PORT:-8082}"
+VISUAL_ENCODER_RUNTIME_DIR="${CAM_VISUAL_ENCODER_RUNTIME_DIR:-/var/lib/creative-asset-manager/visual-encoder-runtime}"
 
 REF=""
 
@@ -1530,26 +1531,23 @@ if [[ ! -e "$TARGET" ]]; then
 
 
   progress 55 \
-    "Creating isolated visual encoder environment"
+    "Preparing persistent isolated visual encoder runtime"
 
 
-  runuser \
-    -u creative-assets \
-    -- \
-    python3 \
-    -m venv \
-    "$STAGE/apps/visual_encoder/.venv"
-
-
-  runuser \
-    -u creative-assets \
-    -- \
-    "$STAGE/apps/visual_encoder/.venv/bin/python" \
-    -m pip install \
-    --disable-pip-version-check \
-    --no-input \
-    --no-cache-dir \
-    --requirement "$STAGE/apps/visual_encoder/requirements.txt"
+  local visual_requirements_hash
+  visual_requirements_hash="$(sha256sum "$STAGE/apps/visual_encoder/requirements.txt" | awk '{print $1}')"
+  install -d -m 0750 -o creative-assets -g creative-assets "$VISUAL_ENCODER_RUNTIME_DIR"
+  if [[ ! -x "$VISUAL_ENCODER_RUNTIME_DIR/bin/python" || ! -f "$VISUAL_ENCODER_RUNTIME_DIR/requirements.sha256" || "$(cat "$VISUAL_ENCODER_RUNTIME_DIR/requirements.sha256")" != "$visual_requirements_hash" ]]; then
+    info "Visual encoder dependencies changed; rebuilding persistent runtime"
+    rm -rf "$VISUAL_ENCODER_RUNTIME_DIR"
+    install -d -m 0750 -o creative-assets -g creative-assets "$VISUAL_ENCODER_RUNTIME_DIR"
+    runuser -u creative-assets -- python3 -m venv "$VISUAL_ENCODER_RUNTIME_DIR"
+    runuser -u creative-assets -- "$VISUAL_ENCODER_RUNTIME_DIR/bin/python" -m pip install --disable-pip-version-check --no-input --no-cache-dir --requirement "$STAGE/apps/visual_encoder/requirements.txt"
+    printf '%s\n' "$visual_requirements_hash" > "$VISUAL_ENCODER_RUNTIME_DIR/requirements.sha256"
+    chown creative-assets:creative-assets "$VISUAL_ENCODER_RUNTIME_DIR/requirements.sha256"
+  else
+    info "Visual encoder requirements unchanged; reusing persistent runtime"
+  fi
 
 
   progress 60 \
