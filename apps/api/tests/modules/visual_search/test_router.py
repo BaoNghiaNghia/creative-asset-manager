@@ -107,7 +107,7 @@ class VisualByAssetApiTest(unittest.TestCase):
         self.engine.dispose()
 
     def _settings(self, **changes):
-        values = dict(VISUAL_SEARCH_ENABLED=True, ELASTICSEARCH_URL="http://elasticsearch.test")
+        values = dict(VISUAL_SEARCH_ENABLED=True, VISUAL_SEARCH_CANARY_TENANT_IDS="tenant-a", ELASTICSEARCH_URL="http://elasticsearch.test")
         values.update(changes)
         return Settings(**values)
 
@@ -126,6 +126,13 @@ class VisualByAssetApiTest(unittest.TestCase):
                 )
         finally:
             app.state.visual_encoder_client = None
+
+
+    def test_canary_allowlist_denies_unlisted_tenant(self):
+        with patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_CANARY_TENANT_IDS="tenant-b")):
+            response = self.client.post("/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "visual_search_not_enabled_for_tenant")
 
     def test_disabled_and_cross_tenant_asset_are_rejected(self):
         with patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_ENABLED=False)):

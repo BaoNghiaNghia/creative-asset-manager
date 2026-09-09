@@ -136,6 +136,7 @@ class Settings(BaseSettings):
     # Visual search remains fully opt-in until a later canary rollout. These
     # flags intentionally do not load an encoder or change Search V3.
     VISUAL_SEARCH_ENABLED: bool = False
+    VISUAL_SEARCH_CANARY_TENANT_IDS: str = ""
     VISUAL_SEARCH_UPLOAD_ENABLED: bool = False
     VISUAL_SEARCH_CROP_ENABLED: bool = False
     VISUAL_SEARCH_HYBRID_TEXT_ENABLED: bool = False

@@ -39,6 +39,12 @@ _UPLOAD_READ_CHUNK_BYTES = 1_048_576
 _ENCODER_CAPACITY = asyncio.Semaphore(1)
 logger = logging.getLogger(__name__)
 
+def _require_canary_tenant(settings, principal: CurrentPrincipal) -> None:
+    allowed = {tenant_id.strip() for tenant_id in settings.VISUAL_SEARCH_CANARY_TENANT_IDS.split(",") if tenant_id.strip()}
+    if not allowed or principal.active_tenant_id not in allowed:
+        raise HTTPException(503, detail={"code": "visual_search_not_enabled_for_tenant", "message": "Visual search is not enabled for this tenant.", "retryable": False})
+
+
 
 @router.get("/diagnostics")
 def visual_search_diagnostics(
@@ -121,6 +127,7 @@ async def find_similar_by_asset(
     principal: CurrentPrincipal = Depends(VISUAL_SEARCH_READ),
 ) -> dict[str, Any]:
     settings = get_settings()
+    _require_canary_tenant(settings, principal)
     try:
         service = VisualSearchService(settings)
         service.require_operation("crop" if body.crop is not None else "asset")
@@ -348,6 +355,7 @@ async def find_similar_by_upload(
     principal: CurrentPrincipal = Depends(VISUAL_SEARCH_READ),
 ) -> dict[str, Any]:
     settings = get_settings()
+    _require_canary_tenant(settings, principal)
     parsed_crop = _parse_crop(crop)
     text = (text or "").strip() or None
     try:
