@@ -12,6 +12,10 @@ type Draft = { apiKey: string; label: string };
 const formatTime = (value: string | null) => value ? new Date(value).toLocaleString() : "Not available";
 
 export function GeminiBackupPoolSettings({ canManage = true, embedded = false }: { canManage?: boolean; embedded?: boolean }) {
+const TestIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" /></svg>;
+const ReplaceIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 4 6 6M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" /></svg>;
+const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M9 7l1-3h4l1 3m-9 0 1 13h10l1-13" /></svg>;
+
   const [items, setItems] = useState<GeminiBackupCredential[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [error, setError] = useState("");
@@ -117,9 +121,9 @@ export function GeminiBackupPoolSettings({ canManage = true, embedded = false }:
             <small>{formatTime(item.updated_at)}</small>
           </div>
           {canManage && item.configured && <div className="gemini-backup-pool-actions">
-            <button type="button" className="secondary" disabled={testing === item.slot} onClick={() => void testCurrent(item.slot)}>{testing === item.slot ? "Testing..." : "Test"}</button>
-            <button type="button" onClick={() => startDraft(item.slot)}>Replace</button>
-            <button type="button" className="danger" onClick={() => void remove(item.slot)}>Delete</button>
+            <button type="button" className="secondary" disabled={testing === item.slot} onClick={() => void testCurrent(item.slot)}><TestIcon />{testing === item.slot ? "Testing..." : "Test"}</button>
+            <button type="button" onClick={() => startDraft(item.slot)}><ReplaceIcon />Replace</button>
+            <button type="button" className="danger" onClick={() => void remove(item.slot)}><DeleteIcon />Delete</button>
           </div>}
         </div>
         {canManage && drafts[item.slot] && <form className="gemini-backup-pool-editor" onSubmit={event => { event.preventDefault(); void save(item.slot); }}>
