@@ -1,0 +1,5 @@
+{
+  same-garment-different-background: {garment-blue-1: 3, garment-blue-2: 2},
+  outdoor-refinement: {outdoor-garment-1: 3, outdoor-garment-2: 2},
+  near-duplicate-suppression: {canonical-asset: 3, diverse-related-asset: 2}
+}
