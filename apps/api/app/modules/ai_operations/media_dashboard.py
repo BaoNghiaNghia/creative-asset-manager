@@ -676,16 +676,28 @@ class MediaDashboardService:
         video_page_size = min(100, max(1, video_page_size))
         offset = (video_page - 1) * video_page_size
         page_jobs = ordered_video[offset:offset + video_page_size]
-        page_sources = [
-            self.session.get(SourceAssetModel, job.entity_id)
-            for job in page_jobs
-            if job.entity_type == "source_asset"
-        ]
-        page_sources = [source for source in page_sources if source is not None]
-        external_sources = {
-            source.external_source_id: self.session.get(ExternalSourceModel, source.external_source_id)
-            for source in page_sources
+        # Fetch page relationships in sets. Per-row session lookups made a
+        # 25-item page issue up to 50 additional SQL queries.
+        page_source_ids = {
+            job.entity_id for job in page_jobs if job.entity_type == "source_asset"
         }
+        page_sources = list(self.session.scalars(
+            select(SourceAssetModel).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.id.in_(page_source_ids),
+            )
+        )) if page_source_ids else []
+        page_sources_by_id = {source.id: source for source in page_sources}
+        external_source_ids = {source.external_source_id for source in page_sources}
+        external_sources = {
+            external.id: external
+            for external in self.session.scalars(
+                select(ExternalSourceModel).where(
+                    ExternalSourceModel.tenant_id == tenant_id,
+                    ExternalSourceModel.id.in_(external_source_ids),
+                )
+            )
+        } if external_source_ids else {}
         connection_ids = {
             source.oauth_connection_id for source in external_sources.values()
             if source is not None and source.oauth_connection_id
@@ -779,7 +791,7 @@ class MediaDashboardService:
         )
         recent_video = []
         for job in page_jobs:
-            source = self.session.get(SourceAssetModel, job.entity_id) if job.entity_type == "source_asset" else None
+            source = page_sources_by_id.get(job.entity_id) if job.entity_type == "source_asset" else None
             external = external_sources.get(source.external_source_id) if source is not None else None
             run = latest_runs.get(source.id) if source is not None else None
             index_job = _index_job_for_current_video_analysis(

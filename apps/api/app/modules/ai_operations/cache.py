@@ -16,8 +16,11 @@ AI_OPERATIONS_TTLS = {
     "failures": 5,
     "usage": 5,
     "jobs": 3,
-    "pipeline": 15,
-    "media-dashboard": 15,
+    # These snapshots aggregate a large historical data set. They are refreshed
+    # by the UI often, while operational mutations invalidate this cache, so a
+    # one-minute fallback TTL avoids repeating the same expensive snapshot.
+    "pipeline": 60,
+    "media-dashboard": 60,
 }
 
 ai_operations_caches = {
