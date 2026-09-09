@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.modules.ai_governance.model import AiModelRateLimitStateModel
 from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.processing.model import ProcessingJobModel
 
@@ -52,9 +53,30 @@ def rate_limit_provider_key(
         )
         for candidate in candidates
     }
-    for candidate in candidates:
-        if decisions[candidate].allowed:
-            return candidate
-    return min(candidates, key=lambda candidate: (
-        decisions[candidate].next_eligible_at, candidate != "gemini"
-    ))
+    states = {
+        state.provider: state
+        for state in session.scalars(
+            select(AiModelRateLimitStateModel).where(
+                AiModelRateLimitStateModel.tenant_id == tenant_id,
+                AiModelRateLimitStateModel.model == model,
+                AiModelRateLimitStateModel.provider.in_(candidates),
+            )
+        )
+    }
+
+    def rank(candidate: str) -> tuple[bool, datetime, bool]:
+        state = states.get(candidate)
+        last_started = (
+            state.last_started_at
+            if state is not None and state.last_started_at is not None
+            else datetime.min.replace(tzinfo=timezone.utc)
+        )
+        # Prefer an available key first. If both are available, choose the key
+        # that has gone longest without a start so primary/backup alternate.
+        return (
+            not decisions[candidate].allowed,
+            last_started,
+            candidate != "gemini",
+        )
+
+    return min(candidates, key=rank)
