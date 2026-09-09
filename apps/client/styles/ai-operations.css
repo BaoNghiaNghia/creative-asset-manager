@@ -1263,3 +1263,10 @@
   stroke-linejoin: round;
   stroke-width: 1.9;
 }
+
+/* The generic cell rule is a grid; actions must remain one horizontal flex row. */
+.gemini-backup-pool-row > .gemini-backup-pool-actions {
+  display: flex !important;
+  grid-template-columns: none !important;
+  grid-column: 1 / -1;
+}
