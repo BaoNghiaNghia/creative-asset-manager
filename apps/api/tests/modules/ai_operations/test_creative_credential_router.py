@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings
 from app.core.database import Base
 from app.modules.ai_operations import control_router
+from app.providers.ai.gemini import GeminiApiKeyProbe
 from app.modules.ai_operations.credential_model import CreativeAiCredentialAuditModel, CreativeAiCredentialModel
 from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, creative_credential_cipher
 from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
@@ -39,14 +40,14 @@ class CreativeCredentialRouterTest(unittest.TestCase):
   self.assertEqual(self.request(self.principal(set()),"GET","/api/v1/admin/ai-operations/configuration/credentials/gemini").status_code,403)
  def test_test_endpoint_uses_the_current_tenant_credential_without_exposing_it(self):
   self.store()
-  with patch.object(control_router,"validate_gemini_api_key",return_value="VALID") as validate:
+  with patch.object(control_router,"probe_gemini_api_key",return_value=GeminiApiKeyProbe("VALID",200)) as probe:
    response=self.request(self.pmanage,"POST","/api/v1/admin/ai-operations/configuration/credentials/gemini/test",json={})
-  self.assertEqual(response.status_code,200); self.assertEqual(response.json(),{"provider":"gemini","status":"VALID"}); validate.assert_called_once_with(OLD,timeout_seconds=10); self.assertNotIn(OLD,response.text)
+  self.assertEqual(response.status_code,200); self.assertEqual(response.json(),{"provider":"gemini","status":"VALID","http_status":200}); probe.assert_called_once_with(OLD,timeout_seconds=10); self.assertNotIn(OLD,response.text)
 
  def test_test_endpoint_reports_unavailable_when_no_current_credential_exists(self):
   self.settings.GEMINI_API_KEY=""
   response=self.request(self.pmanage,"POST","/api/v1/admin/ai-operations/configuration/credentials/gemini/test",json={})
-  self.assertEqual(response.status_code,200); self.assertEqual(response.json(),{"provider":"gemini","status":"PROVIDER_UNAVAILABLE"})
+  self.assertEqual(response.status_code,200); self.assertEqual(response.json(),{"provider":"gemini","status":"PROVIDER_UNAVAILABLE","http_status":None})
 
  def test_put_validates_encrypts_audits_and_preserves_drive(self):
   self.store();
@@ -64,9 +65,9 @@ class CreativeCredentialRouterTest(unittest.TestCase):
   self.assertEqual(saved.status_code,200); self.assertEqual(saved.json()["provider"],"gemini_video"); self.assertNotIn(NEW,saved.text)
   viewed=self.request(self.pread,"GET","/api/v1/admin/ai-operations/configuration/credentials/gemini-video")
   self.assertEqual(viewed.status_code,200); self.assertTrue(viewed.json()["masked_key"].endswith("2222"))
-  with patch.object(control_router,"validate_gemini_api_key",return_value="VALID") as validate:
+  with patch.object(control_router,"probe_gemini_api_key",return_value=GeminiApiKeyProbe("RATE_LIMITED",429)) as probe:
    tested=self.request(self.pmanage,"POST","/api/v1/admin/ai-operations/configuration/credentials/gemini-video/test",json={})
-  self.assertEqual(tested.json(),{"provider":"gemini_video","status":"VALID"}); validate.assert_called_once_with(NEW,timeout_seconds=10)
+  self.assertEqual(tested.json(),{"provider":"gemini_video","status":"RATE_LIMITED","http_status":429}); probe.assert_called_once_with(NEW,timeout_seconds=10)
   with self.sessions() as s:
    repository=CreativeAiCredentialRepository(s,creative_credential_cipher(self.settings))
    self.assertEqual(repository.get_active_secret("tenant-a",provider="gemini_video").secret,NEW)

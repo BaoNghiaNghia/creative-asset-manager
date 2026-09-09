@@ -17,7 +17,7 @@ from app.modules.ai_operations.controls import (
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
 from app.modules.processing_policy.service import TenantPolicyCache
 from app.providers.ai.factory import build_ai_provider_registry
-from app.providers.ai.gemini import validate_gemini_api_key
+from app.providers.ai.gemini import probe_gemini_api_key, validate_gemini_api_key
 from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, CreativeCredentialError, CreativeGeminiCredentialResolver, creative_credential_cipher
 import logging
 
@@ -46,6 +46,21 @@ def _creative_credential_error(exc: Exception) -> HTTPException:
     if code in {"creative_credential_encryption_unavailable", "creative_ai_credential_decryption_failed"}:
         return HTTPException(503, detail={"code": code, "message": "Creative credential encryption is not configured correctly on the server."})
     return HTTPException(503, detail={"code": "creative_credential_storage_unavailable", "message": "Creative credential storage is not ready."})
+
+
+
+def _gemini_test_result(provider: str, api_key: str | None) -> dict:
+    """Return a safe Gemini test result without exposing response bodies or keys."""
+    if not api_key:
+        return {"provider": provider, "status": "PROVIDER_UNAVAILABLE", "http_status": None}
+    probe = probe_gemini_api_key(
+        api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10)
+    )
+    return {
+        "provider": provider,
+        "status": probe.status,
+        "http_status": probe.http_status,
+    }
 
 
 @router.get("/configuration/credentials/gemini")
@@ -80,19 +95,15 @@ def test_creative_gemini_credential(
                 SessionLocal, get_settings()
             ).resolve(target).secret
         except CreativeCredentialError:
-            result = "PROVIDER_UNAVAILABLE"
-        else:
-            result = validate_gemini_api_key(
-                api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10)
-            )
+            api_key = None
     else:
-        result = validate_gemini_api_key(
-            body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10)
-        )
-    _CREDENTIAL_LOGGER.info("creative_gemini_credential_test tenant_id=%s actor_id=%s provider=gemini result=%s", target, principal.user_id, result)
-    return {"provider": "gemini", "status": result}
-
-
+        api_key = body.api_key
+    response = _gemini_test_result("gemini", api_key)
+    _CREDENTIAL_LOGGER.info(
+        "creative_gemini_credential_test tenant_id=%s actor_id=%s provider=gemini result=%s http_status=%s",
+        target, principal.user_id, response["status"], response["http_status"],
+    )
+    return response
 @router.put("/configuration/credentials/gemini")
 def replace_creative_gemini_credential(
     body: CreativeGeminiCredentialRequest,
@@ -150,21 +161,17 @@ def test_video_gemini_credential(
 ):
     target = _tenant(principal, tenant_id)
     if body.api_key is not None:
-        result = validate_gemini_api_key(
-            body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10)
-        )
+        api_key = body.api_key
     else:
         try:
             with SessionLocal() as session:
                 credential = CreativeAiCredentialRepository(
                     session, creative_credential_cipher(get_settings())
                 ).get_active_secret(target, provider="gemini_video")
-            result = validate_gemini_api_key(credential.secret, timeout_seconds=10) if credential else "PROVIDER_UNAVAILABLE"
+            api_key = credential.secret if credential else None
         except CreativeCredentialError:
-            result = "PROVIDER_UNAVAILABLE"
-    return {"provider": "gemini_video", "status": result}
-
-
+            api_key = None
+    return _gemini_test_result("gemini_video", api_key)
 @router.put("/configuration/credentials/gemini-video")
 def replace_video_gemini_credential(
     body: CreativeGeminiCredentialRequest,
@@ -208,16 +215,24 @@ def get_backup_gemini_credential(tenant_id: str | None = Query(default=None), pr
     return result
 
 @router.post("/configuration/credentials/gemini-backup/test")
-def test_backup_gemini_credential(body: CreativeGeminiCredentialRequest, tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE)):
+def test_backup_gemini_credential(
+    body: CreativeGeminiCredentialRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
     target = _tenant(principal, tenant_id)
     if body.api_key is not None:
-        result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+        api_key = body.api_key
     else:
-        with SessionLocal() as session:
-            credential = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings())).get_active_secret(target, provider="gemini_backup")
-        result = validate_gemini_api_key(credential.secret, timeout_seconds=10) if credential else "PROVIDER_UNAVAILABLE"
-    return {"provider": "gemini_backup", "status": result}
-
+        try:
+            with SessionLocal() as session:
+                credential = CreativeAiCredentialRepository(
+                    session, creative_credential_cipher(get_settings())
+                ).get_active_secret(target, provider="gemini_backup")
+            api_key = credential.secret if credential else None
+        except CreativeCredentialError:
+            api_key = None
+    return _gemini_test_result("gemini_backup", api_key)
 @router.put("/configuration/credentials/gemini-backup")
 def replace_backup_gemini_credential(body: CreativeGeminiCredentialRequest, tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE)):
     if body.api_key is None: raise HTTPException(422, detail={"code": "gemini_backup_credential_required"})
@@ -243,16 +258,24 @@ def get_backup_2_gemini_credential(tenant_id: str | None = Query(default=None), 
     return result
 
 @router.post("/configuration/credentials/gemini-backup-2/test")
-def test_backup_2_gemini_credential(body: CreativeGeminiCredentialRequest, tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE)):
+def test_backup_2_gemini_credential(
+    body: CreativeGeminiCredentialRequest,
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
     target = _tenant(principal, tenant_id)
     if body.api_key is not None:
-        result = validate_gemini_api_key(body.api_key, timeout_seconds=min(get_settings().GEMINI_TIMEOUT_SECONDS, 10))
+        api_key = body.api_key
     else:
-        with SessionLocal() as session:
-            credential = CreativeAiCredentialRepository(session, creative_credential_cipher(get_settings())).get_active_secret(target, provider="gemini_backup_2")
-        result = validate_gemini_api_key(credential.secret, timeout_seconds=10) if credential else "PROVIDER_UNAVAILABLE"
-    return {"provider": "gemini_backup_2", "status": result}
-
+        try:
+            with SessionLocal() as session:
+                credential = CreativeAiCredentialRepository(
+                    session, creative_credential_cipher(get_settings())
+                ).get_active_secret(target, provider="gemini_backup_2")
+            api_key = credential.secret if credential else None
+        except CreativeCredentialError:
+            api_key = None
+    return _gemini_test_result("gemini_backup_2", api_key)
 @router.put("/configuration/credentials/gemini-backup-2")
 def replace_backup_2_gemini_credential(body: CreativeGeminiCredentialRequest, tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE)):
     if body.api_key is None: raise HTTPException(422, detail={"code": "gemini_backup_2_credential_required"})

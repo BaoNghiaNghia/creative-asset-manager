@@ -36,11 +36,21 @@ _MAX_ERROR_DETAIL_CHARS = 1_000
 _LOGGER = logging.getLogger("cam.providers.gemini")
 
 
-def validate_gemini_api_key(api_key: str, *, timeout_seconds: float = 10.0) -> str:
-    """Return a safe normalized status for a server-side Gemini key probe.
+@dataclass(frozen=True, slots=True)
+class GeminiApiKeyProbe:
+    """Safe result from the low-cost Gemini credential probe."""
+
+    status: str
+    http_status: int | None
+
+
+def probe_gemini_api_key(
+    api_key: str, *, timeout_seconds: float = 10.0
+) -> GeminiApiKeyProbe:
+    """Call Gemini's models endpoint and return its safe status code.
 
     The models list endpoint is substantially cheaper than an analysis request.
-    Callers deliberately receive no provider body or credential material.
+    The provider response body and credential material are deliberately omitted.
     """
     try:
         response = httpx.get(
@@ -49,16 +59,21 @@ def validate_gemini_api_key(api_key: str, *, timeout_seconds: float = 10.0) -> s
             timeout=timeout_seconds,
         )
     except httpx.HTTPError:
-        return "PROVIDER_UNAVAILABLE"
+        return GeminiApiKeyProbe("PROVIDER_UNAVAILABLE", None)
     if response.status_code == 200:
-        return "VALID"
+        return GeminiApiKeyProbe("VALID", response.status_code)
     if response.status_code in (400, 401):
-        return "INVALID_KEY"
+        return GeminiApiKeyProbe("INVALID_KEY", response.status_code)
     if response.status_code == 403:
-        return "PERMISSION_DENIED"
+        return GeminiApiKeyProbe("PERMISSION_DENIED", response.status_code)
     if response.status_code == 429:
-        return "RATE_LIMITED"
-    return "PROVIDER_UNAVAILABLE"
+        return GeminiApiKeyProbe("RATE_LIMITED", response.status_code)
+    return GeminiApiKeyProbe("PROVIDER_UNAVAILABLE", response.status_code)
+
+
+def validate_gemini_api_key(api_key: str, *, timeout_seconds: float = 10.0) -> str:
+    """Compatibility wrapper for callers that only need the normalized state."""
+    return probe_gemini_api_key(api_key, timeout_seconds=timeout_seconds).status
 
 
 @dataclass(frozen=True)
