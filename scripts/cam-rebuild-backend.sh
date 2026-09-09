@@ -1534,7 +1534,7 @@ if [[ ! -e "$TARGET" ]]; then
     "Preparing persistent isolated visual encoder runtime"
 
 
-  local visual_requirements_hash
+  visual_requirements_hash=
   visual_requirements_hash="$(sha256sum "$STAGE/apps/visual_encoder/requirements.txt" | awk '{print $1}')"
   install -d -m 0750 -o creative-assets -g creative-assets "$VISUAL_ENCODER_RUNTIME_DIR"
   if [[ ! -x "$VISUAL_ENCODER_RUNTIME_DIR/bin/python" || ! -f "$VISUAL_ENCODER_RUNTIME_DIR/requirements.sha256" || "$(cat "$VISUAL_ENCODER_RUNTIME_DIR/requirements.sha256")" != "$visual_requirements_hash" ]]; then
