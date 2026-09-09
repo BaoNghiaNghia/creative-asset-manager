@@ -64,6 +64,10 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             "creative-asset-manager-api.service",
             "creative-asset-manager-image-worker.service",
             "creative-asset-manager-video-worker.service",
+            "Creating isolated visual encoder environment",
+            "$STAGE/apps/visual_encoder/.venv/bin/python",
+            "visual encoder $endpoint",
+            "Restarting isolated visual encoder",
             "creative-asset-manager-visual-encoder.service",
             "creative-asset-manager-worker.service", "--rollback",
         ):

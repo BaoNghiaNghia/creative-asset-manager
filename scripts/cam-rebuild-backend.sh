@@ -1152,7 +1152,8 @@ verify_services() {
   for service in \
     creative-asset-manager-api.service \
     creative-asset-manager-image-worker.service \
-    creative-asset-manager-video-worker.service
+    creative-asset-manager-video-worker.service \
+    creative-asset-manager-visual-encoder.service
   do
 
     systemctl is-active \
@@ -1213,6 +1214,21 @@ verify_services() {
 
 
   #
+  # Isolated visual encoder health.
+  #
+  for endpoint in \
+    live \
+    ready
+  do
+
+    wait_for_endpoint \
+      "visual encoder $endpoint" \
+      "http://127.0.0.1:8091/$endpoint"
+
+  done
+
+
+  #
   # Image + Video worker health.
   #
   for port in \
@@ -1254,6 +1270,13 @@ restart_services() {
 
   systemctl restart \
     creative-asset-manager-video-worker.service
+
+
+  info "Restarting isolated visual encoder"
+
+
+  systemctl restart \
+    creative-asset-manager-visual-encoder.service
 
 
   info "Waiting for backend health checks"
@@ -1506,6 +1529,29 @@ if [[ ! -e "$TARGET" ]]; then
     --requirement "$STAGE/apps/api/requirements.txt"
 
 
+  progress 55 \
+    "Creating isolated visual encoder environment"
+
+
+  runuser \
+    -u creative-assets \
+    -- \
+    python3 \
+    -m venv \
+    "$STAGE/apps/visual_encoder/.venv"
+
+
+  runuser \
+    -u creative-assets \
+    -- \
+    "$STAGE/apps/visual_encoder/.venv/bin/python" \
+    -m pip install \
+    --disable-pip-version-check \
+    --no-input \
+    --no-cache-dir \
+    --requirement "$STAGE/apps/visual_encoder/requirements.txt"
+
+
   progress 60 \
     "Finalizing immutable backend release"
 
@@ -1708,7 +1754,8 @@ info \
 systemctl enable \
   creative-asset-manager-api.service \
   creative-asset-manager-image-worker.service \
-  creative-asset-manager-video-worker.service
+  creative-asset-manager-video-worker.service \
+  creative-asset-manager-visual-encoder.service
 
 
 info \
