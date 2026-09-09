@@ -44,6 +44,17 @@ class ProcessingJobModel(Base):
         ),
         Index("ix_processing_jobs_lease", "status", "lease_expires_at"),
         Index("ix_processing_jobs_entity", "tenant_id", "entity_type", "entity_id"),
+        # Supports Pipeline Operations when it finds the latest job for each
+        # entity at one pipeline stage.
+        Index(
+            "ix_processing_jobs_pipeline_latest",
+            "tenant_id",
+            "job_type",
+            "entity_type",
+            "entity_id",
+            "created_at",
+            "updated_at",
+        ),
         Index("ix_processing_jobs_policy_claim", "tenant_id", "job_type", "provider_key", "provider_scope", "status", "next_attempt_at"),
         Index("ix_processing_jobs_tenant_created", "tenant_id", "created_at"),
         Index("ix_processing_jobs_tenant_status_created", "tenant_id", "status", "created_at"),
