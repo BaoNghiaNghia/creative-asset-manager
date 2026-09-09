@@ -106,7 +106,7 @@ class AiAnalysisService:
         reservation_finalized = False
         provider_name = str(getattr(self.ai_provider, "provider_name", "gemini"))
         provider_model = str(getattr(self.ai_provider, "model", self.settings.GEMINI_MODEL))
-        credential_provider: str | None = None
+        credential_provider: str = provider_name
         model_start_reserved = False
         estimated_cost_micros = 0
         profile_name = profile_version = prompt_version = asset_id = None
@@ -472,7 +472,7 @@ class AiAnalysisService:
             if provider_attempted:
                 self._defer_model_until(
                     tenant_id=tenant_id,
-                    provider=provider_name,
+                    provider=credential_provider,
                     model=exc.attempted_models[-1],
                     retry_at=exc.earliest_retry_at,
                     retry_count=max(0, attempt_count - 1),
@@ -513,7 +513,7 @@ class AiAnalysisService:
                 retry_at = self._retry_at_after_429(exc, attempt_count)
                 self._defer_model_until(
                     tenant_id=tenant_id,
-                    provider=provider_name,
+                    provider=credential_provider,
                     model=provider_model,
                     retry_at=retry_at,
                     retry_count=max(0, attempt_count - 1),
