@@ -17,6 +17,7 @@ from app.modules.visual_search.elasticsearch import VisualIndexDocument, VisualS
 from app.modules.visual_search.fingerprint import sha256_fingerprint
 from app.modules.visual_search.lifecycle import VISUAL_EMBEDDING_SCHEMA_VERSION, visual_index_job_enabled
 from app.modules.visual_search.preprocess import VisualImagePreparationError, decode_visual_image
+from app.modules.visual_search.metrics import VISUAL_SEARCH_METRICS
 
 
 class VisualIndexSyncJobHandler:
@@ -66,18 +67,24 @@ class VisualIndexSyncJobHandler:
                 ancestor_ids=document.ancestor_ids,
             )
             self._run(context, provider.upsert(document))
+            VISUAL_SEARCH_METRICS.observe_indexing("success")
             return JobHandlerResult.completed()
         except SourceAssetContentTransient as exc:
+            VISUAL_SEARCH_METRICS.observe_indexing("error")
             return JobHandlerResult.retryable("visual_index_source_unavailable", str(exc))
         except SourceAssetContentUnavailable as exc:
+            VISUAL_SEARCH_METRICS.observe_indexing("error")
             return JobHandlerResult.non_retryable("visual_index_source_unavailable", str(exc))
         except VisualImagePreparationError as exc:
+            VISUAL_SEARCH_METRICS.observe_indexing("error")
             return JobHandlerResult.non_retryable(exc.code, str(exc))
         except ElasticsearchV3RequestError as exc:
+            VISUAL_SEARCH_METRICS.observe_indexing("error")
             if exc.status_code is not None and 400 <= exc.status_code < 500 and exc.status_code != 429:
                 return JobHandlerResult.non_retryable("visual_index_elasticsearch_rejected", str(exc))
             return JobHandlerResult.retryable("visual_index_elasticsearch_unavailable", str(exc))
         except Exception as exc:
+            VISUAL_SEARCH_METRICS.observe_indexing("error")
             return JobHandlerResult.retryable("visual_index_failed", str(exc))
 
     @staticmethod

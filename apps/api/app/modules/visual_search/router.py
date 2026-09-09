@@ -29,13 +29,30 @@ from app.modules.visual_search.schema import NormalizedCrop, VisualSearchByAsset
 from app.modules.visual_search.preprocess import VisualImagePreparationError, VisualPreprocessLimits, decode_visual_image
 from app.modules.visual_search.ranking import VisualRankingWeights, diversify_hits, fuse_embeddings
 from app.modules.visual_search.service import VisualSearchDisabledError, VisualSearchService
+from app.modules.visual_search.metrics import VISUAL_SEARCH_METRICS
 
 router = APIRouter(prefix="/api/v1/search/visual", tags=["visual-search"])
 VISUAL_SEARCH_READ = require_permission("search.read")
+VISUAL_SEARCH_DIAGNOSTICS = require_permission("ai_operations.read")
 _MAX_CANDIDATES = 100
 _UPLOAD_READ_CHUNK_BYTES = 1_048_576
 _ENCODER_CAPACITY = asyncio.Semaphore(1)
 logger = logging.getLogger(__name__)
+
+
+@router.get("/diagnostics")
+def visual_search_diagnostics(
+    principal: CurrentPrincipal = Depends(VISUAL_SEARCH_DIAGNOSTICS),
+):
+    settings = get_settings()
+    return {
+        "enabled": bool(settings.VISUAL_SEARCH_ENABLED),
+        "upload_enabled": bool(settings.VISUAL_SEARCH_UPLOAD_ENABLED),
+        "crop_enabled": bool(settings.VISUAL_SEARCH_CROP_ENABLED),
+        "hybrid_text_enabled": bool(settings.VISUAL_SEARCH_HYBRID_TEXT_ENABLED),
+        "backfill_enabled": bool(settings.VISUAL_SEARCH_BACKFILL_ENABLED),
+        "metrics": VISUAL_SEARCH_METRICS.snapshot(),
+    }
 
 
 def _document_id(tenant_id: str, asset_id: str, content_sha256: str, schema: str) -> str:
@@ -191,12 +208,9 @@ async def find_similar_by_asset(
     for item in items:
         item.pop("score", None)
     cursor = _next_cursor(offset, ranked_count - offset, body.limit, fingerprint=fingerprint)
-    logger.info(
-        "visual_search_by_asset_completed tenant_id=%s result_count=%s duration_ms=%s",
-        tenant,
-        len(items),
-        round((time.monotonic() - started) * 1000),
-    )
+    duration_ms = round((time.monotonic() - started) * 1000)
+    VISUAL_SEARCH_METRICS.observe_request(kind="asset", outcome="success", total_ms=duration_ms, result_count=len(items))
+    logger.info("visual_search_by_asset_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
     return {"query_kind": "asset", "items": items, "next_cursor": cursor, "has_more": cursor is not None}
 
 
@@ -461,12 +475,9 @@ async def find_similar_by_upload(
     for item in items:
         item.pop("score", None)
     next_cursor = _next_cursor(offset, ranked_count - offset, limit, fingerprint=fingerprint)
-    logger.info(
-        "visual_search_upload_completed tenant_id=%s result_count=%s duration_ms=%s",
-        tenant,
-        len(items),
-        round((time.monotonic() - started) * 1000),
-    )
+    duration_ms = round((time.monotonic() - started) * 1000)
+    VISUAL_SEARCH_METRICS.observe_request(kind="upload", outcome="success", total_ms=duration_ms, result_count=len(items))
+    logger.info("visual_search_upload_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
     return {
         "query_kind": "upload",
         "items": items,
@@ -703,12 +714,9 @@ async def _find_similar_by_asset_crop(
         body.limit,
         fingerprint=fingerprint,
     )
-    logger.info(
-        "visual_search_asset_crop_completed tenant_id=%s result_count=%s duration_ms=%s",
-        tenant,
-        len(items),
-        round((time.monotonic() - started) * 1000),
-    )
+    duration_ms = round((time.monotonic() - started) * 1000)
+    VISUAL_SEARCH_METRICS.observe_request(kind="crop", outcome="success", total_ms=duration_ms, result_count=len(items))
+    logger.info("visual_search_asset_crop_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
     return {
         "query_kind": "asset",
         "items": items,
