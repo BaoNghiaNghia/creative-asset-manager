@@ -230,6 +230,33 @@ class ProcessingPolicyTest(unittest.TestCase):
             session.add(AiRuntimeControlModel(control_key="gemini", stopped=True, reason="emergency"))
         self.assertIsNone(self.claim("worker", ("video_analyze",)))
 
+    def test_visual_index_sync_claims_when_search_policy_is_enabled(self):
+        self.policy("tenant")
+        visual = self.job(
+            "tenant", "visual-index", kind="visual_index_sync",
+            provider="elasticsearch", scope="search",
+        )
+
+        claimed = self.claim(
+            "image-worker", ("visual_index_sync",), worker_role="image",
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, visual)
+
+    def test_visual_index_sync_respects_search_policy(self):
+        self.policy("tenant")
+        self.job(
+            "tenant", "visual-index-disabled", kind="visual_index_sync",
+            provider="elasticsearch", scope="search",
+        )
+        with self.sessions.begin() as session:
+            session.get(TenantProcessingPolicyModel, "tenant").search_v2_enabled = False
+
+        self.assertIsNone(
+            self.claim("image-worker", ("visual_index_sync",), worker_role="image")
+        )
+
     def test_video_search_index_remains_tenant_scoped_by_search_v2_policy(self):
         self.policy("tenant")
         self.policy("blocked-index")
