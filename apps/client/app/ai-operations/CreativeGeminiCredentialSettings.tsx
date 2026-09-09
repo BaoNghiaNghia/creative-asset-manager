@@ -12,8 +12,8 @@ export function CreativeGeminiCredentialSettings({ canManage = true, embedded = 
   const isVideo = kind === "video";
   const isBackup = kind === "backup" || kind === "backup2";
   const isBackup2 = kind === "backup2";
-  const title = isBackup2 ? "Gemini Backup 2" : isBackup ? "Gemini dự phòng" : isVideo ? "Gemini cho Video" : "Gemini cho Creative";
-  const domain = isBackup ? "Failover AI" : isVideo ? "Video AI" : "Creative AI";
+  const title = isBackup2 ? "Gemini Backup 2" : isBackup ? "Gemini dự phòng" : isVideo ? "Gemini cho Video" : "Gemini cho Image";
+  const domain = isBackup ? "Failover AI" : isVideo ? "Video AI" : "Image AI";
   const titleId = isVideo ? "video-ai-credential-title" : "creative-ai-title";
   const modalTitleId = isVideo ? "replace-video-gemini-title" : "replace-creative-gemini-title";
   const getCredential = isBackup2 ? getBackup2GeminiCredential : isBackup ? getBackupGeminiCredential : isVideo ? getVideoGeminiCredential : getCreativeGeminiCredential;
