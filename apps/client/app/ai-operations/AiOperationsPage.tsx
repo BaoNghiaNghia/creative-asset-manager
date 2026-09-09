@@ -272,7 +272,7 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {tab === "inventory" ? <InventoryDailyTab /> : loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
+      {tab === "inventory" ? <InventoryDailyTab /> : loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
@@ -443,8 +443,8 @@ function ScanStatusIcon({ status }: { status: string }) {
   </span>;
 }
 
-export function PipelineOverview({ pipeline, mediaDashboard = null, media = "image", onMedia = () => undefined, onOpenAsset = () => undefined, onOpenVideo = () => undefined, onPage = () => undefined, onVideoPage = () => undefined }: {
-  pipeline?: PipelineSnapshot | null; mediaDashboard?: AiOpsDashboardData["media"]; media?: "image" | "video"; onMedia?: (media: "image" | "video") => void;
+export function PipelineOverview({ pipeline, mediaDashboard = null, imageTodayDelta = 0, media = "image", onMedia = () => undefined, onOpenAsset = () => undefined, onOpenVideo = () => undefined, onPage = () => undefined, onVideoPage = () => undefined }: {
+  pipeline?: PipelineSnapshot | null; mediaDashboard?: AiOpsDashboardData["media"]; imageTodayDelta?: number; media?: "image" | "video"; onMedia?: (media: "image" | "video") => void;
   onOpenAsset?: (assetId: string) => void;
   onOpenVideo?: (sourceAssetId: string) => void;
   onPage?: (page: number, pageSize: 25 | 50 | 100) => void; onVideoPage?: (page: number, pageSize: 25 | 50 | 100) => void;
@@ -504,7 +504,7 @@ function VideoPipelineOverview({ dashboard, onPage, onOpenVideo }: {
   const recent = dashboard.recent_video;
   return <div className="ops-content pipeline-content">
     <section className="pipeline-summary" aria-label="Tóm tắt video pipeline">
-      <PipelineMetric icon="eligible" label="Video analysis" value={analysis.completed} detail={sourceMetricDetail(analysis, "completed", "Video AI analyses completed")} />
+      <PipelineMetric icon="eligible" label="Video analysis" value={analysis.completed} todayDelta={dashboard.video_processed_today} detail={sourceMetricDetail(analysis, "completed", "Video AI analyses completed")} />
       <PipelineMetric icon="ready" label="Video indexed" value={indexing.completed} detail={sourceMetricDetail(indexing, "completed", "Ready for video search")} tone="success" />
       <PipelineMetric icon="active" label={"Đang xử lý"} value={analysis.running + indexing.running} detail={sourceMetricDetail(analysis, "running", "Video jobs currently processing")} tone="info" />
       <PipelineMetric icon="queued" label={"Đang chờ xử lý"} value={analysis.queued + indexing.queued} detail={sourceMetricDetail(analysis, "queued", "Video jobs waiting to start or retry")} tone="warning" />
@@ -743,8 +743,8 @@ function PipelineRecentAssets({ recent, onPage, onOpenAsset }: { recent: Pipelin
   return <section className="pipeline-recent"><div className="ops-table-heading"><div><h2>Tiến độ tài sản gần đây</h2><p>Hiển thị {first}-{last} trên tổng số {recent.total} tài sản logic. Chọn tên để xem chi tiết ngay trong AI Operations.</p></div><div className="ops-pagination" aria-label="Pipeline asset pagination"><label>Số mục mỗi trang<select aria-label="Số mục pipeline mỗi trang" value={recent.page_size} onChange={event => onPage(1, Number(event.target.value) as 25 | 50 | 100)}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label><nav aria-label="Pipeline asset page numbers"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1, recent.page_size as 25 | 50 | 100)}>Trước</button>{visiblePages(page, pages).map((entry, index) => entry === "ellipsis" ? <span className="ops-page-ellipsis" key={"pipeline-ellipsis-" + index}>...</span> : <button type="button" key={entry} className={entry === page ? "active" : ""} aria-current={entry === page ? "page" : undefined} onClick={() => onPage(entry, recent.page_size as 25 | 50 | 100)}>{entry}</button>)}<button type="button" disabled={page >= pages} onClick={() => onPage(page + 1, recent.page_size as 25 | 50 | 100)}>Tiếp</button></nav></div></div><div className="ops-table-scroll"><table className="ops-data-table pipeline-recent-table"><thead><tr><th>Tài sản</th><th>Platform</th><th>Giai đoạn hiện tại</th><th>Luồng xử lý</th><th>Cập nhật</th><th>Cần xử lý</th></tr></thead><tbody>{recent.items.map(item => <tr key={item.asset_id || item.filename}><td className="pipeline-asset-cell"><div className="pipeline-asset"><PipelineAssetThumbnail filename={item.filename} thumbnailUrl={item.thumbnail_url} /><div>{item.asset_id ? <button type="button" className="pipeline-asset-link" onClick={() => onOpenAsset(item.asset_id!)} title={item.filename}>{pipelineAssetTitle(item.filename)}</button> : <span title={item.filename}>{pipelineAssetTitle(item.filename)}</span>}<small className="asset-mime-type">{item.mime_type || "—"}</small></div></div></td><td><SourcePlatform value={item.source_type} username={item.source_username} /></td><td><PipelineCurrentState state={item.state} /></td><td className="pipeline-flow-cell"><PipelineAssetFlow statuses={item.stage_statuses} /></td><td>{new Date(item.updated_at).toLocaleString()}</td><td>{item.error_code || "—"}</td></tr>)}</tbody></table></div></section>;
 }
 
-function PipelineMetric({ icon, label, value, detail, tone = "" }: { icon: string; label: string; value: number; detail: string; tone?: string }) {
-  return <article className={tone}><span className={"pipeline-metric-heading pipeline-icon-" + icon}><i aria-hidden="true" /><span>{label}</span></span><strong>{value.toLocaleString()}</strong><small>{detail}</small></article>;
+function PipelineMetric({ icon, label, value, detail, tone = "", todayDelta = 0 }: { icon: string; label: string; value: number; detail: string; tone?: string; todayDelta?: number }) {
+  return <article className={tone}><span className={"pipeline-metric-heading pipeline-icon-" + icon}><i aria-hidden="true" /><span>{label}</span></span><strong>{value.toLocaleString()}{todayDelta > 0 && <small className="pipeline-metric-delta">(+{todayDelta.toLocaleString()})</small>}</strong><small>{detail}</small></article>;
 }
 
 function sourceMetricDetail(stage: { source_breakdown?: { source_type: string; queued: number; running: number; completed: number; failed: number }[] }, metric: "queued" | "running" | "completed" | "failed", fallback: string) {
