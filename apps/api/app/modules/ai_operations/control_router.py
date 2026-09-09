@@ -49,6 +49,27 @@ def _creative_credential_error(exc: Exception) -> HTTPException:
 
 
 
+def _delete_gemini_credential(
+    target: str, provider: str, principal: CurrentPrincipal
+) -> dict:
+    try:
+        with SessionLocal() as session:
+            repository = CreativeAiCredentialRepository(
+                session, creative_credential_cipher(get_settings())
+            )
+            removed = repository.remove(target, provider=provider)
+            if removed is not None:
+                repository.audit(
+                    target, provider=provider, actor_id=principal.user_id,
+                    action="credential_deleted", result="DELETED",
+                    previous_fingerprint=removed.secret_fingerprint,
+                )
+            session.commit()
+    except (CreativeCredentialError, SQLAlchemyError) as exc:
+        raise _creative_credential_error(exc) from exc
+    return {"provider": provider, "deleted": removed is not None}
+
+
 def _gemini_test_result(provider: str, api_key: str | None) -> dict:
     """Return a safe Gemini test result without exposing response bodies or keys."""
     if not api_key:
@@ -104,6 +125,16 @@ def test_creative_gemini_credential(
         target, principal.user_id, response["status"], response["http_status"],
     )
     return response
+@router.delete("/configuration/credentials/gemini")
+def delete_creative_gemini_credential(
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    return _delete_gemini_credential(
+        _tenant(principal, tenant_id), "gemini", principal
+    )
+
+
 @router.put("/configuration/credentials/gemini")
 def replace_creative_gemini_credential(
     body: CreativeGeminiCredentialRequest,
@@ -172,6 +203,16 @@ def test_video_gemini_credential(
         except CreativeCredentialError:
             api_key = None
     return _gemini_test_result("gemini_video", api_key)
+@router.delete("/configuration/credentials/gemini-video")
+def delete_video_gemini_credential(
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    return _delete_gemini_credential(
+        _tenant(principal, tenant_id), "gemini_video", principal
+    )
+
+
 @router.put("/configuration/credentials/gemini-video")
 def replace_video_gemini_credential(
     body: CreativeGeminiCredentialRequest,
@@ -233,6 +274,16 @@ def test_backup_gemini_credential(
         except CreativeCredentialError:
             api_key = None
     return _gemini_test_result("gemini_backup", api_key)
+@router.delete("/configuration/credentials/gemini-backup")
+def delete_backup_gemini_credential(
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    return _delete_gemini_credential(
+        _tenant(principal, tenant_id), "gemini_backup", principal
+    )
+
+
 @router.put("/configuration/credentials/gemini-backup")
 def replace_backup_gemini_credential(body: CreativeGeminiCredentialRequest, tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE)):
     if body.api_key is None: raise HTTPException(422, detail={"code": "gemini_backup_credential_required"})
@@ -276,6 +327,16 @@ def test_backup_2_gemini_credential(
         except CreativeCredentialError:
             api_key = None
     return _gemini_test_result("gemini_backup_2", api_key)
+@router.delete("/configuration/credentials/gemini-backup-2")
+def delete_backup_2_gemini_credential(
+    tenant_id: str | None = Query(default=None),
+    principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE),
+):
+    return _delete_gemini_credential(
+        _tenant(principal, tenant_id), "gemini_backup_2", principal
+    )
+
+
 @router.put("/configuration/credentials/gemini-backup-2")
 def replace_backup_2_gemini_credential(body: CreativeGeminiCredentialRequest, tenant_id: str | None = Query(default=None), principal: CurrentPrincipal = Depends(AI_PROVIDER_CONFIGURE)):
     if body.api_key is None: raise HTTPException(422, detail={"code": "gemini_backup_2_credential_required"})

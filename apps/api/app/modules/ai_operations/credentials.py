@@ -95,6 +95,20 @@ class CreativeAiCredentialRepository:
         self.session.flush()
         return self._metadata(row)
 
+    def remove(self, tenant_id: str, *, provider: str = "gemini") -> CreativeCredentialMetadata | None:
+        row = self.session.scalar(
+            select(CreativeAiCredentialModel).where(
+                CreativeAiCredentialModel.tenant_id == tenant_id,
+                CreativeAiCredentialModel.provider == provider,
+            )
+        )
+        if row is None:
+            return None
+        metadata = self._metadata(row)
+        self.session.delete(row)
+        self.session.flush()
+        return metadata
+
     def audit(self, tenant_id: str, *, actor_id: str | None, action: str, result: str, provider: str = "gemini", previous_fingerprint: str | None = None, new_fingerprint: str | None = None) -> None:
         self.session.add(CreativeAiCredentialAuditModel(tenant_id=tenant_id, provider=provider, actor_id=actor_id, action=action, result=result, previous_fingerprint=previous_fingerprint, new_fingerprint=new_fingerprint))
         self.session.flush()

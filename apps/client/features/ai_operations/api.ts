@@ -330,7 +330,7 @@ export function searchFromFilters(filters: AiOpsFilters, tab: string, refreshSec
 
 type MutationResult = { audit?: import("./types").AiOpsAudit; [key: string]: unknown };
 
-async function mutate<T extends MutationResult>(url: string, method: "POST" | "PATCH" | "PUT", body: object, fetcher: Fetcher = fetch): Promise<T> {
+async function mutate<T extends MutationResult>(url: string, method: "POST" | "PATCH" | "PUT" | "DELETE", body: object | undefined, fetcher: Fetcher = fetch): Promise<T> {
   const response = await fetcher(url, {
     method,
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -434,14 +434,17 @@ export type CreativeGeminiCredentialStatus = "VALID"|"INVALID_KEY"|"PERMISSION_D
 export type GeminiCredentialTestResult = { provider: CreativeGeminiCredential["provider"]; status: CreativeGeminiCredentialStatus; http_status: number | null };
 export const getCreativeGeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", fetcher);
 export const testCreativeGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<GeminiCredentialTestResult>("/api/v1/admin/ai-operations/configuration/credentials/gemini/test", "POST", api_key ? {api_key,label} : {}, fetcher);
+export const deleteCreativeGeminiCredential = (fetcher: Fetcher = fetch) => mutate<{ provider: "gemini"; deleted: boolean }>("/api/v1/admin/ai-operations/configuration/credentials/gemini", "DELETE", undefined, fetcher);
 export const replaceCreativeGeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", "PUT", {api_key,label}, fetcher);
 
 export type VideoGeminiCredential = Omit<CreativeGeminiCredential, "provider"> & { provider:"gemini_video" };
 export const getVideoGeminiCredential = (fetcher: Fetcher = fetch) => read<VideoGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-video", fetcher);
 export const testVideoGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<GeminiCredentialTestResult>("/api/v1/admin/ai-operations/configuration/credentials/gemini-video/test", "POST", api_key ? {api_key,label} : {}, fetcher);
+export const deleteVideoGeminiCredential = (fetcher: Fetcher = fetch) => mutate<{ provider: "gemini_video"; deleted: boolean }>("/api/v1/admin/ai-operations/configuration/credentials/gemini-video", "DELETE", undefined, fetcher);
 export const replaceVideoGeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<VideoGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-video", "PUT", {api_key,label}, fetcher);
 export const getBackupGeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup", fetcher);
 export const testBackupGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<GeminiCredentialTestResult>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup/test", "POST", api_key ? {api_key,label} : {}, fetcher);
+export const deleteBackupGeminiCredential = (fetcher: Fetcher = fetch) => mutate<{ provider: "gemini_backup"; deleted: boolean }>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup", "DELETE", undefined, fetcher);
 export const replaceBackupGeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup", "PUT", {api_key,label}, fetcher);
 
 export type ManagedStorageOAuthStatus = {
@@ -454,6 +457,7 @@ export type ManagedStorageOAuthStatus = {
 };
 export const getBackup2GeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup-2", fetcher);
 export const testBackup2GeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<GeminiCredentialTestResult>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup-2/test", "POST", api_key ? {api_key,label} : {}, fetcher);
+export const deleteBackup2GeminiCredential = (fetcher: Fetcher = fetch) => mutate<{ provider: "gemini_backup_2"; deleted: boolean }>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup-2", "DELETE", undefined, fetcher);
 export const replaceBackup2GeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup-2", "PUT", {api_key,label}, fetcher);
 export const getManagedStorageOAuthStatus = (fetcher: Fetcher = fetch) =>
   read<ManagedStorageOAuthStatus>("/api/auth/google/managed-storage/status", fetcher);
