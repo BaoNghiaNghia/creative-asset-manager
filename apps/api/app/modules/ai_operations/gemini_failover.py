@@ -29,8 +29,8 @@ def backup_is_active(session: Session, settings: Settings, tenant_id: str, now: 
 
 
 def _backup_is_configured(session: Session, tenant_id: str) -> bool:
-    metadata = CreativeAiCredentialRepository(session, None).get_metadata(tenant_id, provider="gemini_backup")
-    return metadata is not None and metadata.status == "active"
+    repo = CreativeAiCredentialRepository(session, None)
+    return any((item := repo.get_metadata(tenant_id, provider=name)) is not None and item.status == "active" for name in ("gemini_backup", "gemini_backup_2"))
 
 
 def rate_limit_provider_key(
@@ -45,7 +45,12 @@ def rate_limit_provider_key(
         return "gemini_backup" if backup_is_active(session, settings, tenant_id, now) else provider
     from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
     limiter = AiModelRateLimitRepository(session)
-    candidates = ("gemini", "gemini_backup")
+    repository = CreativeAiCredentialRepository(session, None)
+    candidates = ("gemini",) + tuple(
+        candidate for candidate in ("gemini_backup", "gemini_backup_2")
+        if (metadata := repository.get_metadata(tenant_id, provider=candidate))
+        is not None and metadata.status == "active"
+    )
     decisions = {
         candidate: limiter.next_start(
             tenant_id=tenant_id, provider=candidate, model=model, rpm=rpm,
@@ -71,6 +76,8 @@ def rate_limit_provider_key(
             if state is not None and state.last_started_at is not None
             else datetime.min.replace(tzinfo=timezone.utc)
         )
+        if last_started.tzinfo is None or last_started.utcoffset() is None:
+            last_started = last_started.replace(tzinfo=timezone.utc)
         # Prefer an available key first. If both are available, choose the key
         # that has gone longest without a start so primary/backup alternate.
         return (

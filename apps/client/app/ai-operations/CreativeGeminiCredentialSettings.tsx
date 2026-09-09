@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AiOperationsApiError, getBackupGeminiCredential, getCreativeGeminiCredential, getVideoGeminiCredential, replaceBackupGeminiCredential, replaceCreativeGeminiCredential, replaceVideoGeminiCredential, testBackupGeminiCredential, testCreativeGeminiCredential, testVideoGeminiCredential, type CreativeGeminiCredential, type CreativeGeminiCredentialStatus } from "../../features/ai_operations";
+import { AiOperationsApiError, getBackup2GeminiCredential, getBackupGeminiCredential, getCreativeGeminiCredential, getVideoGeminiCredential, replaceBackup2GeminiCredential, replaceBackupGeminiCredential, replaceCreativeGeminiCredential, replaceVideoGeminiCredential, testBackup2GeminiCredential, testBackupGeminiCredential, testCreativeGeminiCredential, testVideoGeminiCredential, type CreativeGeminiCredential, type CreativeGeminiCredentialStatus } from "../../features/ai_operations";
 
 type Draft = { apiKey: string; label: string };
 const empty = (): Draft => ({ apiKey: "", label: "" });
@@ -7,16 +7,17 @@ const labelFor = (status: string, configured: boolean) => !configured ? "Not con
 const styleFor = (status: string, configured: boolean) => !configured ? "not-configured" : ({connected:"connected",VALID:"connected",INVALID_KEY:"invalid",PERMISSION_DENIED:"denied",RATE_LIMITED:"limited",PROVIDER_UNAVAILABLE:"unavailable",unavailable:"unavailable"} as Record<string,string>)[status] || "unavailable";
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Not available";
 
-export function CreativeGeminiCredentialSettings({ canManage = true, embedded = false, kind = "creative" }: { canManage?: boolean; embedded?: boolean; kind?: "creative" | "video" | "backup" }) {
+export function CreativeGeminiCredentialSettings({ canManage = true, embedded = false, kind = "creative" }: { canManage?: boolean; embedded?: boolean; kind?: "creative" | "video" | "backup" | "backup2" }) {
   const isVideo = kind === "video";
-  const isBackup = kind === "backup";
-  const title = isBackup ? "Gemini dự phòng" : isVideo ? "Gemini cho Video" : "Gemini cho Creative";
+  const isBackup = kind === "backup" || kind === "backup2";
+  const isBackup2 = kind === "backup2";
+  const title = isBackup2 ? "Gemini Backup 2" : isBackup ? "Gemini dự phòng" : isVideo ? "Gemini cho Video" : "Gemini cho Creative";
   const domain = isBackup ? "Failover AI" : isVideo ? "Video AI" : "Creative AI";
   const titleId = isVideo ? "video-ai-credential-title" : "creative-ai-title";
   const modalTitleId = isVideo ? "replace-video-gemini-title" : "replace-creative-gemini-title";
-  const getCredential = isBackup ? getBackupGeminiCredential : isVideo ? getVideoGeminiCredential : getCreativeGeminiCredential;
-  const testCredential = isBackup ? testBackupGeminiCredential : isVideo ? testVideoGeminiCredential : testCreativeGeminiCredential;
-  const replaceCredential = isBackup ? replaceBackupGeminiCredential : isVideo ? replaceVideoGeminiCredential : replaceCreativeGeminiCredential;
+  const getCredential = isBackup2 ? getBackup2GeminiCredential : isBackup ? getBackupGeminiCredential : isVideo ? getVideoGeminiCredential : getCreativeGeminiCredential;
+  const testCredential = isBackup2 ? testBackup2GeminiCredential : isBackup ? testBackupGeminiCredential : isVideo ? testVideoGeminiCredential : testCreativeGeminiCredential;
+  const replaceCredential = isBackup2 ? replaceBackup2GeminiCredential : isBackup ? replaceBackupGeminiCredential : isVideo ? replaceVideoGeminiCredential : replaceCreativeGeminiCredential;
   const cardClass = "inventory-settings-card" + (embedded ? " inventory-settings-card-embedded" : "");
   const [credential, setCredential] = useState<CreativeGeminiCredential | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState("");

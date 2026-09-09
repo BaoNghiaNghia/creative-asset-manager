@@ -76,11 +76,11 @@ class RuntimeCreativeGeminiProvider:
         try:
             with self.session_factory() as session:
                 use_backup = backup_is_active(session, self.settings, tenant_id)
-            selected_provider = preferred_provider if preferred_provider in {"gemini", "gemini_backup"} else ("gemini_backup" if use_backup else "gemini")
+            selected_provider = preferred_provider if preferred_provider in {"gemini", "gemini_backup", "gemini_backup_2"} else ("gemini_backup" if use_backup else "gemini")
             try:
                 credential = self._resolver.resolve(tenant_id, provider=selected_provider)
             except CreativeCredentialError:
-                if selected_provider == "gemini_backup" and preferred_provider == "gemini_backup":
+                if selected_provider in {"gemini_backup", "gemini_backup_2"} and preferred_provider in {"gemini_backup", "gemini_backup_2"}:
                     raise
                 credential = self._resolver.resolve(tenant_id)
         except CreativeCredentialError as exc:

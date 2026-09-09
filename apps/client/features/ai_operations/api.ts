@@ -429,7 +429,7 @@ export const repairSearchCoverage = (body: { confirmed: true; limit: number; ver
   mutate("/api/v1/admin/ai-operations/coverage/repair", "POST", body, fetcher);
 
 
-export type CreativeGeminiCredential = { provider:"gemini"|"gemini_video"|"gemini_backup"; configured:boolean; source:"configuration"|"environment"|"unavailable"; masked_key:string|null; label:string|null; status:string; last_tested_at:string|null; updated_at:string|null; updated_by:string|null };
+export type CreativeGeminiCredential = { provider:"gemini"|"gemini_video"|"gemini_backup"|"gemini_backup_2"; configured:boolean; source:"configuration"|"environment"|"unavailable"; masked_key:string|null; label:string|null; status:string; last_tested_at:string|null; updated_at:string|null; updated_by:string|null };
 export type CreativeGeminiCredentialStatus = "VALID"|"INVALID_KEY"|"PERMISSION_DENIED"|"RATE_LIMITED"|"PROVIDER_UNAVAILABLE";
 export const getCreativeGeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", fetcher);
 export const testCreativeGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<{provider:"gemini";status:CreativeGeminiCredentialStatus}>("/api/v1/admin/ai-operations/configuration/credentials/gemini/test", "POST", api_key ? {api_key,label} : {}, fetcher);
@@ -451,6 +451,9 @@ export type ManagedStorageOAuthStatus = {
   updated_at: string | null;
   reconnect_required: boolean;
 };
+export const getBackup2GeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup-2", fetcher);
+export const testBackup2GeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<{provider:"gemini_backup_2";status:CreativeGeminiCredentialStatus}>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup-2/test", "POST", api_key ? {api_key,label} : {}, fetcher);
+export const replaceBackup2GeminiCredential = (api_key:string, label?:string, fetcher: Fetcher = fetch) => mutate<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backup-2", "PUT", {api_key,label}, fetcher);
 export const getManagedStorageOAuthStatus = (fetcher: Fetcher = fetch) =>
   read<ManagedStorageOAuthStatus>("/api/auth/google/managed-storage/status", fetcher);
 export type ManagedStorageCredentialCheck = {
