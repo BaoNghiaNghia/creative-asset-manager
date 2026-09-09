@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import {
   deleteGeminiBackupCredential,
   listGeminiBackupCredentials,
@@ -26,7 +26,6 @@ export function GeminiBackupPoolSettings({ canManage = true, embedded = false }:
       setError(reason instanceof Error ? reason.message : "Unable to load backup keys");
     }
   };
-
   useEffect(() => { void load(); }, []);
 
   const startDraft = (slot: number) => setDrafts(current => ({
@@ -91,48 +90,47 @@ export function GeminiBackupPoolSettings({ canManage = true, embedded = false }:
   };
 
   const rows = items.filter(item => item.configured || drafts[item.slot]);
-  const rowStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", margin: "12px 0 0" };
-  const cellStyle: CSSProperties = { display: "block", minWidth: 0 };
-  const actionsStyle: CSSProperties = { display: "flex", gridColumn: "1 / -1", gap: 8, flexWrap: "wrap", alignItems: "center" };
+  const canAdd = canManage && items.some(item => !item.configured && !drafts[item.slot]);
 
-  return <section className={"inventory-settings-card" + (embedded ? " inventory-settings-card-embedded" : "")} aria-label="Gemini Image backup key pool">
+  return <section className={"inventory-settings-card gemini-backup-pool" + (embedded ? " inventory-settings-card-embedded" : "")} aria-label="Gemini Image backup key pool">
     <div className="inventory-settings-heading">
       <div>
         <p className="inventory-kicker">FAILOVER AI</p>
         <h2>Gemini Image key pool</h2>
-        <p className="inventory-muted">Các key backup ch¡y luân phiên. Khi Ùt key ~Ë cooldown, ~Ç thÑng ~ñ chuÃn sang key sµn sàng khác.</p>
+        <p className="inventory-muted">Các key backup c~¡y luân phiên. Rê chÙt vào mÙt dòng!Ã q£n lý key!ó.</p>
       </div>
       <span className="inventory-credential-status status-connected">{items.filter(item => item.configured).length}/10 active</span>
     </div>
-    {canManage && items.some(item => !item.configured && !drafts[item.slot]) && <div className="inventory-actions">
-      <button type="button" onClick={add}>+ Thêm key backup</button>
-    </div>}
-    <div aria-live="polite">
-      {rows.map(item => <article key={item.slot} style={{ marginTop: 12 }}>
-        <dl className="inventory-credential-grid" style={rowStyle}>
-          <div style={cellStyle}><dt>Backup slot</dt><dd>Backup {item.slot}</dd></div>
-          <div style={cellStyle}><dt>API key</dt><dd>{item.masked_key || "Not configured"}</dd></div>
-          <div style={cellStyle}><dt>Label</dt><dd>{item.label || "Not set"}</dd></div>
-          <div style={cellStyle}><dt>Last updated</dt><dd>{formatTime(item.updated_at)}</dd></div>
-          <div style={actionsStyle}>
+
+    <div className="gemini-backup-pool-table" role="table" aria-label="Image backup keys">
+      <div className="gemini-backup-pool-head" role="row">
+        <span role="columnheader">Backup key</span>
+        <span role="columnheader">Label</span>
+        <span role="columnheader">Status &amp; updated</span>
+      </div>
+      {rows.map(item => <div key={item.slot} className="gemini-backup-pool-entry">
+        <div className="gemini-backup-pool-row" role="row" tabIndex={0}>
+          <div role="cell"><strong>Backup {item.slot}</strong><span>{item.masked_key || "Not configured"}</span></div>
+          <div role="cell"><strong>{item.label || "Not set"}</strong></div>
+          <div role="cell">
             <span className={"inventory-credential-status " + (item.configured ? "status-connected" : "status-not-configured")}>{item.configured ? item.status : "Not configured"}</span>
-            {canManage && item.configured && <>
-              <button type="button" className="secondary" disabled={testing === item.slot} onClick={() => void testCurrent(item.slot)}>{testing === item.slot ? "Testing&" : "Test connection"}</button>
-              <button type="button" onClick={() => startDraft(item.slot)}>Replace API key</button>
-              <button type="button" className="danger" onClick={() => void remove(item.slot)}>Delete</button>
-            </>}
+            <small>{formatTime(item.updated_at)}</small>
           </div>
-        </dl>
-        {canManage && drafts[item.slot] && <form className="inventory-credential-grid" style={{ ...rowStyle, marginTop: 8 }} onSubmit={event => { event.preventDefault(); void save(item.slot); }}>
-          <label style={{ ...cellStyle, gridColumn: "span 2" }}>New API key<input aria-label={`Backup ${item.slot} API key`} type="password" autoComplete="off" value={drafts[item.slot].apiKey} onChange={event => update(item.slot, "apiKey", event.target.value)} /></label>
-          <label style={{ ...cellStyle, gridColumn: "span 2" }}>Label<input aria-label={`Backup ${item.slot} label`} value={drafts[item.slot].label} onChange={event => update(item.slot, "label", event.target.value)} /></label>
-          <div style={actionsStyle}>
-            <button type="submit" disabled={!drafts[item.slot].apiKey}>{item.configured ? "Test & replace" : "Test & save"}</button>
-            <button type="button" className="secondary" onClick={() => discard(item.slot)}>Cancel</button>
-          </div>
+          {canManage && item.configured && <div className="gemini-backup-pool-actions">
+            <button type="button" className="secondary" disabled={testing === item.slot} onClick={() => void testCurrent(item.slot)}>{testing === item.slot ? "Testing&" : "Test"}</button>
+            <button type="button" onClick={() => startDraft(item.slot)}>Replace</button>
+            <button type="button" className="danger" onClick={() => void remove(item.slot)}>Delete</button>
+          </div>}
+        </div>
+        {canManage && drafts[item.slot] && <form className="gemini-backup-pool-editor" onSubmit={event => { event.preventDefault(); void save(item.slot); }}>
+          <label>New API key<input aria-label={`Backup ${item.slot} API key`} type="password" autoComplete="off" value={drafts[item.slot].apiKey} onChange={event => update(item.slot, "apiKey", event.target.value)} /></label>
+          <label>Label<input aria-label={`Backup ${item.slot} label`} value={drafts[item.slot].label} onChange={event => update(item.slot, "label", event.target.value)} /></label>
+          <div><button type="submit" disabled={!drafts[item.slot].apiKey}>{item.configured ? "Test & replace" : "Test & save"}</button><button type="button" className="secondary" onClick={() => discard(item.slot)}>Cancel</button></div>
         </form>}
-      </article>)}
+      </div>)}
+      {canAdd && <button type="button" className="gemini-backup-pool-add" onClick={add}>+ Thêm key backup</button>}
     </div>
+
     {!rows.length && <p className="inventory-muted">No backup key has been configured yet.</p>}
     {notice && <p className="inventory-test-result" role="status">{notice}</p>}
     {error && <p className="inventory-error" role="alert">{error}</p>}

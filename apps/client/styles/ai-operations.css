@@ -1084,3 +1084,121 @@
 /* Preserve DOM order while compacting Configuration cards into a measured masonry grid. */
 .ops-config-masonry-grid[data-masonry="ready"]{grid-auto-flow:row dense;grid-auto-rows:8px}
 @media(max-width:820px){.ops-config-masonry-grid[data-masonry="ready"]{grid-auto-flow:row;grid-auto-rows:auto}.ops-config-masonry-grid[data-masonry="ready"]>form,.ops-config-masonry-grid[data-masonry="ready"]>section{grid-row-end:auto!important}}
+
+/* Compact, accessible table for the Image Gemini backup pool. */
+.gemini-backup-pool-table {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border, #dbe4f0);
+  border-radius: 10px;
+  background: #fff;
+}
+.gemini-backup-pool-head,
+.gemini-backup-pool-row,
+.gemini-backup-pool-editor {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 1fr) minmax(190px, 1fr);
+}
+.gemini-backup-pool-head {
+  gap: 0;
+  background: #f8fafc;
+  color: #718096;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.gemini-backup-pool-head > span,
+.gemini-backup-pool-row > div,
+.gemini-backup-pool-editor > label,
+.gemini-backup-pool-editor > div {
+  min-width: 0;
+  padding: 12px 14px;
+}
+.gemini-backup-pool-entry + .gemini-backup-pool-entry {
+  border-top: 1px solid var(--border, #dbe4f0);
+}
+.gemini-backup-pool-row {
+  position: relative;
+  align-items: center;
+  outline: none;
+  transition: background .15s ease;
+}
+.gemini-backup-pool-row:hover,
+.gemini-backup-pool-row:focus,
+.gemini-backup-pool-row:focus-within {
+  background: #f8fbff;
+}
+.gemini-backup-pool-row > div {
+  display: grid !important;
+  gap: 4px;
+}
+.gemini-backup-pool-row strong { color: #27364d; font-size: 14px; }
+.gemini-backup-pool-row span:not(.inventory-credential-status),
+.gemini-backup-pool-row small { color: #718096; font-size: 12px; }
+.gemini-backup-pool-actions {
+  display: flex !important;
+  grid-column: 1 / -1;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  gap: 8px;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  transition: opacity .15s ease;
+}
+.gemini-backup-pool-row:hover .gemini-backup-pool-actions,
+.gemini-backup-pool-row:focus .gemini-backup-pool-actions,
+.gemini-backup-pool-row:focus-within .gemini-backup-pool-actions {
+  height: auto;
+  min-height: 42px;
+  visibility: visible;
+  opacity: 1;
+  padding-top: 0 !important;
+  padding-bottom: 12px !important;
+}
+.gemini-backup-pool-editor {
+  border-top: 1px dashed var(--border, #dbe4f0);
+  background: #fbfdff;
+}
+.gemini-backup-pool-editor > label {
+  display: grid;
+  gap: 5px;
+  color: #526176;
+  font-size: 12px;
+  font-weight: 700;
+}
+.gemini-backup-pool-editor > label input { min-width: 0; }
+.gemini-backup-pool-editor > div {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.gemini-backup-pool-add {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-top: 1px dashed var(--border, #dbe4f0);
+  border-radius: 0;
+  background: #fbfdff;
+  color: #315bdc;
+  text-align: left;
+}
+.gemini-backup-pool-add:hover { background: #f2f6ff; }
+@media (max-width: 720px) {
+  .gemini-backup-pool-head { display: none; }
+  .gemini-backup-pool-row,
+  .gemini-backup-pool-editor { grid-template-columns: 1fr; }
+  .gemini-backup-pool-row > div,
+  .gemini-backup-pool-editor > label,
+  .gemini-backup-pool-editor > div { padding: 10px 12px; }
+  .gemini-backup-pool-actions {
+    height: auto;
+    min-height: 42px;
+    visibility: visible;
+    opacity: 1;
+    padding-bottom: 10px !important;
+  }
+}
