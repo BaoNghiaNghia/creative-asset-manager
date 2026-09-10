@@ -11,7 +11,8 @@ runbook's gates pass.
 - **VS-12A — End-to-end canary tenant eligibility:** complete.
 - **VS-12B — Pagination + committed visual query state:** complete.
 - **VS-12C — Encoder package boundary cleanup:** complete.
-- **VS-12D — Encoder authentication and decode hardening:** next.
+- **VS-12D — Encoder authentication and decode hardening:** complete.
+- **VS-12E — Observability and release metrics:** next.
 - **Production canary:** not yet authorized.
 - **Broad rollout:** blocked.
 

@@ -84,7 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     api.state.settings = settings
     if settings.VISUAL_SEARCH_ENABLED:
-        api.state.visual_encoder_client = HttpVisualEncoderClient(settings.VISUAL_ENCODER_URL, settings.VISUAL_ENCODER_TIMEOUT_SECONDS)
+        api.state.visual_encoder_client = HttpVisualEncoderClient(settings.VISUAL_ENCODER_URL, settings.VISUAL_ENCODER_TIMEOUT_SECONDS, settings.VISUAL_ENCODER_INTERNAL_KEY)
     api.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=list(settings.trusted_hosts),

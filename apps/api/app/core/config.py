@@ -146,6 +146,7 @@ class Settings(BaseSettings):
     VISUAL_SEARCH_RANKING_MAX_PER_SOURCE: int = 2
     VISUAL_ENCODER_URL: str = 'http://127.0.0.1:8091'
     VISUAL_ENCODER_TIMEOUT_SECONDS: float = 30.0
+    VISUAL_ENCODER_INTERNAL_KEY: str = ''
     VIDEO_SEARCH_ENABLED: bool = False
     # Image generation is deny-by-default. Provider selection is explicit and
     # Firefly/Gemini never fall back to one another.

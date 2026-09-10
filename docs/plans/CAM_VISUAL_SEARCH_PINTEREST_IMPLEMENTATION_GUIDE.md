@@ -63,8 +63,8 @@ does not authorize production-wide enablement.
 | VS-12A — End-to-end canary tenant eligibility | **COMPLETE** |
 | VS-12B — Pagination + committed visual query state | **COMPLETE** |
 | VS-12C — Encoder package boundary cleanup | **COMPLETE** |
-| VS-12D — Encoder authentication and decode hardening | **NEXT** |
-| VS-12E and later | Pending |
+| VS-12D — Encoder authentication and decode hardening | **COMPLETE** |
+| VS-12E — Observability and release metrics | **NEXT** |
 
 Visual Search cursors now represent the next post-ranking candidate position.
 Frontend draft crop/text controls are separate from the last successful committed
@@ -85,6 +85,8 @@ isolated visual encoder: SigLIP + torch + transformers + local snapshot inferenc
 The canonical descriptor is the lightweight API-side
 `modules/visual_search/model_spec.py`; it does not load a model. The encoder
 runtime consumes that descriptor and owns all heavyweight imports and inference.
+The localhost encoder also requires `VISUAL_ENCODER_INTERNAL_KEY` bearer auth on
+inference endpoints and independently validates its JPEG request payloads.
 
 ---
 

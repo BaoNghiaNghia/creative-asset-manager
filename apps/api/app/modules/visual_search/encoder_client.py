@@ -13,17 +13,20 @@ class HttpVisualEncoder:
 
     descriptor = VISUAL_SEARCH_BASELINE_DESCRIPTOR
 
-    def __init__(self, base_url: str, timeout_seconds: float = 30.0) -> None:
+    def __init__(self, base_url: str, timeout_seconds: float = 30.0, internal_key: str = "") -> None:
+        if not internal_key.strip():
+            raise ValueError("visual encoder internal authentication is not configured")
         base_url = base_url.rstrip("/")
         self._url = base_url + "/v1/encode-image"
         self._text_url = base_url + "/v1/encode-text"
         self._timeout = timeout_seconds
+        self._headers = {"Authorization": f"Bearer {internal_key}"}
 
     def encode_image(self, image: Image.Image) -> VisualEmbedding:
         stream = BytesIO()
         image.convert("RGB").save(stream, format="JPEG", quality=95, optimize=True)
         try:
-            response = httpx.post(self._url, json={"image_base64": b64encode(stream.getvalue()).decode("ascii")}, timeout=self._timeout)
+            response = httpx.post(self._url, json={"image_base64": b64encode(stream.getvalue()).decode("ascii")}, headers=self._headers, timeout=self._timeout)
             response.raise_for_status()
             payload = response.json()
             descriptor = EmbeddingDescriptor(**payload["descriptor"])
@@ -37,7 +40,7 @@ class HttpVisualEncoder:
 
     def encode_text(self, text: str) -> VisualEmbedding:
         try:
-            response = httpx.post(self._text_url, json={"text": text}, timeout=self._timeout)
+            response = httpx.post(self._text_url, json={"text": text}, headers=self._headers, timeout=self._timeout)
             response.raise_for_status()
             payload = response.json()
             descriptor = EmbeddingDescriptor(**payload["descriptor"])
@@ -50,7 +53,7 @@ class HttpVisualEncoder:
         return embedding
 
 class HttpVisualEncoderClient:
-    def __init__(self, base_url: str, timeout_seconds: float = 30.0) -> None:
-        self._encoder = HttpVisualEncoder(base_url, timeout_seconds)
+    def __init__(self, base_url: str, timeout_seconds: float = 30.0, internal_key: str = "") -> None:
+        self._encoder = HttpVisualEncoder(base_url, timeout_seconds, internal_key)
     def get_encoder(self) -> HttpVisualEncoder:
         return self._encoder
