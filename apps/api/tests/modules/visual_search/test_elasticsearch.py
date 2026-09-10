@@ -69,5 +69,24 @@ class VisualSearchElasticsearchTest(unittest.TestCase):
         asyncio.run(verify())
 
 
+
+    def test_switch_aliases_uses_single_visual_read_alias(self) -> None:
+        async def verify() -> None:
+            target = self.index.physical_index_name("20260910-keyword")
+            self.index._index._request = AsyncMock(side_effect=[
+                {},
+                {"old-index": {"aliases": {self.index.read_alias: {}}}},
+                {},
+                {},
+            ])
+            result = await self.index.switch_aliases(target)
+            self.assertEqual(result.target_index, target)
+            action_request = self.index._index._request.await_args_list[-1]
+            actions = action_request.kwargs["json_body"]["actions"]
+            self.assertEqual(actions, [
+                {"remove": {"index": "old-index", "alias": self.index.read_alias, "must_exist": True}},
+                {"add": {"index": target, "alias": self.index.read_alias}},
+            ])
+        asyncio.run(verify())
 if __name__ == "__main__":
     unittest.main()

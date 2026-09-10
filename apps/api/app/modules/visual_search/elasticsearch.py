@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from math import isfinite
 from typing import Any, Mapping
 
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index, ElasticsearchV3RequestError
+from app.infrastructure.search.elasticsearch_v2 import AliasSwitchResult, ElasticsearchV3Config, ElasticsearchV3Index, ElasticsearchV3RequestError
 from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding
 
 _MAX_RESULTS = 100
@@ -147,7 +147,7 @@ class VisualSearchElasticsearchIndex:
     @property
     def read_alias(self) -> str: return self._index.read_alias
     @property
-    def write_alias(self) -> str: return self._index.write_alias
+    def write_alias(self) -> str: return self.read_alias
     def physical_index_name(self, version: str) -> str: return self._index.physical_index_name(version)
     def index_definition(self) -> dict[str, Any]: return {"settings": {}, "mappings": visual_index_mapping(self.descriptor)}
     async def aclose(self) -> None: await self._index.aclose()
@@ -160,12 +160,28 @@ class VisualSearchElasticsearchIndex:
         if not await self._index._request("GET", f"/{name}/_settings", allow_not_found=True):
             await self.create_index(version)
         return name
-    async def switch_aliases(self, target_index: str): return await self._index.switch_aliases(target_index)
+    async def switch_aliases(self, target_index: str) -> AliasSwitchResult:
+        """Atomically move the dedicated visual read/write target.
+
+        The first canary index was created at the legacy write-alias name, so an
+        Elasticsearch alias with that same name cannot coexist with it. Visual
+        Search has one active projection, therefore its read alias is also the
+        safe single write target until the legacy physical index is retired.
+        """
+        await self._index._request("HEAD", f"/{target_index}")
+        current = await self._index._alias_indices()
+        actions = [
+            {"remove": {"index": name, "alias": self.read_alias, "must_exist": True}}
+            for name in sorted(current["read"])
+        ]
+        actions.append({"add": {"index": target_index, "alias": self.read_alias}})
+        await self._index._request("POST", "/_aliases", json_body={"actions": actions})
+        return AliasSwitchResult(target_index, tuple(sorted(current["read"])), ())
     async def alias_indices(self) -> dict[str, set[str]]: return await self._index.alias_indices()
 
     async def upsert(self, document: VisualIndexDocument) -> None:
         self._validate_embedding(document.embedding)
-        await self._index._request("PUT", f"/{self.write_alias}/_doc/{document.document_id}?refresh=wait_for", json_body=document.to_document())
+        await self._index._request("PUT", f"/{self.read_alias}/_doc/{document.document_id}?refresh=wait_for", json_body=document.to_document())
 
     async def get_document(self, document_id: str) -> Mapping[str, Any]:
         if not document_id.strip():
@@ -175,7 +191,7 @@ class VisualSearchElasticsearchIndex:
     async def delete_asset(self, *, tenant_id: str, asset_id: str) -> int:
         scope = VisualSearchScope(tenant_id)
         if not asset_id.strip(): raise VisualSearchIndexError("asset_id must be non-empty")
-        response = await self._index._request("POST", f"/{self.write_alias}/_delete_by_query?refresh=true", json_body={"query": {"bool": {"filter": [*scope.filters()[:1], {"term": {"asset_id": asset_id}}]}}})
+        response = await self._index._request("POST", f"/{self.read_alias}/_delete_by_query?refresh=true", json_body={"query": {"bool": {"filter": [*scope.filters()[:1], {"term": {"asset_id": asset_id}}]}}})
         return int(response.get("deleted") or 0)
 
     def knn_query(self, embedding: VisualEmbedding, *, scope: VisualSearchScope, metadata_filters: VisualMetadataFilters | None = None, limit: int = 40, num_candidates: int | None = None, exclude_asset_id: str | None = None) -> dict[str, Any]:
