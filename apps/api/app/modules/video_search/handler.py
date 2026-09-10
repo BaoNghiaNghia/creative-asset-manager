@@ -10,8 +10,9 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import AiProviderError
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
-from app.modules.ai_operations.gemini_failover import backup_is_active
-from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, creative_credential_cipher
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, CreativeCredentialError, creative_credential_cipher
+from app.modules.ai_governance.model import AiModelRateLimitStateModel
+from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 from app.modules.assets.model import SourceAssetModel
 from app.modules.video_search.credentials import VideoGeminiCredentialError, VideoGeminiCredentialResolver
 from app.modules.pipeline.mime_types import is_supported_video_mime_type
@@ -106,33 +107,140 @@ class VideoAnalyzeJobHandler:
         if self._interrupted(context):
             return self._cancel(context, resumable_id)
         try:
+            primary = VideoGeminiCredentialResolver(
+                context.dependencies.session_factory, settings
+            ).resolve(context.job.tenant_id)
             with context.dependencies.session_factory() as session:
-                use_backup = backup_is_active(session, settings, context.job.tenant_id)
-                backup = CreativeAiCredentialRepository(session, creative_credential_cipher(settings)).get_active_secret(context.job.tenant_id, provider="gemini_backup") if use_backup else None
-            credential = backup or VideoGeminiCredentialResolver(context.dependencies.session_factory, settings).resolve(context.job.tenant_id)
-        except VideoGeminiCredentialError:
-            return JobHandlerResult.non_retryable("video_gemini_credential_unavailable", "Video Gemini credential is unavailable.")
+                metadata_repository = CreativeAiCredentialRepository(session, None)
+                backup_providers = (
+                    metadata_repository.list_active_video_backup_providers(
+                        context.job.tenant_id
+                    )
+                )
+                candidates = [("gemini_video", primary)]
+                if backup_providers:
+                    repository = CreativeAiCredentialRepository(
+                        session, creative_credential_cipher(settings)
+                    )
+                    for provider in backup_providers:
+                        credential = repository.get_active_secret(
+                            context.job.tenant_id, provider=provider
+                        )
+                        if credential is not None:
+                            candidates.append((provider, credential))
+                states = {
+                    row.provider: row
+                    for row in session.scalars(
+                        select(AiModelRateLimitStateModel).where(
+                            AiModelRateLimitStateModel.tenant_id
+                            == context.job.tenant_id,
+                            AiModelRateLimitStateModel.provider.in_(
+                                tuple(provider for provider, _ in candidates)
+                            ),
+                            AiModelRateLimitStateModel.model
+                            == "__video_key_pool__",
+                        )
+                    )
+                }
+        except (VideoGeminiCredentialError, CreativeCredentialError):
+            return JobHandlerResult.non_retryable(
+                "video_gemini_credential_unavailable",
+                "Video Gemini credential is unavailable.",
+            )
 
-        # Isolate local Free Tier accounting per tenant and configured Video
-        # credential. Connecting a new project key must not inherit the
-        # exhausted accounting scope of the previous key.
+        epoch = datetime.min.replace(tzinfo=timezone.utc)
+
+        def last_started(provider: str) -> datetime:
+            state = states.get(provider)
+            value = state.last_started_at if state is not None else None
+            if value is None:
+                return epoch
+            if value.tzinfo is None or value.utcoffset() is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+
+        candidates.sort(
+            key=lambda item: (
+                last_started(item[0]),
+                item[0] != "gemini_video",
+            )
+        )
         quota_scope_prefix = (
             getattr(settings, "VIDEO_GEMINI_PROJECT_QUOTA_SCOPE", "").strip()
             or "video"
         )
-        quota_scope = (
-            f"{quota_scope_prefix}:{context.job.tenant_id}:{credential.fingerprint}"
-        )
-        with context.dependencies.session_factory() as session:
-            planner = VideoFreeTierModelPlanner(settings, GeminiProjectQuotaRepository(session), quota_scope=quota_scope)
-            decision = planner.select_pinned(model=pinned_model, duration_ms=duration_ms) if pinned_model else planner.select(duration_ms=duration_ms)
-        if isinstance(decision, VideoQuotaDeferral):
-            return DeferredJobOutcome("video_gemini_quota_deferred", "Gemini video capacity is temporarily unavailable.", decision.retry_at)
-        if isinstance(decision, VideoNoSafeModel):
-            code = "video_pinned_model_unconfigured" if pinned_model and any("not_explicitly_configured" in reason for reason in decision.reasons) else "video_no_model_fits_safe_tpm"
-            return JobHandlerResult.non_retryable(code, "No configured Gemini model safely fits the video chunk.")
+        decision = None
+        credential = None
+        selected_provider = None
+        deferred = []
+        no_safe = []
+        rotation_retry_at = []
+        for provider, candidate in candidates:
+            quota_scope = (
+                f"{quota_scope_prefix}:{context.job.tenant_id}:"
+                f"{candidate.fingerprint}"
+            )
+            with context.dependencies.session_factory() as session:
+                planner = VideoFreeTierModelPlanner(
+                    settings,
+                    GeminiProjectQuotaRepository(session),
+                    quota_scope=quota_scope,
+                )
+                candidate_decision = (
+                    planner.select_pinned(
+                        model=pinned_model, duration_ms=duration_ms
+                    )
+                    if pinned_model
+                    else planner.select(duration_ms=duration_ms)
+                )
+            if isinstance(candidate_decision, VideoModelSelection):
+                with context.dependencies.session_factory() as session:
+                    rotation = AiModelRateLimitRepository(session).reserve_start(
+                        tenant_id=context.job.tenant_id,
+                        provider=provider,
+                        model="__video_key_pool__",
+                        rpm=60_000,
+                        minimum_interval_seconds=0.001,
+                    )
+                    session.commit()
+                if not rotation.allowed:
+                    rotation_retry_at.append(rotation.next_eligible_at)
+                    continue
+                decision = candidate_decision
+                credential = candidate
+                selected_provider = provider
+                break
+            if isinstance(candidate_decision, VideoQuotaDeferral):
+                deferred.append(candidate_decision)
+            elif isinstance(candidate_decision, VideoNoSafeModel):
+                no_safe.append(candidate_decision)
 
-        operation = self._execute(context, settings, identity, decision, credential.secret, resumable_id)
+        if decision is None or credential is None or selected_provider is None:
+            if deferred or rotation_retry_at:
+                retry_at = min(
+                    [item.retry_at for item in deferred] + rotation_retry_at
+                )
+                return DeferredJobOutcome(
+                    "video_gemini_quota_deferred",
+                    "All Gemini video keys are temporarily unavailable.",
+                    retry_at,
+                )
+            code = (
+                "video_pinned_model_unconfigured"
+                if pinned_model
+                and any(
+                    "not_explicitly_configured" in reason
+                    for item in no_safe
+                    for reason in item.reasons
+                )
+                else "video_no_model_fits_safe_tpm"
+            )
+            return JobHandlerResult.non_retryable(
+                code,
+                "No configured Gemini model safely fits the video chunk.",
+            )
+
+        operation = self._execute(context, settings, identity, decision, credential.secret, resumable_id, selected_provider)
         executor = context.dependencies.resources.get("async_executor")
         return executor.run(operation) if executor is not None else asyncio.run(operation)
 
@@ -166,7 +274,7 @@ class VideoAnalyzeJobHandler:
                 pass
         return JobHandlerResult.cancelled()
 
-    async def _execute(self, context: JobHandlerContext, settings: Settings, identity: dict[str, Any], selection: VideoModelSelection, api_key: str, resumable_id: str | None) -> JobHandlerResult | DeferredJobOutcome:
+    async def _execute(self, context: JobHandlerContext, settings: Settings, identity: dict[str, Any], selection: VideoModelSelection, api_key: str, resumable_id: str | None, credential_provider: str = "gemini_video") -> JobHandlerResult | DeferredJobOutcome:
         run_id: str | None = resumable_id
         proxy = VideoProxyPreparationService(context.dependencies.session_factory, settings)
         chunks = ()
@@ -312,7 +420,17 @@ class VideoAnalyzeJobHandler:
                 if current_chunk_id:
                     self._defer_chunk(context, run_id, current_chunk_id, exc.code, detail)
                 with context.dependencies.session_factory() as session:
-                    GeminiProjectQuotaRepository(session).block_until(quota_scope=selection.quota_scope, model=selection.model, retry_at=retry_at)
+                    GeminiProjectQuotaRepository(session).block_until(
+                        quota_scope=selection.quota_scope,
+                        model=selection.model,
+                        retry_at=retry_at,
+                    )
+                    AiModelRateLimitRepository(session).block_until(
+                        tenant_id=context.job.tenant_id,
+                        provider=credential_provider,
+                        model="__video_key_pool__",
+                        retry_at=retry_at,
+                    )
                     session.commit()
                 return DeferredJobOutcome("video_gemini_rate_limited", detail, retry_at)
             detail = self._gemini_error_message(exc)

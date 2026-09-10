@@ -481,3 +481,12 @@ export const replaceGeminiBackupCredential = (slot: number, api_key: string, lab
   mutate<GeminiBackupCredential>(`/api/v1/admin/ai-operations/configuration/credentials/gemini-backups/${slot}`, "PUT", { api_key, label }, fetcher);
 export const deleteGeminiBackupCredential = (slot: number, fetcher: Fetcher = fetch) =>
   mutate<{ provider: string; deleted: boolean }>(`/api/v1/admin/ai-operations/configuration/credentials/gemini-backups/${slot}`, "DELETE", undefined, fetcher);
+
+export const listVideoGeminiBackupCredentials = (fetcher: Fetcher = fetch) =>
+  read<GeminiBackupCredential[]>("/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups", fetcher);
+export const testVideoGeminiBackupCredential = (slot: number, api_key?: string, label?: string, fetcher: Fetcher = fetch) =>
+  mutate<GeminiCredentialTestResult>(`/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/${slot}/test`, "POST", api_key ? { api_key, label } : {}, fetcher);
+export const replaceVideoGeminiBackupCredential = (slot: number, api_key: string, label?: string, fetcher: Fetcher = fetch) =>
+  mutate<GeminiBackupCredential>(`/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/${slot}`, "PUT", { api_key, label }, fetcher);
+export const deleteVideoGeminiBackupCredential = (slot: number, fetcher: Fetcher = fetch) =>
+  mutate<{ provider: string; deleted: boolean }>(`/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/${slot}`, "DELETE", undefined, fetcher);

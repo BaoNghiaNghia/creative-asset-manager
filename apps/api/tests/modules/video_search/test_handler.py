@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import tempfile
 from pathlib import Path
@@ -14,6 +15,10 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.domain.processing.handlers import ClaimedJob, DeferredJobOutcome, JobHandlerContext, WorkerDependencies
 from app.domain.providers.contracts import AiProviderError
+from app.modules.ai_operations.credentials import (
+    CreativeAiCredentialRepository,
+    creative_credential_cipher,
+)
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.modules.video_search.handler import VideoAnalyzeJobHandler
@@ -138,6 +143,89 @@ class VideoAnalyzeJobHandlerTest(unittest.TestCase):
                 self.assertEqual(fresh_run.status, "completed")
                 self.assertEqual(len(fresh_jobs), 1)
                 self.assertEqual(fresh_jobs[0].payload_json, {"analysis_run_id": fresh_run.id})
+
+    def test_video_credentials_rotate_from_primary_to_backup(self):
+        settings = self._settings()
+        settings.CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY = (
+            base64.urlsafe_b64encode(b"V" * 32).decode().rstrip("=")
+        )
+        with self.sessions() as session:
+            assets = AssetRegistryRepository(session)
+            source = assets.upsert_external_source(
+                tenant_id="tenant-a",
+                source_key="source-rotation",
+                source_type="google_drive",
+            )
+            first = assets.upsert_source_asset(
+                tenant_id="tenant-a",
+                external_source_id=source.id,
+                external_asset_id="asset-rotation-a",
+                filename="first.mp4",
+                mime_type="video/mp4",
+                size_bytes=10,
+                provider_checksum="rotation-a",
+                provider_version="v1",
+                source_metadata={},
+            )
+            second = assets.upsert_source_asset(
+                tenant_id="tenant-a",
+                external_source_id=source.id,
+                external_asset_id="asset-rotation-b",
+                filename="second.mp4",
+                mime_type="video/mp4",
+                size_bytes=10,
+                provider_checksum="rotation-b",
+                provider_version="v1",
+                source_metadata={},
+            )
+            CreativeAiCredentialRepository(
+                session, creative_credential_cipher(settings)
+            ).replace(
+                "tenant-a",
+                provider="gemini_video_backup_1",
+                secret="video-backup-key-0001",
+                label="Video backup 1",
+            )
+            session.commit()
+
+        selection = VideoModelSelection(
+            "model-b", 10000, 8110, 10, 10, "scope"
+        )
+        completed = SimpleNamespace(outcome=SimpleNamespace(value="completed"))
+        with (
+            patch(
+                "app.modules.video_search.handler.VideoGeminiCredentialResolver"
+            ) as resolver,
+            patch(
+                "app.modules.video_search.handler.VideoFreeTierModelPlanner"
+            ) as planner,
+            patch.object(
+                VideoAnalyzeJobHandler,
+                "_execute",
+                new=AsyncMock(side_effect=(completed, completed)),
+            ) as execute,
+        ):
+            resolver.return_value.resolve.return_value = SimpleNamespace(
+                secret="video-primary-key-0001",
+                fingerprint="p" * 64,
+            )
+            planner.return_value.select.return_value = selection
+            first_result = VideoAnalyzeJobHandler(settings)(
+                self._context(first.id)
+            )
+            second_result = VideoAnalyzeJobHandler(settings)(
+                self._context(second.id)
+            )
+
+        self.assertEqual(first_result.outcome.value, "completed")
+        self.assertEqual(second_result.outcome.value, "completed")
+        self.assertEqual(
+            [(call.args[4], call.args[6]) for call in execute.await_args_list],
+            [
+                ("video-primary-key-0001", "gemini_video"),
+                ("video-backup-key-0001", "gemini_video_backup_1"),
+            ],
+        )
 
     def test_multi_chunk_resume_skips_completed_chunks_before_reservation(self):
         with self.sessions() as session:

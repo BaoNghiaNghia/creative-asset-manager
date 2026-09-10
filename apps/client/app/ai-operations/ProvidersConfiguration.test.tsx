@@ -85,7 +85,9 @@ describe("AI Operations provider and configuration tabs", () => {
     expect(markup).toContain("ops-provider-gemini-credentials");
     expect(markup).toContain("ops-provider-summary");
     expect(markup).toContain("ops-provider-summary-error");
-    expect(markup).toContain("Creative AI");
+    expect(markup).toContain("Image AI");
+    expect(markup).toContain('aria-label="Gemini Image backup key pool"');
+    expect(markup).toContain('aria-label="Gemini Video backup key pool"');
     expect(markup).toContain("Inventory AI");
     expect(markup).toContain("Loading Gemini credential configuration");
     expect(markup).not.toContain("INVENTORY_AUTOMATION_ENABLED");

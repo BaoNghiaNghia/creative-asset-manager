@@ -4,6 +4,10 @@ import {
   listGeminiBackupCredentials,
   replaceGeminiBackupCredential,
   testGeminiBackupCredential,
+  deleteVideoGeminiBackupCredential,
+  listVideoGeminiBackupCredentials,
+  replaceVideoGeminiBackupCredential,
+  testVideoGeminiBackupCredential,
   type GeminiBackupCredential,
 } from "../../features/ai_operations";
 
@@ -11,11 +15,16 @@ type Draft = { apiKey: string; label: string };
 
 const formatTime = (value: string | null) => value ? new Date(value).toLocaleString() : "Not available";
 
-export function GeminiBackupPoolSettings({ canManage = true, embedded = false }: { canManage?: boolean; embedded?: boolean }) {
+export function GeminiBackupPoolSettings({ canManage = true, embedded = false, kind = "image" }: { canManage?: boolean; embedded?: boolean; kind?: "image" | "video" }) {
 const TestIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" /></svg>;
 const ReplaceIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 4 6 6M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" /></svg>;
 const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M9 7l1-3h4l1 3m-9 0 1 13h10l1-13" /></svg>;
 
+  const isVideo = kind === "video";
+  const listCredentials = isVideo ? listVideoGeminiBackupCredentials : listGeminiBackupCredentials;
+  const testCredential = isVideo ? testVideoGeminiBackupCredential : testGeminiBackupCredential;
+  const replaceCredential = isVideo ? replaceVideoGeminiBackupCredential : replaceGeminiBackupCredential;
+  const deleteCredential = isVideo ? deleteVideoGeminiBackupCredential : deleteGeminiBackupCredential;
   const [items, setItems] = useState<GeminiBackupCredential[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [error, setError] = useState("");
@@ -25,7 +34,7 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
   const load = async () => {
     try {
       setError("");
-      setItems(await listGeminiBackupCredentials());
+      setItems(await listCredentials());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load backup keys");
     }
@@ -54,12 +63,12 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
     if (!draft?.apiKey) return;
     try {
       setError("");
-      const probe = await testGeminiBackupCredential(slot, draft.apiKey, draft.label || undefined);
+      const probe = await testCredential(slot, draft.apiKey, draft.label || undefined);
       if (probe.status !== "VALID") {
         setError(`Backup ${slot}: ${probe.status}`);
         return;
       }
-      await replaceGeminiBackupCredential(slot, draft.apiKey, draft.label || undefined);
+      await replaceCredential(slot, draft.apiKey, draft.label || undefined);
       discard(slot);
       setNotice(`Backup ${slot} has been saved.`);
       await load();
@@ -71,7 +80,7 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
     try {
       setTesting(slot);
       setError("");
-      const result = await testGeminiBackupCredential(slot);
+      const result = await testCredential(slot);
       setNotice(`Backup ${slot}: ${result.status}${result.http_status ? ` (HTTP ${result.http_status})` : ""}`);
       await load();
     } catch (reason) {
@@ -84,7 +93,7 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
     if (!window.confirm(`Delete backup key ${slot}? This cannot be undone.`)) return;
     try {
       setError("");
-      await deleteGeminiBackupCredential(slot);
+      await deleteCredential(slot);
       discard(slot);
       setNotice(`Backup ${slot} has been deleted.`);
       await load();
@@ -96,7 +105,7 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
   const rows = items.filter(item => item.configured || drafts[item.slot]);
   const canAdd = canManage && items.some(item => !item.configured && !drafts[item.slot]);
 
-  return <section className={"gemini-backup-pool" + (embedded ? " gemini-backup-pool-embedded" : " inventory-settings-card")} aria-label="Gemini Image backup key pool">
+  return <section className={"gemini-backup-pool" + (embedded ? " gemini-backup-pool-embedded" : " inventory-settings-card")} aria-label={`Gemini ${isVideo ? "Video" : "Image"} backup key pool`}>
     <div className="gemini-backup-pool-heading">
       <div>
         <p className="inventory-kicker">FAILOVER AI</p>
@@ -106,7 +115,7 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
       <span className="inventory-credential-status status-connected">{items.filter(item => item.configured).length}/10 active</span>
     </div>
 
-    <div className="gemini-backup-pool-table" role="table" aria-label="Image backup keys">
+    <div className="gemini-backup-pool-table" role="table" aria-label={`${isVideo ? "Video" : "Image"} backup keys`}>
       <div className="gemini-backup-pool-head" role="row">
         <span role="columnheader">Backup key</span>
         <span role="columnheader">Label</span>

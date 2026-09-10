@@ -14,6 +14,7 @@ from app.modules.auth_persistence.encryption import TokenCipher, TokenEncryption
 
 
 MAX_GEMINI_BACKUPS = 10
+MAX_VIDEO_GEMINI_BACKUPS = 10
 _LEGACY_GEMINI_BACKUP_PROVIDER = "gemini_backup"
 
 def gemini_backup_provider(slot: int) -> str:
@@ -26,6 +27,17 @@ def gemini_backup_providers() -> tuple[str, ...]:
 
 def is_gemini_backup_provider(provider: str) -> bool:
     return provider in gemini_backup_providers()
+
+def gemini_video_backup_provider(slot: int) -> str:
+    if not 1 <= slot <= MAX_VIDEO_GEMINI_BACKUPS:
+        raise ValueError("gemini_video_backup_slot_invalid")
+    return f"gemini_video_backup_{slot}"
+
+def gemini_video_backup_providers() -> tuple[str, ...]:
+    return tuple(
+        gemini_video_backup_provider(slot)
+        for slot in range(1, MAX_VIDEO_GEMINI_BACKUPS + 1)
+    )
 
 class CreativeCredentialError(RuntimeError):
     def __init__(self, code: str):
@@ -87,6 +99,27 @@ class CreativeAiCredentialRepository:
 
     def list_active_backup_providers(self, tenant_id: str) -> tuple[str, ...]:
         return tuple(item.provider for item in self.list_backup_metadata(tenant_id) if item.status == "active")
+
+    def list_video_backup_metadata(self, tenant_id: str) -> list[CreativeCredentialMetadata]:
+        rows = self.session.scalars(
+            select(CreativeAiCredentialModel).where(
+                CreativeAiCredentialModel.tenant_id == tenant_id,
+                CreativeAiCredentialModel.provider.in_(gemini_video_backup_providers()),
+            )
+        ).all()
+        by_provider = {row.provider: row for row in rows}
+        return [
+            self._metadata(by_provider[provider])
+            for provider in gemini_video_backup_providers()
+            if provider in by_provider
+        ]
+
+    def list_active_video_backup_providers(self, tenant_id: str) -> tuple[str, ...]:
+        return tuple(
+            item.provider
+            for item in self.list_video_backup_metadata(tenant_id)
+            if item.status == "active"
+        )
 
     def get_active_secret(self, tenant_id: str, provider: str = "gemini") -> CreativeGeminiCredential | None:
         row = self.session.scalar(select(CreativeAiCredentialModel).where(CreativeAiCredentialModel.tenant_id == tenant_id, CreativeAiCredentialModel.provider == provider, CreativeAiCredentialModel.status == "active"))
