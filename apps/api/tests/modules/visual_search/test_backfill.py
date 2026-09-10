@@ -34,7 +34,7 @@ def asset(asset_id, mime_type="image/jpeg", content_hash="a" * 64):
 
 def test_dry_run_is_bounded_and_returns_resume_checkpoint():
     session = FakeSession([[asset("a"), asset("b")], [asset("c")]])
-    result = VisualSearchBackfillService(FakeProcessing(session), settings=Settings()).run(
+    result = VisualSearchBackfillService(FakeProcessing(session), settings=Settings(VISUAL_SEARCH_ENABLED=True, VISUAL_SEARCH_CANARY_TENANT_IDS="tenant-a")).run(
         tenant_id="tenant-a", schema_version=VISUAL_EMBEDDING_SCHEMA_VERSION,
         batch_size=2, max_assets=2,
     )
@@ -44,7 +44,7 @@ def test_dry_run_is_bounded_and_returns_resume_checkpoint():
 
 
 def test_execute_requires_the_explicit_backfill_flag():
-    service = VisualSearchBackfillService(FakeProcessing(FakeSession([])), settings=Settings())
+    service = VisualSearchBackfillService(FakeProcessing(FakeSession([])), settings=Settings(VISUAL_SEARCH_ENABLED=True, VISUAL_SEARCH_CANARY_TENANT_IDS="tenant-a"))
     with pytest.raises(ValueError, match="backfill is disabled"):
         service.run(
             tenant_id="tenant-a", schema_version=VISUAL_EMBEDDING_SCHEMA_VERSION,
@@ -54,7 +54,7 @@ def test_execute_requires_the_explicit_backfill_flag():
 
 def test_unsupported_and_missing_hash_are_skipped():
     session = FakeSession([[asset("a", content_hash=""), asset("b", mime_type="video/mp4")]])
-    result = VisualSearchBackfillService(FakeProcessing(session), settings=Settings()).run(
+    result = VisualSearchBackfillService(FakeProcessing(session), settings=Settings(VISUAL_SEARCH_ENABLED=True, VISUAL_SEARCH_CANARY_TENANT_IDS="tenant-a")).run(
         tenant_id="tenant-a", schema_version=VISUAL_EMBEDDING_SCHEMA_VERSION,
         max_assets=2,
     )
@@ -66,7 +66,27 @@ def test_unsupported_and_missing_hash_are_skipped():
 def test_dry_run_skips_existing_idempotency_key():
     from app.modules.visual_search.lifecycle import visual_index_job_key
     key = visual_index_job_key("a", "a" * 64)
-    service = VisualSearchBackfillService(FakeProcessing(FakeSession([[asset("a")]]), [key]), settings=Settings())
+    service = VisualSearchBackfillService(FakeProcessing(FakeSession([[asset("a")]]), [key]), settings=Settings(VISUAL_SEARCH_ENABLED=True, VISUAL_SEARCH_CANARY_TENANT_IDS="tenant-a"))
     result = service.run(tenant_id="tenant-a", schema_version=VISUAL_EMBEDDING_SCHEMA_VERSION, max_assets=1)
     assert result.enqueued == 0
     assert result.skipped_existing == 1
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_non_canary_tenant_backfill_never_scans_or_enqueues(dry_run: bool):
+    session = FakeSession([[asset("a")]])
+    service = VisualSearchBackfillService(
+        FakeProcessing(session),
+        settings=Settings(
+            VISUAL_SEARCH_ENABLED=True,
+            VISUAL_SEARCH_CANARY_TENANT_IDS="tenant-a",
+            VISUAL_SEARCH_BACKFILL_ENABLED=True,
+        ),
+    )
+    with pytest.raises(ValueError, match="tenant is not eligible"):
+        service.run(
+            tenant_id="tenant-b",
+            schema_version=VISUAL_EMBEDDING_SCHEMA_VERSION,
+            dry_run=dry_run,
+        )
+    assert len(session.pages) == 1

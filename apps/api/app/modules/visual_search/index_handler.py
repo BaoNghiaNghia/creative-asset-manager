@@ -32,7 +32,7 @@ class VisualIndexSyncJobHandler:
 
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
         settings = self.settings or get_settings()
-        if not visual_index_job_enabled(settings):
+        if not visual_index_job_enabled(settings, context.job.tenant_id):
             return JobHandlerResult.non_retryable("visual_search_disabled", "Visual search is disabled.")
         if context.cancellation_requested.is_set() or context.shutdown_requested.is_set():
             return JobHandlerResult.cancelled()

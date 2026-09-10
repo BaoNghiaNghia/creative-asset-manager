@@ -6,6 +6,13 @@
 Visual Search flags off, but broad enablement is not approved until this
 runbook's gates pass.
 
+## Current VS-12 phase status
+
+- **VS-12A — End-to-end canary tenant eligibility:** complete.
+- **VS-12B — Pagination + committed visual query state:** next.
+- **Production canary:** not yet authorized.
+- **Broad rollout:** blocked.
+
 ## Required gates
 
 - Tenant-isolation API and Elasticsearch integration tests pass.
@@ -42,3 +49,13 @@ Record commit SHA, encoder descriptor, tenant allowlist (outside this document),
 start/end time, metrics snapshot, process RSS/CPU, ES disk/memory, backfill
 checkpoint, quality scores, and operator decision. Never record API keys, query
 images, vectors, signed URLs, or cross-tenant asset details.
+
+## End-to-end tenant eligibility
+
+New Visual Search computation, public queries, and explicit backfill require
+both `VISUAL_SEARCH_ENABLED=true` and membership in
+`VISUAL_SEARCH_CANARY_TENANT_IDS`. An empty allowlist denies every tenant new
+Visual Search work. After a tenant is removed from the canary, new query,
+embedding, and backfill work remain denied, while retire/delete reconciliation
+remains allowed when infrastructure is enabled so stale derived documents can be
+removed. That cleanup must not generate a new embedding.

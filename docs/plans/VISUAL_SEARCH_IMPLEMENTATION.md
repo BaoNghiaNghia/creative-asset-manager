@@ -1,10 +1,22 @@
 # Visual Search  Repository-specific ADR and implementation plan
 
-**Status:** VS-00 architecture audit only. No application or production changes are authorized.
+**Status:** Historical VS-00 architecture audit and ADR. The Visual Search architecture has since been implemented through VS-11; VS-12 release hardening is active. VS-12A — end-to-end canary tenant eligibility — is **COMPLETE**. VS-12B — pagination and committed visual query state — is **NEXT** after VS-12A main integration. Broad production enablement remains blocked and this document does not authorize production changes.
 **Audit date:** 2026-09-07. **Audited main:** `65603905a9be766de32b4f39f33199822281ae77`.
 **Master guide:** [CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md](CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md), whose `f393dfc` baseline is superseded by current source.
 
-## Baseline and verified source map
+## Current hardening context
+
+This ADR records the original VS-00 decisions. Current source implements the
+later phases; retain the historical decisions below as context rather than as a
+claim that Visual Search is production-ready. New Visual Search queries,
+embedding/index work, and explicit backfill require both
+`VISUAL_SEARCH_ENABLED=true` and tenant membership in
+`VISUAL_SEARCH_CANARY_TENANT_IDS`. An empty allowlist denies new Visual Search
+work. Retire/delete reconciliation remains permitted after de-allowlisting only
+to remove already-derived visual state; it must not generate a new embedding.
+
+VS-12A is complete. VS-12B is the next task. Broad production rollout remains
+blocked pending the remaining correctness, relevance, VPS, and rollback gates.
 
 | Area | Current implementation |
 |---|---|

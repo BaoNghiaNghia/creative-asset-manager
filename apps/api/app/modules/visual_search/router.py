@@ -29,6 +29,7 @@ from app.modules.visual_search.schema import NormalizedCrop, VisualSearchByAsset
 from app.modules.visual_search.preprocess import VisualImagePreparationError, VisualPreprocessLimits, decode_visual_image
 from app.modules.visual_search.ranking import VisualRankingWeights, diversify_hits, fuse_embeddings
 from app.modules.visual_search.service import VisualSearchDisabledError, VisualSearchService
+from app.modules.visual_search.eligibility import visual_search_tenant_eligible
 from app.modules.visual_search.metrics import VISUAL_SEARCH_METRICS
 
 router = APIRouter(prefix="/api/v1/search/visual", tags=["visual-search"])
@@ -40,8 +41,7 @@ _ENCODER_CAPACITY = asyncio.Semaphore(1)
 logger = logging.getLogger(__name__)
 
 def _require_canary_tenant(settings, principal: CurrentPrincipal) -> None:
-    allowed = {tenant_id.strip() for tenant_id in settings.VISUAL_SEARCH_CANARY_TENANT_IDS.split(",") if tenant_id.strip()}
-    if not allowed or principal.active_tenant_id not in allowed:
+    if not visual_search_tenant_eligible(settings, principal.active_tenant_id):
         raise HTTPException(503, detail={"code": "visual_search_not_enabled_for_tenant", "message": "Visual search is not enabled for this tenant.", "retryable": False})
 
 

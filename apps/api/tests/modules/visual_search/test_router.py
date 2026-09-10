@@ -134,6 +134,12 @@ class VisualByAssetApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"]["code"], "visual_search_not_enabled_for_tenant")
 
+    def test_empty_canary_allowlist_denies_visual_query(self):
+        with patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_CANARY_TENANT_IDS="  ,  ")):
+            response = self.client.post("/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "visual_search_not_enabled_for_tenant")
+
     def test_disabled_and_cross_tenant_asset_are_rejected(self):
         with patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_ENABLED=False)):
             response = self.client.post("/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"})

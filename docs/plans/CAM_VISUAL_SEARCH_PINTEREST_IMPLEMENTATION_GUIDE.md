@@ -3,7 +3,7 @@
 > **Document type:** Master architecture + implementation plan + Codex taskbook  
 > **Repository:** `BaoNghiaNghia/creative-asset-manager`  
 > **Baseline inspected:** `main` @ `f393dfc94c1fea3302b1cad6cd09cd4fd7aafd87`  
-> **Status:** DEVELOPMENT PLAN — this document does **not** authorize production changes or deployment.
+> **Status:** Historical implementation plan, updated for current Visual Search hardening. It does **not** authorize production changes or deployment.
 
 ---
 
@@ -52,6 +52,20 @@ At the start of every Codex session:
 7. Implement only the requested phase.
 
 Do not instruct Codex to implement the full plan in one run.
+
+## Current implementation status
+
+VS-00 through VS-11 are implemented. VS-12 remains release-hardening work and
+does not authorize production-wide enablement.
+
+| Task | Status |
+|---|---|
+| VS-12A — End-to-end canary tenant eligibility | **COMPLETE** |
+| VS-12B — Pagination + committed visual query state | **NEXT** — ready after VS-12A main integration |
+| VS-12C and later | Pending |
+
+Broad production rollout remains **BLOCKED** until the remaining VS-12 gates,
+including correctness, relevance, VPS evidence, and rollback validation, pass.
 
 ---
 

@@ -2,20 +2,17 @@ from __future__ import annotations
 
 from app.core.config import Settings
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.visual_search.eligibility import visual_search_infrastructure_enabled, visual_search_tenant_eligible
 from app.modules.visual_search.encoder import SIGLIP_BASELINE_PREPROCESS_VERSION
 
 VISUAL_EMBEDDING_SCHEMA_VERSION = "visual_embedding_v1"
 VISUAL_INDEX_SYNC_PRIORITY = 20
 
 
-def visual_index_job_enabled(settings: Settings | None) -> bool:
+def visual_index_job_enabled(settings: Settings | None, tenant_id: str) -> bool:
     if settings is None:
         return False
-    return bool(
-        settings.PROCESSING_JOBS_ENABLED
-        and settings.VISUAL_SEARCH_ENABLED
-        and settings.ELASTICSEARCH_URL
-    )
+    return visual_search_infrastructure_enabled(settings) and visual_search_tenant_eligible(settings, tenant_id)
 
 
 def visual_index_job_key(asset_id: str, content_sha256: str) -> str:
@@ -37,7 +34,7 @@ def enqueue_visual_index_sync(
     rechecks the immutable content hash, so metadata-only source updates do not
     cause a second encode and obsolete jobs cannot index replacement content.
     """
-    if not visual_index_job_enabled(settings):
+    if not visual_index_job_enabled(settings, tenant_id):
         return False
     key = visual_index_job_key(asset_id, content_sha256)
     before = processing.get_job_by_key(tenant_id, key)
@@ -71,7 +68,7 @@ def enqueue_visual_retire_sync(
     identity: str,
 ) -> bool:
     """Reconcile a retired source without assuming it was the asset's only link."""
-    if not visual_index_job_enabled(settings):
+    if not visual_search_infrastructure_enabled(settings):
         return False
     key = f"visual-retire:{asset_id}:{identity}:{VISUAL_EMBEDDING_SCHEMA_VERSION}"
     before = processing.get_job_by_key(tenant_id, key)

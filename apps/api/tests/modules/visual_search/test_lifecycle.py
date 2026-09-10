@@ -27,6 +27,7 @@ def enabled_settings() -> Settings:
     return Settings(
         PROCESSING_JOBS_ENABLED=True,
         VISUAL_SEARCH_ENABLED=True,
+        VISUAL_SEARCH_CANARY_TENANT_IDS="tenant-a",
         ELASTICSEARCH_URL="http://elasticsearch.test",
     )
 
@@ -75,3 +76,34 @@ def test_visual_retire_enqueue_is_idempotent_and_does_not_need_content() -> None
     )
     job = next(iter(processing.jobs.values()))
     assert job["payload"]["operation"] == "reconcile_retired_source"
+
+
+def test_visual_index_does_not_enqueue_for_non_canary_tenant() -> None:
+    processing = FakeProcessing()
+    assert not enqueue_visual_index_sync(
+        processing,
+        settings=enabled_settings(),
+        tenant_id="tenant-b",
+        asset_id="asset-b",
+        source_asset_id="source-b",
+        content_sha256="b" * 64,
+    )
+    assert not processing.jobs
+
+
+def test_visual_retire_remains_enabled_after_tenant_is_removed_from_canary() -> None:
+    processing = FakeProcessing()
+    settings = Settings(
+        PROCESSING_JOBS_ENABLED=True,
+        VISUAL_SEARCH_ENABLED=True,
+        VISUAL_SEARCH_CANARY_TENANT_IDS="",
+        ELASTICSEARCH_URL="http://elasticsearch.test",
+    )
+    assert enqueue_visual_retire_sync(
+        processing,
+        settings=settings,
+        tenant_id="tenant-a",
+        asset_id="asset-a",
+        identity="retired-after-deallowlisting",
+    )
+    assert next(iter(processing.jobs.values()))["job_type"] == "visual_index_sync"

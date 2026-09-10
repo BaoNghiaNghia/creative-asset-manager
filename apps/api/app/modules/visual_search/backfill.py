@@ -7,6 +7,7 @@ from app.core.config import Settings
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.pipeline.mime_types import is_supported_image_mime_type
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.visual_search.eligibility import visual_search_tenant_eligible
 from app.modules.visual_search.lifecycle import VISUAL_EMBEDDING_SCHEMA_VERSION, enqueue_visual_index_sync, visual_index_job_key
 
 @dataclass
@@ -27,6 +28,7 @@ class VisualSearchBackfillService:
 
     def run(self, *, tenant_id: str, schema_version: str, after_asset_id: str | None = None, batch_size: int = 25, max_assets: int = 100, delay_seconds: float = 0.0, dry_run: bool = True, stop_requested=lambda: False) -> VisualSearchBackfillResult:
         if not tenant_id: raise ValueError("tenant_id is required")
+        if not visual_search_tenant_eligible(self.settings, tenant_id): raise ValueError("visual search tenant is not eligible")
         if schema_version != VISUAL_EMBEDDING_SCHEMA_VERSION: raise ValueError("unsupported visual embedding schema version")
         if not 1 <= batch_size <= 100: raise ValueError("batch_size must be between 1 and 100")
         if max_assets < 1 or delay_seconds < 0: raise ValueError("invalid max_assets or delay_seconds")
