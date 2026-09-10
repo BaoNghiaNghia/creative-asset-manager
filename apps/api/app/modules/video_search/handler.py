@@ -243,7 +243,21 @@ class VideoAnalyzeJobHandler:
 
                 if self._interrupted(context):
                     return self._cancel(context, run_id)
-                client = GeminiVideoClient(api_key, model=selection.model, timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS)
+                client = GeminiVideoClient(
+                    api_key,
+                    model=selection.model,
+                    timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+                    processing_timeout_seconds=max(
+                        1,
+                        int(
+                            getattr(
+                                settings,
+                                "VIDEO_GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS",
+                                600,
+                            )
+                        ),
+                    ),
+                )
                 result = await GeminiVideoAnalysisService(client, max_safe_input_tokens=selection.safe_tpm).analyze_chunk(chunk=chunk, prompt_template=identity["prompt_template"])
                 with context.dependencies.session_factory() as session:
                     repo = VideoSearchRepository(session)

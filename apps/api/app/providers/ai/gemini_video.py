@@ -34,6 +34,7 @@ class GeminiUploadedVideo:
     uri: str
     mime_type: str
     state: str
+    error: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +154,7 @@ class GeminiVideoClient:
             if state == "ACTIVE":
                 return current
             if state == "FAILED":
-                raise AiProviderError("Gemini failed to process the video.", code="gemini_video_processing_failed", retryable=False)
+                raise self._processing_failure(current)
             if state not in {"PROCESSING", "", "STATE_UNSPECIFIED"}:
                 raise AiProviderError("Gemini returned an unsupported video file state.", code="gemini_video_processing_state_invalid", retryable=False)
             if self._monotonic() >= deadline:
@@ -293,9 +294,45 @@ class GeminiVideoClient:
             raise AiProviderError("Gemini returned an invalid response object.", code="gemini_video_invalid_response", retryable=False)
         return value
 
+    def _processing_failure(self, uploaded: GeminiUploadedVideo) -> AiProviderError:
+        error = dict(uploaded.error or {})
+        status = str(error.get("status") or "").upper()
+        numeric_code = error.get("code")
+        retryable_statuses = {"ABORTED", "DEADLINE_EXCEEDED", "INTERNAL", "UNAVAILABLE"}
+        quota_exhausted = status == "RESOURCE_EXHAUSTED" or numeric_code == 8
+        retryable = quota_exhausted or status in retryable_statuses or numeric_code in {10, 13, 14}
+        details = {
+            "file_state": uploaded.state,
+            "google_error_status": self._sanitize_error_text(status) if status else None,
+            "google_error_code": numeric_code if isinstance(numeric_code, int) else None,
+            "google_error_message": self._sanitize_error_text(error.get("message")),
+        }
+        if quota_exhausted:
+            return AiProviderError(
+                "Gemini video capacity is temporarily unavailable.",
+                code="gemini_video_rate_limited",
+                retryable=True,
+                status_code=429,
+                details=details,
+            )
+        return AiProviderError(
+            "Gemini failed to process the video.",
+            code="gemini_video_processing_failed",
+            retryable=retryable,
+            details=details,
+        )
+
     @staticmethod
     def _uploaded_from_payload(payload: Mapping[str, Any]) -> GeminiUploadedVideo:
         file = payload.get("file", payload)
         if not isinstance(file, Mapping) or not isinstance(file.get("name"), str) or not isinstance(file.get("uri"), str):
             raise AiProviderError("Gemini upload response omitted file identity.", code="gemini_video_upload_invalid_response", retryable=True)
-        return GeminiUploadedVideo(name=file["name"], uri=file["uri"], mime_type=str(file.get("mimeType") or "video/mp4"), state=str(file.get("state") or ""))
+        raw_error = file.get("error")
+        error = dict(raw_error) if isinstance(raw_error, Mapping) else None
+        return GeminiUploadedVideo(
+            name=file["name"],
+            uri=file["uri"],
+            mime_type=str(file.get("mimeType") or "video/mp4"),
+            state=str(file.get("state") or ""),
+            error=error,
+        )

@@ -167,6 +167,7 @@ class Settings(BaseSettings):
     # Covers the complete source download and FFmpeg preparation phase.
     VIDEO_PROXY_PREPARATION_TIMEOUT_SECONDS: int = 3600
     VIDEO_PROXY_SOURCE_DOWNLOAD_ATTEMPTS: int = 3
+    VIDEO_GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS: int = 600
     VIDEO_AI_TOKEN_SAFETY_RATIO: float = 0.80
     VIDEO_AI_DAILY_BUDGET_RATIO: float = 0.90
     # Video uses an independent Gemini project on the Free Tier. It must never
@@ -1010,6 +1011,8 @@ class Settings(BaseSettings):
             raise ValueError("VIDEO_PROXY_PREPARATION_TIMEOUT_SECONDS must be positive")
         if self.VIDEO_PROXY_SOURCE_DOWNLOAD_ATTEMPTS <= 0:
             raise ValueError("VIDEO_PROXY_SOURCE_DOWNLOAD_ATTEMPTS must be positive")
+        if self.VIDEO_GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS <= 0:
+            raise ValueError("VIDEO_GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS must be positive")
         if not 0 < self.VIDEO_AI_TOKEN_SAFETY_RATIO <= 1 or not 0 < self.VIDEO_AI_DAILY_BUDGET_RATIO <= 1:
             raise ValueError("VIDEO AI safety ratios must be between 0 and 1")
         if any(not isinstance(value, str) or not value.strip() for value in (self.VIDEO_AI_PROMPT_VERSION, self.VIDEO_AI_ANALYSIS_VERSION)):

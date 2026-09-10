@@ -99,6 +99,43 @@ class GeminiVideoClientTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AiProviderError) as raised: await self._run(handler, clock=lambda: next(ticks))
             self.assertEqual(raised.exception.code, code); self.assertEqual(calls[-1], "DELETE"); self.assertNotIn("POST", calls[2:])
 
+    async def test_processing_resource_exhausted_is_deferred_as_quota(self):
+        calls = []
+
+        async def handler(request):
+            calls.append(request.method)
+            if request.url.path == "/upload/v1beta/files":
+                return httpx.Response(
+                    200, headers={"X-Goog-Upload-URL": "https://upload.test/session"}
+                )
+            if request.url.host == "upload.test":
+                return httpx.Response(
+                    200,
+                    json={
+                        "file": {
+                            "name": "files/x",
+                            "uri": "gemini://x",
+                            "state": "FAILED",
+                            "error": {
+                                "code": 8,
+                                "status": "RESOURCE_EXHAUSTED",
+                                "message": "quota temporarily exhausted",
+                            },
+                        }
+                    },
+                )
+            return httpx.Response(204)
+
+        with self.assertRaises(AiProviderError) as raised:
+            await self._run(handler)
+        self.assertEqual(raised.exception.code, "gemini_video_rate_limited")
+        self.assertTrue(raised.exception.retryable)
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertEqual(
+            raised.exception.details["google_error_status"], "RESOURCE_EXHAUSTED"
+        )
+        self.assertEqual(calls[-1], "DELETE")
+
     async def test_http_error_includes_phase_and_retry_policy(self):
         cases = (
             (403, "gemini_video_permission_denied", False),
