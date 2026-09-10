@@ -1,6 +1,6 @@
 # Visual Search  Repository-specific ADR and implementation plan
 
-**Status:** Historical VS-00 architecture audit and ADR. The Visual Search architecture has since been implemented through VS-11; VS-12 release hardening is active. VS-12A — end-to-end canary tenant eligibility — is **COMPLETE**. VS-12B — pagination and committed visual query state — is **NEXT** after VS-12A main integration. Broad production enablement remains blocked and this document does not authorize production changes.
+**Status:** Historical VS-00 architecture audit and ADR. The Visual Search architecture has since been implemented through VS-11; VS-12 release hardening is active. VS-12A — end-to-end canary tenant eligibility — and VS-12B — pagination and committed visual query state — are **COMPLETE**. VS-12C is next. Broad production enablement remains blocked and this document does not authorize production changes.
 **Audit date:** 2026-09-07. **Audited main:** `65603905a9be766de32b4f39f33199822281ae77`.
 **Master guide:** [CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md](CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md), whose `f393dfc` baseline is superseded by current source.
 
@@ -15,7 +15,10 @@ embedding/index work, and explicit backfill require both
 work. Retire/delete reconciliation remains permitted after de-allowlisting only
 to remove already-derived visual state; it must not generate a new embedding.
 
-VS-12A is complete. VS-12B is the next task. Broad production rollout remains
+VS-12A and VS-12B are complete. VS-12C is the next task. A Visual Search cursor
+encodes the next post-ranking candidate position, independently of authoritative
+hydration drops. Draft crop/text controls are distinct from the last successful
+committed visual query used by Load More. Broad production rollout remains
 blocked pending the remaining correctness, relevance, VPS, and rollback gates.
 
 | Area | Current implementation |

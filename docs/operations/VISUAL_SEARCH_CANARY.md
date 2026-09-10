@@ -9,7 +9,8 @@ runbook's gates pass.
 ## Current VS-12 phase status
 
 - **VS-12A — End-to-end canary tenant eligibility:** complete.
-- **VS-12B — Pagination + committed visual query state:** next.
+- **VS-12B — Pagination + committed visual query state:** complete.
+- **VS-12C — Encoder package boundary cleanup:** next.
 - **Production canary:** not yet authorized.
 - **Broad rollout:** blocked.
 
@@ -59,3 +60,11 @@ Visual Search work. After a tenant is removed from the canary, new query,
 embedding, and backfill work remain denied, while retire/delete reconciliation
 remains allowed when infrastructure is enabled so stale derived documents can be
 removed. That cleanup must not generate a new embedding.
+
+## Pagination and committed query state
+
+Visual Search cursor offsets represent the next post-ranking candidate position.
+They advance across selected candidates even if authoritative hydration omits a
+stale result. Browser draft crop/text controls are separate from the last
+successful committed visual query; Load More replays that committed crop, text,
+and source scope without using unsubmitted edits.

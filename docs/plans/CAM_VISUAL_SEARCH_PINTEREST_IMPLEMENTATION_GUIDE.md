@@ -61,8 +61,13 @@ does not authorize production-wide enablement.
 | Task | Status |
 |---|---|
 | VS-12A — End-to-end canary tenant eligibility | **COMPLETE** |
-| VS-12B — Pagination + committed visual query state | **NEXT** — ready after VS-12A main integration |
-| VS-12C and later | Pending |
+| VS-12B — Pagination + committed visual query state | **COMPLETE** |
+| VS-12C — Encoder package boundary cleanup | **NEXT** |
+| VS-12D and later | Pending |
+
+Visual Search cursors now represent the next post-ranking candidate position.
+Frontend draft crop/text controls are separate from the last successful committed
+query, which Load More replays unchanged.
 
 Broad production rollout remains **BLOCKED** until the remaining VS-12 gates,
 including correctness, relevance, VPS evidence, and rollback validation, pass.

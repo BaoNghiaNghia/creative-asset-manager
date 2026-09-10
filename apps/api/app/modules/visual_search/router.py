@@ -81,10 +81,11 @@ def _cursor_offset(cursor: str | None, *, fingerprint: str) -> int:
         raise HTTPException(422, detail={"code": "visual_cursor_invalid", "message": "Invalid visual-search cursor."}) from exc
 
 
-def _next_cursor(offset: int, count: int, limit: int, *, fingerprint: str) -> str | None:
-    if count < limit or offset + count >= _MAX_CANDIDATES:
+def _next_cursor(offset: int, consumed: int, has_more: bool, *, fingerprint: str) -> str | None:
+    """Encode the next post-ranking candidate position, never a hydrated-item count."""
+    if not has_more:
         return None
-    return base64.urlsafe_b64encode(json.dumps({"f": fingerprint, "o": offset + count}, separators=(",", ":")).encode()).decode()
+    return base64.urlsafe_b64encode(json.dumps({"f": fingerprint, "o": offset + consumed}, separators=(",", ":")).encode()).decode()
 
 
 def _ranking_weights(settings) -> VisualRankingWeights:
@@ -117,7 +118,12 @@ async def _text_embedding(request: Request, text: str) -> VisualEmbedding:
 
 def _rank_hits(hits, *, offset: int, limit: int, settings):
     ranked = diversify_hits(hits, weights=_ranking_weights(settings))
-    return ranked[offset: offset + limit + 1], len(ranked)
+    window = ranked[offset: offset + limit + 1]
+    page = window[:limit]
+    # The lookahead candidate determines whether a cursor is useful.  Hydration
+    # happens later and may remove page candidates, but must not affect cursor
+    # consumption or a stale candidate could repeat indefinitely.
+    return page, len(window) > limit
 
 
 @router.post("/by-asset", response_model=VisualSearchResponse)
@@ -174,7 +180,6 @@ async def find_similar_by_asset(
         "viewer": viewer_scope_key, "schema": descriptor.embedding_schema_version,
     }, sort_keys=True, default=str).encode()).hexdigest()
     offset = _cursor_offset(body.cursor, fingerprint=fingerprint)
-    search_limit = min(_MAX_CANDIDATES, offset + body.limit + 1)
     index = VisualSearchElasticsearchIndex(
         ElasticsearchV3Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX, index_generation="v3"),
         descriptor,
@@ -207,14 +212,14 @@ async def find_similar_by_asset(
     finally:
         await index.aclose()
 
-    candidates, ranked_count = _rank_hits(hits, offset=offset, limit=body.limit, settings=settings)
-    raw_hits = [{"_id": hit.document_id, "_score": hit.score, "_source": {"asset_id": hit.asset_id, "source_id": hit.source_id}} for hit in candidates[:body.limit]]
+    candidates, has_more = _rank_hits(hits, offset=offset, limit=body.limit, settings=settings)
+    raw_hits = [{"_id": hit.document_id, "_score": hit.score, "_source": {"asset_id": hit.asset_id, "source_id": hit.source_id}} for hit in candidates]
     with SessionLocal() as session:
         items = _hydrate_search_hits(session, tenant, raw_hits, viewer_restricted=viewer_restricted, limit=body.limit)
         session.commit()
     for item in items:
         item.pop("score", None)
-    cursor = _next_cursor(offset, ranked_count - offset, body.limit, fingerprint=fingerprint)
+    cursor = _next_cursor(offset, len(candidates), has_more, fingerprint=fingerprint)
     duration_ms = round((time.monotonic() - started) * 1000)
     VISUAL_SEARCH_METRICS.observe_request(kind="asset", outcome="success", total_ms=duration_ms, result_count=len(items))
     logger.info("visual_search_by_asset_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
@@ -430,7 +435,6 @@ async def find_similar_by_upload(
         ).encode()
     ).hexdigest()
     offset = _cursor_offset(cursor, fingerprint=fingerprint)
-    search_limit = min(_MAX_CANDIDATES, offset + limit + 1)
     index = VisualSearchElasticsearchIndex(
         ElasticsearchV3Config(
             settings.ELASTICSEARCH_URL,
@@ -462,7 +466,7 @@ async def find_similar_by_upload(
     finally:
         await index.aclose()
 
-    candidates, ranked_count = _rank_hits(hits, offset=offset, limit=limit, settings=settings)
+    candidates, has_more = _rank_hits(hits, offset=offset, limit=limit, settings=settings)
     raw_hits = [
         {
             "_id": hit.document_id,
@@ -482,7 +486,7 @@ async def find_similar_by_upload(
         session.commit()
     for item in items:
         item.pop("score", None)
-    next_cursor = _next_cursor(offset, ranked_count - offset, limit, fingerprint=fingerprint)
+    next_cursor = _next_cursor(offset, len(candidates), has_more, fingerprint=fingerprint)
     duration_ms = round((time.monotonic() - started) * 1000)
     VISUAL_SEARCH_METRICS.observe_request(kind="upload", outcome="success", total_ms=duration_ms, result_count=len(items))
     logger.info("visual_search_upload_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
@@ -663,7 +667,6 @@ async def _find_similar_by_asset_crop(
         ).encode()
     ).hexdigest()
     offset = _cursor_offset(body.cursor, fingerprint=fingerprint)
-    search_limit = min(_MAX_CANDIDATES, offset + body.limit + 1)
     index = VisualSearchElasticsearchIndex(
         ElasticsearchV3Config(
             settings.ELASTICSEARCH_URL,
@@ -696,7 +699,7 @@ async def _find_similar_by_asset_crop(
     finally:
         await index.aclose()
 
-    candidates, ranked_count = _rank_hits(hits, offset=offset, limit=body.limit, settings=settings)
+    candidates, has_more = _rank_hits(hits, offset=offset, limit=body.limit, settings=settings)
     raw_hits = [
         {
             "_id": hit.document_id,
@@ -716,12 +719,7 @@ async def _find_similar_by_asset_crop(
         session.commit()
     for item in items:
         item.pop("score", None)
-    next_cursor = _next_cursor(
-        offset,
-        ranked_count - offset,
-        body.limit,
-        fingerprint=fingerprint,
-    )
+    next_cursor = _next_cursor(offset, len(candidates), has_more, fingerprint=fingerprint)
     duration_ms = round((time.monotonic() - started) * 1000)
     VISUAL_SEARCH_METRICS.observe_request(kind="crop", outcome="success", total_ms=duration_ms, result_count=len(items))
     logger.info("visual_search_asset_crop_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
