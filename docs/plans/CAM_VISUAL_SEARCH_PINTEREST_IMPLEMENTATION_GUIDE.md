@@ -62,8 +62,9 @@ does not authorize production-wide enablement.
 |---|---|
 | VS-12A — End-to-end canary tenant eligibility | **COMPLETE** |
 | VS-12B — Pagination + committed visual query state | **COMPLETE** |
-| VS-12C — Encoder package boundary cleanup | **NEXT** |
-| VS-12D and later | Pending |
+| VS-12C — Encoder package boundary cleanup | **COMPLETE** |
+| VS-12D — Encoder authentication and decode hardening | **NEXT** |
+| VS-12E and later | Pending |
 
 Visual Search cursors now represent the next post-ranking candidate position.
 Frontend draft crop/text controls are separate from the last successful committed
@@ -71,6 +72,19 @@ query, which Load More replays unchanged.
 
 Broad production rollout remains **BLOCKED** until the remaining VS-12 gates,
 including correctness, relevance, VPS evidence, and rollback validation, pass.
+
+### Encoder ownership boundary
+
+```text
+CAM API: contracts + versioned expected descriptor + HTTP encoder client
+                              |
+                              v
+isolated visual encoder: SigLIP + torch + transformers + local snapshot inference
+```
+
+The canonical descriptor is the lightweight API-side
+`modules/visual_search/model_spec.py`; it does not load a model. The encoder
+runtime consumes that descriptor and owns all heavyweight imports and inference.
 
 ---
 

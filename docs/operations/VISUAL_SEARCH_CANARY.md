@@ -10,9 +10,14 @@ runbook's gates pass.
 
 - **VS-12A — End-to-end canary tenant eligibility:** complete.
 - **VS-12B — Pagination + committed visual query state:** complete.
-- **VS-12C — Encoder package boundary cleanup:** next.
+- **VS-12C — Encoder package boundary cleanup:** complete.
+- **VS-12D — Encoder authentication and decode hardening:** next.
 - **Production canary:** not yet authorized.
 - **Broad rollout:** blocked.
+
+The API imports only lightweight Visual Search contracts/model metadata and
+uses HTTP to call the isolated encoder. SigLIP, PyTorch, Transformers, local
+model loading, and inference are owned by `apps/visual_encoder`.
 
 ## Required gates
 

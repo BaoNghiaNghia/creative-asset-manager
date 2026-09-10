@@ -24,7 +24,7 @@ from app.modules.search.router import _hydrate_search_hits, _search_scope_filter
 from app.modules.search.schema import SearchCoreFilters
 from app.modules.visual_search.contracts import VisualEmbedding, VisualEncoderUnavailableError
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex, VisualSearchScope
-from app.modules.visual_search.encoder import SiglipVisualEncoder
+from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 from app.modules.visual_search.schema import NormalizedCrop, VisualSearchByAssetRequest, VisualSearchResponse
 from app.modules.visual_search.preprocess import VisualImagePreparationError, VisualPreprocessLimits, decode_visual_image
 from app.modules.visual_search.ranking import VisualRankingWeights, diversify_hits, fuse_embeddings
@@ -170,7 +170,7 @@ async def find_similar_by_asset(
                 raise HTTPException(404, detail={"code": "visual_query_asset_not_found", "message": "Asset is unavailable."})
         session.commit()
 
-    descriptor = SiglipVisualEncoder.descriptor
+    descriptor = VISUAL_SEARCH_BASELINE_DESCRIPTOR
     document_id = _document_id(tenant, asset.id, asset.content_hash, descriptor.embedding_schema_version)
     fingerprint = hashlib.sha256(json.dumps({
         "tenant": tenant, "asset": asset.id, "hash": asset.content_hash,
@@ -322,7 +322,7 @@ async def _upload_embedding(
                     "retryable": True,
                 },
             ) from exc
-        if embedding.descriptor != SiglipVisualEncoder.descriptor:
+        if embedding.descriptor != VISUAL_SEARCH_BASELINE_DESCRIPTOR:
             raise HTTPException(
                 503,
                 detail={

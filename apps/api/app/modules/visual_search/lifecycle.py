@@ -3,9 +3,12 @@ from __future__ import annotations
 from app.core.config import Settings
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.visual_search.eligibility import visual_search_infrastructure_enabled, visual_search_tenant_eligible
-from app.modules.visual_search.encoder import SIGLIP_BASELINE_PREPROCESS_VERSION
+from app.modules.visual_search.model_spec import (
+    SIGLIP_BASELINE_PREPROCESS_VERSION,
+    VISUAL_SEARCH_BASELINE_DESCRIPTOR,
+)
 
-VISUAL_EMBEDDING_SCHEMA_VERSION = "visual_embedding_v1"
+VISUAL_EMBEDDING_SCHEMA_VERSION = VISUAL_SEARCH_BASELINE_DESCRIPTOR.embedding_schema_version
 VISUAL_INDEX_SYNC_PRIORITY = 20
 
 

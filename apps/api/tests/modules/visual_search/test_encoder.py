@@ -4,7 +4,7 @@ import pytest
 from PIL import Image
 
 from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding
-from app.modules.visual_search.encoder import (
+from app.modules.visual_search.contracts import (
     EncoderContractViolationError,
     ValidatedVisualEncoder,
 )

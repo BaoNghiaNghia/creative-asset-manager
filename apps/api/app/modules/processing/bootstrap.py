@@ -35,7 +35,7 @@ from app.modules.pipeline.stages import (
 )
 from app.modules.search.index_sync_handler import SearchIndexSyncJobHandler
 from app.modules.visual_search.index_handler import VisualIndexSyncJobHandler
-from app.modules.visual_search.encoder import SiglipVisualEncoder
+from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 from app.modules.visual_search.encoder_client import HttpVisualEncoderClient
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex
 from app.modules.assets.content_resolver import SourceAssetContentResolver
@@ -222,7 +222,7 @@ def build_worker_runtime(
     if settings.VISUAL_SEARCH_ENABLED and settings.ELASTICSEARCH_URL:
         default_resources["visual_index_provider"] = VisualSearchElasticsearchIndex(
             ElasticsearchV3Config(settings.ELASTICSEARCH_URL, settings.ELASTICSEARCH_INDEX_PREFIX, index_generation="v3"),
-            SiglipVisualEncoder.descriptor,
+            VISUAL_SEARCH_BASELINE_DESCRIPTOR,
         )
         default_resources["visual_content_resolver"] = SourceAssetContentResolver(session_factory)
         default_resources["visual_encoder_client"] = HttpVisualEncoderClient(settings.VISUAL_ENCODER_URL, settings.VISUAL_ENCODER_TIMEOUT_SECONDS)

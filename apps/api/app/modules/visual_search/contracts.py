@@ -71,3 +71,27 @@ class VisualEncoderUnavailableError(RuntimeError):
     """Raised when the isolated encoder has no capacity or is unavailable."""
 
     code = "visual_encoder_unavailable"
+
+
+class EncoderContractViolationError(RuntimeError):
+    """An encoder returned data incompatible with its declared descriptor."""
+
+
+class ValidatedVisualEncoder:
+    """Validate a pluggable encoder without importing an ML runtime."""
+
+    def __init__(self, delegate: VisualEncoder):
+        self._delegate = delegate
+        self._descriptor = delegate.descriptor
+
+    @property
+    def descriptor(self) -> EmbeddingDescriptor:
+        return self._descriptor
+
+    def encode_image(self, image: "Image.Image") -> VisualEmbedding:
+        embedding = self._delegate.encode_image(image)
+        if embedding.descriptor != self._descriptor:
+            raise EncoderContractViolationError(
+                "encoder returned an embedding with a different descriptor"
+            )
+        return embedding

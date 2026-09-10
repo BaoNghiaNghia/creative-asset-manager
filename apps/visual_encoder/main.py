@@ -5,7 +5,7 @@ from io import BytesIO
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from PIL import Image
-from app.modules.visual_search.encoder import SiglipVisualEncoder, SiglipEncoderLoadError
+from siglip import SiglipVisualEncoder, SiglipEncoderLoadError
 
 _MAX_BYTES=8_000_000
 _lock=asyncio.Lock()

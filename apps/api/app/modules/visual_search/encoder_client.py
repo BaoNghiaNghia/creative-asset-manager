@@ -6,12 +6,12 @@ import httpx
 from PIL import Image
 
 from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding, VisualEncoderUnavailableError
-from app.modules.visual_search.encoder import SiglipVisualEncoder
+from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 
 class HttpVisualEncoder:
     """Synchronous client for the localhost-only isolated SigLIP process."""
 
-    descriptor = SiglipVisualEncoder.descriptor
+    descriptor = VISUAL_SEARCH_BASELINE_DESCRIPTOR
 
     def __init__(self, base_url: str, timeout_seconds: float = 30.0) -> None:
         base_url = base_url.rstrip("/")

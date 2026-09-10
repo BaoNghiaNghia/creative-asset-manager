@@ -22,11 +22,12 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestErr
 from PIL import Image
 
 from app.modules.visual_search.contracts import VisualEmbedding
+from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 from app.modules.visual_search.elasticsearch import VisualSearchHit
 
 
 class _Index:
-    descriptor = __import__("app.modules.visual_search.encoder", fromlist=["SiglipVisualEncoder"]).SiglipVisualEncoder.descriptor
+    descriptor = VISUAL_SEARCH_BASELINE_DESCRIPTOR
     calls = []
 
     def __init__(self, *_args, **_kwargs): pass
