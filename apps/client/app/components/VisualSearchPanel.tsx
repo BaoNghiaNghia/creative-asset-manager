@@ -30,7 +30,7 @@ export function VisualSearchPanel({ reference, loading, error, refinement, onRef
     return next;
   });
   return <section className="visual-search-panel" aria-label="Visual search">
-    <header><div><small>VISUAL SEARCH</small><h2>Find similar images</h2></div><button type="button" onClick={onClose} aria-label="Close visual search">×</button></header>
+    <header><div><small>VISUAL SEARCH</small><h2>Find similar images</h2></div><button type="button" className="visual-search-close" onClick={onClose} aria-label="Close visual search" title="Close">×</button></header>
     {!reference && <div className="visual-search-empty"><p>Choose an existing image or upload a reference image. Your upload is only used for this search.</p><button type="button" className="visual-primary" onClick={() => inputRef.current?.click()}>Upload reference image</button></div>}
     {reference && <div className="visual-search-workspace">
       <div className="visual-reference"><div className="visual-reference-preview">{preview && <img src={preview} alt="" />}<span className="visual-crop-rectangle" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }} aria-hidden="true" /></div><p>{reference.kind === "asset" ? reference.asset.name : reference.file.name}</p></div>
