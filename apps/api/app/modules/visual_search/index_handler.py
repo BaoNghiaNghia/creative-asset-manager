@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from collections.abc import Mapping
 
 from sqlalchemy import select
@@ -31,6 +33,64 @@ class VisualIndexSyncJobHandler:
         self.settings = settings
 
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
+        started = time.monotonic()
+        stages: dict[str, float] = {}
+        try:
+            result = self._handle(context, stages)
+        except Exception:
+            result = JobHandlerResult.retryable(
+                "visual_index_failed", "Visual index execution failed."
+            )
+        stages["job_total_ms"] = (time.monotonic() - started) * 1000
+        if result.outcome.value == "completed":
+            outcome = (
+                "retired"
+                if context.job.payload.get("operation") == "reconcile_retired_source"
+                else "success"
+            )
+        elif result.error_code in {"visual_search_disabled", "worker_interrupted"}:
+            outcome = "skipped"
+        else:
+            outcome = "error"
+        VISUAL_SEARCH_METRICS.observe_indexing(outcome, stages)
+        context.logger.info(
+            "visual_index_job_completed %s",
+            json.dumps(
+                {
+                    "event": "visual_index_job_completed",
+                    "error_code": self._bounded_error_code(result.error_code),
+                    "operation": (
+                        "delete"
+                        if context.job.payload.get("operation") == "reconcile_retired_source"
+                        else "upsert"
+                    ),
+                    "outcome": outcome,
+                    **{
+                        key: round(value, 3) for key, value in sorted(stages.items())
+                    },
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
+        return result
+
+    @staticmethod
+    def _bounded_error_code(code: str | None) -> str:
+        allowed = {
+            "none", "worker_interrupted", "visual_search_disabled",
+            "visual_index_unconfigured", "visual_index_schema_mismatch",
+            "visual_index_source_unavailable", "visual_image_too_large",
+            "visual_image_dimensions", "visual_image_decode_pixels",
+            "visual_image_invalid", "visual_index_elasticsearch_rejected",
+            "visual_index_elasticsearch_unavailable", "visual_index_failed",
+        }
+        value = code or "none"
+        return value if value in allowed else "visual_index_failed"
+
+    def _handle(
+        self, context: JobHandlerContext, stages: dict[str, float]
+    ) -> JobHandlerResult:
         settings = self.settings or get_settings()
         if not visual_index_job_enabled(settings, context.job.tenant_id):
             return JobHandlerResult.non_retryable("visual_search_disabled", "Visual search is disabled.")
@@ -43,19 +103,39 @@ class VisualIndexSyncJobHandler:
             return JobHandlerResult.retryable("visual_index_unconfigured", "Visual index is unavailable.")
         try:
             if context.job.payload.get("operation") == "reconcile_retired_source":
-                self._run(context, provider.delete_asset(tenant_id=context.job.tenant_id, asset_id=context.job.entity_id))
+                stage_started = time.monotonic()
+                try:
+                    self._run(context, provider.delete_asset(tenant_id=context.job.tenant_id, asset_id=context.job.entity_id))
+                finally:
+                    stages["es_delete_ms"] = (time.monotonic() - stage_started) * 1000
                 return JobHandlerResult.completed()
             if encoder_client is None or resolver is None:
                 return JobHandlerResult.retryable("visual_index_unconfigured", "Isolated encoder is unavailable.")
             document = self._document(context, provider)
             if document is None:
-                self._run(context, provider.delete_asset(
-                    tenant_id=context.job.tenant_id, asset_id=context.job.entity_id,
-                ))
+                stage_started = time.monotonic()
+                try:
+                    self._run(context, provider.delete_asset(
+                        tenant_id=context.job.tenant_id, asset_id=context.job.entity_id,
+                    ))
+                finally:
+                    stages["es_delete_ms"] = (time.monotonic() - stage_started) * 1000
                 return JobHandlerResult.completed()
-            content = self._read_content(context, resolver, document.content_sha256)
-            prepared = decode_visual_image(content)
-            embedding = encoder_client.get_encoder().encode_image(prepared.image)
+            stage_started = time.monotonic()
+            try:
+                content = self._read_content(context, resolver, document.content_sha256)
+            finally:
+                stages["source_read_ms"] = (time.monotonic() - stage_started) * 1000
+            stage_started = time.monotonic()
+            try:
+                prepared = decode_visual_image(content)
+            finally:
+                stages["prepare_image_ms"] = (time.monotonic() - stage_started) * 1000
+            stage_started = time.monotonic()
+            try:
+                embedding = encoder_client.get_encoder().encode_image(prepared.image)
+            finally:
+                stages["encode_ms"] = (time.monotonic() - stage_started) * 1000
             if embedding.descriptor.embedding_schema_version != VISUAL_EMBEDDING_SCHEMA_VERSION:
                 return JobHandlerResult.non_retryable("visual_index_schema_mismatch", "Isolated encoder schema does not match the queued visual index.")
             document = VisualIndexDocument(
@@ -66,25 +146,23 @@ class VisualIndexSyncJobHandler:
                 extension=document.extension, design_type=document.design_type,
                 ancestor_ids=document.ancestor_ids,
             )
-            self._run(context, provider.upsert(document))
-            VISUAL_SEARCH_METRICS.observe_indexing("success")
+            stage_started = time.monotonic()
+            try:
+                self._run(context, provider.upsert(document))
+            finally:
+                stages["es_upsert_ms"] = (time.monotonic() - stage_started) * 1000
             return JobHandlerResult.completed()
         except SourceAssetContentTransient as exc:
-            VISUAL_SEARCH_METRICS.observe_indexing("error")
             return JobHandlerResult.retryable("visual_index_source_unavailable", str(exc))
         except SourceAssetContentUnavailable as exc:
-            VISUAL_SEARCH_METRICS.observe_indexing("error")
             return JobHandlerResult.non_retryable("visual_index_source_unavailable", str(exc))
         except VisualImagePreparationError as exc:
-            VISUAL_SEARCH_METRICS.observe_indexing("error")
             return JobHandlerResult.non_retryable(exc.code, str(exc))
         except ElasticsearchV3RequestError as exc:
-            VISUAL_SEARCH_METRICS.observe_indexing("error")
             if exc.status_code is not None and 400 <= exc.status_code < 500 and exc.status_code != 429:
                 return JobHandlerResult.non_retryable("visual_index_elasticsearch_rejected", str(exc))
             return JobHandlerResult.retryable("visual_index_elasticsearch_unavailable", str(exc))
         except Exception as exc:
-            VISUAL_SEARCH_METRICS.observe_indexing("error")
             return JobHandlerResult.retryable("visual_index_failed", str(exc))
 
     @staticmethod

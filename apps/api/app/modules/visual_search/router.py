@@ -7,6 +7,8 @@ import hashlib
 import json
 import logging
 import time
+from contextvars import ContextVar
+from functools import wraps
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -39,6 +41,137 @@ _MAX_CANDIDATES = 100
 _UPLOAD_READ_CHUNK_BYTES = 1_048_576
 _ENCODER_CAPACITY = asyncio.Semaphore(1)
 logger = logging.getLogger(__name__)
+
+_QUERY_OBSERVATION: ContextVar[dict[str, Any] | None] = ContextVar(
+    "visual_search_query_observation", default=None
+)
+_BOUNDED_ERROR_CODES = {
+    "none",
+    "unexpected",
+    "visual_cursor_invalid",
+    "visual_crop_invalid",
+    "visual_filters_invalid",
+    "visual_image_invalid",
+    "visual_image_too_large",
+    "visual_image_dimensions",
+    "visual_image_decode_pixels",
+    "visual_crop_too_small",
+    "visual_upload_too_large",
+    "visual_refinement_invalid",
+    "visual_encoder_capacity",
+    "visual_encoder_unavailable",
+    "visual_search_unavailable",
+    "visual_source_unavailable",
+    "visual_query_asset_not_found",
+    "visual_query_asset_stale",
+    "visual_query_embedding_pending",
+    "visual_search_disabled",
+    "visual_search_operation_disabled",
+    "visual_search_not_enabled_for_tenant",
+    "viewer_source_required",
+}
+
+
+def _record_query_stage(name: str, started: float) -> None:
+    observation = _QUERY_OBSERVATION.get()
+    if observation is None:
+        return
+    elapsed = (time.monotonic() - started) * 1000
+    observation["stages"][name] = observation["stages"].get(name, 0.0) + elapsed
+
+
+def _set_query_shape(*, kind: str | None = None, hybrid: bool | None = None) -> None:
+    observation = _QUERY_OBSERVATION.get()
+    if observation is None:
+        return
+    if kind is not None:
+        observation["kind"] = kind
+    if hybrid is not None:
+        observation["hybrid"] = hybrid
+
+
+def _bounded_error_code(exc: Exception) -> str:
+    if not isinstance(exc, HTTPException) or not isinstance(exc.detail, dict):
+        return "unexpected"
+    code = str(exc.detail.get("code") or "unexpected")
+    return code if code in _BOUNDED_ERROR_CODES else "unexpected"
+
+
+def _query_outcome(exc: Exception) -> str:
+    code = _bounded_error_code(exc)
+    if code in {
+        "visual_search_disabled",
+        "visual_search_operation_disabled",
+        "visual_search_not_enabled_for_tenant",
+    }:
+        return "disabled"
+    if isinstance(exc, HTTPException) and exc.status_code == 503:
+        return "unavailable"
+    return "error"
+
+
+def _observe_query(default_kind: str):
+    """Record one bounded metric and one completion log per invoked query."""
+
+    def decorate(handler):
+        @wraps(handler)
+        async def wrapped(*args, **kwargs):
+            observation: dict[str, Any] = {
+                "kind": default_kind,
+                "hybrid": False,
+                "started": time.monotonic(),
+                "stages": {},
+            }
+            token = _QUERY_OBSERVATION.set(observation)
+            outcome = "error"
+            error_code = "none"
+            result_count = 0
+            has_more = False
+            try:
+                response = await handler(*args, **kwargs)
+                result_count = len(response.get("items") or [])
+                has_more = bool(response.get("has_more"))
+                outcome = "success" if result_count else "empty"
+                return response
+            except Exception as exc:
+                outcome = _query_outcome(exc)
+                error_code = _bounded_error_code(exc)
+                raise
+            finally:
+                total_ms = (time.monotonic() - observation["started"]) * 1000
+                VISUAL_SEARCH_METRICS.observe_request(
+                    kind=observation["kind"],
+                    outcome=outcome,
+                    total_ms=total_ms,
+                    result_count=result_count,
+                    stages=observation["stages"],
+                )
+                logger.info(
+                    "visual_search_query_completed %s",
+                    json.dumps(
+                        {
+                            "event": "visual_search_query_completed",
+                            "error_code": error_code,
+                            "has_more": has_more,
+                            "hybrid": observation["hybrid"],
+                            "kind": observation["kind"],
+                            "outcome": outcome,
+                            "request_total_ms": round(total_ms, 3),
+                            "result_count": result_count,
+                            **{
+                                key: round(value, 3)
+                                for key, value in sorted(observation["stages"].items())
+                            },
+                        },
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+                _QUERY_OBSERVATION.reset(token)
+
+        return wrapped
+
+    return decorate
 
 def _require_canary_tenant(settings, principal: CurrentPrincipal) -> None:
     if not visual_search_tenant_eligible(settings, principal.active_tenant_id):
@@ -100,38 +233,51 @@ async def _text_embedding(request: Request, text: str) -> VisualEmbedding:
     value = text.strip()
     if not value:
         raise HTTPException(422, detail={"code": "visual_refinement_invalid", "message": "Text refinement is required."})
-    if _ENCODER_CAPACITY.locked():
-        raise HTTPException(503, detail={"code": "visual_encoder_capacity", "message": "Visual search is busy. Please retry shortly.", "retryable": True})
-    await _ENCODER_CAPACITY.acquire()
+    stage_started = time.monotonic()
     try:
-        client = getattr(request.app.state, "visual_encoder_client", None)
-        encoder = client.get_encoder() if client is not None and callable(getattr(client, "get_encoder", None)) else None
-        if encoder is None or not callable(getattr(encoder, "encode_text", None)):
-            raise HTTPException(503, detail={"code": "visual_encoder_unavailable", "message": "Visual search text refinement is temporarily unavailable.", "retryable": True})
+        if _ENCODER_CAPACITY.locked():
+            raise HTTPException(503, detail={"code": "visual_encoder_capacity", "message": "Visual search is busy. Please retry shortly.", "retryable": True})
+        await _ENCODER_CAPACITY.acquire()
         try:
-            return await asyncio.to_thread(encoder.encode_text, value)
-        except (VisualEncoderUnavailableError, ValueError) as exc:
-            raise HTTPException(503, detail={"code": "visual_encoder_unavailable", "message": "Visual search text refinement is temporarily unavailable.", "retryable": True}) from exc
+            client = getattr(request.app.state, "visual_encoder_client", None)
+            encoder = client.get_encoder() if client is not None and callable(getattr(client, "get_encoder", None)) else None
+            if encoder is None or not callable(getattr(encoder, "encode_text", None)):
+                raise HTTPException(503, detail={"code": "visual_encoder_unavailable", "message": "Visual search text refinement is temporarily unavailable.", "retryable": True})
+            try:
+                return await asyncio.to_thread(encoder.encode_text, value)
+            except (VisualEncoderUnavailableError, ValueError) as exc:
+                raise HTTPException(503, detail={"code": "visual_encoder_unavailable", "message": "Visual search text refinement is temporarily unavailable.", "retryable": True}) from exc
+        finally:
+            _ENCODER_CAPACITY.release()
     finally:
-        _ENCODER_CAPACITY.release()
+        _record_query_stage("encode_text_ms", stage_started)
 
 
 def _rank_hits(hits, *, offset: int, limit: int, settings):
-    ranked = diversify_hits(hits, weights=_ranking_weights(settings))
-    window = ranked[offset: offset + limit + 1]
-    page = window[:limit]
-    # The lookahead candidate determines whether a cursor is useful.  Hydration
-    # happens later and may remove page candidates, but must not affect cursor
-    # consumption or a stale candidate could repeat indefinitely.
-    return page, len(window) > limit
+    started = time.monotonic()
+    try:
+        ranked = diversify_hits(hits, weights=_ranking_weights(settings))
+        window = ranked[offset: offset + limit + 1]
+        page = window[:limit]
+        # The lookahead candidate determines whether a cursor is useful. Hydration
+        # happens later and may remove page candidates, but must not affect cursor
+        # consumption or a stale candidate could repeat indefinitely.
+        return page, len(window) > limit
+    finally:
+        _record_query_stage("rank_ms", started)
 
 
 @router.post("/by-asset", response_model=VisualSearchResponse)
+@_observe_query("asset")
 async def find_similar_by_asset(
     request: Request,
     body: VisualSearchByAssetRequest,
     principal: CurrentPrincipal = Depends(VISUAL_SEARCH_READ),
 ) -> dict[str, Any]:
+    _set_query_shape(
+        kind="hybrid" if body.text is not None else ("crop" if body.crop is not None else "asset"),
+        hybrid=body.text is not None,
+    )
     settings = get_settings()
     _require_canary_tenant(settings, principal)
     try:
@@ -149,7 +295,6 @@ async def find_similar_by_asset(
         return await _find_similar_by_asset_crop(request, body, principal, settings)
 
     tenant = principal.active_tenant_id
-    started = time.monotonic()
     with SessionLocal() as session:
         asset = session.scalar(select(AssetModel).where(AssetModel.tenant_id == tenant, AssetModel.id == body.asset_id))
         if asset is None:
@@ -200,13 +345,20 @@ async def find_similar_by_asset(
         except (TypeError, ValueError) as exc:
             raise HTTPException(409, detail={"code": "visual_query_embedding_pending", "message": "Visual embedding is not ready yet.", "retryable": True}) from exc
         if body.text is not None:
+            text_embedding = await _text_embedding(request, body.text)
+            rank_started = time.monotonic()
             embedding = fuse_embeddings(
                 embedding,
-                await _text_embedding(request, body.text),
+                text_embedding,
                 weights=_ranking_weights(settings),
             )
+            _record_query_stage("rank_ms", rank_started)
         scope = VisualSearchScope(tenant, tuple([*filters, *_typed_filters(body.filters)]))
-        hits = await index.search(embedding, scope=scope, limit=_MAX_CANDIDATES, num_candidates=_MAX_CANDIDATES, exclude_asset_id=asset.id)
+        knn_started = time.monotonic()
+        try:
+            hits = await index.search(embedding, scope=scope, limit=_MAX_CANDIDATES, num_candidates=_MAX_CANDIDATES, exclude_asset_id=asset.id)
+        finally:
+            _record_query_stage("knn_ms", knn_started)
     except ElasticsearchV3RequestError as exc:
         raise HTTPException(503, detail={"code": "visual_search_unavailable", "message": "Visual search is temporarily unavailable.", "retryable": True}) from exc
     finally:
@@ -214,15 +366,16 @@ async def find_similar_by_asset(
 
     candidates, has_more = _rank_hits(hits, offset=offset, limit=body.limit, settings=settings)
     raw_hits = [{"_id": hit.document_id, "_score": hit.score, "_source": {"asset_id": hit.asset_id, "source_id": hit.source_id}} for hit in candidates]
-    with SessionLocal() as session:
-        items = _hydrate_search_hits(session, tenant, raw_hits, viewer_restricted=viewer_restricted, limit=body.limit)
-        session.commit()
+    hydrate_started = time.monotonic()
+    try:
+        with SessionLocal() as session:
+            items = _hydrate_search_hits(session, tenant, raw_hits, viewer_restricted=viewer_restricted, limit=body.limit)
+            session.commit()
+    finally:
+        _record_query_stage("hydrate_ms", hydrate_started)
     for item in items:
         item.pop("score", None)
     cursor = _next_cursor(offset, len(candidates), has_more, fingerprint=fingerprint)
-    duration_ms = round((time.monotonic() - started) * 1000)
-    VISUAL_SEARCH_METRICS.observe_request(kind="asset", outcome="success", total_ms=duration_ms, result_count=len(items))
-    logger.info("visual_search_by_asset_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
     return {"query_kind": "asset", "items": items, "next_cursor": cursor, "has_more": cursor is not None}
 
 
@@ -277,61 +430,70 @@ async def _upload_embedding(
     *,
     crop: NormalizedCrop | None = None,
 ) -> VisualEmbedding:
-    if _ENCODER_CAPACITY.locked():
-        raise HTTPException(
-            503,
-            detail={
-                "code": "visual_encoder_capacity",
-                "message": "Visual search is busy. Please retry shortly.",
-                "retryable": True,
-            },
-        )
-    await _ENCODER_CAPACITY.acquire()
+    prepare_started = time.monotonic()
     try:
-        prepared = await asyncio.to_thread(decode_visual_image, content, crop=crop)
-        client = getattr(request.app.state, "visual_encoder_client", None)
-        if client is None or not callable(getattr(client, "get_encoder", None)):
-            raise HTTPException(
-                503,
-                detail={
-                    "code": "visual_encoder_unavailable",
-                    "message": "Visual search is temporarily unavailable.",
-                    "retryable": True,
-                },
-            )
         try:
-            embedding = await asyncio.to_thread(
-                lambda: client.get_encoder().encode_image(prepared.image)
-            )
-        except VisualEncoderUnavailableError as exc:
+            prepared = await asyncio.to_thread(decode_visual_image, content, crop=crop)
+        finally:
+            _record_query_stage("prepare_image_ms", prepare_started)
+        encode_started = time.monotonic()
+        if _ENCODER_CAPACITY.locked():
             raise HTTPException(
                 503,
                 detail={
-                    "code": "visual_encoder_unavailable",
-                    "message": "Visual search is temporarily unavailable.",
-                    "retryable": True,
-                },
-            ) from exc
-        except Exception as exc:
-            logger.warning("visual_encoder_request_failed error_type=%s", type(exc).__name__)
-            raise HTTPException(
-                503,
-                detail={
-                    "code": "visual_encoder_unavailable",
-                    "message": "Visual search is temporarily unavailable.",
-                    "retryable": True,
-                },
-            ) from exc
-        if embedding.descriptor != VISUAL_SEARCH_BASELINE_DESCRIPTOR:
-            raise HTTPException(
-                503,
-                detail={
-                    "code": "visual_encoder_unavailable",
-                    "message": "Visual search is temporarily unavailable.",
+                    "code": "visual_encoder_capacity",
+                    "message": "Visual search is busy. Please retry shortly.",
                     "retryable": True,
                 },
             )
-        return embedding
+        await _ENCODER_CAPACITY.acquire()
+        try:
+            client = getattr(request.app.state, "visual_encoder_client", None)
+            if client is None or not callable(getattr(client, "get_encoder", None)):
+                raise HTTPException(
+                    503,
+                    detail={
+                        "code": "visual_encoder_unavailable",
+                        "message": "Visual search is temporarily unavailable.",
+                        "retryable": True,
+                    },
+                )
+            try:
+                embedding = await asyncio.to_thread(
+                    lambda: client.get_encoder().encode_image(prepared.image)
+                )
+            except VisualEncoderUnavailableError as exc:
+                raise HTTPException(
+                    503,
+                    detail={
+                        "code": "visual_encoder_unavailable",
+                        "message": "Visual search is temporarily unavailable.",
+                        "retryable": True,
+                    },
+                ) from exc
+            except Exception as exc:
+                logger.warning("visual_encoder_request_failed error_type=%s", type(exc).__name__)
+                raise HTTPException(
+                    503,
+                    detail={
+                        "code": "visual_encoder_unavailable",
+                        "message": "Visual search is temporarily unavailable.",
+                        "retryable": True,
+                    },
+                ) from exc
+            if embedding.descriptor != VISUAL_SEARCH_BASELINE_DESCRIPTOR:
+                raise HTTPException(
+                    503,
+                    detail={
+                        "code": "visual_encoder_unavailable",
+                        "message": "Visual search is temporarily unavailable.",
+                        "retryable": True,
+                    },
+                )
+            return embedding
+        finally:
+            _ENCODER_CAPACITY.release()
+            _record_query_stage("encode_image_ms", encode_started)
     except VisualImagePreparationError as exc:
         status_code = 413 if exc.code in {
             "visual_image_too_large",
@@ -342,11 +504,10 @@ async def _upload_embedding(
             status_code,
             detail={"code": exc.code, "message": str(exc), "retryable": False},
         ) from exc
-    finally:
-        _ENCODER_CAPACITY.release()
 
 
 @router.post("/upload", response_model=VisualSearchResponse)
+@_observe_query("upload")
 async def find_similar_by_upload(
     request: Request,
     file: UploadFile = File(...),
@@ -359,6 +520,7 @@ async def find_similar_by_upload(
     limit: int = Query(default=40, ge=1, le=100),
     principal: CurrentPrincipal = Depends(VISUAL_SEARCH_READ),
 ) -> dict[str, Any]:
+    _set_query_shape(kind="hybrid" if text and text.strip() else "upload", hybrid=bool(text and text.strip()))
     settings = get_settings()
     _require_canary_tenant(settings, principal)
     parsed_crop = _parse_crop(crop)
@@ -401,14 +563,16 @@ async def find_similar_by_upload(
         await file.close()
     embedding = await _upload_embedding(request, content, crop=parsed_crop)
     if text is not None:
+        text_embedding = await _text_embedding(request, text)
+        rank_started = time.monotonic()
         embedding = fuse_embeddings(
             embedding,
-            await _text_embedding(request, text),
+            text_embedding,
             weights=_ranking_weights(settings),
         )
+        _record_query_stage("rank_ms", rank_started)
     parsed_filters = _parse_upload_filters(filters)
     tenant = principal.active_tenant_id
-    started = time.monotonic()
     with SessionLocal() as session:
         access_filters, viewer_scope_key, viewer_restricted = _search_scope_filters(
             session,
@@ -448,12 +612,16 @@ async def find_similar_by_upload(
             tenant,
             tuple([*access_filters, *_typed_filters(parsed_filters)]),
         )
-        hits = await index.search(
-            embedding,
-            scope=scope,
-            limit=_MAX_CANDIDATES,
-            num_candidates=_MAX_CANDIDATES,
-        )
+        knn_started = time.monotonic()
+        try:
+            hits = await index.search(
+                embedding,
+                scope=scope,
+                limit=_MAX_CANDIDATES,
+                num_candidates=_MAX_CANDIDATES,
+            )
+        finally:
+            _record_query_stage("knn_ms", knn_started)
     except ElasticsearchV3RequestError as exc:
         raise HTTPException(
             503,
@@ -475,21 +643,22 @@ async def find_similar_by_upload(
         }
         for hit in candidates[:limit]
     ]
-    with SessionLocal() as session:
-        items = _hydrate_search_hits(
-            session,
-            tenant,
-            raw_hits,
-            viewer_restricted=viewer_restricted,
-            limit=limit,
-        )
-        session.commit()
+    hydrate_started = time.monotonic()
+    try:
+        with SessionLocal() as session:
+            items = _hydrate_search_hits(
+                session,
+                tenant,
+                raw_hits,
+                viewer_restricted=viewer_restricted,
+                limit=limit,
+            )
+            session.commit()
+    finally:
+        _record_query_stage("hydrate_ms", hydrate_started)
     for item in items:
         item.pop("score", None)
     next_cursor = _next_cursor(offset, len(candidates), has_more, fingerprint=fingerprint)
-    duration_ms = round((time.monotonic() - started) * 1000)
-    VISUAL_SEARCH_METRICS.observe_request(kind="upload", outcome="success", total_ms=duration_ms, result_count=len(items))
-    logger.info("visual_search_upload_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
     return {
         "query_kind": "upload",
         "items": items,
@@ -642,12 +811,14 @@ async def _find_similar_by_asset_crop(
     )
     embedding = await _upload_embedding(request, content, crop=body.crop)
     if body.text is not None:
+        text_embedding = await _text_embedding(request, body.text)
+        rank_started = time.monotonic()
         embedding = fuse_embeddings(
             embedding,
-            await _text_embedding(request, body.text),
+            text_embedding,
             weights=_ranking_weights(settings),
         )
-    started = time.monotonic()
+        _record_query_stage("rank_ms", rank_started)
     fingerprint = hashlib.sha256(
         json.dumps(
             {
@@ -680,13 +851,17 @@ async def _find_similar_by_asset_crop(
             tenant,
             tuple([*access_filters, *_typed_filters(body.filters)]),
         )
-        hits = await index.search(
-            embedding,
-            scope=scope,
-            limit=_MAX_CANDIDATES,
-            num_candidates=_MAX_CANDIDATES,
-            exclude_asset_id=asset.id,
-        )
+        knn_started = time.monotonic()
+        try:
+            hits = await index.search(
+                embedding,
+                scope=scope,
+                limit=_MAX_CANDIDATES,
+                num_candidates=_MAX_CANDIDATES,
+                exclude_asset_id=asset.id,
+            )
+        finally:
+            _record_query_stage("knn_ms", knn_started)
     except ElasticsearchV3RequestError as exc:
         raise HTTPException(
             503,
@@ -708,21 +883,22 @@ async def _find_similar_by_asset_crop(
         }
         for hit in candidates[:body.limit]
     ]
-    with SessionLocal() as session:
-        items = _hydrate_search_hits(
-            session,
-            tenant,
-            raw_hits,
-            viewer_restricted=viewer_restricted,
-            limit=body.limit,
-        )
-        session.commit()
+    hydrate_started = time.monotonic()
+    try:
+        with SessionLocal() as session:
+            items = _hydrate_search_hits(
+                session,
+                tenant,
+                raw_hits,
+                viewer_restricted=viewer_restricted,
+                limit=body.limit,
+            )
+            session.commit()
+    finally:
+        _record_query_stage("hydrate_ms", hydrate_started)
     for item in items:
         item.pop("score", None)
     next_cursor = _next_cursor(offset, len(candidates), has_more, fingerprint=fingerprint)
-    duration_ms = round((time.monotonic() - started) * 1000)
-    VISUAL_SEARCH_METRICS.observe_request(kind="crop", outcome="success", total_ms=duration_ms, result_count=len(items))
-    logger.info("visual_search_asset_crop_completed tenant_id=%s result_count=%s duration_ms=%s", tenant, len(items), duration_ms)
     return {
         "query_kind": "asset",
         "items": items,

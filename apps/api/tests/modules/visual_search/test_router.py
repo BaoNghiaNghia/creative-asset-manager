@@ -24,6 +24,7 @@ from PIL import Image
 from app.modules.visual_search.contracts import VisualEmbedding
 from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 from app.modules.visual_search.elasticsearch import VisualSearchHit
+from app.modules.visual_search.metrics import VisualSearchMetrics
 
 
 class _Index:
@@ -52,14 +53,19 @@ class _PendingIndex(_Index):
         raise ElasticsearchV3RequestError("missing", status_code=404)
 
 
+class _FailingSearchIndex(_Index):
+    async def search(self, embedding, **kwargs):
+        raise ElasticsearchV3RequestError("unavailable", status_code=503)
+
+
 class _UploadEncoder:
     descriptor = _Index.descriptor
 
     def encode_image(self, _image):
-        return VisualEmbedding(self.descriptor, tuple(0.0 for _ in range(self.descriptor.dimension)))
+        return VisualEmbedding(self.descriptor, (1.0,) + tuple(0.0 for _ in range(self.descriptor.dimension - 1)))
 
     def encode_text(self, _text):
-        return VisualEmbedding(self.descriptor, tuple(0.0 for _ in range(self.descriptor.dimension)))
+        return VisualEmbedding(self.descriptor, (1.0,) + tuple(0.0 for _ in range(self.descriptor.dimension - 1)))
 
 
 class _UploadEncoderClient:
@@ -285,6 +291,112 @@ class VisualByAssetApiTest(unittest.TestCase):
         self.assertIsNotNone(cursor)
         response = self._post({"asset_id": "asset-a", "filters": {"extension": ["png"]}, "cursor": cursor, "limit": 1})
         self.assertEqual(response.status_code, 422)
+
+    def test_upload_hybrid_records_all_stages_and_one_safe_completion_log(self):
+        metrics = VisualSearchMetrics()
+        with patch("app.modules.visual_search.router.VISUAL_SEARCH_METRICS", metrics), \
+             self.assertLogs("app.modules.visual_search.router", level="INFO") as logs:
+            response = self._upload(
+                payload={"text": "outdoor"},
+                settings=self._settings(
+                    VISUAL_SEARCH_UPLOAD_ENABLED=True,
+                    VISUAL_SEARCH_HYBRID_TEXT_ENABLED=True,
+                ),
+            )
+        self.assertEqual(response.status_code, 200)
+        snapshot = metrics.snapshot()
+        self.assertEqual(snapshot["visual_search_requests_total"], [
+            {"kind": "hybrid", "outcome": "success", "value": 1}
+        ])
+        self.assertEqual(
+            {row["stage"] for row in snapshot["query_latency"]},
+            {
+                "request_total_ms", "prepare_image_ms", "encode_image_ms",
+                "encode_text_ms", "knn_ms", "rank_ms", "hydrate_ms",
+            },
+        )
+        completion = [line for line in logs.output if "visual_search_query_completed" in line]
+        self.assertEqual(len(completion), 1)
+        self.assertNotIn("tenant-a", completion[0])
+        self.assertNotIn("outdoor", completion[0])
+
+    def test_encoder_and_elasticsearch_failures_are_observed_once(self):
+        metrics = VisualSearchMetrics()
+        app.state.visual_encoder_client = None
+        with patch("app.modules.visual_search.router.VISUAL_SEARCH_METRICS", metrics), \
+             patch("app.modules.visual_search.router.SessionLocal", self.factory), \
+             patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=True)):
+            response = self.client.post(
+                "/api/v1/search/visual/upload",
+                files={"file": ("query.png", _png_bytes(), "image/png")},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(metrics.snapshot()["visual_search_requests_total"], [
+            {"kind": "upload", "outcome": "unavailable", "value": 1}
+        ])
+
+    def test_pending_disabled_and_image_preparation_failures_are_observed_once(self):
+        metrics = VisualSearchMetrics()
+        with patch("app.modules.visual_search.router.VISUAL_SEARCH_METRICS", metrics), \
+             patch("app.modules.visual_search.router.SessionLocal", self.factory), \
+             patch("app.modules.visual_search.router.get_settings", return_value=self._settings()), \
+             patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _PendingIndex):
+            response = self.client.post(
+                "/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"}
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(metrics.snapshot()["visual_search_requests_total"], [
+            {"kind": "asset", "outcome": "error", "value": 1}
+        ])
+
+        metrics = VisualSearchMetrics()
+        with patch("app.modules.visual_search.router.VISUAL_SEARCH_METRICS", metrics), \
+             patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_ENABLED=False)):
+            response = self.client.post(
+                "/api/v1/search/visual/by-asset", json={"asset_id": "asset-a"}
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(metrics.snapshot()["visual_search_requests_total"], [
+            {"kind": "asset", "outcome": "disabled", "value": 1}
+        ])
+
+        metrics = VisualSearchMetrics()
+        app.state.visual_encoder_client = _UploadEncoderClient()
+        try:
+            with patch("app.modules.visual_search.router.VISUAL_SEARCH_METRICS", metrics), \
+                 patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=True)):
+                response = self.client.post(
+                    "/api/v1/search/visual/upload",
+                    files={"file": ("query.png", b"not-an-image", "image/png")},
+                )
+        finally:
+            app.state.visual_encoder_client = None
+        self.assertEqual(response.status_code, 422)
+        snapshot = metrics.snapshot()
+        self.assertEqual(snapshot["visual_search_requests_total"], [
+            {"kind": "upload", "outcome": "error", "value": 1}
+        ])
+        self.assertIn(
+            "prepare_image_ms", {row["stage"] for row in snapshot["query_latency"]}
+        )
+
+        metrics = VisualSearchMetrics()
+        app.state.visual_encoder_client = _UploadEncoderClient()
+        try:
+            with patch("app.modules.visual_search.router.VISUAL_SEARCH_METRICS", metrics), \
+                 patch("app.modules.visual_search.router.SessionLocal", self.factory), \
+                 patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=True)), \
+                 patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _FailingSearchIndex):
+                response = self.client.post(
+                    "/api/v1/search/visual/upload",
+                    files={"file": ("query.png", _png_bytes(), "image/png")},
+                )
+        finally:
+            app.state.visual_encoder_client = None
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(metrics.snapshot()["visual_search_requests_total"], [
+            {"kind": "upload", "outcome": "unavailable", "value": 1}
+        ])
 
 
 if __name__ == "__main__":

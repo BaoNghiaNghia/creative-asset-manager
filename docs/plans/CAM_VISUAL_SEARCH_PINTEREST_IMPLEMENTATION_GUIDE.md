@@ -64,7 +64,8 @@ does not authorize production-wide enablement.
 | VS-12B — Pagination + committed visual query state | **COMPLETE** |
 | VS-12C — Encoder package boundary cleanup | **COMPLETE** |
 | VS-12D — Encoder authentication and decode hardening | **COMPLETE** |
-| VS-12E — Observability and release metrics | **NEXT** |
+| VS-12E — Observability and release metrics | **COMPLETE** |
+| VS-12F — Measured canary evidence and release decision | **NEXT** |
 
 Visual Search cursors now represent the next post-ranking candidate position.
 Frontend draft crop/text controls are separate from the last successful committed
@@ -72,6 +73,57 @@ query, which Load More replays unchanged.
 
 Broad production rollout remains **BLOCKED** until the remaining VS-12 gates,
 including correctness, relevance, VPS evidence, and rollback validation, pass.
+Production canary execution is **NOT AUTHORIZED** by this development change.
+
+### VS-12E observability contract
+
+VS-12E records one terminal observation and one structured completion log for
+every invoked Visual Search query and visual-index job. Query observations are
+split into `asset`, `upload`, `crop`, and `hybrid`; empty results are a terminal
+`empty` outcome rather than an extra success count.
+
+Query stage definitions:
+
+| Stage | Boundary |
+|---|---|
+| `request_total_ms` | Complete endpoint handler execution, including preparation and encoding |
+| `prepare_image_ms` | Bounded image decode, orientation normalization, and optional crop |
+| `encode_image_ms` | Image encoder capacity check/wait and inference |
+| `encode_text_ms` | Text encoder capacity check/wait and inference |
+| `knn_ms` | Elasticsearch visual candidate request |
+| `rank_ms` | Hybrid vector fusion plus ranking/diversification/pagination |
+| `hydrate_ms` | Authorized database hydration of ranked candidates |
+
+Index stage definitions are `job_total_ms`, `source_read_ms`,
+`prepare_image_ms`, `encode_ms`, `es_upsert_ms`, and `es_delete_ms`. Stages that
+begin and fail are still timed. Query and index completion logs contain only a
+bounded kind/outcome/error code, counts/booleans, and stage durations. They do
+not contain tenant or asset identifiers, query text, uploaded bytes/base64,
+vectors, credentials, or API keys.
+
+The diagnostic snapshot is authenticated by `ai_operations.read`. Latency
+samples are thread-safe and process-local, use a bounded rolling window of 512
+samples per metric key, and expose deterministic nearest-rank p50/p95, maximum,
+sample count, process start time, and snapshot time. Samples reset at process
+restart. Structured completion logs are the durable evidence source when the
+service journal/log collector retains them.
+
+### VS-12F canary evidence gate — NEXT
+
+Do not change production flags from this document. A separately authorized
+VS-12F canary must capture and retain:
+
+- exact deployed commit, tenant allowlist, flags, encoder descriptor, and index alias;
+- successful asset/upload/crop/hybrid samples and controlled failure samples;
+- query/index terminal counts and stage p50/p95/max/sample counts;
+- encoder RSS/CPU, API/VPS memory, and Elasticsearch memory/disk deltas;
+- Search V3 regression results, tenant-isolation evidence, relevance review,
+  backfill impact, immediate-disable proof, and rollback proof;
+- journal/log retention evidence sufficient to correlate the measurement window.
+
+Until those artifacts have an explicit release review, production-wide
+readiness is **BLOCKED** and production canary authorization remains **NOT
+AUTHORIZED**.
 
 ### Encoder ownership boundary
 
