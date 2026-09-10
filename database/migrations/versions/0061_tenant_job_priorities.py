@@ -14,12 +14,22 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "tenant_processing_policies",
-        sa.Column("job_priorities_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
-    )
-    op.alter_column("tenant_processing_policies", "job_priorities_json", server_default=None)
+    with op.batch_alter_table("tenant_processing_policies") as batch_op:
+        batch_op.add_column(
+            sa.Column(
+                "job_priorities_json",
+                sa.JSON(),
+                nullable=False,
+                server_default=sa.text("'{}'"),
+            )
+        )
+        batch_op.alter_column(
+            "job_priorities_json",
+            existing_type=sa.JSON(),
+            server_default=None,
+        )
 
 
 def downgrade():
-    op.drop_column("tenant_processing_policies", "job_priorities_json")
+    with op.batch_alter_table("tenant_processing_policies") as batch_op:
+        batch_op.drop_column("job_priorities_json")

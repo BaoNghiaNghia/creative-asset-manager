@@ -12,15 +12,38 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
-    op.add_column("desktop_oauth_handoffs", sa.Column("intent", sa.String(length=32), nullable=False, server_default="application_login"))
-    op.add_column("desktop_oauth_handoffs", sa.Column("initiating_user_id", sa.String(length=36), nullable=True))
-    op.add_column("desktop_oauth_handoffs", sa.Column("initiating_tenant_id", sa.String(length=255), nullable=True))
-    op.add_column("desktop_oauth_handoffs", sa.Column("reconnect_external_source_id", sa.String(length=36), nullable=True))
-    op.create_check_constraint("ck_desktop_oauth_handoffs_intent", "desktop_oauth_handoffs", "intent IN ('application_login','google_drive_connect','onedrive_connect')")
+    # SQLite cannot ALTER a table to add a check constraint. Alembic batch
+    # mode transparently rebuilds it there while retaining regular ALTERs on
+    # PostgreSQL, so development startup and production use one migration.
+    with op.batch_alter_table("desktop_oauth_handoffs") as batch_op:
+        batch_op.add_column(
+            sa.Column(
+                "intent",
+                sa.String(length=32),
+                nullable=False,
+                server_default="application_login",
+            )
+        )
+        batch_op.add_column(
+            sa.Column("initiating_user_id", sa.String(length=36), nullable=True)
+        )
+        batch_op.add_column(
+            sa.Column("initiating_tenant_id", sa.String(length=255), nullable=True)
+        )
+        batch_op.add_column(
+            sa.Column(
+                "reconnect_external_source_id", sa.String(length=36), nullable=True
+            )
+        )
+        batch_op.create_check_constraint(
+            "ck_desktop_oauth_handoffs_intent",
+            "intent IN ('application_login','google_drive_connect','onedrive_connect')",
+        )
 
 def downgrade():
-    op.drop_constraint("ck_desktop_oauth_handoffs_intent", "desktop_oauth_handoffs", type_="check")
-    op.drop_column("desktop_oauth_handoffs", "reconnect_external_source_id")
-    op.drop_column("desktop_oauth_handoffs", "initiating_tenant_id")
-    op.drop_column("desktop_oauth_handoffs", "initiating_user_id")
-    op.drop_column("desktop_oauth_handoffs", "intent")
+    with op.batch_alter_table("desktop_oauth_handoffs") as batch_op:
+        batch_op.drop_constraint("ck_desktop_oauth_handoffs_intent", type_="check")
+        batch_op.drop_column("reconnect_external_source_id")
+        batch_op.drop_column("initiating_tenant_id")
+        batch_op.drop_column("initiating_user_id")
+        batch_op.drop_column("intent")
