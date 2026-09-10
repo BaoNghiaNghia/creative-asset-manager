@@ -11,7 +11,7 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
 from app.modules.assets.content_resolver import SourceAssetContentTransient, SourceAssetContentUnavailable
-from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.pipeline.mime_types import is_supported_image_mime_type
 from app.modules.search.source_index import SearchSourceIndexResolver
 from app.modules.visual_search.contracts import VisualEmbedding
@@ -204,9 +204,10 @@ class VisualIndexSyncJobHandler:
             raise ValueError("visual index job schema is stale")
         with context.dependencies.session_factory() as session:
             row = session.execute(
-                select(AssetModel, SourceAssetModel)
+                select(AssetModel, SourceAssetModel, ExternalSourceModel.source_type)
                 .join(AssetSourceLinkModel, AssetSourceLinkModel.asset_id == AssetModel.id)
                 .join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id)
+                .join(ExternalSourceModel, ExternalSourceModel.id == SourceAssetModel.external_source_id)
                 .where(
                     AssetModel.tenant_id == context.job.tenant_id,
                     AssetModel.id == asset_id,
@@ -219,10 +220,10 @@ class VisualIndexSyncJobHandler:
             ).one_or_none()
             if row is None:
                 return None
-            _asset, source = row
+            _asset, source, source_type = row
             if not is_supported_image_mime_type(source.mime_type):
                 return None
-            details = SearchSourceIndexResolver(session).for_source(source)
+            details = SearchSourceIndexResolver(session).for_source(source, source_type=str(source_type or ""))
             return VisualIndexDocument(
                 tenant_id=context.job.tenant_id, asset_id=asset_id, content_sha256=expected,
                 embedding=VisualEmbedding(provider.descriptor, tuple(0.0 for _ in range(provider.descriptor.dimension))),
