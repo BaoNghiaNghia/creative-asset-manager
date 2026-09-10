@@ -764,6 +764,9 @@ export default function App() {
                 aria-label="Clear search"
                 title="Clear search"
               >{"\u00d7"}</button>}
+              <button type="button" className="visual-search-entry" onClick={() => setVisualSearchOpen(true)} aria-label="Search by image" title="Search by image" aria-expanded={visualSearchOpen}>
+                <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="12" height="10" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m5.5 12 3-3 2.25 2.25 1.5-1.5L15 12.5M15 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm3.25 3.25-2.1-2.1"/></svg>
+              </button>
               {showSearchHistory && <div className="search-history" role="listbox" aria-label="Recent searches">
                 <div className="search-history-header"><strong>Recent searches</strong><button type="button" onClick={clearSearchHistory}>Clear all</button></div>
                 {searchHistory.map(entry => <div className="search-history-item" key={entry}>
@@ -792,9 +795,7 @@ export default function App() {
                   ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
               </div>}
             </div>
-            <button type="button" className="visual-search-entry" onClick={() => setVisualSearchOpen(true)} aria-label="Visual search" title="Visual search" aria-expanded={visualSearchOpen}>
-              <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="12" height="10" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m5.5 12 3-3 2.25 2.25 1.5-1.5L15 12.5M15 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm3.25 3.25-2.1-2.1"/></svg>
-            </button>
+
             <div className="search-mode-tabs" role="radiogroup" aria-label="Search media type">
               {(["all", "images", "videos"] as SearchMediaMode[]).map(mode => <button
                 key={mode}
