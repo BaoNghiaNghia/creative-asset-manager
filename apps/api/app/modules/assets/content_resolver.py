@@ -152,9 +152,22 @@ class SourceAssetContentResolver:
                     closed = True
                     await stream.close()
 
+            async def body():
+                try:
+                    async for block in stream.body:
+                        yield block
+                except Exception as exc:
+                    if self._is_transient_provider_error(exc):
+                        raise SourceAssetContentTransient(
+                            "source provider stream was interrupted"
+                        ) from exc
+                    raise SourceAssetContentUnavailable(
+                        "source provider stream could not be read"
+                    ) from exc
+
             try:
                 yield AssetDownloadStream(
-                    body=stream.body, close=close, status_code=stream.status_code,
+                    body=body(), close=close, status_code=stream.status_code,
                     content_type=stream.content_type, headers=stream.headers,
                 )
             finally:
@@ -167,4 +180,9 @@ class SourceAssetContentResolver:
             status_code == 408 or status_code == 429 or 500 <= status_code <= 599
         ):
             return True
-        return isinstance(exc, (TimeoutError, ConnectionError, OSError))
+        try:
+            import httpx
+            httpx_transient = (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)
+        except ImportError:
+            httpx_transient = ()
+        return isinstance(exc, (TimeoutError, ConnectionError, OSError, *httpx_transient))

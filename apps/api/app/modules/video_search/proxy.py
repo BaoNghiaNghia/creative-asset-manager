@@ -217,34 +217,64 @@ class VideoProxyPreparationService:
         size_is_authoritative: bool,
     ) -> None:
         written = 0
-        try:
-            async with self._resolver.open(
-                tenant_id=tenant_id, source_asset_id=source_asset_id, range_header=None
-            ) as stream:
-                with source_path.open("xb") as destination:
-                    async for block in stream.body:
-                        if not isinstance(block, bytes):
-                            raise VideoProxySourceStreamError("provider stream emitted a non-bytes block")
-                        next_size = written + len(block)
-                        if next_size > maximum_size:
-                            raise VideoProxySourceTooLargeError("video source exceeds configured maximum size")
-                        self._ensure_free_space(root, output_reserve)
-                        destination.write(block)
-                        written = next_size
-        except VideoProxyPreparationError:
-            raise
-        except SourceAssetContentTransient as exc:
+        attempts = max(
+            1, int(getattr(self._settings, "VIDEO_PROXY_SOURCE_DOWNLOAD_ATTEMPTS", 3))
+        )
+        for attempt in range(attempts):
+            range_header = f"bytes={written}-" if written else None
+            try:
+                async with self._resolver.open(
+                    tenant_id=tenant_id,
+                    source_asset_id=source_asset_id,
+                    range_header=range_header,
+                ) as stream:
+                    # A resumed response must be partial. If a provider ignores
+                    # Range, discard the partial file and restart safely instead
+                    # of appending duplicate bytes to the video.
+                    if written and stream.status_code != 206:
+                        source_path.unlink(missing_ok=True)
+                        written = 0
+                        continue
+                    mode = "ab" if written else "xb"
+                    with source_path.open(mode) as destination:
+                        async for block in stream.body:
+                            if not isinstance(block, bytes):
+                                raise VideoProxySourceStreamError(
+                                    "provider stream emitted a non-bytes block"
+                                )
+                            next_size = written + len(block)
+                            if next_size > maximum_size:
+                                raise VideoProxySourceTooLargeError(
+                                    "video source exceeds configured maximum size"
+                                )
+                            self._ensure_free_space(root, output_reserve)
+                            destination.write(block)
+                            written = next_size
+                break
+            except VideoProxyPreparationError:
+                raise
+            except SourceAssetContentTransient as exc:
+                if attempt + 1 >= attempts:
+                    raise VideoProxySourceTemporarilyUnavailable(
+                        "video source provider is temporarily unavailable"
+                    ) from exc
+                await asyncio.sleep(min(0.5 * (2**attempt), 3.0))
+            except SourceAssetContentUnavailable as exc:
+                raise VideoProxySourceError("video source content is unavailable") from exc
+            except OSError as exc:
+                raise VideoProxyMaterializationError(
+                    "cannot materialize video source locally"
+                ) from exc
+        else:
             raise VideoProxySourceTemporarilyUnavailable(
-                "video source provider is temporarily unavailable"
-            ) from exc
-        except SourceAssetContentUnavailable as exc:
-            raise VideoProxySourceError("video source content is unavailable") from exc
-        except OSError as exc:
-            raise VideoProxyMaterializationError("cannot materialize video source locally") from exc
+                "video source provider did not support a resumable download"
+            )
         if written <= 0:
             raise VideoProxySourceEmptyError("video source is empty")
         if size_is_authoritative and written != expected_size:
-            raise VideoProxySourceSizeMismatchError("video source size does not match source metadata")
+            raise VideoProxySourceSizeMismatchError(
+                "video source size does not match source metadata"
+            )
 
     @staticmethod
     def _source_path(directory: Path, mime_type: str | None) -> Path:

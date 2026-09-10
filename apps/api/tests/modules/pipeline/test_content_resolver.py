@@ -1,13 +1,19 @@
 import asyncio
 import unittest
 
+import httpx
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.domain.providers.contracts import AssetDownloadStream, ExternalAssetCandidate
-from app.modules.assets.content_resolver import SourceAssetContentResolver, SourceAssetContentUnavailable
+from app.modules.assets.content_resolver import (
+    SourceAssetContentResolver,
+    SourceAssetContentTransient,
+    SourceAssetContentUnavailable,
+)
 from app.modules.assets.model import SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.content_resolver import (
@@ -233,6 +239,40 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
         self.assertEqual(token_calls, ["column-connection"])
         self.assertEqual(provider_calls, [("onedrive", "microsoft-access-token")])
 
+    def test_generic_resolver_marks_interrupted_provider_stream_as_retryable(self):
+        pipeline = self.pipeline(source_type="onedrive")
+        provider = FakeProvider()
+
+        async def interrupted_open(input):
+            provider.input = input
+
+            async def body():
+                yield b"partial"
+                raise httpx.ReadTimeout("stream interrupted")
+
+            async def close():
+                provider.stream_closed = True
+
+            return AssetDownloadStream(body=body(), close=close)
+
+        provider.open_download_stream = interrupted_open
+        resolver = SourceAssetContentResolver(
+            self.sessions,
+            token_resolver=lambda _connection_id: _async_value("token"),
+            source_provider_factory=lambda _name, _token: provider,
+        )
+
+        async def consume():
+            async with resolver.open(
+                tenant_id="tenant-a", source_asset_id=pipeline.source_asset_id
+            ) as stream:
+                async for _block in stream.body:
+                    pass
+
+        with self.assertRaises(SourceAssetContentTransient):
+            asyncio.run(consume())
+        self.assertTrue(provider.stream_closed)
+
     def test_generic_resolver_passes_range_header(self):
         pipeline = self.pipeline()
         provider = FakeProvider()
@@ -327,3 +367,7 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+async def _async_value(value):
+    return value

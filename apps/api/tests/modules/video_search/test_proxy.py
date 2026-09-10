@@ -2,6 +2,7 @@ import asyncio
 import json
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -219,6 +220,48 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
             ))
         self.assertIsNone(factory.ffmpeg)
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+
+    def test_resumes_interrupted_provider_stream_from_last_written_byte(self):
+        class ResumingResolver:
+            def __init__(self):
+                self.open_calls = []
+
+            @asynccontextmanager
+            async def open(self, **kwargs):
+                self.open_calls.append(kwargs)
+
+                async def first_body():
+                    yield b"abc"
+                    raise SourceAssetContentTransient("connection reset")
+
+                async def resumed_body():
+                    yield b"def"
+
+                attempt = len(self.open_calls)
+                yield AssetDownloadStream(
+                    body=first_body() if attempt == 1 else resumed_body(),
+                    close=lambda: _completed(),
+                    status_code=200 if attempt == 1 else 206,
+                )
+
+        async def _completed():
+            return None
+
+        with self.sessions() as session:
+            asset = session.get(SourceAssetModel, "asset-a")
+            asset.size_bytes = 6
+            session.commit()
+        factory, resolver = FakeProcessFactory(), ResumingResolver()
+        with patch("app.modules.video_search.proxy.asyncio.sleep", new=AsyncMock()):
+            chunks = asyncio.run(self.service(factory, resolver).prepare(
+                tenant_id="tenant-a",
+                source_asset_id="asset-a",
+                expected_source_fingerprint=self.fingerprint(),
+            ))
+        self.assertEqual([call["range_header"] for call in resolver.open_calls], [None, "bytes=3-"])
+        source_path = Path(factory.calls[0][0][factory.calls[0][0].index("-i") + 1])
+        self.assertEqual(source_path.read_bytes(), b"abcdef")
+        self.service().cleanup(chunks)
 
     def test_source_failure_terminates_process_and_removes_partial_files(self):
         factory = FakeProcessFactory()
