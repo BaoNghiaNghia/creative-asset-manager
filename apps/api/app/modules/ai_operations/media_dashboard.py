@@ -33,6 +33,18 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
+def _video_gemini_key_label(run: VideoAnalysisRunModel | None) -> str | None:
+    """Return an operator-safe label for the selected Video Gemini pool slot."""
+    summary = run.summary_json if run is not None and isinstance(run.summary_json, dict) else {}
+    provider = summary.get("gemini_key_provider")
+    if provider == "gemini_video":
+        return "Primary"
+    if isinstance(provider, str) and provider.startswith("gemini_video_backup_"):
+        slot = provider.removeprefix("gemini_video_backup_")
+        return f"Backup {slot}" if slot.isdigit() else None
+    return None
+
+
 def _percentile(values: list[int], percentile: float) -> int:
     if not values:
         return 0
@@ -823,6 +835,7 @@ class MediaDashboardService:
                 "location": locations.get(source.id) if source is not None else None,
                 "ai_provider": run.ai_provider if run is not None else None,
                 "ai_model": run.ai_model if run is not None else None,
+                "gemini_key": _video_gemini_key_label(run),
                 "thumbnail_url": thumbnail_url,
                 "duration_ms": _video_duration_ms(source, run),
                 "completed_chunks": run.completed_chunks if run is not None else 0,

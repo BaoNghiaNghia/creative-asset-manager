@@ -386,6 +386,7 @@ class AiOperationsApiTest(unittest.TestCase):
                 ai_model="gemini-flash", idempotency_key="r" * 64,
                 status="completed", chunk_seconds=30, total_chunks=5,
                 completed_chunks=2, duration_ms=None,
+                summary_json={"gemini_key_provider": "gemini_video_backup_2"},
             )
             session.add(run)
             session.flush()
@@ -440,6 +441,7 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(recent["items"][0]["total_chunks"], 5)
         self.assertEqual(recent["items"][0]["duration_ms"], 65_000)
         self.assertEqual(recent["items"][0]["asset_id"], self.asset_id)
+        self.assertEqual(recent["items"][0]["gemini_key"], "Backup 2")
         self.assertEqual(
             [(step["key"], step["status"]) for step in recent["items"][0]["steps"]],
             [("video_analyze", "completed"), ("video_search_index", "completed")],

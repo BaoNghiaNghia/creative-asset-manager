@@ -298,6 +298,11 @@ class VideoAnalyzeJobHandler:
                     values = {key: value for key, value in identity.items() if key != "prompt_template"}
                     run = repo.get_or_create_run(**values, ai_model=selection.model, chunk_seconds=settings.VIDEO_CHUNK_SECONDS)
                     run_id = run.id
+                repo.record_gemini_key_provider(
+                    tenant_id=context.job.tenant_id,
+                    run_id=run.id,
+                    provider=credential_provider,
+                )
                 if run.status in {"pending", "failed"}:
                     repo.mark_run_preparing(tenant_id=context.job.tenant_id, run_id=run.id)
                 session.commit()

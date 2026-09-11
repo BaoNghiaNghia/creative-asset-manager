@@ -1168,7 +1168,7 @@ function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }
     />
     <div className="ops-table-scroll"><table className="ops-data-table">
       <caption className="sr-only">Video processing jobs</caption>
-      <thead><tr>{["Status", "Video", "Platform", "Provider", "Model", "Segments", "Attempts", "Updated", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
+      <thead><tr>{["Status", "Video", "Platform", "Provider", "Key Gemini", "Model", "Segments", "Attempts", "Updated", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
       <tbody>{recent.items.map(job => <tr key={job.job_id}>
         <td><StatusText status={job.status} /></td>
         <td><div className="video-processing-title">
@@ -1177,6 +1177,7 @@ function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }
         </div></td>
         <td><SourcePlatform value={job.source_type} username={job.source_username} /></td>
         <td>{providerLabel(job.ai_provider)}</td>
+        <td>{job.gemini_key || ""}</td>
         <td>{job.ai_model || "—"}</td>
         <td title="Completed processing segments / total segments">{job.total_chunks ? (job.completed_chunks || 0) + "/" + job.total_chunks : "—"}</td>
         <td>{job.attempt_count}/{job.max_attempts}</td>

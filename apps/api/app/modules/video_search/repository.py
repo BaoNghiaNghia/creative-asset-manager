@@ -204,6 +204,17 @@ class VideoSearchRepository:
         self.session.flush()
         return run
 
+    def record_gemini_key_provider(
+        self, *, tenant_id: str, run_id: str, provider: str
+    ) -> VideoAnalysisRunModel:
+        """Persist the selected pool slot without ever retaining an API secret."""
+        run = self._run(tenant_id=tenant_id, run_id=run_id, lock=True)
+        summary = dict(run.summary_json or {})
+        summary["gemini_key_provider"] = provider
+        run.summary_json = summary
+        self.session.flush()
+        return run
+
     def mark_run_analyzing(self, *, tenant_id: str, run_id: str) -> VideoAnalysisRunModel:
         run = self._run(tenant_id=tenant_id, run_id=run_id, lock=True)
         self._transition_run(run, "analyzing")
@@ -234,7 +245,9 @@ class VideoSearchRepository:
         run.status = "completed"
         run.completed_at = utcnow()
         if summary_json is not None:
-            run.summary_json = dict(summary_json)
+            summary = dict(run.summary_json or {})
+            summary.update(summary_json)
+            run.summary_json = summary
         run.last_error_code = None
         run.last_error_message = None
         self.session.flush()
