@@ -104,9 +104,15 @@ async def login(request: Request):
 async def connect_drive(
     request: Request,
     source_id: str | None = Query(None),
+    external_source_id: str | None = Query(None),
     principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
 ):
     """Privileged workspace setup: requests Google Drive read/write access."""
+    if source_id and external_source_id and source_id != external_source_id:
+        raise HTTPException(422, "source_id and external_source_id must identify the same source.")
+    # Explorer links historically used external_source_id. Keep those links
+    # reconnecting the selected source instead of silently creating a new one.
+    source_id = source_id or external_source_id
     if source_id:
         with SessionLocal() as db:
             source = db.scalar(
