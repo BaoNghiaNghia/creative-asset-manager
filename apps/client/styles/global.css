@@ -1504,5 +1504,5 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 /* Pinterest-style image-search affordance: it belongs inside the query field. */
 .search-box .visual-search-entry{flex:0 0 auto;width:30px;height:30px;margin-left:0;border-color:transparent;border-radius:8px;box-shadow:none;color:#263a5b}
 .search-box .visual-search-entry:hover,.search-box .visual-search-entry[aria-expanded=true]{border-color:#cbd8ef;background:#eaf1ff;color:#1f5eea;box-shadow:none}
-.search-box .visual-search-entry svg{width:18px;height:18px;stroke-width:1.9}
+.search-box .visual-search-entry svg{width:18px;height:18px;stroke-width:1.9}.visual-search-icon{display:block;fill:currentColor;stroke:none}.visual-search-entry .visual-search-icon{fill:currentColor;stroke:none}.asset-find-similar{display:inline-flex;align-items:center;gap:4px}.asset-find-similar .visual-search-icon{width:13px;height:13px}
 .search-box .visual-search-entry:focus-visible{outline:2px solid #6f9af0;outline-offset:1px}

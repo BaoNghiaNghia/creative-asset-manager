@@ -13,6 +13,7 @@ import { SquareImageGenerationDialog } from "./components/SquareImageGenerationD
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchCategoryFilter, SearchControls } from "./components/SearchControls";
 import { VisualSearchPanel } from "./components/VisualSearchPanel";
+import { VisualSearchIcon } from "./components/VisualSearchIcon";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
 import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, SidebarIcon, sourceFolderBrand } from "./components/Icons";
@@ -765,7 +766,7 @@ export default function App() {
                 title="Clear search"
               >{"\u00d7"}</button>}
               <button type="button" className="visual-search-entry" onClick={() => setVisualSearchOpen(true)} aria-label="Search by image" title="Search by image" aria-expanded={visualSearchOpen}>
-                <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="12" height="10" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m5.5 12 3-3 2.25 2.25 1.5-1.5L15 12.5M15 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm3.25 3.25-2.1-2.1"/></svg>
+                <VisualSearchIcon />
               </button>
               {showSearchHistory && <div className="search-history" role="listbox" aria-label="Recent searches">
                 <div className="search-history-header"><strong>Recent searches</strong><button type="button" onClick={clearSearchHistory}>Clear all</button></div>
