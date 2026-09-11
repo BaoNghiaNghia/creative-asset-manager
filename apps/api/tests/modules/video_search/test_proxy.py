@@ -108,13 +108,16 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         factory, resolver = FakeProcessFactory(), FakeResolver(tuple(bytes([n]) for n in range(20)))
         service = self.service(factory, resolver)
         chunks = asyncio.run(service.prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
-        command = factory.calls[0][0]
-        self.assertIs(factory.calls[0][1]["stdin"], asyncio.subprocess.DEVNULL)
+        command, command_kwargs = next(
+            call for call in factory.calls if call[0][0] == "ffmpeg"
+        )
+        self.assertIs(command_kwargs["stdin"], asyncio.subprocess.DEVNULL)
         self.assertEqual(resolver.open_calls[0]["range_header"], None)
         self.assertNotIn("pipe:0", command); self.assertIn("libx264", command); self.assertIn("aac", command)
         source_path = Path(command[command.index("-i") + 1])
         self.assertEqual(source_path.read_bytes(), bytes(range(20)))
-        self.assertIn("0:a?", command); self.assertIn("-segment_time", command); self.assertNotIn("Authorization", " ".join(command))
+        self.assertIn("0:a:0?", command); self.assertNotIn("0:a?", command)
+        self.assertIn("-segment_time", command); self.assertNotIn("Authorization", " ".join(command))
         self.assertEqual(chunks[0].source_start_ms, 0); self.assertEqual(chunks[0].source_end_ms, 1250); self.assertTrue(chunks[0].path.exists())
         service.cleanup(chunks); self.assertFalse(chunks[0].path.exists()); self.assertFalse(chunks[0].path.parent.exists())
     def test_deleted_source_reaches_resolver_for_move_recovery(self):
@@ -142,7 +145,7 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
             session.commit()
         factory = FakeProcessFactory()
         chunks = asyncio.run(self.service(factory).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self.fingerprint()))
-        command = factory.calls[0][0]
+        command = next(call[0] for call in factory.calls if call[0][0] == "ffmpeg")
         self.assertTrue(command[command.index("-i") + 1].endswith("source.mov"))
         self.assertNotIn("pipe:0", command)
         self.service().cleanup(chunks)
@@ -177,6 +180,18 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertEqual(command[command.index("-segment_format") + 1], "mp4")
         self.assertEqual(command[command.index("-segment_format_options") + 1], "movflags=+faststart")
         self.assertNotIn("-movflags", command)
+        self.assertEqual(command[command.index("-fflags") + 1], "+genpts")
+        self.assertEqual(command[command.index("-map") + 3], "0:a:0?")
+        self.assertEqual(command[command.index("-map_metadata") + 1], "-1")
+        self.assertEqual(command[command.index("-map_chapters") + 1], "-1")
+        self.assertEqual(command[command.index("-preset") + 1], "veryfast")
+        self.assertEqual(command[command.index("-pix_fmt") + 1], "yuv420p")
+        self.assertEqual(command[command.index("-fps_mode") + 1], "cfr")
+        self.assertEqual(command[command.index("-ar") + 1], "48000")
+        self.assertEqual(command[command.index("-ac") + 1], "2")
+        self.assertEqual(command[command.index("-avoid_negative_ts") + 1], "make_zero")
+        self.assertEqual(command[command.index("-max_muxing_queue_size") + 1], "2048")
+        self.assertIn("format=yuv420p", scale)
 
     def test_storage_preflight_and_runtime_thresholds_are_separate(self):
         service = self.service(settings=self.settings(VIDEO_PROXY_MAX_CHUNK_BYTES=1000))
@@ -259,7 +274,8 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
                 expected_source_fingerprint=self.fingerprint(),
             ))
         self.assertEqual([call["range_header"] for call in resolver.open_calls], [None, "bytes=3-"])
-        source_path = Path(factory.calls[0][0][factory.calls[0][0].index("-i") + 1])
+        command = next(call[0] for call in factory.calls if call[0][0] == "ffmpeg")
+        source_path = Path(command[command.index("-i") + 1])
         self.assertEqual(source_path.read_bytes(), b"abcdef")
         self.service().cleanup(chunks)
 
@@ -378,8 +394,47 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
 
 
+    def test_invalid_download_fails_in_source_probe_before_ffmpeg(self):
+        class InvalidProbe:
+            stderr = FakeReader()
+            returncode = None
+
+            async def communicate(self):
+                self.returncode = 1
+                return b"", b"corrupt source"
+
+            async def wait(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def kill(self):
+                self.returncode = -9
+
+        calls = []
+
+        async def factory(*command, **_kwargs):
+            calls.append(command)
+            if command[0] == "ffprobe":
+                return InvalidProbe()
+            raise AssertionError("ffmpeg must not run for an invalid source")
+
+        with self.assertRaises(VideoProxyProcessError) as raised:
+            asyncio.run(self.service(factory).prepare(
+                tenant_id="tenant-a",
+                source_asset_id="asset-a",
+                expected_source_fingerprint=self.fingerprint(),
+            ))
+        self.assertEqual(raised.exception.phase, "source_probe")
+        self.assertEqual(raised.exception.returncode, 1)
+        self.assertEqual([command[0] for command in calls], ["ffprobe"])
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+
     def test_missing_ffmpeg_is_configuration_error_and_cleans_work_directory(self):
         async def factory(*command, **_kwargs):
+            if command[0] == "ffprobe":
+                return FakeProcess(probe=True)
             if command[0] == "ffmpeg":
                 raise FileNotFoundError("missing")
         before = set(Path(self.temp.name).glob("video-proxy-*"))

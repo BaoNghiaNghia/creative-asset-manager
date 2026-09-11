@@ -45,9 +45,17 @@ class VideoProxyRealFfmpegTest(unittest.TestCase):
     def _settings(self, chunk_seconds=20):
         return SimpleNamespace(VIDEO_TEMP_DIRECTORY=str(self.root / "proxies"), VIDEO_PROXY_MAX_WIDTH=1280, VIDEO_PROXY_MAX_HEIGHT=720, VIDEO_PROXY_FPS=15, VIDEO_PROXY_VIDEO_BITRATE_KBPS=1500, VIDEO_PROXY_AUDIO_BITRATE_KBPS=64, VIDEO_CHUNK_SECONDS=chunk_seconds, VIDEO_PROXY_MAX_CHUNK_BYTES=100_000_000, VIDEO_PROXY_MAX_SOURCE_BYTES=100_000_000)
 
-    async def _fixture(self, width, height, duration):
-        path = self.root / f"source-{width}x{height}-{duration}.mp4"
-        await self._run("ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i", f"testsrc2=size={width}x{height}:rate=30", "-t", str(duration), "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path))
+    async def _fixture(self, width, height, duration, *, suffix="mp4"):
+        path = self.root / f"source-{width}x{height}-{duration}.{suffix}"
+        command = [
+            "ffmpeg", "-hide_banner", "-y", "-f", "lavfi",
+            "-i", f"testsrc2=size={width}x{height}:rate=30",
+            "-t", str(duration), "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        ]
+        if suffix == "mp4":
+            command.extend(["-movflags", "+faststart"])
+        command.append(str(path))
+        await self._run(*command)
         return path
 
     def _fingerprint(self):
@@ -67,13 +75,16 @@ class VideoProxyRealFfmpegTest(unittest.TestCase):
         return VideoProxyPreparationService(self.sessions, self._settings(chunk_seconds), content_resolver=SimpleNamespace(open=open_stream))
 
     async def _probe(self, path):
-        return json.loads(await self._run("ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_name,codec_type,width,height,avg_frame_rate", "-of", "json", str(path)))
+        return json.loads(await self._run("ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_name,codec_type,width,height,pix_fmt,avg_frame_rate", "-of", "json", str(path)))
 
-    def _prepare(self, width, height, duration, *, chunk_seconds=20):
+    def _prepare(self, width, height, duration, *, chunk_seconds=20, suffix="mp4"):
         async def scenario():
-            fixture = await self._fixture(width, height, duration)
+            fixture = await self._fixture(width, height, duration, suffix=suffix)
             with self.sessions() as session:
-                session.get(SourceAssetModel, "asset-a").size_bytes = fixture.stat().st_size
+                asset = session.get(SourceAssetModel, "asset-a")
+                asset.size_bytes = fixture.stat().st_size
+                asset.filename = fixture.name
+                asset.mime_type = "video/quicktime" if suffix == "mov" else "video/mp4"
                 session.commit()
             chunks = await self._service(fixture, chunk_seconds=chunk_seconds).prepare(tenant_id="tenant-a", source_asset_id="asset-a", expected_source_fingerprint=self._fingerprint())
             return chunks, [await self._probe(chunk.path) for chunk in chunks]
@@ -100,6 +111,29 @@ class VideoProxyRealFfmpegTest(unittest.TestCase):
         chunks, probes = self._prepare(640, 480, 1)
         video = self._video(probes[0])
         self.assertEqual((video["width"], video["height"]), (640, 480))
+
+    def test_long_mp4_source_is_canonicalized_into_contiguous_proxy_chunks(self):
+        chunks, probes = self._prepare(320, 180, 61, chunk_seconds=20)
+        self.assertGreaterEqual(len(chunks), 3)
+        self.assertGreater(sum(chunk.duration_ms for chunk in chunks), 60_000)
+        for chunk, probe in zip(chunks, probes):
+            video = self._video(probe)
+            self.assertEqual(video["codec_name"], "h264")
+            self.assertEqual(video["pix_fmt"], "yuv420p")
+            self.assertLessEqual(video["width"], 1280)
+            self.assertLessEqual(video["height"], 720)
+            self.assertGreater(chunk.duration_ms, 0)
+        for previous, current in zip(chunks, chunks[1:]):
+            self.assertEqual(previous.source_end_ms, current.source_start_ms)
+
+    def test_long_quicktime_mov_is_transcoded_to_h264_yuv420p_mp4(self):
+        chunks, probes = self._prepare(320, 180, 61, chunk_seconds=20, suffix="mov")
+        self.assertGreaterEqual(len(chunks), 3)
+        self.assertGreater(sum(chunk.duration_ms for chunk in chunks), 60_000)
+        for probe in probes:
+            video = self._video(probe)
+            self.assertEqual(video["codec_name"], "h264")
+            self.assertEqual(video["pix_fmt"], "yuv420p")
 
     def test_multiple_independent_chunks_have_contiguous_timeline(self):
         chunks, probes = self._prepare(640, 360, 5, chunk_seconds=2)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import math
 import os
 import shutil
 import tempfile
@@ -25,6 +27,9 @@ from app.modules.pipeline.mime_types import is_supported_video_mime_type
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 
 
+logger = logging.getLogger(__name__)
+
+
 class VideoProxyPreparationError(RuntimeError):
     """Base error for local, ephemeral video proxy preparation."""
 
@@ -46,7 +51,16 @@ class VideoProxyChunkTooLargeError(VideoProxyPreparationError):
 
 
 class VideoProxyProcessError(VideoProxyPreparationError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        phase: str = "transcode",
+        returncode: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.phase = phase
+        self.returncode = returncode
 
 
 class VideoProxySourceError(VideoProxyPreparationError):
@@ -159,6 +173,7 @@ class VideoProxyPreparationService:
                 output_reserve=output_reserve,
                 size_is_authoritative=source_asset.size_bytes is not None,
             )
+            await self._probe_source(source_path)
             command = self._ffmpeg_command(working_directory, source_path)
             try:
                 process = await self._create_subprocess_exec(
@@ -170,7 +185,9 @@ class VideoProxyPreparationService:
             except (FileNotFoundError, PermissionError) as exc:
                 raise VideoProxyConfigurationError("FFmpeg executable is unavailable") from exc
             if process.stderr is None:
-                raise VideoProxyProcessError("FFmpeg did not expose a stderr pipe")
+                raise VideoProxyProcessError(
+                    "FFmpeg did not expose a stderr pipe", phase="transcode"
+                )
             stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
             storage_task = asyncio.create_task(
                 self._monitor_storage(process, root, output_reserve, stop_monitor, storage_failed)
@@ -178,12 +195,23 @@ class VideoProxyPreparationService:
             await process.wait()
             if storage_failed.is_set():
                 raise VideoProxyDiskSpaceError("insufficient free space while creating video proxy")
-            stderr_tail = await stderr_task
+            await stderr_task
             stderr_task = None
             if process.returncode != 0:
-                detail = stderr_tail.decode("utf-8", errors="replace").strip()
-                raise VideoProxyProcessError(f"FFmpeg exited with status {process.returncode}: {detail}")
+                logger.warning(
+                    "video_proxy_process_failed",
+                    extra={"phase": "transcode", "returncode": process.returncode},
+                )
+                raise VideoProxyProcessError(
+                    "FFmpeg could not transcode the video source",
+                    phase="transcode",
+                    returncode=process.returncode,
+                )
             chunks = await self._probe_chunks(working_directory)
+            logger.info(
+                "video_proxy_transcode_completed",
+                extra={"phase": "transcode", "chunk_count": len(chunks)},
+            )
             if self._load_fingerprint(tenant_id, source_asset_id) != expected_source_fingerprint:
                 raise VideoProxySourceChangedError("source asset fingerprint changed during proxy preparation")
             return chunks
@@ -359,13 +387,22 @@ class VideoProxyPreparationService:
         audio_bitrate = int(self._settings.VIDEO_PROXY_AUDIO_BITRATE_KBPS)
         if min(video_bitrate, audio_bitrate) <= 0:
             raise VideoProxyConfigurationError("video proxy bitrates must be positive")
-        scale = f"scale=w='min(iw,{max_width})':h='min(ih,{max_height})':force_original_aspect_ratio=decrease:force_divisible_by=2"
+        scale = (
+            f"scale=w='min(iw,{max_width})':h='min(ih,{max_height})':"
+            "force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p"
+        )
         force_keyframes = f"expr:gte(t,n_forced*{chunk_seconds})"
         return (
-            "ffmpeg", "-hide_banner", "-nostdin", "-y", "-i", str(source_path or directory / "source.mp4"),
-            "-map", "0:v:0", "-map", "0:a?", "-vf", scale, "-r", str(fps),
-            "-c:v", "libx264", "-b:v", f"{video_bitrate}k", "-c:a", "aac",
-            "-b:a", f"{audio_bitrate}k", "-force_key_frames", force_keyframes,
+            "ffmpeg", "-hide_banner", "-nostdin", "-y",
+            "-fflags", "+genpts", "-i", str(source_path or directory / "source.mp4"),
+            "-map", "0:v:0", "-map", "0:a:0?",
+            "-map_metadata", "-1", "-map_chapters", "-1",
+            "-vf", scale, "-r", str(fps), "-fps_mode", "cfr",
+            "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+            "-b:v", f"{video_bitrate}k",
+            "-c:a", "aac", "-b:a", f"{audio_bitrate}k", "-ar", "48000", "-ac", "2",
+            "-avoid_negative_ts", "make_zero", "-max_muxing_queue_size", "2048",
+            "-force_key_frames", force_keyframes,
             "-f", "segment", "-segment_time", str(chunk_seconds),
             "-segment_format", "mp4", "-segment_format_options", "movflags=+faststart",
             "-reset_timestamps", "1",
@@ -396,50 +433,112 @@ class VideoProxyPreparationService:
             except asyncio.TimeoutError:
                 pass
 
+    async def _probe_source(self, path: Path) -> None:
+        """Validate the fully materialized provider download before transcoding."""
+        document = await self._ffprobe_document(path, phase="source_probe")
+        try:
+            duration_seconds = float(document["format"]["duration"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise VideoProxyProcessError(
+                "ffprobe returned malformed source metadata", phase="source_probe"
+            ) from exc
+        video = next(
+            (
+                stream
+                for stream in document.get("streams", [])
+                if isinstance(stream, dict) and stream.get("codec_type") == "video"
+            ),
+            None,
+        )
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0 or video is None:
+            raise VideoProxyProcessError(
+                "downloaded source is not a playable video", phase="source_probe"
+            )
+
     async def _probe_chunks(self, directory: Path) -> tuple[PreparedVideoChunk, ...]:
         paths = sorted(directory.glob("chunk_*.mp4"))
         if not paths:
-            raise VideoProxyProcessError("FFmpeg produced no proxy chunks")
+            raise VideoProxyProcessError(
+                "FFmpeg produced no proxy chunks", phase="chunk_probe"
+            )
         chunks: list[PreparedVideoChunk] = []
         start_ms = 0
         for index, path in enumerate(paths):
             size_bytes = path.stat().st_size
             if size_bytes <= 0:
-                raise VideoProxyProcessError("FFmpeg produced an empty proxy chunk")
+                raise VideoProxyProcessError(
+                    "FFmpeg produced an empty proxy chunk", phase="chunk_probe"
+                )
             if size_bytes >= int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES):
                 raise VideoProxyChunkTooLargeError("video proxy chunk exceeds configured maximum size")
-            duration_ms, width, height = await self._ffprobe(path)
+            duration_ms, width, height = await self._ffprobe(path, phase="chunk_probe")
             end_ms = start_ms + duration_ms
             chunks.append(PreparedVideoChunk(index, path, start_ms, end_ms, duration_ms, size_bytes, width, height))
             start_ms = end_ms
         return tuple(chunks)
 
-    async def _ffprobe(self, path: Path) -> tuple[int, int | None, int | None]:
+    async def _ffprobe(
+        self, path: Path, *, phase: str = "chunk_probe"
+    ) -> tuple[int, int | None, int | None]:
+        document = await self._ffprobe_document(path, phase=phase)
+        try:
+            duration_ms = round(float(document["format"]["duration"]) * 1000)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise VideoProxyProcessError(
+                "ffprobe returned malformed proxy metadata", phase=phase
+            ) from exc
+        if not math.isfinite(duration_ms / 1000) or duration_ms <= 0:
+            raise VideoProxyProcessError(
+                "ffprobe returned a non-positive proxy duration", phase=phase
+            )
+        video = next(
+            (
+                stream
+                for stream in document.get("streams", [])
+                if isinstance(stream, dict) and stream.get("codec_type") == "video"
+            ),
+            None,
+        )
+        if video is None:
+            raise VideoProxyProcessError("ffprobe found no proxy video stream", phase=phase)
+        width = video.get("width")
+        height = video.get("height")
+        if width is not None and (not isinstance(width, int) or width <= 0):
+            raise VideoProxyProcessError("ffprobe returned an invalid video width", phase=phase)
+        if height is not None and (not isinstance(height, int) or height <= 0):
+            raise VideoProxyProcessError("ffprobe returned an invalid video height", phase=phase)
+        return duration_ms, width, height
+
+    async def _ffprobe_document(self, path: Path, *, phase: str) -> dict[str, Any]:
         try:
             process = await self._create_subprocess_exec(
-                "ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
-                "-of", "json", str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration:stream=codec_type,width,height",
+                "-of", "json", str(path),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
         except (FileNotFoundError, PermissionError) as exc:
             raise VideoProxyConfigurationError("ffprobe executable is unavailable") from exc
-        stdout, stderr = await process.communicate()
+        stdout, _stderr = await process.communicate()
         if process.returncode != 0:
-            raise VideoProxyProcessError(f"ffprobe failed: {stderr[-self._STDERR_TAIL_BYTES:].decode('utf-8', errors='replace')}")
+            logger.warning(
+                "video_proxy_process_failed",
+                extra={"phase": phase, "returncode": process.returncode},
+            )
+            raise VideoProxyProcessError(
+                "ffprobe could not inspect video media",
+                phase=phase,
+                returncode=process.returncode,
+            )
         try:
             document = json.loads(stdout)
-            duration_ms = round(float(document["format"]["duration"]) * 1000)
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise VideoProxyProcessError("ffprobe returned malformed proxy metadata") from exc
-        if duration_ms <= 0:
-            raise VideoProxyProcessError("ffprobe returned a non-positive proxy duration")
-        video = next((stream for stream in document.get("streams", []) if stream.get("codec_type") == "video"), None)
-        width = video.get("width") if isinstance(video, dict) else None
-        height = video.get("height") if isinstance(video, dict) else None
-        if width is not None and (not isinstance(width, int) or width <= 0):
-            raise VideoProxyProcessError("ffprobe returned an invalid video width")
-        if height is not None and (not isinstance(height, int) or height <= 0):
-            raise VideoProxyProcessError("ffprobe returned an invalid video height")
-        return duration_ms, width, height
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise VideoProxyProcessError(
+                "ffprobe returned malformed metadata", phase=phase
+            ) from exc
+        if not isinstance(document, dict):
+            raise VideoProxyProcessError("ffprobe returned malformed metadata", phase=phase)
+        return document
 
     @staticmethod
     async def _close_stdin(process: Any) -> None:
