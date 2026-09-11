@@ -613,5 +613,59 @@ class WorkerBootstrapTest(unittest.TestCase):
         runtime.close()
         engine.dispose()
         directory.cleanup()
+
+class WorkerAsyncLifecycleTest(unittest.TestCase):
+    def test_runtime_closes_async_resource_before_executor_thread(self) -> None:
+        class Resource:
+            def __init__(self):
+                self.calls = 0
+                self.closed_on = None
+
+            async def aclose(self):
+                self.calls += 1
+                self.closed_on = threading.current_thread().name
+
+        resource = Resource()
+        runtime = WorkerRuntime(
+            config=WorkerRuntimeConfig(
+                worker_id="async-close", enabled=False, lease_seconds=1,
+                heartbeat_seconds=0.1, idle_poll_seconds=0.01, drain_timeout_seconds=0,
+            ),
+            dependencies=WorkerDependencies(
+                lambda: None, resources={"gateway": resource},
+            ),
+            registry=build_handler_registry(),
+        )
+        executor = runtime._async_executor
+        executor.run(asyncio.sleep(0))
+        thread = executor._thread
+        self.assertIsNotNone(thread)
+        runtime.close()
+        self.assertEqual(resource.calls, 1)
+        self.assertEqual(resource.closed_on, "worker-async-io")
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(executor._closed)
+        rejected = asyncio.sleep(0)
+        try:
+            with self.assertRaises(RuntimeError):
+                executor.run(rejected)
+        finally:
+            rejected.close()
+        runtime.close()
+        self.assertEqual(resource.calls, 1)
+
+    def test_close_without_starting_executor_does_not_create_thread(self) -> None:
+        runtime = WorkerRuntime(
+            config=WorkerRuntimeConfig(
+                worker_id="async-unused", enabled=False, lease_seconds=1,
+                heartbeat_seconds=0.1, idle_poll_seconds=0.01, drain_timeout_seconds=0,
+            ),
+            dependencies=WorkerDependencies(lambda: None),
+            registry=build_handler_registry(),
+        )
+        executor = runtime._async_executor
+        runtime.close()
+        self.assertIsNone(executor._thread)
+
 if __name__ == "__main__":
     unittest.main()

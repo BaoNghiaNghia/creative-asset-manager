@@ -129,3 +129,20 @@ def test_invalid_payload_fails_without_gateway_call(setup):
     assert outcome.outcome.value == "non_retryable_failure"
     assert outcome.error_code == "invalid_video_generation_job"
     assert not gateway.submit_calls
+
+
+def test_worker_context_uses_owned_async_executor(setup):
+    _, settings, gateway, context, _ = setup
+    class Executor:
+        def __init__(self):
+            self.calls = 0
+        def run(self, awaitable):
+            self.calls += 1
+            import asyncio
+            return asyncio.run(awaitable)
+    executor = Executor()
+    context.dependencies.resources["async_executor"] = executor
+    outcome = VideoGenerateJobHandler(settings)(context)
+    assert isinstance(outcome, DeferredJobOutcome)
+    assert executor.calls == 1
+    assert len(gateway.submit_calls) == 1

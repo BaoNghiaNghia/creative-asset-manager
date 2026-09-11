@@ -31,6 +31,9 @@ class VideoGenerateJobHandler:
 
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult | DeferredJobOutcome:
         try:
+            executor = context.dependencies.resources.get("async_executor")
+            if executor is not None:
+                return executor.run(self._execute(context))
             return asyncio.run(self._execute(context))
         except VideoGenerationHandlerError as exc:
             if not exc.retryable:
