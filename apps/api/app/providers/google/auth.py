@@ -11,6 +11,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import select
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2 import id_token as google_id_token
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from starlette.concurrency import run_in_threadpool
@@ -111,14 +112,47 @@ def validate_granted_scopes(credentials, *, require_write: bool = True, scopes: 
             "Google Drive read permission was not granted. Reconnect Google Drive and approve access."
         )
 
+
+def _verified_id_token_profile(credentials: Credentials) -> dict[str, Any]:
+    identity_token = getattr(credentials, "id_token", None)
+    if not identity_token:
+        raise ValueError("Google OAuth response did not include an ID token.")
+    client_id, _, _ = _settings()
+    profile = google_id_token.verify_oauth2_token(
+        identity_token,
+        GoogleAuthRequest(),
+        audience=client_id,
+    )
+    if not profile.get("sub"):
+        raise ValueError("Verified Google ID token has no account identity.")
+    return dict(profile)
+
+
+async def google_profile(credentials: Credentials) -> dict[str, Any]:
+    """Load Google profile, retaining a verified OpenID fallback for userinfo 401s."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            "https://openidconnect.googleapis.com/v1/userinfo",
+            headers={"Authorization": f"Bearer {credentials.token}"},
+        )
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError:
+        if response.status_code != 401:
+            raise
+        # Google returned a signed ID token with the authorization response.
+        # Verify issuer, expiry and audience before using it as a profile fallback.
+        return await run_in_threadpool(_verified_id_token_profile, credentials)
+    profile = response.json()
+    if not isinstance(profile, dict) or not profile.get("sub"):
+        raise ValueError("Google profile has no account identity")
+    return profile
+
 async def persist_drive_connection(credentials, *, tenant_id: str, user_id: str, granted_scopes: Iterable[str] | None = None) -> PersistentCloudSession:
     """Persist a workspace Drive connection without rotating app login."""
     persisted_scopes = _normalize_scopes(granted_scopes) or resolve_granted_scopes(credentials)
     validate_granted_scopes(credentials, require_write=True, scopes=persisted_scopes)
-    async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.get("https://openidconnect.googleapis.com/v1/userinfo", headers={"Authorization": f"Bearer {credentials.token}"})
-        response.raise_for_status()
-        profile = response.json()
+    profile = await google_profile(credentials)
     account_id = str(profile.get("sub") or "")
     if not account_id:
         raise ValueError("Google profile has no account identity")
@@ -140,9 +174,7 @@ async def create_session(credentials, *, require_drive_scope: bool = True, conne
     persisted_scopes = _normalize_scopes(granted_scopes) or resolve_granted_scopes(credentials)
     if require_drive_scope:
         validate_granted_scopes(credentials, require_write=True, scopes=persisted_scopes)
-    async with httpx.AsyncClient(timeout=15) as client:
-        response=await client.get("https://openidconnect.googleapis.com/v1/userinfo",headers={"Authorization":f"Bearer {credentials.token}"})
-        response.raise_for_status(); profile=response.json()
+    profile = await google_profile(credentials)
     account_id=str(profile.get("sub") or "")
     if not account_id: raise ValueError("Google profile has no account identity")
     user={"id":account_id,"name":profile.get("name"),"email":profile.get("email"),"picture":profile.get("picture")}
