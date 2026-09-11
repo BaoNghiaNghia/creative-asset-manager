@@ -180,7 +180,7 @@ export type AiOpsRecentVideo = {
   mime_type?: string | null; source_type?: string | null; source_username?: string | null; location: string | null; thumbnail_url: string | null;
   duration_ms: number | null; completed_chunks?: number; total_chunks?: number; status: string;
   ai_provider?: string | null; ai_model?: string | null; gemini_key?: string | null;
-  attempt_count: number; max_attempts: number; updated_at: string; error_code: string | null;
+  attempt_count: number; max_attempts: number; processing_duration_ms?: number | null; claimed_at?: string | null; updated_at: string; error_code: string | null;
   error_message?: string | null;
   steps?: AiOpsRecentVideoStep[];
 };

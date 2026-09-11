@@ -1125,7 +1125,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted, o
           </div></td>
           <td><SourcePlatform value={job.source_type} username={job.source_username} /></td><td>{providerLabel(job.provider)}</td><td>{usage?.model || "\u2014"}</td><td>{modeLabel(mode)}</td>
           <td>{usage?.metadata_profile || "\u2014"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
-          <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
+          <td>{job.status === "processing" ? formatDuration(job.claimed_at ?? null, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
           <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><ErrorDetailPopover code={job.error?.code} message={job.error?.message} /></td>
           <td><div className="ops-job-actions">
             {assetId ? <button type="button" aria-label={`View asset ${assetId}`} onClick={() => onOpenAsset(assetId)}>Chi tiết</button> : <span title="Asset identity is not available yet">Unavailable</span>}
@@ -1181,7 +1181,7 @@ function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }
         <td>{job.ai_model || "—"}</td>
         <td title="Completed processing segments / total segments">{job.total_chunks ? (job.completed_chunks || 0) + "/" + job.total_chunks : "—"}</td>
         <td>{job.attempt_count}/{job.max_attempts}</td>
-        <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
+        <td>{job.status === "processing" ? formatDuration(job.claimed_at ?? null, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
         <td><time dateTime={job.updated_at}>{new Date(job.updated_at).toLocaleString()}</time></td>
         <td><ErrorDetailPopover code={job.error_code} message={job.error_message} /></td>
         <td><VideoProcessingJobRetry job={job} permissions={permissions} onAccepted={onAccepted} /></td>
