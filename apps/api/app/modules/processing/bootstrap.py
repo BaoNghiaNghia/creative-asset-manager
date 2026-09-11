@@ -19,6 +19,7 @@ from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
 from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
 from app.modules.image_generation.handler import ImageGenerateJobHandler
+from app.modules.video_generation.handler import VideoGenerateJobHandler
 from app.modules.video_search.handler import VideoAnalyzeJobHandler
 from app.modules.video_search.index_handler import VideoSearchIndexJobHandler
 from app.modules.ai_batch.handlers import (
@@ -87,6 +88,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "retention_cleanup": ("PROCESSING_JOBS_ENABLED", "RETENTION_CLEANUP_ENABLED"),
     "managed_storage_cleanup": ("PROCESSING_JOBS_ENABLED", "MANAGED_STORAGE_AUTO_CLEANUP_ENABLED"),
     "image_generate": ("PROCESSING_JOBS_ENABLED", "IMAGE_GENERATION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
+    "video_generate": ("PROCESSING_JOBS_ENABLED", "VIDEO_GENERATION_ENABLED", "DOLA_RENDER_GATEWAY_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
@@ -276,6 +278,7 @@ def build_worker_runtime(
                 ("retention_cleanup", RetentionCleanupJobHandler(settings)),
                 ("managed_storage_cleanup", ManagedStorageCleanupJobHandler(settings)),
                 ("image_generate", ImageGenerateJobHandler(settings)),
+                ("video_generate", VideoGenerateJobHandler(settings)),
             )
         ),
         health=WorkerHealthState(worker_id),

@@ -36,12 +36,13 @@ class WorkerRoleTest(unittest.TestCase):
         self.assertEqual(allowed_job_types_for_role("all"), JOB_TYPES)
         self.assertEqual(set(IMAGE_WORKER_JOB_TYPES) | set(VIDEO_WORKER_JOB_TYPES), set(JOB_TYPES))
         self.assertFalse(set(IMAGE_WORKER_JOB_TYPES) & set(VIDEO_WORKER_JOB_TYPES))
-        self.assertEqual(VIDEO_WORKER_JOB_TYPES, ("video_analyze", "video_search_index"))
+        self.assertEqual(VIDEO_WORKER_JOB_TYPES, ("video_analyze", "video_search_index", "video_generate"))
 
     def test_image_role_excludes_video_jobs(self) -> None:
         allowed = allowed_job_types_for_role("image")
         self.assertNotIn("video_analyze", allowed)
         self.assertNotIn("video_search_index", allowed)
+        self.assertNotIn("video_generate", allowed)
         self.assertIn("asset_analyze", allowed)
         self.assertIn("asset_index", allowed)
         self.assertIn("search_projection_build", allowed)
@@ -49,6 +50,7 @@ class WorkerRoleTest(unittest.TestCase):
     def test_video_role_excludes_non_video_jobs(self) -> None:
         allowed = allowed_job_types_for_role("video")
         self.assertEqual(allowed, VIDEO_WORKER_JOB_TYPES)
+        self.assertIn("video_generate", allowed)
         self.assertNotIn("asset_analyze", allowed)
         self.assertNotIn("asset_index", allowed)
         self.assertNotIn("search_projection_build", allowed)

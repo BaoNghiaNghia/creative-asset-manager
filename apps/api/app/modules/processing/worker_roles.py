@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.domain.processing.types import JOB_TYPES
 
 WORKER_ROLES = ("all", "image", "video")
-VIDEO_WORKER_JOB_TYPES = ("video_analyze", "video_search_index")
+VIDEO_WORKER_JOB_TYPES = ("video_analyze", "video_search_index", "video_generate")
 VIDEO_AI_JOB_TYPES = ("video_analyze",)
 IMAGE_AI_JOB_TYPES = (
     "asset_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll",
