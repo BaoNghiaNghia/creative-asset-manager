@@ -842,6 +842,8 @@ class MediaDashboardService:
                 "total_chunks": run.total_chunks if run is not None else 0,
                 "status": job.status, "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,
+                "processing_duration_ms": job.processing_duration_ms,
+                "claimed_at": (_as_utc(job.claimed_at).isoformat() if _as_utc(job.claimed_at) else None),
                 "updated_at": (_as_utc(job.updated_at) or now).isoformat(),
                 "error_code": job.last_error_code,
                 "error_message": redact_url_queries(job.last_error_message),

@@ -1168,7 +1168,7 @@ function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }
     />
     <div className="ops-table-scroll"><table className="ops-data-table">
       <caption className="sr-only">Video processing jobs</caption>
-      <thead><tr>{["Status", "Video", "Platform", "Provider", "Key Gemini", "Model", "Segments", "Attempts", "Updated", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
+      <thead><tr>{["Status", "Video", "Platform", "Provider", "Key Gemini", "Model", "Segments", "Attempts", "Duration", "Updated", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
       <tbody>{recent.items.map(job => <tr key={job.job_id}>
         <td><StatusText status={job.status} /></td>
         <td><div className="video-processing-title">
@@ -1181,6 +1181,7 @@ function VideoProcessing({ media, permissions, onAccepted, onPage, onOpenVideo }
         <td>{job.ai_model || "—"}</td>
         <td title="Completed processing segments / total segments">{job.total_chunks ? (job.completed_chunks || 0) + "/" + job.total_chunks : "—"}</td>
         <td>{job.attempt_count}/{job.max_attempts}</td>
+        <td>{job.status === "processing" ? formatDuration(job.claimed_at, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
         <td><time dateTime={job.updated_at}>{new Date(job.updated_at).toLocaleString()}</time></td>
         <td><ErrorDetailPopover code={job.error_code} message={job.error_message} /></td>
         <td><VideoProcessingJobRetry job={job} permissions={permissions} onAccepted={onAccepted} /></td>
