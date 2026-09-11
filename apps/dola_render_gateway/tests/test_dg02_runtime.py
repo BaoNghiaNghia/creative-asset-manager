@@ -28,12 +28,15 @@ def test_auth_and_request_validation(tmp_path):
  assert c.get("/internal/v1/video-generations/nope").status_code==401
  assert c.get("/internal/v1/video-generations/nope/content").status_code==401
  assert c.post("/internal/v1/video-generations",headers={"Authorization":"Bearer local-internal-key"},files=body).json()["error"]["code"]=="missing_idempotency_key"
- assert c.post("/internal/v1/video-generations",headers=auth(" "*201),files=body).json()["error"]["code"]=="missing_idempotency_key"
+ assert c.post("/internal/v1/video-generations",headers=auth("x"*201),files=body).json()["error"]["code"]=="invalid_idempotency_key"
  bad=[("metadata",(None,"{}"))];assert c.post("/internal/v1/video-generations",headers=auth(),files=bad).json()["error"]["code"]=="invalid_request"
  bad=data(refs=(b"not-image",));assert c.post("/internal/v1/video-generations",headers=auth(),files=bad).json()["error"]["code"]=="invalid_request"
 def test_fingerprint_contract():
  a=parse_metadata(json.dumps({"prompt":"x","model":"seedance-2.0","aspect_ratio":"1:1","duration_seconds":10}),[("image/png",png("red")),("image/png",png("blue"))])
  assert fingerprint(a)==fingerprint(a)
+ assert fingerprint(a)!=fingerprint(parse_metadata(json.dumps({"prompt":"x","model":"seedance-2.0","aspect_ratio":"1:1","duration_seconds":10}),[("image/png",png("green")),("image/png",png("blue"))]))
+ import pytest
+ with pytest.raises(Exception): parse_metadata(json.dumps({"prompt":"x","model":"seedance-2.0","aspect_ratio":"1:1","duration_seconds":10}),[("image/png",b"x"*(15*1024*1024+1))])
  for changed in [parse_metadata(json.dumps({"prompt":"y","model":"seedance-2.0","aspect_ratio":"1:1","duration_seconds":10}),[("image/png",png("red")),("image/png",png("blue"))]),parse_metadata(json.dumps({"prompt":"x","model":"seedance-2.5","aspect_ratio":"1:1","duration_seconds":10}),[("image/png",png("red")),("image/png",png("blue"))]),parse_metadata(json.dumps({"prompt":"x","model":"seedance-2.0","aspect_ratio":"16:9","duration_seconds":10}),[("image/png",png("red")),("image/png",png("blue"))]),parse_metadata(json.dumps({"prompt":"x","model":"seedance-2.0","aspect_ratio":"1:1","duration_seconds":15}),[("image/png",png("red")),("image/png",png("blue"))]),parse_metadata(json.dumps({"prompt":"x","model":"seedance-2.0","aspect_ratio":"1:1","duration_seconds":10}),[("image/png",png("blue")),("image/png",png("red"))])]:assert fingerprint(a)!=fingerprint(changed)
 def test_idempotency_restart_and_status_content(tmp_path):
  c,f,s=client(tmp_path);r=c.post("/internal/v1/video-generations",headers=auth("same"),files=data(refs=(png(),))).json();again=c.post("/internal/v1/video-generations",headers=auth("same"),files=data(refs=(png(),))).json()

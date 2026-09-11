@@ -3,7 +3,10 @@ class GenerationRepository:
  def __init__(self,path):self.path=path;path.parent.mkdir(parents=True,exist_ok=True);self.init()
  def conn(self):c=sqlite3.connect(self.path,timeout=10,isolation_level=None);c.row_factory=sqlite3.Row;c.execute("PRAGMA busy_timeout=10000");return c
  def init(self):
-  with self.conn() as c:c.execute("CREATE TABLE IF NOT EXISTS gateway_generations (generation_id TEXT PRIMARY KEY,idempotency_key TEXT NOT NULL UNIQUE,request_fingerprint TEXT NOT NULL,upstream_task_id TEXT,state TEXT NOT NULL,created_at REAL NOT NULL,updated_at REAL NOT NULL,last_error_code TEXT,last_error_message TEXT,output_name TEXT)")
+  with self.conn() as c:
+   c.execute("CREATE TABLE IF NOT EXISTS gateway_generations (generation_id TEXT PRIMARY KEY,idempotency_key TEXT NOT NULL UNIQUE,request_fingerprint TEXT NOT NULL,upstream_task_id TEXT,state TEXT NOT NULL,created_at REAL NOT NULL,updated_at REAL NOT NULL,last_error_code TEXT,last_error_message TEXT,output_name TEXT,submission_attempted_at REAL)")
+   try:c.execute("ALTER TABLE gateway_generations ADD COLUMN submission_attempted_at REAL")
+   except sqlite3.OperationalError:pass
  def create_or_get(self,key,fp):
   now=time.time()
   with self.conn() as c:
@@ -15,3 +18,5 @@ class GenerationRepository:
  def update(self,gid,**f):
   f["updated_at"]=time.time()
   with self.conn() as c:c.execute("UPDATE gateway_generations SET "+",".join(k+"=?" for k in f)+" WHERE generation_id=?",(*f.values(),gid))
+ def mark_submission_attempt(self,gid):
+  self.update(gid,state="submission_unknown",submission_attempted_at=time.time(),last_error_code="upstream_submission_state_unknown",last_error_message="The gateway cannot determine whether the upstream provider accepted the generation.")

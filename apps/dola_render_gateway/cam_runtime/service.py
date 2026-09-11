@@ -10,9 +10,12 @@ class GatewayService:
   if replay:return row,True
   d=self.paths.tmp_dir/"references"/row["generation_id"];d.mkdir(parents=True,exist_ok=True);refs=[]
   for i,(blob,suffix) in enumerate(zip(req.references,req.suffixes)):p=d/("reference_"+str(i)+suffix);p.write_bytes(blob);refs.append(str(p))
+  self.repo.mark_submission_attempt(row["generation_id"])
   try:task=await self.adapter.submit(row["generation_id"],req,refs)
-  except Exception:self.repo.update(row["generation_id"],state="failed",last_error_code="upstream_submission_failed",last_error_message="Upstream submission failed");raise GatewayError("upstream_submission_failed","Upstream submission failed",502)
-  self.repo.update(row["generation_id"],upstream_task_id=task,state="submitted");return self.repo.get(row["generation_id"]),False
+  except Exception:raise GatewayError("upstream_submission_state_unknown","The gateway cannot determine whether the upstream provider accepted the generation.",502)
+  try:self.repo.update(row["generation_id"],upstream_task_id=task,state="submitted",last_error_code=None,last_error_message=None)
+  except Exception:raise GatewayError("upstream_submission_state_unknown","The gateway cannot determine whether the upstream provider accepted the generation.",502)
+  return self.repo.get(row["generation_id"]),False
  async def status(self,gid):
   row=self.repo.get(gid)
   if not row:raise GatewayError("generation_not_found","Generation was not found",404)

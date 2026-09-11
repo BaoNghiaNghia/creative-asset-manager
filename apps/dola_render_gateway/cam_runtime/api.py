@@ -6,7 +6,7 @@ router=APIRouter()
 def output(r,replay=False):
  d={"generation_id":r["generation_id"],"status":r["state"],"created_at":r["created_at"],"updated_at":r["updated_at"],"idempotent_replay":replay}
  if r["state"]=="completed":d["content_available"]=True
- if r["state"]=="failed":d.update(error_code=r.get("last_error_code"),error_message=r.get("last_error_message"))
+ if r["state"] in {"failed","submission_unknown"}:d.update(error_code=r.get("last_error_code"),error_message=r.get("last_error_message"))
  return d
 @router.post("/internal/v1/video-generations")
 async def submit(request:Request):
