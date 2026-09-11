@@ -149,7 +149,7 @@ async def download_reference_images(urls: list[str], task_id: str) -> tuple[Path
     urls = await validate_reference_urls(urls)
     if not urls:
         return None, []
-    root = Path(tempfile.mkdtemp(prefix=f"dola_ref_{task_id}_"))
+    root = Path(tempfile.mkdtemp(prefix=f"dola_ref_{task_id}_", dir=config.RUNTIME_TMP_DIR))
     try:
         async with aiohttp.ClientSession() as session:
             paths = []

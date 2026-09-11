@@ -16,7 +16,7 @@ async def launch_account_context(p, account: str, headless: bool = None, use_ext
     p: async_playwright() instance
     headless: None = uses config.HEADLESS
     """
-    profile_dir = Path("accounts") / account
+    profile_dir = Path(config.PROFILE_DIR) / account
     if not profile_dir.exists():
         raise FileNotFoundError(
             f"Account profile does not exist: {profile_dir} (run python add_account.py {account} first)"

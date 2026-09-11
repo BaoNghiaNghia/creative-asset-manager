@@ -35,11 +35,15 @@ MAX_PENDING_TASKS = int(os.getenv("DOLA_MAX_PENDING_TASKS", "100"))
 # Video generation timeout in seconds
 VIDEO_TIMEOUT = int(os.getenv("DOLA_VIDEO_TIMEOUT", "300"))
 
-# SQLite database path
+# SQLite database paths. The supported CAM runtime supplies absolute values.
 DB_PATH = os.getenv("DOLA_DB_PATH", "tasks.db")
+POOL_DB_PATH = os.getenv("DOLA_POOL_DB_PATH", "pool_usage.db")
 
-# Video download storage directory (served statically by FastAPI)
+# Runtime directories. The supported CAM runtime supplies absolute values.
+PROFILE_DIR = os.getenv("DOLA_PROFILE_DIR", "accounts")
 DOWNLOAD_DIR = os.getenv("DOLA_DOWNLOAD_DIR", "downloads")
+ARTIFACTS_DIR = os.getenv("DOLA_ARTIFACTS_DIR", "artifacts")
+RUNTIME_TMP_DIR = os.getenv("DOLA_RUNTIME_TMP_DIR", "tmp")
 
 # Explicit browser proxy (must point to JP/KR egress; empty = system proxy)
 PROXY = os.getenv("DOLA_PROXY", "http://127.0.0.1:7890")

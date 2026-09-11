@@ -27,13 +27,19 @@ from browser_pool import AllAccountsLimitedError, AllAccountsQuotaBlockedError, 
 from media import download_reference_images, validate_reference_urls
 from store import PendingTaskLimitExceeded, TaskQuotaExceeded, TaskStore
 
+SOURCE_DIR = Path(__file__).resolve().parent
+WEB_DIR = SOURCE_DIR / "web"
+
 Path(config.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
-Path("web").mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="dola-pool", version="0.4.0")
 
 store = TaskStore(config.DB_PATH)
-pool = BrowserPool(max_concurrency=config.MAX_CONCURRENCY)
+pool = BrowserPool(
+    accounts_dir=config.PROFILE_DIR,
+    db_path=config.POOL_DB_PATH,
+    max_concurrency=config.MAX_CONCURRENCY,
+)
 
 app.mount("/videos", StaticFiles(directory=config.DOWNLOAD_DIR), name="videos")
 
@@ -561,5 +567,5 @@ async def admin_key_delete(key: str, x_admin_key: str | None = Header(default=No
 
 
 # Dashboard single-file frontend
-app.mount("/", StaticFiles(directory="web", html=True), name="web")
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 

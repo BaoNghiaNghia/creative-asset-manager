@@ -6,6 +6,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import getpass
 import struct
 import sys
 import time
@@ -100,13 +101,13 @@ async def google_login(g, email: str, password: str, secret: str):
         txt = await g.evaluate("() => (document.body && document.body.innerText || '').slice(0, 300)")
         print(f"[google] step{step} unrecognized page url={g.url[:80]} text={txt[:200]}", flush=True)
     if "accounts.google.com" in g.url:
-        await g.screenshot(path="dbg_google2.png")
+        await g.screenshot(path=str(Path(config.ARTIFACTS_DIR, "dbg_google2.png")))
         raise RuntimeError("Google login did not complete within 12 steps (saved dbg_google2.png)")
 
 
 async def add_account_flow(account: str, email: str, password: str, secret: str) -> bool:
     """Full account addition flow; returns True on success."""
-    profile_dir = Path("accounts") / account
+    profile_dir = Path(config.PROFILE_DIR) / account
     profile_dir.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as p:
@@ -139,7 +140,7 @@ async def add_account_flow(account: str, email: str, password: str, secret: str)
             if g is None and "accounts.google.com" in page.url:
                 g = page
             if g is None:
-                await page.screenshot(path="dbg_add_account.png")
+                await page.screenshot(path=str(Path(config.ARTIFACTS_DIR, "dbg_add_account.png")))
                 raise RuntimeError("Failed to redirect to Google login page (saved dbg_add_account.png)")
 
             await google_login(g, email, password, secret)
@@ -152,15 +153,19 @@ async def add_account_flow(account: str, email: str, password: str, secret: str)
                     print(f"[{account}] ✓ Login successful, sessionid saved to {profile_dir}", flush=True)
                     await page.wait_for_timeout(3000)
                     return True
-            await page.screenshot(path="dbg_add_account.png")
+            await page.screenshot(path=str(Path(config.ARTIFACTS_DIR, "dbg_add_account.png")))
             raise RuntimeError("sessionid not acquired within 3 minutes (saved dbg_add_account.png)")
         finally:
             await context.close()
 
 
 async def main():
-    account = sys.argv[1]
-    email, password, secret = sys.argv[2].split("----")
+    if len(sys.argv) > 2:
+        raise SystemExit("Only account name may be supplied on argv; provide secrets through protected stdin or a prompt.")
+    account = sys.argv[1] if len(sys.argv) == 2 else input("Account name: ").strip()
+    email = input("Google email: ").strip()
+    password = getpass.getpass("Google password: ")
+    secret = getpass.getpass("TOTP secret: ")
     await add_account_flow(account, email, password, secret)
     print(f"[{account}] Account added successfully!")
 

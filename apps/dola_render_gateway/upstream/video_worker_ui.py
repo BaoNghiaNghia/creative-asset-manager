@@ -208,8 +208,8 @@ async def solve_slider(page, frame, attempt: int) -> bool:
 
     bg_bytes = await _fetch_bytes(bg["src"])
     piece_bytes = await _fetch_bytes(piece["src"])
-    Path("dbg_bg.jpg").write_bytes(bg_bytes)
-    Path("dbg_piece.png").write_bytes(piece_bytes)
+    Path(config.ARTIFACTS_DIR, "dbg_bg.jpg").write_bytes(bg_bytes)
+    Path(config.ARTIFACTS_DIR, "dbg_piece.png").write_bytes(piece_bytes)
 
     gap_x, conf = find_gap_x(bg_bytes, piece_bytes)
     scale = bg["bw"] / bg["w"] if bg["w"] else 340 / 552
@@ -445,7 +445,7 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                     break
                 print(f"[{account}] Captcha not passed, retrying...", flush=True)
             if not solved_or_absent:
-                await page.screenshot(path="solve_fail.png")
+                await page.screenshot(path=str(Path(config.ARTIFACTS_DIR, "solve_fail.png")))
                 raise RiskControlError("Captcha failed 3 times")
 
             # ---- Wait for real conversation_id ----
@@ -457,7 +457,7 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                     conv_id = tail
                     break
             if not conv_id:
-                await page.screenshot(path="no_conv.png")
+                await page.screenshot(path=str(Path(config.ARTIFACTS_DIR, "no_conv.png")))
                 raise TimeoutError("conversation_id not acquired within 30s")
             print(f"[{account}] conversation_id={conv_id}, polling for video...", flush=True)
 

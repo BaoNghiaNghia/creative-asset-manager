@@ -162,7 +162,6 @@ async def generate_video(account: str, prompt: str, ratio: str = "9:16",
     Returns {"video_url": cdn_url, "local_path": local_file, "conversation_id": ...}
     Exceptions: RiskControlError, CreditError, TimeoutError, FileNotFoundError
     """
-    """
     timeout = timeout or config.VIDEO_TIMEOUT
     async with async_playwright() as p:
         context = await launch_account_context(p, account)
