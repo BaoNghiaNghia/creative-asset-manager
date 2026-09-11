@@ -32,6 +32,7 @@ from app.modules.external_ingestion.router import router as external_ingestion_r
 from app.modules.metadata.router import router as metadata_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.image_generation.router import router as image_generation_router
+from app.modules.video_generation.router import router as video_generation_router
 from app.modules.processing_policy.router import router as processing_policy_router
 from app.modules.search.governance_router import router as search_governance_router
 from app.modules.search.router import router as search_router
@@ -125,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(processing_policy_router)
     api.include_router(asset_details_router)
     api.include_router(image_generation_router)
+    api.include_router(video_generation_router)
     api.include_router(search_router)
     api.include_router(visual_search_router)
     api.include_router(video_search_router)

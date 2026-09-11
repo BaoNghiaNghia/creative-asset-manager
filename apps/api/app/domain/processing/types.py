@@ -21,6 +21,7 @@ class JobType(str, Enum):
     RETENTION_CLEANUP = "retention_cleanup"
     MANAGED_STORAGE_CLEANUP = "managed_storage_cleanup"
     IMAGE_GENERATE = "image_generate"
+    VIDEO_GENERATE = "video_generate"
 
 
 JOB_TYPES = tuple(job_type.value for job_type in JobType)
