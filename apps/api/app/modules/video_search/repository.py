@@ -161,19 +161,30 @@ class VideoSearchRepository:
         existing = self.list_chunks(tenant_id=tenant_id, run_id=run_id)
         existing_by_index = {chunk.chunk_index: chunk for chunk in existing}
 
-        for layout in canonical:
-            chunk = existing_by_index.get(layout["chunk_index"])
-            if chunk is not None and (
-                chunk.source_start_ms != layout["source_start_ms"]
-                or chunk.source_end_ms != layout["source_end_ms"]
-            ):
-                raise VideoChunkLayoutConflictError("chunk layout differs from canonical layout")
-
         requested_indexes = {layout["chunk_index"] for layout in canonical}
         existing_indexes = set(existing_by_index)
-        if existing_indexes != requested_indexes:
-            if existing_indexes:
-                raise VideoChunkLayoutConflictError("chunk index set differs from canonical layout")
+        layout_conflict = (
+            any(
+                (chunk := existing_by_index.get(layout["chunk_index"])) is not None
+                and (
+                    chunk.source_start_ms != layout["source_start_ms"]
+                    or chunk.source_end_ms != layout["source_end_ms"]
+                )
+                for layout in canonical
+            )
+            or (bool(existing_indexes) and existing_indexes != requested_indexes)
+        )
+        if layout_conflict:
+            # A retry before any chunk completed may safely adopt a newly
+            # canonicalized proxy layout. Completed chunks must never be mixed
+            # with a different timeline.
+            if run.completed_chunks or any(chunk.status == "completed" for chunk in existing):
+                raise VideoChunkLayoutConflictError("chunk layout differs from canonical layout")
+            for chunk in existing:
+                self.session.delete(chunk)
+            self.session.flush()
+            existing = []
+            existing_by_index = {}
 
         if not existing:
             run.total_chunks = len(canonical)
