@@ -11,6 +11,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .config import RuntimeSettings, load_settings
+from .api import install
+from .idempotency import GenerationRepository
+from .service import GatewayService, VendoredAdapter
 
 
 def _configure_upstream(settings: RuntimeSettings) -> None:
@@ -66,6 +69,7 @@ def create_app(
     async def ready() -> dict[str, str]:
         return {"status": "ok"}
 
+    install(app, GatewayService(GenerationRepository(settings.paths.db_dir / "gateway.db"), VendoredAdapter(), settings.paths))
     app.mount("/", delegated)
     return app
 

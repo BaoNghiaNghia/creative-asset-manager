@@ -89,3 +89,15 @@ No persistent state is written to the repository, the source checkout, or the cu
 The supported provisioning path must not put passwords, TOTP secrets, cookies, or session tokens on argv. The legacy upstream CLI was patched to accept only an account name on argv and prompt for secrets; future protected tooling may use stdin.
 
 DG-02 will implement the internal generation API and idempotency contract.
+
+## DG-02 internal API (source-only)
+
+The CAM-owned wrapper exposes authenticated internal endpoints only: POST /internal/v1/video-generations, GET /internal/v1/video-generations/{generation_id}, and GET /internal/v1/video-generations/{generation_id}/content.
+
+Every endpoint requires Authorization: Bearer <DOLA_INTERNAL_API_KEY>. Submit additionally requires a non-empty Idempotency-Key (maximum 200 printable characters) and multipart/form-data: a JSON metadata part with prompt, model, aspect_ratio, and duration_seconds, plus zero or more ordered references image files. Supported models are seedance-2.0 and seedance-2.5; ratios are 16:9, 9:16, 1:1, 4:3, and 3:4; durations are 10, 15, or 30 seconds.
+
+References are private uploads only: JPEG, PNG, or WEBP; at most 8 files, 15 MiB each and 30 MiB aggregate. No external reference URL is accepted. Files are staged only under the configured runtime root.
+
+Fingerprint version v1 is SHA-256 over canonical JSON of normalized model, prompt, ratio, duration, and ordered SHA-256 reference bytes. Filenames, local paths, multipart framing, bearer values, and timestamps are excluded. Same idempotency key plus same fingerprint returns the existing generation without another submission; same key with a different fingerprint returns 409 idempotency_key_conflict. The durable mapping is /var/lib/dola-render-gateway/db/gateway.db.
+
+Completed output remains Dola-local and is available only through the authenticated content endpoint; CAM Managed Storage integration is NOT IMPLEMENTED. CAM integration and production deployment are NOT PERFORMED. Because upstream has no external idempotency primitive, a process crash after upstream acceptance but before durable task-ID persistence has a residual external duplicate-risk window; the gateway never blindly resubmits an accepted record after restart.
