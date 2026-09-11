@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -10,6 +11,7 @@ _ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _ALLOWED_STATES = {
     "accepted", "submitted", "running", "submission_unknown", "completed", "failed",
 }
+_ALLOWED_CONTENT_TYPES = {"video/mp4"}
 
 
 class DolaGatewayError(RuntimeError):
@@ -33,6 +35,13 @@ class GatewayGeneration:
     idempotent_replay: bool = False
     error_code: str | None = None
     error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayContent:
+    content_type: str
+    content_length: int | None
+    body: object
 
 
 def validate_gateway_url(raw_url: str) -> str:
@@ -102,6 +111,30 @@ class DolaGatewayClient:
         )
         return self._parse(response)
 
+    @asynccontextmanager
+    async def open_content(self, generation_id: str, *, maximum_bytes: int):
+        """Yield authenticated gateway content without buffering it in memory."""
+        try:
+            async with self._client.stream(
+                "GET", self.base_url + f"/internal/v1/video-generations/{generation_id}/content",
+                headers=self._headers(),
+            ) as response:
+                self._raise_for_response(response)
+                content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                if content_type not in _ALLOWED_CONTENT_TYPES:
+                    raise DolaGatewayError("dola_generation_content_invalid", "Dola gateway returned invalid generated video content.")
+                try:
+                    content_length = int(response.headers["content-length"]) if "content-length" in response.headers else None
+                except ValueError:
+                    content_length = None
+                if content_length is not None and (content_length <= 0 or content_length > maximum_bytes):
+                    raise DolaGatewayError("video_generation_output_too_large", "Generated video exceeds the configured output limit.")
+                yield GatewayContent(content_type, content_length, response.aiter_bytes())
+        except DolaGatewayError:
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+            raise DolaGatewayError("dola_gateway_transport_error", "Dola gateway is temporarily unavailable.", retryable=True) from exc
+
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         try:
             response = await self._client.request(method, self.base_url + path, **kwargs)
@@ -109,6 +142,11 @@ class DolaGatewayClient:
             raise DolaGatewayError(
                 "dola_gateway_transport_error", "Dola gateway is temporarily unavailable.", retryable=True
             ) from exc
+        self._raise_for_response(response)
+        return response
+
+    @staticmethod
+    def _raise_for_response(response: httpx.Response) -> None:
         if response.status_code in {502, 503, 504}:
             raise DolaGatewayError(
                 "dola_gateway_unavailable", "Dola gateway is temporarily unavailable.", retryable=True
@@ -129,7 +167,6 @@ class DolaGatewayClient:
             raise DolaGatewayError(
                 "dola_gateway_request_failed", "Dola gateway rejected the request."
             )
-        return response
 
     @staticmethod
     def _parse(response: httpx.Response) -> GatewayGeneration:

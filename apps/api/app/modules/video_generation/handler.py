@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import os
+from pathlib import Path
+from typing import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
@@ -10,7 +14,12 @@ from sqlalchemy import select
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.modules.assets.content_resolver import SourceAssetContentResolver, SourceAssetContentUnavailable
-from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
+from app.modules.assets.repository import AssetContentConflictError, AssetRegistryRepository
+from app.modules.storage.model import AssetStorageObjectModel
+from app.modules.storage.repository import ManagedStorageRepository
+from app.modules.storage.service import ManagedAssetStorageService
+from app.domain.providers.contracts import StorageProviderError, StoreAssetInput
 
 from .gateway_client import DolaGatewayClient, DolaGatewayError, GatewayReference
 from .model import VideoGenerationReferenceModel
@@ -76,13 +85,13 @@ class VideoGenerateJobHandler:
             if state == "cancelled" or context.is_cancelled:
                 return JobHandlerResult.cancelled("Video generation was cancelled.")
 
-        if state == "storing":
-            return self._defer("video_generation_content_import_pending", "Video content import is pending.", settings)
         if state == "submission_unknown" and not gateway_id:
             return self._defer("video_generation_recovery_required", "Video generation requires recovery.", settings)
 
         client = self._client(context, settings)
         try:
+            if state == "storing":
+                return await self._import_completed_content(context, settings, run_id, gateway_id, client)
             if gateway_id:
                 gateway = await client.get_generation(gateway_id)
             else:
@@ -103,6 +112,9 @@ class VideoGenerateJobHandler:
                         references=references,
                     )
                 self._persist_gateway_identity(context, run_id, gateway.generation_id)
+            if gateway.status == "completed":
+                self._apply_gateway_state(context, run_id, gateway, settings)
+                return await self._import_completed_content(context, settings, run_id, gateway.generation_id, client)
             return self._apply_gateway_state(context, run_id, gateway, settings)
         except DolaGatewayError as exc:
             raise VideoGenerationHandlerError(exc.code, str(exc), retryable=exc.retryable) from exc
@@ -182,6 +194,159 @@ class VideoGenerateJobHandler:
             ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[detected]
             prepared.append(GatewayReference(f"reference-{index}.{ext}", detected, bytes(data)))
         return prepared
+
+    async def _import_completed_content(self, context, settings, run_id, gateway_id, client):
+        """Import one already-completed gateway artifact; this path never submits."""
+        if not gateway_id:
+            raise VideoGenerationHandlerError("video_generation_recovery_required", "Video generation requires recovery.")
+        provider = context.dependencies.storage_provider
+        if provider is None or not settings.MANAGED_ASSET_STORAGE_ENABLED:
+            raise VideoGenerationHandlerError("video_generation_storage_unavailable", "Managed Storage is unavailable.", retryable=True)
+        stage = self._staging_path(settings, run_id)
+        provider_name = getattr(provider, "provider_name", provider.__class__.__name__)
+        with context.dependencies.session_factory() as session:
+            repository = VideoGenerationRepository(session)
+            run = repository.get(context.job.tenant_id, run_id)
+            if run is None:
+                raise VideoGenerationHandlerError("video_generation_not_found", "Video generation was not found.")
+            if run.status == "completed":
+                return JobHandlerResult.completed()
+            if run.output_asset_id:
+                stored = session.scalar(select(AssetStorageObjectModel).where(
+                    AssetStorageObjectModel.tenant_id == run.tenant_id,
+                    AssetStorageObjectModel.asset_id == run.output_asset_id,
+                    AssetStorageObjectModel.storage_provider == provider_name,
+                    AssetStorageObjectModel.status == "stored",
+                ))
+                if stored is not None:
+                    repository.transition(run, "completed")
+                    session.commit()
+                    self._remove_stage(stage)
+                    return JobHandlerResult.completed()
+
+        content_hash, size_bytes, mime = self._valid_stage(stage)
+        if content_hash is None:
+            try:
+                gateway = await client.get_generation(gateway_id)
+                if gateway.status == "failed":
+                    return self._apply_gateway_state(context, run_id, gateway, settings)
+                if gateway.status == "submission_unknown":
+                    return self._defer("upstream_submission_state_unknown", "Video generation submission state is unknown.", settings)
+                if gateway.status != "completed":
+                    return self._defer("video_generation_provider_running", "Video generation is running.", settings)
+                content_hash, size_bytes, mime = await self._download_stage(client, gateway_id, stage, int(settings.VIDEO_GENERATION_MAX_OUTPUT_BYTES))
+            except DolaGatewayError as exc:
+                code = "dola_generation_content_not_found" if exc.code == "dola_generation_not_found" else exc.code
+                raise VideoGenerationHandlerError(code, str(exc), retryable=exc.retryable) from exc
+
+        with context.dependencies.session_factory() as session:
+            repository = VideoGenerationRepository(session)
+            run = repository.get(context.job.tenant_id, run_id)
+            if run is None or run.status != "storing":
+                raise VideoGenerationHandlerError("video_generation_state_conflict", "Video generation state conflicts.")
+            assets = AssetRegistryRepository(session)
+            asset = assets.find_asset_by_content_hash(run.tenant_id, content_hash)
+            if asset is None:
+                try:
+                    asset = assets.create_asset(tenant_id=run.tenant_id, content_hash=content_hash, mime_type=mime, size_bytes=size_bytes)
+                except AssetContentConflictError:
+                    asset = assets.find_asset_by_content_hash(run.tenant_id, content_hash)
+                    if asset is None:
+                        raise
+            if run.output_asset_id and run.output_asset_id != asset.id:
+                raise VideoGenerationHandlerError("video_generation_output_asset_conflict", "Generated video output identity conflicts.")
+            run.output_asset_id = asset.id
+            session.commit()
+            asset_id = asset.id
+
+        try:
+            with context.dependencies.session_factory() as session:
+                await ManagedAssetStorageService(
+                    AssetRegistryRepository(session), ManagedStorageRepository(session),
+                    enabled=True,
+                ).store(StoreAssetInput(
+                    tenant_id=context.job.tenant_id, asset_id=asset_id, content_hash=content_hash,
+                    body=self._file_chunks(stage), content_type=mime, size_bytes=size_bytes,
+                    filename=f"generated-{run_id}.mp4",
+                ), provider)
+        except StorageProviderError as exc:
+            raise VideoGenerationHandlerError("video_generation_storage_failed", "Generated video storage failed.", retryable=exc.retryable) from exc
+        except Exception as exc:
+            raise VideoGenerationHandlerError("video_generation_storage_failed", "Generated video storage failed.", retryable=True) from exc
+
+        with context.dependencies.session_factory() as session:
+            repository = VideoGenerationRepository(session)
+            run = repository.get(context.job.tenant_id, run_id)
+            if run is None or run.output_asset_id != asset_id:
+                raise VideoGenerationHandlerError("video_generation_output_asset_conflict", "Generated video output identity conflicts.")
+            if run.status == "storing":
+                repository.transition(run, "completed")
+                session.commit()
+        self._remove_stage(stage)
+        context.logger.info("video_generation_completed", extra={"generation_id": run_id, "tenant_id": context.job.tenant_id, "gateway_generation_id": gateway_id, "output_asset_id": asset_id, "size_bytes": size_bytes, "mime_type": mime, "status": "completed"})
+        return JobHandlerResult.completed()
+
+    @staticmethod
+    def _staging_path(settings, run_id: str) -> Path:
+        root = Path(settings.VIDEO_GENERATION_STAGING_ROOT).resolve()
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path = (root / f"{run_id}.mp4").resolve()
+        if path.parent != root:
+            raise VideoGenerationHandlerError("invalid_video_generation_job", "Invalid generation identifier.")
+        return path
+
+    @staticmethod
+    async def _file_chunks(path: Path, chunk_size: int = 64 * 1024) -> AsyncIterator[bytes]:
+        with path.open("rb") as source:
+            while block := source.read(chunk_size):
+                yield block
+
+    @staticmethod
+    def _valid_stage(path: Path):
+        if not path.is_file():
+            return None, None, None
+        digest = hashlib.sha256(); total = 0; initial = b""
+        with path.open("rb") as source:
+            while block := source.read(64 * 1024):
+                if len(initial) < 4096:
+                    initial += block[:4096-len(initial)]
+                digest.update(block); total += len(block)
+        if total <= 0 or b"ftyp" not in initial[:4096]:
+            VideoGenerateJobHandler._remove_stage(path)
+            return None, None, None
+        return digest.hexdigest(), total, "video/mp4"
+
+    @staticmethod
+    async def _download_stage(client, gateway_id: str, path: Path, maximum_bytes: int):
+        temporary = path.with_suffix(".tmp")
+        digest = hashlib.sha256(); total = 0; initial = b""
+        try:
+            async with client.open_content(gateway_id, maximum_bytes=maximum_bytes) as content:
+                with temporary.open("wb") as target:
+                    for_mode = 0o600
+                    os.chmod(temporary, for_mode)
+                    async for block in content.body:
+                        total += len(block)
+                        if total > maximum_bytes:
+                            raise VideoGenerationHandlerError("video_generation_output_too_large", "Generated video exceeds the configured output limit.")
+                        if len(initial) < 4096:
+                            initial += block[:4096-len(initial)]
+                        digest.update(block); target.write(block)
+                    target.flush(); os.fsync(target.fileno())
+            if total <= 0 or b"ftyp" not in initial[:4096]:
+                raise VideoGenerationHandlerError("dola_generation_content_invalid", "Generated video content is invalid.")
+            os.replace(temporary, path)
+            return digest.hexdigest(), total, "video/mp4"
+        except Exception:
+            try: temporary.unlink()
+            except FileNotFoundError: pass
+            raise
+
+    @staticmethod
+    def _remove_stage(path: Path) -> None:
+        for candidate in (path, path.with_suffix(".tmp")):
+            try: candidate.unlink()
+            except FileNotFoundError: pass
 
     def _persist_gateway_identity(self, context, run_id: str, gateway_id: str) -> None:
         with context.dependencies.session_factory() as session:

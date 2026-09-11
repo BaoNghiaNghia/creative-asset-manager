@@ -16,6 +16,8 @@ from app.modules.auth_persistence import model as _auth_models  # noqa: F401
 from app.core.config import Settings
 from app.core.database import Base, get_db
 from app.modules.assets.model import AssetModel
+from app.modules.storage.model import AssetStorageObjectModel
+from app.domain.providers.contracts import AssetDownloadStream
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -293,3 +295,52 @@ def test_disabled_capability_and_create_error_are_safe(api, monkeypatch):
         "message": "Video generation is disabled.",
     }
     assert "fake-internal-key" not in response.text
+
+
+def test_pre_submit_cancel_cancels_job_and_is_idempotent(database):
+    with database() as session:
+        service = Service(session, settings())
+        run = service.create("tenant-a", "user-a", request(request_id="cancel"))
+        cancelled = service.cancel("tenant-a", run.id, "actor-a")
+        assert cancelled.status == "cancelled"
+        assert service.cancel("tenant-a", run.id, "actor-a").status == "cancelled"
+        job = session.scalar(select(ProcessingJobModel).where(ProcessingJobModel.entity_id == run.id))
+        assert job.last_error_code == "operation_cancelled"
+
+
+def test_cancel_after_gateway_identity_fails_closed(database):
+    with database() as session:
+        service = Service(session, settings())
+        run = service.create("tenant-a", "user-a", request(request_id="cancel-late"))
+        run.gateway_generation_id = "gateway-1"
+        session.commit()
+        with pytest.raises(Error) as failure:
+            service.cancel("tenant-a", run.id, "actor-a")
+        assert failure.value.code == "video_generation_cancel_unavailable_after_submission"
+
+
+def test_result_endpoint_requires_completed_and_never_uses_gateway(api, monkeypatch):
+    client, app, database = api
+    created = client.post("/api/v1/video-generations", json=request(request_id="result").model_dump())
+    generation_id = created.json()["id"]
+    assert client.get(f"/api/v1/video-generations/{generation_id}/video").status_code == 409
+    with database() as session:
+        run = session.get(VideoGenerationRunModel, generation_id)
+        asset = AssetModel(tenant_id="tenant-a", content_hash="a" * 64, mime_type="video/mp4", size_bytes=21)
+        session.add(asset); session.flush()
+        run.output_asset_id = asset.id; run.status = "completed"
+        session.add(AssetStorageObjectModel(tenant_id="tenant-a", asset_id=asset.id, content_hash=asset.content_hash, storage_provider="fake", status="stored", remote_file_id="file-1", remote_folder_id="folder-1"))
+        session.commit()
+    class Provider:
+        async def open_asset(self, _):
+            async def body():
+                yield b"0000ftypisom-video"
+            async def close():
+                pass
+            return AssetDownloadStream(body=body(), close=close, content_type="video/mp4")
+    monkeypatch.setattr("app.modules.video_generation.router.build_managed_storage_provider", lambda _: Provider())
+    response = client.get(f"/api/v1/video-generations/{generation_id}/video")
+    assert response.status_code == 200
+    assert response.content == b"0000ftypisom-video"
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["content-disposition"] == f'inline; filename="generated-{generation_id}.mp4"'

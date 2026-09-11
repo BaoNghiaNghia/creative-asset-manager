@@ -98,3 +98,51 @@ def test_missing_bearer_fails_closed_without_leaking():
         run(client.get_generation("gateway-1"))
     assert failure.value.code == "dola_gateway_not_configured"
     run(client.aclose())
+
+
+def test_content_stream_uses_bearer_exact_path_and_never_accesses_response_content():
+    seen = {}
+    def responder(request):
+        seen["headers"] = dict(request.headers)
+        seen["path"] = request.url.path
+        return httpx.Response(200, headers={"content-type": "video/mp4"}, content=b"0000ftypisom-streamed")
+    client = DolaGatewayClient(settings(), client=httpx.AsyncClient(transport=httpx.MockTransport(responder)))
+    async def consume():
+        async with client.open_content("gateway-1", maximum_bytes=1024) as content:
+            return content.content_type, b"".join([block async for block in content.body])
+    mime, result = run(consume())
+    assert mime == "video/mp4"
+    assert result == b"0000ftypisom-streamed"
+    assert seen["headers"]["authorization"] == "Bearer test-key"
+    assert seen["path"] == "/internal/v1/video-generations/gateway-1/content"
+    run(client.aclose())
+
+
+@pytest.mark.parametrize("status,retryable", [(401, False), (403, False), (404, False), (502, True), (503, True), (504, True)])
+def test_content_http_errors_are_classified(status, retryable):
+    client = DolaGatewayClient(settings(), client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(status))))
+    async def consume():
+        async with client.open_content("gateway-1", maximum_bytes=1024):
+            pass
+    with pytest.raises(DolaGatewayError) as failure:
+        run(consume())
+    assert failure.value.retryable is retryable
+    run(client.aclose())
+
+
+def test_content_rejects_wrong_mime_and_early_oversize():
+    bad = DolaGatewayClient(settings(), client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, headers={"content-type": "text/html"}, content=b"no"))))
+    async def wrong():
+        async with bad.open_content("gateway-1", maximum_bytes=1024):
+            pass
+    with pytest.raises(DolaGatewayError, match="invalid generated"):
+        run(wrong())
+    run(bad.aclose())
+    big = DolaGatewayClient(settings(), client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, headers={"content-type": "video/mp4", "content-length": "1025"}))))
+    async def over():
+        async with big.open_content("gateway-1", maximum_bytes=1024):
+            pass
+    with pytest.raises(DolaGatewayError) as failure:
+        run(over())
+    assert failure.value.code == "video_generation_output_too_large"
+    run(big.aclose())

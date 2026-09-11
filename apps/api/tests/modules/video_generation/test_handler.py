@@ -1,4 +1,6 @@
 import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
 from datetime import datetime, timezone
 from threading import Event
 
@@ -12,7 +14,8 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.domain.processing.handlers import ClaimedJob, DeferredJobOutcome, WorkerDependencies
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.video_generation.gateway_client import GatewayGeneration
+from app.modules.video_generation.gateway_client import GatewayGeneration, GatewayContent
+from app.domain.providers.contracts import StoredAsset
 from app.modules.video_generation.handler import VideoGenerateJobHandler
 from app.modules.video_generation.model import VideoGenerationRunModel
 from app.modules.video_generation.schema import VideoGenerationRequest
@@ -79,7 +82,7 @@ def setup():
         engine.dispose()
 
 
-def test_submit_polls_and_stops_at_storing_without_content_import(setup):
+def test_submit_polls_and_stays_storing_when_managed_storage_is_unavailable(setup):
     factory, settings, gateway, context, run_id = setup
     handler = VideoGenerateJobHandler(settings)
     accepted = handler(context)
@@ -97,8 +100,8 @@ def test_submit_polls_and_stops_at_storing_without_content_import(setup):
 
     gateway.status = "completed"
     storing = handler(context)
-    assert isinstance(storing, DeferredJobOutcome)
-    assert storing.reason_code == "video_generation_content_import_pending"
+    assert storing.outcome.value == "retryable_failure"
+    assert storing.error_code == "video_generation_storage_unavailable"
     assert len(gateway.submit_calls) == 1
     with factory() as session:
         run = session.get(VideoGenerationRunModel, run_id)
@@ -146,3 +149,71 @@ def test_worker_context_uses_owned_async_executor(setup):
     assert isinstance(outcome, DeferredJobOutcome)
     assert executor.calls == 1
     assert len(gateway.submit_calls) == 1
+
+
+class CompletedGateway(FakeGateway):
+    def __init__(self, payload=b"0000ftypisom-video-content"):
+        super().__init__()
+        self.status = "completed"
+        self.content_calls = []
+        self.payload = payload
+
+    @asynccontextmanager
+    async def open_content(self, generation_id, *, maximum_bytes):
+        self.content_calls.append(generation_id)
+        async def chunks():
+            for index in range(0, len(self.payload), 5):
+                yield self.payload[index:index + 5]
+        yield GatewayContent("video/mp4", len(self.payload), chunks())
+
+
+class FakeStorage:
+    provider_name = "fake-storage"
+    def __init__(self):
+        self.calls = 0
+        self.payloads = []
+    async def store_asset(self, input):
+        self.calls += 1
+        self.payloads.append(b"".join([block async for block in input.body]))
+        return StoredAsset(storage_key="fake:file", content_hash=input.content_hash, storage_provider=self.provider_name, remote_file_id="file-1", remote_folder_id="folder-1")
+
+
+def test_storing_imports_same_gateway_content_dedupes_and_completes(setup, tmp_path):
+    factory, settings, _, context, run_id = setup
+    gateway = CompletedGateway()
+    storage = FakeStorage()
+    settings.VIDEO_GENERATION_STAGING_ROOT = str(tmp_path)
+    context.dependencies.resources["dola_gateway_client_factory"] = lambda _: gateway
+    context.dependencies.storage_provider = storage
+    with factory() as session:
+        run = session.get(VideoGenerationRunModel, run_id)
+        run.status = "storing"
+        run.gateway_generation_id = "gateway-1"
+        session.commit()
+    outcome = VideoGenerateJobHandler(settings)(context)
+    assert outcome.outcome.value == "completed"
+    assert gateway.get_calls == ["gateway-1"]
+    assert gateway.content_calls == ["gateway-1"]
+    assert storage.payloads == [gateway.payload]
+    with factory() as session:
+        run = session.get(VideoGenerationRunModel, run_id)
+        assert run.status == "completed"
+        assert run.output_asset_id
+        assert run.completed_at is not None
+    assert not (tmp_path / f"{run_id}.mp4").exists()
+    retry = VideoGenerateJobHandler(settings)(context)
+    assert retry.outcome.value == "completed"
+    assert gateway.content_calls == ["gateway-1"]
+    assert storage.calls == 1
+
+
+def test_storing_without_gateway_id_never_submits(setup):
+    factory, settings, gateway, context, run_id = setup
+    with factory() as session:
+        run = session.get(VideoGenerationRunModel, run_id)
+        run.status = "storing"
+        session.commit()
+    outcome = VideoGenerateJobHandler(settings)(context)
+    assert outcome.outcome.value == "non_retryable_failure"
+    assert outcome.error_code == "video_generation_recovery_required"
+    assert not gateway.submit_calls

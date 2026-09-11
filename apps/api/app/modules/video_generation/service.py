@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.assets.model import AssetModel
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.processing.model import ProcessingJobModel
 
 from .model import VideoGenerationReferenceModel, VideoGenerationRunModel
 from .repository import VideoGenerationRepository
@@ -159,4 +160,22 @@ class Service:
                 "Video generation was not found.",
                 404,
             )
+        return run
+
+
+    def cancel(self, tenant_id: str, generation_id: str, actor_id: str):
+        run = self.get(tenant_id, generation_id)
+        if run.status == "cancelled":
+            return run
+        if run.status not in {"queued", "preparing"} or run.gateway_generation_id:
+            raise Error("video_generation_cancel_unavailable_after_submission", "Video generation cannot be cancelled after provider submission.", 409)
+        job = self.session.scalar(select(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.entity_type == "video_generation_run",
+            ProcessingJobModel.entity_id == generation_id,
+        ))
+        if job is not None:
+            self.jobs.cancel_unstarted_job(tenant_id=tenant_id, job_id=job.id, actor_id=actor_id, reason="Video generation cancelled")
+        self.runs.transition(run, "cancelled")
+        self.session.commit()
         return run

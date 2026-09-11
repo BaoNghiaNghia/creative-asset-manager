@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -72,5 +74,10 @@ class VideoGenerationRepository:
         if target not in _TRANSITIONS.get(run.status, set()):
             raise VideoGenerationStateError(f"{run.status} -> {target} is not allowed")
         run.status = target
+        now = datetime.now(timezone.utc)
+        if target == "submitted" and run.submitted_at is None:
+            run.submitted_at = now
+        if target == "completed" and run.completed_at is None:
+            run.completed_at = now
         self.session.flush()
         return run

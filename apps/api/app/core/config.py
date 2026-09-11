@@ -171,6 +171,8 @@ class Settings(BaseSettings):
     DOLA_RENDER_GATEWAY_TIMEOUT_SECONDS: float = 10.0
     DOLA_RENDER_GATEWAY_CONTENT_TIMEOUT_SECONDS: float = 300.0
     VIDEO_GENERATION_POLL_SECONDS: float = 10.0
+    VIDEO_GENERATION_STAGING_ROOT: str = "/var/lib/creative-asset-manager/video-generation"
+    VIDEO_GENERATION_MAX_OUTPUT_BYTES: int = 256 * 1024 * 1024
     VIDEO_ANALYSIS_ENABLED: bool = False
     VIDEO_PROXY_ENABLED: bool = False
     VIDEO_PROXY_STALE_RETENTION_HOURS: int = 24
