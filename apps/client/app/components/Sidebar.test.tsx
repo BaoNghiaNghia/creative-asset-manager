@@ -40,4 +40,28 @@ describe("Sidebar multi-source accounts", () => {
     expect(markup).not.toContain(">Reauthorize</button>");
     expect(markup).not.toContain(">Disconnect</button>");
   });
+  it("keeps Google account switching in the source context menu rather than rendering a sidebar card", () => {
+    const google: ConnectedSource = {
+      ...source("google-one", "drive@example.com"),
+      source_type: "google_drive",
+      display_name: "Google Drive",
+      provider: "google",
+    };
+    const markup = renderToStaticMarkup(<Sidebar
+      provider="google-drive" auth={{ authenticated: true, user: null, checking: false }} authByProvider={{ ...sessions, "google-drive": { authenticated: true, user: null, checking: false } }}
+      sources={[google]}
+      activeExternalSourceId="google-one" tags={[]} path={[]} activeId={undefined}
+      rootFolders={[]} childrenByParent={{}} expanded={new Set()} loadingNodes={new Set()}
+      onSelectProvider={() => undefined} onSelectSource={async () => undefined}
+      onDisconnectSource={async () => undefined} onSyncSource={async () => undefined}
+      onOpen={() => undefined} onToggle={() => undefined} onPrefetch={() => undefined}
+      onCancelPrefetch={() => undefined} onCollapse={() => undefined} onResizeStart={() => undefined}
+      applicationAuthenticated
+    />);
+
+    expect(markup).toContain('title="Right-click for source actions"');
+    expect(markup).not.toContain("Connect a different Drive account");
+    expect(markup).not.toContain("source-reconnect");
+  });
+
 });

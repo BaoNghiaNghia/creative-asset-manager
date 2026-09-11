@@ -98,7 +98,6 @@ export function Sidebar({
   const rootAncestors = path.length > 0 && path[0].id === currentRoot ? [path[0]] : [];
   const activePathIds = new Set(path.map(folder => folder.id));
   const [canViewAiOperations, setCanViewAiOperations] = useState(false);
-  const [showSwitchGoogleConfirm, setShowSwitchGoogleConfirm] = useState(false);
   const [busySourceId, setBusySourceId] = useState<string | null>(null);
   const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenu | null>(null);
 
@@ -110,15 +109,6 @@ export function Sidebar({
     }).catch(() => { if (alive) setCanViewAiOperations(false); });
     return () => { alive = false; };
   }, []);
-
-  useEffect(() => {
-    if (!showSwitchGoogleConfirm) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setShowSwitchGoogleConfirm(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [showSwitchGoogleConfirm]);
 
   useEffect(() => {
     if (!sourceContextMenu) return;
@@ -202,21 +192,6 @@ export function Sidebar({
           {source.provider === "onedrive" && applicationAuthenticated && providerSources.length > 0 && <button className="source-add-account" type="button" onClick={() => {
             if (!beginSourceOAuth("onedrive", undefined, "work")) window.location.assign(sourceLogin("onedrive", undefined, "work"));
           }}>+ Add work/school OneDrive</button>}
-          {active && authByProvider[source.provider].authenticated && source.provider === "google-drive" && applicationAuthenticated && <button
-            className="source-reconnect"
-            type="button"
-            onClick={() => setShowSwitchGoogleConfirm(true)}
-            aria-label="Switch Google account"
-          >
-            <span className="source-reconnect-icon"><SourceIcon provider="google-drive" /></span>
-            <span className="source-reconnect-copy">
-              <strong>Switch Google account</strong>
-              <small>Connect a different Drive account</small>
-            </span>
-            <svg className="source-reconnect-arrow" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7 7h10l-2.5-2.5M17 7l-2.5 2.5M17 17H7l2.5 2.5M7 17l2.5-2.5" />
-            </svg>
-          </button>}
         </Fragment>;
       })}
     {sourceContextMenu && createPortal(<div className="source-context-menu-backdrop" onMouseDown={() => setSourceContextMenu(null)}>
@@ -242,7 +217,7 @@ export function Sidebar({
           const accountType = connected.metadata.drive_type === "personal" ? "personal" : "work";
           setSourceContextMenu(null);
           if (!beginSourceOAuth(provider, connected.id, accountType)) window.location.assign(sourceLogin(provider, connected.id, accountType));
-        }}>{sourceContextMenu.reconnectRequired ? "Reconnect" : "Reauthorize"}</button>}
+        }}>{sourceContextMenu.provider === "google-drive" ? "Switch Google account" : sourceContextMenu.reconnectRequired ? "Reconnect" : "Reauthorize"}</button>}
         {sourceContextMenu.connected.capabilities.disconnect && sourceContextMenu.connected.status !== "disconnected" && <button type="button" role="menuitem" className="danger" disabled={busySourceId === sourceContextMenu.connected.id} onClick={() => {
           const { account, connected, label } = sourceContextMenu;
           if (!window.confirm("Disconnect " + label + " account " + account + "?")) return;
@@ -252,23 +227,6 @@ export function Sidebar({
           void onDisconnectSource(sourceId).catch(() => undefined).finally(() => setBusySourceId(null));
         }}>{busySourceId === sourceContextMenu.connected.id ? "Disconnecting..." : "Disconnect"}</button>}
       </div>
-    </div>, document.body)}
-    {showSwitchGoogleConfirm && createPortal(<div
-      className="source-switch-dialog-backdrop"
-      onMouseDown={event => event.target === event.currentTarget && setShowSwitchGoogleConfirm(false)}
-    >
-      <section className="source-switch-dialog" role="alertdialog" aria-modal="true" aria-labelledby="switch-google-title" aria-describedby="switch-google-description">
-        <span className="source-switch-dialog-icon"><DriveIcon /></span>
-        <div className="source-switch-dialog-copy">
-          <span className="source-switch-dialog-kicker">GOOGLE DRIVE</span>
-          <h2 id="switch-google-title">Switch Google account?</h2>
-          <p id="switch-google-description">You will briefly leave Creative Asset Manager to choose another Google account. Your current connection stays unchanged until the new connection succeeds.</p>
-        </div>
-        <div className="source-switch-dialog-actions">
-          <button type="button" className="secondary" onClick={() => setShowSwitchGoogleConfirm(false)}>Cancel</button>
-          <button type="button" className="primary" autoFocus onClick={() => window.location.assign("/api/auth/google/connect-drive")}>Continue with Google</button>
-        </div>
-      </section>
     </div>, document.body)}
     <p>TAGS</p>
     {tags.map(tag => <button className="tag" key={tag.id}><i style={{ background: tag.color }} />{tag.name}</button>)}
