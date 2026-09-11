@@ -420,6 +420,7 @@ export function AssetGrid({
       onPointerEnter={() => item.kind === "folder" && onPrefetch(item.id)}
       onPointerLeave={onCancelPrefetch}
     >
+      {onFindSimilar && item.kind === "image" && item.internal_asset_id && <button type="button" className="asset-find-similar" onClick={event => { event.stopPropagation(); onFindSimilar(item); }} aria-label={"Find similar images to " + item.name} title="Find similar images"><VisualSearchIcon /></button>}
       <button className="asset-info" onClick={event => { event.stopPropagation(); onDetails(item); }} aria-label={"View details for " + item.name}>i</button>
       <button className="check" onClick={event => { event.stopPropagation(); onToggle(item.id); }}>{selected.has(item.id) ? "✓" : ""}</button>
       <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
@@ -428,7 +429,6 @@ export function AssetGrid({
       </button>
       <div>
         <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>
-        {onFindSimilar && item.kind === "image" && item.internal_asset_id && <button type="button" className="asset-find-similar" onClick={event => { event.stopPropagation(); onFindSimilar(item); }}><VisualSearchIcon />Find similar</button>}
         <small>{fileTypeLabel(getFileType(item.mime_type, item.kind, item.name))}{item.modified_at && item.kind !== "folder" ? " - " + new Date(item.modified_at).toLocaleDateString() : ""}</small>
         <AssetMetadataBar item={item} metadata={metadataByItem[item.id]} onRate={onRate} />
       </div>
