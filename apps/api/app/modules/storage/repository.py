@@ -100,6 +100,23 @@ class ManagedStorageRepository:
             statement = statement.where(AssetStorageObjectModel.id != exclude_storage_id)
         return int(self.session.scalar(statement) or 0)
 
+    def staging_bytes_used(self, *, remote_folder_id: str) -> int:
+        """Return tracked live bytes in one managed staging folder.
+
+        This deliberately counts only CAM-owned records. Cleanup must never
+        infer ownership from arbitrary files found in a Drive folder.
+        """
+        statement = select(func.coalesce(func.sum(AssetModel.size_bytes), 0)).select_from(
+            AssetStorageObjectModel
+        ).join(AssetModel, and_(
+            AssetModel.tenant_id == AssetStorageObjectModel.tenant_id,
+            AssetModel.id == AssetStorageObjectModel.asset_id,
+        )).where(
+            AssetStorageObjectModel.remote_folder_id == remote_folder_id,
+            AssetStorageObjectModel.status.in_(("stored", "uploading", "retry")),
+        )
+        return int(self.session.scalar(statement) or 0)
+
     def mark_uploading(
         self, record: AssetStorageObjectModel, *, remote_folder_id: str | None = None,
     ) -> None:

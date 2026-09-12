@@ -260,6 +260,85 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
         self.session.expire_all()
         self.assertIsNone(self.session.get(AssetStorageObjectModel, row_id))
 
+    async def test_completed_pipeline_legacy_asset_visual_index_job_does_not_block_cleanup(self) -> None:
+        row = self._record()
+        row_id = row.id
+        self._analysis()
+        self.session.add(AssetPipelineModel(
+            tenant_id="tenant-a", correlation_id="cleanup-legacy-asset-index",
+            origin_type="source_asset", origin_id="source-legacy-asset-index",
+            asset_id=self.asset.id, state="completed",
+        ))
+        self.session.add(ProcessingJobModel(
+            tenant_id="tenant-a", job_type="visual_index_sync", entity_type="asset",
+            entity_id=self.asset.id, idempotency_key="cleanup-legacy-asset-index",
+            payload_json={}, status="pending",
+        ))
+        self.session.commit()
+
+        provider = FakeManagedStorage()
+        result = await self._service(provider).execute(tenant_id="tenant-a")
+        self.assertEqual(result.deleted, 1)
+        self.assertEqual(provider.deleted, ["managed-only-id"])
+        self.session.expire_all()
+        self.assertIsNone(self.session.get(AssetStorageObjectModel, row_id))
+
+    async def test_legacy_asset_visual_index_job_stays_protective_without_completed_pipeline(self) -> None:
+        row = self._record()
+        self._analysis()
+        self.session.add(ProcessingJobModel(
+            tenant_id="tenant-a", job_type="visual_index_sync", entity_type="asset",
+            entity_id=self.asset.id, idempotency_key="cleanup-legacy-asset-index-pending",
+            payload_json={}, status="pending",
+        ))
+        self.session.commit()
+
+        result = await self._service(FakeManagedStorage()).execute(tenant_id="tenant-a")
+        self.assertEqual(result.skipped_active, 1)
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
+
+    async def test_capacity_pressure_bypasses_completed_retention(self) -> None:
+        self.asset.size_bytes = 100
+        self.session.commit()
+        row = self._record(age_hours=1)
+        row_id = row.id
+        self._analysis(completed_age_hours=1)
+        provider = FakeManagedStorage()
+        service = ManagedStorageCleanupService(
+            lambda: Session(self.engine, expire_on_commit=False),
+            Settings(
+                GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="managed-root",
+                MANAGED_STORAGE_COMPLETED_RETENTION_HOURS=24,
+                MANAGED_STORAGE_FAILED_RETENTION_HOURS=24,
+                MANAGED_STORAGE_STAGING_MAX_BYTES=100,
+            ),
+            provider,
+        )
+        result = await service.execute(tenant_id="tenant-a")
+        self.assertEqual(result.capacity_pressure, 1)
+        self.assertEqual(result.deleted, 1)
+        self.assertEqual(provider.deleted, ["managed-only-id"])
+        self.session.expire_all()
+        self.assertIsNone(self.session.get(AssetStorageObjectModel, row_id))
+
+    async def test_capacity_pressure_never_bypasses_active_analysis(self) -> None:
+        self.asset.size_bytes = 100
+        self.session.commit()
+        row = self._record(age_hours=1)
+        self._analysis(status="pending", completed_age_hours=1)
+        service = ManagedStorageCleanupService(
+            lambda: Session(self.engine, expire_on_commit=False),
+            Settings(
+                GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="managed-root",
+                MANAGED_STORAGE_STAGING_MAX_BYTES=100,
+            ),
+            FakeManagedStorage(),
+        )
+        result = await service.execute(tenant_id="tenant-a")
+        self.assertEqual(result.capacity_pressure, 1)
+        self.assertEqual(result.skipped_active, 1)
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
+
     async def test_cleanup_ignores_records_outside_active_folder_id(self) -> None:
         row = self._record()
         row.remote_folder_id = "previous-managed-root"

@@ -40,6 +40,7 @@ class ManagedStorageCleanupResult:
     skipped_active: int = 0
     skipped_not_ready: int = 0
     failed: int = 0
+    capacity_pressure: int = 0
 
     def document(self) -> dict[str, int]:
         return asdict(self)
@@ -77,12 +78,25 @@ class ManagedStorageCleanupService:
         if not active_folder_id:
             return ManagedStorageCleanupResult()
         with self.session_factory() as session:
-            candidate_ids = ManagedStorageRepository(session).list_cleanup_candidate_ids(
+            repository = ManagedStorageRepository(session)
+            candidate_ids = repository.list_cleanup_candidate_ids(
                 tenant_id=tenant_id, remote_folder_id=active_folder_id, limit=bounded
             )
-        result = ManagedStorageCleanupResult(selected=len(candidate_ids))
+            capacity_pressure = (
+                self.settings.MANAGED_STORAGE_STAGING_MAX_BYTES > 0
+                and repository.staging_bytes_used(remote_folder_id=active_folder_id)
+                >= self.settings.MANAGED_STORAGE_STAGING_MAX_BYTES
+            )
+        result = ManagedStorageCleanupResult(
+            selected=len(candidate_ids), capacity_pressure=int(capacity_pressure)
+        )
         for storage_id in candidate_ids:
-            outcome = await self._process_one(storage_id, dry_run=dry_run, now=current)
+            outcome = await self._process_one(
+                storage_id,
+                dry_run=dry_run,
+                now=current,
+                force_completed_cleanup=capacity_pressure,
+            )
             values = result.document()
             values[outcome] += 1
             if outcome in {"eligible_completed", "eligible_failed"}:
@@ -90,7 +104,14 @@ class ManagedStorageCleanupService:
             result = ManagedStorageCleanupResult(**values)
         return result
 
-    async def _process_one(self, storage_id: str, *, dry_run: bool, now: datetime) -> str:
+    async def _process_one(
+        self,
+        storage_id: str,
+        *,
+        dry_run: bool,
+        now: datetime,
+        force_completed_cleanup: bool,
+    ) -> str:
         with self.session_factory() as session:
             try:
                 record = ManagedStorageRepository(session).get_for_cleanup(storage_id)
@@ -102,7 +123,9 @@ class ManagedStorageCleanupService:
                         or record.remote_folder_id != active_folder_id):
                     session.rollback()
                     return "skipped_not_ready"
-                decision = self._eligibility(session, record, now)
+                decision = self._eligibility(
+                    session, record, now, force_completed_cleanup=force_completed_cleanup
+                )
                 if decision not in {"eligible_completed", "eligible_failed"}:
                     if dry_run:
                         session.rollback()
@@ -158,7 +181,12 @@ class ManagedStorageCleanupService:
                 return "failed"
 
     def _eligibility(
-        self, session: Session, record: AssetStorageObjectModel, now: datetime
+        self,
+        session: Session,
+        record: AssetStorageObjectModel,
+        now: datetime,
+        *,
+        force_completed_cleanup: bool = False,
     ) -> str:
         analyses = tuple(session.scalars(select(AssetAiAnalysisModel).where(
             AssetAiAnalysisModel.tenant_id == record.tenant_id,
@@ -184,8 +212,11 @@ class ManagedStorageCleanupService:
             if analysis.completed_at is not None and _utc(analysis.completed_at) >= _utc(record.stored_at)
         )
         completed = tuple(analysis for analysis in relevant if analysis.status == "completed")
-        if completed and max(_utc(value.completed_at) for value in completed) <= now - timedelta(
-            hours=self.settings.MANAGED_STORAGE_COMPLETED_RETENTION_HOURS
+        if completed and (
+            force_completed_cleanup
+            or max(_utc(value.completed_at) for value in completed) <= now - timedelta(
+                hours=self.settings.MANAGED_STORAGE_COMPLETED_RETENTION_HOURS
+            )
         ):
             return "eligible_completed"
         failed = tuple(
@@ -215,11 +246,30 @@ class ManagedStorageCleanupService:
         # retain the temporary object indefinitely. Direct asset and analysis
         # jobs remain protective regardless of pipeline completion.
         identities = (record.asset_id, *analysis_ids, *active_pipeline_ids)
-        return session.scalar(select(ProcessingJobModel.id).where(
+        jobs = tuple(session.scalars(select(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == record.tenant_id,
             ProcessingJobModel.entity_id.in_(identities),
             ProcessingJobModel.status.in_(ACTIVE_JOB_STATES),
-        ).limit(1)) is not None
+        )))
+        if not jobs:
+            return False
+        completed_pipeline_exists = (
+            not active_pipeline_ids
+            and session.scalar(select(AssetPipelineModel.id).where(
+                AssetPipelineModel.tenant_id == record.tenant_id,
+                AssetPipelineModel.asset_id == record.asset_id,
+                AssetPipelineModel.state == PipelineState.COMPLETED.value,
+            ).limit(1)) is not None
+        )
+        return any(
+            not (
+                completed_pipeline_exists
+                and job.entity_id == record.asset_id
+                and job.entity_type == "asset"
+                and job.job_type == "visual_index_sync"
+            )
+            for job in jobs
+        )
 
     @staticmethod
     def _has_active_batch(
