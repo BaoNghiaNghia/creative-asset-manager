@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
+import logging
+import threading
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -112,3 +114,29 @@ class ManagedStorageCleanupScheduler:
                 TenantProcessingPolicyModel.pipeline_enabled.is_(True),
             )))
         return sum(int(self.schedule_tenant(tenant, next_attempt_at=current)) for tenant in tenants)
+
+
+class ManagedStorageCleanupSchedulerRunner:
+    """Periodically repairs/enqueues the one bounded cleanup job per tenant."""
+    def __init__(self, session_factory, settings: Settings, *, logger=None) -> None:
+        self.scheduler = ManagedStorageCleanupScheduler(session_factory, settings)
+        self.settings = settings
+        self.logger = logger or logging.getLogger("cam.managed_storage_cleanup")
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+    def start(self) -> None:
+        if self._thread is not None: return
+        self._thread = threading.Thread(target=self._run, name="managed-storage-cleanup-scheduler", daemon=True)
+        self._thread.start()
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread: self._thread.join(timeout=5)
+    def _run(self) -> None:
+        interval = max(60, min(self.settings.MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS, 300))
+        while not self._stop.is_set():
+            try:
+                scheduled = self.scheduler.schedule_known_tenants()
+                self.logger.info("managed_storage_cleanup_schedule_tick", extra={"scheduled": scheduled})
+            except Exception:
+                self.logger.exception("managed_storage_cleanup_schedule_failed")
+            self._stop.wait(interval)

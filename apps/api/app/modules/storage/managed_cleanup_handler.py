@@ -27,7 +27,7 @@ class ManagedStorageCleanupJobHandler:
                 tenant_id=context.job.tenant_id,
                 limit=min(
                     self.settings.MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN,
-                    max(1, int(context.job.payload_json.get(
+                    max(1, int(context.job.payload.get(
                         "limit", self.settings.MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN
                     ))),
                 ),
@@ -38,7 +38,7 @@ class ManagedStorageCleanupJobHandler:
             )
             interval_seconds = max(
                 60,
-                int(context.job.payload_json.get(
+                int(context.job.payload.get(
                     "interval_seconds", self.settings.MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS
                 )),
             )

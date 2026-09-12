@@ -51,7 +51,9 @@ from app.modules.processing.registry import build_handler_registry
 from app.modules.retention.handler import RetentionCleanupJobHandler
 from app.modules.retention.scheduler import RetentionCleanupScheduler
 from app.modules.storage.managed_cleanup_handler import ManagedStorageCleanupJobHandler
-from app.modules.storage.managed_cleanup_scheduler import ManagedStorageCleanupScheduler
+from app.modules.storage.managed_cleanup_scheduler import (
+    ManagedStorageCleanupScheduler, ManagedStorageCleanupSchedulerRunner,
+)
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 from app.modules.processing.runtime import WorkerRuntime, WorkerRuntimeConfig
@@ -299,6 +301,7 @@ def run_worker(
     runtime: WorkerRuntime | None = None
     health_server: WorkerHealthServer | None = None
     source_sync_scheduler: SourceSyncScheduler | None = None
+    managed_cleanup_scheduler: ManagedStorageCleanupSchedulerRunner | None = None
     try:
         runtime = build_worker_runtime(
             settings,
@@ -317,6 +320,11 @@ def run_worker(
                 session_factory, settings, logger=worker_logger,
             )
             source_sync_scheduler.start()
+            if settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED:
+                managed_cleanup_scheduler = ManagedStorageCleanupSchedulerRunner(
+                    session_factory, settings, logger=worker_logger,
+                )
+                managed_cleanup_scheduler.start()
 
         if install_signal_handlers:
             def stop(_signum: int, _frame: object) -> None:
@@ -369,6 +377,8 @@ def run_worker(
     finally:
         if source_sync_scheduler is not None:
             source_sync_scheduler.stop()
+        if managed_cleanup_scheduler is not None:
+            managed_cleanup_scheduler.stop()
         if runtime is not None:
             runtime.close()
         if health_server is not None:
