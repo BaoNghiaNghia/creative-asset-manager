@@ -31,6 +31,14 @@ class DolaGatewayDeploymentTests(unittest.TestCase):
         self.assertNotIn("--no-sandbox", unit + env + script)
         self.assertNotIn("proxy_pass", unit + env + script)
 
+    def test_resource_envelopes_are_explicit_and_bounded(self):
+        def values(path):
+            return {line.split("=", 1)[0]: line.split("=", 1)[1] for line in path.read_text().splitlines() if "=" in line and not line.lstrip().startswith("#")}
+        gateway = values(UNIT)
+        xvfb = values(ROOT / "deploy/systemd/creative-asset-manager-dola-xvfb.service")
+        self.assertEqual({key: gateway[key] for key in ("MemoryAccounting", "CPUAccounting", "TasksAccounting", "MemoryHigh", "MemoryMax", "CPUQuota", "TasksMax", "OOMPolicy")}, {"MemoryAccounting": "true", "CPUAccounting": "true", "TasksAccounting": "true", "MemoryHigh": "768M", "MemoryMax": "1G", "CPUQuota": "80%", "TasksMax": "512", "OOMPolicy": "stop"})
+        self.assertEqual({key: xvfb[key] for key in ("MemoryAccounting", "CPUAccounting", "TasksAccounting", "MemoryHigh", "MemoryMax", "CPUQuota", "TasksMax", "OOMPolicy")}, {"MemoryAccounting": "true", "CPUAccounting": "true", "TasksAccounting": "true", "MemoryHigh": "96M", "MemoryMax": "160M", "CPUQuota": "20%", "TasksMax": "64", "OOMPolicy": "stop"})
+
     def test_script_syntax_and_fake_root_check(self):
         syntax = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)

@@ -11,6 +11,16 @@ Environment=DISPLAY=:99
 ExecStart=/usr/bin/Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp -noreset
 Restart=on-failure
 RestartSec=3s
+
+# Initial containment envelope; this is not a throughput guarantee.
+MemoryAccounting=true
+CPUAccounting=true
+TasksAccounting=true
+MemoryHigh=96M
+MemoryMax=160M
+CPUQuota=20%
+TasksMax=64
+OOMPolicy=stop
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

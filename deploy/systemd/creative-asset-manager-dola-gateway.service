@@ -27,6 +27,16 @@ TimeoutStopSec=45s
 KillSignal=SIGTERM
 UMask=0027
 
+# Initial containment envelope; this is not a throughput guarantee.
+MemoryAccounting=true
+CPUAccounting=true
+TasksAccounting=true
+MemoryHigh=768M
+MemoryMax=1G
+CPUQuota=80%
+TasksMax=512
+OOMPolicy=stop
+
 # Xvfb must provide DISPLAY=:99 before this service is activated.
 NoNewPrivileges=true
 PrivateTmp=true

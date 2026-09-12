@@ -63,3 +63,11 @@ For upstream updates, re-audit source/license/terms, record old/new upstream SHA
 - SQLite issue: stop before consistency recovery; restore only compatible backups.
 - Auth failure: verify secret-file permissions and matching keys without printing values.
 - Public bind: stop gateway immediately and restore loopback configuration; firewall-only controls are insufficient.
+
+## Initial resource guardrails
+
+The gateway and its private Xvfb service are independent cgroups. The initial containment envelope is deliberately conservative: gateway `MemoryHigh=768M`, `MemoryMax=1G`, `CPUQuota=80%`, `TasksMax=512`; Xvfb `MemoryHigh=96M`, `MemoryMax=160M`, `CPUQuota=20%`, `TasksMax=64`. Both enable memory, CPU and task accounting and use `OOMPolicy=stop`. Combined hard memory is approximately 1.156 GiB and combined continuous CPU is approximately one logical CPU. This is blast-radius control, not a throughput/reliability claim; `DOLA_MAX_CONCURRENCY=1` remains fixed.
+
+The DG-10 point-in-time VPS snapshot had about 2.6 GiB MemAvailable, leaving about 1.4 GiB theoretical headroom at those hard limits. It is not guaranteed free RAM or a capacity benchmark. Before any authorized DG-11 activation, recheck `free -h`, current load, active ffmpeg/media work, and `systemctl show` for major CAM services. If load is close to CPU capacity, heavy ffmpeg is consuming most remaining CPU, or MemAvailable has materially fallen, stop and reassess rather than starting Dola. Never kill, pause, renice or reschedule ffmpeg automatically.
+
+After authorized installation, observe both cgroups with `systemctl show creative-asset-manager-dola-gateway.service -p MemoryCurrent -p MemoryPeak -p MemoryHigh -p MemoryMax -p CPUUsageNSec -p TasksCurrent -p TasksMax` and the equivalent Xvfb command. DG-12 must record actual peak cgroup usage before any limit change is considered. Do not automatically raise limits after an OOM. No swap creation is part of this design.
