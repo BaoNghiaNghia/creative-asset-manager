@@ -2,8 +2,8 @@
 Description=Creative Asset Manager isolated Dola Render Gateway
 Documentation=file:/opt/creative-asset-manager/current/docs/operations/DOLA_RENDER_GATEWAY.md
 Wants=network-online.target
-Requires=creative-asset-manager-dola-gateway-xvfb.service
-After=network-online.target creative-asset-manager-dola-gateway-xvfb.service
+Requires=creative-asset-manager-dola-xvfb.service
+After=network-online.target creative-asset-manager-dola-xvfb.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 
