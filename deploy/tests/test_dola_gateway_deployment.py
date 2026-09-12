@@ -1,0 +1,60 @@
+from __future__ import annotations
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+UNIT = ROOT / "deploy/systemd/creative-asset-manager-dola-gateway.service"
+ENV = ROOT / "deploy/dola-render-gateway.env.example"
+CAM_ENV = ROOT / "deploy/production.env.example"
+SCRIPT = ROOT / "deploy/tools/prepare_dola_runtime.sh"
+VIDEO_UNIT = ROOT / "deploy/systemd/creative-asset-manager-video-worker.service"
+
+class DolaGatewayDeploymentTests(unittest.TestCase):
+    def test_isolated_loopback_and_default_off(self):
+        unit, env, cam, worker, script = [p.read_text() for p in (UNIT, ENV, CAM_ENV, VIDEO_UNIT, SCRIPT)]
+        self.assertIn("User=dola-render-gateway", unit)
+        self.assertIn("Group=dola-render-gateway", unit)
+        self.assertIn("EnvironmentFile=/etc/dola-render-gateway/production.env", unit)
+        self.assertIn("DISPLAY=:99", unit)
+        self.assertIn("DOLA_GATEWAY_HOST=127.0.0.1", env)
+        self.assertIn("DOLA_GATEWAY_PORT=8100", env)
+        self.assertIn("DOLA_MAX_CONCURRENCY=1", env)
+        self.assertIn("DOLA_INTERNAL_API_KEY=\n", env)
+        self.assertIn("/var/lib/dola-render-gateway", env)
+        self.assertIn("VIDEO_GENERATION_ENABLED=false", cam)
+        self.assertIn("DOLA_RENDER_GATEWAY_ENABLED=false", cam)
+        self.assertIn("VIDEO_GENERATION_CANARY_TENANT_IDS=", cam)
+        self.assertIn("DOLA_RENDER_GATEWAY_URL=http://127.0.0.1:8100", cam)
+        self.assertIn("video-worker.env", worker)
+        self.assertNotIn("--no-sandbox", unit + env + script)
+        self.assertNotIn("proxy_pass", unit + env + script)
+
+    def test_script_syntax_and_fake_root_check(self):
+        syntax = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp)
+            release = fake / "opt/dola-render-gateway/releases/a"
+            source = release / "apps/dola_render_gateway"
+            (source / "cam_runtime").mkdir(parents=True)
+            (source / "upstream/extensions/dola30").mkdir(parents=True)
+            (source / "cam_runtime/app.py").write_text("")
+            deploy = release / "deploy"; deploy.mkdir()
+            (deploy / "dola-render-gateway.requirements.lock").write_text("patchright==1\n")
+            current = fake / "opt/dola-render-gateway/current"; current.parent.mkdir(parents=True, exist_ok=True)
+            current.symlink_to(release)
+            env = fake / "etc/dola-render-gateway/production.env"; env.parent.mkdir(parents=True)
+            env.write_text("DOLA_GATEWAY_HOST=127.0.0.1\nDOLA_GATEWAY_PORT=8100\nDOLA_MAX_CONCURRENCY=1\n")
+            result = subprocess.run(["bash", str(SCRIPT), "--check", "--root", str(fake)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("check passed", result.stdout)
+
+    def test_no_public_nginx_dola_route(self):
+        text = "\n".join(p.read_text(errors="ignore") for p in (ROOT / "infrastructure").rglob("*") if p.is_file())
+        self.assertNotIn("proxy_pass http://127.0.0.1:8100", text)
+        self.assertNotIn("/dola", text.lower())
+
+if __name__ == "__main__":
+    unittest.main()

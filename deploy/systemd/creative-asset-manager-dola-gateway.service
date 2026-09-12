@@ -1,0 +1,49 @@
+[Unit]
+Description=Creative Asset Manager isolated Dola Render Gateway
+Documentation=file:/opt/creative-asset-manager/current/docs/operations/DOLA_RENDER_GATEWAY.md
+Wants=network-online.target
+Requires=creative-asset-manager-dola-gateway-xvfb.service
+After=network-online.target creative-asset-manager-dola-gateway-xvfb.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=dola-render-gateway
+Group=dola-render-gateway
+WorkingDirectory=/opt/dola-render-gateway/current/apps/dola_render_gateway
+EnvironmentFile=/etc/dola-render-gateway/production.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONPATH=/opt/dola-render-gateway/current/apps/dola_render_gateway
+Environment=DISPLAY=:99
+ExecStartPre=/usr/bin/test -r /etc/dola-render-gateway/production.env
+ExecStartPre=/opt/dola-render-gateway/current/deploy/tools/prepare_dola_runtime.sh --check
+ExecStart=/var/lib/dola-render-gateway/current-runtime/bin/python -m cam_runtime.app
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+UMask=0027
+
+# Xvfb must provide DISPLAY=:99 before this service is activated.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/dola-render-gateway /run
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

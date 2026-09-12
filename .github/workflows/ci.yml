@@ -105,6 +105,10 @@ jobs:
           result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(selected))
           raise SystemExit(0 if result.wasSuccessful() else 1)
           PY
+      - name: Dola deployment-template tests
+        run: |
+          bash -n deploy/tools/prepare_dola_runtime.sh
+          python -m unittest deploy.tests.test_dola_gateway_deployment -v
       - name: Application import smoke test
         working-directory: apps/api
         run: python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
