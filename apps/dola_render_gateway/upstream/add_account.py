@@ -1,6 +1,9 @@
-"""Automated Google OAuth login for account profile setup.
+"""Interactive Google OAuth login for account profile setup.
 
-Usage: python add_account.py <account_name> "email----password----totp_secret"
+Usage: python add_account.py [account_name]
+
+Only an account name may be supplied on argv. Credentials are collected through
+protected interactive prompts and are never printed.
 """
 import asyncio
 import base64
@@ -71,7 +74,7 @@ async def google_login(g, email: str, password: str, secret: str):
                 loc = g.locator(sel).first
                 if await loc.count() and await loc.is_visible():
                     await loc.click(timeout=3000)
-                    print(f"[google] Consent page -> clicked {sel}", flush=True)
+                    print("[google] Consent page -> submitted", flush=True)
                     clicked = True
                     break
             except Exception:
@@ -83,7 +86,7 @@ async def google_login(g, email: str, password: str, secret: str):
             if not secret:
                 raise RuntimeError("Google requested 2FA, but no TOTP secret was provided")
             code = totp(secret)
-            print(f"[google] 2FA page -> TOTP={code}", flush=True)
+            print("[google] 2FA page -> submitted", flush=True)
             await g.fill('input[type="tel"]', code)
             await g.click("#totpNext")
             continue
@@ -98,17 +101,24 @@ async def google_login(g, email: str, password: str, secret: str):
             print(f"[dola] Age confirmation -> JS click OK = {ok}", flush=True)
             await g.wait_for_timeout(1500)
             continue
-        txt = await g.evaluate("() => (document.body && document.body.innerText || '').slice(0, 300)")
-        print(f"[google] step{step} unrecognized page url={g.url[:80]} text={txt[:200]}", flush=True)
+        print(f"[google] step{step} unrecognized authentication page", flush=True)
     if "accounts.google.com" in g.url:
-        await g.screenshot(path=str(Path(config.ARTIFACTS_DIR, "dbg_google2.png")))
+        await _save_debug_screenshot(g, "dbg_google2.png")
         raise RuntimeError("Google login did not complete within 12 steps (saved dbg_google2.png)")
+
+
+async def _save_debug_screenshot(page, name: str) -> None:
+    """Persist diagnostics privately without exposing page contents in logs."""
+    target = Path(config.ARTIFACTS_DIR) / name
+    await page.screenshot(path=str(target))
+    target.chmod(0o600)
 
 
 async def add_account_flow(account: str, email: str, password: str, secret: str) -> bool:
     """Full account addition flow; returns True on success."""
     profile_dir = Path(config.PROFILE_DIR) / account
-    profile_dir.mkdir(parents=True, exist_ok=True)
+    profile_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
+    profile_dir.chmod(0o750)
 
     async with async_playwright() as p:
         kwargs = {"headless": False, "args": LAUNCH_ARGS,
@@ -140,7 +150,7 @@ async def add_account_flow(account: str, email: str, password: str, secret: str)
             if g is None and "accounts.google.com" in page.url:
                 g = page
             if g is None:
-                await page.screenshot(path=str(Path(config.ARTIFACTS_DIR, "dbg_add_account.png")))
+                await _save_debug_screenshot(page, "dbg_add_account.png")
                 raise RuntimeError("Failed to redirect to Google login page (saved dbg_add_account.png)")
 
             await google_login(g, email, password, secret)
@@ -153,19 +163,26 @@ async def add_account_flow(account: str, email: str, password: str, secret: str)
                     print(f"[{account}] ✓ Login successful, sessionid saved to {profile_dir}", flush=True)
                     await page.wait_for_timeout(3000)
                     return True
-            await page.screenshot(path=str(Path(config.ARTIFACTS_DIR, "dbg_add_account.png")))
+            await _save_debug_screenshot(page, "dbg_add_account.png")
             raise RuntimeError("sessionid not acquired within 3 minutes (saved dbg_add_account.png)")
         finally:
             await context.close()
 
 
+def read_provisioning_inputs(
+    argv: list[str], *, input_fn=input, secret_prompt=getpass.getpass,
+) -> tuple[str, str, str, str]:
+    if len(argv) > 2:
+        raise SystemExit("Only account name may be supplied on argv.")
+    account = argv[1] if len(argv) == 2 else input_fn("Account name: ").strip()
+    email = input_fn("Google email: ").strip()
+    password = secret_prompt("Google password: ")
+    secret = secret_prompt("TOTP secret: ")
+    return account, email, password, secret
+
+
 async def main():
-    if len(sys.argv) > 2:
-        raise SystemExit("Only account name may be supplied on argv; provide secrets through protected stdin or a prompt.")
-    account = sys.argv[1] if len(sys.argv) == 2 else input("Account name: ").strip()
-    email = input("Google email: ").strip()
-    password = getpass.getpass("Google password: ")
-    secret = getpass.getpass("TOTP secret: ")
+    account, email, password, secret = read_provisioning_inputs(sys.argv)
     await add_account_flow(account, email, password, secret)
     print(f"[{account}] Account added successfully!")
 
@@ -173,6 +190,6 @@ async def main():
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except Exception as e:
-        print(f"✗ {e}")
+    except Exception:
+        print("Account provisioning failed; inspect protected DOLA_ARTIFACTS_DIR diagnostics.")
         sys.exit(1)

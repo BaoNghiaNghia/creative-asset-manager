@@ -89,6 +89,15 @@ def test_safe_provisioning_payload_is_stdin_data_not_argv():
     assert payload["account"] == "acct"
     source = (Path(__file__).parents[1] / "upstream" / "add_account.py").read_text()
     assert 'sys.argv[2].split("----")' not in source
+    assert 'TOTP={code}' not in source
+    assert 'document.body.innerText' not in source
+    assert 'g.url[:80]' not in source
+    assert 'secret_prompt=getpass.getpass' in source
+    assert 'password = secret_prompt("Google password: ")' in source
+    assert 'secret = secret_prompt("TOTP secret: ")' in source
+    assert "Only account name may be supplied on argv." in source
+    for secret in ("123456", "SUPER_SECRET_TOTP", "SUPER_SECRET_PASSWORD"):
+        assert secret not in source
 
 
 def test_video_worker_is_runtime_reachable_and_compiles():
