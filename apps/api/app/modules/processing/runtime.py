@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import inspect
 import logging
 import threading
@@ -17,6 +18,11 @@ from app.domain.processing.handlers import (
     WorkerDependencies,
 )
 from app.modules.processing.health import WorkerHealthState
+from app.modules.processing.heavy_video import (
+    HeavyVideoResource,
+    VIDEO_ANALYSIS_OWNER_TYPE,
+    VIDEO_GENERATION_OWNER_TYPE,
+)
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.registry import HandlerRegistry
 from app.modules.processing.repository import JobOwnershipError, ProcessingRepository
@@ -314,7 +320,14 @@ class WorkerRuntime:
             logger=logging.LoggerAdapter(self.logger, self._job_fields(job)),
         )
         try:
-            if handler is None:
+            lane_busy = not self._acquire_heavy_video(job)
+            if lane_busy:
+                result = DeferredJobOutcome(
+                    "heavy_video_busy",
+                    "Another heavy video operation is active; retrying in one minute.",
+                    datetime.now(timezone.utc) + timedelta(minutes=1),
+                )
+            elif handler is None:
                 result = JobHandlerResult.non_retryable(
                     "unsupported_handler",
                     f"No handler is registered for job type '{job.job_type}'.",
@@ -454,7 +467,54 @@ class WorkerRuntime:
                     error_code=result.error_code or "worker_interrupted",
                     error_message=result.error_message or "Worker interrupted the job.",
                 )
+        self._release_heavy_video_if_terminal(job, result)
         self.health.set_database_available(True)
+
+    @staticmethod
+    def _heavy_video_owner(job: ClaimedJob) -> tuple[str, str] | None:
+        if job.job_type == "video_analyze":
+            return VIDEO_ANALYSIS_OWNER_TYPE, job.id
+        if job.job_type == "video_generate":
+            return VIDEO_GENERATION_OWNER_TYPE, job.entity_id
+        return None
+
+    def _acquire_heavy_video(self, job: ClaimedJob) -> bool:
+        owner = self._heavy_video_owner(job)
+        if owner is None:
+            return True
+        try:
+            with self.dependencies.session_factory() as session:
+                acquired = HeavyVideoResource(session).acquire(
+                    owner_type=owner[0], owner_id=owner[1]
+                )
+                session.commit()
+            return acquired
+        except Exception as exc:
+            self._job_log(logging.ERROR, "heavy_video_acquire_failed", job, error_code=type(exc).__name__, error_message=str(exc))
+            return False
+
+    def _release_heavy_video_if_terminal(
+        self, job: ClaimedJob, result: JobHandlerResult | DeferredJobOutcome
+    ) -> None:
+        owner = self._heavy_video_owner(job)
+        if owner is None or isinstance(result, DeferredJobOutcome):
+            return
+        try:
+            with self.dependencies.session_factory() as session:
+                release = False
+                if owner[0] == VIDEO_ANALYSIS_OWNER_TYPE:
+                    # A completed, failed, or cancellation outcome ends this attempt.
+                    release = result.outcome in {JobOutcome.COMPLETED, JobOutcome.NON_RETRYABLE_FAILURE, JobOutcome.CANCELLED}
+                else:
+                    from app.modules.video_generation.repository import VideoGenerationRepository
+
+                    run = VideoGenerationRepository(session).get(job.tenant_id, owner[1])
+                    release = run is None or run.status in {"completed", "failed", "cancelled"}
+                if release:
+                    HeavyVideoResource(session).release(owner_type=owner[0], owner_id=owner[1])
+                    session.commit()
+        except Exception as exc:
+            self._job_log(logging.ERROR, "heavy_video_release_failed", job, error_code=type(exc).__name__)
 
     def _drain(self) -> None:
         self.health.start_draining()

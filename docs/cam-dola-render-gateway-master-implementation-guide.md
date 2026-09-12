@@ -4281,3 +4281,29 @@ v1.6
 ---
 
 **End of master guide.**
+
+## DG-10B — Heavy video mutual exclusion
+
+CAM enforces a database-backed, capacity-one, **global** resource lane named
+`heavy_video`. It is not a worker-concurrency setting, advisory lock, or
+in-memory mutex. A pre-seeded `processing_resource_leases` row is locked in the
+same PostgreSQL transaction that changes its owner, so all tenants and worker
+processes compete fairly for one durable slot.
+
+`video_analyze` acquires the lane before proxy materialization, FFmpeg, or
+Gemini work. If busy, the ProcessingJob is deferred without starting those
+expensive operations. An analysis lease is released when its job completes,
+fails permanently, or is cancelled. Recovery may clear only an analysis lease
+whose authoritative ProcessingJob is terminal or has an expired worker lease.
+
+`video_generate` acquires the same lane before reference preparation, gateway
+submit, or gateway polling. It remains held through preparing, submitted,
+running, deferred polling, `submission_unknown`, and storing. It is released
+only after the authoritative CAM generation run is `completed`, `failed`, or
+`cancelled`; a deferred poll never releases it. Thus a lost/restarted CAM worker
+cannot permit an analysis to overlap unresolved provider state.
+
+`video_search_index` does not use this lane. Existing tenant/provider claim
+limits and `concurrency_accounted` behavior are unchanged; the lane is an
+additional host-global safety boundary. The CAM Video Worker remains the single
+service that may host either mode, but never both heavy modes concurrently.

@@ -226,3 +226,13 @@ def test_storing_without_gateway_id_never_submits(setup):
     assert outcome.outcome.value == "non_retryable_failure"
     assert outcome.error_code == "video_generation_recovery_required"
     assert not gateway.submit_calls
+
+
+def test_cancellation_marks_generation_run_terminal(setup):
+    factory, settings, gateway, context, run_id = setup
+    context.is_cancelled = True
+    outcome = VideoGenerateJobHandler(settings)(context)
+    assert outcome.outcome.value == "cancelled"
+    assert not gateway.submit_calls and not gateway.get_calls
+    with factory() as session:
+        assert session.get(VideoGenerationRunModel, run_id).status == "cancelled"

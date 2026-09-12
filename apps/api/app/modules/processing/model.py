@@ -94,6 +94,25 @@ class ProcessingJobModel(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ProcessingResourceLeaseModel(Base):
+    """A durable, host-global processing resource slot.
+
+    A row is intentionally pre-created by migration for every constrained resource.
+    PostgreSQL locks this row with ``FOR UPDATE`` before changing its owner, making
+    capacity-one acquisition race-safe across every CAM worker and tenant.
+    """
+
+    __tablename__ = "processing_resource_leases"
+
+    resource_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_type: Mapped[str | None] = mapped_column(String(64))
+    owner_id: Mapped[str | None] = mapped_column(String(255))
+    acquired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
 class OutboxEventModel(Base):
     __tablename__ = "outbox_events"
     __table_args__ = (

@@ -71,3 +71,26 @@ The gateway and its private Xvfb service are independent cgroups. The initial co
 The DG-10 point-in-time VPS snapshot had about 2.6 GiB MemAvailable, leaving about 1.4 GiB theoretical headroom at those hard limits. It is not guaranteed free RAM or a capacity benchmark. Before any authorized DG-11 activation, recheck `free -h`, current load, active ffmpeg/media work, and `systemctl show` for major CAM services. If load is close to CPU capacity, heavy ffmpeg is consuming most remaining CPU, or MemAvailable has materially fallen, stop and reassess rather than starting Dola. Never kill, pause, renice or reschedule ffmpeg automatically.
 
 After authorized installation, observe both cgroups with `systemctl show creative-asset-manager-dola-gateway.service -p MemoryCurrent -p MemoryPeak -p MemoryHigh -p MemoryMax -p CPUUsageNSec -p TasksCurrent -p TasksMax` and the equivalent Xvfb command. DG-12 must record actual peak cgroup usage before any limit change is considered. Do not automatically raise limits after an OOM. No swap creation is part of this design.
+
+## Heavy video lane (DG-10B)
+
+CAM enforces one host-global PostgreSQL lane, `heavy_video`, shared by Dola
+video generation and Gemini Video Analysis. This is code-enforced and survives
+worker restarts; it is independent of the Dola cgroup limits and must not be
+replaced by worker-count, memory locks, or advisory locks.
+
+The CAM Video Worker remains running for both job types. When Video Analysis
+owns the lane, a Dola generation job is safely deferred before any provider
+submit. When Dola owns it, Video Analysis is deferred before proxy download or
+FFmpeg. Dola ownership is retained during provider polling, ordinary deferrals,
+`submission_unknown`, and CAM storage import, and clears only at CAM run
+`completed`, `failed`, or `cancelled`. This intentionally trades peak parallel
+throughput for a two-mode capacity model that prevents Dola/browser load from
+competing with heavy proxy/FFmpeg work on the VPS.
+
+Operators must not manually delete or edit `processing_resource_leases` during
+an incident. For a stuck lane, inspect the owner and its authoritative
+ProcessingJob or `video_generation_runs` state first. Only stale analysis
+ownership is automatically recoverable from an expired ProcessingJob lease;
+generation ownership needs an authoritative terminal state, particularly when
+submission state is unknown.

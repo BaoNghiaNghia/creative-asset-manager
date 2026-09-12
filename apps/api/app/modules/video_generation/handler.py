@@ -83,6 +83,9 @@ class VideoGenerateJobHandler:
                     run.last_error_message or "Video generation failed.",
                 )
             if state == "cancelled" or context.is_cancelled:
+                if state != "cancelled":
+                    repository.transition(run, "cancelled")
+                    session.commit()
                 return JobHandlerResult.cancelled("Video generation was cancelled.")
 
         if state == "submission_unknown" and not gateway_id:
