@@ -16,7 +16,7 @@ from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
 from app.modules.processing.worker_roles import IMAGE_WORKER_JOB_TYPES, VIDEO_WORKER_JOB_TYPES
-from app.modules.processing_policy.model import ProcessingPolicyAuditModel, TenantProcessingPolicyModel
+from app.modules.processing_policy.model import ProcessingPolicyAuditModel, TenantProcessingPolicyModel, TenantProviderPolicyModel
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService, TenantPolicyCache
 
@@ -111,6 +111,38 @@ class ProcessingPolicyTest(unittest.TestCase):
         with self.sessions.begin() as session:
             ProcessingPolicyRepository(session).resume_tenant("tenant")
         self.assertIsNotNone(self.claim("worker-b"))
+
+    def test_exhausted_accounted_job_with_stale_provider_counter_is_terminalized(self):
+        self.policy("tenant", total=1, ai=1)
+        with self.sessions.begin() as session:
+            ProcessingPolicyRepository(session).get_or_create_provider("tenant", "gemini", "ai")
+        job_id = self.job("tenant", "stale-provider-counter")
+        self.assertEqual(self.claim("worker-a").id, job_id)
+        with self.sessions.begin() as session:
+            job = session.get(ProcessingJobModel, job_id)
+            job.attempt_count = job.max_attempts
+            job.lease_expires_at = NOW - timedelta(seconds=1)
+            provider = session.scalar(select(TenantProviderPolicyModel).where(
+                TenantProviderPolicyModel.tenant_id == "tenant",
+                TenantProviderPolicyModel.provider_key == "gemini",
+                TenantProviderPolicyModel.provider_scope == "ai",
+            ))
+            provider.active_jobs = 0
+            provider.single_active_jobs = 0
+        self.assertIsNone(self.claim("worker-b"))
+        with self.sessions() as session:
+            job = session.get(ProcessingJobModel, job_id)
+            policy = session.get(TenantProcessingPolicyModel, "tenant")
+            provider = session.scalar(select(TenantProviderPolicyModel).where(
+                TenantProviderPolicyModel.tenant_id == "tenant",
+                TenantProviderPolicyModel.provider_key == "gemini",
+                TenantProviderPolicyModel.provider_scope == "ai",
+            ))
+            self.assertEqual(job.status, "failed")
+            self.assertEqual(job.last_error_code, "lease_expired")
+            self.assertFalse(job.concurrency_accounted)
+            self.assertEqual((policy.total_active_jobs, policy.ai_active_jobs), (0, 0))
+            self.assertEqual((provider.active_jobs, provider.single_active_jobs), (0, 0))
 
     def test_expired_accounted_lease_can_be_reclaimed_at_limit(self):
         self.policy("tenant", total=1, ai=1)

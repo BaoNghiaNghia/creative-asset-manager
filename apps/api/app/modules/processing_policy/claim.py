@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, exists, false, func, or_, select, true, update
+from sqlalchemy import and_, case, exists, false, func, or_, select, true, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -159,13 +159,17 @@ class TenantAwareJobClaimer:
         if not job.concurrency_accounted:
             return
         category = self._category(job.job_type)
+        # Counters can be out of sync after an interrupted legacy worker. A
+        # release must repair that state, never drive a CHECK-constrained
+        # counter negative and block every subsequent worker poll.
+        total = TenantProcessingPolicyModel.total_active_jobs
         values = {
-            "total_active_jobs": TenantProcessingPolicyModel.total_active_jobs - 1,
+            "total_active_jobs": case((total > 0, total - 1), else_=0),
             "updated_at": datetime.now(timezone.utc),
         }
         if category:
             column = getattr(TenantProcessingPolicyModel, f"{category}_active_jobs")
-            values[f"{category}_active_jobs"] = column - 1
+            values[f"{category}_active_jobs"] = case((column > 0, column - 1), else_=0)
         self.session.execute(
             update(TenantProcessingPolicyModel)
             .where(TenantProcessingPolicyModel.tenant_id == job.tenant_id)
@@ -429,11 +433,14 @@ class TenantAwareJobClaimer:
 
     @staticmethod
     def _provider_release_values(job):
-        values = {"active_jobs": TenantProviderPolicyModel.active_jobs - 1}
+        active = TenantProviderPolicyModel.active_jobs
+        values = {"active_jobs": case((active > 0, active - 1), else_=0)}
         if job.provider_scope == "ai" and job.job_type == "asset_analyze":
-            values["single_active_jobs"] = TenantProviderPolicyModel.single_active_jobs - 1
+            single = TenantProviderPolicyModel.single_active_jobs
+            values["single_active_jobs"] = case((single > 0, single - 1), else_=0)
         elif job.provider_scope == "ai" and job.job_type == "ai_batch_submit":
-            values["batch_active_jobs"] = TenantProviderPolicyModel.batch_active_jobs - 1
+            batch = TenantProviderPolicyModel.batch_active_jobs
+            values["batch_active_jobs"] = case((batch > 0, batch - 1), else_=0)
         return values
 
     @staticmethod
