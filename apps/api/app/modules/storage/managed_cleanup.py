@@ -14,6 +14,7 @@ from app.domain.providers.contracts import AssetStorageProvider, DeleteStoredAss
 from app.modules.ai_batch.model import AiBatchItemModel, AiBatchJobModel, BATCH_TERMINAL_STATUSES, ITEM_TERMINAL_STATUSES
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.pipeline.model import AssetPipelineModel
+from app.modules.pipeline.state import PipelineState
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.storage.repository import ManagedStorageRepository
@@ -203,14 +204,17 @@ class ManagedStorageCleanupService:
         record: AssetStorageObjectModel,
         analysis_ids: tuple[str, ...],
     ) -> bool:
-        pipeline_ids = tuple(session.scalars(select(AssetPipelineModel.id).where(
+        active_pipeline_ids = tuple(session.scalars(select(AssetPipelineModel.id).where(
             AssetPipelineModel.tenant_id == record.tenant_id,
             AssetPipelineModel.asset_id == record.asset_id,
+            AssetPipelineModel.state != PipelineState.COMPLETED.value,
         )))
-        # Projection/index jobs are commonly attached to the pipeline rather
-        # than directly to the managed asset. Protect staged bytes until those
-        # jobs reach a terminal state.
-        identities = (record.asset_id, *analysis_ids, *pipeline_ids)
+        # Pipeline-attached jobs protect staging only while that pipeline is
+        # incomplete. A completed pipeline has durably finished every stage
+        # that consumes the managed binary, so a legacy/index retry cannot
+        # retain the temporary object indefinitely. Direct asset and analysis
+        # jobs remain protective regardless of pipeline completion.
+        identities = (record.asset_id, *analysis_ids, *active_pipeline_ids)
         return session.scalar(select(ProcessingJobModel.id).where(
             ProcessingJobModel.tenant_id == record.tenant_id,
             ProcessingJobModel.entity_id.in_(identities),

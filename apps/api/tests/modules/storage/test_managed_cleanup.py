@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from app.modules.auth_persistence import model as _auth_models  # noqa: F401
 from app.core.config import Settings
 from app.core.database import Base
 from app.domain.providers.contracts import StorageProviderError, StoreAssetInput, StoredAsset
@@ -230,6 +231,34 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.skipped_active, 1)
         self.assertEqual(provider.deleted, [])
         self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
+
+    async def test_completed_pipeline_job_no_longer_blocks_staging_cleanup(self) -> None:
+        row = self._record()
+        row_id = row.id
+        self._analysis()
+        pipeline = AssetPipelineModel(
+            tenant_id="tenant-a", correlation_id="cleanup-index-completed",
+            origin_type="source_asset", origin_id="source-completed",
+            asset_id=self.asset.id, state="completed",
+        )
+        self.session.add(pipeline)
+        self.session.flush()
+        # Legacy asynchronous indexing is no longer a pipeline input after
+        # the canonical pipeline reaches completed.
+        self.session.add(ProcessingJobModel(
+            tenant_id="tenant-a", job_type="visual_index_sync",
+            entity_type="asset_pipeline", entity_id=pipeline.id,
+            idempotency_key="cleanup-index-completed", payload_json={},
+            status="pending",
+        ))
+        self.session.commit()
+
+        provider = FakeManagedStorage()
+        result = await self._service(provider).execute(tenant_id="tenant-a")
+        self.assertEqual(result.deleted, 1)
+        self.assertEqual(provider.deleted, ["managed-only-id"])
+        self.session.expire_all()
+        self.assertIsNone(self.session.get(AssetStorageObjectModel, row_id))
 
     async def test_cleanup_ignores_records_outside_active_folder_id(self) -> None:
         row = self._record()

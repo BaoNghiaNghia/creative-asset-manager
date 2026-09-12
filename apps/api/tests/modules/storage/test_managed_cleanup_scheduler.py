@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
+from app.modules.auth_persistence import model as _auth_models  # noqa: F401
 from app.core.config import Settings
 from app.core.database import Base
 from app.modules.processing.model import ProcessingJobModel

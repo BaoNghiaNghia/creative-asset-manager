@@ -1,5 +1,7 @@
 import unittest
 
+from app.modules.auth_persistence import model as _auth_models  # noqa: F401
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
