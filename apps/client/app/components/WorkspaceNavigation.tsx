@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 
-export type WorkspaceRoute = "assets" | "operations" | "queue" | "access";
+export type WorkspaceRoute = "assets" | "operations" | "queue" | "generation" | "access";
 
 function WorkspaceNavigationIcon({ name }: { name: WorkspaceRoute }) {
   const paths: Record<WorkspaceRoute, ReactNode> = {
     assets: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="m4 17 5-5 3.5 3.5 2.5-2.5 5 5M8 9h.01" /></>,
     operations: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /></>,
+    generation: <><rect x="3" y="5" width="18" height="15" rx="2" /><circle cx="12" cy="12" r="3" /><path d="M8 5l1.2-2h5.6L16 5M19 18v3M17.5 19.5h3" /></>,
     queue: <><path d="M6 5h14M6 12h14M6 19h14" /><circle cx="3" cy="5" r=".8" fill="currentColor" stroke="none" /><circle cx="3" cy="12" r=".8" fill="currentColor" stroke="none" /><circle cx="3" cy="19" r=".8" fill="currentColor" stroke="none" /></>,
     access: <><circle cx="10" cy="8" r="3.5" /><path d="M3 20c.6-3.5 3-5.5 7-5.5 2.1 0 3.8.6 5 1.8M17 7h4M19 5v4" /></>,
   };
@@ -19,6 +20,7 @@ export function WorkspaceNavigation({ active, showOperations = true }: { active:
       { id: "operations" as const, href: "/ai-operations", label: "AI Operations" },
       { id: "queue" as const, href: "/job-queue", label: "Job Queue" },
     ] : []),
+    { id: "generation", href: "/video-generation", label: "Video Generation" },
     { id: "access", href: "/settings/access", label: "Access Management" },
   ];
   return <nav className="workspace-navigation" aria-label="Workspace navigation">
