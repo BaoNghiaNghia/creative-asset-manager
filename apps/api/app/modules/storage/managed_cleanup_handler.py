@@ -45,7 +45,9 @@ class ManagedStorageCleanupJobHandler:
             next_at = datetime.now(timezone.utc) + timedelta(seconds=interval_seconds)
             ManagedStorageCleanupScheduler(
                 context.dependencies.session_factory, self.settings
-            ).schedule_tenant(context.job.tenant_id, next_attempt_at=next_at)
+            ).schedule_tenant(
+                context.job.tenant_id, next_attempt_at=next_at, excluding_job_id=context.job.id
+            )
             return JobHandlerResult.completed()
         except Exception as exc:
             return JobHandlerResult.retryable(

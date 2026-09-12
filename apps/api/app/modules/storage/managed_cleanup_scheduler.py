@@ -71,14 +71,19 @@ class ManagedStorageCleanupScheduler:
             "offpeak_with_image_backlog" if image_backlog else "offpeak_idle",
         )
 
-    def schedule_tenant(self, tenant_id: str, *, next_attempt_at: datetime) -> bool:
+    def schedule_tenant(
+        self, tenant_id: str, *, next_attempt_at: datetime, excluding_job_id: str | None = None,
+    ) -> bool:
         with self.session_factory() as session:
             policy = self._policy(session, tenant_id, next_attempt_at)
-            existing = session.scalar(select(ProcessingJobModel).where(
+            active_statement = select(ProcessingJobModel).where(
                 ProcessingJobModel.tenant_id == tenant_id,
                 ProcessingJobModel.job_type == "managed_storage_cleanup",
                 ProcessingJobModel.status.in_(_ACTIVE),
-            ).order_by(ProcessingJobModel.created_at).limit(1))
+            )
+            if excluding_job_id:
+                active_statement = active_statement.where(ProcessingJobModel.id != excluding_job_id)
+            existing = session.scalar(active_statement.order_by(ProcessingJobModel.created_at).limit(1))
             if existing is not None:
                 if existing.status in _WAITING:
                     existing.priority = policy.priority
