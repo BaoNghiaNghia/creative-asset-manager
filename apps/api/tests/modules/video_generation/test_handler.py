@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from threading import Event
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -14,6 +14,7 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.domain.processing.handlers import ClaimedJob, DeferredJobOutcome, WorkerDependencies
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.video_generation.gateway_client import GatewayGeneration, GatewayContent
 from app.domain.providers.contracts import StoredAsset
 from app.modules.video_generation.handler import VideoGenerateJobHandler
@@ -200,6 +201,14 @@ def test_storing_imports_same_gateway_content_dedupes_and_completes(setup, tmp_p
         assert run.status == "completed"
         assert run.output_asset_id
         assert run.completed_at is not None
+        storage_record = session.scalar(
+            select(AssetStorageObjectModel).where(
+                AssetStorageObjectModel.tenant_id == "tenant-a",
+                AssetStorageObjectModel.asset_id == run.output_asset_id,
+            )
+        )
+        assert storage_record is not None
+        assert storage_record.storage_class == "durable"
     assert not (tmp_path / f"{run_id}.mp4").exists()
     retry = VideoGenerateJobHandler(settings)(context)
     assert retry.outcome.value == "completed"

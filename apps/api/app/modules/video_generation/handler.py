@@ -263,7 +263,7 @@ class VideoGenerateJobHandler:
             with context.dependencies.session_factory() as session:
                 await ManagedAssetStorageService(
                     AssetRegistryRepository(session), ManagedStorageRepository(session),
-                    enabled=True,
+                    enabled=True, storage_class="durable",
                 ).store(StoreAssetInput(
                     tenant_id=context.job.tenant_id, asset_id=asset_id, content_hash=content_hash,
                     body=self._file_chunks(stage), content_type=mime, size_bytes=size_bytes,

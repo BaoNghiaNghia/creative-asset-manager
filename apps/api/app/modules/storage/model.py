@@ -33,6 +33,7 @@ class AssetStorageObjectModel(Base):
             name="ck_asset_storage_objects_status",
         ),
         CheckConstraint("attempt_count >= 0", name="ck_asset_storage_objects_attempt_count"),
+        CheckConstraint("storage_class IN ('staging', 'durable')", name="ck_asset_storage_objects_storage_class"),
         Index("ix_asset_storage_objects_status", "status", "next_attempt_at"),
         Index("ix_asset_storage_objects_cleanup", "tenant_id", "status", "stored_at", "id"),
     )
@@ -42,6 +43,7 @@ class AssetStorageObjectModel(Base):
     asset_id: Mapped[str] = mapped_column(String(36), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_class: Mapped[str] = mapped_column(String(32), nullable=False, default="staging")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     remote_file_id: Mapped[str | None] = mapped_column(String(255))
     remote_folder_id: Mapped[str | None] = mapped_column(String(255))

@@ -24,7 +24,7 @@ def upgrade():
 def downgrade():
     configured = op.get_bind().exec_driver_sql(
         "SELECT COUNT(*) FROM creative_ai_credentials "
-        "WHERE provider LIKE 'gemini_video_backup_%'"
+        "WHERE provider LIKE 'gemini_video_backup_%%'"
     ).scalar_one()
     if configured:
         raise RuntimeError(

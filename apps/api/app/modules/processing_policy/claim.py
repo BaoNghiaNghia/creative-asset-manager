@@ -52,6 +52,7 @@ STAGE_POLICY = {
     "retention_cleanup": "pipeline_enabled",
     "managed_storage_cleanup": "pipeline_enabled",
     "image_generate": "pipeline_enabled",
+    "video_generate": "pipeline_enabled",
 }
 
 

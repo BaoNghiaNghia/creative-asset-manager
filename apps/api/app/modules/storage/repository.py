@@ -24,12 +24,17 @@ class ManagedStorageRepository:
         self.session = session
 
     def get_or_create(
-        self, *, tenant_id: str, asset_id: str, content_hash: str, storage_provider: str
+        self, *, tenant_id: str, asset_id: str, content_hash: str, storage_provider: str,
+        storage_class: str = "staging",
     ) -> AssetStorageObjectModel:
+        if storage_class not in {"staging", "durable"}:
+            raise ValueError("unsupported managed storage class")
         existing = self.get(tenant_id, asset_id, storage_provider)
         if existing is not None:
             if existing.content_hash != content_hash:
                 raise ValueError("managed storage content hash does not match the asset")
+            if existing.storage_class != storage_class:
+                raise ValueError("managed storage class does not match the asset")
             return existing
         try:
             with self.session.begin_nested():
@@ -38,6 +43,7 @@ class ManagedStorageRepository:
                     asset_id=asset_id,
                     content_hash=content_hash,
                     storage_provider=storage_provider,
+                    storage_class=storage_class,
                 )
                 self.session.add(record)
                 self.session.flush()
@@ -95,6 +101,7 @@ class ManagedStorageRepository:
             AssetStorageObjectModel.storage_provider == storage_provider,
             AssetStorageObjectModel.remote_folder_id == remote_folder_id,
             AssetStorageObjectModel.status.in_(("stored", "uploading", "retry")),
+            AssetStorageObjectModel.storage_class == "staging",
         )
         if exclude_storage_id:
             statement = statement.where(AssetStorageObjectModel.id != exclude_storage_id)
@@ -114,6 +121,7 @@ class ManagedStorageRepository:
         )).where(
             AssetStorageObjectModel.remote_folder_id == remote_folder_id,
             AssetStorageObjectModel.status.in_(("stored", "uploading", "retry")),
+            AssetStorageObjectModel.storage_class == "staging",
         )
         return int(self.session.scalar(statement) or 0)
 
@@ -179,6 +187,7 @@ class ManagedStorageRepository:
             AssetStorageObjectModel.status == "stored",
             AssetStorageObjectModel.remote_file_id.is_not(None),
             AssetStorageObjectModel.remote_folder_id == remote_folder_id,
+            AssetStorageObjectModel.storage_class == "staging",
         )
         if tenant_id is not None:
             statement = statement.where(AssetStorageObjectModel.tenant_id == tenant_id)

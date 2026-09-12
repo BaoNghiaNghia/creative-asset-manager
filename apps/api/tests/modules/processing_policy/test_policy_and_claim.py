@@ -144,6 +144,70 @@ class ProcessingPolicyTest(unittest.TestCase):
             self.assertEqual((policy.total_active_jobs, policy.ai_active_jobs), (0, 0))
             self.assertEqual((provider.active_jobs, provider.single_active_jobs), (0, 0))
 
+    def test_video_generate_defer_and_stale_terminal_release_are_idempotent(self):
+        self.policy("tenant", total=1, ai=1)
+        with self.sessions.begin() as session:
+            ProcessingPolicyRepository(session).get_or_create_provider(
+                "tenant", "dola", "video_generation"
+            )
+        job_id = self.job(
+            "tenant", "video-generate", kind="video_generate",
+            provider="dola", scope="video_generation",
+        )
+        claimed = self.claim("video-worker", ("video_generate",), worker_role="video")
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, job_id)
+        with self.sessions() as session:
+            policy = session.get(TenantProcessingPolicyModel, "tenant")
+            provider = session.scalar(select(TenantProviderPolicyModel).where(
+                TenantProviderPolicyModel.tenant_id == "tenant",
+                TenantProviderPolicyModel.provider_key == "dola",
+                TenantProviderPolicyModel.provider_scope == "video_generation",
+            ))
+            self.assertEqual((policy.total_active_jobs, provider.active_jobs), (1, 1))
+            ProcessingJobService(ProcessingRepository(session)).defer(
+                job_id=job_id, worker_id="video-worker", retry_at=NOW + timedelta(seconds=5),
+                reason_code="video_generation_provider_running", reason_message="still running",
+            )
+        with self.sessions() as session:
+            job = session.get(ProcessingJobModel, job_id)
+            policy = session.get(TenantProcessingPolicyModel, "tenant")
+            provider = session.scalar(select(TenantProviderPolicyModel).where(
+                TenantProviderPolicyModel.tenant_id == "tenant",
+                TenantProviderPolicyModel.provider_key == "dola",
+                TenantProviderPolicyModel.provider_scope == "video_generation",
+            ))
+            self.assertEqual((job.status, job.attempt_count, job.concurrency_accounted), ("pending", 0, False))
+            self.assertEqual((policy.total_active_jobs, provider.active_jobs), (0, 0))
+        with self.sessions() as session:
+            claimed = ProcessingJobService(ProcessingRepository(session)).claim_next(
+                worker_id="video-worker-2", lease_seconds=60, now=NOW + timedelta(seconds=5),
+                enforce_tenant_policy=True, allowed_job_types=("video_generate",), worker_role="video",
+            )
+            self.assertEqual(claimed.id, job_id)
+            claimed.attempt_count = claimed.max_attempts
+            claimed.lease_expires_at = NOW
+            policy = session.get(TenantProcessingPolicyModel, "tenant")
+            provider = session.scalar(select(TenantProviderPolicyModel).where(
+                TenantProviderPolicyModel.tenant_id == "tenant",
+                TenantProviderPolicyModel.provider_key == "dola",
+                TenantProviderPolicyModel.provider_scope == "video_generation",
+            ))
+            policy.total_active_jobs = 0
+            provider.active_jobs = 0
+            session.commit()
+        self.assertIsNone(self.claim("recovery", ("video_generate",), worker_role="video"))
+        with self.sessions() as session:
+            job = session.get(ProcessingJobModel, job_id)
+            policy = session.get(TenantProcessingPolicyModel, "tenant")
+            provider = session.scalar(select(TenantProviderPolicyModel).where(
+                TenantProviderPolicyModel.tenant_id == "tenant",
+                TenantProviderPolicyModel.provider_key == "dola",
+                TenantProviderPolicyModel.provider_scope == "video_generation",
+            ))
+            self.assertEqual((job.status, job.concurrency_accounted), ("failed", False))
+            self.assertEqual((policy.total_active_jobs, provider.active_jobs), (0, 0))
+
     def test_expired_accounted_lease_can_be_reclaimed_at_limit(self):
         self.policy("tenant", total=1, ai=1)
         job_id = self.job("tenant", "leased")

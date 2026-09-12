@@ -21,6 +21,7 @@ class ManagedAssetStorageService:
         max_attempts: int = 5,
         staging_folder_id: str | None = None,
         staging_max_bytes: int = 0,
+        storage_class: str = "staging",
     ):
         if assets.session is not storage.session:
             raise ValueError("asset and storage repositories must share one session")
@@ -30,6 +31,7 @@ class ManagedAssetStorageService:
         self.max_attempts = max_attempts
         self.staging_folder_id = str(staging_folder_id or "").strip() or None
         self.staging_max_bytes = max(0, int(staging_max_bytes))
+        self.storage_class = storage_class
 
     async def store(
         self, input: StoreAssetInput, provider: AssetStorageProvider
@@ -47,6 +49,7 @@ class ManagedAssetStorageService:
             asset_id=input.asset_id,
             content_hash=input.content_hash,
             storage_provider=provider_name,
+            storage_class=self.storage_class,
         )
         if record.status == "stored":
             return StoredAsset(

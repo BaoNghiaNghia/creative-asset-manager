@@ -339,6 +339,28 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.skipped_active, 1)
         self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
 
+    async def test_durable_generated_output_is_never_a_cleanup_candidate_or_staging_capacity(self) -> None:
+        self.asset.size_bytes = 100
+        durable = self._record(age_hours=100)
+        durable.storage_class = "durable"
+        self._analysis(completed_age_hours=100)
+        self.session.commit()
+
+        provider = FakeManagedStorage()
+        service = ManagedStorageCleanupService(
+            lambda: Session(self.engine, expire_on_commit=False),
+            Settings(
+                GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="managed-root",
+                MANAGED_STORAGE_STAGING_MAX_BYTES=100,
+            ),
+            provider,
+        )
+        result = await service.execute(tenant_id="tenant-a")
+        self.assertEqual(result.selected, 0)
+        self.assertEqual(result.capacity_pressure, 0)
+        self.assertEqual(provider.deleted, [])
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, durable.id))
+
     async def test_cleanup_ignores_records_outside_active_folder_id(self) -> None:
         row = self._record()
         row.remote_folder_id = "previous-managed-root"
