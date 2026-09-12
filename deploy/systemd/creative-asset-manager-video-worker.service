@@ -11,7 +11,9 @@ Type=simple
 User=creative-assets
 Group=creative-assets
 WorkingDirectory=/opt/creative-asset-manager/current
-EnvironmentFile=/etc/creative-asset-manager/production.env\n# Optional Dola bearer/config is scoped to the video worker only.\nEnvironmentFile=-/etc/creative-asset-manager/video-worker.env
+EnvironmentFile=/etc/creative-asset-manager/production.env
+# Optional Dola bearer/config is scoped to the video worker only.
+EnvironmentFile=-/etc/creative-asset-manager/video-worker.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=WORKER_ROLE=video

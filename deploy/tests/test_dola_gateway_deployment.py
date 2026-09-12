@@ -1,4 +1,5 @@
 from __future__ import annotations
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +13,29 @@ SCRIPT = ROOT / "deploy/tools/prepare_dola_runtime.sh"
 VIDEO_UNIT = ROOT / "deploy/systemd/creative-asset-manager-video-worker.service"
 
 class DolaGatewayDeploymentTests(unittest.TestCase):
+    def test_video_worker_environment_files_are_separate_real_lines(self):
+        lines = VIDEO_UNIT.read_text().splitlines()
+        production = "EnvironmentFile=/etc/creative-asset-manager/production.env"
+        comment = "# Optional Dola bearer/config is scoped to the video worker only."
+        optional = "EnvironmentFile=-/etc/creative-asset-manager/video-worker.env"
+
+        self.assertEqual(lines[lines.index(production) + 1], comment)
+        self.assertEqual(lines[lines.index(comment) + 1], optional)
+        for unit in (ROOT / "deploy/systemd").glob("*.service"):
+            for line in unit.read_text().splitlines():
+                if line.startswith("EnvironmentFile="):
+                    self.assertNotIn(r"\n", line, unit.name)
+
+    def test_video_worker_unit_parses_with_systemd_analyze_when_available(self):
+        analyzer = shutil.which("systemd-analyze")
+        if analyzer is None:
+            self.skipTest("systemd-analyze is unavailable")
+        result = subprocess.run([analyzer, "verify", str(VIDEO_UNIT)], capture_output=True, text=True)
+        diagnostics = result.stdout + result.stderr
+        self.assertNotIn("Assignment outside of section", diagnostics)
+        self.assertNotIn("Unknown lvalue", diagnostics)
+        self.assertNotIn(r"\n# Optional Dola", diagnostics)
+
     def test_isolated_loopback_and_default_off(self):
         unit, env, cam, worker, script = [p.read_text() for p in (UNIT, ENV, CAM_ENV, VIDEO_UNIT, SCRIPT)]
         self.assertIn("User=dola-render-gateway", unit)
