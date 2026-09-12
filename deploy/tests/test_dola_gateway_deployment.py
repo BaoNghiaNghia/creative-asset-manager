@@ -66,7 +66,7 @@ class DolaGatewayDeploymentTests(unittest.TestCase):
 
     def test_runtime_lock_includes_all_resolved_dependencies(self):
         pinned = {line.split("==", 1)[0].lower() for line in LOCK.read_text().splitlines() if "==" in line}
-        expected = {"aiohappyeyeballs", "aiohttp", "aiosignal", "annotated-types", "anyio", "async-timeout", "attrs", "click", "exceptiongroup", "fastapi", "frozenlist", "greenlet", "h11", "idna", "multidict", "patchright", "pillow", "propcache", "pydantic", "pydantic_core", "pyee", "python-dotenv", "starlette", "typing_extensions", "uvicorn", "yarl"}
+        expected = {"aiohappyeyeballs", "aiohttp", "aiosignal", "annotated-types", "anyio", "async-timeout", "attrs", "click", "exceptiongroup", "fastapi", "frozenlist", "greenlet", "h11", "idna", "multidict", "numpy", "opencv-python-headless", "patchright", "pillow", "propcache", "pydantic", "pydantic_core", "pyee", "python-dotenv", "starlette", "typing_extensions", "uvicorn", "yarl"}
         self.assertTrue(expected.issubset(pinned))
 
     def test_script_syntax_and_fake_root_check(self):
