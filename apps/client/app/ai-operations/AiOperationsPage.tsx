@@ -328,13 +328,13 @@ function AiWorkerToggle({ workers }: { workers: NonNullable<AiOpsDashboardData["
     try {
       if (kind === "image") {
         await setTenantAiPaused(nextPaused, nextPaused
-          ? "AI image processing paused from Operations dashboard"
-          : "AI image processing resumed from Operations dashboard");
+          ? "Image AI pipeline paused from Operations dashboard"
+          : "Image AI pipeline resumed from Operations dashboard");
         setImagePaused(nextPaused);
       } else {
         await setVideoAiPaused(nextPaused, nextPaused
-          ? "AI video processing paused from Operations dashboard"
-          : "AI video processing resumed from Operations dashboard");
+          ? "Video AI pipeline paused from Operations dashboard"
+          : "Video AI pipeline resumed from Operations dashboard");
         setVideoPaused(nextPaused);
       }
     } catch (reason) {
@@ -347,23 +347,32 @@ function AiWorkerToggle({ workers }: { workers: NonNullable<AiOpsDashboardData["
   const imageEnabled = imagePaused === false;
   const videoEnabled = videoPaused === false;
   const video = workers.find(worker => worker.role === "video");
-  const control = (kind: "image" | "video", enabled: boolean, paused: boolean | null) => (
+  const control = (kind: "image" | "video", enabled: boolean, paused: boolean | null) => {
+    const label = kind === "image" ? "Image" : "Video";
+    const action = enabled ? "Tạm dừng pipeline" : "Tiếp tục pipeline";
+    const status = enabled ? "Đang hoạt động" : "Đã tạm dừng";
+    const unavailable = kind === "video" && enabled && video?.ready === false;
+    return (
     <div className="ops-worker-control">
-      <span>{kind === "image" ? "AI Image" : "AI Video"}</span>
+      <span>{label} pipeline</span>
       <button
         type="button"
         role="switch"
         aria-checked={enabled}
-        aria-label={"Toggle AI " + (kind === "image" ? "Image" : "Video") + " processing"}
-        title={kind === "video" && enabled && video?.ready === false ? "Video worker is not ready" : undefined}
+        aria-label={action + " " + label + " AI"}
+        title={unavailable ? "Video worker is not ready" : enabled
+          ? "Tạm dừng nhận job AI mới; job đang xử lý vẫn được hoàn tất."
+          : "Cho phép pipeline nhận job AI mới trở lại."}
         disabled={!allowed || paused === null || pending !== null}
         onClick={() => void toggle(kind)}
         className={enabled ? "on" : "off"}
       >
-        <i aria-hidden="true" /><b>{pending === kind ? "Updating..." : enabled ? "Enabled" : "Paused"}</b>
+        <i aria-hidden="true" /><b>{pending === kind ? "Đang cập nhật..." : action}</b>
       </button>
+      <small className="ops-worker-pipeline-status">{status}</small>
     </div>
-  );
+    );
+  };
   return <div className="ops-worker-controls">
     {control("image", imageEnabled, imagePaused)}
     {control("video", videoEnabled, videoPaused)}
