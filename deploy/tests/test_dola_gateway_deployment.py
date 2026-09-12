@@ -10,6 +10,7 @@ UNIT = ROOT / "deploy/systemd/creative-asset-manager-dola-gateway.service"
 ENV = ROOT / "deploy/dola-render-gateway.env.example"
 CAM_ENV = ROOT / "deploy/production.env.example"
 SCRIPT = ROOT / "deploy/tools/prepare_dola_runtime.sh"
+LOCK = ROOT / "deploy/dola-render-gateway.requirements.lock"
 VIDEO_UNIT = ROOT / "deploy/systemd/creative-asset-manager-video-worker.service"
 
 class DolaGatewayDeploymentTests(unittest.TestCase):
@@ -62,6 +63,11 @@ class DolaGatewayDeploymentTests(unittest.TestCase):
         xvfb = values(ROOT / "deploy/systemd/creative-asset-manager-dola-xvfb.service")
         self.assertEqual({key: gateway[key] for key in ("MemoryAccounting", "CPUAccounting", "TasksAccounting", "MemoryHigh", "MemoryMax", "CPUQuota", "TasksMax", "OOMPolicy")}, {"MemoryAccounting": "true", "CPUAccounting": "true", "TasksAccounting": "true", "MemoryHigh": "768M", "MemoryMax": "1G", "CPUQuota": "80%", "TasksMax": "512", "OOMPolicy": "stop"})
         self.assertEqual({key: xvfb[key] for key in ("MemoryAccounting", "CPUAccounting", "TasksAccounting", "MemoryHigh", "MemoryMax", "CPUQuota", "TasksMax", "OOMPolicy")}, {"MemoryAccounting": "true", "CPUAccounting": "true", "TasksAccounting": "true", "MemoryHigh": "96M", "MemoryMax": "160M", "CPUQuota": "20%", "TasksMax": "64", "OOMPolicy": "stop"})
+
+    def test_runtime_lock_includes_all_resolved_dependencies(self):
+        pinned = {line.split("==", 1)[0].lower() for line in LOCK.read_text().splitlines() if "==" in line}
+        expected = {"aiohappyeyeballs", "aiohttp", "aiosignal", "annotated-types", "anyio", "async-timeout", "attrs", "click", "exceptiongroup", "fastapi", "frozenlist", "greenlet", "h11", "idna", "multidict", "patchright", "pillow", "propcache", "pydantic", "pydantic_core", "pyee", "python-dotenv", "starlette", "typing_extensions", "uvicorn", "yarl"}
+        self.assertTrue(expected.issubset(pinned))
 
     def test_script_syntax_and_fake_root_check(self):
         syntax = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
