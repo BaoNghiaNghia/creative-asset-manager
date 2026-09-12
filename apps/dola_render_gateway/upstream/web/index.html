@@ -284,13 +284,11 @@ function openAddAccount(){
   showDlg(`<h2>Add Account</h2>
     <label>Account Name</label><input id="f_name" value="${def}">
     <label>Google Email</label><input id="f_email" placeholder="xxx@yy.asia">
-    <label>Password</label><input id="f_pass" type="password">
-    <label>TOTP Secret (2FA)</label><input id="f_totp" placeholder="2FA secret">
-    <div class="row"><button class="btn" onclick="hide('dlg')">Cancel</button><button class="btn btn-p" onclick="submitAddAccount()">Start Login</button></div>`);
+    <div class="row"><button class="btn" onclick="hide('dlg')">Cancel</button><button class="btn btn-p" onclick="submitAddAccount()">Create account</button></div>`);
 }
 async function submitAddAccount(){
-  const body={name:q('#f_name').value.trim(),email:q('#f_email').value.trim(),password:q('#f_pass').value,totp:q('#f_totp').value.trim()};
-  if(!body.name||!body.email||!body.password)return alert('Please enter account name, email and password');
+  const body={name:q('#f_name').value.trim(),email:q('#f_email').value.trim()||null};
+  if(!body.name)return alert('Please enter an account name');
   try{await api('/api/admin/accounts',{method:'POST',body});}catch(e){return alert(e.message);}
   hide('dlg');refresh();
 }

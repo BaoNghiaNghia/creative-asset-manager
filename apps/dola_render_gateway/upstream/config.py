@@ -74,3 +74,7 @@ REFERENCE_IMAGE_MAX_COUNT = int(os.getenv("DOLA_REFERENCE_IMAGE_MAX_COUNT", "30"
 
 # Extended generation window for reference image tasks (seconds)
 REFERENCE_VIDEO_TIMEOUT = int(os.getenv("DOLA_REFERENCE_VIDEO_TIMEOUT", "900"))
+
+# Explicit operator action only; this never enables generation.
+INTERACTIVE_LOGIN_TIMEOUT = int(os.getenv("DOLA_INTERACTIVE_LOGIN_TIMEOUT", "900"))
+MAX_INTERACTIVE_LOGINS = int(os.getenv("DOLA_MAX_INTERACTIVE_LOGINS", "1"))

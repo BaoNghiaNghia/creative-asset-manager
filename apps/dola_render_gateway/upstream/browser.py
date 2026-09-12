@@ -1,4 +1,5 @@
 """Patchright persistent context launcher: Explicit proxy and anti-detection parameters."""
+from dataclasses import dataclass
 from pathlib import Path
 
 import config
@@ -51,22 +52,35 @@ def cookie_value(cookies: list, name: str) -> str:
     return next((c["value"] for c in cookies if c["name"] == name and c["value"]), "")
 
 
+@dataclass(frozen=True)
+class SessionVerificationResult:
+    session_cookie_present: bool
+    authenticated_ui_present: bool
+    login_page_detected: bool
+    verified: bool
+
+async def verify_dola_session(context, page=None) -> SessionVerificationResult:
+    """Validate session cookie and authenticated UI; never return cookie data."""
+    try:
+        page = page or (context.pages[0] if context.pages else await context.new_page())
+        await page.goto("https://www.dola.com/chat", timeout=60000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(1000)
+        cookies = await context.cookies("https://www.dola.com")
+        cookie = bool(cookie_value(cookies, "sessionid"))
+        authenticated = bool(await page.evaluate("""() => !!(
+            document.querySelector('textarea') || document.querySelector('[contenteditable="true"]'))"""))
+        login_page = bool(await page.evaluate("""() => !!(
+            document.querySelector('input[type="password"]') || document.querySelector('[data-testid*="login"]'))"""))
+        return SessionVerificationResult(cookie, authenticated, login_page, cookie and authenticated)
+    except Exception:
+        return SessionVerificationResult(False, False, False, False)
+
 async def check_login_state(account: str) -> bool:
-    """Opens Dola in headless mode and checks whether session is active."""
+    """Independent headless verification using the canonical persistent profile."""
     from patchright.async_api import async_playwright
     async with async_playwright() as p:
         context = await launch_account_context(p, account)
         try:
-            page = context.pages[0] if context.pages else await context.new_page()
-            await page.goto("https://www.dola.com/chat", timeout=60000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(5000)
-            cookies = await context.cookies("https://www.dola.com")
-            if not cookie_value(cookies, "sessionid"):
-                return False
-            return bool(await page.evaluate(
-                """() => !!(document.querySelector('textarea')
-                        || document.querySelector('[contenteditable="true"]')
-                        || document.querySelector('input[type="text"]'))"""
-            ))
+            return (await verify_dola_session(context)).verified
         finally:
             await context.close()

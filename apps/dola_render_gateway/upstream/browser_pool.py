@@ -31,6 +31,7 @@ class BrowserPool:
         self.accounts_dir = Path(accounts_dir)
         self.semaphore = asyncio.Semaphore(max_concurrency)
         self._locks: dict[str, asyncio.Lock] = {}
+        self._owners: dict[str, str] = {}
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute(
@@ -186,10 +187,17 @@ class BrowserPool:
                 "used_today": used,
                 "limit": DAILY_LIMIT,
                 "remaining": max(0, DAILY_LIMIT - used),
-                "busy": bool(lock and lock.locked()),
+                "busy": bool(lock and lock.locked()) or a in self._owners,
+                "runtime_owner": self._owners.get(a, "IDLE"),
             })
         return out
 
+    def reserve_account(self, name: str, owner: str) -> None:
+        if name not in self.accounts: raise FileNotFoundError(f"Profile does not exist: {name}")
+        if self._locks.setdefault(name, asyncio.Lock()).locked() or name in self._owners: raise RuntimeError("Account is busy")
+        self._owners[name] = owner
+    def release_account(self, name: str, owner: str) -> None:
+        if self._owners.get(name) == owner: self._owners.pop(name, None)
     def set_scheduling(self, name: str, on: bool):
         self._conn.execute(
             "UPDATE accounts_meta SET scheduling=? WHERE name=?", (1 if on else 0, name))
@@ -214,8 +222,8 @@ class BrowserPool:
 
     def delete_account(self, name: str):
         lock = self._locks.get(name)
-        if lock and lock.locked():
-            raise RuntimeError("Account is generating video, cannot delete")
+        if (lock and lock.locked()) or name in self._owners:
+            raise RuntimeError("Account is in use, cannot delete")
         d = self.accounts_dir / name
         if d.exists():
             shutil.rmtree(d)
@@ -226,9 +234,13 @@ class BrowserPool:
         """Verifies login state in headless mode and updates cache."""
         if name not in self.accounts:
             raise FileNotFoundError(f"Profile does not exist: {name}")
-        lock = self._locks.setdefault(name, asyncio.Lock())
-        if lock.locked():
-            raise RuntimeError("Account is generating video, please verify later")
+        self.reserve_account(name, "VERIFY")
+        try:
+            return await self.verify_account_owned(name)
+        finally:
+            self.release_account(name, "VERIFY")
+
+    async def verify_account_owned(self, name: str) -> bool:
         from browser import check_login_state
         ok = await check_login_state(name)
         self._conn.execute(
@@ -297,6 +309,7 @@ class BrowserPool:
         """Resumes an accepted session without re-scheduling."""
         async with self.semaphore:
             lock = self._locks.setdefault(account, asyncio.Lock())
+            if account in self._owners: raise RuntimeError("Account is busy")
             async with lock:
                 def on_balance(balance, source=""):
                     self._set_credit_balance(account, balance, source)
@@ -327,7 +340,7 @@ class BrowserPool:
                 account = a["name"]
                 lock = self._locks.setdefault(account, asyncio.Lock())
                 # Skip busy accounts to prevent concurrent collisions on same profile.
-                if lock.locked():
+                if lock.locked() or account in self._owners:
                     continue
                 async with lock:
                     if not self._schedulable(next(x for x in self.list_accounts() if x['name'] == account)):

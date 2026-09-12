@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 from cam_runtime.app import create_app
 from cam_runtime.config import RuntimeConfigurationError, load_settings
 from cam_runtime.paths import RuntimePathError, RuntimePaths
-from cam_runtime.provisioning import read_provisioning_payload
 
 
 def env(tmp_path: Path, **extra: str) -> dict[str, str]:
@@ -82,23 +81,14 @@ def test_bearer_boundary_and_liveness(tmp_path: Path):
     assert client.get("/protected", headers={"Authorization": "Bearer local-internal-key"}).json() == {"ok": True}
 
 
-def test_safe_provisioning_payload_is_stdin_data_not_argv():
-    payload = read_provisioning_payload(io.StringIO(json.dumps({
-        "account": "acct", "email": "user@example.com", "password": "fake-password", "totp": "fake-totp",
-    })))
-    assert payload["account"] == "acct"
+def test_interactive_login_has_no_credential_prompts_or_google_automation():
     source = (Path(__file__).parents[1] / "upstream" / "add_account.py").read_text()
-    assert 'sys.argv[2].split("----")' not in source
-    assert 'TOTP={code}' not in source
-    assert 'document.body.innerText' not in source
-    assert 'g.url[:80]' not in source
-    assert 'secret_prompt=getpass.getpass' in source
-    assert 'password = secret_prompt("Google password: ")' in source
-    assert 'secret = secret_prompt("TOTP secret: ")' in source
-    assert "Only account name may be supplied on argv." in source
-    for secret in ("123456", "SUPER_SECRET_TOTP", "SUPER_SECRET_PASSWORD"):
-        assert secret not in source
-
+    assert "Google password" not in source
+    assert "TOTP secret" not in source
+    assert "google_login" not in source
+    assert "totp(" not in source
+    assert "--email" in source
+    assert "InteractiveLoginManager" in source
 
 def test_video_worker_is_runtime_reachable_and_compiles():
     root = Path(__file__).parents[1] / "upstream"

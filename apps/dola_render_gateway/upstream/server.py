@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import config
-from add_account import add_account_flow
+from interactive_login import InteractiveLoginManager
 from browser_pool import AllAccountsLimitedError, AllAccountsQuotaBlockedError, BrowserPool
 from media import download_reference_images, validate_reference_urls
 from store import PendingTaskLimitExceeded, TaskQuotaExceeded, TaskStore
@@ -40,6 +40,7 @@ pool = BrowserPool(
     db_path=config.POOL_DB_PATH,
     max_concurrency=config.MAX_CONCURRENCY,
 )
+login_manager = InteractiveLoginManager(pool)
 
 app.mount("/videos", StaticFiles(directory=config.DOWNLOAD_DIR), name="videos")
 
@@ -379,9 +380,7 @@ class AccountPatch(BaseModel):
 
 class AccountAdd(BaseModel):
     name: str
-    email: str
-    password: str
-    totp: str
+    email: str | None = None
 
 
 class KeyCreate(BaseModel):
@@ -455,29 +454,43 @@ async def admin_account_verify(name: str, x_admin_key: str | None = Header(defau
     return {"ok": ok}
 
 
-async def _run_add_job(name: str, email: str, password: str, totp: str):
-    JOBS[name] = {"kind": "add", "status": "running", "error": "", "started_at": time.time()}
-    try:
-        await add_account_flow(name, email, password, totp)
-        pool.set_email(name, email)
-        pool.set_login_status(name, True)
-        JOBS[name] = {**JOBS[name], "status": "success"}
-    except Exception as e:
-        JOBS[name] = {**JOBS[name], "status": "failed", "error": str(e)[:300]}
-
-
 @app.post("/api/admin/accounts", status_code=202)
 async def admin_account_add(body: AccountAdd, x_admin_key: str | None = Header(default=None)):
     _admin_auth(x_admin_key)
-    if not NAME_RE.match(body.name):
-        raise HTTPException(400, "invalid account name")
-    if body.name in pool.accounts:
-        raise HTTPException(409, "account exists")
-    if JOBS.get(body.name, {}).get("status") == "running":
-        raise HTTPException(409, "add job running")
-    asyncio.create_task(_run_add_job(body.name, body.email, body.password, body.totp))
-    return {"ok": True, "job": "running"}
+    if not NAME_RE.match(body.name): raise HTTPException(400, "invalid account name")
+    if body.name in pool.accounts: raise HTTPException(409, "account exists")
+    profile = Path(config.PROFILE_DIR) / body.name
+    profile.mkdir(parents=True, exist_ok=False, mode=0o750); profile.chmod(0o750)
+    pool._ensure_meta(body.name)
+    if body.email: pool.set_email(body.name, body.email)
+    pool.set_login_status(body.name, False)
+    return {"ok": True, "account": body.name, "state": "not_logged_in"}
 
+@app.post("/api/admin/accounts/{name}/login/start", status_code=202)
+async def admin_login_start(name: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    try: return await login_manager.start(name)
+    except FileNotFoundError: raise HTTPException(404, "account not found")
+    except RuntimeError as e: raise HTTPException(409, str(e))
+
+@app.get("/api/admin/accounts/{name}/login/status")
+async def admin_login_status(name: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    if name not in pool.accounts: raise HTTPException(404, "account not found")
+    return login_manager.status(name)
+
+@app.post("/api/admin/accounts/{name}/login/verify")
+async def admin_login_verify(name: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    try: return await login_manager.verify(name)
+    except FileNotFoundError: raise HTTPException(404, "account not found")
+    except RuntimeError as e: raise HTTPException(409, str(e))
+
+@app.post("/api/admin/accounts/{name}/login/stop")
+async def admin_login_stop(name: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    if name not in pool.accounts: raise HTTPException(404, "account not found")
+    return await login_manager.stop(name)
 
 @app.get("/api/admin/jobs")
 async def admin_jobs(x_admin_key: str | None = Header(default=None)):
