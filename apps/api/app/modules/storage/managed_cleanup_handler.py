@@ -25,15 +25,24 @@ class ManagedStorageCleanupJobHandler:
                 context.dependencies.storage_provider,
             ).execute(
                 tenant_id=context.job.tenant_id,
-                limit=self.settings.MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN,
+                limit=min(
+                    self.settings.MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN,
+                    max(1, int(context.job.payload_json.get(
+                        "limit", self.settings.MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN
+                    ))),
+                ),
             ))
             context.logger.info(
                 "managed_storage_cleanup_completed",
                 extra={"tenant_id": context.job.tenant_id, "counts": result.document()},
             )
-            next_at = datetime.now(timezone.utc) + timedelta(
-                seconds=self.settings.MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS
+            interval_seconds = max(
+                60,
+                int(context.job.payload_json.get(
+                    "interval_seconds", self.settings.MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS
+                )),
             )
+            next_at = datetime.now(timezone.utc) + timedelta(seconds=interval_seconds)
             ManagedStorageCleanupScheduler(
                 context.dependencies.session_factory, self.settings
             ).schedule_tenant(context.job.tenant_id, next_attempt_at=next_at)

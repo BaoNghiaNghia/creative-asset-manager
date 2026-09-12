@@ -348,6 +348,13 @@ class Settings(BaseSettings):
     MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS: int = 3600
     MANAGED_STORAGE_CLEANUP_BATCH_SIZE: int = 100
     MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN: int = 500
+    MANAGED_STORAGE_CLEANUP_PEAK_START_HOUR: int = 8
+    MANAGED_STORAGE_CLEANUP_PEAK_END_HOUR: int = 22
+    MANAGED_STORAGE_CLEANUP_PEAK_INTERVAL_SECONDS: int = 300
+    MANAGED_STORAGE_CLEANUP_PEAK_BATCH_SIZE: int = 50
+    MANAGED_STORAGE_CLEANUP_OFFPEAK_BATCH_SIZE: int = 300
+    MANAGED_STORAGE_CLEANUP_PRESSURE_PERCENT: int = 80
+    MANAGED_STORAGE_CLEANUP_CRITICAL_PERCENT: int = 95
     # Bounded Google Drive staging capacity. Zero disables byte-based admission.
     MANAGED_STORAGE_STAGING_MAX_BYTES: int = 0
     AUTH_SESSION_TTL_SECONDS: int = 30 * 24 * 60 * 60
@@ -905,6 +912,12 @@ class Settings(BaseSettings):
             raise ValueError("MANAGED_STORAGE_CLEANUP_BATCH_SIZE cannot exceed MANAGED_STORAGE_CLEANUP_MAX_ITEMS_PER_RUN")
         if self.MANAGED_STORAGE_STAGING_MAX_BYTES < 0:
             raise ValueError("MANAGED_STORAGE_STAGING_MAX_BYTES cannot be negative")
+        if not (0 <= self.MANAGED_STORAGE_CLEANUP_PEAK_START_HOUR <= 23 and 0 <= self.MANAGED_STORAGE_CLEANUP_PEAK_END_HOUR <= 23):
+            raise ValueError("Managed storage cleanup peak hours must be between 0 and 23")
+        if min(self.MANAGED_STORAGE_CLEANUP_PEAK_INTERVAL_SECONDS, self.MANAGED_STORAGE_CLEANUP_PEAK_BATCH_SIZE, self.MANAGED_STORAGE_CLEANUP_OFFPEAK_BATCH_SIZE) <= 0:
+            raise ValueError("Managed storage cleanup adaptive limits must be positive")
+        if not 1 <= self.MANAGED_STORAGE_CLEANUP_PRESSURE_PERCENT <= self.MANAGED_STORAGE_CLEANUP_CRITICAL_PERCENT <= 100:
+            raise ValueError("Managed storage cleanup pressure percentages must be ordered between 1 and 100")
         if not 0 < self.SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS <= 5:
             raise ValueError("SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS must be between 0 and 5")
         if not 0 < self.SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS <= 5000:

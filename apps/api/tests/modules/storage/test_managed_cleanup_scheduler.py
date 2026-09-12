@@ -48,7 +48,7 @@ class ManagedStorageCleanupSchedulerTest(unittest.TestCase):
             job = session.scalar(select(ProcessingJobModel))
             self.assertEqual(job.tenant_id, "tenant-enabled")
             self.assertEqual(job.job_type, "managed_storage_cleanup")
-            self.assertEqual(job.priority, 1_000)
+            self.assertEqual(job.priority, 30)
 
     def test_scheduler_promotes_stale_pending_cleanup_jobs(self):
         settings = Settings(
@@ -65,4 +65,5 @@ class ManagedStorageCleanupSchedulerTest(unittest.TestCase):
         self.assertEqual(scheduler.schedule_known_tenants(now=first_run), 1)
         with self.sessions() as session:
             job = session.scalar(select(ProcessingJobModel))
-            self.assertEqual(job.priority, 1_000)
+            self.assertEqual(job.priority, 30)
+            self.assertEqual(job.payload_json["limit"], 50)
