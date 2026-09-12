@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.core.database import Base
 from app.core.environment import load_development_environment
 
 
@@ -13,6 +14,9 @@ class EnvironmentLoadingTest(unittest.TestCase):
         self.assertEqual(os.environ.get("ENVIRONMENT"), "test")
         self.assertEqual(os.environ.get("TESTING"), "true")
         self.assertIsNone(os.environ.get("GEMINI_API_KEY"))
+
+    def test_unittest_metadata_includes_real_oauth_connection_table(self) -> None:
+        self.assertIn("oauth_connections", Base.metadata.tables)
 
     def test_test_environment_never_loads_dotenv(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

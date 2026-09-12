@@ -43,12 +43,29 @@ class ManagedStorageCleanupSchedulerTest(unittest.TestCase):
                 MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS=3600,
             )
         )
-        self.assertEqual(scheduler.schedule_known_tenants(now=datetime.now(timezone.utc)), 1)
+        peak_idle = datetime(2026, 1, 5, 12, tzinfo=timezone.utc)
+        self.assertEqual(scheduler.schedule_known_tenants(now=peak_idle), 1)
         with self.sessions() as session:
             job = session.scalar(select(ProcessingJobModel))
             self.assertEqual(job.tenant_id, "tenant-enabled")
             self.assertEqual(job.job_type, "managed_storage_cleanup")
             self.assertEqual(job.priority, 30)
+            self.assertEqual(job.payload_json["reason"], "peak_idle")
+
+    def test_enabled_scheduler_uses_offpeak_idle_policy(self):
+        scheduler = ManagedStorageCleanupScheduler(
+            self.sessions, Settings(
+                PROCESSING_JOBS_ENABLED=True,
+                MANAGED_STORAGE_AUTO_CLEANUP_ENABLED=True,
+                MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS=3600,
+            )
+        )
+        offpeak_idle = datetime(2026, 1, 5, 0, tzinfo=timezone.utc)
+        self.assertEqual(scheduler.schedule_known_tenants(now=offpeak_idle), 1)
+        with self.sessions() as session:
+            job = session.scalar(select(ProcessingJobModel))
+            self.assertEqual(job.priority, 80)
+            self.assertEqual(job.payload_json["reason"], "offpeak_idle")
 
     def test_scheduler_promotes_stale_pending_cleanup_jobs(self):
         settings = Settings(
@@ -56,7 +73,7 @@ class ManagedStorageCleanupSchedulerTest(unittest.TestCase):
             MANAGED_STORAGE_AUTO_CLEANUP_ENABLED=True,
             MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS=3600,
         )
-        first_run = datetime.now(timezone.utc)
+        first_run = datetime(2026, 1, 5, 12, tzinfo=timezone.utc)
         scheduler = ManagedStorageCleanupScheduler(self.sessions, settings)
         self.assertEqual(scheduler.schedule_known_tenants(now=first_run), 1)
         with self.sessions.begin() as session:

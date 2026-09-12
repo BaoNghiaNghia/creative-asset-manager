@@ -35,7 +35,7 @@ class ExportPhase10Test(unittest.TestCase):
         self.engine = create_engine(f"sqlite:///{Path(self.tmp.name) / 'x.db'}")
         event.listen(self.engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
         keep = {
-            "tenants", "external_sources", "inventory_settings", "inventory_daily_runs",
+            "tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_runs",
             "inventory_exports", "inventory_transactions", "inventory_source_files",
         }
         for table in Base.metadata.sorted_tables:

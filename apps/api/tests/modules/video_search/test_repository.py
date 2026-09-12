@@ -219,18 +219,29 @@ class VideoSearchRepositoryTest(unittest.TestCase):
         second = repository.create_chunks(tenant_id=run.tenant_id, run_id=run.id, layouts=layout)
         self.assertEqual([chunk.id for chunk in first], [chunk.id for chunk in second])
         self.assertEqual(run.total_chunks, 1)
-        with self.assertRaises(VideoChunkLayoutConflictError):
-            repository.create_chunks(
-                tenant_id=run.tenant_id, run_id=run.id,
-                layouts=[{"chunk_index": 0, "source_start_ms": 1, "source_end_ms": 10}],
-            )
+        replacement = repository.create_chunks(
+            tenant_id=run.tenant_id, run_id=run.id,
+            layouts=[{"chunk_index": 0, "source_start_ms": 1, "source_end_ms": 10}],
+        )
+        self.assertEqual(replacement[0].source_start_ms, 1)
+        self.assertEqual(run.completed_chunks, 0)
         with self.assertRaises(VideoChunkLayoutConflictError):
             repository.create_chunks(
                 tenant_id=run.tenant_id, run_id=run.id,
                 layouts=[
-                    {"chunk_index": 0, "source_start_ms": 0, "source_end_ms": 10},
+                    {"chunk_index": 0, "source_start_ms": 1, "source_end_ms": 10},
                     {"chunk_index": 0, "source_start_ms": 10, "source_end_ms": 20},
                 ],
+            )
+        self.prepare_chunk_analyzing(repository, run, replacement[0])
+        repository.complete_chunk(
+            tenant_id=run.tenant_id, run_id=run.id, chunk_id=replacement[0].id,
+            metadata_json={"canonical": True},
+        )
+        with self.assertRaises(VideoChunkLayoutConflictError):
+            repository.create_chunks(
+                tenant_id=run.tenant_id, run_id=run.id,
+                layouts=[{"chunk_index": 0, "source_start_ms": 2, "source_end_ms": 10}],
             )
 
     def test_chunk_completion_is_exactly_once_and_metadata_is_immutable(self):

@@ -54,7 +54,7 @@ class InventoryPersistenceRepositoryTest(unittest.TestCase):
             "connect",
             lambda connection, _record: connection.execute("PRAGMA foreign_keys=ON"),
         )
-        selected = PHASE2_TABLES | {"tenants", "external_sources"}
+        selected = PHASE2_TABLES | {"tenants", "oauth_connections", "external_sources"}
         for table in Base.metadata.sorted_tables:
             if table.name in selected:
                 table.create(self.engine)

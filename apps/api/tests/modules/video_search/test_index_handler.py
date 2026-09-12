@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings
 from app.core.database import Base
 from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, WorkerDependencies
-from app.modules.assets.model import SourceAssetModel
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.video_search.index_handler import VideoSearchIndexJobHandler
 from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
 
@@ -20,7 +20,8 @@ class IndexHandlerTest(unittest.TestCase):
  def context(self,tenant="a",run="run",cancel=False):
   return JobHandlerContext(ClaimedJob("job",tenant,"video_search_index","video_analysis_run",run,{"analysis_run_id":run},1,"w"),WorkerDependencies(session_factory=lambda:Session(self.e)),Event(),Event(),logging.LoggerAdapter(logging.getLogger("t"),{}))
  def data(self,tenant="a",status="completed",chunks=True,valid=True):
-  source=SourceAssetModel(id="asset",tenant_id=tenant,external_source_id="source",external_asset_id="external",filename="x.mp4",mime_type="video/mp4",source_metadata={}); self.s.add(source)
+  external=ExternalSourceModel(id="source",tenant_id=tenant,source_key=f"source-{tenant}",source_type="google_drive"); self.s.add(external)
+  source=SourceAssetModel(id="asset",tenant_id=tenant,external_source_id=external.id,external_asset_id="external",filename="x.mp4",mime_type="video/mp4",source_metadata={}); self.s.add(source)
   run=VideoAnalysisRunModel(id="run",tenant_id=tenant,source_asset_id="asset",source_fingerprint="f"*64,video_metadata_profile_id="profile",metadata_profile="p",metadata_profile_version="v1",prompt_version="p1",analysis_version="a1",ai_provider="gemini",ai_model="m",idempotency_key="k"*64,status=status,duration_ms=1000,chunk_seconds=1,total_chunks=1,completed_chunks=1 if chunks else 0)
   self.s.add(run)
   if chunks:self.s.add(VideoAnalysisChunkModel(id="chunk",tenant_id=tenant,run_id="run",chunk_index=0,source_start_ms=0,source_end_ms=1,status="completed",metadata_json={"segments":[{"start_ms":0,"end_ms":500}] if valid else [{"start_ms":0,"end_ms":2000}]}))

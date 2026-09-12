@@ -50,7 +50,7 @@ class AssetDetailsApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["sources"][0]["external_source_id"] is not None, True)
-        self.assertEqual(payload["sources"][0]["preview_url"], f"/api/explorer/media/external-1?provider=google-drive&external_source_id={payload['sources'][0]['external_source_id']}")
+        self.assertEqual(payload["sources"][0]["preview_url"], f"/api/explorer/thumbnail/external-1?provider=google-drive&external_source_id={payload['sources'][0]['external_source_id']}")
         self.assertEqual(payload["storage"][0]["web_url"], "https://drive.example/file")
         self.assertNotIn("secret", response.text)
         self._principal("tenant-b")
@@ -157,7 +157,7 @@ class AssetDetailsApiTest(unittest.TestCase):
         self.assertEqual(source["mime_type"], "image/png")
         self.assertEqual(
             source["preview_url"],
-            f"/api/explorer/media/external-1?provider=google-drive&external_source_id={source['external_source_id']}",
+            f"/api/explorer/thumbnail/external-1?provider=google-drive&external_source_id={source['external_source_id']}",
         )
 if __name__ == "__main__":
     unittest.main()

@@ -62,8 +62,17 @@ def _install_per_test_reset() -> None:
     unittest.TestCase._cam_test_environment_wrapped = True
 
 
+def _register_unittest_metadata_models() -> None:
+    """Register real FK targets before unittest discovery creates metadata."""
+    config_module = sys.modules.get("app.core.config")
+    if config_module is not None and not hasattr(config_module, "Settings"):
+        return
+    from app.modules.auth_persistence import model as _auth_persistence_models  # noqa: F401
+
+
 def activate_test_environment() -> None:
     if not is_unittest_runtime():
         return
     reset_test_environment()
     _install_per_test_reset()
+    _register_unittest_metadata_models()

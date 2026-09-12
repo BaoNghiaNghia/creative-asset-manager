@@ -21,7 +21,7 @@ describe("Creative Gemini credential settings", () => {
   });
   it("renders separate Creative scope without rendering a candidate key", () => {
     const markup = renderToStaticMarkup(<CreativeGeminiCredentialSettings canManage={false} />);
-    expect(markup).toContain("Creative AI"); expect(markup).toContain("Loading Gemini credential configuration");
+    expect(markup).toContain("Image AI"); expect(markup).toContain("Loading Gemini credential configuration");
     expect(markup).not.toContain(secret); expect(markup).not.toContain("Inventory document pipeline");
   });
 });

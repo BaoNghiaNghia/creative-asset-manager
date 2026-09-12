@@ -22,7 +22,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.engine = create_engine(f"sqlite:///{Path(self.tmp.name) / 'daily-sheet-scheduler.db'}")
         event.listen(self.engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
-        for name in ("tenants", "external_sources", "inventory_settings", "inventory_jobs"):
+        for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_jobs"):
             Base.metadata.tables[name].create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.sessions.begin() as session:

@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import Settings
 from app.core.database import Base
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
-from app.modules.assets.model import SourceAssetModel
+from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.processing.bootstrap import build_worker_runtime
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -49,10 +49,16 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
         self, *, search_v2_enabled: bool = True
     ) -> tuple[str, str]:
         with self.sessions() as session:
+            external_source = ExternalSourceModel(
+                id="source-runtime",
+                tenant_id="tenant-a",
+                source_key="source-runtime",
+                source_type="google_drive",
+            )
             source = SourceAssetModel(
                 id="asset-runtime",
                 tenant_id="tenant-a",
-                external_source_id="source-runtime",
+                external_source_id=external_source.id,
                 external_asset_id="external-runtime",
                 filename="clip.mp4",
                 mime_type="video/mp4",
@@ -92,7 +98,7 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
                 pipeline_enabled=True,
                 search_v2_enabled=search_v2_enabled,
             )
-            session.add_all((source, run, chunk, policy))
+            session.add_all((external_source, source, run, chunk, policy))
             session.flush()
             created = enqueue_video_search_index_job(
                 tenant_id="tenant-a",

@@ -29,6 +29,7 @@ class InventoryDailySchedulerTest(unittest.TestCase):
         )
         keep = {
             "tenants",
+            "oauth_connections",
             "external_sources",
             "inventory_settings",
             "inventory_documents",

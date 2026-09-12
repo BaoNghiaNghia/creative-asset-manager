@@ -26,7 +26,7 @@ class InventoryDailyRunServiceTest(unittest.TestCase):
         self.engine = create_engine(f"sqlite:///{Path(self.tmp.name) / 'daily.db'}")
         event.listen(self.engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
         for table in Base.metadata.sorted_tables:
-            if table.name in {"tenants", "external_sources", "inventory_locations", "inventory_documents", "inventory_daily_runs", "inventory_daily_run_events", "inventory_reviews", "inventory_transactions", "inventory_jobs"}:
+            if table.name in {"tenants", "oauth_connections", "external_sources", "inventory_locations", "inventory_documents", "inventory_daily_runs", "inventory_daily_run_events", "inventory_reviews", "inventory_transactions", "inventory_jobs"}:
                 table.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.sessions.begin() as session:
