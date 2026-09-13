@@ -91,7 +91,8 @@ class InventoryPromptResolver:
     def _lock_scope(session: Session, tenant_id: str) -> None:
         # A stable tenant settings row serializes version allocation and active
         # switching on PostgreSQL; unique indexes remain the final invariant.
-        session.scalar(select(InventorySettingsModel.id).where(InventorySettingsModel.tenant_id == tenant_id).with_for_update())
+        row = session.scalar(select(InventorySettingsModel.id).where(InventorySettingsModel.tenant_id == tenant_id).with_for_update())
+        if row is None: raise RuntimeError("inventory_settings_required")
     def draft(self, tenant_id: str, prompt_type: str, content: str, actor: str | None):
         content = _content(content); _validate_type(prompt_type)
         with self.sessions() as session:
@@ -108,6 +109,10 @@ class InventoryPromptResolver:
             row = session.scalar(select(InventoryPromptVersionModel).where(InventoryPromptVersionModel.id == prompt_id, InventoryPromptVersionModel.tenant_id == tenant_id, InventoryPromptVersionModel.prompt_type == prompt_type).with_for_update())
             if row is None: raise LookupError("inventory_prompt_not_found")
             for active in session.scalars(select(InventoryPromptVersionModel).where(InventoryPromptVersionModel.tenant_id == tenant_id, InventoryPromptVersionModel.prompt_type == prompt_type, InventoryPromptVersionModel.status == "active").with_for_update()): active.status="archived"; active.archived_at=now
+            # PostgreSQL checks the partial one-active index per statement.  Flush
+            # the archival update before promoting the requested draft so ORM
+            # update ordering cannot briefly create two active rows.
+            session.flush()
             row.status="active"; row.activated_by=actor; row.activated_at=now
             try: session.commit()
             except IntegrityError as exc: session.rollback(); raise InventoryPromptConflict("inventory_prompt_conflict") from exc
@@ -124,5 +129,6 @@ class InventoryPromptResolver:
     def reset(self, tenant_id: str, prompt_type: str, actor: str | None):
         _validate_type(prompt_type); now=datetime.now(timezone.utc)
         with self.sessions() as session:
+            self._lock_scope(session, tenant_id)
             for row in session.scalars(select(InventoryPromptVersionModel).where(InventoryPromptVersionModel.tenant_id == tenant_id, InventoryPromptVersionModel.prompt_type == prompt_type, InventoryPromptVersionModel.status == "active").with_for_update()): row.status="archived"; row.archived_at=now
             session.commit()

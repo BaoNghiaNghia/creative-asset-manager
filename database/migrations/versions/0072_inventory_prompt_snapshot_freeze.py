@@ -6,7 +6,7 @@ Revises: 0071_inventory_prompt_versions
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0072_inventory_prompt_snapshot_freeze"
+revision = "0072_prompt_snapshot_freeze"
 down_revision = "0071_inventory_prompt_versions"
 branch_labels = None
 depends_on = None

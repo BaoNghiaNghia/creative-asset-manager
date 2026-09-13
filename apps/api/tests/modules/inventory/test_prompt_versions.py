@@ -5,15 +5,23 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
 from app.modules.auth_persistence.model import TenantModel
+from app.modules.assets.model import ExternalSourceModel
 from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
-from app.modules.inventory.persistence_model import InventoryPromptVersionModel
+from app.modules.inventory.persistence_model import InventoryPromptVersionModel, InventorySettingsModel
 
 def db():
     temp=tempfile.TemporaryDirectory(); engine=create_engine(f"sqlite:///{Path(temp.name)/'db.sqlite'}")
     event.listen(engine,"connect",lambda conn,_:conn.execute("PRAGMA foreign_keys=ON"))
-    for name in ("tenants","inventory_settings","inventory_prompt_versions"): Base.metadata.tables[name].create(engine)
+    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_prompt_versions"):
+        Base.metadata.tables[name].create(engine)
     sessions=sessionmaker(bind=engine,expire_on_commit=False)
-    with sessions.begin() as session: session.add_all([TenantModel(id="a",name="A",slug="a"),TenantModel(id="b",name="B",slug="b")])
+    with sessions.begin() as session:
+        session.add_all([TenantModel(id="a",name="A",slug="a"),TenantModel(id="b",name="B",slug="b")])
+        session.add_all([
+            ExternalSourceModel(id="source-a", tenant_id="a", source_key="a", source_type="google_drive"),
+            ExternalSourceModel(id="source-b", tenant_id="b", source_key="b", source_type="google_drive"),
+        ])
+        session.add_all([InventorySettingsModel(tenant_id="a",external_source_id="source-a",inbox_folder_id="inbox"),InventorySettingsModel(tenant_id="b",external_source_id="source-b",inbox_folder_id="inbox")])
     return temp,engine,sessions
 
 def test_custom_overrides_legacy_then_reset_restores_legacy_and_versions_are_immutable():

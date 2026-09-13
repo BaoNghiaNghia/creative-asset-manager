@@ -7,7 +7,7 @@ Revises: 0069_inventory_daily_gemini_copy
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0070_inventory_daily_carry_forward"
+revision = "0070_inventory_carry_forward"
 down_revision = "0069_inventory_daily_gemini_copy"
 branch_labels = None
 depends_on = None

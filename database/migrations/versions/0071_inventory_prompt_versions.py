@@ -7,7 +7,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0071_inventory_prompt_versions"
-down_revision = "0070_inventory_daily_carry_forward"
+down_revision = "0070_inventory_carry_forward"
 branch_labels = None
 depends_on = None
 
