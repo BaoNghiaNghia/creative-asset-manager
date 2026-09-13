@@ -6,7 +6,6 @@ no write operation.  The trusted service validates and writes an accepted plan.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
@@ -18,6 +17,7 @@ from app.core.config import Settings, get_settings
 from app.modules.inventory.ai.gateway import InventoryAiGatewayError, RuntimeInventoryGeminiGateway
 from app.modules.inventory.credentials import InventoryGeminiCredentialResolver
 from app.modules.inventory.daily.carry_forward import CarryForwardPlan, CarryForwardReviewRequired
+from app.modules.inventory.daily_sheet.parser import canonical_hash
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient
 from app.modules.inventory.model import InventoryAiControlModel
 from app.modules.inventory.persistence_model import InventoryItemModel, InventoryLocationModel
@@ -25,7 +25,9 @@ from app.providers.google.auth import get_connection_access_token
 
 
 def _hash(sheet: str, cell: str, value: Any) -> str:
-    return hashlib.sha256(json.dumps({"sheet": sheet, "cell": cell, "raw_value": value}, sort_keys=True, default=str).encode()).hexdigest()
+    # The writer re-reads and validates this same raw-value digest immediately
+    # before external writes. Workbook identity is bound by the tool role.
+    return canonical_hash([value])
 
 
 class CarryForwardToolHost:
