@@ -29,6 +29,7 @@ from app.modules.inventory.persistence_model import (
 )
 from app.providers.google.auth import get_connection_access_token
 from app.modules.assets.model import ExternalSourceModel
+from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
 
 
 CARRY_FORWARD_PROMPT = """You are planning one narrow Inventory operation: previous business day's Closing to current business day's Opening. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Investigate both using tools. Discover the fourth operational Inventory sheet from metadata. Resolve every material and warehouse through the canonical catalogs. Preserve every material × warehouse independently; never total then redistribute. Blank is not zero and explicit zero remains zero. Do not change inbound, outbound, waste, adjustment, notes, formulas, labels or identities. Every row must cite exact source Closing and target Opening evidence returned by tools. Report ambiguity as an issue. Finish by calling submit_carry_forward_plan exactly once. Never ask for Google login, plugins, URLs, user confirmation, or a filename."""
@@ -256,9 +257,15 @@ class InventorySharedCarryForwardService:
                 if persisted and operation.status in {"applying", "verifying", "retryable_failure"}:
                     plan = CarryForwardPlan(list(persisted.get("rows") or []), list(persisted.get("issues") or []), dict(persisted.get("warehouse_sheet") or {}))
                 else:
+                    resolved = InventoryPromptResolver(self.session_factory).resolve(tenant_id, "carry_forward_0900")
+                    with self.session_factory() as session:
+                        row = session.get(InventoryDailyCarryForwardModel, operation.id)
+                        if not row.prompt_hash:
+                            row.prompt_source, row.prompt_version, row.prompt_hash = resolved.source, resolved.version, resolved.content_hash
+                            session.commit()
                     plan = self.planner.plan(
                         tenant_id=tenant_id, previous_gemini_file_id=source_id,
-                        shared_workbook_id=shared_id, prompt=CARRY_FORWARD_PROMPT, connection_id=connection_id,
+                        shared_workbook_id=shared_id, prompt=f"{CARRY_FORWARD_PROMPT}\n\n=== TENANT BUSINESS INSTRUCTIONS ===\n{resolved.content}\n=== END TENANT BUSINESS INSTRUCTIONS ===\n\nThe server binds the two workbook roles; never request identifiers.", connection_id=connection_id,
                     )
                 rows = self._validate_plan(tenant_id, plan, source_id=source_id, target_id=shared_id, source_meta=source_meta, target_meta=target_meta)
                 plan_json = {"rows": rows, "issues": plan.issues, "warehouse_sheet": plan.warehouse_sheet}

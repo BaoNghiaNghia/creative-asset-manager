@@ -56,6 +56,7 @@ export type InventoryDailySheetStatus = {
     archive_folder_url:string|null;
     error_code:string|null;
     completed_at:string|null;
+    prompt_source?:string|null; prompt_version?:string|null; prompt_hash?:string|null;
   };
   last_reconciliation:null|{
     id:string;
@@ -70,6 +71,7 @@ export type InventoryDailySheetStatus = {
     status:string; target_business_date:string; previous_business_date:string;
     completed_at:string|null; material_count:number; warehouse_count:number;
     issue_count:number; error_code:string|null;
+    prompt_source?:string|null; prompt_version?:string|null; prompt_hash?:string|null;
   };
   as_of_business_date:string|null;
 };
@@ -79,6 +81,7 @@ export type InventoryDailySheetValidation = {
   warnings:Array<Record<string,unknown>>;
   checks:Array<Record<string,unknown>>;
 };
+export type InventoryGeminiPrompt = {prompt_type:"daily_gemini_processing"|"carry_forward_0900";source:string;version:string;content_hash:string;active_version_id:string|null;active_content:string|null;draft:{id:string;version:number;content:string;content_hash:string;status:string}|null;builtin_content:string;safety_summary:string};
 export type InventoryDailySheetDiscovery = {
   spreadsheet_id:string;
   title:string;
@@ -110,6 +113,12 @@ export const inventoryDailySheetApi = {
   runSnapshot:(business_date?:string)=>request<Record<string,unknown>>("/daily-sheet/snapshot/run",{method:"POST",body:JSON.stringify({business_date:business_date||null})}),
   runReconciliation:(dry_run:boolean,business_date?:string)=>request<Record<string,unknown>>("/daily-sheet/reconcile/run",{method:"POST",body:JSON.stringify({business_date:business_date||null,dry_run})}),
   setBaseline:(snapshot_id:string)=>request<Record<string,unknown>>("/daily-sheet/baseline",{method:"POST",body:JSON.stringify({snapshot_id})}),
+  getPrompts:()=>request<{prompts:InventoryGeminiPrompt[]}>("/daily-sheet/prompts"),
+  getPromptVersions:(type:InventoryGeminiPrompt["prompt_type"])=>request<{versions:Array<Record<string,unknown>>}>(`/daily-sheet/prompts/${encodeURIComponent(type)}/versions`),
+  createPromptDraft:(type:InventoryGeminiPrompt["prompt_type"],content:string)=>request<Record<string,unknown>>(`/daily-sheet/prompts/${encodeURIComponent(type)}/drafts`,{method:"POST",body:JSON.stringify({content})}),
+  activatePrompt:(type:InventoryGeminiPrompt["prompt_type"],id:string)=>request<Record<string,unknown>>(`/daily-sheet/prompts/${encodeURIComponent(type)}/drafts/${encodeURIComponent(id)}/activate`,{method:"POST"}),
+  restorePrompt:(type:InventoryGeminiPrompt["prompt_type"],id:string)=>request<Record<string,unknown>>(`/daily-sheet/prompts/${encodeURIComponent(type)}/versions/${encodeURIComponent(id)}/restore`,{method:"POST"}),
+  resetPrompt:(type:InventoryGeminiPrompt["prompt_type"])=>request<Record<string,unknown>>(`/daily-sheet/prompts/${encodeURIComponent(type)}/reset`,{method:"POST"}),
 };
 
 

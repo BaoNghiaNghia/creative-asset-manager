@@ -1278,6 +1278,9 @@ class InventoryDailySheetService:
                     ),
                     "error_code": snap.error_code,
                     "completed_at": snap.reset_completed_at,
+                    "prompt_source": snap.gemini_prompt_source,
+                    "prompt_version": snap.gemini_prompt_version,
+                    "prompt_hash": snap.gemini_prompt_hash,
                 }
 
             reconciliation_status = None
@@ -1306,6 +1309,9 @@ class InventoryDailySheetService:
                     "warehouse_count": carry.warehouse_count,
                     "issue_count": carry.issue_count,
                     "error_code": carry.error_code,
+                    "prompt_source": carry.prompt_source,
+                    "prompt_version": carry.prompt_version,
+                    "prompt_hash": carry.prompt_hash,
                 }
 
             if is_v4:

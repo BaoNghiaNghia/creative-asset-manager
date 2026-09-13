@@ -9,8 +9,9 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.inventory.daily_sheet.config import GeminiToolSheetAgentConfig, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
-from app.modules.inventory.permissions import INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
+from app.modules.inventory.permissions import INVENTORY_CONTROL_PERMISSION, INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
 from app.modules.inventory.persistence_model import InventorySettingsModel
+from app.modules.inventory.daily_sheet.prompts import PROMPT_TYPES, InventoryPromptResolver
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -40,11 +41,44 @@ class V4RunRequest(BaseModel):
 
 class BaselineRequest(BaseModel):
     snapshot_id: str
+class PromptDraftRequest(BaseModel):
+    content: str = Field(max_length=20_000)
 
 def _service() -> InventoryDailySheetService:
     return InventoryDailySheetService(
         SessionLocal, semantic_analyzer=build_daily_sheet_semantic_analyzer(session_factory=SessionLocal)
     )
+def _prompts() -> InventoryPromptResolver: return InventoryPromptResolver(SessionLocal)
+def _prompt_type(value: str) -> str:
+    if value not in PROMPT_TYPES: raise HTTPException(422, detail={"code":"invalid_inventory_prompt_type"})
+    return value
+def _legacy_goals(tenant_id: str) -> list[str]:
+    with SessionLocal() as session:
+        row=session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id==tenant_id))
+        agent=((row.daily_sheet_config_json or {}).get("agent") or {}) if row else {}
+        return list(agent.get("business_goal") or [])
+
+@router.get("/prompts")
+def get_prompts(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
+    return {"prompts": [_prompts().state(principal.active_tenant_id, kind, _legacy_goals(principal.active_tenant_id) if kind == "daily_gemini_processing" else None) for kind in sorted(PROMPT_TYPES)]}
+@router.get("/prompts/{prompt_type}/versions")
+def get_prompt_versions(prompt_type: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
+    return {"versions": _prompts().versions(principal.active_tenant_id, _prompt_type(prompt_type))}
+@router.post("/prompts/{prompt_type}/drafts")
+def create_prompt_draft(prompt_type: str, body: PromptDraftRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):
+    try: return _prompts().draft(principal.active_tenant_id, _prompt_type(prompt_type), body.content, principal.user_id)
+    except ValueError as exc: raise HTTPException(422, detail={"code":str(exc)}) from exc
+@router.post("/prompts/{prompt_type}/drafts/{prompt_id}/activate")
+def activate_prompt(prompt_type: str, prompt_id: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):
+    try: return _prompts().activate(principal.active_tenant_id, _prompt_type(prompt_type), prompt_id, principal.user_id)
+    except LookupError as exc: raise HTTPException(404, detail={"code":str(exc)}) from exc
+@router.post("/prompts/{prompt_type}/versions/{prompt_id}/restore")
+def restore_prompt(prompt_type: str, prompt_id: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):
+    try: return _prompts().restore(principal.active_tenant_id, _prompt_type(prompt_type), prompt_id, principal.user_id)
+    except LookupError as exc: raise HTTPException(404, detail={"code":str(exc)}) from exc
+@router.post("/prompts/{prompt_type}/reset")
+def reset_prompt(prompt_type: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):
+    _prompts().reset(principal.active_tenant_id, _prompt_type(prompt_type), principal.user_id); return _prompts().state(principal.active_tenant_id, prompt_type, _legacy_goals(principal.active_tenant_id) if prompt_type == "daily_gemini_processing" else None)
 
 def _business_date(tenant_id: str, supplied: date | None) -> date:
     if supplied: return supplied

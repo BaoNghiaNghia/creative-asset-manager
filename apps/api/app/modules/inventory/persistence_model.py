@@ -945,6 +945,9 @@ class InventoryDailySheetSnapshotModel(Base):
     snapshot_file_id: Mapped[str | None] = mapped_column(String(2048))
     # Immutable snapshot and writable Gemini copy have separate authority.
     gemini_file_id: Mapped[str | None] = mapped_column(String(2048))
+    gemini_prompt_source: Mapped[str | None] = mapped_column(String(32))
+    gemini_prompt_version: Mapped[str | None] = mapped_column(String(64))
+    gemini_prompt_hash: Mapped[str | None] = mapped_column(String(64))
     snapshot_data_hash: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -984,6 +987,9 @@ class InventoryDailyCarryForwardModel(Base):
     warehouse_sheet_identity_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     plan_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     plan_hash: Mapped[str | None] = mapped_column(String(64))
+    prompt_source: Mapped[str | None] = mapped_column(String(32))
+    prompt_version: Mapped[str | None] = mapped_column(String(64))
+    prompt_hash: Mapped[str | None] = mapped_column(String(64))
     material_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     warehouse_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     issue_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -996,6 +1002,29 @@ class InventoryDailyCarryForwardModel(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
+
+
+class InventoryPromptVersionModel(Base):
+    __tablename__ = "inventory_prompt_versions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "prompt_type", "version", name="uq_inventory_prompt_version"),
+        CheckConstraint("version > 0", name="ck_inventory_prompt_version_positive"),
+        CheckConstraint("prompt_type IN ('daily_gemini_processing','carry_forward_0900')", name="ck_inventory_prompt_type"),
+        CheckConstraint("status IN ('draft','active','archived')", name="ck_inventory_prompt_status"),
+        Index("ix_inventory_prompt_active", "tenant_id", "prompt_type", "status"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    prompt_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    activated_by: Mapped[str | None] = mapped_column(String(255))
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class InventoryDailySheetReconciliationModel(Base):

@@ -5,6 +5,7 @@ import {
   type InventoryDailySheetDiscovery,
   type InventoryDailySheetStatus,
   type InventoryDailySheetValidation,
+  type InventoryGeminiPrompt,
 } from "./api";
 
 const emptyConfiguration: InventoryDailySheetConfiguration = {
@@ -73,16 +74,20 @@ export function InventoryDailySheetSettings() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [advanced, setAdvanced] = useState(false);
+  const [prompts, setPrompts] = useState<InventoryGeminiPrompt[]>([]);
+  const [promptDrafts, setPromptDrafts] = useState<Record<string,string>>({});
 
   const reload = async () => {
-    const [saved, currentStatus] = await Promise.all([
+    const [saved, currentStatus, promptState] = await Promise.all([
       inventoryDailySheetApi.getConfiguration(),
       inventoryDailySheetApi.getStatus(),
+      inventoryDailySheetApi.getPrompts(),
     ]);
     const value = saved || emptyConfiguration;
     setConfiguration(value);
     setConfigJson(JSON.stringify(value.config || {}, null, 2));
     setStatus(currentStatus);
+    setPrompts(promptState.prompts); setPromptDrafts(Object.fromEntries(promptState.prompts.map((item)=>[item.prompt_type,item.draft?.content||item.active_content||item.builtin_content])));
   };
 
   useEffect(() => {
@@ -184,6 +189,10 @@ export function InventoryDailySheetSettings() {
         <label><input type="checkbox" checked={configuration.daily_sheet_automation_enabled} disabled={!validation?.valid} onChange={(event)=>update("daily_sheet_automation_enabled",event.target.checked)}/><span><strong>Tự động xử lý Google Sheets</strong><small>Chỉ bật được sau khi cấu hình vượt qua kiểm tra an toàn.</small></span></label>
       </div>
     </section>
+
+    {isV4 ? <section className="inventory-settings-section"><div className="inventory-settings-section-heading"><div><h3>Gemini Prompts</h3><p>Chỉ thay đổi hướng dẫn nghiệp vụ. Quy tắc quyền file, material, warehouse, Closing → Opening, blank/zero, formula, evidence và phạm vi ghi vẫn được backend khóa.</p></div></div>
+      {prompts.map((prompt)=><article key={prompt.prompt_type} className="inventory-prompt-card"><h4>{prompt.prompt_type === "daily_gemini_processing" ? "Xử lý file Gemini hằng ngày" : "Carry Forward 09:00"}</h4><small>Nguồn: {prompt.source} · Phiên bản: {prompt.version} · Hash: <span title={prompt.content_hash}>{prompt.content_hash.slice(0,8)}…</span></small>{prompt.source === "custom" ? <p>Custom prompt overrides legacy business_goal.</p> : prompt.prompt_type === "daily_gemini_processing" ? <p>business_goal có thể được dùng làm legacy fallback.</p> : null}<textarea value={promptDrafts[prompt.prompt_type]||""} onChange={(event)=>setPromptDrafts((current)=>({...current,[prompt.prompt_type]:event.target.value}))} rows={7}/><div className="inventory-settings-actions"><button type="button" disabled={busy} onClick={()=>void execute(()=>inventoryDailySheetApi.createPromptDraft(prompt.prompt_type,promptDrafts[prompt.prompt_type]||""),"Draft saved. It is not active yet.")}>Save Draft</button>{prompt.draft ? <button type="button" disabled={busy} onClick={()=>window.confirm("Activate this Gemini business prompt?") && void execute(()=>inventoryDailySheetApi.activatePrompt(prompt.prompt_type,prompt.draft!.id),"Prompt activated for the next run.")}>Activate</button> : null}<button type="button" disabled={busy} onClick={()=>setPromptDrafts((current)=>({...current,[prompt.prompt_type]:prompt.active_content||prompt.builtin_content}))}>Discard local edit</button><button type="button" disabled={busy} onClick={()=>void execute(()=>inventoryDailySheetApi.resetPrompt(prompt.prompt_type),"Custom prompt reset to fallback.")}>Reset to fallback</button></div></article>)}
+    </section> : null}
 
     <section className="inventory-settings-section">
       <div className="inventory-settings-section-heading"><div><h3>File và lịch chạy</h3><p>Các thiết lập dùng thường xuyên. File Excel phải được chuyển thành Google Sheet native.</p></div></div>

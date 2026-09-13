@@ -30,3 +30,13 @@ def test_daily_carry_forward_migration_follows_gemini_copy_head():
     assert 'down_revision = "0069_inventory_daily_gemini_copy"' in source
     assert '"inventory_daily_carry_forwards"' in source
     assert '"daily_carry_forward_time_local"' in source
+
+
+def test_prompt_version_migration_follows_carry_forward_head():
+    migration = Path(__file__).resolve().parents[4] / "database/migrations/versions/0071_inventory_prompt_versions.py"
+    source = migration.read_text()
+    assert 'revision = "0071_inventory_prompt_versions"' in source
+    assert 'down_revision = "0070_inventory_daily_carry_forward"' in source
+    assert '"inventory_prompt_versions"' in source
+    assert '"gemini_prompt_source"' in source
+    assert '"prompt_source"' in source

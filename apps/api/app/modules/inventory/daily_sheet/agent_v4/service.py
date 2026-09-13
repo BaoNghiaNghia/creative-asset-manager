@@ -15,6 +15,8 @@ from app.core.config import Settings, get_settings
 from app.modules.inventory.ai.gateway import InventoryAiGatewayError, RuntimeInventoryGeminiGateway
 from app.modules.inventory.credentials import InventoryGeminiCredentialResolver
 from app.modules.inventory.model import InventoryAiControlModel
+from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
+from app.modules.inventory.persistence_model import InventoryDailySheetSnapshotModel
 
 from .contracts import V4AgentRunResult
 from .tools import V4AgentSafetyError, V4WorkbookToolHost, function_declarations
@@ -108,13 +110,27 @@ class InventoryDailySheetV4Service:
         if not context.runtime_target_file_id:
             raise V4AgentSafetyError("gemini_workbook_not_authorized")
         provider, models = self._runtime(tenant_id)
+        resolved_prompt = InventoryPromptResolver(self.session_factory).resolve(
+            tenant_id, "daily_gemini_processing", legacy_goals=list(config.agent.business_goal or [])
+        )
+        with self.session_factory() as session:
+            snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == business_date,
+            ))
+            if snapshot is not None and hasattr(snapshot, "gemini_prompt_hash") and not snapshot.gemini_prompt_hash:
+                snapshot.gemini_prompt_source = resolved_prompt.source
+                snapshot.gemini_prompt_version = resolved_prompt.version
+                snapshot.gemini_prompt_hash = resolved_prompt.content_hash
+                session.commit()
         contents: list[dict[str, Any]] = [
             {
                 "role": "user",
                 "parts": [
                     {
                         "text": V4_HIGH_LEVEL_GOAL + "\n" + V4_TARGET_AUTHORITY
-                        + "\n"
+                        + "\n=== TENANT BUSINESS INSTRUCTIONS ===\n" + resolved_prompt.content
+                        + "\n=== END TENANT BUSINESS INSTRUCTIONS ===\nLOCKED RUNTIME CONTEXT\n"
                         + json.dumps(
                             {
                                 "prompt_version": V4_PROMPT_VERSION,
@@ -123,7 +139,9 @@ class InventoryDailySheetV4Service:
                                 "apply_mode": apply_mode,
                                 "spreadsheet_file_id": context.runtime_target_file_id,
                                 "allowed_sheets": config.source.allowed_sheets,
-                                "business_goal": config.agent.business_goal,
+                                "business_prompt_source": resolved_prompt.source,
+                                "business_prompt_version": resolved_prompt.version,
+                                "business_prompt_hash": resolved_prompt.content_hash,
                                 "allow_auto_evidence_backed_transforms": config.agent.allow_auto_evidence_backed_transforms,
                                 "rate_limit_strategy": {
                                     "models": list(models),
