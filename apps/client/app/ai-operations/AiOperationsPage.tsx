@@ -1116,7 +1116,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted, o
     <ProcessingFailureGroupRetry failures={data.failures} permissions={permissions} onAccepted={onActionAccepted} />
     <div className="ops-table-scroll"><table className="ops-data-table">
       <caption className="sr-only">AI processing jobs</caption>
-      <thead><tr>{["Status", "Asset", "Platform", "Provider", "Model", "Mode", "Profile", "Attempts", "Duration", "Cost", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
+      <thead><tr>{["Status", "Asset", "Platform", "Provider", "Key Gemini", "Model", "Mode", "Profile", "Attempts", "Duration", "Cost", "Error", "Actions"].map(value => <th key={value}>{value}</th>)}</tr></thead>
       <tbody>{data.jobs.items.map(job => {
         const usage = usageByJob.get(job.id);
         const mode = usage?.processing_mode || (job.job_type.startsWith("ai_batch_") ? "batch" : "single");
@@ -1132,7 +1132,7 @@ function Processing({ data, filters, permissions, onFilters, onActionAccepted, o
               {assetId && job.filename ? <code title={assetId}>{assetId}</code> : null}
             </div>
           </div></td>
-          <td><SourcePlatform value={job.source_type} username={job.source_username} /></td><td>{providerLabel(job.provider)}</td><td>{usage?.model || "\u2014"}</td><td>{modeLabel(mode)}</td>
+          <td><SourcePlatform value={job.source_type} username={job.source_username} /></td><td>{providerLabel(job.provider)}</td><td>{job.gemini_key_label || "\u2014"}</td><td>{usage?.model || "\u2014"}</td><td>{modeLabel(mode)}</td>
           <td>{usage?.metadata_profile || "\u2014"}</td><td>{job.attempt_count}/{job.max_attempts}</td>
           <td>{job.status === "processing" ? formatDuration(job.claimed_at ?? null, job.updated_at) : formatProcessingDuration(job.processing_duration_ms)}</td>
           <td>{formatCost(usage?.estimated_cost_micros, usage?.currency)}</td><td><ErrorDetailPopover code={job.error?.code} message={job.error?.message} /></td>

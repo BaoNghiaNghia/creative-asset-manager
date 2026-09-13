@@ -19,6 +19,7 @@ from app.modules.assets.model import (
 from app.modules.assets.source_account import source_account_username
 from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.ai_operations.repository import AiOperationsRepository as BaseRepository
+from app.modules.ai_operations.credential_model import CreativeAiCredentialModel
 from app.modules.ai_operations.schema import AI_JOB_TYPES, AiOperationsFilters
 from app.domain.processing.types import JobStatus
 from app.modules.processing.model import (
@@ -26,6 +27,7 @@ from app.modules.processing.model import (
     PROCESSING_JOB_TERMINAL_STATUSES, ProcessingJobModel,
 )
 from app.modules.pipeline.model import AssetPipelineModel
+from app.modules.processing_policy.claim import AI_MODEL_SLOT_PAYLOAD_KEY
 
 
 LOCAL_RATE_LIMIT_DEFERRED_CODES = frozenset({"ai_model_rate_limited"})
@@ -494,6 +496,35 @@ class AiOperationsRepository(BaseRepository):
                 and retry_at is not None
                 and retry_at > now
             )
+        credential_providers = {
+            str(provider): label
+            for provider, label in self.session.execute(
+                select(CreativeAiCredentialModel.provider, CreativeAiCredentialModel.label).where(
+                    CreativeAiCredentialModel.tenant_id == f.tenant_id,
+                )
+            )
+        }
+
+        def gemini_key_label(job: ProcessingJobModel) -> str | None:
+            """Return the configured label for the credential used by this attempt.
+
+            Gemini selection is recorded atomically with a model-slot reservation.
+            Older, queued, and non-Gemini jobs deliberately remain unknown rather
+            than guessing from the current failover configuration.
+            """
+            marker = (job.payload_json or {}).get(AI_MODEL_SLOT_PAYLOAD_KEY)
+            provider = marker.get("credential_provider") if isinstance(marker, dict) else None
+            if not isinstance(provider, str) or not (
+                provider == "gemini" or provider.startswith("gemini_backup_")
+            ):
+                return None
+            label = credential_providers.get(provider)
+            if label:
+                return label
+            if provider == "gemini":
+                return "Primary"
+            return f"Backup {provider.removeprefix('gemini_backup_')}"
+
         items = []
         for (
             job, analysis_asset_id, pipeline_asset_id, generation_asset_id, generation_model,
@@ -520,6 +551,7 @@ class AiOperationsRepository(BaseRepository):
                     else None
                 ),
                 "provider": job.provider_key,
+                "gemini_key_label": gemini_key_label(job),
                 "ai_model": generation_model,
                 "source_width": generation_source_width,
                 "source_height": generation_source_height,

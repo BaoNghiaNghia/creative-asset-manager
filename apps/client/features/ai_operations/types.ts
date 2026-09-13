@@ -97,6 +97,7 @@ export type AiOpsJob = {
   source_username?: string | null;
   generated_image_url?: string | null;
   provider: string | null;
+  gemini_key_label?: string | null;
   ai_model?: string | null;
   source_width?: number | null;
   source_height?: number | null;

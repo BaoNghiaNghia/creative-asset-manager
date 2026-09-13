@@ -548,7 +548,7 @@ describe("AI Operations dashboard", () => {
 
   it("opens processing asset details in AI Operations without routing to Asset Explorer", () => {
     const markup = render("processing", { data: { ...data, usage: { ...data.usage, total: 0, items: [] } } });
-    for (const value of ["AI processing jobs", "OpenAI", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Showing 26-50 of 60", "Số mục mỗi trang"]) expect(markup).toContain(value);
+    for (const value of ["AI processing jobs", "OpenAI", "Key Gemini", "gpt-test", "Batch", "catalog", "1/3", "2.0 s", "provider_timeout", "Showing 26-50 of 60", "Số mục mỗi trang"]) expect(markup).toContain(value);
     expect(markup).toContain("asset-1");
     expect(markup).toContain("inventory-photo.avif");
     expect(markup).toContain("image/avif");

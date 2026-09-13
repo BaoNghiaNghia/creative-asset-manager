@@ -14,12 +14,14 @@ from app.main import app
 from app.modules.ai_batch.model import AiBatchJobModel
 from app.modules.ai_operations.cache import ai_operations_caches
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
+from app.modules.ai_operations.credential_model import CreativeAiCredentialModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
 from app.modules.image_generation.model import ImageGenerationRunModel
 from app.modules.assets.model import (
     AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel,
 )
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.processing_policy.claim import AI_MODEL_SLOT_PAYLOAD_KEY
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.source_sync.model import SourceSyncRunModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
@@ -126,6 +128,12 @@ class AiOperationsApiTest(unittest.TestCase):
                 account_keys_json=[], created_at=self.now - timedelta(days=1),
                 updated_at=self.now - timedelta(days=1),
             ))
+            session.add(CreativeAiCredentialModel(
+                tenant_id="tenant-a", provider="gemini_backup_2",
+                encrypted_secret="test-ciphertext", key_version="test-v1",
+                secret_fingerprint="a" * 64, secret_last4="1234",
+                label="Image backup 2", status="active",
+            ))
             jobs = [
                 ProcessingJobModel(
                     tenant_id="tenant-a", job_type="asset_analyze",
@@ -143,7 +151,12 @@ class AiOperationsApiTest(unittest.TestCase):
                     entity_type="asset_ai_analysis", entity_id=analyses[0].id,
                     idempotency_key="retry-job", provider_key="gemini", provider_scope="ai",
                     status="retry", attempt_count=1, max_attempts=5,
-                    last_error_code="rate_limited", payload_json={},
+                    last_error_code="rate_limited", payload_json={
+                        AI_MODEL_SLOT_PAYLOAD_KEY: {
+                            "provider": "gemini", "credential_provider": "gemini_backup_2",
+                            "model": "g-model", "attempt_count": 1, "worker_id": "test-worker",
+                        },
+                    },
                     created_at=self.now - timedelta(hours=1),
                 ),
                 ProcessingJobModel(
@@ -812,6 +825,10 @@ class AiOperationsApiTest(unittest.TestCase):
         serialized = str(jobs)
         self.assertNotIn("signed_url", serialized)
         self.assertNotIn("credential", serialized)
+        retry_job = next(item for item in all_jobs["items"] if item["entity_id"] == self.analysis_ids[0])
+        self.assertEqual(retry_job["gemini_key_label"], "Image backup 2")
+        self.assertIsNone(analysis_job["gemini_key_label"])
+        self.assertNotIn("test-ciphertext", serialized)
         retrying = self.get(
             "/api/v1/admin/ai-operations/jobs", status="retry",
         ).json()
