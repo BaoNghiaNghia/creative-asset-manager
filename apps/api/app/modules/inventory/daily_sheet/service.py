@@ -630,14 +630,80 @@ class InventoryDailySheetService:
         context = self._context(tenant_id, require_enabled=False)
         if not isinstance(context.config, GeminiToolSheetAgentConfig):
             raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
-        if slot_kind == "snapshot":
+        if slot_kind in {"snapshot", "afternoon_snapshot"}:
             snapshot = self.snapshot_v4_workbook(tenant_id, business_date)
             return type("V4SnapshotSlotResult", (), {"status": "completed", "writes": 0, "snapshot_id": snapshot.id})()
-        self.snapshot_v4_workbook(tenant_id, business_date)
-        return self._agent_v4().run(
-            tenant_id, business_date, slot_kind=slot_kind,
-            context=self._v4_runtime_context(tenant_id, business_date, context),
-        )
+        # An evening run is never allowed to manufacture its prerequisite.  This
+        # prevents a restart or manual call from silently creating a late copy.
+        runtime = self._v4_runtime_context(tenant_id, business_date, context)
+        if slot_kind == "evening_reconcile":
+            self._mark_v4_reconcile_started(tenant_id, business_date)
+        try:
+            result = self._agent_v4().run(
+                tenant_id, business_date, slot_kind=slot_kind,
+                context=runtime,
+            )
+        except Exception as exc:
+            if slot_kind == "evening_reconcile":
+                self._mark_v4_reconcile_failure(tenant_id, business_date, exc)
+            raise
+        if slot_kind == "evening_reconcile":
+            self._mark_v4_reconcile_result(tenant_id, business_date, result)
+        return result
+
+    def _mark_v4_reconcile_started(self, tenant_id: str, business_date: date) -> None:
+        with self.session_factory() as session:
+            self._lock(session, f"inventory-v5-evening:{tenant_id}:{business_date}")
+            row = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == business_date,
+                InventoryDailySheetSnapshotModel.status == "completed",
+                InventoryDailySheetSnapshotModel.gemini_file_id.is_not(None),
+            ))
+            if row is None:
+                raise DailySheetConfigurationError("afternoon_snapshot_not_ready")
+            if row.gemini_reconcile_status == "completed" and row.gemini_reconcile_verified_at:
+                return
+            row.gemini_reconcile_status = "running"
+            row.gemini_reconcile_started_at = inventory_utcnow()
+            row.gemini_reconcile_error_code = row.gemini_reconcile_error_message = None
+            session.commit()
+
+    def _mark_v4_reconcile_result(self, tenant_id: str, business_date: date, result: Any) -> None:
+        with self.session_factory() as session:
+            row = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == business_date,
+            ))
+            if row is None:
+                raise DailySheetConfigurationError("afternoon_snapshot_not_ready")
+            status = str(getattr(result, "status", "failed"))
+            row.gemini_reconcile_status = "completed" if status == "completed" else status
+            row.gemini_reconcile_run_id = getattr(result, "run_id", None)
+            row.gemini_reconcile_plan_hash = getattr(result, "plan_hash", None)
+            row.gemini_reconcile_completed_at = inventory_utcnow()
+            if status == "completed":
+                row.gemini_reconcile_verified_at = inventory_utcnow()
+                row.gemini_reconcile_error_code = row.gemini_reconcile_error_message = None
+            else:
+                row.gemini_reconcile_verified_at = None
+                row.gemini_reconcile_error_code = f"inventory_v4_{status}"
+                row.gemini_reconcile_error_message = "Official evening reconciliation did not produce a verified result."
+            session.commit()
+
+    def _mark_v4_reconcile_failure(self, tenant_id: str, business_date: date, error: Exception) -> None:
+        with self.session_factory() as session:
+            row = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == business_date,
+            ))
+            if row is not None:
+                row.gemini_reconcile_status = "failed"
+                row.gemini_reconcile_completed_at = inventory_utcnow()
+                row.gemini_reconcile_verified_at = None
+                row.gemini_reconcile_error_code = str(getattr(error, "code", type(error).__name__))[:100]
+                row.gemini_reconcile_error_message = str(error)[:1000]
+                session.commit()
 
     def rerun_agent_v4_current(self, tenant_id: str, business_date: date):
         """Run a new active-prompt test against the persisted Gemini copy only."""
@@ -1269,9 +1335,13 @@ class InventoryDailySheetService:
     def status(self, tenant_id: str):
         with self.session_factory() as session:
             settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id))
+            timezone_name = settings.timezone if settings else "Asia/Ho_Chi_Minh"
+            local_now = self.clock().astimezone(ZoneInfo(timezone_name))
+            current_business_date = local_now.date()
             snap = session.scalar(select(InventoryDailySheetSnapshotModel).where(
                 InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
-            ).order_by(InventoryDailySheetSnapshotModel.business_date.desc()))
+                InventoryDailySheetSnapshotModel.business_date == current_business_date,
+            ))
             rec = session.scalar(select(InventoryDailySheetReconciliationModel).where(
                 InventoryDailySheetReconciliationModel.tenant_id == tenant_id,
             ).order_by(InventoryDailySheetReconciliationModel.business_date.desc()))
@@ -1284,11 +1354,23 @@ class InventoryDailySheetService:
                 and isinstance(settings.daily_sheet_config_json, dict)
                 and settings.daily_sheet_config_json.get("version") == 4
             )
+            def v4_slot_status(slot_kind: str) -> dict[str, Any] | None:
+                job = v4_jobs.get(slot_kind)
+                if job is None:
+                    return None
+                return {
+                    "id": job.id,
+                    "business_date": str((job.payload_json or {}).get("business_date") or ""),
+                    "status": job.status,
+                    "error_code": job.last_error_code,
+                    "completed_at": job.completed_at,
+                }
             v4_jobs: dict[str, InventoryJobModel | None] = {}
             if is_v4:
                 for slot_kind, job_type in (
-                    ("snapshot", "inventory_v41_snapshot_slot"),
-                    ("reconcile", "inventory_v41_reconcile_slot"),
+                    ("morning_reset", "inventory_v5_morning_reset_slot"),
+                    ("afternoon_snapshot", "inventory_v5_afternoon_snapshot_slot"),
+                    ("evening_reconcile", "inventory_v5_evening_reconcile_slot"),
                 ):
                     v4_jobs[slot_kind] = session.scalar(
                         select(InventoryJobModel)
@@ -1299,11 +1381,9 @@ class InventoryDailySheetService:
                         .order_by(InventoryJobModel.created_at.desc())
                     )
 
-            timezone_name = settings.timezone if settings else "Asia/Ho_Chi_Minh"
             snapshot_time = settings.daily_snapshot_time_local if settings else "05:50"
             reconcile_time = settings.daily_reconcile_time_local if settings else "07:00"
             carry_forward_time = settings.daily_carry_forward_time_local if settings else "09:00"
-            local_now = self.clock().astimezone(ZoneInfo(timezone_name))
 
             def next_run(value: str) -> str:
                 hour, minute = (int(item) for item in value.split(":", 1))
@@ -1334,6 +1414,11 @@ class InventoryDailySheetService:
                     "prompt_source": snap.gemini_prompt_source,
                     "prompt_version": snap.gemini_prompt_version,
                     "prompt_hash": snap.gemini_prompt_hash,
+                    "gemini_reconcile_status": snap.gemini_reconcile_status,
+                    "gemini_reconcile_run_id": snap.gemini_reconcile_run_id,
+                    "gemini_reconcile_plan_hash": snap.gemini_reconcile_plan_hash,
+                    "gemini_reconcile_verified_at": snap.gemini_reconcile_verified_at,
+                    "gemini_reconcile_error_code": snap.gemini_reconcile_error_code,
                 }
 
             reconciliation_status = None
@@ -1365,24 +1450,12 @@ class InventoryDailySheetService:
                     "prompt_source": carry.prompt_source,
                     "prompt_version": carry.prompt_version,
                     "prompt_hash": carry.prompt_hash,
+                    "source_gemini_file_id": carry.source_gemini_file_id,
                 }
 
             if is_v4:
-                def v4_slot_status(slot_kind: str) -> dict[str, Any] | None:
-                    job = v4_jobs.get(slot_kind)
-                    if job is None:
-                        return None
-                    business_date = str((job.payload_json or {}).get("business_date") or "")
-                    return {
-                        "id": job.id,
-                        "business_date": business_date,
-                        "status": job.status,
-                        "error_code": job.last_error_code,
-                        "completed_at": job.completed_at,
-                    }
-
-                v4_snapshot = v4_slot_status("snapshot")
-                v4_reconciliation = v4_slot_status("reconcile")
+                v4_snapshot = v4_slot_status("afternoon_snapshot")
+                v4_reconciliation = v4_slot_status("evening_reconcile")
                 stored_v4_snapshot = (
                     snapshot_status
                     if snapshot_status
@@ -1421,6 +1494,7 @@ class InventoryDailySheetService:
                         **v4_reconciliation,
                         "previous_business_date": None,
                         "summary": {},
+                        "verified": bool(stored_v4_snapshot and stored_v4_snapshot.get("gemini_reconcile_verified_at")),
                     }
                 )
 
@@ -1449,7 +1523,7 @@ class InventoryDailySheetService:
                 "image_pipeline_enabled": bool(settings and settings.image_pipeline_enabled),
                 "timezone": timezone_name,
                 "current_local_date": local_now.date().isoformat(),
-                "working_business_date": (local_now.date() - timedelta(days=1)).isoformat(),
+                "working_business_date": current_business_date.isoformat(),
                 "snapshot_time": snapshot_time,
                 "reconcile_time": reconcile_time,
                 "carry_forward_time": carry_forward_time,
@@ -1463,6 +1537,30 @@ class InventoryDailySheetService:
                 "last_snapshot": snapshot_status,
                 "last_reconciliation": reconciliation_status,
                 "carry_forward": carry_forward_status,
+                "lifecycle": {
+                    "business_date": current_business_date.isoformat(),
+                    "morning_reset": {
+                        "status": (v4_slot_status("morning_reset") or {}).get("status", "pending") if is_v4 else (carry_forward_status or {}).get("status", "pending"),
+                        "scheduled_time": carry_forward_time,
+                        "source_business_date": (current_business_date - timedelta(days=1)).isoformat(),
+                        "source_gemini_file_id": (carry_forward_status or {}).get("source_gemini_file_id"),
+                    },
+                    "afternoon_snapshot": {
+                        "status": (snapshot_status or {}).get("status", "pending"),
+                        "scheduled_time": snapshot_time,
+                        "snapshot_file_id": (snapshot_status or {}).get("snapshot_file_id"),
+                        "gemini_file_id": (snapshot_status or {}).get("gemini_file_id"),
+                    },
+                    "evening_reconcile": {
+                        "status": (snapshot_status or {}).get("gemini_reconcile_status") or (v4_slot_status("evening_reconcile") or {}).get("status", "pending"),
+                        "scheduled_time": reconcile_time,
+                        "verified": bool((snapshot_status or {}).get("gemini_reconcile_verified_at")),
+                        "run_id": (snapshot_status or {}).get("gemini_reconcile_run_id"),
+                        "plan_hash": (snapshot_status or {}).get("gemini_reconcile_plan_hash"),
+                        "prompt_version": (snapshot_status or {}).get("prompt_version"),
+                        "prompt_hash": (snapshot_status or {}).get("prompt_hash"),
+                    },
+                },
                 "as_of_business_date": (
                     local_now.date().isoformat()
                     if carry is not None and carry.status == "completed"

@@ -89,7 +89,7 @@ def _business_date(tenant_id: str, supplied: date | None) -> date:
     with SessionLocal() as session:
         settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id))
         timezone_name = settings.timezone if settings else "Asia/Ho_Chi_Minh"
-    return datetime.now(ZoneInfo(timezone_name)).date() - timedelta(days=1)
+    return datetime.now(ZoneInfo(timezone_name)).date()
 
 def _settings_view(row):
     if row is None: return None

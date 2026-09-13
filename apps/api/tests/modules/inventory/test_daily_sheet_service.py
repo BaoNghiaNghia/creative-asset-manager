@@ -312,22 +312,22 @@ def test_v4_status_uses_scheduler_slots_instead_of_legacy_records(daily_sheet_db
             InventoryJobModel(
                 id="v4-snapshot",
                 tenant_id="tenant-a",
-                job_type="inventory_v41_snapshot_slot",
-                entity_type="inventory_v41_scheduler_slot",
-                entity_id="2030-08-09:snapshot",
+                job_type="inventory_v5_afternoon_snapshot_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-09:afternoon_snapshot",
                 idempotency_key="v4-snapshot",
-                payload_json={"business_date": "2030-08-09", "slot_kind": "snapshot"},
+                payload_json={"business_date": "2030-08-09", "slot_kind": "afternoon_snapshot"},
                 status="completed",
                 completed_at=datetime(2030, 8, 10, tzinfo=timezone.utc),
             ),
             InventoryJobModel(
                 id="v4-reconcile",
                 tenant_id="tenant-a",
-                job_type="inventory_v41_reconcile_slot",
-                entity_type="inventory_v41_scheduler_slot",
-                entity_id="2030-08-09:reconcile",
+                job_type="inventory_v5_evening_reconcile_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-09:evening_reconcile",
                 idempotency_key="v4-reconcile",
-                payload_json={"business_date": "2030-08-09", "slot_kind": "reconcile"},
+                payload_json={"business_date": "2030-08-09", "slot_kind": "evening_reconcile"},
                 status="completed",
                 completed_at=datetime(2030, 8, 10, tzinfo=timezone.utc),
             ),
@@ -362,10 +362,10 @@ def test_status_exposes_business_schedule_and_safe_drive_links(daily_sheet_db):
     result = service(
         daily_sheet_db,
         FakeGoogle(),
-        now=datetime(2030, 8, 9, 22, 0, tzinfo=timezone.utc),
+            now=datetime(2030, 8, 9, 15, 0, tzinfo=timezone.utc),
     ).status("tenant-a")
 
-    assert result["current_local_date"] == "2030-08-10"
+    assert result["current_local_date"] == "2030-08-09"
     assert result["working_business_date"] == "2030-08-09"
     assert result["next_snapshot_at"].startswith("2030-08-10T05:50:00+07:00")
     assert result["next_reconciliation_at"].startswith("2030-08-10T07:00:00+07:00")

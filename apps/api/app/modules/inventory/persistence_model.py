@@ -949,6 +949,17 @@ class InventoryDailySheetSnapshotModel(Base):
     gemini_prompt_version: Mapped[str | None] = mapped_column(String(64))
     gemini_prompt_hash: Mapped[str | None] = mapped_column(String(64))
     gemini_prompt_content: Mapped[str | None] = mapped_column(Text)
+    # This is deliberately independent of the copy status above.  A completed
+    # snapshot only proves clone ancestry; it never proves that Gemini produced
+    # the authoritative end-of-day result.
+    gemini_reconcile_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    gemini_reconcile_run_id: Mapped[str | None] = mapped_column(String(64))
+    gemini_reconcile_plan_hash: Mapped[str | None] = mapped_column(String(64))
+    gemini_reconcile_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    gemini_reconcile_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    gemini_reconcile_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    gemini_reconcile_error_code: Mapped[str | None] = mapped_column(String(100))
+    gemini_reconcile_error_message: Mapped[str | None] = mapped_column(Text)
     snapshot_data_hash: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

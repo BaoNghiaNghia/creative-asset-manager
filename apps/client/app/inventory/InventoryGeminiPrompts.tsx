@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { inventoryDailySheetApi, type InventoryDailySheetStatus, type InventoryGeminiPrompt } from "./api";
 
 const labelFor = (promptType: string) => promptType === "carry_forward_0900"
-  ? "Carry Forward 09:00"
-  : "Xử lý file Gemini hằng ngày";
+  ? "Reset đầu ngày / Carry Forward"
+  : "Xử lý & đối soát Gemini cuối ngày";
 
 const descriptionFor = (promptType: string) => promptType === "carry_forward_0900"
-  ? "Hướng dẫn Gemini đối chiếu Closing đã xác minh và ghi Opening cho ngày mới."
-  : "Hướng dẫn Gemini đọc và chuẩn hóa bản sao workbook làm việc hằng ngày.";
+  ? "Hướng dẫn reset shared workbook hôm nay từ Gemini đã xác minh của ngày trước."
+  : "Hướng dẫn Gemini đối soát bản sao workbook cùng ngày vào cuối ngày.";
 
 export function InventoryGeminiPrompts() {
   const [prompts, setPrompts] = useState<InventoryGeminiPrompt[]>([]);

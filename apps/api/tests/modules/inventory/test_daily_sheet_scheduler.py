@@ -54,7 +54,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
         self.assertEqual(1, scheduler.run_once(datetime(2030, 8, 8, 22, 50, tzinfo=timezone.utc)))
         self.assertEqual(2, scheduler.run_once(datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)))
         self.assertEqual(["snapshot", "snapshot", "reconcile"], [call[0] for call in sheets.calls])
-        self.assertEqual("2030-08-08", sheets.calls[-1][2])
+        self.assertEqual("2030-08-09", sheets.calls[-1][2])
 
 
     def test_default_sheet_service_uses_one_production_semantic_analyzer(self):
@@ -128,7 +128,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
         self.assertEqual(1, scheduler.run_once(moment))
         self.assertEqual(0, scheduler.run_once(moment))
-        self.assertEqual([("agent", "tenant-a", "2030-08-08")], sheets.calls)
+        self.assertEqual([("agent", "tenant-a", "2030-08-09")], sheets.calls)
 
     def test_v3_scheduler_retries_failed_plan_before_marking_date_complete(self):
         with self.sessions.begin() as session:
@@ -191,9 +191,9 @@ class DailySheetSchedulerTest(unittest.TestCase):
         sheets = Sheets()
         scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
-        self.assertEqual(1, scheduler.run_once(moment))
+        self.assertEqual(2, scheduler.run_once(moment))
         self.assertEqual(0, scheduler.run_once(moment))
-        self.assertEqual(1, sheets.calls)
+        self.assertEqual(2, sheets.calls)
 
     def _enable_v4(self):
         with self.sessions.begin() as session:
@@ -222,14 +222,14 @@ class DailySheetSchedulerTest(unittest.TestCase):
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
         self.assertEqual(1, InventoryDailyScheduler(
             self.sessions, sheet_service=sheets
-        ).execute_v4_slot("reconcile", moment))
+        ).execute_v4_slot("evening_reconcile", moment))
         self.assertEqual(0, InventoryDailyScheduler(
             self.sessions, sheet_service=sheets
-        ).execute_v4_slot("reconcile", moment))
-        self.assertEqual([("tenant-a", "2030-08-08", "reconcile")], sheets.calls)
+        ).execute_v4_slot("evening_reconcile", moment))
+        self.assertEqual([("tenant-a", "2030-08-09", "evening_reconcile")], sheets.calls)
         with self.sessions() as session:
             job = session.scalar(select(InventoryJobModel).where(
-                InventoryJobModel.job_type == "inventory_v41_reconcile_slot"
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
             ))
             self.assertEqual("completed", job.status)
             self.assertEqual(1, job.attempt_count)
@@ -248,13 +248,13 @@ class DailySheetSchedulerTest(unittest.TestCase):
         sheets = Sheets()
         scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         first = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
-        self.assertEqual(1, scheduler.execute_v4_slot("snapshot", first))
-        self.assertEqual(1, scheduler.execute_v4_slot("reconcile", first))
-        self.assertEqual(1, scheduler.execute_v4_slot("snapshot", first + timedelta(days=1)))
+        self.assertEqual(1, scheduler.execute_v4_slot("afternoon_snapshot", first))
+        self.assertEqual(1, scheduler.execute_v4_slot("evening_reconcile", first))
+        self.assertEqual(1, scheduler.execute_v4_slot("afternoon_snapshot", first + timedelta(days=1)))
         self.assertEqual([
-            ("2030-08-08", "snapshot"),
-            ("2030-08-08", "reconcile"),
-            ("2030-08-09", "snapshot"),
+            ("2030-08-09", "afternoon_snapshot"),
+            ("2030-08-09", "evening_reconcile"),
+            ("2030-08-10", "afternoon_snapshot"),
         ], sheets.calls)
 
     def test_v4_stale_evidence_uses_persisted_retry_not_immediate_restart(self):
@@ -274,11 +274,11 @@ class DailySheetSchedulerTest(unittest.TestCase):
         )
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
         with self.assertRaises(V4AgentSafetyError, msg="stale_evidence"):
-            scheduler.execute_v4_slot("reconcile", moment)
+            scheduler.execute_v4_slot("evening_reconcile", moment)
         self.assertEqual(1, sheets.calls)
         with self.sessions() as session:
             job = session.scalar(select(InventoryJobModel).where(
-                InventoryJobModel.job_type == "inventory_v41_reconcile_slot"
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
             ))
             self.assertEqual("retry", job.status)
             self.assertEqual("stale_evidence", job.last_error_code)
@@ -298,12 +298,12 @@ class DailySheetSchedulerTest(unittest.TestCase):
         scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
         with self.assertRaises(TimeoutError):
-            scheduler.execute_v4_slot("reconcile", moment)
-        self.assertEqual(0, scheduler.execute_v4_slot("reconcile", moment))
+            scheduler.execute_v4_slot("evening_reconcile", moment)
+        self.assertEqual(0, scheduler.execute_v4_slot("evening_reconcile", moment))
         self.assertEqual(1, sheets.calls)
         with self.sessions() as session:
             job = session.scalar(select(InventoryJobModel).where(
-                InventoryJobModel.job_type == "inventory_v41_reconcile_slot"
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
             ))
             self.assertEqual("retry", job.status)
             self.assertGreater(job.next_attempt_at.replace(tzinfo=timezone.utc), moment)
@@ -333,12 +333,12 @@ class DailySheetSchedulerTest(unittest.TestCase):
         scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
         with self.assertRaises(ValueError):
-            scheduler.execute_v4_slot("reconcile", moment)
-        self.assertEqual(0, scheduler.execute_v4_slot("reconcile", moment))
+            scheduler.execute_v4_slot("evening_reconcile", moment)
+        self.assertEqual(0, scheduler.execute_v4_slot("evening_reconcile", moment))
         self.assertEqual(1, sheets.calls)
         with self.sessions() as session:
             job = session.scalar(select(InventoryJobModel).where(
-                InventoryJobModel.job_type == "inventory_v41_reconcile_slot"
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
             ))
             self.assertEqual("failed", job.status)
 
@@ -366,10 +366,8 @@ class DailySheetSchedulerTest(unittest.TestCase):
         )
         self.assertEqual(0, scheduler.run_once(datetime(2030, 8, 9, 1, 59, tzinfo=timezone.utc)))
         self.assertEqual(1, scheduler.run_once(datetime(2030, 8, 9, 2, 0, tzinfo=timezone.utc)))
-        self.assertEqual(1, scheduler.run_once(datetime(2030, 8, 9, 2, 27, tzinfo=timezone.utc)))
-        self.assertEqual([
-            ("tenant-a", "2030-08-09"), ("tenant-a", "2030-08-09"),
-        ], carry.calls)
+        self.assertEqual(0, scheduler.run_once(datetime(2030, 8, 9, 2, 27, tzinfo=timezone.utc)))
+        self.assertEqual([("tenant-a", "2030-08-09")], carry.calls)
 
     def test_v3_scheduler_ignores_tenant_when_daily_automation_is_disabled(self):
         with self.sessions.begin() as session:

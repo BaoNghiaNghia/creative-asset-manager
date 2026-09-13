@@ -104,6 +104,12 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
   const blockers = run?.blockers || [];
   const healthy = status.operational_state === "healthy";
   const usesV4Slots = status.execution_mode === "v4_slots";
+  const lifecycle = status.lifecycle || {
+    business_date: status.working_business_date,
+    morning_reset: { status: status.carry_forward?.status || "pending", scheduled_time: status.carry_forward_time, source_business_date: "", source_gemini_file_id: null },
+    afternoon_snapshot: { status: snapshot?.status || "pending", scheduled_time: status.snapshot_time, snapshot_file_id: snapshot?.snapshot_file_id || null, gemini_file_id: snapshot?.gemini_file_id || null },
+    evening_reconcile: { status: reconciliation?.status || "pending", scheduled_time: status.reconcile_time, verified: reconciliation?.status === "completed", run_id: null, plan_hash: null, prompt_version: null, prompt_hash: null },
+  };
   const v4Completed = snapshot?.status === "completed" && reconciliation?.status === "completed";
   const v4Started = Boolean(snapshot || reconciliation);
   const runLabel = run?.finalized ? "Đã chốt" : run?.ready ? "Sẵn sàng" : run ? "Cần xử lý" : usesV4Slots ? (v4Completed ? "Đã hoàn tất" : v4Started ? "Đang xử lý" : "Chưa chạy") : "Chưa tạo";
@@ -141,7 +147,7 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
       <article className="ops-inventory-summary-card processing-date">
         <span>Ngày dữ liệu đang xử lý</span>
         <strong><time dateTime={status.working_business_date}>{businessDate(status.working_business_date)}</time></strong>
-        <small>Dữ liệu ngày liền trước (D-1), xử lý vào sáng hôm nay</small>
+        <small>Chu kỳ xử lý cùng ngày theo {status.timezone}</small>
       </article>
       <article className={"ops-inventory-summary-card run " + runTone}>
         <span>Trạng thái chu kỳ</span>
@@ -157,26 +163,21 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
 
     <div className="ops-inventory-grid">
       <article className="ops-inventory-card">
-        <header><div><span className="ops-inventory-card-kicker">Tự động</span><h3>Lịch xử lý kế tiếp</h3></div><span className={status.enabled ? "ops-inventory-card-status success" : "ops-inventory-card-status muted"}>{status.enabled ? "Đang bật" : "Đang tắt"}</span></header>
-        <p>Hai bước chạy độc lập theo giờ Việt Nam và xử lý dữ liệu ngày D-1.</p>
-        <dl><div><dt>Chụp dữ liệu lúc {status.snapshot_time}</dt><dd>{dateTime(status.next_snapshot_at)}</dd></div><div><dt>Đối soát lúc {status.reconcile_time}</dt><dd>{dateTime(status.next_reconciliation_at)}</dd></div><div><dt>Múi giờ</dt><dd>{status.timezone}</dd></div></dl>
+        <header><div><span className="ops-inventory-card-kicker">BƯỚC 1</span><h3>Reset đầu ngày</h3></div><span className={"ops-inventory-card-status " + (lifecycle.morning_reset.status === "completed" ? "success" : "muted")}>{processStatusLabel(lifecycle.morning_reset.status)}</span></header>
+        <p>Khởi tạo shared workbook hôm nay từ kết quả Gemini đã xác minh của ngày trước.</p>
+        <dl><div><dt>Lịch chạy</dt><dd>{lifecycle.morning_reset.scheduled_time}</dd></div><div><dt>Nguồn</dt><dd>{businessDate(lifecycle.morning_reset.source_business_date)}</dd></div><div><dt>Lỗi</dt><dd>{status.carry_forward?.error_code || "Không có"}</dd></div></dl>
       </article>
       <article className="ops-inventory-card">
-        <header><div><span className="ops-inventory-card-kicker">Bước 1</span><h3>Snapshot gần nhất</h3></div><span className={"ops-inventory-card-status " + (snapshot?.status === "completed" ? "success" : "muted")}>{processStatusLabel(snapshot?.status)}</span></header>
+        <header><div><span className="ops-inventory-card-kicker">BƯỚC 2</span><h3>Snapshot buổi chiều</h3></div><span className={"ops-inventory-card-status " + (snapshot?.status === "completed" ? "success" : "muted")}>{processStatusLabel(snapshot?.status)}</span></header>
         <p>Bản snapshot bất biến và workbook Gemini được tạo từ snapshot để xử lý độc lập.</p>
         <dl><div><dt>Ngày dữ liệu</dt><dd>{businessDate(snapshot?.business_date)}</dd></div><div><dt>Hoàn thành lúc</dt><dd>{dateTime(snapshot?.completed_at)}</dd></div><div><dt>Lỗi</dt><dd>{snapshot?.error_code || "Không có"}</dd></div></dl>
         {snapshot?.snapshot_url ? <a href={snapshot.snapshot_url} target="_blank" rel="noreferrer">Mở original snapshot ↗</a> : null}
         {snapshot?.gemini_url ? <a href={snapshot.gemini_url} target="_blank" rel="noreferrer">Mở Gemini working copy ↗</a> : null}
       </article>
       <article className="ops-inventory-card">
-        <header><div><span className="ops-inventory-card-kicker">09:00</span><h3>Carry Forward</h3></div><span className={"ops-inventory-card-status " + (status.carry_forward?.status === "completed" ? "success" : "muted")}>{processStatusLabel(status.carry_forward?.status)}</span></header>
-        <p>Chỉ ghi Opening của shared workbook từ Closing đã xác minh của Gemini copy ngày trước.</p>
-        <dl><div><dt>Ngày nguồn → đích</dt><dd>{status.carry_forward ? businessDate(status.carry_forward.previous_business_date) + " → " + businessDate(status.carry_forward.target_business_date) : "—"}</dd></div><div><dt>Vật tư / kho</dt><dd>{status.carry_forward ? number(status.carry_forward.material_count) + " / " + number(status.carry_forward.warehouse_count) : "—"}</dd></div><div><dt>Lỗi</dt><dd>{status.carry_forward?.error_code || "Không có"}</dd></div></dl>
-      </article>
-      <article className="ops-inventory-card">
-        <header><div><span className="ops-inventory-card-kicker">Bước 2</span><h3>Đối soát gần nhất</h3></div><span className={"ops-inventory-card-status " + (reconciliation?.status === "completed" ? "success" : "muted")}>{processStatusLabel(reconciliation?.status)}</span></header>
-        <p>So sánh snapshot mới nhất với ngày trước đó và kiểm tra dữ liệu.</p>
-        <dl><div><dt>Ngày so sánh</dt><dd>{reconciliation ? businessDate(reconciliation.business_date) + " ↔ " + businessDate(reconciliation.previous_business_date) : "—"}</dd></div><div><dt>Kết quả</dt><dd>{number(summary.row_count)} dòng · {number(summary.changed_count)} đổi · {number(summary.invalid_count)} lỗi</dd></div><div><dt>Hoàn thành lúc</dt><dd>{dateTime(reconciliation?.completed_at)}</dd></div></dl>
+        <header><div><span className="ops-inventory-card-kicker">BƯỚC 3</span><h3>Đối soát Gemini buổi tối</h3></div><span className={"ops-inventory-card-status " + (lifecycle.evening_reconcile.verified ? "success" : "muted")}>{processStatusLabel(lifecycle.evening_reconcile.status)}</span></header>
+        <p>Gemini chỉ ghi vào bản working copy; kết quả verified mới được dùng cho ngày kế tiếp.</p>
+        <dl><div><dt>Lịch chạy</dt><dd>{lifecycle.evening_reconcile.scheduled_time}</dd></div><div><dt>Đã xác minh</dt><dd>{lifecycle.evening_reconcile.verified ? "Có" : "Chưa"}</dd></div><div><dt>Plan</dt><dd>{lifecycle.evening_reconcile.plan_hash?.slice(0, 12) || "—"}</dd></div></dl>
       </article>
     </div>
 

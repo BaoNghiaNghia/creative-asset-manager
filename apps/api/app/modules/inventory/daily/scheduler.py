@@ -17,10 +17,11 @@ from app.modules.inventory.persistence_model import InventorySettingsModel
 
 logger = logging.getLogger(__name__)
 
-V4_SLOT_KINDS = frozenset({"snapshot", "reconcile"})
+V4_SLOT_KINDS = frozenset({"morning_reset", "afternoon_snapshot", "evening_reconcile"})
 V4_SLOT_JOB_TYPES = {
-    "snapshot": "inventory_v41_snapshot_slot",
-    "reconcile": "inventory_v41_reconcile_slot",
+    "morning_reset": "inventory_v5_morning_reset_slot",
+    "afternoon_snapshot": "inventory_v5_afternoon_snapshot_slot",
+    "evening_reconcile": "inventory_v5_evening_reconcile_slot",
 }
 V4_SETTLED_RESULTS = frozenset({"completed", "shadow", "review_required"})
 V4_SLOT_MAX_ATTEMPTS = 5
@@ -73,7 +74,7 @@ class InventoryDailyScheduler:
             local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
         except Exception:
             local = moment.astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
-        return local.date() - timedelta(days=1)
+        return local.date()
 
     def _v4_settings(self) -> list[InventorySettingsModel]:
         with self.session_factory() as session:
@@ -114,16 +115,16 @@ class InventoryDailyScheduler:
         self, *, tenant_id: str, business_date: date, slot_kind: str, now: datetime
     ) -> tuple[str, str] | None:
         job_type = V4_SLOT_JOB_TYPES[slot_kind]
-        worker_id = f"inventory-v41-{slot_kind}-{uuid4()}"
+        worker_id = f"inventory-v5-{slot_kind}-{uuid4()}"
         repository_types = tuple(V4_SLOT_JOB_TYPES.values())
         with self.session_factory.begin() as session:
             repository = InventoryJobRepository(session, repository_types)
             job = repository.create_job(
                 tenant_id=tenant_id,
                 job_type=job_type,
-                entity_type="inventory_v41_scheduler_slot",
+                entity_type="inventory_v5_scheduler_slot",
                 entity_id=f"{business_date.isoformat()}:{slot_kind}",
-                idempotency_key=f"inventory-v41-slot:{business_date.isoformat()}:{slot_kind}",
+                idempotency_key=f"inventory-v5-slot:{tenant_id}:{business_date.isoformat()}:{slot_kind}",
                 payload={"business_date": business_date.isoformat(), "slot_kind": slot_kind},
                 max_attempts=V4_SLOT_MAX_ATTEMPTS,
             )
@@ -149,8 +150,8 @@ class InventoryDailyScheduler:
             if job.attempt_count >= job.max_attempts:
                 job.status = "failed"
                 job.completed_at = now
-                job.last_error_code = "inventory_v41_slot_attempts_exhausted"
-                job.last_error_message = "Inventory V4.1 scheduler slot exhausted bounded attempts."
+                job.last_error_code = "inventory_v5_slot_attempts_exhausted"
+                job.last_error_message = "Inventory V5 scheduler slot exhausted bounded attempts."
                 job.claimed_by = None
                 job.claimed_at = None
                 job.lease_expires_at = None
@@ -175,7 +176,7 @@ class InventoryDailyScheduler:
                 query = query.with_for_update()
             job = session.scalar(query)
             if job is None:
-                raise RuntimeError("inventory_v41_slot_missing")
+                raise RuntimeError("inventory_v5_slot_missing")
             InventoryJobRepository(session, tuple(V4_SLOT_JOB_TYPES.values())).complete(job, worker_id)
 
     def _fail_v4_slot(
@@ -191,7 +192,7 @@ class InventoryDailyScheduler:
                 query = query.with_for_update()
             job = session.scalar(query)
             if job is None:
-                raise RuntimeError("inventory_v41_slot_missing")
+                raise RuntimeError("inventory_v5_slot_missing")
             message = str(error).strip() or type(error).__name__
             InventoryJobRepository(session, tuple(V4_SLOT_JOB_TYPES.values())).fail(
                 job,
@@ -220,7 +221,7 @@ class InventoryDailyScheduler:
                 settings.tenant_id, business_date, slot_kind=slot_kind
             )
             if result.status not in V4_SETTLED_RESULTS:
-                raise RuntimeError(f"inventory_v41_result_{result.status}")
+                raise RuntimeError(f"inventory_v5_result_{result.status}")
             self._complete_v4_slot(
                 tenant_id=settings.tenant_id,
                 job_id=job_id,
@@ -241,7 +242,7 @@ class InventoryDailyScheduler:
 
     def execute_v4_slot(self, slot_kind: str, now: datetime | None = None) -> int:
         if slot_kind not in V4_SLOT_KINDS:
-            raise ValueError("invalid_inventory_v41_slot_kind")
+            raise ValueError("invalid_inventory_v5_slot_kind")
         moment = now or datetime.now(timezone.utc)
         count = 0
         for settings in self._v4_settings():
@@ -277,7 +278,6 @@ class InventoryDailyScheduler:
                     local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
                 except Exception:
                     local = moment.astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
-                previous_business_date = local.date() - timedelta(days=1)
                 target_business_date = local.date()
                 if settings.daily_sheet_automation_enabled:
                     is_v4 = (
@@ -287,41 +287,44 @@ class InventoryDailyScheduler:
                     carry_forward_due = local.time() >= _configured_time(
                         settings.daily_carry_forward_time_local, time(9, 0)
                     )
-                    if is_v4 and carry_forward_due:
-                        carry = self.carry_forward_service.run(
-                            tenant_id, target_business_date
-                        )
-                        if carry.status == "completed":
-                            count += 1
                     snapshot_due = local.time() >= _configured_time(settings.daily_snapshot_time_local, time(5, 50))
                     reconcile_due = local.time() >= _configured_time(settings.daily_reconcile_time_local, time(7, 0))
+                    if is_v4 and carry_forward_due:
+                        claimed = self._claim_v4_slot(tenant_id=tenant_id, business_date=target_business_date, slot_kind="morning_reset", now=moment)
+                        if claimed:
+                            job_id, worker_id = claimed
+                            try:
+                                carry = self.carry_forward_service.run(tenant_id, target_business_date)
+                                if carry.status != "completed":
+                                    raise RuntimeError(carry.error_code or "previous_day_gemini_not_verified")
+                                self._complete_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id)
+                                count += 1
+                            except Exception as error:
+                                self._fail_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id, error=error, retryable=self._retryable_v4_error(error), now=moment)
+                                raise
                     if snapshot_due:
                         is_v3 = (
                             isinstance(settings.daily_sheet_config_json, dict)
                             and settings.daily_sheet_config_json.get("version") == 3
                         )
                         if is_v4:
-                            slot_kind = "reconcile" if reconcile_due else "snapshot"
-                            count += self._execute_v4_tenant(
-                                settings=settings,
-                                business_date=previous_business_date,
-                                slot_kind=slot_kind,
-                                moment=moment,
-                            )
+                            count += self._execute_v4_tenant(settings=settings, business_date=target_business_date, slot_kind="afternoon_snapshot", moment=moment)
+                            if reconcile_due:
+                                count += self._execute_v4_tenant(settings=settings, business_date=target_business_date, slot_kind="evening_reconcile", moment=moment)
                         elif is_v3:
-                            plan_key = (tenant_id, previous_business_date)
+                            plan_key = (tenant_id, target_business_date)
                             if plan_key not in self._completed_v3_plans:
-                                self.sheet_service.snapshot_and_reset(tenant_id, previous_business_date)
+                                self.sheet_service.snapshot_and_reset(tenant_id, target_business_date)
                                 self._completed_v3_plans.add(plan_key)
                                 count += 1
                         else:
                             snapshot = self.sheet_service.snapshot_and_reset(
-                                tenant_id, previous_business_date
+                                tenant_id, target_business_date
                             )
                             if snapshot.status == "completed":
                                 count += 1
                                 if reconcile_due:
-                                    self.sheet_service.reconcile(tenant_id, previous_business_date)
+                                    self.sheet_service.reconcile(tenant_id, target_business_date)
                                     count += 1
                 if settings.image_pipeline_enabled:
                     count += self._run_legacy(tenant_id, local)

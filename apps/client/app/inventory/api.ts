@@ -33,7 +33,7 @@ export type InventoryDailySheetStatus = {
   enabled:boolean;
   configured:boolean;
   execution_mode:"v4_slots"|"legacy_daily_run";
-  agent_apply_mode:string|null;
+  agent_apply_mode?:string|null;
   operational_state:"disabled"|"healthy"|"degraded";
   image_pipeline_enabled:boolean;
   timezone:string;
@@ -72,8 +72,9 @@ export type InventoryDailySheetStatus = {
     status:string; target_business_date:string; previous_business_date:string;
     completed_at:string|null; material_count:number; warehouse_count:number;
     issue_count:number; error_code:string|null;
-    prompt_source?:string|null; prompt_version?:string|null; prompt_hash?:string|null;
+    prompt_source?:string|null; prompt_version?:string|null; prompt_hash?:string|null; source_gemini_file_id?:string|null;
   };
+  lifecycle?:{business_date:string;morning_reset:{status:string;scheduled_time:string;source_business_date:string;source_gemini_file_id:string|null};afternoon_snapshot:{status:string;scheduled_time:string;snapshot_file_id:string|null;gemini_file_id:string|null};evening_reconcile:{status:string;scheduled_time:string;verified:boolean;run_id:string|null;plan_hash:string|null;prompt_version:string|null;prompt_hash:string|null}};
   as_of_business_date:string|null;
 };
 export type InventoryDailySheetValidation = {

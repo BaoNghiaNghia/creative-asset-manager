@@ -144,11 +144,13 @@ class InventorySharedCarryForwardService:
                 InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
                 InventoryDailySheetSnapshotModel.business_date == previous_business_date,
                 InventoryDailySheetSnapshotModel.status == "completed",
+                InventoryDailySheetSnapshotModel.gemini_reconcile_status == "completed",
+                InventoryDailySheetSnapshotModel.gemini_reconcile_verified_at.is_not(None),
             ))
             if not settings or not source or not settings.daily_working_spreadsheet_file_id:
                 raise CarryForwardError("carry_forward_configuration_incomplete")
             if not snapshot or not snapshot.gemini_file_id:
-                raise CarryForwardError("previous_gemini_workbook_not_verified")
+                raise CarryForwardError("previous_day_gemini_not_verified")
             connection_id = str((source.source_metadata or {}).get("oauth_connection_id") or "")
             if not connection_id:
                 raise CarryForwardError("carry_forward_google_connection_missing")
