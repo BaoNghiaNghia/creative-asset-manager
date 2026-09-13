@@ -39,10 +39,9 @@ export function InventoryGeminiPrompts() {
   };
 
   return <section className="inventory-prompts-page">
-    <header className="inventory-prompts-hero">
-      <div><p className="inventory-kicker">GEMINI PROMPTS</p><h2>Hướng dẫn nghiệp vụ cho Gemini</h2><p>Chỉnh nội dung hướng dẫn theo quy trình Inventory, với versioning, lịch sử và khả năng khôi phục rõ ràng.</p></div>
-      <aside><strong>{prompts.length}</strong><span>luồng nghiệp vụ</span></aside>
-    </header>
+    <div className="inventory-prompts-hero">
+      <p className="inventory-kicker">GEMINI PROMPTS</p><h2>Hướng dẫn nghiệp vụ cho Gemini</h2><p>Soạn, lưu nháp và kích hoạt hướng dẫn cho từng luồng Inventory. Mọi giới hạn an toàn vẫn do backend kiểm soát.</p>
+    </div>
 
     <section className="inventory-prompts-safety" role="note"><span aria-hidden="true">✓</span><div><strong>Phạm vi an toàn vẫn được backend khóa</strong><p>Quyền file, material, warehouse, Closing → Opening, blank/zero, formula, evidence và phạm vi ghi không thể thay đổi từ prompt này.</p></div></section>
 
