@@ -1,0 +1,299 @@
+"""Trusted 09:00 shared-workbook carry-forward.
+
+Gemini may plan from the previous verified daily copy, but only this module can
+write the shared workbook.  It deliberately accepts an injected planner so
+tests and provider adapters share the exact same server-side validation path.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
+from typing import Any, Protocol
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient
+from app.modules.inventory.daily_sheet.parser import canonical_hash
+from app.modules.inventory.persistence_model import (
+    InventoryDailyCarryForwardModel,
+    InventoryDailySheetSnapshotModel,
+    InventoryItemModel,
+    InventoryLocationModel,
+    InventorySettingsModel,
+    inventory_utcnow,
+)
+from app.providers.google.auth import get_connection_access_token
+from app.modules.assets.model import ExternalSourceModel
+
+
+CARRY_FORWARD_PROMPT = """You are preparing the shared Inventory workbook for a new business day.
+Your only business operation is previous-day closing inventory to current-day opening inventory.
+Use the previous day's verified Gemini workbook as source evidence and the current shared workbook as target structure. Preserve every material and warehouse independently. The fourth operational Inventory sheet contains warehouse allocation when workbook evidence supports it. Do not combine warehouse quantities into a total and redistribute them. Do not alter inbound, outbound, waste, adjustment, notes, formulas, labels, identities, or unrelated cells. Blank is not zero. Return exact source evidence and exact target cells in a structured carry-forward plan. Do not write cells yourself."""
+
+
+class CarryForwardError(RuntimeError):
+    code = "carry_forward_blocked"
+
+
+class CarryForwardReviewRequired(CarryForwardError):
+    code = "review_required"
+
+
+class CarryForwardStaleEvidence(CarryForwardError):
+    code = "stale_evidence"
+
+
+@dataclass(frozen=True)
+class CarryForwardPlan:
+    rows: list[dict[str, Any]]
+    issues: list[dict[str, Any]]
+    warehouse_sheet: dict[str, Any]
+
+
+class CarryForwardPlanner(Protocol):
+    def plan(
+        self, *, tenant_id: str, previous_gemini_file_id: str,
+        shared_workbook_id: str, prompt: str,
+    ) -> CarryForwardPlan: ...
+
+
+class UnavailableCarryForwardPlanner:
+    """Fail closed until a Gemini tool adapter is configured for the tenant."""
+
+    def plan(self, **_kwargs: Any) -> CarryForwardPlan:
+        raise CarryForwardReviewRequired("carry_forward_planner_unavailable")
+
+
+def _a1_parts(cell: str) -> tuple[int, int]:
+    letters = ""
+    digits = ""
+    for value in str(cell).upper():
+        if "A" <= value <= "Z" and not digits:
+            letters += value
+        elif value.isdigit():
+            digits += value
+        else:
+            raise CarryForwardReviewRequired("invalid_target_cell")
+    if not letters or not digits or int(digits) < 1:
+        raise CarryForwardReviewRequired("invalid_target_cell")
+    column = 0
+    for value in letters:
+        column = column * 26 + ord(value) - ord("A") + 1
+    return int(digits) - 1, column - 1
+
+
+def _range_contains(cell: str, range_data: dict[str, Any]) -> bool:
+    row, column = _a1_parts(cell)
+    start_row = int(range_data.get("startRowIndex") or 0)
+    end_row = int(range_data.get("endRowIndex") or 1 << 30)
+    start_column = int(range_data.get("startColumnIndex") or 0)
+    end_column = int(range_data.get("endColumnIndex") or 1 << 30)
+    return start_row <= row < end_row and start_column <= column < end_column
+
+
+def _number(value: Any) -> Decimal:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise CarryForwardReviewRequired("missing_closing_evidence")
+    try:
+        return Decimal(str(value).replace(",", "."))
+    except (InvalidOperation, ValueError) as exc:
+        raise CarryForwardReviewRequired("non_numeric_closing_evidence") from exc
+
+
+class InventorySharedCarryForwardService:
+    def __init__(
+        self, session_factory: sessionmaker[Session], *,
+        client_factory=GoogleSheetsInventoryClient,
+        token_resolver=get_connection_access_token,
+        planner: CarryForwardPlanner | None = None,
+    ) -> None:
+        self.session_factory = session_factory
+        self.client_factory = client_factory
+        self.token_resolver = token_resolver
+        self.planner = planner or UnavailableCarryForwardPlanner()
+
+    def _token(self, connection_id: str) -> str:
+        value = self.token_resolver(connection_id)
+        return asyncio.run(value) if hasattr(value, "__await__") else str(value)
+
+    def _context(self, tenant_id: str, target_business_date: date):
+        previous_business_date = date.fromordinal(target_business_date.toordinal() - 1)
+        with self.session_factory() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == tenant_id,
+                InventorySettingsModel.enabled.is_(True),
+                InventorySettingsModel.daily_sheet_automation_enabled.is_(True),
+            ))
+            source = session.scalar(select(ExternalSourceModel).where(
+                ExternalSourceModel.tenant_id == tenant_id,
+                ExternalSourceModel.id == (settings.external_source_id if settings else ""),
+            ))
+            snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == previous_business_date,
+                InventoryDailySheetSnapshotModel.status == "completed",
+            ))
+            if not settings or not source or not settings.daily_working_spreadsheet_file_id:
+                raise CarryForwardError("carry_forward_configuration_incomplete")
+            if not snapshot or not snapshot.gemini_file_id:
+                raise CarryForwardError("previous_gemini_workbook_not_verified")
+            connection_id = str((source.source_metadata or {}).get("oauth_connection_id") or "")
+            if not connection_id:
+                raise CarryForwardError("carry_forward_google_connection_missing")
+            return (
+                str(settings.daily_working_spreadsheet_file_id), str(snapshot.gemini_file_id),
+                str(snapshot.id), connection_id, previous_business_date,
+            )
+
+    def _operation(self, tenant_id: str, target_business_date: date, previous_business_date: date) -> InventoryDailyCarryForwardModel:
+        with self.session_factory() as session:
+            row = session.scalar(select(InventoryDailyCarryForwardModel).where(
+                InventoryDailyCarryForwardModel.tenant_id == tenant_id,
+                InventoryDailyCarryForwardModel.target_business_date == target_business_date,
+            ))
+            if row is None:
+                row = InventoryDailyCarryForwardModel(
+                    tenant_id=tenant_id, target_business_date=target_business_date,
+                    previous_business_date=previous_business_date, status="pending",
+                    idempotency_key=(
+                        f"inventory-shared-carry-forward:v1:{tenant_id}:"
+                        f"{target_business_date.isoformat()}"
+                    ),
+                )
+                session.add(row)
+                session.commit()
+                session.refresh(row)
+            session.expunge(row)
+            return row
+
+    @staticmethod
+    def _cell_value(google: Any, file_id: str, sheet: str, cell: str, *, formula: bool = False) -> Any:
+        result = google.batch_get_values(
+            file_id, [f"'{sheet}'!{cell}"],
+            value_render_option="FORMULA" if formula else "UNFORMATTED_VALUE",
+        )
+        values = (result[0].get("values") or [[]])[0] if result else []
+        return values[0] if values else None
+
+    @staticmethod
+    def _assert_writable_target(metadata: dict[str, Any], sheet: str, cell: str) -> None:
+        target = next((item for item in metadata.get("sheets") or [] if (item.get("properties") or {}).get("title") == sheet), None)
+        if target is None:
+            raise CarryForwardReviewRequired("warehouse_sheet_changed")
+        props = target.get("properties") or {}
+        sheet_id = props.get("sheetId")
+        for merge in target.get("merges") or []:
+            if merge.get("sheetId") == sheet_id and _range_contains(cell, merge):
+                raise CarryForwardReviewRequired("merged_target_cell")
+        for protected in target.get("protectedRanges") or []:
+            protected_range = protected.get("range") or {}
+            if protected_range.get("sheetId") == sheet_id and _range_contains(cell, protected_range):
+                raise CarryForwardReviewRequired("protected_target_cell")
+
+    def _validate_plan(self, tenant_id: str, plan: CarryForwardPlan, *, source_id: str, target_id: str, source_meta: dict[str, Any], target_meta: dict[str, Any]) -> list[dict[str, Any]]:
+        sheets = [item.get("properties") or {} for item in target_meta.get("sheets") or []]
+        if len(sheets) < 4:
+            raise CarryForwardReviewRequired("warehouse_sheet_changed")
+        fourth = sheets[3]
+        expected = {"sheetId": fourth.get("sheetId"), "title": fourth.get("title"), "index": 3}
+        if plan.warehouse_sheet != expected:
+            raise CarryForwardReviewRequired("warehouse_sheet_changed")
+        if plan.issues:
+            raise CarryForwardReviewRequired("carry_forward_plan_has_issues")
+        validated: list[dict[str, Any]] = []
+        material_ids: set[str] = set()
+        warehouse_ids: set[str] = set()
+        with self.session_factory() as session:
+            for row in plan.rows:
+                source = row.get("source") or {}
+                target = row.get("target") or {}
+                material_id, warehouse_id = str(row.get("material_id") or ""), str(row.get("warehouse_id") or "")
+                if source.get("spreadsheet_file_id") != source_id or target.get("spreadsheet_file_id") != target_id:
+                    raise CarryForwardReviewRequired("cross_workbook_plan")
+                if not session.scalar(select(InventoryItemModel.id).where(InventoryItemModel.tenant_id == tenant_id, InventoryItemModel.id == material_id, InventoryItemModel.active.is_(True))):
+                    raise CarryForwardReviewRequired("unknown_material")
+                if not session.scalar(select(InventoryLocationModel.id).where(InventoryLocationModel.tenant_id == tenant_id, InventoryLocationModel.id == warehouse_id, InventoryLocationModel.active.is_(True))):
+                    raise CarryForwardReviewRequired("unknown_warehouse")
+                source_value = source.get("closing_value")
+                opening_value = target.get("opening_value")
+                if _number(source_value) != _number(opening_value):
+                    raise CarryForwardReviewRequired("closing_opening_mismatch")
+                self._assert_writable_target(target_meta, str(target.get("sheet")), str(target.get("cell")))
+                material_ids.add(material_id)
+                warehouse_ids.add(warehouse_id)
+                validated.append(row)
+        if not validated:
+            raise CarryForwardReviewRequired("empty_carry_forward_plan")
+        return validated
+
+    def run(self, tenant_id: str, target_business_date: date) -> InventoryDailyCarryForwardModel:
+        shared_id, source_id, snapshot_id, connection_id, previous_date = self._context(tenant_id, target_business_date)
+        operation = self._operation(tenant_id, target_business_date, previous_date)
+        if operation.status == "completed":
+            return operation
+        try:
+            with self.client_factory(self._token(connection_id)) as google:
+                source_meta = google.validate_native_spreadsheet(source_id)
+                target_drive = google.validate_native_spreadsheet(shared_id)
+                if (target_drive.get("capabilities") or {}).get("canEdit") is False:
+                    raise CarryForwardError("shared_workbook_not_editable")
+                target_meta = google.spreadsheet_metadata(shared_id)
+                plan = self.planner.plan(
+                    tenant_id=tenant_id, previous_gemini_file_id=source_id,
+                    shared_workbook_id=shared_id, prompt=CARRY_FORWARD_PROMPT,
+                )
+                rows = self._validate_plan(tenant_id, plan, source_id=source_id, target_id=shared_id, source_meta=source_meta, target_meta=target_meta)
+                plan_json = {"rows": rows, "issues": plan.issues, "warehouse_sheet": plan.warehouse_sheet}
+                plan_hash = hashlib.sha256(json.dumps(plan_json, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
+                updates: list[dict[str, Any]] = []
+                for row in rows:
+                    source, target = row["source"], row["target"]
+                    actual_source = self._cell_value(google, source_id, source["sheet"], source["cell"])
+                    actual_target = self._cell_value(google, shared_id, target["sheet"], target["cell"])
+                    formula = self._cell_value(google, shared_id, target["sheet"], target["cell"], formula=True)
+                    if str(formula).startswith("="):
+                        raise CarryForwardReviewRequired("formula_target_cell")
+                    if canonical_hash([actual_source]) != source.get("evidence_hash") or canonical_hash([actual_target]) != target.get("evidence_hash"):
+                        raise CarryForwardStaleEvidence("stale_evidence")
+                    if _number(actual_source) != _number(source["closing_value"]):
+                        raise CarryForwardStaleEvidence("stale_evidence")
+                    if _number(actual_target) != _number(target["opening_value"]):
+                        updates.append({"range": f"'{target['sheet']}'!{target['cell']}", "values": [[target["opening_value"]]]})
+                with self.session_factory() as session:
+                    row = session.get(InventoryDailyCarryForwardModel, operation.id)
+                    row.previous_snapshot_id, row.source_gemini_file_id, row.shared_target_file_id = snapshot_id, source_id, shared_id
+                    row.warehouse_sheet_identity_json, row.plan_json, row.plan_hash = plan.warehouse_sheet, plan_json, plan_hash
+                    row.material_count = len({item["material_id"] for item in rows})
+                    row.warehouse_count = len({item["warehouse_id"] for item in rows})
+                    row.issue_count, row.status, row.started_at = len(plan.issues), "applying", inventory_utcnow()
+                    session.commit()
+                if updates:
+                    google.batch_update_values(shared_id, updates)
+                for row in rows:
+                    target = row["target"]
+                    actual = self._cell_value(google, shared_id, target["sheet"], target["cell"])
+                    if _number(actual) != _number(target["opening_value"]):
+                        raise CarryForwardStaleEvidence("read_back_mismatch")
+                with self.session_factory() as session:
+                    row = session.get(InventoryDailyCarryForwardModel, operation.id)
+                    now = inventory_utcnow()
+                    row.status, row.applied_at, row.verified_at, row.completed_at = "completed", now, now, now
+                    row.error_code = row.error_message = None
+                    session.commit(); session.refresh(row); session.expunge(row)
+                    return row
+        except CarryForwardReviewRequired as exc:
+            status, code = "review_required", getattr(exc, "code", "review_required")
+            error_message = str(exc)
+        except Exception as exc:
+            status, code = "retryable_failure", getattr(exc, "code", type(exc).__name__)
+            error_message = str(exc)
+        with self.session_factory() as session:
+            row = session.get(InventoryDailyCarryForwardModel, operation.id)
+            row.status, row.error_code, row.error_message = status, str(code)[:100], error_message[:1000]
+            session.commit(); session.refresh(row); session.expunge(row)
+            return row

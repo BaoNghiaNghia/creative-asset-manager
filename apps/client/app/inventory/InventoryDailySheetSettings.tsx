@@ -16,6 +16,7 @@ const emptyConfiguration: InventoryDailySheetConfiguration = {
   target_spreadsheet_file_id: null,
   snapshot_time_local: "05:50",
   reconcile_time_local: "07:00",
+  carry_forward_time_local: "09:00",
   timezone: "Asia/Ho_Chi_Minh",
   config: {},
 };
@@ -172,7 +173,7 @@ export function InventoryDailySheetSettings() {
     <div className="inventory-settings-summary" aria-label="Tóm tắt cấu hình Inventory">
       <article><span>Phiên bản</span><strong>{isV4 ? "Inventory V4.1" : isV2 ? "Kiểm kho hằng ngày" : "Legacy"}</strong><small>{isV4 ? "Gemini Tool Agent" : "Cấu hình tương thích"}</small></article>
       <article><span>File đang dùng</span><strong>{configuration.working_spreadsheet_file_id ? "Đã kết nối" : "Chưa cấu hình"}</strong>{status?.working_spreadsheet_url ? <a href={status.working_spreadsheet_url} target="_blank" rel="noreferrer">Mở Google Sheet ↗</a> : <small>ID được lưu trong Configuration</small>}</article>
-      <article><span>Lịch chạy</span><strong>{configuration.snapshot_time_local} · {configuration.reconcile_time_local}</strong><small>Snapshot · Đối soát</small></article>
+      <article><span>Lịch chạy</span><strong>{configuration.snapshot_time_local} · {configuration.reconcile_time_local} · {configuration.carry_forward_time_local}</strong><small>Snapshot · Đối soát · Carry Forward</small></article>
       <article><span>Múi giờ</span><strong>{configuration.timezone}</strong><small>Áp dụng cho lịch Inventory</small></article>
     </div>
 
@@ -193,6 +194,7 @@ export function InventoryDailySheetSettings() {
         <label className="wide">Google Spreadsheet ID<div className="inventory-settings-inline-field"><input value={configuration.working_spreadsheet_file_id||""} onChange={(event)=>update("working_spreadsheet_file_id",event.target.value||null)}/><button type="button" disabled={busy || !configuration.working_spreadsheet_file_id} onClick={()=>void scan()}>Quét workbook</button></div><small>ID nằm giữa <code>/spreadsheets/d/</code> và <code>/edit</code> trong đường dẫn Google Sheet.</small></label>
         <label>Giờ snapshot<input type="time" value={configuration.snapshot_time_local} onChange={(event)=>update("snapshot_time_local",event.target.value)}/><small>Lưu trạng thái trước ngày làm việc.</small></label>
         <label>Giờ đối soát<input type="time" value={configuration.reconcile_time_local} onChange={(event)=>update("reconcile_time_local",event.target.value)}/><small>Đọc dữ liệu và lập kế hoạch cập nhật.</small></label>
+        <label>Giờ carry-forward<input type="time" value={configuration.carry_forward_time_local} onChange={(event)=>update("carry_forward_time_local",event.target.value)}/><small>09:00 ghi Opening của shared workbook từ Closing ngày trước đã xác minh.</small></label>
         <label>Múi giờ<input value={configuration.timezone} onChange={(event)=>update("timezone",event.target.value)}/><small>Khuyến nghị: Asia/Ho_Chi_Minh.</small></label>
       </div>
       <details className="inventory-settings-advanced">

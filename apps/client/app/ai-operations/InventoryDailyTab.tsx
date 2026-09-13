@@ -169,6 +169,11 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
         {snapshot?.gemini_url ? <a href={snapshot.gemini_url} target="_blank" rel="noreferrer">Mở Gemini working copy ↗</a> : null}
       </article>
       <article className="ops-inventory-card">
+        <header><div><span className="ops-inventory-card-kicker">09:00</span><h3>Carry Forward</h3></div><span className={"ops-inventory-card-status " + (status.carry_forward?.status === "completed" ? "success" : "muted")}>{processStatusLabel(status.carry_forward?.status)}</span></header>
+        <p>Chỉ ghi Opening của shared workbook từ Closing đã xác minh của Gemini copy ngày trước.</p>
+        <dl><div><dt>Ngày nguồn → đích</dt><dd>{status.carry_forward ? businessDate(status.carry_forward.previous_business_date) + " → " + businessDate(status.carry_forward.target_business_date) : "—"}</dd></div><div><dt>Vật tư / kho</dt><dd>{status.carry_forward ? number(status.carry_forward.material_count) + " / " + number(status.carry_forward.warehouse_count) : "—"}</dd></div><div><dt>Lỗi</dt><dd>{status.carry_forward?.error_code || "Không có"}</dd></div></dl>
+      </article>
+      <article className="ops-inventory-card">
         <header><div><span className="ops-inventory-card-kicker">Bước 2</span><h3>Đối soát gần nhất</h3></div><span className={"ops-inventory-card-status " + (reconciliation?.status === "completed" ? "success" : "muted")}>{processStatusLabel(reconciliation?.status)}</span></header>
         <p>So sánh snapshot mới nhất với ngày trước đó và kiểm tra dữ liệu.</p>
         <dl><div><dt>Ngày so sánh</dt><dd>{reconciliation ? businessDate(reconciliation.business_date) + " ↔ " + businessDate(reconciliation.previous_business_date) : "—"}</dd></div><div><dt>Kết quả</dt><dd>{number(summary.row_count)} dòng · {number(summary.changed_count)} đổi · {number(summary.invalid_count)} lỗi</dd></div><div><dt>Hoàn thành lúc</dt><dd>{dateTime(reconciliation?.completed_at)}</dd></div></dl>

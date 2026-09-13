@@ -416,8 +416,10 @@ describe("Inventory Daily tab", () => {
         working_business_date: "2026-08-26",
         snapshot_time: "05:50",
         reconcile_time: "07:00",
+        carry_forward_time: "09:00",
         next_snapshot_at: "2026-08-27T05:50:00+07:00",
         next_reconciliation_at: "2026-08-27T07:00:00+07:00",
+        next_carry_forward_at: "2026-08-27T09:00:00+07:00",
         working_spreadsheet_url: "https://docs.google.com/spreadsheets/d/workbook",
         last_snapshot: {
           id: "snapshot-1",
@@ -440,6 +442,12 @@ describe("Inventory Daily tab", () => {
           error_code: null,
           completed_at: "2026-08-26T07:02:00+07:00",
         },
+        carry_forward: {
+          status: "completed", target_business_date: "2026-08-27", previous_business_date: "2026-08-26",
+          completed_at: "2026-08-27T09:01:00+07:00", material_count: 2, warehouse_count: 3,
+          issue_count: 0, error_code: null,
+        },
+        as_of_business_date: "2026-08-27",
     }}
       run={{
         id: "run-1",

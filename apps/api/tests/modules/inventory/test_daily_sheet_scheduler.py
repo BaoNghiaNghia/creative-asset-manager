@@ -342,6 +342,35 @@ class DailySheetSchedulerTest(unittest.TestCase):
             ))
             self.assertEqual("failed", job.status)
 
+    def test_v4_carry_forward_is_due_at_local_0900_and_catches_up_once(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_snapshot_time_local = "23:59"
+            settings.daily_carry_forward_time_local = "09:00"
+
+        class Carry:
+            def __init__(self): self.calls = []
+            def run(self, tenant_id, target_business_date):
+                self.calls.append((tenant_id, target_business_date.isoformat()))
+                return SimpleNamespace(status="completed")
+
+        class Sheets:
+            def run_agent_v4(self, *_args, **_kwargs): return SimpleNamespace(status="completed")
+
+        carry = Carry()
+        scheduler = InventoryDailyScheduler(
+            self.sessions, sheet_service=Sheets(), carry_forward_service=carry
+        )
+        self.assertEqual(0, scheduler.run_once(datetime(2030, 8, 9, 1, 59, tzinfo=timezone.utc)))
+        self.assertEqual(1, scheduler.run_once(datetime(2030, 8, 9, 2, 0, tzinfo=timezone.utc)))
+        self.assertEqual(1, scheduler.run_once(datetime(2030, 8, 9, 2, 27, tzinfo=timezone.utc)))
+        self.assertEqual([
+            ("tenant-a", "2030-08-09"), ("tenant-a", "2030-08-09"),
+        ], carry.calls)
+
     def test_v3_scheduler_ignores_tenant_when_daily_automation_is_disabled(self):
         with self.sessions.begin() as session:
             settings = session.scalar(select(InventorySettingsModel).where(

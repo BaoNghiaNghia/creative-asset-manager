@@ -25,6 +25,7 @@ export type InventoryDailySheetConfiguration = {
   target_spreadsheet_file_id:string|null;
   snapshot_time_local:string;
   reconcile_time_local:string;
+  carry_forward_time_local:string;
   timezone:string;
   config:Record<string,unknown>;
 };
@@ -39,8 +40,10 @@ export type InventoryDailySheetStatus = {
   working_business_date:string;
   snapshot_time:string;
   reconcile_time:string;
+  carry_forward_time:string;
   next_snapshot_at:string;
   next_reconciliation_at:string;
+  next_carry_forward_at:string;
   working_spreadsheet_url:string|null;
   last_snapshot:null|{
     id:string;
@@ -63,6 +66,12 @@ export type InventoryDailySheetStatus = {
     error_code:string|null;
     completed_at:string|null;
   };
+  carry_forward:null|{
+    status:string; target_business_date:string; previous_business_date:string;
+    completed_at:string|null; material_count:number; warehouse_count:number;
+    issue_count:number; error_code:string|null;
+  };
+  as_of_business_date:string|null;
 };
 export type InventoryDailySheetValidation = {
   valid:boolean;

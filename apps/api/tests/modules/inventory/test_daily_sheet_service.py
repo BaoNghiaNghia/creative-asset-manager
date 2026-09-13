@@ -111,6 +111,7 @@ def daily_sheet_db():
     for name in (
         "tenants", "external_sources", "oauth_connections", "inventory_settings",
         "inventory_daily_sheet_snapshots", "inventory_daily_sheet_reconciliations",
+        "inventory_daily_carry_forwards",
         "inventory_items", "inventory_item_aliases",
         "inventory_material_external_identities",
         "inventory_material_package_conversions",

@@ -131,6 +131,7 @@ class InventorySettingsModel(Base):
     daily_target_spreadsheet_file_id: Mapped[str | None] = mapped_column(String(2048))
     daily_snapshot_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="05:50")
     daily_reconcile_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="07:00")
+    daily_carry_forward_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="09:00")
     daily_sheet_config_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Ho_Chi_Minh")
     auto_approve_confidence: Mapped[Decimal] = mapped_column(
@@ -951,6 +952,46 @@ class InventoryDailySheetSnapshotModel(Base):
     reset_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reset_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
+
+
+class InventoryDailyCarryForwardModel(Base):
+    __tablename__ = "inventory_daily_carry_forwards"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "target_business_date", name="uq_inventory_carry_forward_tenant_date"),
+        ForeignKeyConstraint(
+            ["tenant_id", "previous_snapshot_id"],
+            ["inventory_daily_sheet_snapshots.tenant_id", "inventory_daily_sheet_snapshots.id"],
+            ondelete="RESTRICT", name="fk_inventory_carry_forward_previous_snapshot",
+        ),
+        CheckConstraint(
+            "status IN ('pending','planning','applying','verifying','completed','review_required','retryable_failure','terminal_failure')",
+            name="ck_inventory_carry_forward_status",
+        ),
+        Index("ix_inventory_carry_forward_status", "tenant_id", "status", "target_business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    target_business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    previous_business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    previous_snapshot_id: Mapped[str | None] = mapped_column(String(36))
+    source_gemini_file_id: Mapped[str | None] = mapped_column(String(2048))
+    shared_target_file_id: Mapped[str | None] = mapped_column(String(2048))
+    warehouse_sheet_identity_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    plan_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    plan_hash: Mapped[str | None] = mapped_column(String(64))
+    material_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    warehouse_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    issue_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(100))
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)

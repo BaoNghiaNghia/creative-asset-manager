@@ -21,3 +21,12 @@ def test_daily_gemini_copy_migration_follows_current_head_and_is_reversible():
     assert 'down_revision = "0068_heavy_video_resource_lane"' in source
     assert '"gemini_file_id"' in source
     assert 'op.drop_column("inventory_daily_sheet_snapshots", "gemini_file_id")' in source
+
+
+def test_daily_carry_forward_migration_follows_gemini_copy_head():
+    migration = Path(__file__).resolve().parents[4] / "database/migrations/versions/0070_inventory_daily_carry_forward.py"
+    source = migration.read_text()
+    assert 'revision = "0070_inventory_daily_carry_forward"' in source
+    assert 'down_revision = "0069_inventory_daily_gemini_copy"' in source
+    assert '"inventory_daily_carry_forwards"' in source
+    assert '"daily_carry_forward_time_local"' in source

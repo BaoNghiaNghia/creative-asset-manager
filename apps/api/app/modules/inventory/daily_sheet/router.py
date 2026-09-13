@@ -23,6 +23,7 @@ class DailySheetSettingsRequest(BaseModel):
     target_spreadsheet_file_id: str | None = Field(default=None, max_length=2048)
     snapshot_time_local: str = Field(default="05:50", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     reconcile_time_local: str = Field(default="07:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    carry_forward_time_local: str = Field(default="09:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     timezone: str = "Asia/Ho_Chi_Minh"
     config: dict = Field(default_factory=dict)
 
@@ -63,6 +64,7 @@ def _settings_view(row):
         "target_spreadsheet_file_id": row.daily_target_spreadsheet_file_id,
         "snapshot_time_local": row.daily_snapshot_time_local,
         "reconcile_time_local": row.daily_reconcile_time_local,
+        "carry_forward_time_local": row.daily_carry_forward_time_local,
         "timezone": row.timezone,
         "config": row.daily_sheet_config_json,
     }
@@ -92,6 +94,7 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
         row.daily_target_spreadsheet_file_id = body.target_spreadsheet_file_id
         row.daily_snapshot_time_local = body.snapshot_time_local
         row.daily_reconcile_time_local = body.reconcile_time_local
+        row.daily_carry_forward_time_local = body.carry_forward_time_local
         row.daily_sheet_config_json = body.config
         row.timezone = body.timezone
         session.commit()

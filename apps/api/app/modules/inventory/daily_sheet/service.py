@@ -14,7 +14,7 @@ from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetC
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient, require_sheets_scope
 from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailyCountSheetValidationError, DailySheetValidationError, StockRecord, build_daily_count_variances, build_variances, canonical_hash, _normalized_header, classify_daily_count_row, parse_daily_count_records, parse_stock_records, value_blocks
 from app.modules.inventory.jobs.model import InventoryJobModel
-from app.modules.inventory.persistence_model import InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel, inventory_utcnow
+from app.modules.inventory.persistence_model import InventoryDailyCarryForwardModel, InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel, inventory_utcnow
 from app.modules.inventory.materials import MaterialRegistry, MaterialResolution
 from app.providers.google.auth import get_connection_access_token
 
@@ -1222,6 +1222,9 @@ class InventoryDailySheetService:
             rec = session.scalar(select(InventoryDailySheetReconciliationModel).where(
                 InventoryDailySheetReconciliationModel.tenant_id == tenant_id,
             ).order_by(InventoryDailySheetReconciliationModel.business_date.desc()))
+            carry = session.scalar(select(InventoryDailyCarryForwardModel).where(
+                InventoryDailyCarryForwardModel.tenant_id == tenant_id,
+            ).order_by(InventoryDailyCarryForwardModel.target_business_date.desc()))
 
             is_v4 = bool(
                 settings
@@ -1246,6 +1249,7 @@ class InventoryDailySheetService:
             timezone_name = settings.timezone if settings else "Asia/Ho_Chi_Minh"
             snapshot_time = settings.daily_snapshot_time_local if settings else "05:50"
             reconcile_time = settings.daily_reconcile_time_local if settings else "07:00"
+            carry_forward_time = settings.daily_carry_forward_time_local if settings else "09:00"
             local_now = self.clock().astimezone(ZoneInfo(timezone_name))
 
             def next_run(value: str) -> str:
@@ -1289,6 +1293,19 @@ class InventoryDailySheetService:
                     "summary": rec.summary_json,
                     "error_code": rec.error_code,
                     "completed_at": rec.completed_at,
+                }
+
+            carry_forward_status = None
+            if carry is not None:
+                carry_forward_status = {
+                    "status": carry.status,
+                    "target_business_date": carry.target_business_date,
+                    "previous_business_date": carry.previous_business_date,
+                    "completed_at": carry.completed_at,
+                    "material_count": carry.material_count,
+                    "warehouse_count": carry.warehouse_count,
+                    "issue_count": carry.issue_count,
+                    "error_code": carry.error_code,
                 }
 
             if is_v4:
@@ -1372,12 +1389,21 @@ class InventoryDailySheetService:
                 "working_business_date": (local_now.date() - timedelta(days=1)).isoformat(),
                 "snapshot_time": snapshot_time,
                 "reconcile_time": reconcile_time,
+                "carry_forward_time": carry_forward_time,
                 "next_snapshot_at": next_run(snapshot_time),
                 "next_reconciliation_at": next_run(reconcile_time),
+                "next_carry_forward_at": next_run(carry_forward_time),
                 "working_spreadsheet_url": (
                     f"https://docs.google.com/spreadsheets/d/{settings.daily_working_spreadsheet_file_id}/edit"
                     if settings and settings.daily_working_spreadsheet_file_id else None
                 ),
                 "last_snapshot": snapshot_status,
                 "last_reconciliation": reconciliation_status,
+                "carry_forward": carry_forward_status,
+                "as_of_business_date": (
+                    local_now.date().isoformat()
+                    if carry is not None and carry.status == "completed"
+                    and carry.target_business_date == local_now.date()
+                    else None
+                ),
             }

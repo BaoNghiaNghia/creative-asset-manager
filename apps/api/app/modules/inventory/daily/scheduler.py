@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.modules.inventory.daily.service import InventoryDailyRunService
 from app.modules.inventory.daily.report import DailyReportNotFinalized, InventoryDailyReportService
 from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
+from app.modules.inventory.daily.carry_forward import InventorySharedCarryForwardService
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.jobs.repository import InventoryJobRepository
@@ -43,6 +44,7 @@ class InventoryDailyScheduler:
         service: InventoryDailyRunService | None = None,
         report_service: InventoryDailyReportService | None = None,
         sheet_service: InventoryDailySheetService | None = None,
+        carry_forward_service: InventorySharedCarryForwardService | None = None,
         *,
         allowed_tenant_ids: frozenset[str] | None = None,
     ):
@@ -59,6 +61,7 @@ class InventoryDailyScheduler:
                 session_factory, semantic_analyzer=semantic_analyzer
             )
         self.allowed_tenant_ids = allowed_tenant_ids
+        self.carry_forward_service = carry_forward_service or InventorySharedCarryForwardService(session_factory)
         # V1/V2 use persisted daily records. V3 has no persistence migration in
         # its first release, so suppress repeated successful planning within the
         # long-lived scheduler process while still retrying failures.
@@ -274,8 +277,22 @@ class InventoryDailyScheduler:
                     local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
                 except Exception:
                     local = moment.astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
-                business_date = local.date() - timedelta(days=1)
+                previous_business_date = local.date() - timedelta(days=1)
+                target_business_date = local.date()
                 if settings.daily_sheet_automation_enabled:
+                    is_v4 = (
+                        isinstance(settings.daily_sheet_config_json, dict)
+                        and settings.daily_sheet_config_json.get("version") == 4
+                    )
+                    carry_forward_due = local.time() >= _configured_time(
+                        settings.daily_carry_forward_time_local, time(9, 0)
+                    )
+                    if is_v4 and carry_forward_due:
+                        carry = self.carry_forward_service.run(
+                            tenant_id, target_business_date
+                        )
+                        if carry.status == "completed":
+                            count += 1
                     snapshot_due = local.time() >= _configured_time(settings.daily_snapshot_time_local, time(5, 50))
                     reconcile_due = local.time() >= _configured_time(settings.daily_reconcile_time_local, time(7, 0))
                     if snapshot_due:
@@ -283,32 +300,28 @@ class InventoryDailyScheduler:
                             isinstance(settings.daily_sheet_config_json, dict)
                             and settings.daily_sheet_config_json.get("version") == 3
                         )
-                        is_v4 = (
-                            isinstance(settings.daily_sheet_config_json, dict)
-                            and settings.daily_sheet_config_json.get("version") == 4
-                        )
                         if is_v4:
                             slot_kind = "reconcile" if reconcile_due else "snapshot"
                             count += self._execute_v4_tenant(
                                 settings=settings,
-                                business_date=business_date,
+                                business_date=previous_business_date,
                                 slot_kind=slot_kind,
                                 moment=moment,
                             )
                         elif is_v3:
-                            plan_key = (tenant_id, business_date)
+                            plan_key = (tenant_id, previous_business_date)
                             if plan_key not in self._completed_v3_plans:
-                                self.sheet_service.snapshot_and_reset(tenant_id, business_date)
+                                self.sheet_service.snapshot_and_reset(tenant_id, previous_business_date)
                                 self._completed_v3_plans.add(plan_key)
                                 count += 1
                         else:
                             snapshot = self.sheet_service.snapshot_and_reset(
-                                tenant_id, business_date
+                                tenant_id, previous_business_date
                             )
                             if snapshot.status == "completed":
                                 count += 1
                                 if reconcile_due:
-                                    self.sheet_service.reconcile(tenant_id, business_date)
+                                    self.sheet_service.reconcile(tenant_id, previous_business_date)
                                     count += 1
                 if settings.image_pipeline_enabled:
                     count += self._run_legacy(tenant_id, local)
