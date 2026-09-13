@@ -110,19 +110,18 @@ class InventoryDailySheetV4Service:
         if not context.runtime_target_file_id:
             raise V4AgentSafetyError("gemini_workbook_not_authorized")
         provider, models = self._runtime(tenant_id)
-        resolved_prompt = InventoryPromptResolver(self.session_factory).resolve(
-            tenant_id, "daily_gemini_processing", legacy_goals=list(config.agent.business_goal or [])
-        )
+        resolver = InventoryPromptResolver(self.session_factory)
+        resolved_prompt = None
         with self.session_factory() as session:
             snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
                 InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
                 InventoryDailySheetSnapshotModel.business_date == business_date,
             ))
-            if snapshot is not None and hasattr(snapshot, "gemini_prompt_hash") and not snapshot.gemini_prompt_hash:
-                snapshot.gemini_prompt_source = resolved_prompt.source
-                snapshot.gemini_prompt_version = resolved_prompt.version
-                snapshot.gemini_prompt_hash = resolved_prompt.content_hash
+            if snapshot is not None and hasattr(snapshot, "gemini_prompt_content"):
+                resolved_prompt = resolver.freeze(snapshot, tenant_id, "daily_gemini_processing", prefix="gemini_prompt", legacy_goals=list(config.agent.business_goal or []))
                 session.commit()
+        if resolved_prompt is None:
+            resolved_prompt = resolver.resolve(tenant_id, "daily_gemini_processing", legacy_goals=list(config.agent.business_goal or []))
         contents: list[dict[str, Any]] = [
             {
                 "role": "user",

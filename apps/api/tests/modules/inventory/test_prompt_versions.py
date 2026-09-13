@@ -11,7 +11,7 @@ from app.modules.inventory.persistence_model import InventoryPromptVersionModel
 def db():
     temp=tempfile.TemporaryDirectory(); engine=create_engine(f"sqlite:///{Path(temp.name)/'db.sqlite'}")
     event.listen(engine,"connect",lambda conn,_:conn.execute("PRAGMA foreign_keys=ON"))
-    for name in ("tenants","inventory_prompt_versions"): Base.metadata.tables[name].create(engine)
+    for name in ("tenants","inventory_settings","inventory_prompt_versions"): Base.metadata.tables[name].create(engine)
     sessions=sessionmaker(bind=engine,expire_on_commit=False)
     with sessions.begin() as session: session.add_all([TenantModel(id="a",name="A",slug="a"),TenantModel(id="b",name="B",slug="b")])
     return temp,engine,sessions
@@ -37,3 +37,25 @@ def test_restore_creates_new_monotonic_active_version_and_hash_is_deterministic(
     assert restored["version"] == 3 and restored["status"] == "active"
     assert prompts.resolve("a","carry_forward_0900").content_hash == first["content_hash"]
     engine.dispose();temp.cleanup()
+
+def test_frozen_content_is_reused_and_corruption_fails_closed():
+    temp,engine,sessions=db(); prompts=InventoryPromptResolver(sessions)
+    draft=prompts.draft("a","carry_forward_0900","v1",None); prompts.activate("a","carry_forward_0900",draft["id"],None)
+    class Row: prompt_content=None; prompt_hash=None; prompt_source=None; prompt_version=None
+    row=Row(); first=prompts.freeze(row,"a","carry_forward_0900",prefix="prompt")
+    later=prompts.draft("a","carry_forward_0900","v2",None); prompts.activate("a","carry_forward_0900",later["id"],None)
+    assert prompts.freeze(row,"a","carry_forward_0900",prefix="prompt").content == first.content == "v1"
+    row.prompt_content="tampered"
+    import pytest
+    with pytest.raises(RuntimeError,match="inventory_prompt_snapshot_corrupt"): prompts.freeze(row,"a","carry_forward_0900",prefix="prompt")
+    engine.dispose();temp.cleanup()
+
+def test_operational_error_does_not_fall_back_to_builtin_or_legacy():
+    from sqlalchemy.exc import OperationalError
+    from app.modules.inventory.daily_sheet.prompts import InventoryPromptStorageUnavailable
+    class Broken:
+        def __enter__(self): return self
+        def __exit__(self,*_): return None
+        def scalar(self,*_): raise OperationalError("select",{},Exception("down"))
+    import pytest
+    with pytest.raises(InventoryPromptStorageUnavailable): InventoryPromptResolver(lambda:Broken()).resolve("a","daily_gemini_processing",legacy_goals=["must not use"])

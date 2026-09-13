@@ -11,7 +11,7 @@ from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.permissions import INVENTORY_CONTROL_PERMISSION, INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
 from app.modules.inventory.persistence_model import InventorySettingsModel
-from app.modules.inventory.daily_sheet.prompts import PROMPT_TYPES, InventoryPromptResolver
+from app.modules.inventory.daily_sheet.prompts import PROMPT_TYPES, InventoryPromptConflict, InventoryPromptResolver, InventoryPromptStorageUnavailable
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -67,10 +67,14 @@ def get_prompt_versions(prompt_type: str, principal: CurrentPrincipal = Depends(
 @router.post("/prompts/{prompt_type}/drafts")
 def create_prompt_draft(prompt_type: str, body: PromptDraftRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):
     try: return _prompts().draft(principal.active_tenant_id, _prompt_type(prompt_type), body.content, principal.user_id)
+    except InventoryPromptConflict as exc: raise HTTPException(409, detail={"code":exc.code}) from exc
+    except InventoryPromptStorageUnavailable as exc: raise HTTPException(503, detail={"code":exc.code}) from exc
     except ValueError as exc: raise HTTPException(422, detail={"code":str(exc)}) from exc
 @router.post("/prompts/{prompt_type}/drafts/{prompt_id}/activate")
 def activate_prompt(prompt_type: str, prompt_id: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):
     try: return _prompts().activate(principal.active_tenant_id, _prompt_type(prompt_type), prompt_id, principal.user_id)
+    except InventoryPromptConflict as exc: raise HTTPException(409, detail={"code":exc.code}) from exc
+    except InventoryPromptStorageUnavailable as exc: raise HTTPException(503, detail={"code":exc.code}) from exc
     except LookupError as exc: raise HTTPException(404, detail={"code":str(exc)}) from exc
 @router.post("/prompts/{prompt_type}/versions/{prompt_id}/restore")
 def restore_prompt(prompt_type: str, prompt_id: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):

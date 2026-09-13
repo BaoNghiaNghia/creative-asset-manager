@@ -75,7 +75,7 @@ def make_db():
     temp = tempfile.TemporaryDirectory()
     engine = create_engine(f"sqlite:///{Path(temp.name) / 'carry.db'}")
     event.listen(engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
-    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards", "inventory_items", "inventory_locations"):
+    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards", "inventory_prompt_versions", "inventory_items", "inventory_locations"):
         Base.metadata.tables[name].create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     with sessions.begin() as session:

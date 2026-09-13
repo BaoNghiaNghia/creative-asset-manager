@@ -257,12 +257,10 @@ class InventorySharedCarryForwardService:
                 if persisted and operation.status in {"applying", "verifying", "retryable_failure"}:
                     plan = CarryForwardPlan(list(persisted.get("rows") or []), list(persisted.get("issues") or []), dict(persisted.get("warehouse_sheet") or {}))
                 else:
-                    resolved = InventoryPromptResolver(self.session_factory).resolve(tenant_id, "carry_forward_0900")
                     with self.session_factory() as session:
                         row = session.get(InventoryDailyCarryForwardModel, operation.id)
-                        if not row.prompt_hash:
-                            row.prompt_source, row.prompt_version, row.prompt_hash = resolved.source, resolved.version, resolved.content_hash
-                            session.commit()
+                        resolved = InventoryPromptResolver(self.session_factory).freeze(row, tenant_id, "carry_forward_0900", prefix="prompt")
+                        session.commit()
                     plan = self.planner.plan(
                         tenant_id=tenant_id, previous_gemini_file_id=source_id,
                         shared_workbook_id=shared_id, prompt=f"{CARRY_FORWARD_PROMPT}\n\n=== TENANT BUSINESS INSTRUCTIONS ===\n{resolved.content}\n=== END TENANT BUSINESS INSTRUCTIONS ===\n\nThe server binds the two workbook roles; never request identifiers.", connection_id=connection_id,

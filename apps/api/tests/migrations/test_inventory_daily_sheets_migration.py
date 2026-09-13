@@ -38,5 +38,13 @@ def test_prompt_version_migration_follows_carry_forward_head():
     assert 'revision = "0071_inventory_prompt_versions"' in source
     assert 'down_revision = "0070_inventory_daily_carry_forward"' in source
     assert '"inventory_prompt_versions"' in source
-    assert '"gemini_prompt_source"' in source
-    assert '"prompt_source"' in source
+    assert 'f"{prefix}_source"' in source
+
+
+def test_prompt_snapshot_freeze_migration_follows_prompt_versions():
+    migration = Path(__file__).resolve().parents[4] / "database/migrations/versions/0072_inventory_prompt_snapshot_freeze.py"
+    source = migration.read_text()
+    assert 'revision = "0072_inventory_prompt_snapshot_freeze"' in source
+    assert 'down_revision = "0071_inventory_prompt_versions"' in source
+    assert '"gemini_prompt_content"' in source
+    assert '"prompt_content"' in source
