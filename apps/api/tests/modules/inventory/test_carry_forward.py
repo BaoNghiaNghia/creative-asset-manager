@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 import tempfile
 
@@ -28,6 +28,7 @@ class Google:
         self.source_values = source_values or {"H14": 50, "H15": 35, "H16": 25}
         self.target_values = target_values or {"B14": 1, "B15": 1, "B16": 1}
         self.writes = []
+        self.clears = []
         self.protected = protected
 
     def __enter__(self): return self
@@ -55,6 +56,11 @@ class Google:
         self.writes.extend(updates)
         for update in updates:
             self.target_values[update["range"].rsplit("!", 1)[-1]] = update["values"][0][0]
+    def batch_clear_values(self, file_id, ranges):
+        assert file_id == "shared"
+        self.clears.extend(ranges)
+        for value in ranges:
+            self.target_values[value.rsplit("!", 1)[-1]] = None
 
 
 class Planner:
@@ -82,7 +88,7 @@ def make_db():
         session.add_all([TenantModel(id="tenant-a", name="A", slug="a"), TenantModel(id="tenant-b", name="B", slug="b")])
         session.add(ExternalSourceModel(id="source-a", tenant_id="tenant-a", source_key="a", source_type="google_drive", source_metadata={"oauth_connection_id": "connection"}))
         session.add(InventorySettingsModel(tenant_id="tenant-a", external_source_id="source-a", inbox_folder_id="inbox", enabled=True, daily_sheet_automation_enabled=True, daily_working_spreadsheet_file_id="shared", daily_sheet_config_json={"version": 4}))
-        session.add(InventoryDailySheetSnapshotModel(id="snapshot-a", tenant_id="tenant-a", business_date=date(2030, 8, 9), external_source_id="source-a", source_spreadsheet_file_id="shared", snapshot_file_id="snapshot", gemini_file_id="gemini", status="completed"))
+        session.add(InventoryDailySheetSnapshotModel(id="snapshot-a", tenant_id="tenant-a", business_date=date(2030, 8, 9), external_source_id="source-a", source_spreadsheet_file_id="shared", snapshot_file_id="snapshot", gemini_file_id="gemini", status="completed", gemini_reconcile_status="completed", gemini_reconcile_verified_at=datetime.now(timezone.utc)))
         for number, value in enumerate(("a", "b", "c"), 1):
             session.add(InventoryItemModel(id=f"material-{value}", tenant_id="tenant-a", sku=value, name=value, base_unit="unit"))
             session.add(InventoryLocationModel(id=f"warehouse-{value}", tenant_id="tenant-a", code=value, name=value))
@@ -176,4 +182,27 @@ def test_tool_host_rejects_blank_and_fabricated_or_unread_evidence():
     import pytest
     with pytest.raises(Exception, match="missing_closing_evidence"):
         host.execute("submit_carry_forward_plan", {"warehouse_sheet": {}, "issues": [], "rows": [{"material_id": "material-a", "warehouse_id": "warehouse-a", "source": {**source, "closing_value": ""}, "target": {**target, "opening_value": ""}}]})
+    engine.dispose(); temp.cleanup()
+
+
+def test_clear_cell_is_evidence_backed_and_applied_after_sets():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 25}, target_values={"B14": 1, "D14": "/"})
+    operations = [
+        {**row("material-a", "warehouse-a", "H14", "B14", 25, 1), "type": "set_cell", "value": 25},
+        {"type": "clear_cell", "semantic_context": {"role": "daily_entry"}, "target": {"spreadsheet_file_id": "shared", "sheet": "Warehouses", "cell": "D14", "current_value": "/", "evidence_hash": canonical_hash(["/"])}},
+    ]
+    result = InventorySharedCarryForwardService(sessions, client_factory=lambda _token: google, token_resolver=lambda _id: "token", planner=Planner(operations)).run("tenant-a", date(2030, 8, 10))
+    assert result.status == "completed"
+    assert google.target_values["B14"] == 25 and google.target_values["D14"] is None
+    assert google.clears == ["'Warehouses'!D14"]
+    engine.dispose(); temp.cleanup()
+
+
+def test_clear_formula_or_stale_target_is_blocked_without_clear():
+    temp, engine, sessions = make_db()
+    google = Google(target_values={"D14": 3})
+    operations = [{"type": "clear_cell", "semantic_context": {}, "target": {"spreadsheet_file_id": "shared", "sheet": "Warehouses", "cell": "D14", "current_value": 3, "evidence_hash": canonical_hash([999])}}]
+    result = InventorySharedCarryForwardService(sessions, client_factory=lambda _token: google, token_resolver=lambda _id: "token", planner=Planner(operations)).run("tenant-a", date(2030, 8, 10))
+    assert result.status == "retryable_failure" and google.clears == []
     engine.dispose(); temp.cleanup()

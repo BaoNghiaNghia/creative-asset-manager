@@ -464,7 +464,7 @@ describe("Inventory Daily tab", () => {
     />);
     expect(markup).toContain("Mở original snapshot");
     expect(markup).toContain("Mở Gemini working copy");
-    for (const value of ["Inventory hằng ngày", "27/08/2026", "26/08/2026", "Ngày dữ liệu đang xử lý", "Sẵn sàng", "206", "4 thay đổi", "Snapshot gần nhất", "Đối soát gần nhất", "Chụp dữ liệu lúc 05:50", "Chu kỳ hiện không có vấn đề"]) {
+    for (const value of ["Inventory hằng ngày", "27/08/2026", "26/08/2026", "Ngày dữ liệu đang xử lý", "Sẵn sàng", "206", "4 thay đổi", "Reset đầu ngày", "Snapshot buổi chiều", "Đối soát Gemini buổi tối", "Chu kỳ hiện không có vấn đề"]) {
       expect(markup).toContain(value);
     }
     expect(markup).toContain("https://docs.google.com/spreadsheets/d/workbook");

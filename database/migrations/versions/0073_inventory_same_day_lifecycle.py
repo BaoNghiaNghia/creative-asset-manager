@@ -6,7 +6,7 @@ Revises: 0072_prompt_snapshot_freeze
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0073_inventory_same_day_lifecycle"
+revision = "0073_same_day_lifecycle"
 down_revision = "0072_prompt_snapshot_freeze"
 branch_labels = None
 depends_on = None

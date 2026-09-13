@@ -54,7 +54,7 @@ class CarryForwardPlan:
     # Retained only for in-process adapter compatibility. It is neither
     # persisted nor interpreted as a sheet-role decision.
     legacy_metadata: dict[str, Any] | None = None
-    contract_version: int = 2
+    contract_version: int = 3
 
 
 class CarryForwardPlanner(Protocol):
@@ -205,7 +205,7 @@ class InventorySharedCarryForwardService:
                 raise CarryForwardReviewRequired("protected_target_cell")
 
     def _validate_plan(self, tenant_id: str, plan: CarryForwardPlan, *, source_id: str, target_id: str, source_meta: dict[str, Any], target_meta: dict[str, Any]) -> list[dict[str, Any]]:
-        if plan.contract_version != 2:
+        if plan.contract_version != 3:
             raise CarryForwardReviewRequired("carry_forward_plan_contract_outdated")
         target_sheets = {str((item.get("properties") or {}).get("title") or "") for item in target_meta.get("sheets") or []}
         if plan.issues:
@@ -216,8 +216,27 @@ class InventorySharedCarryForwardService:
         targets: set[tuple[str, str]] = set()
         with self.session_factory() as session:
             for row in plan.rows:
+                operation_type = str(row.get("type") or "set_cell")
                 source = row.get("source") or {}
                 target = row.get("target") or {}
+                if operation_type not in {"set_cell", "clear_cell"}:
+                    raise CarryForwardReviewRequired("unsupported_carry_forward_operation")
+                if target.get("spreadsheet_file_id") != target_id:
+                    raise CarryForwardReviewRequired("cross_workbook_plan")
+                target_cell = (str(target.get("sheet") or ""), str(target.get("cell") or "").upper())
+                if not all(target_cell):
+                    raise CarryForwardReviewRequired("invalid_target_cell")
+                if target_cell in targets:
+                    raise CarryForwardReviewRequired("duplicate_or_conflicting_target")
+                targets.add(target_cell)
+                if str(target.get("sheet") or "") not in target_sheets:
+                    raise CarryForwardReviewRequired("referenced_sheet_not_found")
+                self._assert_writable_target(target_meta, target_cell[0], target_cell[1])
+                if not target.get("evidence_hash"):
+                    raise CarryForwardReviewRequired("target_not_read")
+                if operation_type == "clear_cell":
+                    validated.append({**row, "type": operation_type, "target": {**target, "cell": target_cell[1]}})
+                    continue
                 material_id, warehouse_id = str(row.get("material_id") or ""), str(row.get("warehouse_id") or "")
                 if source.get("spreadsheet_file_id") != source_id or target.get("spreadsheet_file_id") != target_id:
                     raise CarryForwardReviewRequired("cross_workbook_plan")
@@ -231,14 +250,13 @@ class InventorySharedCarryForwardService:
                 opening_value = target.get("opening_value")
                 if _number(source_value) != _number(opening_value):
                     raise CarryForwardReviewRequired("closing_opening_mismatch")
-                target_cell = (str(target.get("sheet") or ""), str(target.get("cell") or "").upper())
-                if target_cell in targets:
-                    raise CarryForwardReviewRequired("duplicate_or_conflicting_target")
-                targets.add(target_cell)
                 self._assert_writable_target(target_meta, str(target.get("sheet")), str(target.get("cell")))
                 material_ids.add(material_id)
                 warehouse_ids.add(warehouse_id)
-                validated.append(row)
+                planned_value = row.get("value", target.get("opening_value"))
+                if _number(source_value) != _number(planned_value):
+                    raise CarryForwardReviewRequired("closing_opening_mismatch")
+                validated.append({**row, "type": operation_type, "value": planned_value, "target": {**target, "cell": target_cell[1]}})
         if not validated:
             raise CarryForwardReviewRequired("empty_carry_forward_plan")
         return validated
@@ -258,9 +276,9 @@ class InventorySharedCarryForwardService:
                 target_meta = google.spreadsheet_metadata(shared_id)
                 persisted = operation.plan_json if isinstance(operation.plan_json, dict) else None
                 if persisted and operation.status in {"applying", "verifying", "retryable_failure"}:
-                    if persisted.get("contract_version") != 2:
+                    if persisted.get("contract_version") != 3:
                         raise CarryForwardReviewRequired("carry_forward_plan_contract_outdated")
-                    plan = CarryForwardPlan(list(persisted.get("rows") or []), list(persisted.get("issues") or []), None, 2)
+                    plan = CarryForwardPlan(list(persisted.get("operations") or []), list(persisted.get("issues") or []), None, 3)
                 else:
                     with self.session_factory() as session:
                         row = session.get(InventoryDailyCarryForwardModel, operation.id)
@@ -271,37 +289,59 @@ class InventorySharedCarryForwardService:
                         shared_workbook_id=shared_id, prompt=f"{CARRY_FORWARD_PROMPT}\n\n=== TENANT BUSINESS INSTRUCTIONS ===\n{resolved.content}\n=== END TENANT BUSINESS INSTRUCTIONS ===\n\nThe server binds the two workbook roles; never request identifiers.", connection_id=connection_id,
                     )
                 rows = self._validate_plan(tenant_id, plan, source_id=source_id, target_id=shared_id, source_meta=source_meta, target_meta=target_meta)
-                plan_json = {"contract_version": 2, "rows": rows, "issues": plan.issues}
+                plan_json = {"contract_version": 3, "operations": rows, "issues": plan.issues}
                 plan_hash = hashlib.sha256(json.dumps(plan_json, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
-                updates: list[dict[str, Any]] = []
+                set_updates: list[dict[str, Any]] = []
+                clear_ranges: list[str] = []
+                # Validate every operation and its freshly-read evidence before
+                # any external mutation.  This keeps reset fields intact when a
+                # required opening set cannot safely be applied.
                 for row in rows:
-                    source, target = row["source"], row["target"]
-                    actual_source = self._cell_value(google, source_id, source["sheet"], source["cell"])
+                    source, target = row.get("source") or {}, row["target"]
                     actual_target = self._cell_value(google, shared_id, target["sheet"], target["cell"])
                     formula = self._cell_value(google, shared_id, target["sheet"], target["cell"], formula=True)
                     if str(formula).startswith("="):
                         raise CarryForwardReviewRequired("formula_target_cell")
-                    if canonical_hash([actual_source]) != source.get("evidence_hash") or canonical_hash([actual_target]) != target.get("evidence_hash"):
+                    if canonical_hash([actual_target]) != target.get("evidence_hash"):
+                        raise CarryForwardStaleEvidence("stale_evidence")
+                    if row["type"] == "clear_cell":
+                        if actual_target not in (None, ""):
+                            clear_ranges.append(f"'{target['sheet']}'!{target['cell']}")
+                        continue
+                    actual_source = self._cell_value(google, source_id, source["sheet"], source["cell"])
+                    if canonical_hash([actual_source]) != source.get("evidence_hash"):
                         raise CarryForwardStaleEvidence("stale_evidence")
                     if _number(actual_source) != _number(source["closing_value"]):
                         raise CarryForwardStaleEvidence("stale_evidence")
-                    if _number(actual_target) != _number(target["opening_value"]):
-                        updates.append({"range": f"'{target['sheet']}'!{target['cell']}", "values": [[target["opening_value"]]]})
+                    if _number(actual_source) != _number(row["value"]):
+                        raise CarryForwardStaleEvidence("stale_evidence")
+                    if _number(actual_target) != _number(row["value"]):
+                        set_updates.append({"range": f"'{target['sheet']}'!{target['cell']}", "values": [[row["value"]]]})
                 with self.session_factory() as session:
                     row = session.get(InventoryDailyCarryForwardModel, operation.id)
                     row.previous_snapshot_id, row.source_gemini_file_id, row.shared_target_file_id = snapshot_id, source_id, shared_id
-                    row.warehouse_sheet_identity_json, row.plan_json, row.plan_hash = {"contract_version": 2}, plan_json, plan_hash
-                    row.material_count = len({item["material_id"] for item in rows})
-                    row.warehouse_count = len({item["warehouse_id"] for item in rows})
+                    row.warehouse_sheet_identity_json, row.plan_json, row.plan_hash = {"contract_version": 3}, plan_json, plan_hash
+                    row.material_count = len({item.get("material_id") for item in rows if item.get("material_id")})
+                    row.warehouse_count = len({item.get("warehouse_id") for item in rows if item.get("warehouse_id")})
                     row.issue_count, row.status, row.started_at = len(plan.issues), "applying", inventory_utcnow()
                     session.commit()
-                if updates:
-                    google.batch_update_values(shared_id, updates)
+                if set_updates:
+                    google.batch_update_values(shared_id, set_updates)
                 for row in rows:
+                    if row["type"] == "clear_cell":
+                        continue
                     target = row["target"]
                     actual = self._cell_value(google, shared_id, target["sheet"], target["cell"])
-                    if _number(actual) != _number(target["opening_value"]):
+                    if _number(actual) != _number(row["value"]):
                         raise CarryForwardStaleEvidence("read_back_mismatch")
+                if clear_ranges:
+                    google.batch_clear_values(shared_id, clear_ranges)
+                for row in rows:
+                    if row["type"] != "clear_cell":
+                        continue
+                    target = row["target"]
+                    if self._cell_value(google, shared_id, target["sheet"], target["cell"]) not in (None, ""):
+                        raise CarryForwardStaleEvidence("clear_read_back_mismatch")
                 with self.session_factory() as session:
                     row = session.get(InventoryDailyCarryForwardModel, operation.id)
                     now = inventory_utcnow()

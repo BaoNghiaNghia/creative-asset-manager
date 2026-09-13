@@ -59,6 +59,41 @@ class CarryForwardToolHost:
             evidence.append(item)
         return {"role": role, "cells": evidence}
 
+    def _read_range(self, role: str, args: Mapping[str, Any]) -> dict[str, Any]:
+        sheet, a1_range = str(args.get("sheet") or ""), str(args.get("a1_range") or "")
+        if not sheet or not a1_range or len(a1_range) > 64:
+            raise CarryForwardReviewRequired("range_required")
+        result = self.google.batch_get_values(
+            self.source_id if role == "previous_gemini" else self.target_id,
+            [f"'{sheet}'!{a1_range}"], value_render_option="UNFORMATTED_VALUE",
+        )
+        # Range reads are evidence only when the returned address can be mapped
+        # unambiguously.  Reuse the cell reader for every bounded cell ledger.
+        values = (result[0].get("values") or []) if result else []
+        import re
+        match = re.fullmatch(r"([A-Za-z]+)(\d+):([A-Za-z]+)(\d+)", a1_range)
+        if not match or len(values) > 200:
+            raise CarryForwardReviewRequired("invalid_or_oversized_range")
+        def col(value: str) -> int:
+            total = 0
+            for char in value.upper(): total = total * 26 + ord(char) - ord("A") + 1
+            return total
+        start_col, start_row, end_col, end_row = col(match.group(1)), int(match.group(2)), col(match.group(3)), int(match.group(4))
+        if end_col < start_col or end_row < start_row or (end_col - start_col + 1) * (end_row - start_row + 1) > 500:
+            raise CarryForwardReviewRequired("invalid_or_oversized_range")
+        def cell(column: int, row: int) -> str:
+            letters = ""
+            while column:
+                column, remainder = divmod(column - 1, 26); letters = chr(65 + remainder) + letters
+            return f"{letters}{row}"
+        evidence = []
+        for row_index in range(start_row, end_row + 1):
+            for column_index in range(start_col, end_col + 1):
+                raw = values[row_index - start_row][column_index - start_col] if row_index - start_row < len(values) and column_index - start_col < len(values[row_index - start_row]) else None
+                item = {"sheet": sheet, "cell": cell(column_index, row_index), "raw_value": raw, "evidence_hash": _hash(sheet, cell(column_index, row_index), raw)}
+                self.ledger[(role, sheet, item["cell"])] = item; evidence.append(item)
+        return {"role": role, "cells": evidence}
+
     def _number(self, value: Any) -> Decimal:
         if value is None or (isinstance(value, str) and not value.strip()): raise CarryForwardReviewRequired("missing_closing_evidence")
         try: return Decimal(str(value).replace(",", "."))
@@ -75,17 +110,24 @@ class CarryForwardToolHost:
     def submit_carry_forward_plan(self, args: Mapping[str, Any]) -> dict[str, Any]:
         if self.submitted: raise CarryForwardReviewRequired("carry_forward_plan_already_submitted")
         self.submitted = True
-        rows, issues = list(args.get("rows") or []), list(args.get("issues") or [])
+        rows, issues = list(args.get("operations") or args.get("rows") or []), list(args.get("issues") or [])
         targets: set[tuple[str, str]] = set()
         accepted = []
         for row in rows:
+            operation_type = str(row.get("type") or "set_cell")
             source, target = dict(row.get("source") or {}), dict(row.get("target") or {})
             semantic_context = dict(row.get("semantic_context") or {})
             source_key = ("previous_gemini", str(source.get("sheet") or ""), str(source.get("cell") or "").upper())
             target_key = ("shared_current", str(target.get("sheet") or ""), str(target.get("cell") or "").upper())
             source_evidence, target_evidence = self.ledger.get(source_key), self.ledger.get(target_key)
-            if not source_evidence or not target_evidence: raise CarryForwardReviewRequired("target_or_source_not_read")
-            if source.get("evidence_hash") != source_evidence["evidence_hash"] or target.get("evidence_hash") != target_evidence["evidence_hash"]: raise CarryForwardReviewRequired("fabricated_evidence_hash")
+            if not target_evidence or (operation_type == "set_cell" and not source_evidence): raise CarryForwardReviewRequired("target_or_source_not_read")
+            if target.get("evidence_hash") != target_evidence["evidence_hash"] or (operation_type == "set_cell" and source.get("evidence_hash") != source_evidence["evidence_hash"]): raise CarryForwardReviewRequired("fabricated_evidence_hash")
+            if operation_type == "clear_cell":
+                if target_key[1:] in targets: raise CarryForwardReviewRequired("duplicate_or_conflicting_target")
+                targets.add(target_key[1:])
+                accepted.append({"type": "clear_cell", "semantic_context": semantic_context, "target": {**target, "spreadsheet_file_id": self.target_id}})
+                continue
+            if operation_type != "set_cell": raise CarryForwardReviewRequired("unsupported_carry_forward_operation")
             source_value = self._number(source_evidence["raw_value"])
             if self._number(source.get("closing_value")) != source_value or self._number(target.get("opening_value")) != source_value: raise CarryForwardReviewRequired("closing_opening_mismatch")
             if target_key[1:] in targets: raise CarryForwardReviewRequired("duplicate_or_conflicting_target")
@@ -95,12 +137,12 @@ class CarryForwardToolHost:
                 warehouse_ok = session.scalar(select(InventoryLocationModel.id).where(InventoryLocationModel.id == row.get("warehouse_id"), InventoryLocationModel.tenant_id == self.tenant_id, InventoryLocationModel.active.is_(True)))
             if not material_ok: raise CarryForwardReviewRequired("unknown_material")
             if not warehouse_ok: raise CarryForwardReviewRequired("unknown_warehouse")
-            accepted.append({"material_id": row.get("material_id"), "warehouse_id": row.get("warehouse_id"), "semantic_context": semantic_context, "source": {**source, "spreadsheet_file_id": self.source_id}, "target": {**target, "spreadsheet_file_id": self.target_id}})
-        self.plan = CarryForwardPlan(accepted, issues, None, 2)
-        return {"accepted": True, "rows": len(accepted), "issues": len(issues)}
+            accepted.append({"type": "set_cell", "material_id": row.get("material_id"), "warehouse_id": row.get("warehouse_id"), "semantic_context": semantic_context, "value": row.get("value", target.get("opening_value")), "source": {**source, "spreadsheet_file_id": self.source_id}, "target": {**target, "spreadsheet_file_id": self.target_id}})
+        self.plan = CarryForwardPlan(accepted, issues, None, 3)
+        return {"accepted": True, "operations": len(accepted), "issues": len(issues)}
 
     def execute(self, name: str, args: Mapping[str, Any]) -> dict[str, Any]:
-        handlers = {"get_source_workbook_metadata": lambda _: self._metadata("previous_gemini"), "get_target_workbook_metadata": lambda _: self._metadata("shared_current"), "read_source_cells": lambda a: self._read("previous_gemini", a), "read_target_cells": lambda a: self._read("shared_current", a), "read_source_range": lambda a: self._read("previous_gemini", a), "read_target_range": lambda a: self._read("shared_current", a), "get_material_catalog": lambda _: self._catalog(False), "get_warehouse_catalog": lambda _: self._catalog(True), "submit_carry_forward_plan": self.submit_carry_forward_plan}
+        handlers = {"get_source_workbook_metadata": lambda _: self._metadata("previous_gemini"), "get_target_workbook_metadata": lambda _: self._metadata("shared_current"), "read_source_cells": lambda a: self._read("previous_gemini", a), "read_target_cells": lambda a: self._read("shared_current", a), "read_source_range": lambda a: self._read_range("previous_gemini", a), "read_target_range": lambda a: self._read_range("shared_current", a), "get_material_catalog": lambda _: self._catalog(False), "get_warehouse_catalog": lambda _: self._catalog(True), "submit_carry_forward_plan": self.submit_carry_forward_plan}
         if name not in handlers: raise CarryForwardReviewRequired("unknown_carry_forward_tool")
         return handlers[name](args)
 
@@ -108,7 +150,7 @@ class CarryForwardToolHost:
 def function_declarations() -> list[dict[str, Any]]:
     cells = {"type": "object", "properties": {"sheet": {"type": "string"}, "cells": {"type": "array", "items": {"type": "string"}}}, "required": ["sheet", "cells"]}
     range_read = {"type": "object", "properties": {"sheet": {"type": "string"}, "a1_range": {"type": "string"}}, "required": ["sheet", "a1_range"]}
-    return [{"name": n, "parameters": cells if "cells" in n else range_read if "range" in n else {"type": "object", "properties": {}}} for n in ("get_source_workbook_metadata", "get_target_workbook_metadata", "read_source_cells", "read_target_cells", "read_source_range", "read_target_range", "get_material_catalog", "get_warehouse_catalog")] + [{"name": "submit_carry_forward_plan", "parameters": {"type": "object", "properties": {"rows": {"type": "array"}, "issues": {"type": "array"}}, "required": ["rows", "issues"]}}]
+    return [{"name": n, "parameters": cells if "cells" in n else range_read if "range" in n else {"type": "object", "properties": {}}} for n in ("get_source_workbook_metadata", "get_target_workbook_metadata", "read_source_cells", "read_target_cells", "read_source_range", "read_target_range", "get_material_catalog", "get_warehouse_catalog")] + [{"name": "submit_carry_forward_plan", "parameters": {"type": "object", "properties": {"operations": {"type": "array"}, "issues": {"type": "array"}}, "required": ["operations", "issues"]}}]
 
 
 class GeminiCarryForwardPlanner:
