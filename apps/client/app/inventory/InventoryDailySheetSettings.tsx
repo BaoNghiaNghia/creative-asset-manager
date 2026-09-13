@@ -170,7 +170,7 @@ export function InventoryDailySheetSettings() {
     if (window.confirm(label)) void execute(operation, "Operation completed.");
   };
 
-  return <section className="inventory-sheet-settings inventory-settings-redesign">
+  return <section className={"inventory-sheet-settings inventory-settings-redesign" + (isV4 ? " inventory-settings-v4" : "")}>
     <div className="inventory-settings-hero">
       <div><p className="inventory-kicker">THIẾT LẬP INVENTORY</p><h2>Tự động hóa kiểm kho hằng ngày</h2><p>Quản lý file Google Sheet, lịch chạy và quy tắc xử lý Inventory V4.1.</p></div>
       <span className={arming === "blocked" ? "inventory-blocked" : "inventory-ready"}>{arming === "enabled" ? "ĐANG TỰ ĐỘNG" : arming === "ready" ? "SẴN SÀNG BẬT" : "CHƯA SẴN SÀNG"}</span>
