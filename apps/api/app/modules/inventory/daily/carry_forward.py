@@ -32,7 +32,7 @@ from app.modules.assets.model import ExternalSourceModel
 from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
 
 
-CARRY_FORWARD_PROMPT = """You are planning one narrow Inventory operation: previous business day's Closing to current business day's Opening. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Investigate both using tools. Discover the fourth operational Inventory sheet from metadata. Resolve every material and warehouse through the canonical catalogs. Preserve every material × warehouse independently; never total then redistribute. Blank is not zero and explicit zero remains zero. Do not change inbound, outbound, waste, adjustment, notes, formulas, labels or identities. Every row must cite exact source Closing and target Opening evidence returned by tools. Report ambiguity as an issue. Finish by calling submit_carry_forward_plan exactly once. Never ask for Google login, plugins, URLs, user confirmation, or a filename."""
+CARRY_FORWARD_PROMPT = """You are planning a narrow previous-terminal-state to current-starting-state carry-forward. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Understand workbook roles, layouts, dimensions, and quantity representations from metadata and exact cell evidence; do not assume sheet positions, columns, rows, or labels have fixed meanings. Resolve canonical material and location identities through the tenant catalogs. Preserve every workbook-defined dimension independently and never total, redistribute, or invent conversions unless evidence and explicit business instructions justify it. Blank is not zero. Do not change formulas, labels, dates, units, notes, or unrelated fields. Every row must cite exact source and target evidence and structured semantic context. Report ambiguity as an issue. Finish by calling submit_carry_forward_plan exactly once. The backend controls authorization and write safety; you control workbook interpretation."""
 
 
 class CarryForwardError(RuntimeError):
@@ -51,7 +51,10 @@ class CarryForwardStaleEvidence(CarryForwardError):
 class CarryForwardPlan:
     rows: list[dict[str, Any]]
     issues: list[dict[str, Any]]
-    warehouse_sheet: dict[str, Any]
+    # Retained only for in-process adapter compatibility. It is neither
+    # persisted nor interpreted as a sheet-role decision.
+    legacy_metadata: dict[str, Any] | None = None
+    contract_version: int = 2
 
 
 class CarryForwardPlanner(Protocol):
@@ -200,19 +203,14 @@ class InventorySharedCarryForwardService:
                 raise CarryForwardReviewRequired("protected_target_cell")
 
     def _validate_plan(self, tenant_id: str, plan: CarryForwardPlan, *, source_id: str, target_id: str, source_meta: dict[str, Any], target_meta: dict[str, Any]) -> list[dict[str, Any]]:
-        sheets = [item.get("properties") or {} for item in target_meta.get("sheets") or []]
-        if len(sheets) < 4:
-            raise CarryForwardReviewRequired("warehouse_sheet_changed")
-        fourth = sheets[3]
-        expected = {"sheetId": fourth.get("sheetId"), "title": fourth.get("title"), "index": 3}
-        if plan.warehouse_sheet != expected:
-            raise CarryForwardReviewRequired("warehouse_sheet_changed")
+        if plan.contract_version != 2:
+            raise CarryForwardReviewRequired("carry_forward_plan_contract_outdated")
+        target_sheets = {str((item.get("properties") or {}).get("title") or "") for item in target_meta.get("sheets") or []}
         if plan.issues:
             raise CarryForwardReviewRequired("carry_forward_plan_has_issues")
         validated: list[dict[str, Any]] = []
         material_ids: set[str] = set()
         warehouse_ids: set[str] = set()
-        pairs: set[tuple[str, str]] = set()
         targets: set[tuple[str, str]] = set()
         with self.session_factory() as session:
             for row in plan.rows:
@@ -225,14 +223,16 @@ class InventorySharedCarryForwardService:
                     raise CarryForwardReviewRequired("unknown_material")
                 if not session.scalar(select(InventoryLocationModel.id).where(InventoryLocationModel.tenant_id == tenant_id, InventoryLocationModel.id == warehouse_id, InventoryLocationModel.active.is_(True))):
                     raise CarryForwardReviewRequired("unknown_warehouse")
+                if str(source.get("sheet") or "") not in {str((item.get("properties") or {}).get("title") or "") for item in source_meta.get("sheets") or []} or str(target.get("sheet") or "") not in target_sheets:
+                    raise CarryForwardReviewRequired("referenced_sheet_not_found")
                 source_value = source.get("closing_value")
                 opening_value = target.get("opening_value")
                 if _number(source_value) != _number(opening_value):
                     raise CarryForwardReviewRequired("closing_opening_mismatch")
-                pair, target_cell = (material_id, warehouse_id), (str(target.get("sheet") or ""), str(target.get("cell") or "").upper())
-                if pair in pairs or target_cell in targets:
+                target_cell = (str(target.get("sheet") or ""), str(target.get("cell") or "").upper())
+                if target_cell in targets:
                     raise CarryForwardReviewRequired("duplicate_or_conflicting_target")
-                pairs.add(pair); targets.add(target_cell)
+                targets.add(target_cell)
                 self._assert_writable_target(target_meta, str(target.get("sheet")), str(target.get("cell")))
                 material_ids.add(material_id)
                 warehouse_ids.add(warehouse_id)
@@ -248,14 +248,17 @@ class InventorySharedCarryForwardService:
             return operation
         try:
             with self.client_factory(self._token(connection_id)) as google:
-                source_meta = google.validate_native_spreadsheet(source_id)
+                google.validate_native_spreadsheet(source_id)
+                source_meta = google.spreadsheet_metadata(source_id)
                 target_drive = google.validate_native_spreadsheet(shared_id)
                 if (target_drive.get("capabilities") or {}).get("canEdit") is False:
                     raise CarryForwardError("shared_workbook_not_editable")
                 target_meta = google.spreadsheet_metadata(shared_id)
                 persisted = operation.plan_json if isinstance(operation.plan_json, dict) else None
                 if persisted and operation.status in {"applying", "verifying", "retryable_failure"}:
-                    plan = CarryForwardPlan(list(persisted.get("rows") or []), list(persisted.get("issues") or []), dict(persisted.get("warehouse_sheet") or {}))
+                    if persisted.get("contract_version") != 2:
+                        raise CarryForwardReviewRequired("carry_forward_plan_contract_outdated")
+                    plan = CarryForwardPlan(list(persisted.get("rows") or []), list(persisted.get("issues") or []), None, 2)
                 else:
                     with self.session_factory() as session:
                         row = session.get(InventoryDailyCarryForwardModel, operation.id)
@@ -266,7 +269,7 @@ class InventorySharedCarryForwardService:
                         shared_workbook_id=shared_id, prompt=f"{CARRY_FORWARD_PROMPT}\n\n=== TENANT BUSINESS INSTRUCTIONS ===\n{resolved.content}\n=== END TENANT BUSINESS INSTRUCTIONS ===\n\nThe server binds the two workbook roles; never request identifiers.", connection_id=connection_id,
                     )
                 rows = self._validate_plan(tenant_id, plan, source_id=source_id, target_id=shared_id, source_meta=source_meta, target_meta=target_meta)
-                plan_json = {"rows": rows, "issues": plan.issues, "warehouse_sheet": plan.warehouse_sheet}
+                plan_json = {"contract_version": 2, "rows": rows, "issues": plan.issues}
                 plan_hash = hashlib.sha256(json.dumps(plan_json, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
                 updates: list[dict[str, Any]] = []
                 for row in rows:
@@ -285,7 +288,7 @@ class InventorySharedCarryForwardService:
                 with self.session_factory() as session:
                     row = session.get(InventoryDailyCarryForwardModel, operation.id)
                     row.previous_snapshot_id, row.source_gemini_file_id, row.shared_target_file_id = snapshot_id, source_id, shared_id
-                    row.warehouse_sheet_identity_json, row.plan_json, row.plan_hash = plan.warehouse_sheet, plan_json, plan_hash
+                    row.warehouse_sheet_identity_json, row.plan_json, row.plan_hash = {"contract_version": 2}, plan_json, plan_hash
                     row.material_count = len({item["material_id"] for item in rows})
                     row.warehouse_count = len({item["warehouse_id"] for item in rows})
                     row.issue_count, row.status, row.started_at = len(plan.issues), "applying", inventory_utcnow()

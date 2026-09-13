@@ -25,6 +25,17 @@ PHASE2_TABLES = {
     "inventory_exports",
 }
 
+# Keep the historical Phase 2 aggregate precise while allowing later runtime
+# facilities to evolve independently.
+PHASE2_RUNTIME_TABLES = {
+    "inventory_jobs", "inventory_processing_controls", "inventory_ai_controls",
+    "inventory_review_events", "inventory_daily_run_events", "inventory_ai_credentials",
+    "inventory_ai_credential_audits", "inventory_daily_sheet_snapshots",
+    "inventory_daily_sheet_reconciliations", "inventory_daily_carry_forwards",
+    "inventory_prompt_versions", "inventory_material_external_identities",
+    "inventory_material_package_conversions", "inventory_material_candidates",
+}
+
 
 class InventoryPersistenceMetadataTest(unittest.TestCase):
     def test_phase2_defines_exactly_thirteen_business_tables(self) -> None:
@@ -32,7 +43,7 @@ class InventoryPersistenceMetadataTest(unittest.TestCase):
             name
             for name in Base.metadata.tables
             if name.startswith("inventory_")
-            and name not in {"inventory_jobs", "inventory_processing_controls", "inventory_ai_controls", "inventory_review_events", "inventory_daily_run_events", "inventory_ai_credentials", "inventory_ai_credential_audits", "inventory_daily_sheet_snapshots", "inventory_daily_sheet_reconciliations", "inventory_material_external_identities", "inventory_material_package_conversions", "inventory_material_candidates"}
+            and name not in PHASE2_RUNTIME_TABLES
         }
         self.assertEqual(inventory_tables, PHASE2_TABLES)
         for table_name in PHASE2_TABLES:

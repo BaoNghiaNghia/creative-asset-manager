@@ -54,6 +54,8 @@ class StagedEditOperation(V4Contract):
     copy_from: EvidenceReference | None = None
     reason: str = ""
     requires_review: bool = False
+    semantic_context: dict[str, Any] = Field(default_factory=dict)
+    transformation: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_shape(self):
@@ -110,3 +112,7 @@ class V4AgentRunResult(V4Contract):
     ranges_read: list[str] = Field(default_factory=list)
     tool_trace: list[dict[str, Any]] = Field(default_factory=list)
     writes: int = 0
+    slot_kind: str | None = None
+    business_prompt_source: str | None = None
+    business_prompt_version: str | None = None
+    business_prompt_hash: str | None = None

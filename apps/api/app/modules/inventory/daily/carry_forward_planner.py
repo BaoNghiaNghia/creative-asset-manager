@@ -41,7 +41,7 @@ class CarryForwardToolHost:
         file_id = self.source_id if role == "previous_gemini" else self.target_id if role == "shared_current" else None
         if not file_id: raise CarryForwardReviewRequired("invalid_workbook_role")
         metadata = self.google.spreadsheet_metadata(file_id)
-        return {"role": role, "sheets": [{"sheetId": (s.get("properties") or {}).get("sheetId"), "title": (s.get("properties") or {}).get("title"), "index": i} for i, s in enumerate(metadata.get("sheets") or [])]}
+        return {"role": role, "sheets": [{"sheetId": (s.get("properties") or {}).get("sheetId"), "title": (s.get("properties") or {}).get("title"), "index": i, "grid": (s.get("properties") or {}).get("gridProperties") or {}, "merged_ranges": s.get("merges") or [], "protected_ranges": s.get("protectedRanges") or []} for i, s in enumerate(metadata.get("sheets") or [])]}
 
     def _read(self, role: str, args: Mapping[str, Any]) -> dict[str, Any]:
         file_id = self.source_id if role == "previous_gemini" else self.target_id if role == "shared_current" else None
@@ -75,12 +75,12 @@ class CarryForwardToolHost:
     def submit_carry_forward_plan(self, args: Mapping[str, Any]) -> dict[str, Any]:
         if self.submitted: raise CarryForwardReviewRequired("carry_forward_plan_already_submitted")
         self.submitted = True
-        warehouse_sheet = dict(args.get("warehouse_sheet") or {})
         rows, issues = list(args.get("rows") or []), list(args.get("issues") or [])
         targets: set[tuple[str, str]] = set()
         accepted = []
         for row in rows:
             source, target = dict(row.get("source") or {}), dict(row.get("target") or {})
+            semantic_context = dict(row.get("semantic_context") or {})
             source_key = ("previous_gemini", str(source.get("sheet") or ""), str(source.get("cell") or "").upper())
             target_key = ("shared_current", str(target.get("sheet") or ""), str(target.get("cell") or "").upper())
             source_evidence, target_evidence = self.ledger.get(source_key), self.ledger.get(target_key)
@@ -95,8 +95,8 @@ class CarryForwardToolHost:
                 warehouse_ok = session.scalar(select(InventoryLocationModel.id).where(InventoryLocationModel.id == row.get("warehouse_id"), InventoryLocationModel.tenant_id == self.tenant_id, InventoryLocationModel.active.is_(True)))
             if not material_ok: raise CarryForwardReviewRequired("unknown_material")
             if not warehouse_ok: raise CarryForwardReviewRequired("unknown_warehouse")
-            accepted.append({"material_id": row.get("material_id"), "warehouse_id": row.get("warehouse_id"), "source": {**source, "spreadsheet_file_id": self.source_id}, "target": {**target, "spreadsheet_file_id": self.target_id}})
-        self.plan = CarryForwardPlan(accepted, issues, warehouse_sheet)
+            accepted.append({"material_id": row.get("material_id"), "warehouse_id": row.get("warehouse_id"), "semantic_context": semantic_context, "source": {**source, "spreadsheet_file_id": self.source_id}, "target": {**target, "spreadsheet_file_id": self.target_id}})
+        self.plan = CarryForwardPlan(accepted, issues, None, 2)
         return {"accepted": True, "rows": len(accepted), "issues": len(issues)}
 
     def execute(self, name: str, args: Mapping[str, Any]) -> dict[str, Any]:
@@ -107,7 +107,8 @@ class CarryForwardToolHost:
 
 def function_declarations() -> list[dict[str, Any]]:
     cells = {"type": "object", "properties": {"sheet": {"type": "string"}, "cells": {"type": "array", "items": {"type": "string"}}}, "required": ["sheet", "cells"]}
-    return [{"name": n, "parameters": cells if "cells" in n or "range" in n else {"type": "object", "properties": {}}} for n in ("get_source_workbook_metadata", "get_target_workbook_metadata", "read_source_cells", "read_target_cells", "read_source_range", "read_target_range", "get_material_catalog", "get_warehouse_catalog")] + [{"name": "submit_carry_forward_plan", "parameters": {"type": "object", "properties": {"warehouse_sheet": {"type": "object"}, "rows": {"type": "array"}, "issues": {"type": "array"}}, "required": ["warehouse_sheet", "rows", "issues"]}}]
+    range_read = {"type": "object", "properties": {"sheet": {"type": "string"}, "a1_range": {"type": "string"}}, "required": ["sheet", "a1_range"]}
+    return [{"name": n, "parameters": cells if "cells" in n else range_read if "range" in n else {"type": "object", "properties": {}}} for n in ("get_source_workbook_metadata", "get_target_workbook_metadata", "read_source_cells", "read_target_cells", "read_source_range", "read_target_range", "get_material_catalog", "get_warehouse_catalog")] + [{"name": "submit_carry_forward_plan", "parameters": {"type": "object", "properties": {"rows": {"type": "array"}, "issues": {"type": "array"}}, "required": ["rows", "issues"]}}]
 
 
 class GeminiCarryForwardPlanner:

@@ -85,7 +85,7 @@ class InventoryDailySheetV4Service:
         return asyncio.run(value) if hasattr(value, "__await__") else str(value)
 
     def run(
-        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None, context: Any | None = None,
+        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None, context: Any | None = None, prompt_mode: str = "frozen_operation",
     ) -> V4AgentRunResult:
         context = context or self.context_provider(tenant_id)
         return self.run_shadow(
@@ -94,11 +94,12 @@ class InventoryDailySheetV4Service:
             apply_mode=context.config.agent.apply_mode,
             slot_kind=slot_kind,
             context=context,
+            prompt_mode=prompt_mode,
         )
 
     def run_shadow(
         self, tenant_id: str, business_date: date, *, apply_mode: str = "shadow",
-        slot_kind: str | None = None, context: Any | None = None,
+        slot_kind: str | None = None, context: Any | None = None, prompt_mode: str = "frozen_operation",
     ) -> V4AgentRunResult:
         if apply_mode not in {"shadow", "review", "auto"}:
             raise V4AgentSafetyError("invalid_apply_mode")
@@ -112,14 +113,17 @@ class InventoryDailySheetV4Service:
         provider, models = self._runtime(tenant_id)
         resolver = InventoryPromptResolver(self.session_factory)
         resolved_prompt = None
-        with self.session_factory() as session:
-            snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
-                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
-                InventoryDailySheetSnapshotModel.business_date == business_date,
-            ))
-            if snapshot is not None and hasattr(snapshot, "gemini_prompt_content"):
-                resolved_prompt = resolver.freeze(snapshot, tenant_id, "daily_gemini_processing", prefix="gemini_prompt", legacy_goals=list(config.agent.business_goal or []))
-                session.commit()
+        if prompt_mode not in {"frozen_operation", "active_test"}:
+            raise V4AgentSafetyError("invalid_prompt_mode")
+        if prompt_mode == "frozen_operation":
+            with self.session_factory() as session:
+                snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                    InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                    InventoryDailySheetSnapshotModel.business_date == business_date,
+                ))
+                if snapshot is not None and hasattr(snapshot, "gemini_prompt_content"):
+                    resolved_prompt = resolver.freeze(snapshot, tenant_id, "daily_gemini_processing", prefix="gemini_prompt", legacy_goals=list(config.agent.business_goal or []))
+                    session.commit()
         if resolved_prompt is None:
             resolved_prompt = resolver.resolve(tenant_id, "daily_gemini_processing", legacy_goals=list(config.agent.business_goal or []))
         contents: list[dict[str, Any]] = [
@@ -294,6 +298,10 @@ class InventoryDailySheetV4Service:
                 ],
                 tool_trace=host.tool_trace,
                 writes=execution["writes"],
+                slot_kind=slot_kind,
+                business_prompt_source=resolved_prompt.source,
+                business_prompt_version=resolved_prompt.version,
+                business_prompt_hash=resolved_prompt.content_hash,
             )
             logger.info(
                 "inventory_sheet_agent_v4_completed",

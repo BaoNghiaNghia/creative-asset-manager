@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from copy import deepcopy
+from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from pydantic import ValidationError
@@ -399,6 +400,46 @@ class V4WorkbookToolHost:
             if current.evidence_hash != expected.evidence_hash:
                 raise V4AgentSafetyError("stale_evidence")
 
+    def _validate_generic_transform(self, operation) -> bool:
+        """Mechanically verify a declared transform, never its business meaning.
+
+        ``extract_component`` is deliberately generic: the prompt decides why a
+        delimiter represents a dimension; the host only checks the requested
+        split/select result against already-read source evidence.
+        """
+        transform = operation.transformation
+        if not transform:
+            # Legacy evidence-backed transforms retain their configured mode;
+            # new declared transforms below are mechanically recomputed.
+            return False
+        kind = str(transform.get("type") or "")
+        source_data = transform.get("source") or {}
+        try:
+            source = self._reference_evidence(EvidenceReference.model_validate(source_data))
+        except ValidationError as exc:
+            raise V4AgentSafetyError("missing_or_invalid_evidence") from exc
+        if kind == "exact_copy":
+            return operation.value != source.raw_value
+        if kind == "extract_component":
+            delimiter, index = str(transform.get("delimiter") or ""), transform.get("index")
+            if not delimiter or not isinstance(index, int) or not isinstance(source.raw_value, str):
+                return True
+            parts = source.raw_value.split(delimiter)
+            if index < 0 or index >= len(parts):
+                return True
+            expected = parts[index].strip()
+            if bool(transform.get("normalize_numeric")):
+                try:
+                    expected = str(Decimal(expected.replace(",", ".")))
+                    actual = str(Decimal(str(operation.value).replace(",", ".")))
+                except (InvalidOperation, ValueError):
+                    return True
+                return actual != expected
+            return str(operation.value).strip() != expected
+        # Catalog conversions require a separate evidence-backed conversion
+        # registry integration; unsupported transforms are review-only.
+        return True
+
     def stage_edits(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
         if self.staged is not None:
             raise V4AgentSafetyError("stage_edits_already_called")
@@ -445,6 +486,8 @@ class V4WorkbookToolHost:
                     if source.raw_value in (None, "") and operation.value in (0, "0"):
                         raise V4AgentSafetyError("blank_is_not_zero")
                     raise V4AgentSafetyError("exact_copy_value_mismatch")
+            if operation.provenance == "transformed" and self._validate_generic_transform(operation):
+                transformed = True
             if operation.requires_review:
                 transformed = True
             elif operation.provenance == "transformed" and not self.allow_auto_transforms:

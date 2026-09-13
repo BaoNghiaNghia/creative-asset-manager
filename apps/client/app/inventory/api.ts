@@ -119,6 +119,7 @@ export const inventoryDailySheetApi = {
   activatePrompt:(type:InventoryGeminiPrompt["prompt_type"],id:string)=>request<Record<string,unknown>>(`/daily-sheet/prompts/${encodeURIComponent(type)}/drafts/${encodeURIComponent(id)}/activate`,{method:"POST"}),
   restorePrompt:(type:InventoryGeminiPrompt["prompt_type"],id:string)=>request<Record<string,unknown>>(`/daily-sheet/prompts/${encodeURIComponent(type)}/versions/${encodeURIComponent(id)}/restore`,{method:"POST"}),
   resetPrompt:(type:InventoryGeminiPrompt["prompt_type"])=>request<Record<string,unknown>>(`/daily-sheet/prompts/${encodeURIComponent(type)}/reset`,{method:"POST"}),
+  rerunCurrentGemini:()=>request<Record<string,unknown>>("/daily-sheet/agent-v4/rerun-current",{method:"POST"}),
 };
 
 

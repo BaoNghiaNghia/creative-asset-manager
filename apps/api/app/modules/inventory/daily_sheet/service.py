@@ -639,6 +639,19 @@ class InventoryDailySheetService:
             context=self._v4_runtime_context(tenant_id, business_date, context),
         )
 
+    def rerun_agent_v4_current(self, tenant_id: str, business_date: date):
+        """Run a new active-prompt test against the persisted Gemini copy only."""
+        context = self._context(tenant_id, require_enabled=False)
+        if not isinstance(context.config, GeminiToolSheetAgentConfig):
+            raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
+        # _v4_runtime_context requires the existing persisted gemini_file_id;
+        # importantly it never clones or mutates the immutable snapshot.
+        runtime = self._v4_runtime_context(tenant_id, business_date, context)
+        return self._agent_v4().run(
+            tenant_id, business_date, slot_kind="manual_prompt_test", context=runtime,
+            prompt_mode="active_test",
+        )
+
     def is_agent_v3_configured(self, tenant_id: str) -> bool:
         context = self._context(tenant_id, require_enabled=False)
         return isinstance(context.config, GeminiSheetAgentConfig)

@@ -245,6 +245,25 @@ def run_agent_v4(
             detail={"code": getattr(exc, "code", type(exc).__name__), "message": str(exc)},
         ) from exc
 
+@router.post("/agent-v4/rerun-current")
+def rerun_agent_v4_current(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    service = _service()
+    try:
+        if not service.is_agent_v4_configured(principal.active_tenant_id):
+            raise HTTPException(409, detail={"code": "gemini_tool_sheet_agent_not_configured"})
+        return service.rerun_agent_v4_current(
+            principal.active_tenant_id, _business_date(principal.active_tenant_id, None)
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        code = getattr(exc, "code", type(exc).__name__)
+        if "not ready" in str(exc).lower():
+            code = "daily_gemini_workbook_not_ready"
+        raise HTTPException(409, detail={"code": code, "message": str(exc)}) from exc
+
 @router.post("/reconcile/run")
 def run_reconcile(body: RunRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
     try: return _service().reconcile(principal.active_tenant_id, _business_date(principal.active_tenant_id, body.business_date), dry_run=body.dry_run)
