@@ -12,6 +12,7 @@ from app.modules.inventory.daily.carry_forward import (
     CarryForwardPlan,
     InventorySharedCarryForwardService,
 )
+from app.modules.inventory.daily.carry_forward_planner import CarryForwardToolHost
 from app.modules.inventory.daily_sheet.parser import canonical_hash
 from app.modules.inventory.persistence_model import (
     InventoryDailyCarryForwardModel,
@@ -152,4 +153,27 @@ def test_read_back_mismatch_is_not_completed():
     result = InventorySharedCarryForwardService(sessions, client_factory=lambda _token: google, token_resolver=lambda _id: "token", planner=Planner(rows)).run("tenant-a", date(2030, 8, 10))
     assert result.status == "retryable_failure"
     assert result.error_code == "stale_evidence"
+    engine.dispose(); temp.cleanup()
+
+
+def test_tool_host_requires_grounded_evidence_and_rejects_conflicting_target():
+    temp, engine, sessions = make_db()
+    google = Google()
+    host = CarryForwardToolHost(tenant_id="tenant-a", source_id="gemini", target_id="shared", google=google, sessions=sessions)
+    source = host.execute("read_source_cells", {"sheet": "Warehouses", "cells": ["H14"]})["cells"][0]
+    target = host.execute("read_target_cells", {"sheet": "Warehouses", "cells": ["B14"]})["cells"][0]
+    payload = {"warehouse_sheet": {"sheetId": 4, "title": "Warehouses", "index": 3}, "issues": [], "rows": [{"material_id": "material-a", "warehouse_id": "warehouse-a", "source": {**source, "closing_value": 50}, "target": {**target, "opening_value": 50}}]}
+    assert host.execute("submit_carry_forward_plan", payload)["accepted"] is True
+    assert host.plan is not None and host.plan.rows[0]["source"]["spreadsheet_file_id"] == "gemini"
+    engine.dispose(); temp.cleanup()
+
+
+def test_tool_host_rejects_blank_and_fabricated_or_unread_evidence():
+    temp, engine, sessions = make_db()
+    host = CarryForwardToolHost(tenant_id="tenant-a", source_id="gemini", target_id="shared", google=Google(source_values={"H14": None}), sessions=sessions)
+    source = host.execute("read_source_cells", {"sheet": "Warehouses", "cells": ["H14"]})["cells"][0]
+    target = host.execute("read_target_cells", {"sheet": "Warehouses", "cells": ["B14"]})["cells"][0]
+    import pytest
+    with pytest.raises(Exception, match="missing_closing_evidence"):
+        host.execute("submit_carry_forward_plan", {"warehouse_sheet": {}, "issues": [], "rows": [{"material_id": "material-a", "warehouse_id": "warehouse-a", "source": {**source, "closing_value": ""}, "target": {**target, "opening_value": ""}}]})
     engine.dispose(); temp.cleanup()

@@ -397,3 +397,9 @@ class DailySheetSchedulerTest(unittest.TestCase):
             0,
             scheduler.run_once(datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)),
         )
+
+    def test_default_scheduler_uses_real_carry_forward_planner(self):
+        from app.modules.inventory.daily.carry_forward_planner import GeminiCarryForwardPlanner
+        class Sheets: pass
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=Sheets())
+        self.assertIsInstance(scheduler.carry_forward_service.planner, GeminiCarryForwardPlanner)

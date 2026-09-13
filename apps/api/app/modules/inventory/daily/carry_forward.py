@@ -31,9 +31,7 @@ from app.providers.google.auth import get_connection_access_token
 from app.modules.assets.model import ExternalSourceModel
 
 
-CARRY_FORWARD_PROMPT = """You are preparing the shared Inventory workbook for a new business day.
-Your only business operation is previous-day closing inventory to current-day opening inventory.
-Use the previous day's verified Gemini workbook as source evidence and the current shared workbook as target structure. Preserve every material and warehouse independently. The fourth operational Inventory sheet contains warehouse allocation when workbook evidence supports it. Do not combine warehouse quantities into a total and redistribute them. Do not alter inbound, outbound, waste, adjustment, notes, formulas, labels, identities, or unrelated cells. Blank is not zero. Return exact source evidence and exact target cells in a structured carry-forward plan. Do not write cells yourself."""
+CARRY_FORWARD_PROMPT = """You are planning one narrow Inventory operation: previous business day's Closing to current business day's Opening. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Investigate both using tools. Discover the fourth operational Inventory sheet from metadata. Resolve every material and warehouse through the canonical catalogs. Preserve every material × warehouse independently; never total then redistribute. Blank is not zero and explicit zero remains zero. Do not change inbound, outbound, waste, adjustment, notes, formulas, labels or identities. Every row must cite exact source Closing and target Opening evidence returned by tools. Report ambiguity as an issue. Finish by calling submit_carry_forward_plan exactly once. Never ask for Google login, plugins, URLs, user confirmation, or a filename."""
 
 
 class CarryForwardError(RuntimeError):
@@ -58,7 +56,7 @@ class CarryForwardPlan:
 class CarryForwardPlanner(Protocol):
     def plan(
         self, *, tenant_id: str, previous_gemini_file_id: str,
-        shared_workbook_id: str, prompt: str,
+        shared_workbook_id: str, prompt: str, connection_id: str = "",
     ) -> CarryForwardPlan: ...
 
 
@@ -115,7 +113,12 @@ class InventorySharedCarryForwardService:
         self.session_factory = session_factory
         self.client_factory = client_factory
         self.token_resolver = token_resolver
-        self.planner = planner or UnavailableCarryForwardPlanner()
+        if planner is None:
+            # Import here to avoid the production builder importing this module at
+            # module-load time. Explicit injection remains available for tests.
+            from app.modules.inventory.daily.carry_forward_planner import build_carry_forward_planner
+            planner = build_carry_forward_planner(session_factory=session_factory, client_factory=client_factory, token_resolver=token_resolver)
+        self.planner = planner
 
     def _token(self, connection_id: str) -> str:
         value = self.token_resolver(connection_id)
@@ -208,6 +211,8 @@ class InventorySharedCarryForwardService:
         validated: list[dict[str, Any]] = []
         material_ids: set[str] = set()
         warehouse_ids: set[str] = set()
+        pairs: set[tuple[str, str]] = set()
+        targets: set[tuple[str, str]] = set()
         with self.session_factory() as session:
             for row in plan.rows:
                 source = row.get("source") or {}
@@ -223,6 +228,10 @@ class InventorySharedCarryForwardService:
                 opening_value = target.get("opening_value")
                 if _number(source_value) != _number(opening_value):
                     raise CarryForwardReviewRequired("closing_opening_mismatch")
+                pair, target_cell = (material_id, warehouse_id), (str(target.get("sheet") or ""), str(target.get("cell") or "").upper())
+                if pair in pairs or target_cell in targets:
+                    raise CarryForwardReviewRequired("duplicate_or_conflicting_target")
+                pairs.add(pair); targets.add(target_cell)
                 self._assert_writable_target(target_meta, str(target.get("sheet")), str(target.get("cell")))
                 material_ids.add(material_id)
                 warehouse_ids.add(warehouse_id)
@@ -243,10 +252,14 @@ class InventorySharedCarryForwardService:
                 if (target_drive.get("capabilities") or {}).get("canEdit") is False:
                     raise CarryForwardError("shared_workbook_not_editable")
                 target_meta = google.spreadsheet_metadata(shared_id)
-                plan = self.planner.plan(
-                    tenant_id=tenant_id, previous_gemini_file_id=source_id,
-                    shared_workbook_id=shared_id, prompt=CARRY_FORWARD_PROMPT,
-                )
+                persisted = operation.plan_json if isinstance(operation.plan_json, dict) else None
+                if persisted and operation.status in {"applying", "verifying", "retryable_failure"}:
+                    plan = CarryForwardPlan(list(persisted.get("rows") or []), list(persisted.get("issues") or []), dict(persisted.get("warehouse_sheet") or {}))
+                else:
+                    plan = self.planner.plan(
+                        tenant_id=tenant_id, previous_gemini_file_id=source_id,
+                        shared_workbook_id=shared_id, prompt=CARRY_FORWARD_PROMPT, connection_id=connection_id,
+                    )
                 rows = self._validate_plan(tenant_id, plan, source_id=source_id, target_id=shared_id, source_meta=source_meta, target_meta=target_meta)
                 plan_json = {"rows": rows, "issues": plan.issues, "warehouse_sheet": plan.warehouse_sheet}
                 plan_hash = hashlib.sha256(json.dumps(plan_json, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
