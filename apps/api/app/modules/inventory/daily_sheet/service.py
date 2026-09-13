@@ -647,10 +647,50 @@ class InventoryDailySheetService:
         # _v4_runtime_context requires the existing persisted gemini_file_id;
         # importantly it never clones or mutates the immutable snapshot.
         runtime = self._v4_runtime_context(tenant_id, business_date, context)
-        return self._agent_v4().run(
-            tenant_id, business_date, slot_kind="manual_prompt_test", context=runtime,
-            prompt_mode="active_test",
+        from uuid import uuid4
+        from app.modules.inventory.jobs.model import InventoryJobModel
+        from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
+        resolved = InventoryPromptResolver(self.session_factory).resolve(
+            tenant_id, "daily_gemini_processing",
+            legacy_goals=list(context.config.agent.business_goal or []),
         )
+        run_id = str(uuid4())
+        with self.session_factory() as session:
+            self._lock(session, f"inventory-manual-gemini:{tenant_id}:{business_date}")
+            active = session.scalar(select(InventoryJobModel.id).where(
+                InventoryJobModel.tenant_id == tenant_id,
+                InventoryJobModel.job_type == "inventory_v4_manual_prompt_test",
+                InventoryJobModel.entity_id == business_date.isoformat(),
+                InventoryJobModel.status.in_(("pending", "processing", "retry")),
+            ))
+            if active:
+                raise DailySheetConfigurationError("inventory_gemini_manual_run_in_progress")
+            job = InventoryJobModel(
+                id=run_id, tenant_id=tenant_id, job_type="inventory_v4_manual_prompt_test",
+                entity_type="daily_sheet_snapshot", entity_id=business_date.isoformat(),
+                idempotency_key=f"manual-gemini:{tenant_id}:{business_date.isoformat()}:{run_id}",
+                status="processing", attempt_count=1, max_attempts=1,
+                payload_json={"slot_kind": "manual_prompt_test", "gemini_file_id": runtime.runtime_target_file_id, "prompt_source": resolved.source, "prompt_version": resolved.version, "prompt_hash": resolved.content_hash, "prompt_content": resolved.content},
+            )
+            session.add(job); session.commit()
+        try:
+            result = self._agent_v4().run(
+                tenant_id, business_date, slot_kind="manual_prompt_test", context=runtime,
+                prompt_mode="active_test", prompt_override=resolved, run_id=run_id,
+            )
+            with self.session_factory() as session:
+                job = session.get(InventoryJobModel, run_id)
+                job.status, job.completed_at = "completed", inventory_utcnow()
+                job.payload_json = {**job.payload_json, "status": result.status, "plan_hash": result.plan_hash, "writes": result.writes}
+                session.commit()
+            return result
+        except Exception as exc:
+            with self.session_factory() as session:
+                job = session.get(InventoryJobModel, run_id)
+                if job:
+                    job.status, job.last_error_code, job.last_error_message = "failed", str(getattr(exc, "code", type(exc).__name__))[:100], str(exc)[:1000]
+                    session.commit()
+            raise
 
     def is_agent_v3_configured(self, tenant_id: str) -> bool:
         context = self._context(tenant_id, require_enabled=False)
@@ -1401,6 +1441,10 @@ class InventoryDailySheetService:
                 "enabled": enabled,
                 "configured": configured,
                 "execution_mode": "v4_slots" if is_v4 else "legacy_daily_run",
+                "agent_apply_mode": (
+                    str(((settings.daily_sheet_config_json or {}).get("agent") or {}).get("apply_mode") or "shadow")
+                    if is_v4 and settings else None
+                ),
                 "operational_state": "disabled" if not enabled else ("degraded" if degraded else "healthy"),
                 "image_pipeline_enabled": bool(settings and settings.image_pipeline_enabled),
                 "timezone": timezone_name,

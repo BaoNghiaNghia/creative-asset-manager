@@ -260,7 +260,9 @@ def rerun_agent_v4_current(
         raise
     except Exception as exc:
         code = getattr(exc, "code", type(exc).__name__)
-        if "not ready" in str(exc).lower():
+        if str(exc) == "inventory_gemini_manual_run_in_progress":
+            code = "inventory_gemini_manual_run_in_progress"
+        elif "not ready" in str(exc).lower():
             code = "daily_gemini_workbook_not_ready"
         raise HTTPException(409, detail={"code": code, "message": str(exc)}) from exc
 

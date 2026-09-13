@@ -15,7 +15,7 @@ from app.core.config import Settings, get_settings
 from app.modules.inventory.ai.gateway import InventoryAiGatewayError, RuntimeInventoryGeminiGateway
 from app.modules.inventory.credentials import InventoryGeminiCredentialResolver
 from app.modules.inventory.model import InventoryAiControlModel
-from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
+from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver, ResolvedInventoryPrompt
 from app.modules.inventory.persistence_model import InventoryDailySheetSnapshotModel
 
 from .contracts import V4AgentRunResult
@@ -85,7 +85,7 @@ class InventoryDailySheetV4Service:
         return asyncio.run(value) if hasattr(value, "__await__") else str(value)
 
     def run(
-        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None, context: Any | None = None, prompt_mode: str = "frozen_operation",
+        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None, context: Any | None = None, prompt_mode: str = "frozen_operation", prompt_override: ResolvedInventoryPrompt | None = None, run_id: str | None = None,
     ) -> V4AgentRunResult:
         context = context or self.context_provider(tenant_id)
         return self.run_shadow(
@@ -95,11 +95,13 @@ class InventoryDailySheetV4Service:
             slot_kind=slot_kind,
             context=context,
             prompt_mode=prompt_mode,
+            prompt_override=prompt_override,
+            run_id=run_id,
         )
 
     def run_shadow(
         self, tenant_id: str, business_date: date, *, apply_mode: str = "shadow",
-        slot_kind: str | None = None, context: Any | None = None, prompt_mode: str = "frozen_operation",
+        slot_kind: str | None = None, context: Any | None = None, prompt_mode: str = "frozen_operation", prompt_override: ResolvedInventoryPrompt | None = None, run_id: str | None = None,
     ) -> V4AgentRunResult:
         if apply_mode not in {"shadow", "review", "auto"}:
             raise V4AgentSafetyError("invalid_apply_mode")
@@ -124,6 +126,8 @@ class InventoryDailySheetV4Service:
                 if snapshot is not None and hasattr(snapshot, "gemini_prompt_content"):
                     resolved_prompt = resolver.freeze(snapshot, tenant_id, "daily_gemini_processing", prefix="gemini_prompt", legacy_goals=list(config.agent.business_goal or []))
                     session.commit()
+        if prompt_override is not None:
+            resolved_prompt = prompt_override
         if resolved_prompt is None:
             resolved_prompt = resolver.resolve(tenant_id, "daily_gemini_processing", legacy_goals=list(config.agent.business_goal or []))
         contents: list[dict[str, Any]] = [
@@ -268,7 +272,7 @@ class InventoryDailySheetV4Service:
                 if execution["status"] == "completed"
                 else "shadow"
             )
-            run_id = hashlib.sha256(
+            computed_run_id = hashlib.sha256(
                 f"inventory-v4:{tenant_id}:{business_date.isoformat()}:{slot_kind or 'manual'}:{digest}".encode(
                     "utf-8"
                 )
@@ -276,7 +280,7 @@ class InventoryDailySheetV4Service:
             result = V4AgentRunResult(
                 apply_mode=apply_mode,
                 status=status,
-                run_id=run_id,
+                run_id=run_id or computed_run_id,
                 tenant_id=tenant_id,
                 spreadsheet_file_id=context.runtime_target_file_id,
                 business_date=business_date.isoformat(),
@@ -306,7 +310,7 @@ class InventoryDailySheetV4Service:
             logger.info(
                 "inventory_sheet_agent_v4_completed",
                 extra={
-                    "run_id": run_id,
+                    "run_id": result.run_id,
                     "tenant_id": tenant_id,
                     "spreadsheet_id": context.runtime_target_file_id,
                     "business_date": business_date.isoformat(),
