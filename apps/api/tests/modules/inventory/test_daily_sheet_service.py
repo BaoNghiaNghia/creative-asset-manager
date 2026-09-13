@@ -982,16 +982,36 @@ def test_v4_snapshot_copies_workbook_beside_source_before_agent_run(daily_sheet_
                 "parents": ["source-parent"],
             }
 
+        def copy_spreadsheet(self, source_id, **kwargs):
+            self.copy_calls += 1
+            self.copy_requests = getattr(self, "copy_requests", []) + [
+                {"source_id": source_id, **kwargs}
+            ]
+            return {"id": "snapshot" if self.copy_calls == 1 else "gemini-copy"}
+
     google = V4SnapshotGoogle()
     worker = service(daily_sheet_db, google)
     result = worker.snapshot_v4_workbook("tenant-a", date(2030, 8, 9))
 
     assert result.status == "completed"
     assert result.snapshot_file_id == "snapshot"
+    assert result.gemini_file_id == "gemini-copy"
     assert result.archive_folder_id == "source-parent"
-    assert google.copy_calls == 1
+    assert google.copy_calls == 2
+    assert [call["source_id"] for call in google.copy_requests] == ["working", "snapshot"]
     assert worker.snapshot_v4_workbook("tenant-a", date(2030, 8, 9)).id == result.id
-    assert google.copy_calls == 1
+    assert google.copy_calls == 2
+
+    class AgentV4:
+        def run(self, *_args, **_kwargs):
+            raise AssertionError("snapshot slot must not invoke Gemini")
+
+    worker.agent_v4_service = AgentV4()
+    snapshot_slot = worker.run_agent_v4(
+        "tenant-a", date(2030, 8, 9), slot_kind="snapshot"
+    )
+    assert snapshot_slot.status == "completed"
+    assert snapshot_slot.writes == 0
 
 
 def test_v4_manual_shadow_runs_while_daily_automation_is_disabled(daily_sheet_db):
@@ -1001,25 +1021,36 @@ def test_v4_manual_shadow_runs_while_daily_automation_is_disabled(daily_sheet_db
         def __init__(self):
             self.calls = []
 
-        def run_shadow(self, tenant_id, business_date):
-            self.calls.append((tenant_id, business_date))
+        def run_shadow(self, tenant_id, business_date, *, context=None):
+            self.calls.append((tenant_id, business_date, context.runtime_target_file_id))
             return SimpleNamespace(status="shadow", writes=0)
 
     agent = AgentV4()
     worker = InventoryDailySheetService(
         daily_sheet_db,
-        client_factory=lambda _token: (_ for _ in ()).throw(
-            AssertionError("legacy Google validation called")
-        ),
+        client_factory=lambda _token: google,
         token_resolver=lambda _connection: "token",
         agent_v4_service=agent,
     )
 
+    google = FakeGoogle()
+    google.validate_native_spreadsheet = lambda file_id: {
+        "id": file_id, "name": "Inventory", "modifiedTime": google.modified,
+        "parents": ["source-parent"],
+    }
+    google.drive_file = lambda file_id: {
+        "id": file_id, "modifiedTime": google.modified,
+        "parents": ["source-parent"],
+    }
+    def v4_copy(source_id, **kwargs):
+        google.copy_calls += 1
+        return {"id": "snapshot" if google.copy_calls == 1 else "gemini-copy"}
+    google.copy_spreadsheet = v4_copy
     result = worker.run_agent_v4_shadow("tenant-a", date(2030, 8, 9))
 
     assert result.status == "shadow"
     assert result.writes == 0
-    assert agent.calls == [("tenant-a", date(2030, 8, 9))]
+    assert agent.calls == [("tenant-a", date(2030, 8, 9), "gemini-copy")]
 
 
 def test_v4_snapshot_rejects_manual_shadow_mode_and_reconcile_is_report_only(

@@ -48,6 +48,8 @@ export type InventoryDailySheetStatus = {
     status:string;
     snapshot_file_id:string|null;
     snapshot_url:string|null;
+    gemini_file_id:string|null;
+    gemini_url:string|null;
     archive_folder_url:string|null;
     error_code:string|null;
     completed_at:string|null;

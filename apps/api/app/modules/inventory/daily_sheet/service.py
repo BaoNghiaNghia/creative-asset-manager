@@ -28,12 +28,17 @@ class SheetContext:
     tenant_id: str
     external_source_id: str
     connection_id: str
-    working_file_id: str
+    configured_source_file_id: str
     archive_root_id: str
     template_file_id: str | None
     target_file_id: str
     config: DailySheetAnyConfig
     scopes: tuple[str, ...]
+    runtime_target_file_id: str | None = None
+
+    @property
+    def working_file_id(self) -> str:
+        return self.runtime_target_file_id or self.configured_source_file_id
 
 def _parse_time(value: Any) -> datetime | None:
     if not value: return None
@@ -435,7 +440,10 @@ class InventoryDailySheetService:
                 )
                 session.add(row)
                 session.flush()
-            if row.status == "completed":
+            if row.status == "completed" and (
+                not isinstance(context.config, GeminiToolSheetAgentConfig)
+                or row.gemini_file_id
+            ):
                 session.expunge(row)
                 return row, False
             updated_at = row.updated_at
@@ -531,7 +539,29 @@ class InventoryDailySheetService:
                         persisted.status = "cloned"
                         persisted.cloned_at = inventory_utcnow()
                         session.commit()
-                after = _parse_time(google.drive_file(context.working_file_id).get("modifiedTime"))
+                gemini_id = row.gemini_file_id
+                if not gemini_id:
+                    copied = google.copy_spreadsheet(
+                        str(snapshot_id), folder_id=source_parent_id,
+                        name=(f"{str(source.get('name') or 'Inventory').strip()}"
+                              f" - {business_date.isoformat()}_gemini"),
+                        tenant_id=tenant_id, business_date=business_date.isoformat(),
+                    )
+                    gemini_id = str(copied["id"])
+                    if gemini_id in {context.configured_source_file_id, snapshot_id}:
+                        raise DailySheetValidationError("gemini_copy_conflicts_with_source_or_snapshot")
+                    gemini = google.validate_native_spreadsheet(gemini_id)
+                    if (gemini.get("capabilities") or {}).get("canEdit") is False:
+                        raise DailySheetValidationError("inventory_gemini_workbook_not_editable")
+                    with self.session_factory() as session:
+                        persisted = session.get(InventoryDailySheetSnapshotModel, row.id)
+                        persisted.gemini_file_id = gemini_id
+                        session.commit()
+                else:
+                    gemini = google.validate_native_spreadsheet(str(gemini_id))
+                    if (gemini.get("capabilities") or {}).get("canEdit") is False:
+                        raise DailySheetValidationError("inventory_gemini_workbook_not_editable")
+                after = _parse_time(google.drive_file(context.configured_source_file_id).get("modifiedTime"))
                 if before != after:
                     raise DailySheetValidationError("source_changed_during_snapshot")
             with self.session_factory() as session:
@@ -556,6 +586,17 @@ class InventoryDailySheetService:
                     session.commit()
             raise
 
+    def _v4_runtime_context(self, tenant_id: str, business_date: date, context: SheetContext) -> SheetContext:
+        with self.session_factory() as session:
+            row = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == business_date,
+            ))
+            gemini_file_id = row.gemini_file_id if row else None
+        if not gemini_file_id:
+            raise DailySheetConfigurationError("Daily Gemini working workbook is not ready.")
+        return replace(context, runtime_target_file_id=str(gemini_file_id))
+
     def _agent_v4(self):
         if self.agent_v4_service is None:
             from app.modules.inventory.daily_sheet.agent_v4.service import build_daily_sheet_v4_service
@@ -577,7 +618,11 @@ class InventoryDailySheetService:
         context = self._context(tenant_id, require_enabled=False)
         if not isinstance(context.config, GeminiToolSheetAgentConfig):
             raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
-        return self._agent_v4().run_shadow(tenant_id, business_date)
+        self.snapshot_v4_workbook(tenant_id, business_date)
+        return self._agent_v4().run_shadow(
+            tenant_id, business_date,
+            context=self._v4_runtime_context(tenant_id, business_date, context),
+        )
 
     def run_agent_v4(
         self, tenant_id: str, business_date: date, *, slot_kind: str | None = None
@@ -585,9 +630,13 @@ class InventoryDailySheetService:
         context = self._context(tenant_id, require_enabled=False)
         if not isinstance(context.config, GeminiToolSheetAgentConfig):
             raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
+        if slot_kind == "snapshot":
+            snapshot = self.snapshot_v4_workbook(tenant_id, business_date)
+            return type("V4SnapshotSlotResult", (), {"status": "completed", "writes": 0, "snapshot_id": snapshot.id})()
         self.snapshot_v4_workbook(tenant_id, business_date)
         return self._agent_v4().run(
-            tenant_id, business_date, slot_kind=slot_kind
+            tenant_id, business_date, slot_kind=slot_kind,
+            context=self._v4_runtime_context(tenant_id, business_date, context),
         )
 
     def is_agent_v3_configured(self, tenant_id: str) -> bool:
@@ -1217,6 +1266,8 @@ class InventoryDailySheetService:
                         f"https://docs.google.com/spreadsheets/d/{snap.snapshot_file_id}/edit"
                         if snap.snapshot_file_id else None
                     ),
+                    "gemini_file_id": snap.gemini_file_id,
+                    "gemini_url": (f"https://docs.google.com/spreadsheets/d/{snap.gemini_file_id}/edit" if snap.gemini_file_id else None),
                     "archive_folder_url": (
                         f"https://drive.google.com/drive/folders/{snap.archive_folder_id}"
                         if snap.archive_folder_id else None
@@ -1283,6 +1334,8 @@ class InventoryDailySheetService:
                             if stored_v4_snapshot
                             else None
                         ),
+                        "gemini_file_id": (stored_v4_snapshot.get("gemini_file_id") if stored_v4_snapshot else None),
+                        "gemini_url": (stored_v4_snapshot.get("gemini_url") if stored_v4_snapshot else None),
                     }
                 )
                 reconciliation_status = (

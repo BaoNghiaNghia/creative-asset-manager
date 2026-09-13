@@ -653,7 +653,8 @@ def test_real_v4_service_tool_loop_is_shadow_and_does_not_call_legacy_parsers():
         session_factory=SessionFactory(control=control),
         gateway=ScriptedGateway(),
         context_provider=lambda _tenant: SimpleNamespace(
-            config=config, working_file_id="sheet-1", connection_id="connection-1"
+            config=config, configured_source_file_id="sheet-1",
+            runtime_target_file_id="gemini-copy", connection_id="connection-1"
         ),
         client_factory=lambda _token: google,
         token_resolver=lambda _connection: "oauth-token",
@@ -672,8 +673,12 @@ def test_real_v4_service_tool_loop_is_shadow_and_does_not_call_legacy_parsers():
     assert result.run_id is not None
     assert len(result.run_id) == 64
     assert result.writes == 0
+    assert result.spreadsheet_file_id == "gemini-copy"
     assert google.mutation_calls == []
     assert google.closed is True
+    initial_prompt = service.gateway.requests[0]["contents"][0]["parts"][0]["text"]
+    assert '"spreadsheet_file_id": "gemini-copy"' in initial_prompt
+    assert "Do not ask the operator for another workbook URL or file ID." in initial_prompt
 
 
 def test_stage_tool_schema_is_authoritative_and_contains_operations():
@@ -709,7 +714,8 @@ def test_configured_spreadsheet_identity_mismatch_fails_before_gemini():
         session_factory=SessionFactory(control=control),
         gateway=gateway,
         context_provider=lambda _tenant: SimpleNamespace(
-            config=config, working_file_id="sheet-1", connection_id="connection-1"
+            config=config, configured_source_file_id="sheet-1",
+            runtime_target_file_id="gemini-copy", connection_id="connection-1"
         ),
         client_factory=lambda _token: FakeGoogle(),
         token_resolver=lambda _connection: "oauth-token",
@@ -740,7 +746,8 @@ def test_round_limit_fails_closed_and_closes_google():
         session_factory=SessionFactory(control=control),
         gateway=gateway,
         context_provider=lambda _tenant: SimpleNamespace(
-            config=config, working_file_id="sheet-1", connection_id="connection-1"
+            config=config, configured_source_file_id="sheet-1",
+            runtime_target_file_id="gemini-copy", connection_id="connection-1"
         ),
         client_factory=lambda _token: google,
         token_resolver=lambda _connection: "oauth-token",
@@ -1228,7 +1235,8 @@ def v41_service(*, gateway, google, business_goal=None):
         gateway=gateway,
         context_provider=lambda _tenant: SimpleNamespace(
             config=config,
-            working_file_id="sheet-1",
+            configured_source_file_id="sheet-1",
+            runtime_target_file_id="gemini-copy",
             connection_id="connection-1",
         ),
         client_factory=lambda _token: google,

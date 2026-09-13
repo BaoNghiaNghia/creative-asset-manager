@@ -425,6 +425,8 @@ describe("Inventory Daily tab", () => {
           status: "completed",
           snapshot_file_id: "file-1",
           snapshot_url: "https://docs.google.com/spreadsheets/d/snapshot",
+          gemini_file_id: "file-2",
+          gemini_url: "https://docs.google.com/spreadsheets/d/gemini-copy",
           archive_folder_url: null,
           error_code: null,
           completed_at: "2026-08-26T05:51:00+07:00",
@@ -438,7 +440,7 @@ describe("Inventory Daily tab", () => {
           error_code: null,
           completed_at: "2026-08-26T07:02:00+07:00",
         },
-      }}
+    }}
       run={{
         id: "run-1",
         business_date: "2026-08-26",
@@ -452,6 +454,8 @@ describe("Inventory Daily tab", () => {
         finalized_by: null,
       }}
     />);
+    expect(markup).toContain("Mở original snapshot");
+    expect(markup).toContain("Mở Gemini working copy");
     for (const value of ["Inventory hằng ngày", "27/08/2026", "26/08/2026", "Ngày dữ liệu đang xử lý", "Sẵn sàng", "206", "4 thay đổi", "Snapshot gần nhất", "Đối soát gần nhất", "Chụp dữ liệu lúc 05:50", "Chu kỳ hiện không có vấn đề"]) {
       expect(markup).toContain(value);
     }

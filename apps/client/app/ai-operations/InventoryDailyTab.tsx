@@ -163,9 +163,10 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
       </article>
       <article className="ops-inventory-card">
         <header><div><span className="ops-inventory-card-kicker">Bước 1</span><h3>Snapshot gần nhất</h3></div><span className={"ops-inventory-card-status " + (snapshot?.status === "completed" ? "success" : "muted")}>{processStatusLabel(snapshot?.status)}</span></header>
-        <p>Bản chụp dữ liệu trước khi hệ thống thực hiện đối soát.</p>
+        <p>Bản snapshot bất biến và workbook Gemini được tạo từ snapshot để xử lý độc lập.</p>
         <dl><div><dt>Ngày dữ liệu</dt><dd>{businessDate(snapshot?.business_date)}</dd></div><div><dt>Hoàn thành lúc</dt><dd>{dateTime(snapshot?.completed_at)}</dd></div><div><dt>Lỗi</dt><dd>{snapshot?.error_code || "Không có"}</dd></div></dl>
-        {snapshot?.snapshot_url ? <a href={snapshot.snapshot_url} target="_blank" rel="noreferrer">Mở snapshot ↗</a> : null}
+        {snapshot?.snapshot_url ? <a href={snapshot.snapshot_url} target="_blank" rel="noreferrer">Mở original snapshot ↗</a> : null}
+        {snapshot?.gemini_url ? <a href={snapshot.gemini_url} target="_blank" rel="noreferrer">Mở Gemini working copy ↗</a> : null}
       </article>
       <article className="ops-inventory-card">
         <header><div><span className="ops-inventory-card-kicker">Bước 2</span><h3>Đối soát gần nhất</h3></div><span className={"ops-inventory-card-status " + (reconciliation?.status === "completed" ? "success" : "muted")}>{processStatusLabel(reconciliation?.status)}</span></header>

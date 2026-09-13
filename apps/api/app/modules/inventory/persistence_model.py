@@ -942,6 +942,8 @@ class InventoryDailySheetSnapshotModel(Base):
     source_data_hash: Mapped[str | None] = mapped_column(String(64))
     archive_folder_id: Mapped[str | None] = mapped_column(String(2048))
     snapshot_file_id: Mapped[str | None] = mapped_column(String(2048))
+    # Immutable snapshot and writable Gemini copy have separate authority.
+    gemini_file_id: Mapped[str | None] = mapped_column(String(2048))
     snapshot_data_hash: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

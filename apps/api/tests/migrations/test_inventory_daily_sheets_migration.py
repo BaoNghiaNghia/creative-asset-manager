@@ -12,3 +12,12 @@ def test_inventory_daily_sheet_migration_is_single_head_successor():
     assert "uq_inventory_sheet_reconcile_tenant_date" in source
     assert "image_pipeline_enabled" in source
     assert "daily_sheet_automation_enabled" in source
+
+
+def test_daily_gemini_copy_migration_follows_current_head_and_is_reversible():
+    migration = Path(__file__).resolve().parents[4] / "database/migrations/versions/0069_inventory_daily_gemini_copy.py"
+    source = migration.read_text()
+    assert 'revision = "0069_inventory_daily_gemini_copy"' in source
+    assert 'down_revision = "0068_heavy_video_resource_lane"' in source
+    assert '"gemini_file_id"' in source
+    assert 'op.drop_column("inventory_daily_sheet_snapshots", "gemini_file_id")' in source

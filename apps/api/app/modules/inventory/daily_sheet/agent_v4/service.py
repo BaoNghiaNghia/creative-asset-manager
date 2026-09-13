@@ -21,7 +21,7 @@ from .tools import V4AgentSafetyError, V4WorkbookToolHost, function_declarations
 
 logger = logging.getLogger("cam.inventory.daily_sheet.agent_v4")
 
-V4_PROMPT_VERSION = "inventory-sheet-tool-agent-v4-2"
+V4_PROMPT_VERSION = "inventory-sheet-tool-agent-v4-3"
 V4_HIGH_LEVEL_GOAL = """Act as an investigative Inventory workbook operator in a safety-controlled environment.
 Start with workbook metadata, then read enough exact cell evidence to understand the workbook's own labels, structure, formulas, values, operational rows and field relationships.
 Do not assume the first range is sufficient, and do not assume fixed headers, columns, rows or ranges.
@@ -35,6 +35,7 @@ Perform a silent completeness check, then call stage_edits exactly once. A ready
 Preserve formulas, protected or merged structure, workbook labels and exact raw quantity representations.
 The host enforces evidence revalidation and mechanical safeguards before any configured live write.
 Do not expose hidden chain-of-thought, credentials, API requests or full sensitive provider responses."""
+V4_TARGET_AUTHORITY = """The backend has already created and selected the writable daily Gemini workbook. The spreadsheet supplied to you is the authorized Gemini working copy. Do not determine authorization from the visible workbook title. Do not ask the operator for another workbook URL or file ID. Do not ask the operator to connect Google Drive or Google Sheets. Do not ask the operator to sign into Google. Google access is handled by the server-side Inventory integration."""
 
 
 class V4AgentUnavailable(RuntimeError):
@@ -82,34 +83,37 @@ class InventoryDailySheetV4Service:
         return asyncio.run(value) if hasattr(value, "__await__") else str(value)
 
     def run(
-        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None
+        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None, context: Any | None = None,
     ) -> V4AgentRunResult:
-        context = self.context_provider(tenant_id)
+        context = context or self.context_provider(tenant_id)
         return self.run_shadow(
             tenant_id,
             business_date,
             apply_mode=context.config.agent.apply_mode,
             slot_kind=slot_kind,
+            context=context,
         )
 
     def run_shadow(
         self, tenant_id: str, business_date: date, *, apply_mode: str = "shadow",
-        slot_kind: str | None = None,
+        slot_kind: str | None = None, context: Any | None = None,
     ) -> V4AgentRunResult:
         if apply_mode not in {"shadow", "review", "auto"}:
             raise V4AgentSafetyError("invalid_apply_mode")
-        context = self.context_provider(tenant_id)
+        context = context or self.context_provider(tenant_id)
         config = context.config
         configured_file_id = config.source.spreadsheet_file_id
-        if configured_file_id and configured_file_id != context.working_file_id:
+        if configured_file_id and configured_file_id != context.configured_source_file_id:
             raise V4AgentSafetyError("spreadsheet_not_authorized")
+        if not context.runtime_target_file_id:
+            raise V4AgentSafetyError("gemini_workbook_not_authorized")
         provider, models = self._runtime(tenant_id)
         contents: list[dict[str, Any]] = [
             {
                 "role": "user",
                 "parts": [
                     {
-                        "text": V4_HIGH_LEVEL_GOAL
+                        "text": V4_HIGH_LEVEL_GOAL + "\n" + V4_TARGET_AUTHORITY
                         + "\n"
                         + json.dumps(
                             {
@@ -117,7 +121,7 @@ class InventoryDailySheetV4Service:
                                 "business_date": business_date.isoformat(),
                                 "slot_kind": slot_kind,
                                 "apply_mode": apply_mode,
-                                "spreadsheet_file_id": context.working_file_id,
+                                "spreadsheet_file_id": context.runtime_target_file_id,
                                 "allowed_sheets": config.source.allowed_sheets,
                                 "business_goal": config.agent.business_goal,
                                 "allow_auto_evidence_backed_transforms": config.agent.allow_auto_evidence_backed_transforms,
@@ -142,7 +146,7 @@ class InventoryDailySheetV4Service:
         google = self.client_factory(self._token(context.connection_id))
         host = V4WorkbookToolHost(
             tenant_id=tenant_id,
-            spreadsheet_file_id=context.working_file_id,
+            spreadsheet_file_id=context.runtime_target_file_id,
             allowed_sheets=config.source.allowed_sheets,
             google=google,
             session_factory=self.session_factory,
@@ -253,7 +257,7 @@ class InventoryDailySheetV4Service:
                 status=status,
                 run_id=run_id,
                 tenant_id=tenant_id,
-                spreadsheet_file_id=context.working_file_id,
+                spreadsheet_file_id=context.runtime_target_file_id,
                 business_date=business_date.isoformat(),
                 tool_rounds=rounds,
                 read_calls=host.read_calls,
@@ -279,7 +283,7 @@ class InventoryDailySheetV4Service:
                 extra={
                     "run_id": run_id,
                     "tenant_id": tenant_id,
-                    "spreadsheet_id": context.working_file_id,
+                    "spreadsheet_id": context.runtime_target_file_id,
                     "business_date": business_date.isoformat(),
                     "tool_rounds": rounds,
                     "read_calls": host.read_calls,
