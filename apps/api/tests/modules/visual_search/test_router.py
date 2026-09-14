@@ -17,6 +17,7 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.main import app
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.authorization.folder_scope import ViewerFolderScopeModel
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
 from PIL import Image
@@ -176,7 +177,7 @@ class VisualByAssetApiTest(unittest.TestCase):
             effective_permissions=frozenset({"search.read"}), platform_admin=False,
             session_id="session", authorization_source="tenant_rbac",
         )
-        response = self._post({"asset_id": "asset-a", "external_source_id": "source-a"})
+        response = self._post({"asset_id": "asset-a", "scope": "source", "external_source_id": "source-a"})
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"]["code"], "visual_query_asset_not_found")
 
@@ -398,6 +399,53 @@ class VisualByAssetApiTest(unittest.TestCase):
             {"kind": "upload", "outcome": "unavailable", "value": 1}
         ])
 
+
+    def test_pure_viewer_cannot_expand_scope_and_folder_scope_is_authorized(self):
+        app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
+            user_id="viewer-a", active_tenant_id="tenant-a", membership_id="membership-a",
+            external_identity=None, effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset({"search.read"}), platform_admin=False,
+            session_id="session", authorization_source="tenant_rbac",
+        )
+        with self.factory() as session:
+            session.add_all([
+                ViewerFolderScopeModel(tenant_id="tenant-a", tenant_membership_id="membership-a", external_source_id="source-a", folder_external_id="assigned-a", folder_name="Assigned"),
+                SourceAssetModel(id="source-asset-a", tenant_id="tenant-a", external_source_id="source-a", external_asset_id="file-a", filename="file.png", mime_type="image/png", source_metadata={"parents": ["assigned-a"]}),
+                AssetSourceLinkModel(id="link-a", tenant_id="tenant-a", asset_id="asset-a", source_asset_id="source-asset-a"),
+            ])
+            session.commit()
+        global_scope = self._post({"asset_id": "asset-a", "scope": "all"})
+        self.assertEqual(global_scope.status_code, 422)
+        self.assertEqual(global_scope.json()["detail"]["code"], "viewer_source_required")
+        allowed_folder = self._post({"asset_id": "asset-a", "scope": "folder", "external_source_id": "source-a", "folder_id": "assigned-a"})
+        self.assertEqual(allowed_folder.status_code, 200)
+        forbidden_folder = self._post({"asset_id": "asset-a", "scope": "folder", "external_source_id": "source-a", "folder_id": "other-folder"})
+        self.assertEqual(forbidden_folder.status_code, 404)
+        self.assertEqual(forbidden_folder.json()["detail"]["code"], "visual_scope_folder_not_found")
+
+    def test_scope_filters_and_cursor_are_bound(self):
+        source = self._post({"asset_id": "asset-a", "scope": "source", "external_source_id": "source-a", "limit": 1})
+        self.assertEqual(source.status_code, 200)
+        _embedding, kwargs = _Index.calls[-1]
+        self.assertIn({"terms": {"source_id": ["source-a"]}}, kwargs["scope"].access_filters)
+        all_resources = self._post({"asset_id": "asset-a", "scope": "all", "external_source_id": "source-a"})
+        self.assertEqual(all_resources.status_code, 200)
+        _embedding, all_kwargs = _Index.calls[-1]
+        self.assertNotIn({"terms": {"source_id": ["source-a"]}}, all_kwargs["scope"].access_filters)
+        cursor = source.json()["next_cursor"]
+        self.assertIsNotNone(cursor)
+        changed_scope = self._post({"asset_id": "asset-a", "scope": "folder", "external_source_id": "source-a", "folder_id": "folder-a", "cursor": cursor, "limit": 1})
+        self.assertEqual(changed_scope.status_code, 422)
+        folder = self._post({"asset_id": "asset-a", "scope": "folder", "external_source_id": "source-a", "folder_id": "folder-a"})
+        self.assertEqual(folder.status_code, 200)
+        _embedding, kwargs = _Index.calls[-1]
+        self.assertIn({"term": {"ancestor_ids": "folder-a"}}, kwargs["scope"].access_filters)
+        missing_source = self._post({"asset_id": "asset-a", "scope": "source"})
+        self.assertEqual(missing_source.status_code, 422)
+        self.assertEqual(missing_source.json()["detail"]["code"], "visual_scope_source_required")
+        missing_folder = self._post({"asset_id": "asset-a", "scope": "folder", "external_source_id": "source-a"})
+        self.assertEqual(missing_folder.status_code, 422)
+        self.assertEqual(missing_folder.json()["detail"]["code"], "visual_scope_folder_required")
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,13 +14,13 @@ class VisualRankingWeights:
 
     image: float = 0.82
     text: float = 0.18
-    max_per_source: int = 2
+    max_per_source: int = 0
 
     def __post_init__(self) -> None:
         if self.image <= 0 or self.text < 0 or self.image + self.text <= 0:
             raise ValueError("visual ranking weights must include image weight")
-        if self.max_per_source < 1:
-            raise ValueError("max_per_source must be at least one")
+        if self.max_per_source < 0:
+            raise ValueError("max_per_source must be zero or greater")
 
 
 def fuse_embeddings(
@@ -55,7 +55,7 @@ def diversify_hits(
         if hit.content_sha256 in seen_content:
             continue
         source_key = hit.source_id or ""
-        if source_key and source_counts.get(source_key, 0) >= weights.max_per_source:
+        if weights.max_per_source > 0 and source_key and source_counts.get(source_key, 0) >= weights.max_per_source:
             continue
         seen_content.add(hit.content_sha256)
         if source_key:

@@ -27,7 +27,7 @@ from app.modules.search.schema import SearchCoreFilters
 from app.modules.visual_search.contracts import VisualEmbedding, VisualEncoderUnavailableError
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex, VisualSearchScope
 from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
-from app.modules.visual_search.schema import NormalizedCrop, VisualSearchByAssetRequest, VisualSearchResponse
+from app.modules.visual_search.schema import NormalizedCrop, VisualQueryScope, VisualSearchByAssetRequest, VisualSearchResponse
 from app.modules.visual_search.preprocess import VisualImagePreparationError, VisualPreprocessLimits, decode_visual_image
 from app.modules.visual_search.ranking import VisualRankingWeights, diversify_hits, fuse_embeddings
 from app.modules.visual_search.service import VisualSearchDisabledError, VisualSearchService
@@ -62,6 +62,10 @@ _BOUNDED_ERROR_CODES = {
     "visual_encoder_unavailable",
     "visual_search_unavailable",
     "visual_source_unavailable",
+    "visual_scope_invalid",
+    "visual_scope_source_required",
+    "visual_scope_folder_required",
+    "visual_scope_folder_not_found",
     "visual_query_asset_not_found",
     "visual_query_asset_stale",
     "visual_query_embedding_pending",
@@ -229,6 +233,30 @@ def _ranking_weights(settings) -> VisualRankingWeights:
     )
 
 
+def _visual_scope_filters(session, principal: CurrentPrincipal, *, scope: VisualQueryScope, source_provider: str | None, external_source_id: str | None, folder_id: str | None):
+    """Normalize explicit visual scope without bypassing Search V3 viewer filters."""
+    tenant = principal.active_tenant_id
+    if scope not in {"all", "source", "folder"}:
+        raise HTTPException(422, detail={"code": "visual_scope_invalid"})
+    if scope == "all":
+        if is_pure_viewer(principal):
+            raise HTTPException(422, detail={"code": "viewer_source_required", "message": "Viewer search must use an authorized source or folder."})
+        return _search_scope_filters(session, principal, source_provider=None, external_source_id=None)
+    if not (external_source_id or "").strip():
+        raise HTTPException(422, detail={"code": "visual_scope_source_required"})
+    filters, viewer_key, restricted = _search_scope_filters(session, principal, source_provider=source_provider, external_source_id=external_source_id)
+    if scope == "folder":
+        if not (folder_id or "").strip():
+            raise HTTPException(422, detail={"code": "visual_scope_folder_required"})
+        if restricted:
+            access = ViewerFolderScopeService(session).access(tenant_id=tenant, membership_id=principal.membership_id, roles=principal.effective_roles, external_source_id=external_source_id)
+            if not ViewerFolderScopeService(session).allows_external_asset(tenant_id=tenant, access=access, external_asset_id=folder_id):
+                raise HTTPException(404, detail={"code": "visual_scope_folder_not_found"})
+        filters.append({"term": {"source_id": external_source_id}})
+        filters.append({"term": {"ancestor_ids": folder_id}})
+    return filters, viewer_key, restricted
+
+
 async def _text_embedding(request: Request, text: str) -> VisualEmbedding:
     value = text.strip()
     if not value:
@@ -289,8 +317,6 @@ async def find_similar_by_asset(
         raise HTTPException(503, detail={"code": exc.code, "message": "Visual search is disabled.", "retryable": False}) from exc
     if not settings.ELASTICSEARCH_URL:
         raise HTTPException(503, detail={"code": "visual_search_unavailable", "message": "Visual search is temporarily unavailable.", "retryable": True})
-    if is_pure_viewer(principal) and not (body.external_source_id or "").strip():
-        raise HTTPException(422, detail={"code": "viewer_source_required", "message": "A search source is required for scoped Viewer search."})
     if body.crop is not None:
         return await _find_similar_by_asset_crop(request, body, principal, settings)
 
@@ -299,8 +325,8 @@ async def find_similar_by_asset(
         asset = session.scalar(select(AssetModel).where(AssetModel.tenant_id == tenant, AssetModel.id == body.asset_id))
         if asset is None:
             raise HTTPException(404, detail={"code": "visual_query_asset_not_found", "message": "Asset is unavailable."})
-        filters, viewer_scope_key, viewer_restricted = _search_scope_filters(
-            session, principal, source_provider=body.source_provider, external_source_id=body.external_source_id,
+        filters, viewer_scope_key, viewer_restricted = _visual_scope_filters(
+            session, principal, scope=body.scope, source_provider=body.source_provider, external_source_id=body.external_source_id, folder_id=body.folder_id,
         )
         if viewer_restricted:
             access = ViewerFolderScopeService(session).access(
@@ -321,7 +347,10 @@ async def find_similar_by_asset(
         "tenant": tenant, "asset": asset.id, "hash": asset.content_hash,
         "text": body.text,
         "filters": body.filters.model_dump(mode="json", exclude_none=True),
-        "source_provider": body.source_provider, "external_source_id": body.external_source_id,
+        "scope": body.scope,
+        "folder_id": body.folder_id,
+        "source_provider": body.source_provider,
+        "external_source_id": body.external_source_id,
         "viewer": viewer_scope_key, "schema": descriptor.embedding_schema_version,
     }, sort_keys=True, default=str).encode()).hexdigest()
     offset = _cursor_offset(body.cursor, fingerprint=fingerprint)
@@ -511,8 +540,10 @@ async def _upload_embedding(
 async def find_similar_by_upload(
     request: Request,
     file: UploadFile = File(...),
+    scope: VisualQueryScope = Query("all"),
     source_provider: Literal["google-drive", "onedrive", "sharepoint"] | None = Query(None),
     external_source_id: str | None = Query(default=None, max_length=128),
+    folder_id: str | None = Query(default=None, max_length=2048),
     filters: str | None = Query(default=None, max_length=4096),
     crop: str | None = Query(default=None, max_length=512),
     text: str | None = Query(default=None, max_length=500),
@@ -548,15 +579,6 @@ async def find_similar_by_upload(
                 "retryable": True,
             },
         )
-    if is_pure_viewer(principal) and not (external_source_id or "").strip():
-        raise HTTPException(
-            422,
-            detail={
-                "code": "viewer_source_required",
-                "message": "A search source is required for scoped Viewer search.",
-            },
-        )
-
     try:
         content = await _read_upload_bytes(file)
     finally:
@@ -574,11 +596,9 @@ async def find_similar_by_upload(
     parsed_filters = _parse_upload_filters(filters)
     tenant = principal.active_tenant_id
     with SessionLocal() as session:
-        access_filters, viewer_scope_key, viewer_restricted = _search_scope_filters(
-            session,
-            principal,
-            source_provider=source_provider,
-            external_source_id=external_source_id,
+        access_filters, viewer_scope_key, viewer_restricted = _visual_scope_filters(
+            session, principal, scope=scope, source_provider=source_provider,
+            external_source_id=external_source_id, folder_id=folder_id,
         )
         session.commit()
 
@@ -589,6 +609,7 @@ async def find_similar_by_upload(
                 "content": hashlib.sha256(content).hexdigest(),
                 "text": text,
                 "filters": parsed_filters.model_dump(mode="json", exclude_none=True),
+                "scope": scope, "folder_id": folder_id,
                 "source_provider": source_provider,
                 "external_source_id": external_source_id,
                 "viewer": viewer_scope_key,
@@ -748,11 +769,9 @@ async def _find_similar_by_asset_crop(
                     "message": "Asset is unavailable.",
                 },
             )
-        access_filters, viewer_scope_key, viewer_restricted = _search_scope_filters(
-            session,
-            principal,
-            source_provider=body.source_provider,
-            external_source_id=body.external_source_id,
+        access_filters, viewer_scope_key, viewer_restricted = _visual_scope_filters(
+            session, principal, scope=body.scope, source_provider=body.source_provider,
+            external_source_id=body.external_source_id, folder_id=body.folder_id,
         )
         source_query = (
             select(SourceAssetModel)
@@ -768,7 +787,7 @@ async def _find_similar_by_asset_crop(
             )
             .order_by(SourceAssetModel.id)
         )
-        if body.external_source_id:
+        if body.scope in {"source", "folder"} and body.external_source_id:
             source_query = source_query.where(
                 SourceAssetModel.external_source_id == body.external_source_id
             )
@@ -828,6 +847,8 @@ async def _find_similar_by_asset_crop(
                 "crop": body.crop.model_dump(mode="json"),
                 "text": body.text,
                 "filters": body.filters.model_dump(mode="json", exclude_none=True),
+                "scope": body.scope,
+                "folder_id": body.folder_id,
                 "source_provider": body.source_provider,
                 "external_source_id": body.external_source_id,
                 "viewer": viewer_scope_key,

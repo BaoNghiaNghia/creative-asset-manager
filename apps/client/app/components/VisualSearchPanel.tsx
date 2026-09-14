@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { VisualCrop } from "../hooks/useVisualSearch";
+import type { VisualCrop, VisualSearchScope } from "../hooks/useVisualSearch";
 import type { Asset } from "../types";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 type Reference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string } | null;
-type Props = { reference: Reference; loading: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; };
+type Props = { scope: VisualSearchScope; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; };
 const fullCrop: VisualCrop = { x: 0, y: 0, width: 1, height: 1 };
 
 export function isHeicReference(asset: Pick<Asset, "mime_type" | "name">): boolean {
@@ -18,7 +18,7 @@ export function visualReferencePreviewUrl(reference: Reference): string | null {
   return assetPreviewUrl(reference.asset);
 }
 
-export function VisualSearchPanel({ reference, loading, error, refinement, onRefinementChange, onUpload, onApplyCrop, onRetry, onClose }: Props) {
+export function VisualSearchPanel({ scope, onScopeChange, hasCurrentSource, hasCurrentFolder, reference, loading, error, refinement, onRefinementChange, onUpload, onApplyCrop, onRetry, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [crop, setCrop] = useState<VisualCrop>(fullCrop);
   useEffect(() => setCrop(fullCrop), [reference?.kind, reference?.kind === "asset" ? reference.asset.internal_asset_id : reference?.kind === "upload" ? reference.file.name : ""]);
@@ -31,7 +31,7 @@ export function VisualSearchPanel({ reference, loading, error, refinement, onRef
   });
   return <section className="visual-search-panel" aria-label="Visual search">
     <header><div><small>VISUAL SEARCH</small><h2>Find similar images</h2></div><button type="button" className="visual-search-close" onClick={onClose} aria-label="Close visual search" title="Close">×</button></header>
-    {!reference && <div className="visual-search-empty"><p>Choose an existing image or upload a reference image. Your upload is only used for this search.</p><button type="button" className="visual-primary" onClick={() => inputRef.current?.click()}>Upload reference image</button></div>}
+    <fieldset className="visual-search-scope"><legend>Search scope</legend>{([ ["all", "All resources"], ["source", "Current source"], ["folder", "Current folder"] ] as const).map(([value, label]) => <label key={value}><input type="radio" name="visual-scope" checked={scope === value} disabled={value === "source" ? !hasCurrentSource : value === "folder" ? !hasCurrentFolder : false} onChange={() => onScopeChange(value)} />{label}</label>)}</fieldset>{!reference && <div className="visual-search-empty"><p>Choose an existing image or upload a reference image. Your upload is only used for this search.</p><button type="button" className="visual-primary" onClick={() => inputRef.current?.click()}>Upload reference image</button></div>}
     {reference && <div className="visual-search-workspace">
       <div className="visual-reference"><div className="visual-reference-preview">{preview && <img src={preview} alt="" />}<span className="visual-crop-rectangle" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }} aria-hidden="true" /></div><p>{reference.kind === "asset" ? reference.asset.name : reference.file.name}</p></div>
       <fieldset className="visual-crop-controls"><legend>Crop region</legend>{(["x", "y", "width", "height"] as const).map(key => <label key={key}><span>{key === "x" ? "Left" : key === "y" ? "Top" : key === "width" ? "Width" : "Height"}</span><input type="range" min="0" max={key === "width" ? 1 - crop.x : key === "height" ? 1 - crop.y : 0.99} step="0.01" value={crop[key]} onChange={event => update(key, Number(event.target.value))} /></label>)}<div className="visual-crop-actions"><button type="button" onClick={() => onApplyCrop(crop)} disabled={loading}>Search this crop</button><button type="button" onClick={() => { setCrop(fullCrop); onRetry(); }} disabled={loading}>Use full image</button></div></fieldset>

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.modules.search.schema import SearchCoreFilters
 
 MIN_NORMALIZED_CROP_EDGE = 0.01
+VisualQueryScope = Literal["all", "source", "folder"]
 
 
 class NormalizedCrop(BaseModel):
@@ -28,6 +29,8 @@ class VisualSearchByAssetRequest(BaseModel):
     """Public request contract for a later tenant-authorized by-asset endpoint."""
 
     asset_id: str = Field(min_length=1, max_length=36)
+    scope: VisualQueryScope = "all"
+    folder_id: str | None = Field(default=None, max_length=2048)
     source_provider: Literal["google-drive", "onedrive", "sharepoint"] | None = None
     external_source_id: str | None = Field(default=None, max_length=128)
     crop: NormalizedCrop | None = None

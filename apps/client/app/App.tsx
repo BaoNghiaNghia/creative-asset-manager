@@ -231,7 +231,7 @@ export default function App() {
   const imageSearchEnabled = searchIncludesImages(searchMediaMode);
   const videoSearchEnabled = searchIncludesVideos(searchMediaMode);
   const explorer = useDriveExplorer(imageSearchEnabled);
-  const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId);
+  const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId, explorer.currentFolderId);
   const [visualSearchOpen, setVisualSearchOpen] = useState(false);
   const videoSearch = useVideoSearch({
     authenticated: explorer.applicationAuthenticated === true,
@@ -993,11 +993,13 @@ export default function App() {
           </div>
 
           {visualSearchOpen && <VisualSearchPanel
+            hasCurrentSource={Boolean(explorer.activeExternalSourceId)}
+            hasCurrentFolder={Boolean(explorer.currentFolderId)}
             reference={visualSearch.reference}
             loading={visualSearch.loading}
             error={visualSearch.error}
             refinement={visualSearch.refinement}
-            onRefinementChange={visualSearch.setRefinement}
+            onRefinementChange={visualSearch.setRefinement} scope={visualSearch.scope} onScopeChange={visualSearch.setScope}
             onUpload={visualSearch.chooseUpload}
             onApplyCrop={crop => visualSearch.retry(crop)}
             onRetry={visualSearch.retry}

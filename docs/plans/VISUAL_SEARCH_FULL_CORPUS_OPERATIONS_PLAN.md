@@ -65,10 +65,10 @@ Pure viewers must remain constrained by the source/folder permissions already en
 
 ### 3.1 Current problem
 
-The current visual ranking policy includes a source cap equivalent to:
+The default visual ranking policy disables the connection-level source cap with:
 
 ```text
-VISUAL_SEARCH_RANKING_MAX_PER_SOURCE=2
+VISUAL_SEARCH_RANKING_MAX_PER_SOURCE=0
 ```
 
 The `source_id` used by Visual Search represents the connected external source, for example an entire OneDrive account or Google Drive connection, not one individual image or folder.

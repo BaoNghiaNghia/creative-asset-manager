@@ -35,5 +35,17 @@ class VisualRankingTest(unittest.TestCase):
         self.assertEqual([item.asset_id for item in result], ["a", "c", "e"])
 
 
+    def test_zero_source_cap_keeps_unique_content(self) -> None:
+        hits = [
+            VisualSearchHit("1", "tenant", "a", 1.0, "a" * 64, "source-1"),
+            VisualSearchHit("2", "tenant", "b", 0.9, "b" * 64, "source-1"),
+            VisualSearchHit("3", "tenant", "c", 0.8, "c" * 64, "source-1"),
+            VisualSearchHit("4", "tenant", "d", 0.7, "c" * 64, "source-2"),
+        ]
+        result = diversify_hits(hits, weights=VisualRankingWeights(max_per_source=0))
+        self.assertEqual([item.asset_id for item in result], ["a", "b", "c"])
+        with self.assertRaisesRegex(ValueError, "zero or greater"):
+            VisualRankingWeights(max_per_source=-1)
+
 if __name__ == "__main__":
     unittest.main()
