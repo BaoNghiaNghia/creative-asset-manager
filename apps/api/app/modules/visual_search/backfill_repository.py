@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.modules.visual_search.backfill_model import VisualSearchBackfillRunModel
 
@@ -16,6 +17,8 @@ class VisualSearchBackfillRunRepository:
     def get(self, *, tenant_id: str, run_id: str) -> VisualSearchBackfillRunModel | None:
         row=self.session.get(VisualSearchBackfillRunModel, run_id)
         return row if row is not None and row.tenant_id == tenant_id else None
+    def active(self, *, tenant_id: str) -> VisualSearchBackfillRunModel | None:
+        return self.session.scalar(select(VisualSearchBackfillRunModel).where(VisualSearchBackfillRunModel.tenant_id==tenant_id, VisualSearchBackfillRunModel.status.in_(("pending","running","paused"))).order_by(VisualSearchBackfillRunModel.created_at.desc()).limit(1))
     def start(self, row: VisualSearchBackfillRunModel) -> None:
         if row.status not in {'pending','paused'}: raise ValueError('backfill run is not resumable')
         row.status='running'; row.paused_at=None; row.error_code=None; row.error_message=None; row.updated_at=now(); self.session.flush()
