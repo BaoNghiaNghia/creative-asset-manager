@@ -1326,3 +1326,59 @@
 }
 .pipeline-metric-delta{display:inline-block;margin-left:7px;color:#4c8b68;font-size:.42em;font-weight:700;vertical-align:middle}
 .ops-worker-pipeline-status{display:block;min-height:12px;color:#718096;font-size:10px;font-weight:650;letter-spacing:0;text-align:center;text-transform:none}
+
+/* Visual Search follows the Pipeline Overview hierarchy and responsive grid. */
+.visual-ops{gap:14px}
+.visual-ops-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:4px 2px}
+.visual-ops-heading-copy{display:flex;min-width:0;align-items:center;gap:12px}
+.visual-ops-heading-icon,.visual-ops-summary-icon,.visual-ops-context-icon,.visual-ops-source-icon{display:grid;flex:0 0 auto;place-items:center;border-radius:9px;background:#edf3ff;color:#4169df}
+.visual-ops-heading-icon{width:38px;height:38px}
+.visual-ops-heading-icon .visual-ops-icon{width:20px;height:20px}
+.visual-ops-heading small,.visual-ops-sources header small{display:block;color:#6279bc;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.visual-ops-heading h2{margin:3px 0 2px;color:#172b4d;font-size:21px;line-height:1.2}
+.visual-ops-heading p{margin:0;color:#718096;font-size:12px;line-height:1.45}
+.visual-ops-index-state{display:inline-flex;flex:0 0 auto;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;font-size:11px;font-weight:800;white-space:nowrap}
+.visual-ops-index-state i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.visual-ops-index-state.ready{background:#eaf8ef;color:#27734a}
+.visual-ops-index-state.unavailable{background:#fff1ee;color:#b5473e}
+.visual-ops-summary{grid-template-columns:repeat(5,minmax(0,1fr))}
+.visual-ops-summary-metric .pipeline-metric-heading{color:#718096;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
+.visual-ops-summary-icon{width:22px;height:22px;border-radius:7px}
+.visual-ops-summary-icon .visual-ops-icon{width:14px;height:14px}
+.visual-ops-summary-icon.success,.visual-ops-context-icon.success{background:#eaf8ef;color:#27734a}
+.visual-ops-summary-icon.info,.visual-ops-context-icon.info{background:#eef2ff;color:#4338ca}
+.visual-ops-summary-icon.warning{background:#fff6df;color:#9a6817}
+.visual-ops-summary-icon.attention{background:#fff0ee;color:#b5473e}
+.visual-ops-summary-metric.attention{border-color:#f0c5c0;border-top-color:#d35a4c;background:#fffafa}
+.visual-ops-summary-metric.attention strong{color:#b5473e}
+.visual-ops-context-row{grid-template-columns:1fr 1fr 1.16fr}
+.visual-ops-context-row>.pipeline-scan-card,.visual-ops-context-row>.pipeline-active-job,.visual-ops-context-row>.pipeline-progress-summary{min-width:0;height:100%;box-sizing:border-box}
+.visual-ops-context-row>.pipeline-scan-card,.visual-ops-context-row>.pipeline-active-job{align-items:flex-start;flex-direction:column}
+.visual-ops-context-row .pipeline-context-heading{min-width:0}
+.visual-ops-context-row .pipeline-context-title{display:flex;align-items:center;gap:8px}
+.visual-ops-context-icon{width:27px;height:27px;border-radius:8px}
+.visual-ops-context-icon .visual-ops-icon{width:15px;height:15px}
+.visual-ops-context-row .pipeline-context-title h2{min-width:0}
+.visual-ops-context-row .pipeline-scan-card dl,.visual-ops-context-row .pipeline-active-job dl{width:100%;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.visual-ops-context-row .pipeline-active-job dl{grid-template-columns:repeat(4,minmax(0,1fr))}
+.visual-ops-context-row .pipeline-scan-card dd,.visual-ops-context-row .pipeline-active-job dd{font-size:14px}
+.visual-ops-context-row>.pipeline-progress-summary{align-items:stretch;justify-content:flex-start;flex-direction:column;gap:12px}
+.visual-ops-context-row>.pipeline-progress-summary dl{width:100%;grid-template-columns:repeat(4,minmax(0,1fr));gap:0}
+.visual-ops-context-row>.pipeline-progress-summary dl div{min-width:0;padding:8px 9px}
+.visual-ops-sources{padding:17px}
+.visual-ops-sources header time{align-self:center;padding:5px 8px;border-radius:999px;background:#f1f5fb;color:#60708a;font-size:10px;font-weight:700;white-space:nowrap}
+.visual-ops-source-table{min-width:960px}
+.visual-ops-source-table th:not(:first-child),.visual-ops-source-table td:not(:first-child){text-align:right}
+.visual-ops-source-cell{display:flex;align-items:center;gap:9px;min-width:190px}
+.visual-ops-source-icon{width:24px;height:24px;border-radius:7px}
+.visual-ops-source-icon .visual-ops-icon{width:14px;height:14px}
+.visual-ops-source-cell b{display:block;color:#263951;font-size:12px}
+.visual-ops-source-cell small{display:block;margin-top:2px;color:#7a8799;font-size:10px}
+.visual-ops-status{display:inline-flex;min-width:34px;justify-content:center;padding:3px 7px;border-radius:999px;font-size:11px;font-weight:800}
+.visual-ops-status.ready{background:#eaf8ef;color:#24754a}
+.visual-ops-status.pending{background:#fff5df;color:#986617}
+.visual-ops-status.unknown{background:#f1f4f8;color:#65758a}
+@media(max-width:1450px){.visual-ops-summary{grid-template-columns:repeat(3,minmax(0,1fr))}.visual-ops-context-row{grid-template-columns:repeat(2,minmax(0,1fr))}.visual-ops-context-row>.pipeline-progress-summary{grid-column:1/-1;flex-direction:row;align-items:center}.visual-ops-context-row>.pipeline-progress-summary>.pipeline-context-heading{width:35%;flex:0 0 auto}}
+@media(max-width:900px){.visual-ops-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.visual-ops-context-row{grid-template-columns:1fr}.visual-ops-context-row>.pipeline-progress-summary{grid-column:auto;align-items:flex-start;flex-direction:column}.visual-ops-context-row>.pipeline-progress-summary>.pipeline-context-heading{width:auto}.visual-ops-context-row .pipeline-progress-summary dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.visual-ops-heading{align-items:flex-start;flex-direction:column}.visual-ops-heading h2{font-size:19px}.visual-ops-index-state{white-space:normal}.visual-ops-context-row .pipeline-scan-card dl,.visual-ops-context-row .pipeline-active-job dl{grid-template-columns:repeat(2,minmax(0,1fr))}.visual-ops-sources header time{align-self:flex-start;white-space:normal}}
+@media(max-width:460px){.visual-ops-summary{grid-template-columns:1fr}.visual-ops-heading-copy{align-items:flex-start}.visual-ops-heading-icon{width:34px;height:34px}.visual-ops-context-row .pipeline-progress-summary dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
