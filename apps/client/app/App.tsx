@@ -231,7 +231,8 @@ export default function App() {
   const imageSearchEnabled = searchIncludesImages(searchMediaMode);
   const videoSearchEnabled = searchIncludesVideos(searchMediaMode);
   const explorer = useDriveExplorer(imageSearchEnabled);
-  const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId, explorer.currentFolderId);
+  const canSearchAllResources = explorer.pureViewer === null ? null : !explorer.pureViewer;
+  const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId, explorer.currentFolderId, canSearchAllResources);
   const [visualSearchOpen, setVisualSearchOpen] = useState(false);
   const videoSearch = useVideoSearch({
     authenticated: explorer.applicationAuthenticated === true,
@@ -993,8 +994,9 @@ export default function App() {
           </div>
 
           {visualSearchOpen && <VisualSearchPanel
+            canSearchAllResources={canSearchAllResources === true}
             hasCurrentSource={Boolean(explorer.activeExternalSourceId)}
-            hasCurrentFolder={Boolean(explorer.currentFolderId)}
+            hasCurrentFolder={Boolean(explorer.activeExternalSourceId && explorer.currentFolderId)}
             reference={visualSearch.reference}
             loading={visualSearch.loading}
             error={visualSearch.error}
