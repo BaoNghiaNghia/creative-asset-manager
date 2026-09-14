@@ -68,23 +68,18 @@ describe("visual search client helpers", () => {
     expect(defaultVisualSearchScope(null, true, true)).toBeNull();
   });
 
-  it("renders all resources unavailable for viewers while retaining safe contextual options", () => {
+  it("keeps scope controls out of the direct Lens canvas while the hook retains the safe viewer scope", () => {
     const markup = renderToStaticMarkup(createElement(VisualSearchPanel, {
       scope: "folder", canSearchAllResources: false, hasCurrentSource: true, hasCurrentFolder: true,
-      reference: null, loading: false, error: "", refinement: "",
+      reference: { kind: "asset", asset: referenceAsset() }, loading: false, error: "", refinement: "",
       onScopeChange: () => undefined, onRefinementChange: () => undefined, onUpload: () => undefined,
       onApplyCrop: () => undefined, onRetry: () => undefined, onClose: () => undefined,
     }));
-    expect(markup).toContain("value=\"all\" disabled=\"\"");
-    expect(markup).toContain("value=\"folder\" selected=\"\"");
-    const globalMarkup = renderToStaticMarkup(createElement(VisualSearchPanel, {
-      scope: "all", canSearchAllResources: true, hasCurrentSource: false, hasCurrentFolder: false,
-      reference: null, loading: false, error: "", refinement: "",
-      onScopeChange: () => undefined, onRefinementChange: () => undefined, onUpload: () => undefined,
-      onApplyCrop: () => undefined, onRetry: () => undefined, onClose: () => undefined,
-    }));
-    expect(globalMarkup).toContain("value=\"all\" selected=\"\"");
-    expect(globalMarkup).not.toContain("value=\"all\" disabled=\"\"");
+    expect(markup).not.toContain("Search similar");
+    expect(markup).not.toContain("Search in");
+    expect(markup).toContain("visual-direct-crop");
+    expect(markup).toContain("visual-direct-handle nw");
+    expect(markup).toContain("Change image");
   });
 
   it("serializes committed scope consistently for asset, upload, crop, hybrid, and Load More", () => {
