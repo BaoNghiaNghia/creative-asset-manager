@@ -210,7 +210,7 @@ class VisualSearchElasticsearchIndex:
         if not 1 <= page_size <= 1000: raise VisualSearchIndexError("projection scan page_size must be between 1 and 1000")
         after = None; rows = []
         while True:
-            body = {"size": page_size, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "encoder_name", "encoder_revision", "preprocess_version", "similarity", "is_deleted", "is_hidden"], "query": {"bool": {"filter": [{"term": {"tenant_id": tenant_id}}]}}, "sort": [{"asset_id": "asc"}, {"_id": "asc"}]}
+            body = {"size": page_size, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "encoder_name", "encoder_revision", "preprocess_version", "similarity", "is_deleted", "is_hidden"], "query": {"bool": {"filter": [{"term": {"tenant_id": tenant_id}}]}}, "sort": [{"asset_id": "asc"}, {"content_sha256": "asc"}, {"embedding_schema_version": "asc"}]}
             if after is not None: body["search_after"] = after
             payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=body)
             hits = payload.get("hits", {}).get("hits", [])
