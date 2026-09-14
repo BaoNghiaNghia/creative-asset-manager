@@ -40,6 +40,7 @@ import {
   StatusText,
 } from "./AiOperationsPage";
 import { InventoryDailyOverview } from "./InventoryDailyTab";
+import { VisualSearchOperationsTab } from "./VisualSearchOperationsTab";
 
 const noop = () => undefined;
 const filters: AiOpsFilters = {
@@ -1012,3 +1013,54 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Image dimensions are not supported");
     expect(markup).toContain("analysis_image_dimensions");
   });
+
+
+describe("Visual Search Operations pipeline", () => {
+  it("renders corpus lifecycle, job state and per-source coverage without exposing credentials", () => {
+    const markup = renderToStaticMarkup(<VisualSearchOperationsTab
+      loading={false}
+      error={null}
+      onRetry={noop}
+      coverage={{
+        generated_at: "2026-09-14T10:00:00Z",
+        index_state: "available",
+        totals: {
+          discovered_images: 120, imported_images: 100, visual_eligible: 90,
+          visual_indexed_current: 70, visual_index_missing: 15, visual_index_stale: 5,
+          unsupported_images: 10, visual_jobs_pending: 12, visual_jobs_processing: 2, visual_jobs_failed: 1,
+        },
+        ratios: { import_coverage: 100 / 120, eligible_visual_coverage: 70 / 90, whole_resource_searchable: 70 / 120 },
+      }}
+      sources={{
+        index_state: "available",
+        sources: [{
+          source_id: "source-1", display_name: "Creative Drive", source_type: "google-drive",
+          discovered_images: 120, imported_images: 100, visual_eligible: 90,
+          visual_indexed_current: 70, visual_index_missing: 15, visual_index_stale: 5,
+          unsupported_images: 10,
+          ratios: { import_coverage: 100 / 120, eligible_visual_coverage: 70 / 90, whole_resource_searchable: 70 / 120 },
+        }],
+      }}
+    />);
+    expect(markup).toContain("Tiến trình lập chỉ mục hình ảnh");
+    expect(markup).toContain("Elasticsearch sẵn sàng");
+    expect(markup).toContain("Đã phát hiện");
+    expect(markup).toContain("Cần đồng bộ");
+    expect(markup).toContain("Creative Drive");
+    expect(markup).not.toContain("access_token");
+  });
+
+  it("keeps Elasticsearch-derived source values explicitly unknown while unavailable", () => {
+    const markup = renderToStaticMarkup(<VisualSearchOperationsTab
+      loading={false} error={null} onRetry={noop}
+      coverage={{
+        generated_at: "2026-09-14T10:00:00Z", index_state: "unavailable",
+        totals: { discovered_images: 1, imported_images: 1, visual_eligible: 1, visual_indexed_current: null, visual_index_missing: null, visual_index_stale: null, unsupported_images: 0, visual_jobs_pending: 0, visual_jobs_processing: 0, visual_jobs_failed: 0 },
+        ratios: { import_coverage: 1, eligible_visual_coverage: null, whole_resource_searchable: null },
+      }}
+      sources={{ index_state: "unavailable", sources: [] }}
+    />);
+    expect(markup).toContain("Elasticsearch chưa khả dụng");
+    expect(markup).toContain("Chưa rõ");
+  });
+});

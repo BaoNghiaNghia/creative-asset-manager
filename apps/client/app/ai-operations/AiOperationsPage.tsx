@@ -5,12 +5,15 @@ import { createPortal } from "react-dom";
 import {
   aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
   retryAiOperationsJob, retryAiOperationsJobsByError, searchFromFilters, fetchAiOperationsVideoDetail,
+  fetchVisualSearchCoverage, fetchVisualSearchSourceCoverage,
   type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage, type PipelineSnapshot,
+  type VisualSearchCoverage, type VisualSearchSourceCoverageResponse,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
 import { InventoryDailyTab } from "./InventoryDailyTab";
+import { VisualSearchOperationsTab } from "./VisualSearchOperationsTab";
 import { AssetDetailsPanel } from "../components/AssetDetailsPanel";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
@@ -26,23 +29,25 @@ import {
   shouldAutoRefresh, type AutoRefreshSeconds,
 } from "./requestCoordinator";
 
-export type AiOpsTab = "pipeline" | "overview" | "processing" | "inventory" | "cost" | "providers" | "configuration";
+export type AiOpsTab = "pipeline" | "overview" | "processing" | "visual-search" | "inventory" | "cost" | "providers" | "configuration";
 const tabs: Array<{ id: AiOpsTab; label: string; icon: TabIconName }> = [
   { id: "pipeline", label: "Pipeline overview", icon: "pipeline" },
   { id: "overview", label: "AI analysis", icon: "spark" },
   { id: "processing", label: "Processing", icon: "processing" },
+  { id: "visual-search", label: "Visual Search", icon: "visual" },
   { id: "inventory", label: "Inventory Daily", icon: "inventory" },
   { id: "cost", label: "Cost & Usage", icon: "cost" },
   { id: "providers", label: "Providers", icon: "providers" },
   { id: "configuration", label: "Configuration", icon: "configuration" },
 ];
-type TabIconName = "pipeline" | "spark" | "processing" | "inventory" | "cost" | "providers" | "configuration";
+type TabIconName = "pipeline" | "spark" | "processing" | "visual" | "inventory" | "cost" | "providers" | "configuration";
 
 function TabIcon({ name }: { name: TabIconName }) {
   const paths: Record<TabIconName, string> = {
     pipeline: "M4 5h16M4 12h16M4 19h16",
     spark: "M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z",
     processing: "M6 4h12v16H6z M9 8h6M9 12h6M9 16h4",
+    visual: "M4 7h3l1.4-2h7.2L17 7h3v11H4V7z M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
     inventory: "M4 7l8-4 8 4-8 4-8-4z M4 12l8 4 8-4 M4 17l8 4 8-4",
     cost: "M12 3v18 M16 7.5c0-1.7-1.8-3-4-3s-4 1.3-4 3c0 1.7 1.8 3 4 3s4 1.3 4 3c0 1.7-1.8 3-4 3s-4-1.3-4-3",
     providers: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z M4 7.5l8 4.5 8-4.5 M12 12v9",
@@ -71,6 +76,10 @@ export function AiOperationsPage() {
   const [authorizationReason, setAuthorizationReason] = useState("Sign in is required.");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [reload, setReload] = useState(0);
+  const [visualCoverage, setVisualCoverage] = useState<VisualSearchCoverage | null>(null);
+  const [visualSources, setVisualSources] = useState<VisualSearchSourceCoverageResponse | null>(null);
+  const [visualLoading, setVisualLoading] = useState(false);
+  const [visualError, setVisualError] = useState<string | null>(null);
   const [detailsAssetId, setDetailsAssetId] = useState<string | null>(null);
   const [detailsVideo, setDetailsVideo] = useState<{ item: Asset; analysis: VideoSearchItem } | null>(null);
   const requests = useRef(new DashboardRequestCoordinator());
@@ -120,6 +129,26 @@ export function AiOperationsPage() {
       requests.current.abort();
     };
   }, [filters, reload]);
+
+  useEffect(() => {
+    if (tab !== "visual-search") return;
+    const controller = new AbortController();
+    setVisualLoading(true);
+    setVisualError(null);
+    Promise.all([
+      fetchVisualSearchCoverage(fetch, controller.signal),
+      fetchVisualSearchSourceCoverage(fetch, controller.signal),
+    ]).then(([coverage, sources]) => {
+      if (controller.signal.aborted) return;
+      setVisualCoverage(coverage);
+      setVisualSources(sources);
+    }).catch(error => {
+      if (!controller.signal.aborted) setVisualError(error instanceof Error ? error.message : "Không thể tải dữ liệu Visual Search.");
+    }).finally(() => {
+      if (!controller.signal.aborted) setVisualLoading(false);
+    });
+    return () => controller.abort();
+  }, [tab, reload]);
 
   useEffect(() => {
     if (!refreshSeconds) return;
@@ -175,6 +204,7 @@ export function AiOperationsPage() {
   return <AiOperationsShell subtitle={identity?.email || "Operations console"}>
     <AiOperationsContent
       data={data} loading={loading} errors={errors} unauthorized={unauthorized}
+      visualCoverage={visualCoverage} visualSources={visualSources} visualLoading={visualLoading} visualError={visualError}
       filters={filters} tab={tab} onTab={changeTab} onFilters={changeFilters}
       refreshSeconds={refreshSeconds} onRefreshSeconds={changeRefresh}
       media={media} onMedia={changeMedia}
@@ -225,6 +255,10 @@ type ContentProps = {
   onMedia?: (media: "image" | "video") => void;
   onOpenAsset?: (assetId: string) => void;
   onOpenVideo?: (sourceAssetId: string) => void;
+  visualCoverage?: VisualSearchCoverage | null;
+  visualSources?: VisualSearchSourceCoverageResponse | null;
+  visualLoading?: boolean;
+  visualError?: string | null;
 };
 
 export function AiOperationsContent({
@@ -232,6 +266,7 @@ export function AiOperationsContent({
   onTab, onFilters, onRetry, refreshSeconds = 0, onRefreshSeconds = () => undefined,
   lastUpdated = null, permissions = [], authorizationReason = "Sign in is required.", media = "image", onMedia = () => undefined,
   onOpenAsset = () => undefined, onOpenVideo = () => undefined,
+  visualCoverage = null, visualSources = null, visualLoading = false, visualError = null,
 }: ContentProps) {
   const models = useMemo(() => [...new Set([
     ...data.providers.map(item => item.model || ""), ...data.usage.items.map(item => item.model || ""),
@@ -257,7 +292,7 @@ export function AiOperationsContent({
     <nav className="ops-tabs" aria-label="Processing Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
       {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}><TabIcon name={item.icon} /><span>{item.label}</span></button>)}
     </nav>
-    {tab !== "inventory" && <div className="ops-query-bar">
+    {tab !== "inventory" && tab !== "visual-search" && <div className="ops-query-bar">
       {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : tab === "processing" ? "Processing media type" : "AI analysis media type"} />}
       <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
       <details className="ops-export-menu">
@@ -267,12 +302,12 @@ export function AiOperationsContent({
         </nav>
       </details>
     </div>}
-    {tab !== "inventory" && errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
+    {tab !== "inventory" && tab !== "visual-search" && errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
     <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {tab === "inventory" ? <InventoryDailyTab /> : loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
+      {tab === "inventory" ? <InventoryDailyTab /> : tab === "visual-search" ? <VisualSearchOperationsTab coverage={visualCoverage} sources={visualSources} loading={visualLoading} error={visualError} onRetry={onRetry} /> : loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />

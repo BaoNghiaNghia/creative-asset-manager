@@ -304,6 +304,51 @@ export type AiOpsSearchCoverage = {
   repair_jobs: { queued: number; running: number; completed: number; failed: number };
 };
 
+export type VisualSearchCoverageTotals = {
+  discovered_images: number;
+  imported_images: number;
+  visual_eligible: number;
+  visual_indexed_current: number | null;
+  visual_index_missing: number | null;
+  visual_index_stale: number | null;
+  unsupported_images: number;
+  visual_jobs_pending: number;
+  visual_jobs_processing: number;
+  visual_jobs_failed: number;
+};
+
+export type VisualSearchCoverageRatios = {
+  import_coverage: number;
+  eligible_visual_coverage: number | null;
+  whole_resource_searchable: number | null;
+};
+
+export type VisualSearchCoverage = {
+  generated_at: string;
+  index_state: "available" | "unavailable";
+  totals: VisualSearchCoverageTotals;
+  ratios: VisualSearchCoverageRatios;
+};
+
+export type VisualSearchSourceCoverage = {
+  source_id: string;
+  display_name: string | null;
+  source_type: string;
+  discovered_images: number;
+  imported_images: number;
+  visual_eligible: number;
+  visual_indexed_current: number | null;
+  visual_index_missing: number | null;
+  visual_index_stale: number | null;
+  unsupported_images: number;
+  ratios: VisualSearchCoverageRatios;
+};
+
+export type VisualSearchSourceCoverageResponse = {
+  index_state: "available" | "unavailable";
+  sources: VisualSearchSourceCoverage[];
+};
+
 export type PipelineStage = {
   key: string; label: string; subtitle: string;
   total: number; pending: number; eligible_now: number; waiting: number; processing: number; completed: number; failed: number;

@@ -2,6 +2,7 @@ import type {
   AiOpsDaily, AiOpsDashboardData, AiOpsFailure, AiOpsFilters, AiOpsJob,
   AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page, PipelineSnapshot, AiOpsMediaDashboard,
   AiOpsVideoDetail,
+  VisualSearchCoverage, VisualSearchSourceCoverageResponse,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -424,6 +425,12 @@ export function aiOperationsExportUrl(
 }
 export const runSearchCoverageAudit = (body: { verify_elasticsearch?: boolean; limit?: number }, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-operations/coverage/audit", "POST", body, fetcher);
+
+export const fetchVisualSearchCoverage = (fetcher: Fetcher = fetch, signal?: AbortSignal) =>
+  read<VisualSearchCoverage>("/api/v1/admin/visual-search/coverage", fetcher, signal);
+
+export const fetchVisualSearchSourceCoverage = (fetcher: Fetcher = fetch, signal?: AbortSignal) =>
+  read<VisualSearchSourceCoverageResponse>("/api/v1/admin/visual-search/coverage/sources", fetcher, signal);
 
 export const repairSearchCoverage = (body: { confirmed: true; limit: number; verify_elasticsearch?: boolean; repair_projections: boolean; repair_indexes: boolean }, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-operations/coverage/repair", "POST", body, fetcher);
