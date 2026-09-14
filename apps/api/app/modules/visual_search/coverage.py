@@ -27,7 +27,10 @@ class VisualCoverageService:
   try: docs=asyncio.run(self.index.scan_projection_metadata(tenant_id))
   except Exception:
    for k in ("visual_indexed_current","visual_index_missing","visual_index_stale"):totals[k]=None
-   return VisualCoverage("unavailable",totals,list(buckets.values()),{"import_coverage":_ratio(totals["imported_images"],totals["discovered_images"]),"eligible_visual_coverage":0.0,"whole_resource_searchable":0.0})
+   for b in buckets.values():
+    for k in ("visual_indexed_current","visual_index_missing","visual_index_stale"): b[k]=None
+    b["ratios"]={"import_coverage":_ratio(b["imported_images"],b["discovered_images"]),"eligible_visual_coverage":None,"whole_resource_searchable":None}
+   return VisualCoverage("unavailable",totals,sorted(buckets.values(),key=lambda b:((b["display_name"] or ""),b["source_id"])),{"import_coverage":_ratio(totals["imported_images"],totals["discovered_images"]),"eligible_visual_coverage":0.0,"whole_resource_searchable":0.0})
   by=defaultdict(list)
   for d in docs:
    if d.get("tenant_id")==tenant_id:by[d.get("asset_id")].append(d)
@@ -36,4 +39,5 @@ class VisualCoverageService:
    b=buckets[r.external_source_id]; ds=by[r.asset_id]
    b["visual_indexed_current" if any(_ok(d,r) for d in ds) else "visual_index_stale" if ds else "visual_index_missing"]+=1
   totals={k:sum(b[k] for b in buckets.values()) for k in KEYS}
-  return VisualCoverage("available",totals,list(buckets.values()),{"import_coverage":_ratio(totals["imported_images"],totals["discovered_images"]),"eligible_visual_coverage":_ratio(totals["visual_indexed_current"],totals["visual_eligible"]),"whole_resource_searchable":_ratio(totals["visual_indexed_current"],totals["discovered_images"])})
+  for b in buckets.values(): b["ratios"]={"import_coverage":_ratio(b["imported_images"],b["discovered_images"]),"eligible_visual_coverage":_ratio(b["visual_indexed_current"],b["visual_eligible"]),"whole_resource_searchable":_ratio(b["visual_indexed_current"],b["discovered_images"])}
+  return VisualCoverage("available",totals,sorted(buckets.values(),key=lambda b:((b["display_name"] or ""),b["source_id"])),{"import_coverage":_ratio(totals["imported_images"],totals["discovered_images"]),"eligible_visual_coverage":_ratio(totals["visual_indexed_current"],totals["visual_eligible"]),"whole_resource_searchable":_ratio(totals["visual_indexed_current"],totals["discovered_images"])})
