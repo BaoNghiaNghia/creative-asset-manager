@@ -81,7 +81,7 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
           <i className="visual-direct-handle nw" onPointerDown={event => begin(event, "nw")} /><i className="visual-direct-handle ne" onPointerDown={event => begin(event, "ne")} /><i className="visual-direct-handle sw" onPointerDown={event => begin(event, "sw")} /><i className="visual-direct-handle se" onPointerDown={event => begin(event, "se")} />
         </div>
       </div>
-      <div className="visual-direct-caption"><span>{reference.kind === "asset" ? reference.asset.name : reference.file.name}</span><small>{loading ? "Searching…" : "Drag the frame to select an area · Double-click to use the full image"}</small></div>
+      <div className="visual-direct-caption"><small>{loading ? "Searching…" : "Drag the frame to select an area · Double-click to use the full image"}</small></div>
       {!scope && <p className="visual-search-context" role="status">Choose an authorized source or folder before searching.</p>}
     </div>}
     {error && <div className="visual-search-error" role="alert"><span>{error}</span><button type="button" onClick={() => onRetry(crop)} disabled={loading}>Retry</button></div>}

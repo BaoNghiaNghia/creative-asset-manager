@@ -1584,3 +1584,13 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-panel-direct .visual-search-context{width:min(100%,420px);margin:2px 0 0;text-align:center}
 @media(max-width:520px){.visual-search-panel-direct .visual-direct-stage{width:min(100%,260px);height:min(52vh,340px)}.visual-search-panel-direct .visual-direct-caption{max-width:260px}}
 @media(prefers-reduced-motion:reduce){.visual-search-panel-direct .visual-direct-change{transition:none}}
+
+/* Visual Search uses a Lens sidebar beside its result grid on wide screens. */
+.visual-search-workbench{display:grid;grid-template-columns:minmax(280px,332px) minmax(0,1fr);align-items:start;gap:16px;padding:14px 24px 0}
+.visual-search-workbench .visual-search-panel-direct{position:sticky;top:14px;width:100%;max-width:none;margin:0;padding:14px}
+.visual-search-workbench>.search-results-layout{min-width:0}
+.visual-search-workbench .grid{padding:0 0 90px;grid-template-columns:repeat(auto-fill,minmax(min(160px,100%),1fr));gap:14px}
+.visual-search-workbench .state{margin:32px 0}
+.visual-search-workbench .search-warning{margin-left:0;margin-right:0}
+.visual-search-panel-direct .visual-direct-caption{min-height:27px;align-content:center}
+@media(max-width:900px){.visual-search-workbench{display:block;padding:12px 0 0}.visual-search-workbench .visual-search-panel-direct{position:static;width:auto;margin:0 12px 12px}.visual-search-workbench .grid{padding:0 12px 90px}}

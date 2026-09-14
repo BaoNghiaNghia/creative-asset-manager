@@ -993,6 +993,7 @@ export default function App() {
             </div>
           </div>
 
+          <div className={visualSearchOpen ? "visual-search-workbench" : undefined}>
           {visualSearchOpen && <VisualSearchPanel
             canSearchAllResources={canSearchAllResources === true}
             hasCurrentSource={Boolean(explorer.activeExternalSourceId)}
@@ -1079,6 +1080,7 @@ export default function App() {
             <div id="mixed-video-results" hidden={!videoResultsExpanded}>{videoResults}</div>
           </section>}
           </>}
+          </div>
           </div>
           </div>
           {(!explorer.query.trim() || imageSearchEnabled) && explorer.selected.size > 0 && <div className="bulk">
