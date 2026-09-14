@@ -985,6 +985,19 @@ Acceptance:
 
 ### VS-13C — Durable full-corpus backfill
 
+**Status: implemented, deny-by-default.** Migration `0074_visual_backfill_runs` stores tenant-bound run state, counters and the asset cursor. A run is advanced by bounded reconciliation slices, can pause/resume/cancel idempotently, and only enqueues canonical visual-index jobs for missing or stale projections. Current projections are skipped; a shared Asset is deduplicated before enqueue. The executor requires both the tenant canary eligibility and `VISUAL_SEARCH_BACKFILL_ENABLED`; an Elasticsearch scan failure creates no jobs.
+
+Operations routes are tenant-bound and use the existing `ai_jobs.retry` permission:
+
+```text
+POST /api/v1/admin/visual-search/backfills
+POST /api/v1/admin/visual-search/backfills/{run_id}/pause
+POST /api/v1/admin/visual-search/backfills/{run_id}/cancel
+POST /api/v1/admin/visual-search/backfills/{run_id}/run
+```
+
+No frontend Operations UI is included; that remains VS-13D.
+
 Goal:
 
 ```text
