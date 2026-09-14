@@ -2,7 +2,7 @@ import type {
   AiOpsDaily, AiOpsDashboardData, AiOpsFailure, AiOpsFilters, AiOpsJob,
   AiOpsConfiguration, AiOpsProvider, AiOpsProviderBreakdown, AiOpsSummary, AiOpsUsage, Page, PipelineSnapshot, AiOpsMediaDashboard,
   AiOpsVideoDetail,
-  VisualSearchCoverage, VisualSearchSourceCoverageResponse,
+  VisualSearchCoverage, VisualSearchCoverageDashboard, VisualSearchSourceCoverageResponse,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -19,7 +19,7 @@ export class AiOperationsApiError extends Error {
   }
 }
 
-async function read<T>(url: string, fetcher: Fetcher, parentSignal?: AbortSignal): Promise<T> {
+async function read<T>(url: string, fetcher: Fetcher, parentSignal?: AbortSignal, timeoutMs = DASHBOARD_REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const abortFromParent = () => controller.abort(parentSignal?.reason);
   if (parentSignal?.aborted) {
@@ -27,7 +27,7 @@ async function read<T>(url: string, fetcher: Fetcher, parentSignal?: AbortSignal
   } else {
     parentSignal?.addEventListener("abort", abortFromParent, { once: true });
   }
-  const timeout = globalThis.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetcher(url, {
@@ -428,6 +428,9 @@ export const runSearchCoverageAudit = (body: { verify_elasticsearch?: boolean; l
 
 export const fetchVisualSearchCoverage = (fetcher: Fetcher = fetch, signal?: AbortSignal) =>
   read<VisualSearchCoverage>("/api/v1/admin/visual-search/coverage", fetcher, signal);
+
+export const fetchVisualSearchCoverageDashboard = (fetcher: Fetcher = fetch, signal?: AbortSignal) =>
+  read<VisualSearchCoverageDashboard>("/api/v1/admin/visual-search/coverage/dashboard", fetcher, signal, DASHBOARD_TOTAL_TIMEOUT_MS);
 
 export const fetchVisualSearchSourceCoverage = (fetcher: Fetcher = fetch, signal?: AbortSignal) =>
   read<VisualSearchSourceCoverageResponse>("/api/v1/admin/visual-search/coverage/sources", fetcher, signal);

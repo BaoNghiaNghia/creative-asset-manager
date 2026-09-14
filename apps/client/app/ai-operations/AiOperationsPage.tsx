@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
   retryAiOperationsJob, retryAiOperationsJobsByError, searchFromFilters, fetchAiOperationsVideoDetail,
-  fetchVisualSearchCoverage, fetchVisualSearchSourceCoverage,
+  fetchVisualSearchCoverageDashboard,
   type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage, type PipelineSnapshot,
   type VisualSearchCoverage, type VisualSearchSourceCoverageResponse,
 } from "../../features/ai_operations";
@@ -135,13 +135,10 @@ export function AiOperationsPage() {
     const controller = new AbortController();
     setVisualLoading(true);
     setVisualError(null);
-    Promise.all([
-      fetchVisualSearchCoverage(fetch, controller.signal),
-      fetchVisualSearchSourceCoverage(fetch, controller.signal),
-    ]).then(([coverage, sources]) => {
+    fetchVisualSearchCoverageDashboard(fetch, controller.signal).then(coverage => {
       if (controller.signal.aborted) return;
       setVisualCoverage(coverage);
-      setVisualSources(sources);
+      setVisualSources({ index_state: coverage.index_state, sources: coverage.sources });
     }).catch(error => {
       if (!controller.signal.aborted) setVisualError(error instanceof Error ? error.message : "Không thể tải dữ liệu Visual Search.");
     }).finally(() => {

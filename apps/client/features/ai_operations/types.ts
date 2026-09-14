@@ -349,6 +349,10 @@ export type VisualSearchSourceCoverageResponse = {
   sources: VisualSearchSourceCoverage[];
 };
 
+export type VisualSearchCoverageDashboard = VisualSearchCoverage & {
+  sources: VisualSearchSourceCoverage[];
+};
+
 export type PipelineStage = {
   key: string; label: string; subtitle: string;
   total: number; pending: number; eligible_now: number; waiting: number; processing: number; completed: number; failed: number;

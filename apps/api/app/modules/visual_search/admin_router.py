@@ -20,6 +20,9 @@ def coverage(principal:CurrentPrincipal=Depends(READ)):
 @router.get("/coverage/sources")
 def sources(principal:CurrentPrincipal=Depends(READ)):
  r=service().collect(principal.active_tenant_id);return {"index_state":r.index_state,"sources":r.sources}
+@router.get("/coverage/dashboard")
+def coverage_dashboard(principal:CurrentPrincipal=Depends(READ)):
+ r=service().collect(principal.active_tenant_id);return {"generated_at":datetime.now(timezone.utc),"index_state":r.index_state,"totals":r.totals,"ratios":r.ratios,"sources":r.sources}
 
 def _run(tenant_id, principal):
  with SessionLocal() as session:

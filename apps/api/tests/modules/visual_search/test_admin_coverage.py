@@ -66,7 +66,8 @@ def test_admin_coverage_routes_are_read_only_get_routes():
     paths = {route.path for route in router.routes}
     assert "/api/v1/admin/visual-search/coverage" in paths
     assert "/api/v1/admin/visual-search/coverage/sources" in paths
-    assert all("GET" in route.methods for route in router.routes if route.path in {"/api/v1/admin/visual-search/coverage", "/api/v1/admin/visual-search/coverage/sources"})
+    assert "/api/v1/admin/visual-search/coverage/dashboard" in paths
+    assert all("GET" in route.methods for route in router.routes if route.path in {"/api/v1/admin/visual-search/coverage", "/api/v1/admin/visual-search/coverage/sources", "/api/v1/admin/visual-search/coverage/dashboard"})
 
 
 def test_authorized_admin_gets_tenant_coverage_and_cannot_override_tenant(coverage_client):
@@ -121,3 +122,12 @@ def test_es_unavailable_serializes_es_metrics_and_ratios_as_null(monkeypatch):
         assert body["ratios"]["whole_resource_searchable"] is None
     finally:
         app.dependency_overrides.clear()
+
+
+def test_dashboard_returns_coverage_and_sources_from_one_collection(monkeypatch):
+    service = CoverageService()
+    monkeypatch.setattr(admin_router, "service", lambda: service)
+    body = admin_router.coverage_dashboard(principal())
+    assert body["totals"]["discovered_images"] == 2
+    assert body["sources"][0]["display_name"] == "Drive A"
+    assert service.tenants == ["tenant-a"]
