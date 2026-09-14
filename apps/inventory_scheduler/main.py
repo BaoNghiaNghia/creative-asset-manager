@@ -23,11 +23,11 @@ _stop = False
 
 def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inventory scheduler runtime")
-    parser.add_argument("--once", action="store_true", help="Execute one durable V4.1 slot and exit")
+    parser.add_argument("--once", action="store_true", help="Evaluate the configured daily lifecycle once and exit")
     parser.add_argument("--slot", choices=("snapshot", "reconcile"))
     arguments = parser.parse_args(argv)
-    if arguments.once != bool(arguments.slot):
-        parser.error("--once and --slot must be provided together")
+    if arguments.slot and not arguments.once:
+        parser.error("--slot requires --once")
     return arguments
 
 
@@ -44,8 +44,12 @@ def main(argv: list[str] | None = None) -> int:
         allowed_tenant_ids=settings.inventory_tenant_allowlist,
     )
     if arguments.once:
-        count = scheduler.execute_v4_slot(arguments.slot)
-        print(f"INVENTORY_V41_ONESHOT slot={arguments.slot} executions={count}")
+        if arguments.slot:
+            count = scheduler.execute_v4_slot(arguments.slot)
+            print(f"INVENTORY_V41_ONESHOT slot={arguments.slot} executions={count}")
+        else:
+            count = scheduler.run_once()
+            print(f"INVENTORY_V5J_ONESHOT executions={count}")
         return 0
     if not settings.INVENTORY_DAILY_SCHEDULER_ENABLED:
         logger.info("inventory_daily_scheduler_disabled")

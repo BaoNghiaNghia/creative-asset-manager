@@ -1,0 +1,10 @@
+[Unit]
+Description=Inventory V5J lifecycle evaluation timer
+
+[Timer]
+OnCalendar=*-*-* *:*:00 Asia/Ho_Chi_Minh
+Persistent=false
+Unit=creative-asset-manager-inventory-v5j-lifecycle.service
+
+[Install]
+WantedBy=timers.target

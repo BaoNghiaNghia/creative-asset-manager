@@ -1166,8 +1166,7 @@ verify_services() {
 
 
   for service in \
-    creative-asset-manager-inventory-v41-snapshot.timer \
-    creative-asset-manager-inventory-v41-reconcile.timer
+    creative-asset-manager-inventory-v5j-lifecycle.timer
   do
 
     systemctl is-enabled \
@@ -1695,7 +1694,9 @@ for unit in \
   creative-asset-manager-inventory-v41-snapshot.service \
   creative-asset-manager-inventory-v41-snapshot.timer \
   creative-asset-manager-inventory-v41-reconcile.service \
-  creative-asset-manager-inventory-v41-reconcile.timer
+  creative-asset-manager-inventory-v41-reconcile.timer \
+  creative-asset-manager-inventory-v5j-lifecycle.service \
+  creative-asset-manager-inventory-v5j-lifecycle.timer
 do
 
   install \
@@ -1757,19 +1758,29 @@ systemctl enable \
 
 
 info \
-  "Enabling Inventory V4.1 one-shot timers"
+  "Replacing fixed Inventory V4.1 timers with the configured V5J lifecycle timer"
+
+
+systemctl stop \
+  creative-asset-manager-inventory-v41-snapshot.timer \
+  creative-asset-manager-inventory-v41-reconcile.timer \
+  || true
+
+
+systemctl disable \
+  creative-asset-manager-inventory-v41-snapshot.timer \
+  creative-asset-manager-inventory-v41-reconcile.timer \
+  || true
 
 
 systemctl reset-failed \
-  creative-asset-manager-inventory-v41-snapshot.service \
-  creative-asset-manager-inventory-v41-reconcile.service \
+  creative-asset-manager-inventory-v5j-lifecycle.service \
   || true
 
 
 systemctl enable \
   --now \
-  creative-asset-manager-inventory-v41-snapshot.timer \
-  creative-asset-manager-inventory-v41-reconcile.timer
+  creative-asset-manager-inventory-v5j-lifecycle.timer
 
 
 #
