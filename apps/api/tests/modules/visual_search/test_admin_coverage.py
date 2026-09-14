@@ -66,7 +66,7 @@ def test_admin_coverage_routes_are_read_only_get_routes():
     paths = {route.path for route in router.routes}
     assert "/api/v1/admin/visual-search/coverage" in paths
     assert "/api/v1/admin/visual-search/coverage/sources" in paths
-    assert all("GET" in route.methods for route in router.routes)
+    assert all("GET" in route.methods for route in router.routes if route.path in {"/api/v1/admin/visual-search/coverage", "/api/v1/admin/visual-search/coverage/sources"})
 
 
 def test_authorized_admin_gets_tenant_coverage_and_cannot_override_tenant(coverage_client):

@@ -1,12 +1,14 @@
 from __future__ import annotations
 from app.modules.visual_search.backfill_repository import VisualSearchBackfillRunRepository
 from app.modules.visual_search.reconciliation import VisualSearchReconciliationService
+from app.modules.visual_search.eligibility import visual_search_tenant_eligible
 
 class VisualSearchBackfillExecutor:
     """Executes exactly one bounded reconciliation slice and persists its cursor."""
     def __init__(self, session, processing, index, *, settings):
         self.session=session; self.processing=processing; self.index=index; self.settings=settings
     def run_slice(self, *, tenant_id: str, run_id: str, max_assets: int=100):
+        if not self.settings.VISUAL_SEARCH_BACKFILL_ENABLED or not visual_search_tenant_eligible(self.settings, tenant_id): raise ValueError("visual search backfill is disabled")
         runs=VisualSearchBackfillRunRepository(self.session); run=runs.get(tenant_id=tenant_id,run_id=run_id)
         if run is None: raise LookupError('visual backfill run not found')
         if run.status=='cancelled': return run, None
