@@ -129,9 +129,9 @@ class InventorySettingsModel(Base):
     daily_archive_root_folder_id: Mapped[str | None] = mapped_column(String(2048))
     daily_template_spreadsheet_file_id: Mapped[str | None] = mapped_column(String(2048))
     daily_target_spreadsheet_file_id: Mapped[str | None] = mapped_column(String(2048))
-    daily_snapshot_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="05:50")
-    daily_reconcile_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="07:00")
-    daily_carry_forward_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="09:00")
+    daily_snapshot_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="23:50")
+    daily_reconcile_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="23:55")
+    daily_carry_forward_time_local: Mapped[str] = mapped_column(String(5), nullable=False, default="05:00")
     daily_sheet_config_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Ho_Chi_Minh")
     auto_approve_confidence: Mapped[Decimal] = mapped_column(

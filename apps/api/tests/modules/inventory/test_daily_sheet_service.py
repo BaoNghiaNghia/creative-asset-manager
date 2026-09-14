@@ -367,8 +367,8 @@ def test_status_exposes_business_schedule_and_safe_drive_links(daily_sheet_db):
 
     assert result["current_local_date"] == "2030-08-09"
     assert result["working_business_date"] == "2030-08-09"
-    assert result["next_snapshot_at"].startswith("2030-08-10T05:50:00+07:00")
-    assert result["next_reconciliation_at"].startswith("2030-08-10T07:00:00+07:00")
+    assert result["next_snapshot_at"].startswith("2030-08-09T23:50:00+07:00")
+    assert result["next_reconciliation_at"].startswith("2030-08-09T23:55:00+07:00")
     assert result["working_spreadsheet_url"].endswith("/working/edit")
     assert result["last_snapshot"]["snapshot_url"].endswith("/snapshot/edit")
     assert result["last_snapshot"]["archive_folder_url"].endswith("/archive-date")

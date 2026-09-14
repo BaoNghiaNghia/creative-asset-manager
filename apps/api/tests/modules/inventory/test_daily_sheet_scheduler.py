@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -14,7 +14,7 @@ from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 from app.modules.inventory.daily_sheet.semantic import InventoryDailySheetSemanticAnalyzer
 from app.modules.inventory.daily_sheet.agent_v4.tools import V4AgentSafetyError
 from app.modules.inventory.jobs.model import InventoryJobModel
-from app.modules.inventory.persistence_model import InventorySettingsModel
+from app.modules.inventory.persistence_model import InventoryDailyCarryForwardModel, InventoryDailySheetSnapshotModel, InventorySettingsModel
 
 
 class DailySheetSchedulerTest(unittest.TestCase):
@@ -22,7 +22,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.engine = create_engine(f"sqlite:///{Path(self.tmp.name) / 'daily-sheet-scheduler.db'}")
         event.listen(self.engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
-        for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_jobs"):
+        for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_jobs", "inventory_daily_carry_forwards", "inventory_daily_sheet_snapshots"):
             Base.metadata.tables[name].create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.sessions.begin() as session:
@@ -34,6 +34,8 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 daily_snapshot_time_local="05:50", daily_reconcile_time_local="07:00",
                 timezone="Asia/Ho_Chi_Minh",
             ))
+            session.add(InventoryDailyCarryForwardModel(tenant_id="tenant-a", target_business_date=date(2030, 8, 9), previous_business_date=date(2030, 8, 8), idempotency_key="ready", status="completed", verified_at=datetime.now(timezone.utc)))
+            session.add(InventoryDailySheetSnapshotModel(id="v4-ready", tenant_id="tenant-a", business_date=date(2030, 8, 9), external_source_id="source-a", source_spreadsheet_file_id="working", snapshot_file_id="snapshot", gemini_file_id="gemini", status="completed"))
 
     def tearDown(self):
         self.engine.dispose()
@@ -250,6 +252,8 @@ class DailySheetSchedulerTest(unittest.TestCase):
         first = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
         self.assertEqual(1, scheduler.execute_v4_slot("afternoon_snapshot", first))
         self.assertEqual(1, scheduler.execute_v4_slot("evening_reconcile", first))
+        with self.sessions.begin() as session:
+            session.add(InventoryDailyCarryForwardModel(tenant_id="tenant-a", target_business_date=date(2030, 8, 10), previous_business_date=date(2030, 8, 9), idempotency_key="ready-next", status="completed", verified_at=datetime.now(timezone.utc)))
         self.assertEqual(1, scheduler.execute_v4_slot("afternoon_snapshot", first + timedelta(days=1)))
         self.assertEqual([
             ("2030-08-09", "afternoon_snapshot"),
@@ -343,6 +347,8 @@ class DailySheetSchedulerTest(unittest.TestCase):
             self.assertEqual("failed", job.status)
 
     def test_v4_carry_forward_is_due_at_local_0900_and_catches_up_once(self):
+        with self.sessions.begin() as session:
+            session.delete(session.scalar(select(InventoryDailyCarryForwardModel)))
         self._enable_v4()
         with self.sessions.begin() as session:
             settings = session.scalar(select(InventorySettingsModel).where(

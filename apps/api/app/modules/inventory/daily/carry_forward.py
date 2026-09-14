@@ -1,4 +1,4 @@
-"""Trusted 09:00 shared-workbook carry-forward.
+"""Trusted morning shared-workbook carry-forward.
 
 Gemini may plan from the previous verified daily copy, but only this module can
 write the shared workbook.  It deliberately accepts an injected planner so
@@ -107,9 +107,21 @@ def _number(value: Any) -> Decimal:
         raise CarryForwardReviewRequired("non_numeric_closing_evidence") from exc
 
 
+
+def _target_matches_desired(actual: Any, desired: Any) -> bool:
+    """Compare the recovery target with the already-validated desired value."""
+    if actual is None or desired is None:
+        return actual is desired
+    try:
+        return Decimal(str(actual).replace(",", ".")) == Decimal(str(desired).replace(",", "."))
+    except (InvalidOperation, ValueError):
+        return str(actual).strip() == str(desired).strip()
+
 class InventorySharedCarryForwardService:
     def __init__(
         self, session_factory: sessionmaker[Session], *,
+
+
         client_factory=GoogleSheetsInventoryClient,
         token_resolver=get_connection_access_token,
         planner: CarryForwardPlanner | None = None,
@@ -286,7 +298,9 @@ class InventorySharedCarryForwardService:
                         session.commit()
                     plan = self.planner.plan(
                         tenant_id=tenant_id, previous_gemini_file_id=source_id,
-                        shared_workbook_id=shared_id, prompt=f"{CARRY_FORWARD_PROMPT}\n\n=== TENANT BUSINESS INSTRUCTIONS ===\n{resolved.content}\n=== END TENANT BUSINESS INSTRUCTIONS ===\n\nThe server binds the two workbook roles; never request identifiers.", connection_id=connection_id,
+                        shared_workbook_id=shared_id,
+                        prompt=f"{CARRY_FORWARD_PROMPT}\n\n=== TENANT BUSINESS INSTRUCTIONS ===\n{resolved.content}\n=== END TENANT BUSINESS INSTRUCTIONS ===\n\nThe server binds the two workbook roles; never request identifiers.",
+                        connection_id=connection_id,
                     )
                 rows = self._validate_plan(tenant_id, plan, source_id=source_id, target_id=shared_id, source_meta=source_meta, target_meta=target_meta)
                 plan_json = {"contract_version": 3, "operations": rows, "issues": plan.issues}
@@ -294,7 +308,7 @@ class InventorySharedCarryForwardService:
                 set_updates: list[dict[str, Any]] = []
                 clear_ranges: list[str] = []
                 # Validate every operation and its freshly-read evidence before
-                # any external mutation.  This keeps reset fields intact when a
+                # any external mutation. This keeps reset fields intact when a
                 # required opening set cannot safely be applied.
                 for row in rows:
                     source, target = row.get("source") or {}, row["target"]
@@ -302,11 +316,13 @@ class InventorySharedCarryForwardService:
                     formula = self._cell_value(google, shared_id, target["sheet"], target["cell"], formula=True)
                     if str(formula).startswith("="):
                         raise CarryForwardReviewRequired("formula_target_cell")
-                    if canonical_hash([actual_target]) != target.get("evidence_hash"):
-                        raise CarryForwardStaleEvidence("stale_evidence")
+                    original_target_matches = canonical_hash([actual_target]) == target.get("evidence_hash")
                     if row["type"] == "clear_cell":
-                        if actual_target not in (None, ""):
-                            clear_ranges.append(f"'{target['sheet']}'!{target['cell']}")
+                        if original_target_matches:
+                            if actual_target not in (None, ""):
+                                clear_ranges.append(f"'{target['sheet']}'!{target['cell']}")
+                        elif actual_target not in (None, ""):
+                            raise CarryForwardStaleEvidence("stale_evidence")
                         continue
                     actual_source = self._cell_value(google, source_id, source["sheet"], source["cell"])
                     if canonical_hash([actual_source]) != source.get("evidence_hash"):
@@ -315,8 +331,11 @@ class InventorySharedCarryForwardService:
                         raise CarryForwardStaleEvidence("stale_evidence")
                     if _number(actual_source) != _number(row["value"]):
                         raise CarryForwardStaleEvidence("stale_evidence")
-                    if _number(actual_target) != _number(row["value"]):
-                        set_updates.append({"range": f"'{target['sheet']}'!{target['cell']}", "values": [[row["value"]]]})
+                    if original_target_matches:
+                        if not _target_matches_desired(actual_target, row["value"]):
+                            set_updates.append({"range": f"'{target['sheet']}'!{target['cell']}", "values": [[row["value"]]]})
+                    elif not _target_matches_desired(actual_target, row["value"]):
+                        raise CarryForwardStaleEvidence("stale_evidence")
                 with self.session_factory() as session:
                     row = session.get(InventoryDailyCarryForwardModel, operation.id)
                     row.previous_snapshot_id, row.source_gemini_file_id, row.shared_target_file_id = snapshot_id, source_id, shared_id

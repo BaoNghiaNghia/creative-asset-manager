@@ -602,13 +602,30 @@ class InventoryDailySheetService:
             from app.modules.inventory.daily_sheet.agent_v4.service import build_daily_sheet_v4_service
             self.agent_v4_service = build_daily_sheet_v4_service(
                 session_factory=self.session_factory,
-                context_provider=lambda tenant_id: self._context(
-                    tenant_id, require_enabled=False
-                ),
+                context_provider=lambda tenant_id: self._context(tenant_id, require_enabled=False),
                 client_factory=self.client_factory,
                 token_resolver=self.token_resolver,
             )
         return self.agent_v4_service
+
+    def _assert_v4_snapshot_fresh(
+        self, tenant_id: str, business_date: date, context: SheetContext,
+    ) -> None:
+        """Reject an evening reconcile if its shared-workbook source drifted."""
+        with self.session_factory() as session:
+            row = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == business_date,
+                InventoryDailySheetSnapshotModel.status == "completed",
+                InventoryDailySheetSnapshotModel.gemini_file_id.is_not(None),
+            ))
+            if row is None or row.source_modified_time_after is None:
+                raise DailySheetConfigurationError("afternoon_snapshot_not_ready")
+            captured = row.source_modified_time_after
+        with self.client_factory(self._token(context.connection_id)) as google:
+            live = _parse_time(google.drive_file(context.configured_source_file_id).get("modifiedTime"))
+        if live != captured:
+            raise DailySheetConfigurationError("snapshot_stale_for_evening_reconcile")
 
     def is_agent_v4_configured(self, tenant_id: str) -> bool:
         context = self._context(tenant_id, require_enabled=False)
@@ -625,7 +642,7 @@ class InventoryDailySheetService:
         )
 
     def run_agent_v4(
-        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None
+        self, tenant_id: str, business_date: date, *, slot_kind: str | None = None,
     ):
         context = self._context(tenant_id, require_enabled=False)
         if not isinstance(context.config, GeminiToolSheetAgentConfig):
@@ -633,15 +650,13 @@ class InventoryDailySheetService:
         if slot_kind in {"snapshot", "afternoon_snapshot"}:
             snapshot = self.snapshot_v4_workbook(tenant_id, business_date)
             return type("V4SnapshotSlotResult", (), {"status": "completed", "writes": 0, "snapshot_id": snapshot.id})()
-        # An evening run is never allowed to manufacture its prerequisite.  This
-        # prevents a restart or manual call from silently creating a late copy.
-        runtime = self._v4_runtime_context(tenant_id, business_date, context)
         if slot_kind == "evening_reconcile":
+            self._assert_v4_snapshot_fresh(tenant_id, business_date, context)
             self._mark_v4_reconcile_started(tenant_id, business_date)
+        runtime = self._v4_runtime_context(tenant_id, business_date, context)
         try:
             result = self._agent_v4().run(
-                tenant_id, business_date, slot_kind=slot_kind,
-                context=runtime,
+                tenant_id, business_date, slot_kind=slot_kind, context=runtime,
             )
         except Exception as exc:
             if slot_kind == "evening_reconcile":
@@ -1381,9 +1396,9 @@ class InventoryDailySheetService:
                         .order_by(InventoryJobModel.created_at.desc())
                     )
 
-            snapshot_time = settings.daily_snapshot_time_local if settings else "05:50"
-            reconcile_time = settings.daily_reconcile_time_local if settings else "07:00"
-            carry_forward_time = settings.daily_carry_forward_time_local if settings else "09:00"
+            snapshot_time = settings.daily_snapshot_time_local if settings else "23:50"
+            reconcile_time = settings.daily_reconcile_time_local if settings else "23:55"
+            carry_forward_time = settings.daily_carry_forward_time_local if settings else "05:00"
 
             def next_run(value: str) -> str:
                 hour, minute = (int(item) for item in value.split(":", 1))

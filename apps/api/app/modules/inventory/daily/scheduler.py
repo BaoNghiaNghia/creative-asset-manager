@@ -13,7 +13,7 @@ from app.modules.inventory.daily.carry_forward import InventorySharedCarryForwar
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.jobs.repository import InventoryJobRepository
-from app.modules.inventory.persistence_model import InventorySettingsModel
+from app.modules.inventory.persistence_model import InventoryDailyCarryForwardModel, InventoryDailySheetSnapshotModel, InventorySettingsModel
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class InventoryDailyScheduler:
         code = str(error).strip().lower()
         name = type(error).__name__.lower()
         return (
-            code == "stale_evidence"
+            code in {"morning_reset_not_completed", "afternoon_snapshot_not_ready", "stale_evidence"}
             or any(value in code for value in (
                 "429", "rate_limit", "rate limit", "timeout", "timed out",
                 "temporarily unavailable", "connection reset", "network",
@@ -240,18 +240,67 @@ class InventoryDailyScheduler:
             )
             raise
 
+    def _morning_reset_completed(self, *, tenant_id: str, business_date: date) -> bool:
+        """Use persisted carry-forward proof, never wall-clock ordering."""
+        with self.session_factory() as session:
+            return session.scalar(select(InventoryDailyCarryForwardModel.id).where(
+                InventoryDailyCarryForwardModel.tenant_id == tenant_id,
+                InventoryDailyCarryForwardModel.target_business_date == business_date,
+                InventoryDailyCarryForwardModel.status == "completed",
+                InventoryDailyCarryForwardModel.verified_at.is_not(None),
+            )) is not None
+
+    def _execute_v4_snapshot_after_morning(
+        self, *, settings: InventorySettingsModel, business_date: date, moment: datetime,
+    ) -> int:
+        if not self._morning_reset_completed(tenant_id=settings.tenant_id, business_date=business_date):
+            raise RuntimeError("morning_reset_not_completed")
+        return self._execute_v4_tenant(
+            settings=settings,
+            business_date=business_date,
+            slot_kind="afternoon_snapshot",
+            moment=moment,
+        )
+
+    def _snapshot_completed(self, *, tenant_id: str, business_date: date) -> bool:
+        with self.session_factory() as session:
+            return session.scalar(select(InventoryDailySheetSnapshotModel.id).where(
+                InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == business_date,
+                InventoryDailySheetSnapshotModel.status == "completed",
+                InventoryDailySheetSnapshotModel.gemini_file_id.is_not(None),
+            )) is not None
+
+    def _execute_v4_reconcile_after_snapshot(
+        self, *, settings: InventorySettingsModel, business_date: date, moment: datetime,
+    ) -> int:
+        if not self._snapshot_completed(tenant_id=settings.tenant_id, business_date=business_date):
+            raise RuntimeError("afternoon_snapshot_not_ready")
+        return self._execute_v4_tenant(
+            settings=settings, business_date=business_date,
+            slot_kind="evening_reconcile", moment=moment,
+        )
+
     def execute_v4_slot(self, slot_kind: str, now: datetime | None = None) -> int:
         if slot_kind not in V4_SLOT_KINDS:
             raise ValueError("invalid_inventory_v5_slot_kind")
         moment = now or datetime.now(timezone.utc)
         count = 0
         for settings in self._v4_settings():
-            count += self._execute_v4_tenant(
-                settings=settings,
-                business_date=self._local_business_date(settings, moment),
-                slot_kind=slot_kind,
-                moment=moment,
-            )
+            business_date = self._local_business_date(settings, moment)
+            if slot_kind == "afternoon_snapshot":
+                count += self._execute_v4_snapshot_after_morning(
+                    settings=settings, business_date=business_date, moment=moment,
+                )
+            elif slot_kind == "evening_reconcile":
+                count += self._execute_v4_reconcile_after_snapshot(
+                    settings=settings, business_date=business_date, moment=moment,
+                )
+            else:
+                count += self._execute_v4_tenant(
+                    settings=settings, business_date=business_date,
+                    slot_kind=slot_kind, moment=moment,
+                )
         return count
 
     def run_once(self, now: datetime | None = None) -> int:
@@ -285,20 +334,23 @@ class InventoryDailyScheduler:
                         and settings.daily_sheet_config_json.get("version") == 4
                     )
                     carry_forward_due = local.time() >= _configured_time(
-                        settings.daily_carry_forward_time_local, time(9, 0)
+                        settings.daily_carry_forward_time_local, time(5, 0)
                     )
-                    snapshot_due = local.time() >= _configured_time(settings.daily_snapshot_time_local, time(5, 50))
-                    reconcile_due = local.time() >= _configured_time(settings.daily_reconcile_time_local, time(7, 0))
+                    snapshot_due = local.time() >= _configured_time(settings.daily_snapshot_time_local, time(23, 50))
+                    reconcile_due = local.time() >= _configured_time(settings.daily_reconcile_time_local, time(23, 55))
                     if is_v4 and carry_forward_due:
                         claimed = self._claim_v4_slot(tenant_id=tenant_id, business_date=target_business_date, slot_kind="morning_reset", now=moment)
                         if claimed:
                             job_id, worker_id = claimed
                             try:
-                                carry = self.carry_forward_service.run(tenant_id, target_business_date)
-                                if carry.status != "completed":
-                                    raise RuntimeError(carry.error_code or "previous_day_gemini_not_verified")
-                                self._complete_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id)
-                                count += 1
+                                if self._morning_reset_completed(tenant_id=tenant_id, business_date=target_business_date):
+                                    self._complete_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id)
+                                else:
+                                    carry = self.carry_forward_service.run(tenant_id, target_business_date)
+                                    if carry.status != "completed":
+                                        raise RuntimeError(carry.error_code or "previous_day_gemini_not_verified")
+                                    self._complete_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id)
+                                    count += 1
                             except Exception as error:
                                 self._fail_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id, error=error, retryable=self._retryable_v4_error(error), now=moment)
                                 raise
@@ -308,9 +360,9 @@ class InventoryDailyScheduler:
                             and settings.daily_sheet_config_json.get("version") == 3
                         )
                         if is_v4:
-                            count += self._execute_v4_tenant(settings=settings, business_date=target_business_date, slot_kind="afternoon_snapshot", moment=moment)
+                            count += self._execute_v4_snapshot_after_morning(settings=settings, business_date=target_business_date, moment=moment)
                             if reconcile_due:
-                                count += self._execute_v4_tenant(settings=settings, business_date=target_business_date, slot_kind="evening_reconcile", moment=moment)
+                                count += self._execute_v4_reconcile_after_snapshot(settings=settings, business_date=target_business_date, moment=moment)
                         elif is_v3:
                             plan_key = (tenant_id, target_business_date)
                             if plan_key not in self._completed_v3_plans:

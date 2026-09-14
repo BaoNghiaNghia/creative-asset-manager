@@ -206,3 +206,25 @@ def test_clear_formula_or_stale_target_is_blocked_without_clear():
     result = InventorySharedCarryForwardService(sessions, client_factory=lambda _token: google, token_resolver=lambda _id: "token", planner=Planner(operations)).run("tenant-a", date(2030, 8, 10))
     assert result.status == "retryable_failure" and google.clears == []
     engine.dispose(); temp.cleanup()
+
+
+def test_recovery_accepts_already_desired_target_after_interrupted_write():
+    temp, engine, sessions = make_db()
+    class InterruptedGoogle(Google):
+        def batch_update_values(self, file_id, updates):
+            self.writes.extend(updates)
+    first = InterruptedGoogle(source_values={"H14": 50}, target_values={"B14": 1})
+    rows = [row("material-a", "warehouse-a", "H14", "B14", 50, 1)]
+    service = InventorySharedCarryForwardService(
+        sessions, client_factory=lambda _token: first,
+        token_resolver=lambda _id: "token", planner=Planner(rows),
+    )
+    assert service.run("tenant-a", date(2030, 8, 10)).status == "retryable_failure"
+    resumed = Google(source_values={"H14": 50}, target_values={"B14": 50})
+    recovered = InventorySharedCarryForwardService(
+        sessions, client_factory=lambda _token: resumed,
+        token_resolver=lambda _id: "token", planner=Planner([]),
+    ).run("tenant-a", date(2030, 8, 10))
+    assert recovered.status == "completed"
+    assert resumed.writes == []
+    engine.dispose(); temp.cleanup()

@@ -43,9 +43,9 @@ class InventorySettingsInput(InventorySchema):
     daily_archive_root_folder_id: str | None = None
     daily_template_spreadsheet_file_id: str | None = None
     daily_target_spreadsheet_file_id: str | None = None
-    daily_snapshot_time_local: str = Field(default="05:50", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    daily_reconcile_time_local: str = Field(default="07:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    daily_carry_forward_time_local: str = Field(default="09:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    daily_snapshot_time_local: str = Field(default="23:50", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    daily_reconcile_time_local: str = Field(default="23:55", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    daily_carry_forward_time_local: str = Field(default="05:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     daily_sheet_config_json: dict = Field(default_factory=dict)
     timezone: str = "Asia/Ho_Chi_Minh"
     auto_approve_confidence: Decimal = Field(default=Decimal("0.95"), ge=0, le=1)

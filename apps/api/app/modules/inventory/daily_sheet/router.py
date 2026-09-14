@@ -22,9 +22,9 @@ class DailySheetSettingsRequest(BaseModel):
     archive_root_folder_id: str | None = Field(default=None, max_length=2048)
     template_spreadsheet_file_id: str | None = Field(default=None, max_length=2048)
     target_spreadsheet_file_id: str | None = Field(default=None, max_length=2048)
-    snapshot_time_local: str = Field(default="05:50", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    reconcile_time_local: str = Field(default="07:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    carry_forward_time_local: str = Field(default="09:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    snapshot_time_local: str = Field(default="23:50", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    reconcile_time_local: str = Field(default="23:55", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    carry_forward_time_local: str = Field(default="05:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     timezone: str = "Asia/Ho_Chi_Minh"
     config: dict = Field(default_factory=dict)
 
@@ -121,6 +121,10 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
         ZoneInfo(body.timezone)
     except Exception as exc:
         raise HTTPException(422, detail={"code": "invalid_daily_sheet_configuration", "message": str(exc)}) from exc
+    if body.daily_sheet_automation_enabled and not (
+        body.carry_forward_time_local <= body.snapshot_time_local <= body.reconcile_time_local
+    ):
+        raise HTTPException(422, detail={"code": "inventory_schedule_order_invalid"})
     with SessionLocal() as session:
         row = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == principal.active_tenant_id))
         if row is None: raise HTTPException(409, detail={"code": "inventory_settings_required"})
