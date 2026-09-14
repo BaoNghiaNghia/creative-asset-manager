@@ -1016,6 +1016,14 @@ describe("Search Coverage card", () => {
 
 
 describe("Visual Search Operations pipeline", () => {
+
+  it("renders the pipeline-shaped skeleton while coverage is loading", () => {
+    const markup = renderToStaticMarkup(<VisualSearchOperationsTab loading error={null} onRetry={noop} coverage={null} sources={null} />);
+    expect(markup).toContain("visual-ops-skeleton");
+    expect(markup).toContain("visual-ops-skeleton-metric");
+    expect(markup).toContain("Đang tải dữ liệu Visual Search");
+  });
+
   it("renders corpus lifecycle, job state and per-source coverage without exposing credentials", () => {
     const markup = renderToStaticMarkup(<VisualSearchOperationsTab
       loading={false}

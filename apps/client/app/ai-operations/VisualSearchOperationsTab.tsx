@@ -25,8 +25,19 @@ function SourceRow({ source }: { source: VisualSearchSourceCoverage }) {
   return <tr><td className="visual-ops-source-cell"><span className="visual-ops-source-icon"><VisualIcon name="source" /></span><div><b>{source.display_name || "Nguồn chưa đặt tên"}</b><small>{source.source_type}</small></div></td><td>{formatNumber(source.discovered_images)}</td><td>{formatNumber(source.imported_images)}</td><td>{formatNumber(source.visual_eligible)}</td><td><span className="pipeline-queue-count complete">{formatNumber(source.visual_indexed_current)}</span></td><td><span className="pipeline-queue-count waiting">{formatNumber(source.visual_index_missing)}</span></td><td><span className="pipeline-queue-count waiting">{formatNumber(source.visual_index_stale)}</span></td><td>{formatNumber(source.unsupported_images)}</td><td><span className={searchable == null ? "visual-ops-status unknown" : searchable >= 0.99 ? "visual-ops-status ready" : "visual-ops-status pending"}>{formatPercent(searchable)}</span></td></tr>;
 }
 
+
+function VisualSearchSkeleton() {
+  return <div className="ops-content pipeline-content visual-ops visual-ops-skeleton" role="status" aria-live="polite" aria-label="Đang tải dữ liệu Visual Search">
+    <header className="visual-ops-heading"><div className="visual-ops-heading-copy"><i className="visual-ops-skeleton-icon" /><div><i className="visual-ops-skeleton-line label" /><i className="visual-ops-skeleton-line title" /><i className="visual-ops-skeleton-line copy" /></div></div><i className="visual-ops-skeleton-pill" /></header>
+    <section className="pipeline-summary visual-ops-summary" aria-hidden="true">{Array.from({ length: 5 }, (_, index) => <article className="visual-ops-skeleton-metric" key={index}><i className="visual-ops-skeleton-line metric-label" /><i className="visual-ops-skeleton-line metric-value" /><i className="visual-ops-skeleton-line metric-copy" /></article>)}</section>
+    <div className="pipeline-context-row visual-ops-context-row" aria-hidden="true">{Array.from({ length: 3 }, (_, index) => <section className="visual-ops-skeleton-context" key={index}><i className="visual-ops-skeleton-line label" /><i className="visual-ops-skeleton-line context-title" /><i className="visual-ops-skeleton-line context-copy" /><div><i /><i /><i /></div></section>)}</div>
+    <section className="pipeline-queue visual-ops-skeleton-table" aria-hidden="true"><header><div><i className="visual-ops-skeleton-line label" /><i className="visual-ops-skeleton-line table-title" /><i className="visual-ops-skeleton-line table-copy" /></div><i className="visual-ops-skeleton-pill" /></header>{Array.from({ length: 3 }, (_, index) => <div className="visual-ops-skeleton-row" key={index}><i /><i /><i /><i /><i /><i /></div>)}</section>
+    <span className="sr-only">Đang tải dữ liệu Visual Search…</span>
+  </div>;
+}
+
 export function VisualSearchOperationsTab({ coverage, sources, loading, error, onRetry }: Props) {
-  if (loading || (!coverage && !error)) return <div className="visual-ops-state">Đang tải dữ liệu Visual Search…</div>;
+  if (loading || (!coverage && !error)) return <VisualSearchSkeleton />;
   if (error) return <div className="visual-ops-state visual-ops-state-error"><div><b>Không thể tải trạng thái Visual Search.</b><span>{error}</span></div><button type="button" onClick={onRetry}>Thử lại</button></div>;
   if (!coverage) return <div className="visual-ops-state">Chưa có dữ liệu coverage cho Visual Search.</div>;
 
