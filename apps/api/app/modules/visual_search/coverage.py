@@ -8,7 +8,7 @@ from app.modules.visual_search.job_coverage import VisualJobCoverageReader
 class VisualCoverageUnavailable(RuntimeError): pass
 KEYS=("discovered_images","imported_images","visual_eligible","visual_indexed_current","visual_index_missing","visual_index_stale","unsupported_images")
 @dataclass(frozen=True)
-class VisualCoverage: index_state:str; totals:dict[str,int|None]; sources:list[dict]; ratios:dict[str,float]
+class VisualCoverage: index_state:str; totals:dict[str,int|None]; sources:list[dict]; ratios:dict[str,float|None]
 def _ok(doc,resource):
  d=VISUAL_SEARCH_BASELINE_DESCRIPTOR
  return doc.get("asset_id")==resource.asset_id and doc.get("content_sha256")==resource.content_hash and all(doc.get(k)==getattr(d,k) for k in ("embedding_schema_version","encoder_name","encoder_revision","preprocess_version","similarity")) and not doc.get("is_deleted") and not doc.get("is_hidden")
@@ -33,7 +33,7 @@ class VisualCoverageService:
     for k in ("visual_indexed_current","visual_index_missing","visual_index_stale"): b[k]=None
     b["ratios"]={"import_coverage":_ratio(b["imported_images"],b["discovered_images"]),"eligible_visual_coverage":None,"whole_resource_searchable":None}
    with self.session_factory() as s: totals.update(VisualJobCoverageReader(s).counts(tenant_id,job_assets,set()))
-   return VisualCoverage("unavailable",totals,sorted(buckets.values(),key=lambda b:((b["display_name"] or ""),b["source_id"])),{"import_coverage":_ratio(totals["imported_images"],totals["discovered_images"]),"eligible_visual_coverage":0.0,"whole_resource_searchable":0.0})
+   return VisualCoverage("unavailable",totals,sorted(buckets.values(),key=lambda b:((b["display_name"] or ""),b["source_id"])),{"import_coverage":_ratio(totals["imported_images"],totals["discovered_images"]),"eligible_visual_coverage":None,"whole_resource_searchable":None})
   by=defaultdict(list)
   for d in docs:
    if d.get("tenant_id")==tenant_id:by[d.get("asset_id")].append(d)

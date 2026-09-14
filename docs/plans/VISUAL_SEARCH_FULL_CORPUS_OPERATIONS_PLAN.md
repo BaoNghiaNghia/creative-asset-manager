@@ -861,6 +861,48 @@ A stale vector/document must not count as searchable-current.
 
 Count latest canonical visual-index work that is terminally failed/retry-exhausted and still lacks a current compatible document.
 
+
+---
+
+## 16.1 VS-13B implementation record — persistent coverage accounting
+
+**Status: implemented read-only coverage baseline.** VS-13C reconciliation/backfill is explicitly **not implemented** by this phase.
+
+### Data sources and counting unit
+
+Coverage is derived afresh from persistent state, with no snapshot table, migration, queue mutation, or Elasticsearch mutation:
+
+- PostgreSQL `SourceAsset` is the primary resource counting unit. A live image `SourceAsset` is discovered; videos and documents are excluded.
+- Imported means the discovered source resource has a valid source-to-asset link. Unimported resources remain visible in coverage.
+- Visual eligible means imported, linked to a valid asset with a current content hash, and supported by the current visual input/MIME contract.
+- Unsupported counts only discovered images that fail that visual-input contract; non-image resources do not inflate it.
+- Multiple `SourceAsset` rows linked to one Asset remain separate resources. Thus a current projection for one Asset can count as current for each eligible source resource that references that Asset.
+
+### Index currentness and Elasticsearch availability
+
+PostgreSQL is authoritative for resource discovery/import/eligibility. Elasticsearch is authoritative only for the current visual projection. A projection is current only when tenant, asset, content hash, canonical embedding schema, encoder name/revision, preprocess version, similarity, and deletion/hidden state are compatible. A projection that exists but fails any of those checks is stale; no projection is missing. A current projection takes precedence over stale historical projections.
+
+One bounded tenant-scoped metadata scan is performed per coverage evaluation; vectors are never fetched and neither assets nor sources trigger individual Elasticsearch scans. If Elasticsearch is unavailable, PostgreSQL-backed resource and job counts remain numeric while `visual_indexed_current`, `visual_index_missing`, `visual_index_stale`, `eligible_visual_coverage`, and `whole_resource_searchable` are `null`/unknown. They must never be reported as zero merely because Elasticsearch is unavailable.
+
+### Job accounting
+
+Tenant-level job metrics are read-only and asset/job-level: `visual_jobs_pending`, `visual_jobs_processing`, and `visual_jobs_failed`. Only a canonical `visual_index_sync` job for the asset's current content hash/revision is relevant. Pending/retry and running states follow existing processing constants. A failed current job counts only when no compatible current Elasticsearch projection exists. Historical completion does not prove indexed coverage, obsolete revisions are ignored, and one asset job is not multiplied by multiple linked SourceAssets.
+
+Job metrics intentionally remain tenant-level only in VS-13B. Per-source resource totals reconcile exactly to tenant resource totals; job totals are not duplicated or claimed additive across sources.
+
+### Admin API contract and authorization
+
+The read-only, tenant-bound AI Operations endpoints are:
+
+```text
+GET /api/v1/admin/visual-search/coverage
+GET /api/v1/admin/visual-search/coverage/sources
+```
+
+Both require `ai_operations.read`, derive the tenant solely from the active principal, accept no tenant override, and return no credentials, source metadata, signed URLs, vectors, or query images. The tenant endpoint returns generation time, index state, resource totals, tenant job totals, and ratios. The sources endpoint returns deterministic source ordering plus safe source identity and resource coverage only.
+
+No migration, snapshot/coverage table, enqueue, retry, backfill runner, or reconciliation mutation is part of VS-13B. Those operational actions remain the future scope of VS-13C.
+
 ---
 
 ## 17. Revised priority roadmap
