@@ -204,6 +204,22 @@ class VisualSearchElasticsearchIndex:
             filters.append({"bool": {"must_not": [{"term": {"asset_id": exclude_asset_id}}]}})
         return {"size": limit, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "source_id", "source_provider", "media_kind", "mime_type", "extension", "design_type"], "knn": {"field": "visual_embedding", "query_vector": list(embedding.values), "k": limit, "num_candidates": candidates, "filter": filters}}
 
+    async def scan_projection_metadata(self, tenant_id: str, *, page_size: int = 500) -> list[dict[str, Any]]:
+        """Read-only tenant projection scan; intentionally excludes vectors."""
+        if not tenant_id.strip(): raise VisualSearchIndexError("visual search requires a tenant scope")
+        if not 1 <= page_size <= 1000: raise VisualSearchIndexError("projection scan page_size must be between 1 and 1000")
+        after = None; rows = []
+        while True:
+            body = {"size": page_size, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "encoder_name", "encoder_revision", "preprocess_version", "similarity", "is_deleted", "is_hidden"], "query": {"bool": {"filter": [{"term": {"tenant_id": tenant_id}}]}}, "sort": [{"asset_id": "asc"}, {"_id": "asc"}]}
+            if after is not None: body["search_after"] = after
+            payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=body)
+            hits = payload.get("hits", {}).get("hits", [])
+            if not isinstance(hits, list): raise ElasticsearchV3RequestError("Elasticsearch returned malformed projection scan")
+            rows.extend(dict(hit.get("_source") or {}) for hit in hits if isinstance(hit, Mapping) and isinstance(hit.get("_source"), Mapping) and hit["_source"].get("tenant_id") == tenant_id)
+            if len(hits) < page_size: return rows
+            after = hits[-1].get("sort")
+            if not isinstance(after, list): raise ElasticsearchV3RequestError("Elasticsearch projection scan cursor missing")
+
     async def search(self, embedding: VisualEmbedding, *, scope: VisualSearchScope, metadata_filters: VisualMetadataFilters | None = None, limit: int = 40, num_candidates: int | None = None, exclude_asset_id: str | None = None) -> list[VisualSearchHit]:
         payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=self.knn_query(embedding, scope=scope, metadata_filters=metadata_filters, limit=limit, num_candidates=num_candidates, exclude_asset_id=exclude_asset_id))
         return self._hits(payload, tenant_id=scope.tenant_id)

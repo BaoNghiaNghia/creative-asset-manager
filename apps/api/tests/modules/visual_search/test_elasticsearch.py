@@ -57,6 +57,18 @@ class VisualSearchElasticsearchTest(unittest.TestCase):
             self.assertEqual([hit.asset_id for hit in hits], ["asset-a"])
         asyncio.run(verify())
 
+    def test_projection_metadata_scan_is_tenant_scoped_and_paginated(self) -> None:
+        async def verify() -> None:
+            self.index._index._request = AsyncMock(side_effect=[{"hits":{"hits":[{"_source":{"tenant_id":"tenant-a","asset_id":"a"},"sort":["a","1"]},{"_source":{"tenant_id":"tenant-b","asset_id":"x"},"sort":["x","2"]}]}},{"hits":{"hits":[{"_source":{"tenant_id":"tenant-a","asset_id":"b"},"sort":["b","3"]}]}}])
+            rows=await self.index.scan_projection_metadata("tenant-a",page_size=2)
+            self.assertEqual([r["asset_id"] for r in rows],["a","b"])
+            self.assertEqual(self.index._index._request.await_count,2)
+            body=self.index._index._request.await_args_list[0].kwargs["json_body"]
+            self.assertIn({"term":{"tenant_id":"tenant-a"}},body["query"]["bool"]["filter"])
+            self.assertNotIn("visual_embedding",body["_source"])
+            self.assertEqual(self.index._index._request.await_args_list[1].kwargs["json_body"]["search_after"],["x","2"])
+        asyncio.run(verify())
+
     def test_upsert_and_delete_are_tenant_scoped(self) -> None:
         async def verify() -> None:
             self.index._index._request = AsyncMock(return_value={"deleted": 1})
