@@ -1553,3 +1553,12 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-panel-lens .visual-refinement button{min-height:34px}
 @media(max-width:760px){.visual-search-panel-lens{margin:10px 12px;padding:13px}.visual-lens-main{grid-template-columns:94px minmax(0,1fr);gap:12px;align-items:start}.visual-lens-actions{align-content:flex-start}.visual-lens-scope{width:100%}.visual-lens-refine-toggle{margin-left:0}.visual-lens-refine{grid-template-columns:1fr}.visual-search-panel-lens .visual-refinement{grid-template-columns:1fr}.visual-search-panel-lens .visual-refinement button{width:100%}}
 @media(max-width:460px){.visual-search-panel-lens .visual-lens-empty{align-items:flex-start;flex-direction:column}.visual-lens-main{grid-template-columns:82px minmax(0,1fr)}.visual-lens-primary-actions{width:100%}.visual-lens-primary-actions button{flex:1}.visual-lens-secondary{display:none}}
+
+/* Correct the legacy named-grid area: Lens uses a compact horizontal toolbar. */
+.visual-search-panel-lens{max-width:980px}
+.visual-search-panel-lens .visual-lens-main{display:flex;align-items:flex-start;gap:12px}
+.visual-search-panel-lens .visual-lens-reference{grid-area:auto;flex:0 0 104px;width:104px}
+.visual-search-panel-lens .visual-reference-preview{width:104px;height:132px;aspect-ratio:auto}
+.visual-search-panel-lens .visual-lens-actions{flex:1;min-width:0;align-self:center}
+.visual-search-panel-lens .visual-lens-scope span{white-space:nowrap}
+@media(max-width:760px){.visual-search-panel-lens .visual-lens-main{gap:10px}.visual-search-panel-lens .visual-lens-reference{flex-basis:82px;width:82px}.visual-search-panel-lens .visual-reference-preview{width:82px;height:104px}}
