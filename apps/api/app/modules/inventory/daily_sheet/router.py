@@ -156,6 +156,13 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
 def get_status(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
     return _service().status(principal.active_tenant_id)
 
+@router.get("/lifecycle-history")
+def get_lifecycle_history(page: int = 1, page_size: int = 25, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
+    try:
+        return _service().lifecycle_history(principal.active_tenant_id, page=page, page_size=page_size)
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": str(exc)}) from exc
+
 @router.post("/discover")
 def discover_workbook(body: DiscoveryRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
     try:

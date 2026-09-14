@@ -22,6 +22,7 @@ from app.modules.inventory.daily_sheet.service import (
 from app.modules.inventory.persistence_model import (
     InventoryDailySheetReconciliationModel,
     InventoryDailySheetSnapshotModel,
+    InventoryDailyCarryForwardModel,
     InventoryItemModel,
     InventoryMaterialCandidateModel,
     InventoryMaterialExternalIdentityModel,
@@ -1182,3 +1183,17 @@ def test_scheduler_oriented_snapshot_still_requires_daily_automation_enabled(dai
 
     with pytest.raises(DailySheetConfigurationError, match="automation is disabled"):
         worker.snapshot_and_reset("tenant-a", date(2030, 8, 9))
+
+def test_lifecycle_history_derives_current_and_completed_pipeline_without_writes(daily_sheet_db):
+    completed_at = datetime(2030, 8, 9, 16, tzinfo=timezone.utc)
+    with daily_sheet_db.begin() as session:
+        session.add(InventoryDailyCarryForwardModel(tenant_id="tenant-a", target_business_date=date(2030, 8, 10), previous_business_date=date(2030, 8, 9), idempotency_key="carry-10", status="completed", shared_target_file_id="shared-10", verified_at=completed_at, completed_at=completed_at))
+        session.add(InventoryDailySheetSnapshotModel(tenant_id="tenant-a", business_date=date(2030, 8, 9), external_source_id="source-a", source_spreadsheet_file_id="working", snapshot_file_id="snapshot-9", gemini_file_id="gemini-9", status="completed", gemini_reconcile_status="completed", gemini_reconcile_verified_at=completed_at))
+    history = service(daily_sheet_db, FakeGoogle(), datetime(2030, 8, 10, 8, tzinfo=timezone.utc)).lifecycle_history("tenant-a")
+    assert [row["business_date"] for row in history["items"]] == ["2030-08-10", "2030-08-09"]
+    current = history["items"][0]
+    assert current["current_stage"] == "daily_check"
+    assert [stage["status"] for stage in current["stages"]] == ["completed", "running", "pending", "pending", "pending"]
+    completed = history["items"][1]
+    assert completed["overall_status"] == "completed"
+    assert completed["stages"][-1]["status"] == "completed"
