@@ -75,16 +75,16 @@ describe("visual search client helpers", () => {
       onScopeChange: () => undefined, onRefinementChange: () => undefined, onUpload: () => undefined,
       onApplyCrop: () => undefined, onRetry: () => undefined, onClose: () => undefined,
     }));
-    expect(markup).toContain("disabled=\"\" value=\"all\"");
-    expect(markup).toContain("checked=\"\" value=\"folder\"");
+    expect(markup).toContain("value=\"all\" disabled=\"\"");
+    expect(markup).toContain("value=\"folder\" selected=\"\"");
     const globalMarkup = renderToStaticMarkup(createElement(VisualSearchPanel, {
       scope: "all", canSearchAllResources: true, hasCurrentSource: false, hasCurrentFolder: false,
       reference: null, loading: false, error: "", refinement: "",
       onScopeChange: () => undefined, onRefinementChange: () => undefined, onUpload: () => undefined,
       onApplyCrop: () => undefined, onRetry: () => undefined, onClose: () => undefined,
     }));
-    expect(globalMarkup).toContain("checked=\"\" value=\"all\"");
-    expect(globalMarkup).not.toContain("disabled=\"\" value=\"all\"");
+    expect(globalMarkup).toContain("value=\"all\" selected=\"\"");
+    expect(globalMarkup).not.toContain("value=\"all\" disabled=\"\"");
   });
 
   it("serializes committed scope consistently for asset, upload, crop, hybrid, and Load More", () => {
