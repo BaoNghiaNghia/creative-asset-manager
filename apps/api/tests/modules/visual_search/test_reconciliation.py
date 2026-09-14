@@ -20,7 +20,8 @@ def test_only_missing_and_stale_are_enqueued_once(monkeypatch):
     monkeypatch.setattr(reconciliation,"enqueue_visual_index_sync",lambda processing,**kwargs: calls.append(kwargs) or True)
     index=Index([document("current"),document("stale","old"*16)])
     result=reconciliation.VisualSearchReconciliationService(object(),object(),index,settings=object()).reconcile(tenant_id="tenant-a")
-    assert (result.current,result.missing,result.stale,result.enqueued,result.existing)==(1,1,1,2,0)
+    assert (result.scanned,result.current,result.missing,result.stale,result.enqueued,result.existing)==(3,1,1,1,2,0)
+    assert result.checkpoint_asset_id=="stale" and not result.has_more
     assert {call["asset_id"] for call in calls}=={"missing","stale"} and index.calls==1
 
 def test_es_failure_enqueues_nothing(monkeypatch):
