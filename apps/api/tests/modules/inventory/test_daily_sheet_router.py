@@ -208,3 +208,24 @@ def test_v4_configuration_enables_scheduler_only_for_auto_mode():
     assert row.daily_sheet_automation_enabled is True
     assert row.daily_sheet_config_json["version"] == 4
     service.validate_configuration.assert_called_once_with("tenant-a")
+
+def test_lifecycle_history_requires_read_permission_and_forwards_pagination():
+    denied = client_for(principal(set()))
+    assert denied.get("/api/inventory/daily-sheet/lifecycle-history").status_code == 403
+    service = Mock()
+    service.lifecycle_history.return_value = {"items": [], "page": 2, "page_size": 50, "total": 0, "pages": 1}
+    allowed = client_for(principal({"inventory.read"}))
+    with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
+        response = allowed.get("/api/inventory/daily-sheet/lifecycle-history?page=2&page_size=50")
+    assert response.status_code == 200
+    service.lifecycle_history.assert_called_once_with("tenant-a", page=2, page_size=50)
+
+
+def test_lifecycle_history_rejects_invalid_pagination():
+    service = Mock()
+    service.lifecycle_history.side_effect = ValueError("invalid_lifecycle_history_pagination")
+    allowed = client_for(principal({"inventory.read"}))
+    with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
+        response = allowed.get("/api/inventory/daily-sheet/lifecycle-history?page_size=30")
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_lifecycle_history_pagination"

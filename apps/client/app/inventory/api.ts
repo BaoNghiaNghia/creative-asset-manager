@@ -134,3 +134,9 @@ export const inventoryMaterialApi={
   ignore:(id:string)=>request<{status:string}>(`/materials/candidates/${encodeURIComponent(id)}/ignore`,{method:"POST"}),
   reject:(id:string)=>request<{status:string}>(`/materials/candidates/${encodeURIComponent(id)}/reject`,{method:"POST"}),
 };
+
+export type InventoryLifecycleStageStatus = "pending"|"scheduled"|"running"|"completed"|"blocked"|"review_required"|"failed"|"stale";
+export type InventoryLifecycleStage = { key:"morning_reset"|"daily_check"|"afternoon_snapshot"|"evening_reconcile"|"verified"; label:string; status:InventoryLifecycleStageStatus; scheduled_time?:string; started_at?:string|null; completed_at?:string|null; error_code?:string|null; run_id?:string|null; plan_hash?:string|null; prompt_version?:string|null; prompt_hash?:string|null };
+export type InventoryLifecycleHistoryItem = { business_date:string; overall_status:InventoryLifecycleStageStatus; current_stage:string; stages:InventoryLifecycleStage[]; files:{shared_url:string|null;snapshot_url:string|null;gemini_url:string|null}; updated_at:string|null; action_required:{code:string;stage:string;label:string}|null };
+export type InventoryLifecycleHistoryResponse = {items:InventoryLifecycleHistoryItem[];page:number;page_size:number;total:number;pages:number};
+export const inventoryLifecycleApi = { getHistory:(page=1,pageSize=25)=>request<InventoryLifecycleHistoryResponse>(`/daily-sheet/lifecycle-history?page=${page}&page_size=${pageSize}`) };

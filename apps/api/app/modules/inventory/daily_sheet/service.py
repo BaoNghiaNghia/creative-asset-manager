@@ -1583,3 +1583,60 @@ class InventoryDailySheetService:
                     else None
                 ),
             }
+
+    def lifecycle_history(self, tenant_id: str, *, page: int = 1, page_size: int = 25) -> dict[str, Any]:
+        """Tenant-scoped operational read model; it never writes lifecycle state."""
+        if page < 1 or page_size not in {25, 50, 100}:
+            raise ValueError("invalid_lifecycle_history_pagination")
+        with self.session_factory() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id))
+            timezone_name = settings.timezone if settings else "Asia/Ho_Chi_Minh"
+            today = self.clock().astimezone(ZoneInfo(timezone_name)).date()
+            carries = list(session.scalars(select(InventoryDailyCarryForwardModel).where(InventoryDailyCarryForwardModel.tenant_id == tenant_id)))
+            snapshots = list(session.scalars(select(InventoryDailySheetSnapshotModel).where(InventoryDailySheetSnapshotModel.tenant_id == tenant_id)))
+            jobs = list(session.scalars(select(InventoryJobModel).where(InventoryJobModel.tenant_id == tenant_id, InventoryJobModel.job_type.in_(("inventory_v5_morning_reset_slot", "inventory_v5_afternoon_snapshot_slot", "inventory_v5_evening_reconcile_slot")))))
+            carries_by_day = {row.target_business_date: row for row in carries}
+            snapshots_by_day = {row.business_date: row for row in snapshots}
+            job_names = {"inventory_v5_morning_reset_slot": "morning_reset", "inventory_v5_afternoon_snapshot_slot": "afternoon_snapshot", "inventory_v5_evening_reconcile_slot": "evening_reconcile"}
+            jobs_by_day: dict[date, dict[str, InventoryJobModel]] = {}
+            for job in jobs:
+                try:
+                    business_date = date.fromisoformat(str((job.payload_json or {}).get("business_date") or job.entity_id))
+                except ValueError:
+                    continue
+                prior = jobs_by_day.setdefault(business_date, {}).get(job_names[job.job_type])
+                if prior is None or prior.created_at < job.created_at:
+                    jobs_by_day[business_date][job_names[job.job_type]] = job
+            dates = set(carries_by_day) | set(snapshots_by_day) | set(jobs_by_day)
+            if settings and settings.daily_sheet_automation_enabled:
+                dates.add(today)
+
+            def normalize(value: str | None) -> str:
+                if value == "completed": return "completed"
+                if value in {"processing", "planning", "applying", "verifying", "cloning", "cloned", "resetting", "running"}: return "running"
+                if value == "review_required": return "review_required"
+                if value in {"retryable_failure", "terminal_failure", "failed"}: return "failed"
+                if value == "retry": return "scheduled"
+                return "pending"
+
+            def slot(key: str, label: str, value: str | None, job: InventoryJobModel | None, scheduled_time: str, **detail: Any) -> dict[str, Any]:
+                return {"key": key, "label": label, "status": normalize(job.status if job else value), "scheduled_time": scheduled_time, "started_at": job.claimed_at.isoformat() if job and job.claimed_at else detail.pop("started_at", None), "completed_at": job.completed_at.isoformat() if job and job.completed_at else detail.pop("completed_at", None), "error_code": job.last_error_code if job else detail.pop("error_code", None), "run_id": job.id if job else detail.pop("run_id", None), **detail}
+
+            def build(day: date) -> dict[str, Any]:
+                carry, snapshot, day_jobs = carries_by_day.get(day), snapshots_by_day.get(day), jobs_by_day.get(day, {})
+                morning = slot("morning_reset", "Reset đầu ngày", carry.status if carry else None, day_jobs.get("morning_reset"), settings.daily_carry_forward_time_local if settings else "05:00", started_at=carry.started_at.isoformat() if carry and carry.started_at else None, completed_at=carry.completed_at.isoformat() if carry and carry.completed_at else None, error_code=carry.error_code if carry else None)
+                snap = slot("afternoon_snapshot", "Snapshot", snapshot.status if snapshot else None, day_jobs.get("afternoon_snapshot"), settings.daily_snapshot_time_local if settings else "23:50", started_at=snapshot.cloned_at.isoformat() if snapshot and snapshot.cloned_at else None, completed_at=snapshot.reset_completed_at.isoformat() if snapshot and snapshot.reset_completed_at else None, error_code=snapshot.error_code if snapshot else None)
+                evening = slot("evening_reconcile", "Đối soát Gemini", snapshot.gemini_reconcile_status if snapshot else None, day_jobs.get("evening_reconcile"), settings.daily_reconcile_time_local if settings else "23:55", started_at=snapshot.gemini_reconcile_started_at.isoformat() if snapshot and snapshot.gemini_reconcile_started_at else None, completed_at=snapshot.gemini_reconcile_completed_at.isoformat() if snapshot and snapshot.gemini_reconcile_completed_at else None, error_code=snapshot.gemini_reconcile_error_code if snapshot else None, run_id=snapshot.gemini_reconcile_run_id if snapshot else None, plan_hash=snapshot.gemini_reconcile_plan_hash if snapshot else None, prompt_version=snapshot.gemini_prompt_version if snapshot else None, prompt_hash=snapshot.gemini_prompt_hash if snapshot else None)
+                daily_check = {"key": "daily_check", "label": "Kiểm kho trong ngày", "status": "pending" if morning["status"] != "completed" else ("completed" if snap["status"] in {"running", "completed"} else "running")}
+                verified = {"key": "verified", "label": "Xác minh", "status": "completed" if snapshot and snapshot.gemini_reconcile_verified_at else ("blocked" if evening["status"] in {"failed", "review_required"} else "pending"), "completed_at": snapshot.gemini_reconcile_verified_at.isoformat() if snapshot and snapshot.gemini_reconcile_verified_at else None}
+                stages = [morning, daily_check, snap, evening, verified]
+                failed = next((item for item in stages if item["status"] == "failed"), None); blocked = next((item for item in stages if item["status"] in {"review_required", "blocked"}), None); running = next((item for item in stages if item["status"] == "running"), None)
+                current = failed or blocked or running or next((item for item in stages if item["status"] in {"pending", "scheduled"}), None)
+                overall = "failed" if failed else (blocked["status"] if blocked else ("running" if running else ("completed" if verified["status"] == "completed" else "pending")))
+                timestamps = [value for value in [carry.updated_at if carry else None, snapshot.updated_at if snapshot else None, *(job.updated_at for job in day_jobs.values())] if value]
+                shared_file_id = carry.shared_target_file_id if carry else (settings.daily_working_spreadsheet_file_id if settings else None)
+                attention = failed or blocked
+                return {"business_date": day.isoformat(), "overall_status": overall, "current_stage": "completed" if overall == "completed" else current["key"], "stages": stages, "files": {"shared_url": f"https://docs.google.com/spreadsheets/d/{shared_file_id}/edit" if shared_file_id else None, "snapshot_url": f"https://docs.google.com/spreadsheets/d/{snapshot.snapshot_file_id}/edit" if snapshot and snapshot.snapshot_file_id else None, "gemini_url": f"https://docs.google.com/spreadsheets/d/{snapshot.gemini_file_id}/edit" if snapshot and snapshot.gemini_file_id else None}, "updated_at": max(timestamps).isoformat() if timestamps else None, "action_required": {"code": attention.get("error_code") or ("review_required" if attention["status"] != "failed" else "lifecycle_failed"), "stage": attention["key"], "label": "Xem lỗi"} if attention else None}
+
+            ordered = sorted(dates, reverse=True); offset = (page - 1) * page_size
+            return {"items": [build(day) for day in ordered[offset:offset + page_size]], "page": page, "page_size": page_size, "total": len(ordered), "pages": max(1, (len(ordered) + page_size - 1) // page_size)}
