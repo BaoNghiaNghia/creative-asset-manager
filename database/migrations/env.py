@@ -23,6 +23,7 @@ from app.modules.inventory import model as inventory_models  # noqa: F401
 from app.modules.inventory.jobs import model as inventory_job_models  # noqa: F401
 from app.modules.inventory import persistence_model as inventory_persistence_models  # noqa: F401
 from app.modules.video_generation import model as video_generation_models  # noqa: F401
+from app.modules.visual_search import backfill_model as visual_search_backfill_models  # noqa: F401
 
 config = context.config
 if (
