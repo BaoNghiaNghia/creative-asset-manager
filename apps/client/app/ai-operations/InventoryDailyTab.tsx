@@ -8,6 +8,7 @@ import {
   type InventoryDailySheetStatus,
 } from "../inventory/api";
 import { InventoryApp, type InventoryPage } from "../inventory/InventoryApp";
+import { InventoryDailyPipeline } from "../inventory/InventoryDailyPipeline";
 
 type InventoryDailyState = {
   status: InventoryDailySheetStatus;
@@ -180,6 +181,8 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
         <dl><div><dt>Lịch chạy</dt><dd>{lifecycle.evening_reconcile.scheduled_time}</dd></div><div><dt>Đã xác minh</dt><dd>{lifecycle.evening_reconcile.verified ? "Có" : "Chưa"}</dd></div><div><dt>Plan</dt><dd>{lifecycle.evening_reconcile.plan_hash?.slice(0, 12) || "—"}</dd></div></dl>
       </article>
     </div>
+
+    <InventoryDailyPipeline embedded />
 
     {blockers.length ? <section className="ops-inventory-blockers"><h3>Cần xử lý ({blockers.length})</h3><p>Các vấn đề dưới đây đang chặn chu kỳ dữ liệu ngày {businessDate(status.working_business_date)}.</p><ul>{blockers.map((blocker, index) => <li key={blocker.code + "-" + index}><strong>{blocker.code}</strong><span>{(blocker.document_ids?.length || 0)} tài liệu · {(blocker.review_ids?.length || 0)} mục xem xét · {(blocker.job_ids?.length || 0)} tác vụ</span></li>)}</ul></section> : <div className="ops-inventory-clear"><strong>Chu kỳ hiện không có vấn đề cần xử lý</strong><span>Dữ liệu ngày {businessDate(status.working_business_date)} không có blocker.</span></div>}
 
