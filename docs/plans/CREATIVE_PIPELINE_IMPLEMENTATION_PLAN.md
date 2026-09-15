@@ -1803,6 +1803,15 @@ Acceptance:
 
 ### CP-01 — Domain model and migrations
 
+**Status: COMPLETE.** CP-01 is implemented as a tenant-scoped, persistence-only
+foundation. The six domain models are defined in
+`apps/api/app/modules/creative_pipeline/model.py`, with typed constants in
+`constants.py`, flush-only repository primitives in `repository.py`, and
+Alembic revision `0075_creative_pipeline_domain`. The migration was upgraded,
+rolled back to `0074_visual_backfill_runs`, and upgraded again against a
+temporary database. No scanner, orchestrator, provider call, filesystem
+mutation, or production migration is part of this phase.
+
 Implement:
 
 ```text
@@ -1817,11 +1826,11 @@ Artifact
 Acceptance:
 
 ```text
-[ ] tenant isolation constraints
-[ ] stable listing identity
-[ ] version uniqueness
-[ ] required indexes
-[ ] migration rollback verified
+[x] tenant isolation constraints
+[x] stable listing identity
+[x] version uniqueness
+[x] required indexes
+[x] migration rollback verified
 ```
 
 ### CP-02 — Folder scanner and idempotent discovery
