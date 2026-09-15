@@ -2,7 +2,7 @@
 
 > **Repository:** `BaoNghiaNghia/creative-asset-manager`  
 > **Document date:** 2026-09-15  
-> **Status:** Planning document for implementation. This document does **not** authorize production deployment, destructive source-folder operations, provider credential changes, or bulk generation runs.  
+> **Status:** CP-00 architecture/contracts complete. Detailed normative semantics are in [CREATIVE_PIPELINE_CP00_CONTRACTS.md](CREATIVE_PIPELINE_CP00_CONTRACTS.md). This document does **not** authorize production deployment, destructive source-folder operations, provider credential changes, or bulk generation runs.
 > **Feature name:** `Creative Pipeline`  
 > **Navigation target:** place the new tab between **Visual Search** and **Inventory Daily**, reusing the visual language, spacing, controls, drawers, filters, status chips, and interaction patterns already established elsewhere in the application.
 
@@ -1785,28 +1785,20 @@ Also test service restart between nodes to verify durable recovery.
 
 Implementation should proceed in bounded phases.
 
-### CP-00 — Architecture and contracts
+> **Roadmap authority:** the CP-01 through CP-16 sequence in the CP-00 normative contracts supersedes earlier broad phase numbering below; these retained sections are implementation detail references only.
 
-Finalize:
+### CP-00 — Architecture and contracts — COMPLETE
 
-```text
-folder ownership contract
-listing naming/parser
-listing_key semantics
-platform profiles
-node contracts
-artifact/version contracts
-retry vs regenerate semantics
-provider interfaces
-```
+The normative source of truth is [CREATIVE_PIPELINE_CP00_CONTRACTS.md](CREATIVE_PIPELINE_CP00_CONTRACTS.md). It locks source-folder ownership, SourceGroup/Listing identity, `listing_key`, PlatformProfiles, node graph/state machine, durable retry/idempotency, versioning/artifact lineage, input/knowledge/Idea/Prompt contracts, provider shape, security, recovery, and open configuration decisions.
 
 Acceptance:
 
 ```text
-[ ] Source/ and UGC - Macro Vid/ are explicitly user-owned.
-[ ] Pipeline/ is explicitly system-owned.
-[ ] Amazon/Etsy listing identifier semantics use listing_key.
-[ ] Node and artifact contracts are documented.
+[x] Source/ and UGC - Macro Vid/ are explicitly user-owned.
+[x] Pipeline/ is explicitly system-owned.
+[x] Amazon/Etsy listing identifier semantics use listing_key.
+[x] Node and artifact contracts are documented.
+[x] CP-01 through CP-16 bounded phase map is locked in the normative contract.
 ```
 
 ### CP-01 — Domain model and migrations
