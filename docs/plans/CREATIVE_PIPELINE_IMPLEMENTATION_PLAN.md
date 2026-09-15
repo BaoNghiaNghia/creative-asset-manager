@@ -4,36 +4,15 @@
 > **Document date:** 2026-09-15  
 > **Status:** Planning document for implementation. This document does **not** authorize production deployment, destructive source-folder operations, provider credential changes, or bulk generation runs.  
 > **Feature name:** `Creative Pipeline`  
-> **Navigation target:** place the new tab between **Visual Search** and **Inventory Daily** and reuse the visual language, spacing, controls, drawers, filters, status chips, and interaction patterns already established elsewhere in the application.
+> **Navigation target:** place the new tab between **Visual Search** and **Inventory Daily**, reusing the visual language, spacing, controls, drawers, filters, status chips, and interaction patterns already established elsewhere in the application.
 
 ---
 
-## 1. Why this plan exists
+## 1. Purpose
 
-The goal is to turn a structured source-folder hierarchy into a durable, retryable creative-production pipeline.
+Creative Pipeline turns the existing listing-folder hierarchy into a durable, retryable, versioned creative-production workflow.
 
-Each product/listing is represented by a folder named in the form:
-
-```text
-listing - ASIN
-```
-
-Those listing folders live under a parent folder representing a shop/store/source group, for example:
-
-```text
-Etsy - Shop A
-├── listing - ASIN 1
-├── listing - ASIN 2
-└── listing - ASIN 3
-
-Amazon - Store B
-├── listing - ASIN 4
-└── listing - ASIN 5
-```
-
-The system should scan configured source roots every day, detect newly added listing folders, create a durable listing task only once, and run the listing through a node-based production pipeline.
-
-The initial pipeline is:
+The system must discover new listing folders automatically, create one durable listing task per folder, and run the listing through the following node sequence:
 
 ```text
 Input Data
@@ -49,9 +28,9 @@ Video Output
 Watermark & Smart Enhance
 ```
 
-Every node must be independently retryable and version-aware. A failed downstream step must not force successful upstream work to run again unless the operator explicitly chooses to regenerate it.
+Every node is independently retryable. Successful upstream work must not be repeated when only a downstream node fails.
 
-The pipeline must support two initial commerce profiles:
+The initial platform profiles are:
 
 ```text
 Amazon
@@ -62,76 +41,325 @@ Etsy
 └── 1:1 video output
 ```
 
-The design should remain extensible enough to later support image generation, approval, scoring, publishing, additional generative models, and other output channels without redesigning the core execution model.
+The architecture must preserve complete lineage from listing input through idea, prompt, generation attempt, raw video, and enhanced final video.
 
 ---
 
-## 2. Product goals
+## 2. Existing source-folder structure
 
-The first production-ready version should make the following workflow possible:
+The current source hierarchy already exists and should remain intact.
+
+Real example:
 
 ```text
-Configured source folders
+Etsy - EmbrolyShop/
+├── listing - 4527798886/
+│   ├── Source/
+│   └── UGC - Macro Vid/
+│
+└── listing - 4540775224/
+    ├── Source/
+    └── UGC - Macro Vid/
+```
+
+The implementation must **not** redesign, move, rename, or overwrite these existing user-managed folders.
+
+### 2.1 Parent folder
+
+The parent folder represents one logical source/shop group.
+
+Examples:
+
+```text
+Etsy - EmbrolyShop
+Etsy - Shop A
+Amazon - Store B
+```
+
+This maps to the `SourceGroup` domain object.
+
+### 2.2 Listing folder
+
+A child folder using the naming pattern:
+
+```text
+listing - <listing_key>
+```
+
+represents one stable `ListingTask`.
+
+Examples:
+
+```text
+listing - 4527798886
+listing - 4540775224
+listing - B0ABC12345
+```
+
+Do not make `ASIN` the universal domain field.
+
+Use the generic field:
+
+```text
+listing_key
+```
+
+Platform meaning:
+
+```text
+Amazon → listing_key = ASIN
+Etsy   → listing_key = Etsy Listing ID
+```
+
+The original folder name remains the user-facing display identity.
+
+### 2.3 Existing user-managed folders
+
+The following folders remain outside system ownership:
+
+```text
+Source/
+UGC - Macro Vid/
+```
+
+They may be used as pipeline input/reference data, but Creative Pipeline must not destructively modify their contents.
+
+---
+
+## 3. System-owned `Pipeline` folder
+
+Creative Pipeline creates exactly one system-owned folder named:
+
+```text
+Pipeline
+```
+
+inside each listing folder.
+
+Resulting structure:
+
+```text
+Etsy - EmbrolyShop/
+│
+├── listing - 4527798886/
+│   ├── Source/
+│   ├── UGC - Macro Vid/
+│   └── Pipeline/
+│
+└── listing - 4540775224/
+    ├── Source/
+    ├── UGC - Macro Vid/
+    └── Pipeline/
+```
+
+### 3.1 Ownership boundary
+
+The contract is:
+
+```text
+Source/             → user/source-owned
+UGC - Macro Vid/    → user/reference-owned
+Pipeline/           → system-owned
+```
+
+Creative Pipeline may create and update files under `Pipeline/` only.
+
+It must not use destructive operations on sibling user-managed folders.
+
+### 3.2 Recommended `Pipeline` structure
+
+```text
+Pipeline/
+├── Input/
+├── Idea Story/
+├── Prompt/
+│   ├── seedance/
+│   └── google_omni/
+├── Generating/
+├── Video Output/
+├── Watermark & Smart Enhance/
+└── Logs/
+```
+
+Node-to-folder mapping:
+
+```text
+Input Data                  → Pipeline/Input/
+Idea Story                  → Pipeline/Idea Story/
+Prompt                      → Pipeline/Prompt/
+Generating                  → Pipeline/Generating/
+Video Output                → Pipeline/Video Output/
+Watermark & Smart Enhance   → Pipeline/Watermark & Smart Enhance/
+Operational file logs       → Pipeline/Logs/
+```
+
+The physical folder hierarchy is for artifacts and operator visibility. **Database state remains the source of truth for pipeline execution state.**
+
+The system must never infer that a node is completed only because a file happens to exist.
+
+---
+
+## 4. Platform-specific physical output structure
+
+### 4.1 Etsy
+
+Etsy V1 produces `1:1` video.
+
+Recommended structure:
+
+```text
+listing - 4527798886/
+├── Source/
+├── UGC - Macro Vid/
+└── Pipeline/
+    ├── Input/
+    │   ├── input_v001.json
+    │   └── input_manifest_v001.json
+    │
+    ├── Idea Story/
+    │   ├── idea_v001.json
+    │   ├── idea_v002.json
+    │   └── current.json
+    │
+    ├── Prompt/
+    │   ├── seedance/
+    │   │   ├── prompt_v001.json
+    │   │   └── prompt_v002.json
+    │   └── google_omni/
+    │       └── prompt_v001.json
+    │
+    ├── Generating/
+    │   ├── run_0001.json
+    │   ├── run_0002.json
+    │   └── run_0003.json
+    │
+    ├── Video Output/
+    │   └── 1x1/
+    │       ├── v001.mp4
+    │       ├── v002.mp4
+    │       └── v003.mp4
+    │
+    ├── Watermark & Smart Enhance/
+    │   └── 1x1/
+    │       ├── v001_enhanced.mp4
+    │       ├── v002_enhanced.mp4
+    │       └── v003_enhanced.mp4
+    │
+    └── Logs/
+        ├── pipeline.json
+        └── errors.json
+```
+
+### 4.2 Amazon
+
+Amazon V1 produces `16:9` and `9:16`.
+
+```text
+Pipeline/
+├── ...
+├── Video Output/
+│   ├── 16x9/
+│   │   ├── v001.mp4
+│   │   └── v002.mp4
+│   └── 9x16/
+│       ├── v001.mp4
+│       └── v002.mp4
+│
+└── Watermark & Smart Enhance/
+    ├── 16x9/
+    │   ├── v001_enhanced.mp4
+    │   └── v002_enhanced.mp4
+    └── 9x16/
+        ├── v001_enhanced.mp4
+        └── v002_enhanced.mp4
+```
+
+### 4.3 No destructive overwrite
+
+Every intentional regeneration creates a new version.
+
+Example:
+
+```text
+first successful generation  → v001.mp4
+regenerate                   → v002.mp4
+regenerate again             → v003.mp4
+```
+
+`v001.mp4` must not be overwritten by `v002.mp4`.
+
+The same rule applies to idea stories, prompts, generation records, and enhanced outputs.
+
+---
+
+## 5. Product goals
+
+The first production-ready version should support this end-to-end flow:
+
+```text
+Configured source hierarchy
         ↓
 Scheduled daily scan
         ↓
-Detect new listing - ASIN folders
+Detect new listing folders
         ↓
-Create ListingTask once
+Create ListingTask exactly once
         ↓
-Capture input data
+Ensure Pipeline/ exists
         ↓
-Generate Idea Story with OpenAI + Knowledge Pack
+Create initial PipelineRun
         ↓
-Generate model-specific prompts with OpenAI + Knowledge Pack
+Input Data snapshot
         ↓
-Generate one or more videos
+Idea Story via OpenAI + Knowledge Pack
         ↓
-Store every video version inside the listing folder
+Model-specific prompts via OpenAI + Knowledge Pack
         ↓
-Remove watermark / Smart Enhance
+Seedance / Google Omni generation
         ↓
-Produce final versioned artifacts
+Versioned raw Video Output inside listing/Pipeline
+        ↓
+Watermark Removal + Smart Enhance
+        ↓
+Versioned final artifact
 ```
 
-The operator should be able to answer, from one UI:
+The operator should be able to answer from one UI:
 
-- Which shops/groups contain active listing tasks?
-- Which listing folders were newly discovered today?
-- What step is each listing currently on?
+- Which shops/groups contain active listings?
+- Which listing folders were discovered recently?
+- What node is each listing currently on?
 - Which node failed and why?
-- How many retries have occurred?
-- Which Idea Story and Prompt version produced a given video?
-- Which video versions exist for each aspect ratio/model?
-- Which version has completed watermark removal and enhancement?
-- Which work is queued, running, blocked, failed, or complete?
+- How many retries occurred?
+- Which Idea Story version produced a Prompt?
+- Which Prompt produced a GenerationRun?
+- Which GenerationRun produced a raw video?
+- Which enhanced video came from which raw video?
+- How many versions exist per model/aspect ratio?
+- Which work is waiting, running, retrying, blocked, failed, or complete?
 
 ---
 
-## 3. Non-goals for V1
+## 6. Non-goals for V1
 
-The first implementation should not attempt to solve everything at once.
-
-Out of scope for the initial release:
+V1 does not include:
 
 - automatic publishing to Amazon or Etsy;
-- automatic ad launch or campaign management;
-- automatic human-quality approval using a vision model;
-- cross-listing prompt optimization based on conversion data;
+- automatic ad campaign creation;
+- automatic conversion-performance optimization;
+- full user-editable DAG/workflow builder;
+- arbitrary marketplace support;
 - vector-database/RAG infrastructure unless the Knowledge Pack becomes too large for deterministic file selection;
-- automatic deletion or moving of source listing folders;
-- destructive overwrite of generated videos;
-- shared generation state across unrelated listings;
-- full workflow editor where users can arbitrarily add/remove nodes;
-- provider-agnostic marketplace parsing for every marketplace.
-
-The architecture should allow these later, but V1 should remain opinionated and operationally predictable.
+- automatic destructive cleanup of older generated versions;
+- moving or deleting `Source/` or `UGC - Macro Vid/`;
+- cross-listing generation state sharing;
+- destructive replacement of generated outputs.
 
 ---
 
-## 4. Core domain hierarchy
+## 7. Core domain model
 
-The domain should have four primary levels:
+The domain hierarchy is:
 
 ```text
 SourceGroup
@@ -143,40 +371,40 @@ PipelineRun
 NodeRun / GenerationRun / Artifact
 ```
 
-### 4.1 SourceGroup
+### 7.1 SourceGroup
 
-Represents the real parent folder and business grouping.
-
-Examples:
-
-```text
-Etsy - Shop A
-Amazon - Store B
-```
+Represents the persisted parent folder/shop grouping.
 
 Recommended fields:
 
 ```text
 id
-platform                amazon | etsy
+platform                  amazon | etsy
 name
-source_path
 source_provider
 external_source_id
 external_folder_id
+source_path
 active
 scan_enabled
 scan_schedule
 timezone
-created_at
-updated_at
 last_scan_at
 last_successful_scan_at
+created_at
+updated_at
 ```
 
-The parent group should be persisted as domain state rather than derived only at render time by splitting a path string.
+Example:
 
-### 4.2 ListingTask
+```text
+name = Etsy - EmbrolyShop
+platform = etsy
+```
+
+Do not derive this relationship only by splitting folder paths at UI-render time.
+
+### 7.2 ListingTask
 
 Represents one discovered listing folder.
 
@@ -187,10 +415,10 @@ id
 source_group_id
 platform
 listing_key
-asin
 folder_name
 folder_path
 external_folder_id
+pipeline_folder_id
 status
 current_pipeline_run_id
 first_discovered_at
@@ -199,44 +427,41 @@ created_at
 updated_at
 ```
 
-A listing folder should map to one stable `ListingTask`.
+Do not require an `asin` field as the primary identity.
 
-A listing may have many pipeline runs over time.
+If Amazon-specific ASIN lookup is useful later, expose it as platform-specific metadata or a derived alias of `listing_key`.
 
-### 4.3 PipelineRun
+### 7.3 PipelineRun
 
-Represents one intentional production attempt/version branch for a listing.
-
-Recommended fields:
+Represents one intentional production branch/run for a listing.
 
 ```text
 id
 listing_task_id
 run_number
 status
-trigger_type            discovery | manual | regenerate | retry_branch
+trigger_type              discovery | manual | regenerate
 triggered_by
 knowledge_snapshot_id
+input_artifact_id
 started_at
 completed_at
 created_at
 updated_at
 ```
 
-One `ListingTask` can therefore retain history:
+One listing may retain many historical runs:
 
 ```text
-listing - ASIN 1
+listing - 4527798886
 ├── Pipeline Run #1
 ├── Pipeline Run #2
 └── Pipeline Run #3
 ```
 
-### 4.4 NodeRun
+### 7.4 NodeRun
 
-Represents one execution of one pipeline node.
-
-Recommended fields:
+Represents one node execution.
 
 ```text
 id
@@ -249,14 +474,14 @@ input_version
 output_version
 started_at
 completed_at
+next_retry_at
 last_error_code
 last_error_message
-next_retry_at
 created_at
 updated_at
 ```
 
-Suggested node types:
+Canonical node types:
 
 ```text
 input_data
@@ -267,17 +492,15 @@ video_output
 watermark_smart_enhance
 ```
 
-### 4.5 GenerationRun
+### 7.5 GenerationRun
 
-Generation should be first-class because one prompt can produce many video outputs.
-
-Recommended fields:
+One prompt may create many generation attempts and outputs.
 
 ```text
 id
 pipeline_run_id
 prompt_artifact_id
-model_provider
+provider
 model_name
 aspect_ratio
 generation_number
@@ -292,33 +515,20 @@ created_at
 updated_at
 ```
 
-### 4.6 Artifact
+### 7.6 Artifact
 
-Artifacts connect the lineage of the system.
-
-Examples:
-
-```text
-input snapshot
-idea story JSON
-Seedance prompt
-Google Omni prompt
-raw generated video
-enhanced video
-render metadata
-provider response metadata
-```
-
-Recommended fields:
+Artifact records preserve lineage between database state and physical files.
 
 ```text
 id
 listing_task_id
 pipeline_run_id
 node_run_id
+generation_run_id
 artifact_type
 version
-model_provider
+provider
+model_name
 aspect_ratio
 storage_kind
 relative_path
@@ -329,107 +539,142 @@ metadata_json
 created_at
 ```
 
-The relationship between artifacts should allow the UI to answer:
-
-> Which exact idea/prompt produced this video version?
-
----
-
-## 5. Folder discovery and daily scanning
-
-### 5.1 Source folder model
-
-The scanner operates on configured source roots containing parent groups and listing folders.
-
-Conceptually:
-
-```text
-Source root
-├── Etsy - Shop A
-│   ├── listing - ASIN 1
-│   └── listing - ASIN 2
-│
-└── Amazon - Store B
-    ├── listing - ASIN 3
-    └── listing - ASIN 4
-```
-
-### 5.2 Discovery schedule
-
-The default is one scheduled scan per day.
-
-The design should also allow:
-
-```text
-manual Scan now
-scheduled daily scan
-future webhook/event-triggered discovery
-```
-
-The scheduler should create a durable scan job rather than relying on an in-process timer only.
-
-### 5.3 Listing folder recognition
-
-V1 should recognize listing folders using a strict, configurable convention.
-
-Initial convention:
-
-```text
-listing - <ASIN>
-```
-
-Parsing should be normalized and deterministic.
-
 Examples:
 
 ```text
-listing - B0ABC123
-listing - ABCD-001
+input snapshot
+idea story JSON
+Seedance prompt JSON
+Google Omni prompt JSON
+generation request metadata
+raw generated video
+enhanced video
+render metadata
 ```
 
-The system should avoid accepting arbitrary nested folders as listing tasks.
+The system must be able to answer:
 
-### 5.4 Idempotency
+> Which exact input, knowledge snapshot, idea, prompt, and generation attempt produced this video?
 
-Daily scans must never duplicate a listing task.
+---
 
-Recommended discovery identity:
+## 8. Folder discovery and daily scanner
+
+### 8.1 Scanner scope
+
+The scanner inspects configured parent groups and their direct/allowed listing children.
+
+Real target structure:
+
+```text
+Etsy - EmbrolyShop/
+├── listing - 4527798886/
+└── listing - 4540775224/
+```
+
+The scanner should focus on two domain levels:
+
+```text
+SourceGroup parent
+    ↓
+listing - <listing_key>
+```
+
+Folders nested under a listing such as:
+
+```text
+Source
+UGC - Macro Vid
+Pipeline
+Input
+Prompt
+Video Output
+```
+
+must never be interpreted as separate listing tasks.
+
+### 8.2 Recognition rule
+
+V1 convention:
+
+```text
+listing - <listing_key>
+```
+
+Parsing must be deterministic and normalized.
+
+Do not assume the extracted identifier is always an Amazon ASIN.
+
+### 8.3 Idempotent discovery identity
+
+Preferred identity:
 
 ```text
 source_group_id + external_folder_id
 ```
 
-If a stable provider folder ID is unavailable, fallback identity may be:
+Fallback when the provider lacks a stable folder ID:
 
 ```text
 source_group_id + normalized_folder_path
 ```
 
-`ASIN` alone should not be the only identity because the same ASIN may exist in multiple shops or source groups.
+Do not use `listing_key` alone because the same listing identifier could theoretically appear in multiple source groups.
 
-### 5.5 Scan behavior
-
-For each scan:
+### 8.4 Daily scanner behavior
 
 ```text
 load configured SourceGroups
         ↓
-list direct/allowed listing folders
+list listing-level child folders
         ↓
-normalize listing identity
+match `listing - <listing_key>`
         ↓
-existing ListingTask?
-    ├── yes → update last_seen_at / metadata only
-    └── no  → create ListingTask + initial PipelineRun
+resolve stable listing identity
+        ↓
+ListingTask exists?
+    ├── yes
+    │    ├── update last_seen_at / safe metadata
+    │    └── DO NOT create duplicate initial run
+    │
+    └── no
+         ├── create ListingTask
+         ├── ensure listing/Pipeline exists
+         ├── create initial PipelineRun
+         └── make Input Data runnable
 ```
 
-A scan must not automatically create a second run for an already-known listing unless a separate regeneration policy explicitly requires it.
+### 8.5 `Pipeline` folder creation
 
-### 5.6 Missing folders
+For a newly discovered listing:
 
-If a previously known folder disappears, V1 should not immediately delete the listing or its history.
+```text
+Pipeline exists?
+├── no  → create Pipeline/ and required child folders lazily or eagerly
+└── yes → reuse it
+```
 
-Prefer a lifecycle such as:
+`Pipeline/` existence is not itself evidence that a ListingTask already exists. Database identity is authoritative.
+
+Conversely, a known ListingTask whose `Pipeline/` folder was removed should enter a recoverable storage/error state rather than creating a duplicate task.
+
+### 8.6 Existing listing behavior
+
+A daily scan of an already-known listing should normally:
+
+```text
+update presence metadata
+validate expected source context
+continue existing pipeline state
+```
+
+It must not automatically regenerate completed videos every day.
+
+### 8.7 Missing listing folders
+
+Do not delete history immediately if a listing folder disappears.
+
+Suggested lifecycle:
 
 ```text
 active
@@ -437,46 +682,43 @@ missing_source
 archived
 ```
 
-This prevents temporary provider/source failures from destroying workflow history.
+Temporary provider outages must not destroy pipeline history.
+
+### 8.8 Schedule
+
+Support:
+
+```text
+scheduled daily scan
+manual Scan now
+future event/webhook discovery
+```
+
+Scheduled execution must be durable rather than dependent only on an API-process timer.
 
 ---
 
-## 6. Platform profiles and output contracts
+## 9. Platform profiles
 
-Platform-specific behavior should be represented as configuration, not spread throughout node implementations.
+Marketplace-specific generation behavior should be centralized in a platform profile.
 
-### 6.1 Amazon profile
-
-Required initial output variants:
+### 9.1 Etsy profile
 
 ```text
-16:9
-9:16
+platform = etsy
+required_aspect_ratios = [1:1]
 ```
 
-A single listing pipeline may therefore create multiple generation branches from the same Idea Story/Prompt stage.
-
-Example:
+### 9.2 Amazon profile
 
 ```text
-Prompt v3
-├── Seedance 2.5 / 16:9 / generation 001
-├── Seedance 2.5 / 16:9 / generation 002
-├── Seedance 2.5 / 9:16 / generation 001
-└── Google Omni / 9:16 / generation 001
+platform = amazon
+required_aspect_ratios = [16:9, 9:16]
 ```
 
-### 6.2 Etsy profile
+### 9.3 Future profile settings
 
-Required initial output:
-
-```text
-1:1
-```
-
-### 6.3 Future profile model
-
-A platform profile should eventually hold:
+A profile may later define:
 
 ```text
 required_aspect_ratios
@@ -484,17 +726,18 @@ target_duration_rules
 model_preferences
 prompt_rules
 output_count
-naming rules
-watermark/enhancement policy
+artifact naming rules
+watermark policy
+enhancement policy
 ```
 
-This prevents marketplace rules from becoming hard-coded conditionals in every node.
+Node implementations should consume the profile instead of scattering `if amazon` / `if etsy` logic throughout the codebase.
 
 ---
 
-## 7. Pipeline execution model
+## 10. Pipeline execution model
 
-The pipeline is sequential at the logical level but can fan out at generation time.
+The logical flow is sequential until generation fan-out:
 
 ```text
 Input Data
@@ -504,53 +747,66 @@ Idea Story
 Prompt
     ↓
 Generating
-    ├── model A / ratio 1
-    ├── model A / ratio 2
-    └── model B / ratio 1
-            ↓
-       Video Output
-            ↓
+    ├── provider/model/aspect ratio branch A
+    ├── provider/model/aspect ratio branch B
+    └── provider/model/aspect ratio branch C
+              ↓
+         Video Output
+              ↓
 Watermark & Smart Enhance
 ```
 
-### 7.1 Recommended execution substrate
+### 10.1 Durable queue substrate
 
-Reuse the application's durable job-queue concepts for execution rather than creating a second unrelated queue system.
-
-Domain tables should represent creative workflow state, while durable processing jobs should execute node work.
+Reuse the application's durable processing/job infrastructure where practical rather than introducing a completely separate queue implementation.
 
 Conceptually:
 
 ```text
 Creative domain state
-    ListingTask / PipelineRun / NodeRun
+ListingTask / PipelineRun / NodeRun
                 ↓
-Durable processing queue
+Durable processing job
                 ↓
 Worker claims node execution
                 ↓
-Artifact/result persisted
+Artifact persisted
                 ↓
-Next node becomes runnable
+Node state committed
+                ↓
+Orchestrator unlocks downstream work
 ```
 
-### 7.2 Node dependencies
+Domain tables express creative workflow state; processing jobs perform execution.
 
-A node should become runnable only when all required upstream outputs are complete.
+### 10.2 Orchestrator ownership
 
-Example:
+One orchestration service owns dependency transitions.
+
+Examples:
 
 ```text
-Prompt cannot run until Idea Story completes.
-Generating cannot run until Prompt completes.
-Enhance cannot run until a raw video artifact exists.
+Input completed
+→ Idea Story becomes ready
+
+Idea Story completed
+→ Prompt becomes ready
+
+Prompt completed
+→ required GenerationRuns are created
+
+Generation completed
+→ raw video Artifact registered
+
+Raw video registered
+→ Watermark & Smart Enhance becomes runnable
 ```
 
-The dependency logic should live in one orchestration service, not duplicated across workers and UI code.
+Workers and UI components must not independently implement competing node-transition logic.
 
-### 7.3 Node states
+### 10.3 Canonical node states
 
-Recommended canonical states:
+Recommended internal states:
 
 ```text
 pending
@@ -559,11 +815,11 @@ running
 retry_wait
 completed
 failed
-cancelled
 blocked
+cancelled
 ```
 
-The UI can simplify these into user-facing categories:
+UI may map these to simpler labels:
 
 ```text
 Waiting
@@ -574,60 +830,61 @@ Failed
 Blocked
 ```
 
-### 7.4 Listing-level state
+### 10.4 Listing state
 
-`ListingTask.status` should be derived from the current pipeline run rather than independently editable.
+Listing status should be derived from its current PipelineRun.
 
 Example priority:
 
 ```text
-failed if an unrecoverable active node failed
-running if any node is running
-retrying if any node is waiting for retry
-queued if runnable work is waiting
-completed if all required terminal outputs are complete
-blocked if required operator input is missing
+failed     → required active node failed terminally
+running    → one or more nodes are running
+retrying   → one or more nodes await retry
+queued     → runnable work waits for worker capacity
+blocked    → required human/config/input dependency missing
+completed  → all required final outputs complete
 ```
 
 ---
 
-## 8. Retry semantics
+## 11. Retry and regenerate semantics
 
-Retry is a core requirement and should exist at every node.
+Retry exists at every node.
 
-### 8.1 Retry granularity
+### 11.1 Retry granularity
 
 Retry the smallest failed unit.
 
-Examples:
-
 ```text
-Idea Story failed
+Idea Story failure
 → retry Idea Story only
 
-Seedance generation 16:9 failed
+Seedance 16:9 failure
 → retry that GenerationRun only
 
-Smart Enhance failed for v003
+Smart Enhance v003 failure
 → retry enhancement for v003 only
 ```
 
-Successful upstream work should be reused.
+Do not rerun completed upstream nodes unnecessarily.
 
-### 8.2 Automatic retry
+### 11.2 Retry metadata
 
-Each node should define:
+Every retryable node/run should retain:
 
 ```text
+attempt_count
 max_attempts
-retryable_error_codes
-retry_backoff
-retry_jitter
+next_retry_at
+last_error_code
+last_error_message
 ```
 
-Transient errors may retry automatically.
+Provider-specific transient errors should be normalized into canonical error codes.
 
-Examples:
+### 11.3 Automatic retry
+
+Potential retryable classes:
 
 ```text
 provider busy
@@ -637,60 +894,58 @@ timeout
 temporary network failure
 ```
 
-Permanent validation errors should fail immediately.
-
-Examples:
+Potential terminal classes:
 
 ```text
 missing required input
-invalid output contract
+invalid structured output
 unsupported format
 invalid provider configuration
+invalid permission
 ```
 
-### 8.3 Manual retry
+Use bounded exponential backoff with jitter for transient failures.
 
-UI should expose:
+### 11.4 Retry versus regenerate
 
-```text
-Retry failed node
-Retry failed generation
-Retry failed items in group
-```
-
-Manual retry should use the same canonical retry service as automatic retry, not direct DB status edits.
-
-### 8.4 Retry versus regenerate
-
-These actions must remain different.
+These are distinct commands:
 
 ```text
 Retry
 → same logical input/version
-→ another attempt to obtain the same intended result
+→ another attempt to achieve the same intended output
 
 Regenerate
-→ creates a new output version / branch
-→ preserves previous successful output
+→ new creative/output version or branch
+→ old successful versions preserved
 ```
 
-This distinction is especially important for Idea Story, Prompt, and Video Generation.
+Examples:
+
+```text
+Retry prompt_v002 generation request
+→ still belongs to prompt_v002
+
+Regenerate Prompt
+→ creates prompt_v003
+→ creates new downstream GenerationRuns
+```
 
 ---
 
-## 9. Input Data node
+## 12. Input Data node
 
-The Input Data node creates a stable snapshot used by downstream AI nodes.
+The Input Data node creates an immutable snapshot used by downstream nodes.
 
-It should gather only the listing data required for creative production.
-
-Possible inputs:
+Possible sources:
 
 ```text
-listing folder identity
+listing identity
 platform
-ASIN/listing key
+listing_key
 source group/shop
+Source/ folder files
+UGC - Macro Vid/ reference files
 product images
 existing videos
 listing title
@@ -701,31 +956,85 @@ operator notes
 required aspect ratios
 ```
 
-The node should persist an immutable snapshot artifact for that pipeline run.
-
-Example:
+Output:
 
 ```text
-pipeline/input/input_v001.json
+Pipeline/Input/input_v001.json
+Pipeline/Input/input_manifest_v001.json
 ```
 
-Downstream nodes should read the snapshot instead of repeatedly reading mutable listing state.
+Downstream nodes should consume the snapshot rather than repeatedly reading mutable source state.
 
-This makes a run reproducible.
+This improves reproducibility and lineage.
 
 ---
 
-## 10. Idea Story node
+## 13. Knowledge Pack
 
-### 10.1 Purpose
+Idea Story and Prompt nodes use OpenAI together with a controlled Knowledge Pack.
 
-Turn raw listing context into a structured creative concept.
+V1 should avoid unnecessary RAG complexity.
 
-The OpenAI call should not directly return final model prompts.
+Recommended repository-managed knowledge structure:
 
-Instead, it should return a structured intermediate representation.
+```text
+knowledge/
+├── global_rules.md
+├── idea_story_rules.md
+├── amazon_rules.md
+├── etsy_rules.md
+├── seedance_2_5_rules.md
+├── google_omni_rules.md
+├── hooks_library.md
+└── examples/
+```
 
-Suggested contract:
+### 13.1 Deterministic KnowledgeLoader
+
+Example Idea Story selection:
+
+```text
+platform = etsy
+node = idea_story
+
+load:
+global_rules
++ etsy_rules
++ idea_story_rules
++ hooks_library
+```
+
+Example Prompt selection:
+
+```text
+platform = amazon
+node = prompt
+model = seedance_2_5
+
+load:
+global_rules
++ amazon_rules
++ seedance_2_5_rules
++ selected examples
+```
+
+### 13.2 Knowledge snapshot
+
+A PipelineRun should record which knowledge revision/snapshot was used.
+
+Do not let future edits to knowledge files make historical generation lineage ambiguous.
+
+The initial implementation may use content hashes / manifest hashes instead of introducing a dedicated vector database.
+
+---
+
+## 14. Idea Story node
+
+The Idea Story node converts listing/input context into a structured creative intermediate representation.
+
+It should not immediately emit provider-specific video prompts.
+
+Suggested JSON contract:
 
 ```json
 {
@@ -749,27 +1058,24 @@ Suggested contract:
 }
 ```
 
-A typed JSON contract is preferable to free-form prose because Prompt generation can then be deterministic and testable.
-
-### 10.2 Versioning
-
-Every intentional rerun creates a new version:
+Store versioned artifacts:
 
 ```text
-idea_story_v001.json
-idea_story_v002.json
-idea_story_v003.json
+Pipeline/Idea Story/idea_v001.json
+Pipeline/Idea Story/idea_v002.json
 ```
 
-Retrying a failed API call does not necessarily create a new creative version; explicit `Regenerate Idea` does.
+Retries for transport/provider failure may remain the same logical version.
+
+Explicit `Regenerate Idea` creates a new version.
+
+The OpenAI response must be schema-validated before the node is marked completed.
 
 ---
 
-## 11. Prompt node
+## 15. Prompt node
 
-### 11.1 Purpose
-
-Transform one Idea Story into provider/model-specific generation prompts.
+Prompt converts one Idea Story into model-specific generation prompts.
 
 Initial targets:
 
@@ -778,11 +1084,9 @@ Seedance 2.5
 Google Omni
 ```
 
-Prompt generation should be provider-specific because model prompting conventions differ.
+Prompt generation is provider/model specific because prompting conventions differ.
 
-### 11.2 Prompt artifact contract
-
-Suggested structure:
+Suggested artifact contract:
 
 ```json
 {
@@ -794,216 +1098,49 @@ Suggested structure:
       "provider": "seedance",
       "model": "seedance-2.5",
       "aspect_ratio": "16:9",
-      "duration_seconds": 10,
-      "prompt": "...",
-      "negative_constraints": ["..."],
-      "metadata": {}
+      "prompt": "..."
     },
     {
       "provider": "seedance",
       "model": "seedance-2.5",
       "aspect_ratio": "9:16",
-      "duration_seconds": 10,
+      "prompt": "..."
+    },
+    {
+      "provider": "google_omni",
+      "model": "configured-model",
+      "aspect_ratio": "16:9",
       "prompt": "..."
     }
   ]
 }
 ```
 
-Google Omni prompts should have their own typed payload rather than forcing them into Seedance-specific fields.
-
-### 11.3 Prompt history
-
-Never overwrite previous prompt versions.
-
-The UI should allow the operator to inspect:
+Physical artifacts:
 
 ```text
-Prompt v1
-Prompt v2
-Prompt v3 (current)
+Pipeline/Prompt/seedance/prompt_v001.json
+Pipeline/Prompt/google_omni/prompt_v001.json
 ```
 
-and see which generation runs each version produced.
-
----
-
-## 12. Knowledge Pack architecture
-
-Idea Story and Prompt both need reusable creative knowledge.
-
-V1 should begin with deterministic files rather than immediately introducing a vector database.
-
-Recommended layout:
+Prompt JSON should retain upstream lineage:
 
 ```text
-knowledge/
-├── manifest.yaml
-├── global_rules.md
-├── idea_story_rules.md
-├── hooks_library.md
-├── amazon_rules.md
-├── etsy_rules.md
-├── seedance_2_5_rules.md
-├── google_omni_rules.md
-├── safety_and_quality.md
-└── examples/
-    ├── amazon_examples.md
-    └── etsy_examples.md
-```
-
-### 12.1 Manifest
-
-The manifest defines which knowledge sections belong to each task.
-
-Example concept:
-
-```yaml
-idea_story:
-  common:
-    - global_rules.md
-    - idea_story_rules.md
-    - hooks_library.md
-  amazon:
-    - amazon_rules.md
-  etsy:
-    - etsy_rules.md
-
-prompt:
-  seedance-2.5:
-    - global_rules.md
-    - seedance_2_5_rules.md
-  google-omni:
-    - global_rules.md
-    - google_omni_rules.md
-```
-
-### 12.2 KnowledgeLoader
-
-A dedicated loader should:
-
-```text
-receive task + platform + model
-        ↓
-load approved files from manifest
-        ↓
-normalize content
-        ↓
-build context in deterministic order
-        ↓
-return knowledge bundle + content hashes
-```
-
-### 12.3 Knowledge snapshots
-
-A pipeline run should record exactly which knowledge version it used.
-
-Recommended snapshot metadata:
-
-```text
-knowledge files
-file hashes
-combined hash
-manifest version
+input version
+idea version
+knowledge snapshot
+platform profile
+model target
 created_at
 ```
 
-This solves an important reproducibility problem:
-
-> Why did yesterday's prompt differ from today's prompt even though the listing did not change?
-
-### 12.4 Future RAG evolution
-
-Only introduce embedding/RAG when the knowledge corpus becomes too large or retrieval quality requires it.
-
-Future architecture may become:
-
-```text
-Knowledge Pack files
-      ↓
-chunk/index
-      ↓
-retrieval policy
-      ↓
-relevant knowledge snippets
-      ↓
-OpenAI
-```
-
-The persisted `knowledge_snapshot_id` should remain useful even after this transition.
-
 ---
 
-## 13. OpenAI integration
+## 16. Generation provider layer
 
-OpenAI is used initially for:
+Generation orchestration must not contain provider-specific networking logic directly.
 
-```text
-Idea Story
-Prompt generation
-```
-
-### 13.1 Structured output
-
-Prefer typed/structured JSON output for both stages.
-
-Do not make downstream code parse arbitrary Markdown when a schema can express the result.
-
-### 13.2 Input boundaries
-
-OpenAI input should be assembled from:
-
-```text
-system/task contract
-+ selected Knowledge Pack
-+ platform profile
-+ immutable listing input snapshot
-+ upstream Idea Story when generating prompts
-```
-
-### 13.3 Audit metadata
-
-Persist operational metadata without storing secrets:
-
-```text
-model
-request timestamp
-latency
-response status
-usage metadata if available
-input artifact IDs
-knowledge snapshot ID
-output artifact ID
-```
-
-Never persist API keys or authorization headers in node metadata/logs.
-
-### 13.4 Provider failures
-
-Provider errors should be normalized to internal error classes such as:
-
-```text
-rate_limited
-provider_busy
-timeout
-invalid_request
-invalid_response
-authentication_error
-content_rejected
-unknown_provider_error
-```
-
-This allows consistent retry policy and UI messaging.
-
----
-
-## 14. Generating node
-
-### 14.1 Provider adapters
-
-Generation should use an adapter interface.
-
-Conceptually:
+Recommended provider abstraction:
 
 ```text
 VideoGenerationProvider
@@ -1011,241 +1148,183 @@ VideoGenerationProvider
 └── GoogleOmniProvider
 ```
 
-The orchestration layer should not contain provider-specific HTTP details.
-
-A provider adapter should support a lifecycle similar to:
+Common conceptual operations:
 
 ```text
-submit generation
-poll/check generation
-retrieve output metadata
-cancel if supported
-normalize provider error
+submit()
+poll()
+cancel()
+fetch_result()
+normalize_error()
 ```
 
-### 14.2 Fan-out
-
-The Prompt artifact determines generation branches.
-
-For Amazon:
+Each provider adapter owns:
 
 ```text
-Prompt
-├── Seedance 2.5 / 16:9
-├── Seedance 2.5 / 9:16
-├── Google Omni / 16:9 (if enabled)
-└── Google Omni / 9:16 (if enabled)
+authentication
+request serialization
+provider request ID
+provider polling semantics
+provider status mapping
+response normalization
+error normalization
 ```
 
-For Etsy:
+Provider adapters should never own pipeline dependency transitions.
+
+### 16.1 Generation fan-out
+
+Example Amazon prompt:
 
 ```text
-Prompt
-├── Seedance 2.5 / 1:1
-└── Google Omni / 1:1 (if enabled)
+Prompt v002
+├── Seedance 2.5 / 16:9 / generation #1
+├── Seedance 2.5 / 9:16 / generation #1
+├── Google Omni / 16:9 / generation #1
+└── Google Omni / 9:16 / generation #1
 ```
 
-Provider/model enablement should be configurable.
-
-### 14.3 Concurrency
-
-The queue should enforce bounded concurrency per provider/model to avoid rate-limit storms.
-
-Possible policy dimensions:
-
-```text
-global generation concurrency
-provider concurrency
-tenant concurrency
-source group concurrency
-```
-
-V1 should keep these configurable rather than hardcoded.
+The exact required model matrix should be configuration-driven rather than hardcoded into the orchestrator.
 
 ---
 
-## 15. Video Output and versioning
+## 17. Generating node and generation records
 
-Generated files must be written inside the corresponding listing folder.
+`Generating` is the execution stage; `GenerationRun` is the durable record.
 
-A recommended structure is:
-
-```text
-listing - ASIN/
-├── input/
-│   └── input_v001.json
-│
-├── pipeline/
-│   ├── ideas/
-│   │   ├── idea_v001.json
-│   │   └── idea_v002.json
-│   └── prompts/
-│       ├── prompt_v001.json
-│       └── prompt_v002.json
-│
-├── output/
-│   ├── 16x9/
-│   │   ├── seedance/
-│   │   │   ├── v001.mp4
-│   │   │   └── v002.mp4
-│   │   └── google-omni/
-│   │       └── v001.mp4
-│   ├── 9x16/
-│   │   └── ...
-│   └── 1x1/
-│       └── ...
-│
-└── enhanced/
-    ├── 16x9/
-    ├── 9x16/
-    └── 1x1/
-```
-
-The exact layout may be simplified during implementation, but the following rules are mandatory:
-
-1. generated files remain associated with the listing folder;
-2. retries/regenerations must not overwrite previous successful versions;
-3. file naming must be deterministic and collision-safe;
-4. every file must map back to a persisted Artifact record;
-5. writing must be atomic where possible;
-6. partial downloads/renders must not appear as successful final artifacts.
-
-### 15.1 Version identity
-
-Suggested naming:
+Recommended generation metadata artifact:
 
 ```text
-v001.mp4
-v002.mp4
-v003.mp4
+Pipeline/Generating/run_0001.json
 ```
 
-The database, not filename parsing, remains the canonical source of generation lineage.
+Example content:
+
+```json
+{
+  "generation_run_id": "...",
+  "provider": "seedance",
+  "model": "seedance-2.5",
+  "aspect_ratio": "1:1",
+  "prompt_version": 2,
+  "attempt": 1,
+  "provider_request_id": "...",
+  "status": "completed"
+}
+```
+
+Do not store raw provider secrets/tokens in these files.
 
 ---
 
-## 16. Watermark & Smart Enhance node
+## 18. Video Output node
 
-This node receives one raw video artifact at a time.
+A successful generation must produce a versioned raw video Artifact and physical file inside the listing's `Pipeline/Video Output/` hierarchy.
 
-Conceptual flow:
+Artifact version allocation must be concurrency safe.
 
-```text
-Raw generated video
-      ↓
-Watermark removal
-      ↓
-Smart Enhance
-      ↓
-optional speed/format/render policy
-      ↓
-Final enhanced artifact
-```
+Do not determine `vNNN` only by listing existing files without synchronization, because two workers may select the same next version.
 
-This should be implemented as an independently retryable node/run.
-
-A failure processing `v003` must not reprocess `v001` or `v002` unnecessarily.
-
-Recommended metadata:
+Preferred sequence:
 
 ```text
-input_artifact_id
-output_artifact_id
-processing_profile
-watermark_method
-enhance_method
-input_resolution
-output_resolution
-duration_in
-duration_out
-processing_duration_ms
-```
-
-The node should preserve the raw generated artifact even after a final enhanced version succeeds.
-
----
-
-## 17. File-system/provider write safety
-
-Because output is written back into source listing folders, write semantics need explicit safeguards.
-
-### 17.1 Never overwrite source media by default
-
-Generated/enhanced outputs must go into owned pipeline subfolders.
-
-Do not modify arbitrary user/source input files.
-
-### 17.2 Atomic output publication
-
-Prefer:
-
-```text
-write/download to temporary file
+reserve Artifact/version transactionally
         ↓
-validate file exists + expected size/format
+write/upload physical output
         ↓
-rename/move to final version path
+verify output
         ↓
-create/finalize Artifact record
+mark Artifact available
 ```
 
-### 17.3 Remote provider destinations
-
-If source folders can live on connected Drive/SharePoint/etc., the implementation should separate:
-
-```text
-logical artifact path
-from
-provider write adapter
-```
-
-This prevents generation logic from depending on local filesystem details.
-
-### 17.4 Output collision
-
-Version assignment must be serialized/idempotent so two workers cannot both claim `v005.mp4`.
-
-Prefer DB-backed version allocation or deterministic GenerationRun identity.
+If physical storage write fails, the artifact should remain failed/incomplete and be retryable without silently overwriting another version.
 
 ---
 
-## 18. Idempotency and duplicate prevention
+## 19. Watermark & Smart Enhance node
 
-Idempotency is required at several layers.
+Each raw video Artifact becomes an independent enhancement work item.
 
-### 18.1 Discovery
-
-One source listing folder -> one `ListingTask`.
-
-### 18.2 Pipeline run
-
-A discovery event should not create duplicate active runs for the same newly discovered listing.
-
-### 18.3 Node execution
-
-One NodeRun attempt should have a stable processing-job idempotency key.
-
-Concept:
+Conceptually:
 
 ```text
-creative-node:<node_run_id>:attempt:<attempt_number>
+raw v003
+    ↓
+watermark removal
+    ↓
+smart enhance
+    ↓
+final v003_enhanced
 ```
 
-### 18.4 Generation
+The node should integrate with the existing watermark/smart-enhance processing implementation through a stable service boundary rather than duplicating enhancement algorithms in Creative Pipeline.
 
-Generation submission must avoid accidental double-submit when the worker crashes after provider acceptance but before local persistence.
+Retry is artifact-specific.
 
-Persist provider request IDs and use provider-side idempotency where available.
+Example:
 
-### 18.5 Artifact creation
+```text
+v001_enhanced ✅
+v002_enhanced ✅
+v003_enhanced ❌
+```
 
-Artifact records should have a uniqueness strategy around logical generation/output identity so retries cannot register duplicate successful outputs accidentally.
+Retrying `v003` must not rerun `v001` or `v002`, and must not regenerate the raw video.
+
+Raw output must always be preserved.
 
 ---
 
-## 19. UI placement and navigation
+## 20. Source of truth and filesystem reconciliation
 
-The new top-level tab should be inserted:
+### 20.1 Database authority
+
+The database is authoritative for:
+
+```text
+ListingTask identity
+PipelineRun state
+NodeRun state
+GenerationRun state
+Artifact identity/version/lineage
+retry state
+error state
+```
+
+### 20.2 Filesystem/provider storage authority
+
+The listing folder is authoritative for the physical artifact bytes that the Artifact row points to.
+
+### 20.3 Never infer execution state from files alone
+
+Bad behavior:
+
+```text
+if Pipeline/Video Output/1x1/v001.mp4 exists:
+    mark generation completed
+```
+
+Instead, reconcile explicitly:
+
+```text
+DB says Artifact available
++ physical object exists and matches expected identity
+→ healthy
+```
+
+If one side is missing, expose a repairable consistency error.
+
+### 20.4 Pipeline folder protection
+
+The scanner must know that `Pipeline/` is system-owned and should not recursively discover its child directories as listing inputs.
+
+Input Data may intentionally read selected source/reference folders, but downstream generated artifacts must not recursively become new creative inputs unless a future explicit feature enables that behavior.
+
+---
+
+## 21. UI placement and navigation
+
+The new top-level tab appears in this order:
 
 ```text
 Visual Search
@@ -1253,719 +1332,484 @@ Creative Pipeline
 Inventory Daily
 ```
 
-The feature should reuse existing application design conventions instead of introducing a separate design system.
+Reuse existing application layout and interaction conventions.
 
-Reuse where appropriate:
-
-```text
-page spacing
-panel/card styling
-search/filter controls
-status pills
-buttons
-menus
-loading skeletons
-error states
-right-side detail drawers
-confirmation patterns
-empty states
-```
+Do not create a visually unrelated standalone admin application.
 
 ---
 
-## 20. Main Creative Pipeline UI
+## 22. Creative Pipeline main UI
 
-### 20.1 Page header
+The primary hierarchy is parent-group first.
+
+Example:
+
+```text
+Etsy - EmbrolyShop
+├── listing - 4527798886
+└── listing - 4540775224
+```
+
+### 22.1 SourceGroup row/header
+
+Example:
+
+```text
+Etsy - EmbrolyShop
+32 listings · 4 running · 2 failed · 21 completed · 5 waiting
+Last scan: 09:30
+
+[ Scan now ] [ Retry failed ] [ ... ]
+```
+
+Groups should support collapse/expand.
+
+### 22.2 Listing row
+
+Keep rows compact enough for dozens or hundreds of listings.
+
+Example:
+
+```text
+listing - 4527798886
+
+Input     Idea     Prompt     Generate     Output     Enhance
+  ✓         ✓        ✓           ●            3          ○
+
+Etsy · 1:1 · 3 video versions
+```
+
+Amazon example:
+
+```text
+listing - B0ABC12345
+
+Input     Idea     Prompt     Generate     Output     Enhance
+  ✓         ✓        ✓           ●            5          3
+
+Amazon · 16:9 + 9:16
+```
+
+### 22.3 Filters
 
 Suggested controls:
 
 ```text
-Creative Pipeline
+Search listing...
 
-[ Search listing... ]
-[ All statuses ▾ ]
-[ All platforms ▾ ]
-[ All groups ▾ ]
+[ All ] [ Running ] [ Failed ] [ Waiting ] [ Completed ]
 
-[ Scan now ]
+Group:    [ All shops ▾ ]
+Platform: [ Amazon ] [ Etsy ]
 ```
 
-Optional summary counters:
+### 22.4 Group actions
 
-```text
-Waiting
-Running
-Retrying
-Failed
-Completed
-```
-
-### 20.2 Parent-folder grouping
-
-Listing tasks must be grouped under their real parent `SourceGroup`.
-
-Example:
-
-```text
-▼ Etsy - Shop A
-  12 listings · 2 running · 1 failed · 8 completed · 1 waiting
-
-    listing - ASIN 1
-    listing - ASIN 2
-    listing - ASIN 3
-
-▶ Amazon - Store B
-  24 listings · 5 running · 19 completed
-```
-
-Each group should support collapse/expand.
-
-Group header may expose:
+Potential actions:
 
 ```text
 Scan now
 Retry failed
-More
+Pause new work
+Resume
 ```
 
-Bulk actions should always use canonical service APIs and never directly rewrite job state.
-
-### 20.3 Listing row
-
-Keep the listing view compact enough for large shops.
-
-Example:
-
-```text
-listing - ASIN 1      Etsy · 1:1
-
-Input     Idea     Prompt     Generate     Output     Enhance
-  ✓         ✓         ✓          ◉            3          ○
-
-Running · Generation 2/3
-```
-
-For Amazon:
-
-```text
-Amazon · 16:9 + 9:16
-```
-
-The row may also show:
-
-```text
-current run number
-video version count
-retry count
-last update
-```
-
-### 20.4 Status visualization
-
-Recommended node states:
-
-```text
-✓ completed
-◉ running
-↻ retrying
-! failed
-○ waiting
-— not applicable
-```
-
-Use the application's existing icon/color semantics where available.
+Bulk actions must call canonical backend services and must never directly edit statuses in the UI.
 
 ---
 
-## 21. Listing detail drawer
+## 23. Listing detail drawer
 
-Clicking a listing should open a detail drawer rather than navigating away unnecessarily.
+Clicking a listing should open a detail drawer rather than expanding the main row into a large workflow editor.
 
-Suggested structure:
+Suggested content:
 
 ```text
-listing - ASIN 1
-Etsy - Shop A
+listing - 4527798886
+Etsy · Etsy - EmbrolyShop
+
+Source folder
+Source/
+UGC - Macro Vid/
+Pipeline/
 
 Current Run #4
 
-1. Input Data
-   Completed
-   input_v001.json
+Input Data
+  Completed
+  input_v003.json
 
-2. Idea Story
-   Completed
-   idea_v002.json
-   [ View ] [ Regenerate ]
+Idea Story
+  Completed
+  idea_v004.json
 
-3. Prompt
-   Completed
-   Seedance v003
-   Google Omni v002
-   [ View ] [ Regenerate ]
+Prompt
+  Completed
+  Seedance prompt_v006
+  Google Omni prompt_v003
 
-4. Generating
-   Running
-   Seedance / 1:1 / Attempt 2
+Generating
+  Running
+  3 completed / 1 running / 1 failed
 
-5. Video Output
-   v001.mp4
-   v002.mp4
-   v003.mp4
+Video Output
+  v001
+  v002
+  v003
 
-6. Watermark & Smart Enhance
-   2 completed · 1 pending
-```
+Watermark & Smart Enhance
+  2 completed / 1 pending
 
-Tabs/sections in the drawer can include:
-
-```text
-Current Run
-Artifacts
 Run History
+Artifacts
 Errors
 ```
 
-### 21.1 Run history
+Actions may include:
 
-Operators need to see previous runs without losing current context.
+```text
+Retry failed node
+Regenerate Idea
+Regenerate Prompt
+Generate another video
+Retry Enhance
+Cancel pending work
+```
+
+Every action must preserve historical artifacts and lineage.
+
+---
+
+## 24. Backend API shape
+
+Exact routes should follow current application conventions, but the semantic capabilities should include:
+
+```text
+GET  creative-pipeline/groups
+GET  creative-pipeline/listings
+GET  creative-pipeline/listings/{id}
+GET  creative-pipeline/listings/{id}/runs
+GET  creative-pipeline/runs/{id}
+GET  creative-pipeline/runs/{id}/artifacts
+
+POST creative-pipeline/groups/{id}/scan
+POST creative-pipeline/listings/{id}/run
+POST creative-pipeline/nodes/{id}/retry
+POST creative-pipeline/listings/{id}/regenerate-idea
+POST creative-pipeline/listings/{id}/regenerate-prompt
+POST creative-pipeline/generations/{id}/retry
+POST creative-pipeline/generations/{id}/cancel
+POST creative-pipeline/artifacts/{id}/retry-enhance
+```
+
+Do not expose provider credentials or raw secret-bearing responses through APIs.
+
+The server must enforce tenant/source authorization independently of UI visibility.
+
+---
+
+## 25. Idempotency
+
+Idempotency is required at several levels.
+
+### 25.1 Discovery
+
+```text
+source_group + external listing folder identity
+```
+
+must produce one stable ListingTask.
+
+### 25.2 Initial pipeline creation
+
+Repeated scanner runs must not create duplicate initial PipelineRuns.
+
+### 25.3 Node execution
+
+A durable queue retry must not create duplicate successful artifacts when an earlier attempt actually succeeded but acknowledgement failed.
+
+Use node/run-specific idempotency keys.
+
+### 25.4 Generation submission
+
+Provider submit calls should use local durable state to avoid accidental duplicate remote jobs after timeout/restart where possible.
+
+Persist provider request IDs before polling.
+
+### 25.5 Artifact version
+
+Version numbers must be reserved transactionally.
+
+---
+
+## 26. Concurrency and resource control
+
+The pipeline will eventually process many listings simultaneously.
+
+Support configurable capacity such as:
+
+```text
+OpenAI Idea concurrency
+OpenAI Prompt concurrency
+Seedance generation concurrency
+Google Omni generation concurrency
+Watermark/Enhance concurrency
+per-source-group generation concurrency
+global generation concurrency
+```
 
 Example:
 
 ```text
-Run #4   Running      Today 13:42
-Run #3   Completed    Sep 14
-Run #2   Failed       Sep 13
-Run #1   Completed    Sep 12
-```
-
----
-
-## 22. UI actions and semantics
-
-### Listing actions
-
-```text
-Open details
-Retry failed node
-Regenerate Idea Story
-Regenerate Prompt
-Generate another video
-Restart as new pipeline run
-Cancel current run
-```
-
-### Generation actions
-
-```text
-Retry
-Generate another version
-Open output
-Run Enhance again
-```
-
-### Group actions
-
-```text
-Scan now
-Retry failed listings
-Pause group processing (future/optional)
-```
-
-Actions must distinguish clearly between retry and regeneration.
-
----
-
-## 23. API surface — proposed
-
-Exact paths should follow existing repository router conventions.
-
-A possible API surface:
-
-```text
-GET  /api/v1/creative-pipeline/groups
-POST /api/v1/creative-pipeline/groups/{group_id}/scan
-
-GET  /api/v1/creative-pipeline/listings
-GET  /api/v1/creative-pipeline/listings/{listing_id}
-
-POST /api/v1/creative-pipeline/listings/{listing_id}/runs
-GET  /api/v1/creative-pipeline/listings/{listing_id}/runs
-GET  /api/v1/creative-pipeline/runs/{run_id}
-
-POST /api/v1/creative-pipeline/node-runs/{node_run_id}/retry
-POST /api/v1/creative-pipeline/runs/{run_id}/regenerate-idea
-POST /api/v1/creative-pipeline/runs/{run_id}/regenerate-prompt
-
-GET  /api/v1/creative-pipeline/runs/{run_id}/artifacts
-POST /api/v1/creative-pipeline/generations/{generation_id}/retry
-POST /api/v1/creative-pipeline/artifacts/{artifact_id}/enhance
-```
-
-The backend should return typed state, not force the client to infer workflow status from raw processing jobs.
-
----
-
-## 24. Suggested service boundaries
-
-A clean backend decomposition may look like:
-
-```text
-creative_pipeline/
-├── contracts.py
-├── model.py
-├── repository.py
-├── router.py
-├── service.py
-├── scanner.py
-├── orchestrator.py
-├── knowledge.py
-├── idea_story.py
-├── prompt_builder.py
-├── generation/
-│   ├── base.py
-│   ├── seedance.py
-│   └── google_omni.py
-├── artifacts.py
-└── retry.py
-```
-
-This is a conceptual layout; implementation should align with actual repository conventions after code inspection.
-
-Responsibilities:
-
-```text
-scanner.py
-    discover groups/listings
-
-orchestrator.py
-    transition pipeline/node state and release runnable work
-
-knowledge.py
-    load/version Knowledge Pack
-
-idea_story.py
-    OpenAI structured Idea Story generation
-
-prompt_builder.py
-    OpenAI model-specific prompt generation
-
-generation/*
-    provider API adapters
-
-artifacts.py
-    versioning, paths, lineage, output finalization
-
-retry.py
-    canonical retry policy
-```
-
----
-
-## 25. Database design — recommended
-
-Implementation should inspect the current database schema and naming conventions first, but the domain likely requires persistent tables equivalent to:
-
-```text
-creative_source_groups
-creative_listing_tasks
-creative_pipeline_runs
-creative_node_runs
-creative_generation_runs
-creative_artifacts
-creative_knowledge_snapshots
-creative_scan_runs
-```
-
-### 25.1 Why domain tables are needed
-
-Processing jobs alone should not be the entire product model.
-
-The durable job queue answers:
-
-> What executable work is queued/running/failed?
-
-Creative domain tables answer:
-
-> What listing/run/version/artifact exists and how are they related?
-
-Keep those responsibilities separate.
-
-### 25.2 Constraints
-
-Important uniqueness constraints should include equivalents of:
-
-```text
-SourceGroup source identity unique within tenant
-ListingTask source folder identity unique within SourceGroup
-PipelineRun run_number unique within ListingTask
-Artifact logical version unique within relevant run/type/model/ratio
-GenerationRun generation_number unique within prompt/model/ratio branch
-```
-
-Every row must be tenant-bound according to the repository's existing tenancy model.
-
----
-
-## 26. Scheduling and queue behavior
-
-### 26.1 Daily scanner
-
-The scanner should be a durable scheduled job.
-
-Suggested process:
-
-```text
-scheduler
-    ↓
-create creative_scan job for SourceGroup
-    ↓
-worker scans provider folder
-    ↓
-upsert discovery state
-    ↓
-new listings create initial pipeline runs
-```
-
-### 26.2 Pipeline scheduling
-
-Do not enqueue every future node immediately.
-
-Prefer:
-
-```text
-node completes successfully
+100 listings pending
         ↓
-orchestrator evaluates dependencies
+3 generation slots available
         ↓
-next node(s) marked ready
-        ↓
-processing job created idempotently
+workers claim only 3 generation jobs
 ```
 
-This makes retries and branching easier to reason about.
-
-### 26.3 Worker ownership
-
-Long provider generation operations should not hold a short HTTP request open.
-
-API actions should create/update durable workflow intent and return promptly.
-
-Workers perform long-running work.
+Provider rate limits should map into retryable queue behavior, not uncontrolled immediate loops.
 
 ---
 
-## 27. Error handling
+## 27. Knowledge/OpenAI reliability
 
-Errors should be normalized by stage.
-
-Suggested categories:
+Idea Story and Prompt calls should record safe operational metadata:
 
 ```text
-source_unavailable
-source_permission_denied
-invalid_listing_folder
-input_missing
-knowledge_invalid
-openai_rate_limited
-openai_invalid_response
-generation_rate_limited
-generation_provider_busy
-generation_failed
-generation_timeout
-artifact_download_failed
-artifact_write_failed
-watermark_failed
-enhance_failed
-render_failed
+model
+request started/completed timestamps
+latency
+token usage if available
+knowledge snapshot
+schema version
+attempt
+normalized error code
 ```
 
-Each NodeRun should retain:
+Do not write API keys, authorization headers, or sensitive credentials into Pipeline artifact JSON/log files.
 
-```text
-last_error_code
-safe operator-facing message
-attempt_count
-last_failed_at
-```
-
-Do not expose tokens, signed URLs, raw provider authorization payloads, or secret request content in UI/logging.
+Structured-output validation failures should be retryable only within bounded policy.
 
 ---
 
-## 28. Observability and operations
+## 28. Security and authorization
 
-Track aggregate operational metrics such as:
+Every persisted domain row must be tenant-bound.
+
+Every backend operation must verify:
 
 ```text
-listing folders discovered per scan
-new ListingTasks created
+active tenant
+source-group access
+listing ownership/source relationship
+requested run/node belongs to listing/tenant
+```
+
+Never trust arbitrary client-supplied provider paths as authorization proof.
+
+Provider folder identifiers should be resolved through the existing authorized source/explorer infrastructure.
+
+The system-owned `Pipeline/` folder must inherit the same source/provider authorization boundary as its listing folder.
+
+---
+
+## 29. Observability
+
+Track operational metrics such as:
+
+```text
+source groups scanned
+listings discovered/day
+new ListingTasks/day
 pipeline runs started/completed/failed
-node success/failure by node type
-retry counts
+queue depth by node
+oldest waiting job
+node latency p50/p95
+node failure rate
+retry rate
 OpenAI latency/error rate
-generation provider latency/error rate
-generation queue depth
-videos generated by provider/aspect ratio
-enhancement latency/error rate
-end-to-end listing completion time
+Seedance latency/error rate
+Google Omni latency/error rate
+generation success rate
+enhance success rate
+artifacts produced/day
+cost per listing/run when provider cost data exists
 ```
 
-Useful operational views:
+Use canonical error codes so failures can be grouped reliably.
+
+Useful listing-level event history:
 
 ```text
-currently running
-retry waiting
-failed by node
-oldest pending work
-provider outage symptoms
-```
-
-Avoid high-cardinality labels containing ASIN/path where the metrics platform cannot safely handle them.
-
----
-
-## 29. Permissions
-
-The first implementation should reuse existing application authorization patterns.
-
-At minimum separate capabilities for:
-
-```text
-view Creative Pipeline
-trigger scan
-retry node
-regenerate creative content
-cancel run
-manage SourceGroup configuration
-manage Knowledge Pack (future/admin)
-```
-
-A normal viewer should not gain source-folder write access merely because the Creative Pipeline tab exists.
-
-Output write actions must remain tenant/source authorized.
-
----
-
-## 30. Security and data handling
-
-Required principles:
-
-1. Never persist provider/OpenAI API secrets in pipeline artifacts or logs.
-2. Never send unrelated tenant resources to OpenAI/generation providers.
-3. Build AI input from the listing's authorized immutable snapshot only.
-4. Keep all DB reads/writes tenant-bound.
-5. Validate output paths so a crafted listing name cannot escape the listing folder.
-6. Sanitize filenames and reject `..`, absolute-path injection, and invalid provider paths.
-7. Do not expose raw knowledge files to users without the appropriate permission.
-8. Treat generated media as untrusted input before enhancement/render tooling.
-9. Bound downloads, duration, resolution, and file sizes according to processing policy.
-
----
-
-## 31. Concurrency and race conditions
-
-The design must explicitly handle races.
-
-### 31.1 Concurrent scans
-
-Two scans discovering the same listing must still create only one `ListingTask`.
-
-Use DB uniqueness + idempotent create semantics.
-
-### 31.2 Concurrent retries
-
-Two operators clicking Retry should not create duplicate attempts for the same active NodeRun.
-
-### 31.3 Concurrent generation completion
-
-Provider callbacks/polls can race with worker retries.
-
-Generation state transitions must be monotonic/idempotent.
-
-### 31.4 Output version allocation
-
-Two generations finishing simultaneously must not write to the same output version path.
-
-Use persistent version identity, not "list files and choose next number" as the only locking strategy.
-
----
-
-## 32. State transition rules
-
-Recommended high-level transition constraints:
-
-```text
-pending -> ready
-ready -> running
-running -> completed
-running -> retry_wait
-running -> failed
-retry_wait -> ready
-pending/ready/running/retry_wait -> cancelled
-```
-
-A completed NodeRun should not return to running.
-
-Explicit regeneration creates a new version/new NodeRun rather than reopening a completed historical run.
-
-This immutable-history bias makes auditability substantially easier.
-
----
-
-## 33. Artifact lineage example
-
-One complete branch may look like:
-
-```text
-ListingTask: listing - B0ABC123
-
-PipelineRun #3
-│
-├── Input Artifact v1
-│
-├── Idea Story v2
-│
-├── Prompt v4
-│   └── Seedance 2.5 / 9:16
-│
-├── GenerationRun #1
-│   └── raw video v001.mp4
-│
-├── GenerationRun #2
-│   └── raw video v002.mp4
-│
-└── Enhance
-    ├── v001 -> enhanced v001.mp4
-    └── v002 -> enhanced v002.mp4
-```
-
-The UI should be able to traverse this lineage in both directions.
-
----
-
-## 34. Example end-to-end Amazon flow
-
-```text
-Amazon - Store B
-└── listing - B0ABC123
-```
-
-1. Daily scan sees the folder for the first time.
-2. `ListingTask` is created.
-3. Initial `PipelineRun #1` is created.
-4. Input Data captures product/listing assets and metadata.
-5. Idea Story uses OpenAI + global + Amazon knowledge.
-6. Prompt uses Idea Story + Seedance/Google Omni knowledge.
-7. Generation fans out to required `16:9` and `9:16` branches.
-8. Each successful generation becomes a versioned raw Artifact in the listing folder.
-9. Each raw Artifact independently enters Watermark & Smart Enhance.
-10. Enhanced artifacts are stored under the listing folder.
-11. Listing becomes `completed` when all required output branches satisfy the platform completion policy.
-
-If one `9:16` generation fails:
-
-```text
-16:9 successful artifacts remain untouched
-9:16 GenerationRun retries independently
-Idea Story and Prompt are reused
+listing discovered
+Pipeline folder created
+run started
+node started
+node retry scheduled
+node completed
+generation submitted
+generation completed
+artifact stored
+enhance completed
+run completed
 ```
 
 ---
 
-## 35. Example end-to-end Etsy flow
+## 30. Testing strategy
+
+### 30.1 Folder scanner tests
+
+Cover:
 
 ```text
-Etsy - Shop A
-└── listing - ASIN 1
+new parent group
+new listing folder
+existing listing folder
+duplicate daily scan
+Pipeline folder ignored as listing
+Source folder ignored as listing
+UGC - Macro Vid ignored as listing
+invalid listing folder naming
+same listing_key in different groups
+missing source folder
+cross-tenant folder isolation
 ```
 
-1. Daily scan creates the listing task.
-2. Input Data snapshots listing context.
-3. Idea Story uses Etsy-specific knowledge.
-4. Prompt creates model-specific `1:1` generation instructions.
-5. Generation produces one or more `1:1` versions.
-6. Raw versions are saved under `output/1x1/...`.
-7. Watermark & Smart Enhance processes each version independently.
-8. UI shows the listing under `Etsy - Shop A` with version counts and node status.
+### 30.2 Orchestrator tests
+
+Cover:
+
+```text
+node dependency ordering
+successful progression
+failed node blocks downstream work
+retry only failed node
+restart/resume
+cancel
+regenerate creates new version branch
+successful upstream nodes reused
+```
+
+### 30.3 Idea/Prompt tests
+
+Cover:
+
+```text
+correct Knowledge Pack selection
+structured output validation
+provider timeout
+malformed output
+retry
+regenerate versioning
+lineage to Input and Knowledge snapshot
+```
+
+### 30.4 Generation tests
+
+Cover:
+
+```text
+Seedance adapter
+Google Omni adapter
+provider submit timeout
+polling
+provider failure normalization
+retry
+cancel
+multiple model branches
+Amazon dual ratios
+Etsy 1:1
+```
+
+### 30.5 Artifact tests
+
+Cover:
+
+```text
+version reservation
+no overwrite
+concurrent version creation
+physical write failure
+lineage preservation
+raw video retained after enhance
+```
+
+### 30.6 Enhance tests
+
+Cover:
+
+```text
+one raw video → one enhanced version
+retry only failed artifact
+multiple independent video versions
+source raw artifact untouched
+```
+
+### 30.7 End-to-end test
+
+Minimum V1 E2E scenario:
+
+```text
+create/discover parent folder
+        ↓
+create/discover listing folder
+        ↓
+scanner creates ListingTask
+        ↓
+Pipeline/ ensured
+        ↓
+Input Data completed
+        ↓
+Idea Story completed
+        ↓
+Prompt completed
+        ↓
+Generation completed
+        ↓
+raw output stored under Pipeline/Video Output
+        ↓
+Watermark & Smart Enhance completed
+        ↓
+final output stored under Pipeline/Watermark & Smart Enhance
+        ↓
+ListingTask current run = completed
+```
+
+Also test service restart between nodes to verify durable recovery.
 
 ---
 
-## 36. Completion policy
+## 31. Implementation roadmap
 
-The system needs an explicit definition of when a listing is complete.
+Implementation should proceed in bounded phases.
 
-Initial recommended policy:
+### CP-00 — Architecture and contracts
 
-### Amazon
-
-A pipeline run is complete when:
+Finalize:
 
 ```text
-at least one required final enhanced video exists for 16:9
-AND
-at least one required final enhanced video exists for 9:16
-```
-
-### Etsy
-
-A pipeline run is complete when:
-
-```text
-at least one required final enhanced video exists for 1:1
-```
-
-If multiple models are configured as required, the policy can later become stricter.
-
-Do not define completion as "all historical GenerationRuns completed" because optional/regenerated versions may fail without invalidating a good final output.
-
----
-
-## 37. Manual controls
-
-V1 should provide enough manual control to recover without DB intervention.
-
-Required operations:
-
-```text
-Scan now
-Retry failed node
-Retry failed generation
-Regenerate Idea Story
-Regenerate Prompt
-Generate another video version
-Retry enhancement
-Cancel active run
-Start a new pipeline run
-```
-
-Every action should be an API/service operation with authorization, validation, idempotency, and audit metadata.
-
-No UI action should repair workflow state by directly editing database statuses.
-
----
-
-## 38. Implementation phases
-
-The feature should be implemented in bounded phases rather than one very large Codex run.
-
-### CP-00 — Architecture audit and contracts
-
-Deliver:
-
-```text
-actual current navigation insertion point
-existing queue/scheduler reuse decision
-source-folder/provider access strategy
-DB entity contract
+folder ownership contract
+listing naming/parser
+listing_key semantics
 platform profiles
-artifact storage strategy
-Knowledge Pack location/contract
+node contracts
+artifact/version contracts
+retry vs regenerate semantics
+provider interfaces
 ```
 
-No production behavior yet.
+Acceptance:
 
-### CP-01 — Domain schema + read APIs
+```text
+[ ] Source/ and UGC - Macro Vid/ are explicitly user-owned.
+[ ] Pipeline/ is explicitly system-owned.
+[ ] Amazon/Etsy listing identifier semantics use listing_key.
+[ ] Node and artifact contracts are documented.
+```
+
+### CP-01 — Domain model and migrations
 
 Implement:
 
@@ -1976,29 +1820,200 @@ PipelineRun
 NodeRun
 GenerationRun
 Artifact
-ScanRun if needed
 ```
 
-Add migrations and focused model/repository tests.
+Acceptance:
 
-### CP-02 — Folder discovery + daily scanner
+```text
+[ ] tenant isolation constraints
+[ ] stable listing identity
+[ ] version uniqueness
+[ ] required indexes
+[ ] migration rollback verified
+```
+
+### CP-02 — Folder scanner and idempotent discovery
 
 Implement:
 
 ```text
-SourceGroup configuration/read
-listing folder parser
+parent-group recognition
+listing parser
 daily/manual scan
-idempotent discovery
-new ListingTask creation
-initial PipelineRun creation
+ListingTask creation
+Pipeline/ ensure/create
+idempotency
+missing-source lifecycle
 ```
 
-No AI generation yet.
+Acceptance:
 
-### CP-03 — Creative Pipeline UI shell
+```text
+[ ] new listing discovered once
+[ ] repeated scan creates no duplicate task/run
+[ ] Pipeline subfolders ignored as listings
+[ ] user-managed folders untouched
+```
 
-Implement tab placement:
+### CP-03 — Orchestrator and retry engine
+
+Implement:
+
+```text
+node state machine
+dependency transitions
+durable execution jobs
+retry/backoff
+manual retry
+cancel
+restart recovery
+```
+
+Acceptance:
+
+```text
+[ ] smallest failed unit retries
+[ ] completed upstream work reused
+[ ] process restart does not lose work
+[ ] UI cannot directly mutate states
+```
+
+### CP-04 — Input Data and Artifact framework
+
+Implement:
+
+```text
+input snapshot
+artifact registry
+physical Pipeline paths
+version reservation
+content hashes
+artifact lineage
+```
+
+Acceptance:
+
+```text
+[ ] immutable input snapshot
+[ ] no destructive overwrite
+[ ] concurrent version reservation safe
+[ ] DB ↔ physical artifact mapping deterministic
+```
+
+### CP-05 — Knowledge Pack
+
+Implement:
+
+```text
+KnowledgeLoader
+platform/node/model rule selection
+knowledge manifests/hashes
+run-level knowledge snapshot
+```
+
+Acceptance:
+
+```text
+[ ] deterministic knowledge selection
+[ ] historical run can identify knowledge revision
+[ ] no RAG dependency required for V1
+```
+
+### CP-06 — OpenAI Idea Story and Prompt
+
+Implement:
+
+```text
+Idea Story structured output
+Prompt structured output
+Seedance prompt generation
+Google Omni prompt generation
+schema validation
+retry/error handling
+versioning
+```
+
+Acceptance:
+
+```text
+[ ] Idea Story persisted under Pipeline/Idea Story
+[ ] prompts persisted under Pipeline/Prompt
+[ ] retries do not silently create new creative versions
+[ ] explicit regenerate creates new version
+```
+
+### CP-07 — Video generation adapters
+
+Implement:
+
+```text
+Seedance provider adapter
+Google Omni provider adapter
+GenerationRun lifecycle
+submit/poll/fetch/cancel
+platform aspect-ratio fan-out
+```
+
+Acceptance:
+
+```text
+[ ] Etsy 1:1 works
+[ ] Amazon 16:9 and 9:16 work
+[ ] provider-specific errors normalized
+[ ] duplicate submit risk bounded
+```
+
+### CP-08 — Video Output and Watermark/Smart Enhance
+
+Implement:
+
+```text
+versioned raw output storage
+Artifact registration
+existing watermark-removal integration
+Smart Enhance integration
+artifact-level retry
+final output storage
+```
+
+Acceptance:
+
+```text
+[ ] raw output never overwritten
+[ ] final output linked to exact raw version
+[ ] failed enhance retries only affected video
+[ ] files remain under listing/Pipeline
+```
+
+### CP-09 — Backend APIs
+
+Implement read/action APIs for:
+
+```text
+groups
+listings
+runs
+nodes
+generations
+artifacts
+scan
+retry
+regenerate
+cancel
+```
+
+Acceptance:
+
+```text
+[ ] tenant authorization
+[ ] no direct status mutation endpoint
+[ ] safe error responses
+[ ] no provider secrets exposed
+```
+
+### CP-10 — Creative Pipeline UI
+
+Implement tab between:
 
 ```text
 Visual Search
@@ -2010,328 +2025,130 @@ Implement:
 
 ```text
 grouped parent-folder view
-listing rows
-filters/search
-status visualization
-detail drawer shell
-manual Scan now
+compact listing pipeline rows
+filters
+status summaries
+listing detail drawer
+run history
+artifact versions
+retry/regenerate actions
 ```
 
-Use real API state, not mocked hard-coded production behavior.
+Acceptance:
 
-### CP-04 — Input Data node
+```text
+[ ] UI style follows existing application patterns
+[ ] Etsy - EmbrolyShop groups its listing tasks
+[ ] pipeline node state visible without opening drawer
+[ ] version/history accessible from detail drawer
+```
 
-Implement reproducible listing snapshots and input artifact lineage.
-
-### CP-05 — Knowledge Pack + OpenAI Idea Story
+### CP-11 — Scheduler, observability, E2E hardening and rollout
 
 Implement:
 
 ```text
-knowledge manifest
-KnowledgeLoader
-knowledge snapshot
-OpenAI structured output
-Idea Story artifacts
-retry/regenerate semantics
+durable daily schedule
+manual scan now
+provider concurrency controls
+metrics
+operational diagnostics
+full E2E tests
+canary rollout controls
 ```
 
-### CP-06 — Prompt node
-
-Implement Seedance 2.5 and Google Omni prompt contracts and prompt versioning.
-
-### CP-07 — Generation provider adapters
-
-Implement provider interfaces and one provider at a time.
-
-Recommended order:
+Acceptance:
 
 ```text
-Seedance 2.5 first
-Google Omni second
-```
-
-Implement aspect-ratio fan-out according to platform profile.
-
-### CP-08 — Versioned Video Output
-
-Implement safe artifact download/write, collision-safe versioning, listing-folder output paths, and artifact lineage.
-
-### CP-09 — Watermark & Smart Enhance
-
-Integrate the existing/selected watermark removal and enhancement pipeline with per-artifact retry semantics.
-
-### CP-10 — Retry, cancellation, bulk recovery
-
-Harden automatic retry, manual retry, cancellation, group retry, provider failure behavior, and stale-worker recovery.
-
-### CP-11 — Operations hardening
-
-Add metrics, queue visibility, rate/concurrency policy, failure diagnostics, security review, and production rollout plan.
-
----
-
-## 39. Testing strategy
-
-### 39.1 Folder scanner
-
-Test:
-
-```text
-new listing discovered
-existing listing not duplicated
-same ASIN in two groups remains separate
-deleted/missing folder does not destroy history
-invalid folder name ignored
-cross-tenant/source isolation
-concurrent scans do not duplicate listing
-```
-
-### 39.2 Pipeline orchestration
-
-Test:
-
-```text
-node dependency ordering
-successful upstream reuse
-retry failed node only
-regenerate creates new version
-cancel prevents new downstream work
-worker retry idempotency
-crash/reclaim behavior
-```
-
-### 39.3 Knowledge/OpenAI
-
-Test:
-
-```text
-manifest selects correct platform/model files
-knowledge snapshot hash deterministic
-structured output validation
-invalid provider response fails safely
-retryable vs terminal OpenAI errors
-no secrets persisted
-```
-
-### 39.4 Generation
-
-Test:
-
-```text
-Amazon fan-out 16:9 + 9:16
-Etsy fan-out 1:1
-multiple versions preserved
-provider request idempotency
-provider busy retry
-failed generation does not destroy successful siblings
-```
-
-### 39.5 Artifacts
-
-Test:
-
-```text
-safe listing-relative paths
-version collision prevention
-partial file not published as successful
-artifact lineage correct
-raw video preserved after enhancement
-```
-
-### 39.6 UI
-
-Test:
-
-```text
-tab ordering
-parent group collapse/expand
-listing search/filter
-group status summary
-node state rendering
-detail drawer
-retry action
-regenerate action
-run history
-multiple video versions
-loading/error/empty states
+[ ] daily scan durable
+[ ] queue capacity bounded
+[ ] retries observable
+[ ] complete listing E2E test passes
+[ ] rollout can start with one group/listing
 ```
 
 ---
 
-## 40. Acceptance criteria for the initial product
+## 32. Recommended rollout sequence
+
+Do not enable broad automated generation immediately.
+
+Recommended rollout:
+
+```text
+1. scanner dry run
+2. one Etsy SourceGroup
+3. one newly detected listing
+4. Input Data only
+5. Idea Story + Prompt
+6. one generation provider
+7. one 1:1 raw output
+8. Watermark & Smart Enhance
+9. verify physical Pipeline folder and DB lineage
+10. several listings
+11. one complete shop/group
+12. enable daily scheduled discovery
+13. add Amazon dual-ratio workload
+14. broader rollout
+```
+
+Production rollout must have an immediate way to pause new pipeline work without deleting existing state or artifacts.
+
+---
+
+## 33. V1 definition of done
+
+Creative Pipeline V1 is complete when all of the following are true:
 
 ```text
 [ ] Creative Pipeline tab exists between Visual Search and Inventory Daily.
-[ ] UI uses the application's established component/style language.
-[ ] Listing tasks are grouped by persisted parent SourceGroup.
-[ ] Daily scanner detects new `listing - ASIN` folders.
-[ ] Existing listings are not duplicated on later scans.
-[ ] Amazon listings create required 16:9 and 9:16 output branches.
-[ ] Etsy listings create required 1:1 output branch.
-[ ] Every listing can retain multiple PipelineRuns.
-[ ] Every node has durable status, attempt count, and error state.
-[ ] Every node can be retried independently where safe.
-[ ] Retry does not unnecessarily rerun successful upstream nodes.
-[ ] Explicit regeneration creates a new version rather than overwriting history.
-[ ] Idea Story uses OpenAI + versioned Knowledge Pack context.
-[ ] Prompt generates separate Seedance 2.5 and Google Omni contracts.
-[ ] Knowledge selection is deterministic and reproducible per run.
-[ ] Generating supports multiple GenerationRuns from one prompt.
-[ ] Raw video output is versioned and stored inside the listing folder.
-[ ] Watermark & Smart Enhance works per raw-video artifact.
-[ ] Enhanced output is versioned and does not overwrite raw output.
-[ ] UI displays node state, retries, video version counts, and current run.
-[ ] Listing detail exposes artifact/run history.
-[ ] Source scans, pipeline nodes, and generation are idempotent.
-[ ] No cross-tenant/source leakage is possible.
-[ ] No secrets are persisted in artifacts or operator-facing logs.
-[ ] Long-running work is executed by durable workers, not synchronous browser requests.
-[ ] Concurrency/rate policies protect external providers.
-[ ] Operators can recover failures without direct DB edits.
+[ ] Parent source folders are displayed as groups.
+[ ] Listing tasks appear under their real parent folder.
+[ ] Existing Source/ and UGC - Macro Vid/ content is preserved.
+[ ] Pipeline/ is the only system-owned artifact folder inside each listing.
+[ ] Daily scanner discovers new listing folders idempotently.
+[ ] Existing listing folders do not create duplicate ListingTasks.
+[ ] listing_key supports Etsy Listing ID and Amazon ASIN semantics.
+[ ] Input Data creates immutable snapshots.
+[ ] Idea Story uses OpenAI + selected Knowledge Pack.
+[ ] Prompt generates Seedance 2.5 and Google Omni prompt artifacts.
+[ ] Etsy generates 1:1 outputs.
+[ ] Amazon generates 16:9 and 9:16 outputs.
+[ ] Every raw video output is versioned and kept under Pipeline/Video Output.
+[ ] Watermark & Smart Enhance outputs are versioned separately.
+[ ] Retry exists for every executable node.
+[ ] Retry does not rerun successful upstream nodes.
+[ ] Regenerate creates a new version/branch and preserves history.
+[ ] DB state is authoritative for workflow state.
+[ ] Physical artifacts can be traced back to exact input/idea/prompt/generation lineage.
+[ ] Worker restart does not lose pipeline state.
+[ ] Tenant/source authorization is enforced end to end.
+[ ] Provider credentials are never persisted in artifacts/logs.
+[ ] Queue/provider concurrency is bounded.
+[ ] Full end-to-end tests pass.
+[ ] Canary rollout succeeds before broad scheduled automation is enabled.
 ```
 
 ---
 
-## 41. Recommended first implementation milestone
+## 34. Key architectural rules
 
-Do not start with OpenAI or video generation.
+The following rules should be treated as invariants during implementation:
 
-The safest first milestone is:
+1. **Do not modify user-owned source/reference folders destructively.**
+2. **All generated/system artifacts live under the listing's `Pipeline/` folder.**
+3. **Database state, not folder existence, is authoritative for execution state.**
+4. **Use `listing_key`, not universal `asin`, as marketplace-neutral identity.**
+5. **A listing is not the same thing as a PipelineRun.** One listing can have many historical runs.
+6. **Retry is not regenerate.** Retry repeats the same logical version; regenerate creates a new version.
+7. **Never overwrite successful historical artifacts.**
+8. **One orchestrator owns node dependency transitions.**
+9. **Provider adapters own provider protocol, not workflow state.**
+10. **Daily scans are idempotent.**
+11. **`Pipeline/` contents are ignored by listing discovery.**
+12. **Physical output version allocation must be concurrency safe.**
+13. **All operations remain tenant/source authorized.**
+14. **Scheduled automation is durable and resumable.**
+15. **Start simple with deterministic Knowledge Pack loading; add RAG only when justified by scale.**
 
-```text
-SourceGroup configuration
-        ↓
-Daily/manual folder scan
-        ↓
-ListingTask discovery
-        ↓
-PipelineRun + NodeRun skeleton
-        ↓
-Creative Pipeline tab
-        ↓
-Grouped listing UI
-```
-
-The UI should initially be able to show real discovered listings such as:
-
-```text
-Etsy - Shop A
-├── listing - ASIN 1   Waiting
-└── listing - ASIN 2   Waiting
-
-Amazon - Store B
-└── listing - ASIN 3   Waiting
-```
-
-Only after this domain/discovery layer is stable should implementation add:
-
-```text
-Input Data
-→ Idea Story
-→ Prompt
-→ Generating
-→ Video Output
-→ Watermark & Smart Enhance
-```
-
-This ordering reduces the risk of building expensive AI/generation behavior before task identity, retry semantics, grouping, artifact lineage, and queue ownership are correct.
-
----
-
-## 42. Open implementation decisions
-
-The following decisions should be resolved during CP-00 by inspecting the current repository and actual provider constraints:
-
-1. Which connected source/provider owns the listing folders in V1?
-2. Are output files written back through existing source-provider APIs or first written locally then uploaded?
-3. How is `ASIN` parsed for Etsy folders if the business identifier is not literally an Amazon ASIN?
-4. Where should the Knowledge Pack live: repository-controlled files, database-managed content, or a dedicated controlled source folder?
-5. Which OpenAI model/configuration should generate Idea Story and Prompt?
-6. What is the exact Google Omni API/model contract intended for V1?
-7. Does Seedance expose asynchronous job IDs, callbacks, polling, or all three?
-8. What concurrency/rate limits apply to each generation provider?
-9. Which existing watermark removal / Smart Enhance implementation should become the canonical processing adapter?
-10. What exact output naming convention is preferred for human browsing inside listing folders?
-11. Should newly discovered listings auto-start immediately or enter `Waiting for start` until explicitly approved?
-12. Should all generated provider/model branches be required for listing completion, or only a configurable minimum set?
-13. What permissions should non-admin operators receive for regenerate/retry/cancel actions?
-14. Should zero-resource SourceGroups remain visible in the Creative Pipeline UI?
-15. Should completed listings be hidden by default after a retention period or remain in the primary group view?
-
-These decisions should be documented before implementation choices become difficult to reverse.
-
----
-
-## 43. Final target architecture
-
-```text
-                         CREATIVE PIPELINE
-
-Configured Source Roots
-        │
-        ▼
-Daily / Manual Scanner
-        │
-        ├── SourceGroup: Etsy - Shop A
-        │      ├── listing - ASIN 1
-        │      └── listing - ASIN 2
-        │
-        └── SourceGroup: Amazon - Store B
-               └── listing - ASIN 3
-
-                    │ new listing
-                    ▼
-                ListingTask
-                    │
-                    ▼
-                PipelineRun
-                    │
-                    ▼
-              ┌─────────────┐
-              │ Input Data  │
-              └──────┬──────┘
-                     ▼
-              ┌─────────────┐
-              │ Idea Story  │◄──── OpenAI
-              └──────┬──────┘      + Knowledge Pack
-                     ▼
-              ┌─────────────┐
-              │   Prompt    │◄──── OpenAI
-              └──────┬──────┘      + Knowledge Pack
-                     ▼
-          ┌───────────────────────┐
-          │      Generating       │
-          │ Seedance / Google Omni│
-          └──────────┬────────────┘
-                     │
-            ┌────────┴────────┐
-            ▼                 ▼
-       Generation v1     Generation v2 ...
-            │                 │
-            └────────┬────────┘
-                     ▼
-              Versioned Videos
-          inside listing folder
-                     │
-                     ▼
-        Watermark & Smart Enhance
-                     │
-                     ▼
-             Final Artifacts
-```
-
-The design intentionally separates:
-
-```text
-folder discovery
-creative domain state
-execution queue
-AI knowledge
-provider generation
-artifact storage
-post-processing
-UI operations
-```
-
-so each layer can evolve independently without breaking listing history or retry semantics.
+This is the source-of-truth implementation direction for the initial Creative Pipeline unless later approved requirements explicitly change it.
