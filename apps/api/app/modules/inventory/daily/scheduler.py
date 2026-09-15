@@ -100,7 +100,7 @@ class InventoryDailyScheduler:
         code = str(error).strip().lower()
         name = type(error).__name__.lower()
         return (
-            code in {"morning_reset_not_completed", "afternoon_snapshot_not_ready", "stale_evidence"}
+            code in {"morning_reset_not_completed", "afternoon_snapshot_not_ready", "stale_evidence", "previous_day_gemini_not_verified"}
             or any(value in code for value in (
                 "429", "rate_limit", "rate limit", "timeout", "timed out",
                 "temporarily unavailable", "connection reset", "network",
@@ -250,11 +250,9 @@ class InventoryDailyScheduler:
                 InventoryDailyCarryForwardModel.verified_at.is_not(None),
             )) is not None
 
-    def _execute_v4_snapshot_after_morning(
+    def _execute_v4_snapshot(
         self, *, settings: InventorySettingsModel, business_date: date, moment: datetime,
     ) -> int:
-        if not self._morning_reset_completed(tenant_id=settings.tenant_id, business_date=business_date):
-            raise RuntimeError("morning_reset_not_completed")
         return self._execute_v4_tenant(
             settings=settings,
             business_date=business_date,
@@ -289,7 +287,7 @@ class InventoryDailyScheduler:
         for settings in self._v4_settings():
             business_date = self._local_business_date(settings, moment)
             if slot_kind == "afternoon_snapshot":
-                count += self._execute_v4_snapshot_after_morning(
+                count += self._execute_v4_snapshot(
                     settings=settings, business_date=business_date, moment=moment,
                 )
             elif slot_kind == "evening_reconcile":
@@ -348,19 +346,21 @@ class InventoryDailyScheduler:
                                 else:
                                     carry = self.carry_forward_service.run(tenant_id, target_business_date)
                                     if carry.status != "completed":
+                                        # Preserve the failed reset for retry, but continue to the daily snapshot.
                                         raise RuntimeError(carry.error_code or "previous_day_gemini_not_verified")
                                     self._complete_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id)
                                     count += 1
                             except Exception as error:
                                 self._fail_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id, error=error, retryable=self._retryable_v4_error(error), now=moment)
-                                raise
+                                # Preserve the failed reset for retry, but continue to the daily snapshot.
+                                logger.exception("inventory_daily_scheduler_morning_reset_failed", extra={"tenant_id": tenant_id, "business_date": target_business_date.isoformat()})
                     if snapshot_due:
                         is_v3 = (
                             isinstance(settings.daily_sheet_config_json, dict)
                             and settings.daily_sheet_config_json.get("version") == 3
                         )
                         if is_v4:
-                            count += self._execute_v4_snapshot_after_morning(settings=settings, business_date=target_business_date, moment=moment)
+                            count += self._execute_v4_snapshot(settings=settings, business_date=target_business_date, moment=moment)
                             if reconcile_due:
                                 count += self._execute_v4_reconcile_after_snapshot(settings=settings, business_date=target_business_date, moment=moment)
                         elif is_v3:

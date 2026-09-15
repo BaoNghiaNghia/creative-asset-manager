@@ -375,6 +375,32 @@ class DailySheetSchedulerTest(unittest.TestCase):
         self.assertEqual(0, scheduler.run_once(datetime(2030, 8, 9, 2, 27, tzinfo=timezone.utc)))
         self.assertEqual([("tenant-a", "2030-08-09")], carry.calls)
 
+    def test_v4_snapshot_runs_when_morning_reset_failed(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == "tenant-a"))
+            settings.daily_carry_forward_time_local = "05:00"
+            settings.daily_snapshot_time_local = "05:50"
+
+        class Carry:
+            def run(self, _tenant_id, _business_date):
+                return SimpleNamespace(status="retryable_failure", error_code="previous_day_gemini_not_verified")
+
+        class Sheets:
+            def __init__(self): self.calls = []
+            def run_agent_v4(self, _tenant_id, business_date, *, slot_kind=None):
+                self.calls.append((business_date.isoformat(), slot_kind))
+                return SimpleNamespace(status="completed")
+
+        sheets = Sheets()
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets, carry_forward_service=Carry())
+        self.assertEqual(1, scheduler.run_once(datetime(2030, 8, 9, 22, 50, tzinfo=timezone.utc)))
+        self.assertEqual([("2030-08-10", "afternoon_snapshot")], sheets.calls)
+        with self.sessions() as session:
+            reset = session.scalar(select(InventoryJobModel).where(InventoryJobModel.job_type == "inventory_v5_morning_reset_slot"))
+            snapshot = session.scalar(select(InventoryJobModel).where(InventoryJobModel.job_type == "inventory_v5_afternoon_snapshot_slot"))
+            self.assertEqual("retry", reset.status)
+            self.assertEqual("completed", snapshot.status)
     def test_v3_scheduler_ignores_tenant_when_daily_automation_is_disabled(self):
         with self.sessions.begin() as session:
             settings = session.scalar(select(InventorySettingsModel).where(

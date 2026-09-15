@@ -1192,8 +1192,8 @@ def test_lifecycle_history_derives_current_and_completed_pipeline_without_writes
     history = service(daily_sheet_db, FakeGoogle(), datetime(2030, 8, 10, 8, tzinfo=timezone.utc)).lifecycle_history("tenant-a")
     assert [row["business_date"] for row in history["items"]] == ["2030-08-10", "2030-08-09"]
     current = history["items"][0]
-    assert current["current_stage"] == "daily_check"
-    assert [stage["status"] for stage in current["stages"]] == ["completed", "running", "pending", "pending", "pending"]
+    assert current["current_stage"] == "afternoon_snapshot"
+    assert [stage["status"] for stage in current["stages"]] == ["completed", "pending", "pending", "pending"]
     completed = history["items"][1]
     assert completed["overall_status"] == "completed"
     assert completed["stages"][-1]["status"] == "completed"
