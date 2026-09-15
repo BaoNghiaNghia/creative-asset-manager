@@ -12,6 +12,13 @@ class StorageItem:
     parent_id: str | None
     kind: str = "folder"
 
+@dataclass(frozen=True, slots=True)
+class DownloadedArtifactInfo:
+    size_bytes: int
+    sha256: str
+    first_bytes: bytes
+    content_type: str | None = None
+
 
 class PipelineStorageError(RuntimeError):
     pass
@@ -41,8 +48,9 @@ class ExplorerStorageGateway:
     """Normalized write adapter around an existing authenticated source adapter."""
     supports_writes = True
 
-    def __init__(self, provider):
+    def __init__(self, provider, source_id: str | None = None):
         self.provider = provider
+        self.source_id = source_id or ""
 
     async def get_item(self, item_id):
         node = await self.provider.get_node(item_id)
@@ -105,6 +113,30 @@ class ExplorerStorageGateway:
             raise PipelineStorageUnsupported("pipeline_storage_read_unsupported")
         result = method(item_id)
         return await result if hasattr(result, "__await__") else result
+
+    async def download_to_file(self, item_id, local_path, *, maximum_bytes):
+        opener = getattr(self.provider, "open_download_stream", None)
+        if opener is None:
+            raise PipelineStorageUnsupported("pipeline_storage_stream_read_unsupported")
+        from app.domain.providers.contracts import OpenSourceAssetInput
+        stream = await opener(OpenSourceAssetInput(self.source_id, item_id))
+        digest, total, first = hashlib.sha256(), 0, bytearray()
+        try:
+            with open(local_path, "wb") as handle:
+                async for chunk in stream.body:
+                    if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                        raise PipelineStorageError("pipeline_storage_read_invalid")
+                    data = bytes(chunk)
+                    total += len(data)
+                    if total > maximum_bytes:
+                        raise PipelineStorageError("creative_video_input_too_large")
+                    digest.update(data)
+                    if len(first) < 64:
+                        first.extend(data[:64-len(first)])
+                    handle.write(data)
+        finally:
+            await stream.close()
+        return DownloadedArtifactInfo(total, digest.hexdigest(), bytes(first), stream.content_type)
 
 
 CANONICAL_CHILDREN = ("Input", "Idea Story", "Prompt", "Generating", "Video Output", "Watermark & Smart Enhance", "Logs")

@@ -21,7 +21,8 @@ from app.modules.creative_pipeline.model import (
 )
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
 from app.modules.creative_pipeline.platforms import platform_profile
-from app.modules.creative_pipeline.storage import PipelineStorageError, ensure_pipeline_structure
+from app.modules.creative_pipeline.storage import PipelineStorageError, PipelineStorageUnsupported, ensure_pipeline_structure
+from app.modules.creative_pipeline.video_staging import stage_video_artifact_to_temp
 from app.modules.creative_pipeline.video_generation import VIDEO_PROVIDER_ORDER
 from app.modules.creative_pipeline.video_output import RATIO_SLUGS
 
@@ -97,45 +98,35 @@ class WatermarkSmartEnhanceNodeHandler:
                     if existing_meta.get("raw_content_hash") and existing_meta.get("raw_content_hash") != raw.content_hash:
                         raise VideoEnhancementError("enhancement_raw_lineage_mismatch", "Enhanced artifact provenance does not match the current raw artifact.")
                     if enhanced.status == "available" and enhanced.external_file_id:
-                        if await self._physical_artifact_valid(gateway, enhanced):
+                        if await self._physical_artifact_valid(gateway, enhanced, max_bytes):
                             continue
                         enhanced.status = "inconsistent"
-                    raw_bytes = await gateway.download_bytes(raw.external_file_id)
-                    if not isinstance(raw_bytes, (bytes, bytearray, memoryview)):
-                        raise PipelineStorageError("creative_raw_artifact_read_failed")
-                    raw_bytes = bytes(raw_bytes)
-                    if len(raw_bytes) != raw.size_bytes or hashlib.sha256(raw_bytes).hexdigest() != raw.content_hash or b"ftyp" not in raw_bytes[:64]:
+                    try:
+                        async with stage_video_artifact_to_temp(gateway, raw, max_bytes) as staged:
+                            request = VideoEnhancementInput(
+                                tenant_id=run.tenant_id, raw_artifact_id=raw.id, raw_content_hash=raw.content_hash,
+                                input_path=staged.path, aspect_ratio=raw.aspect_ratio, policy=policy,
+                                idempotency_key=f"creative_pipeline:enhance:{raw.id}",
+                            )
+                            result = provider.enhance(request)
+                            result = await result if inspect.isawaitable(result) else result
+                            if result is None:
+                                raise VideoEnhancementError("creative_enhancement_failed", "Enhancement provider returned no result.", retryable=True)
+                            await ArtifactService(session).materialize_video(enhanced, gateway, result, max_output_bytes=max_bytes)
+                            enhanced.metadata_json = {
+                                "raw_artifact_id": raw.id, "raw_content_hash": raw.content_hash,
+                                "raw_version": raw.version, "generation_run_id": raw.generation_run_id,
+                                "provider": raw.model_provider or raw.variant_key, "model": raw.model_name,
+                                "aspect_ratio": raw.aspect_ratio, "enhancement_policy_version": policy.version,
+                                "enhancement_engine": result.engine, "enhancement_engine_version": result.engine_version,
+                                "enhancement_idempotency_key": request.idempotency_key,
+                                "metadata": dict(result.metadata or {}),
+                            }
+                            session.commit()
+                    except PipelineStorageError as exc:
                         raw.status = "inconsistent"
                         session.commit()
-                        return JobHandlerResult.non_retryable("creative_raw_artifact_inconsistent", "Raw video physical content failed validation.")
-                    fd, input_path = tempfile.mkstemp(prefix="cp-enhance-input-", suffix=".mp4")
-                    os.close(fd)
-                    try:
-                        with open(input_path, "wb") as handle:
-                            handle.write(raw_bytes)
-                        request = VideoEnhancementInput(
-                            tenant_id=run.tenant_id, raw_artifact_id=raw.id, raw_content_hash=raw.content_hash,
-                            input_path=input_path, aspect_ratio=raw.aspect_ratio, policy=policy,
-                            idempotency_key=f"creative_pipeline:enhance:{raw.id}",
-                        )
-                        result = provider.enhance(request)
-                        result = await result if inspect.isawaitable(result) else result
-                        if result is None:
-                            raise VideoEnhancementError("creative_enhancement_failed", "Enhancement provider returned no result.", retryable=True)
-                        await ArtifactService(session).materialize_video(enhanced, gateway, result, max_output_bytes=max_bytes)
-                        enhanced.metadata_json = {
-                            "raw_artifact_id": raw.id, "raw_content_hash": raw.content_hash,
-                            "raw_version": raw.version, "generation_run_id": raw.generation_run_id,
-                            "provider": raw.model_provider or raw.variant_key, "model": raw.model_name,
-                            "aspect_ratio": raw.aspect_ratio, "enhancement_policy_version": policy.version,
-                            "enhancement_engine": result.engine, "enhancement_engine_version": result.engine_version,
-                            "enhancement_idempotency_key": request.idempotency_key,
-                            "metadata": dict(result.metadata or {}),
-                        }
-                        session.commit()
-                    finally:
-                        try: os.unlink(input_path)
-                        except FileNotFoundError: pass
+                        raise exc
                 orch.complete_node(run.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
                 session.commit()
                 return JobHandlerResult.completed()
@@ -157,25 +148,14 @@ class WatermarkSmartEnhanceNodeHandler:
                 return JobHandlerResult.retryable("creative_enhancement_failed", "Creative enhancement failed.")
 
     @staticmethod
-    async def _physical_artifact_valid(gateway, artifact):
-        item = await gateway.get_item(artifact.external_file_id)
-        if item is None:
+    async def _physical_artifact_valid(gateway, artifact, max_bytes):
+        if await gateway.get_item(artifact.external_file_id) is None:
             return False
         try:
-            content = await gateway.download_bytes(artifact.external_file_id)
-        except Exception:
+            async with stage_video_artifact_to_temp(gateway, artifact, max_bytes):
+                return True
+        except (PipelineStorageError, PipelineStorageUnsupported):
             return False
-        if not isinstance(content, (bytes, bytearray, memoryview)):
-            return False
-        content = bytes(content)
-        return (
-            artifact.mime_type == "video/mp4"
-            and bool(artifact.content_hash)
-            and bool(artifact.size_bytes)
-            and len(content) == artifact.size_bytes
-            and hashlib.sha256(content).hexdigest() == artifact.content_hash
-            and b"ftyp" in content[:64]
-        )
 
     @staticmethod
     def _max_output_bytes(context):

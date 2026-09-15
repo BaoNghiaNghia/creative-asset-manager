@@ -3,7 +3,8 @@ import asyncio, hashlib
 from types import SimpleNamespace
 from app.modules.creative_pipeline.enhancement import EnhancementPolicy, VideoEnhancementInput, VideoEnhancementResult, VideoEnhancementProviderRegistry, VideoEnhancementError
 from app.modules.creative_pipeline.artifacts import ArtifactService
-from app.modules.creative_pipeline.storage import StorageItem
+from app.modules.creative_pipeline.storage import StorageItem, DownloadedArtifactInfo, PipelineStorageError
+from app.modules.creative_pipeline.video_staging import stage_video_artifact_to_temp
 
 def test_policy_requires_explicit_version_and_keeps_only_configured_settings():
     assert EnhancementPolicy.from_config(None) is None
@@ -44,3 +45,49 @@ def test_materialize_video_uses_file_upload_without_reading_staged_file(monkeypa
     asyncio.run(ArtifactService(None).materialize_video(artifact, gateway, result, max_output_bytes=1024))
     assert artifact.status == "available"
     assert bytes(gateway.streamed) == payload
+
+class ReadStreamingGateway:
+    def __init__(self, chunks):
+        self.chunks = chunks
+        self.download_bytes_called = False
+    async def get_item(self, item_id):
+        return StorageItem(item_id, "v.mp4", "p", "other")
+    async def download_to_file(self, item_id, local_path, *, maximum_bytes):
+        import hashlib
+        digest, total, first = hashlib.sha256(), 0, bytearray()
+        with open(local_path, "wb") as handle:
+            for chunk in self.chunks:
+                total += len(chunk)
+                if total > maximum_bytes:
+                    raise PipelineStorageError("creative_video_input_too_large")
+                digest.update(chunk)
+                first.extend(chunk[:64-len(first)])
+                handle.write(chunk)
+        return DownloadedArtifactInfo(total, digest.hexdigest(), bytes(first), "video/mp4")
+    async def download_bytes(self, item_id):
+        self.download_bytes_called = True
+        raise AssertionError("streaming path must not call download_bytes")
+
+def test_stage_video_streaming_path_is_incremental_and_cleans_temp():
+    payload = b"....ftypisom" + b"x" * 80
+    gateway = ReadStreamingGateway([payload[:5], payload[5:19], payload[19:]])
+    artifact = SimpleNamespace(external_file_id="raw", size_bytes=len(payload), content_hash=hashlib.sha256(payload).hexdigest(), mime_type="video/mp4")
+    async def run():
+        async with stage_video_artifact_to_temp(gateway, artifact, 1024) as staged:
+            assert Path(staged.path).exists()
+            assert Path(staged.path).read_bytes() == payload
+            assert staged.size_bytes == len(payload)
+        assert not Path(staged.path).exists()
+    asyncio.run(run())
+    assert gateway.download_bytes_called is False
+
+def test_stage_video_byte_fallback_is_bounded():
+    class ByteGateway:
+        async def download_bytes(self, item_id):
+            return b"....ftypisom" + b"x" * 20
+    payload = b"....ftypisom" + b"x" * 20
+    artifact = SimpleNamespace(external_file_id="raw", size_bytes=None, content_hash=hashlib.sha256(payload).hexdigest(), mime_type="video/mp4")
+    async def run():
+        async with stage_video_artifact_to_temp(ByteGateway(), artifact, 1024) as staged:
+            assert staged.size_bytes == len(payload)
+    asyncio.run(run())
