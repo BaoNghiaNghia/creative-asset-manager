@@ -1833,7 +1833,31 @@ Acceptance:
 [x] migration rollback verified
 ```
 
-### CP-02 — Folder scanner and idempotent discovery
+### CP-02 — Folder scanner and idempotent discovery — COMPLETE
+
+Implemented in `apps/api/app/modules/creative_pipeline/parser.py`,
+`provider.py`, and `discovery.py`. The scanner reuses the existing Explorer
+source-provider pagination contract through a narrow read-only folder gateway.
+It performs only bounded `root -> SourceGroup -> listing` traversal, reconciles
+stable provider-folder identities, creates exactly one queued discovery
+`PipelineRun` for each newly discovered listing, and preserves listing history
+when a complete group scan no longer observes a folder. A complete root scan
+sets absent known groups `active=false`; provider/root/group failures never
+perform false missing/deactivation transitions. CP-02 performs no provider
+writes, filesystem writes, scheduling, orchestration, node creation, or UI work.
+
+Acceptance:
+
+```text
+[x] deterministic SourceGroup and listing folder parsing
+[x] bounded two-level discovery with complete provider pagination
+[x] stable group/listing upsert and rename handling
+[x] idempotent initial queued PipelineRun creation
+[x] missing_source reconciliation only after complete group enumeration
+[x] provider/root failure does not create false missing state
+[x] tenant-scoped persistence and cross-tenant isolation
+[x] no provider or filesystem writes
+```
 
 Implement:
 
