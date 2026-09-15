@@ -1661,3 +1661,58 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-upload-card--reference .visual-direct-handle.ne { top: -4px; right: -4px; border-top: 4px solid #fff; border-right: 4px solid #fff; border-radius: 0 12px 0 0; cursor: nesw-resize; }
 .visual-search-upload-card--reference .visual-direct-handle.sw { bottom: -4px; left: -4px; border-bottom: 4px solid #fff; border-left: 4px solid #fff; border-radius: 0 0 0 12px; cursor: nesw-resize; }
 .visual-search-upload-card--reference .visual-direct-handle.se { right: -4px; bottom: -4px; border-right: 4px solid #fff; border-bottom: 4px solid #fff; border-radius: 0 0 12px; cursor: nwse-resize; }
+
+/* Keep the Visual Search sidebar self-contained inside the workbench grid. */
+.visual-search-workbench > .visual-search-upload-card--reference {
+  position: sticky;
+  top: 14px;
+  align-self: start;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 14px;
+}
+.visual-search-workbench > .visual-search-upload-card--reference .visual-direct-workspace { width: 100%; }
+.visual-search-workbench > .visual-search-upload-card--reference .visual-direct-stage { margin-inline: auto; }
+.visual-search-upload-card--reference .visual-direct-change {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(24, 29, 38, .78);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .25);
+  cursor: pointer;
+}
+.visual-search-upload-card--reference .visual-direct-change:hover { background: #fff; color: #263a5b; }
+.search-load-more-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  margin: 22px auto 34px;
+  padding: 8px 14px;
+  border: 1px solid #3265df;
+  border-radius: 8px;
+  background: #3568df;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(39, 88, 206, .18);
+}
+.search-load-more-button:hover:not(:disabled) { background: #2758ce; }
+.search-load-more-button:disabled { opacity: .58; cursor: not-allowed; }
+@media (max-width: 900px) {
+  .visual-search-workbench > .visual-search-upload-card--reference { position: static; width: auto; margin: 0 12px 12px; }
+}
