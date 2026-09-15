@@ -1880,7 +1880,36 @@ Acceptance:
 [ ] user-managed folders untouched
 ```
 
-### CP-03 — Orchestrator and retry engine
+### CP-03 — Orchestrator and retry engine — COMPLETE
+
+Implemented in `apps/api/app/modules/creative_pipeline/orchestrator.py` with
+one canonical V1 node graph and typed state/ownership/dependency errors. The
+orchestrator reuses `ProcessingRepository` and the existing `ProcessingJob`
+lease/retry substrate with JobType `creative_pipeline_node`, entity type
+`creative_pipeline_node_run`, and stable idempotency key
+`creative_pipeline:node:<node_run_id>`. It initializes six NodeRuns, unlocks
+only the next dependency, derives PipelineRun status centrally, synchronizes
+worker claims/retries/failures, supports retry-now for `retry_wait`, explicit
+block/unblock, idempotent cancellation, and queue-to-node lease recovery
+without inferring creative success from a completed queue row.
+
+`ListingTask.status` remains the source lifecycle (`active`, `missing_source`,
+`archived`) and is never overwritten with execution state. Terminal `failed`
+NodeRuns are not silently reopened; a later operator/regenerate design is
+explicitly deferred. CP-03 contains no provider or filesystem writes, creative
+node handlers, scheduler, API, UI, AI calls, or production mutation.
+
+Acceptance:
+
+```text
+[x] canonical six-node graph and legal transitions
+[x] durable ProcessingJob reuse and stable node idempotency
+[x] dependency unlock and centralized PipelineRun status derivation
+[x] retry, retry-now, non-retryable failure, and lease reconciliation
+[x] cancellation and explicit block/unblock semantics
+[x] source lifecycle remains separate from pipeline execution lifecycle
+[x] no provider/filesystem/AI behavior, scheduler, API, or UI
+```
 
 Implement:
 
