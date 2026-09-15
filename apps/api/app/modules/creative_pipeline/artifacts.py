@@ -16,13 +16,16 @@ class ArtifactService:
     def __init__(self, session: Session):
         self.session = session
 
-    def reserve_artifact(self, *, tenant_id, pipeline_run_id, node_run_id, artifact_type, version=1, aspect_ratio=None, relative_path=None):
+    def reserve_artifact(self, *, tenant_id, pipeline_run_id, node_run_id, artifact_type, version=1, aspect_ratio=None, variant_key=None, relative_path=None):
         value = artifact_type.value if hasattr(artifact_type, "value") else artifact_type
+        if variant_key is not None and (not isinstance(variant_key, str) or not variant_key or variant_key != variant_key.lower() or "/" in variant_key or chr(92) in variant_key or not variant_key.replace("_", "").isalnum()):
+            raise ValueError("invalid artifact variant_key")
         stmt = select(ArtifactModel).where(
             ArtifactModel.tenant_id == tenant_id,
             ArtifactModel.pipeline_run_id == pipeline_run_id,
             ArtifactModel.artifact_type == value,
             ArtifactModel.version == version,
+            ArtifactModel.variant_key == variant_key,
         )
         if aspect_ratio is None:
             stmt = stmt.where(ArtifactModel.aspect_ratio.is_(None))
@@ -36,8 +39,8 @@ class ArtifactService:
                 row = ArtifactModel(
                     tenant_id=tenant_id, listing_task_id=self._listing_id(tenant_id, pipeline_run_id),
                     pipeline_run_id=pipeline_run_id, node_run_id=node_run_id,
-                    artifact_type=value, version=version,
-                    relative_path=relative_path or self._default_path(value, version, aspect_ratio),
+                    artifact_type=value, version=version, variant_key=variant_key,
+                    relative_path=relative_path or self._default_path(value, version, aspect_ratio, variant_key),
                     status="reserved", metadata_json={},
                     storage_kind="source_provider",
                 )
@@ -55,7 +58,9 @@ class ArtifactService:
         return run.listing_task_id
 
     @staticmethod
-    def _default_path(value, version, aspect_ratio):
+    def _default_path(value, version, aspect_ratio, variant_key=None):
+        if value == "prompt" and variant_key:
+            return f"Pipeline/Prompt/{variant_key}/prompt_v{version:03d}.json"
         names = {"input_snapshot": f"input_v{version:03d}.json", "input_manifest": f"input_manifest_v{version:03d}.json", "knowledge_snapshot": f"knowledge_snapshot_v{version:03d}.json", "idea_story": f"Idea Story/idea_v{version:03d}.json"}
         name = names.get(value, value + f"_v{version:03d}.json")
         if value == "idea_story":

@@ -1980,26 +1980,13 @@ The node reads only the immutable input_snapshot artifact and durable CP-05 know
 
 Creative worker finalization now completes/fails/defer/releases the ProcessingJob before CP node reconciliation, preserving retry and non-retryable state transitions. Prompt remains deferred for CP-07; no prompt artifact, Seedance, Omni, video generation, scheduler, API route, frontend, or production migration is included.
 
-### CP-07 — Video generation adapters
+### CP-07  Provider-specific prompt generation
 
-Implement:
+CP-07 generates durable provider-specific creative prompts only; it does not call video-generation APIs. Artifact variants use the new nullable variant_key column and migration 0078, with four partial unique indexes that preserve legacy non-variant artifacts while allowing one logical artifact per provider variant (with or without aspect ratio). ArtifactService validates variant keys and materializes prompts under Pipeline/Prompt/{variant_key}/prompt_v001.json.
 
-```text
-Seedance provider adapter
-Google Omni provider adapter
-GenerationRun lifecycle
-submit/poll/fetch/cancel
-platform aspect-ratio fan-out
-```
+PlatformProfile centralizes platform aspect-ratio contracts (Etsy 1:1 and Amazon 16:9 plus 9:16). The prompt node reads the durable CP-06 Idea Story and Knowledge Snapshot, selects target-specific Seedance and Google Omni knowledge stages, assembles deterministic provider/model/platform context, and issues two independent OpenAI structured-text requests with stable idempotency keys. Target model configuration is optional; a missing Seedance or Google Omni model returns a deferred outcome without consuming an attempt.
 
-Acceptance:
-
-```text
-[ ] Etsy 1:1 works
-[ ] Amazon 16:9 and 9:16 work
-[ ] provider-specific errors normalized
-[ ] duplicate submit risk bounded
-```
+Prompt Draft and Durable Prompt schemas are strict, versioned, and reject missing, duplicate, unsupported, or out-of-order ratios. One schema-repair request is allowed per target. Each target is staged and checkpointed before materialization so retries recover partial success without repeating completed provider work. Durable metadata records provider request IDs, model, template/schema versions, knowledge snapshot provenance, prompt hash, repair count, and usage. Successful prompt completion unlocks the existing video_generation node, which remains deferred in CP-07; no Seedance/Omni video call, scheduler, API, frontend, or production migration is included.
 
 ### CP-08 — Video Output and Watermark/Smart Enhance
 

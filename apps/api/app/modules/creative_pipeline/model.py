@@ -185,8 +185,10 @@ class ArtifactModel(Base):
         UniqueConstraint("tenant_id", "id", name="uq_cp_artifacts_tenant_id"),
         CheckConstraint("artifact_type IN ('input_snapshot', 'input_manifest', 'knowledge_snapshot', 'idea_story', 'prompt', 'generation_metadata', 'raw_video', 'enhanced_video')", name="ck_cp_artifacts_type"),
         CheckConstraint("status IN ('reserved', 'available', 'inconsistent')", name="ck_cp_artifacts_status"),
-        Index("uq_cp_artifacts_logical_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", "aspect_ratio", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL")),
-        Index("uq_cp_artifacts_logical_no_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL")),
+        Index("uq_cp_artifacts_logical_no_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NULL")),
+        Index("uq_cp_artifacts_logical_no_ratio_variant", "tenant_id", "pipeline_run_id", "artifact_type", "version", "variant_key", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NOT NULL")),
+        Index("uq_cp_artifacts_logical_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", "aspect_ratio", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NULL")),
+        Index("uq_cp_artifacts_logical_ratio_variant", "tenant_id", "pipeline_run_id", "artifact_type", "version", "aspect_ratio", "variant_key", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NOT NULL")),
         CheckConstraint("version > 0", name="ck_cp_artifacts_version"),
         CheckConstraint("size_bytes IS NULL OR size_bytes >= 0", name="ck_cp_artifacts_size"),
         CheckConstraint("aspect_ratio IS NULL OR aspect_ratio IN ('1:1', '16:9', '9:16')", name="ck_cp_artifacts_aspect_ratio"),
@@ -208,6 +210,7 @@ class ArtifactModel(Base):
     mime_type: Mapped[str | None] = mapped_column(String(255))
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
     aspect_ratio: Mapped[str | None] = mapped_column(String(16))
+    variant_key: Mapped[str | None] = mapped_column(String(128))
     model_provider: Mapped[str | None] = mapped_column(String(64))
     model_name: Mapped[str | None] = mapped_column(String(128))
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

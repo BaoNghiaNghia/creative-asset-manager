@@ -252,6 +252,8 @@ class Settings(BaseSettings):
     OPENAI_STORE_RESPONSES: bool = False
     OPENAI_ORGANIZATION: str | None = None
     OPENAI_PROJECT: str | None = None
+    CREATIVE_PIPELINE_SEEDANCE_MODEL: str | None = None
+    CREATIVE_PIPELINE_GOOGLE_OMNI_MODEL: str | None = None
     OPENAI_BATCH_ENABLED: bool = False
     OPENAI_BATCH_COMPLETION_WINDOW: str = "24h"
     OPENAI_BATCH_MAX_ITEMS: int = 1000
