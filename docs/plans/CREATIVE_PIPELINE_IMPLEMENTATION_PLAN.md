@@ -1996,31 +1996,13 @@ VideoGenerationProvider exposes submit, poll, cancel, and fetch_result with cano
 
 The executor processes branches sequentially in deterministic provider/ratio order. Existing request IDs are polled only; completed branches are preserved, unfinished branches defer without consuming processing attempts, transient failures retain branch state, terminal failures fail the node while preserving sibling runs, and cancellation best-effort cancels active remote requests. No arbitrary source/reference selection is made. CP-08 never calls fetch_result and never materializes raw video or generation metadata artifacts. After all branches complete, video_generation completes and video_output is scheduled but remains deferred for CP-09.
 
-### CP-09 — Backend APIs
+### CP-09 - Raw video output materialization and versioning
 
-Implement read/action APIs for:
+CP-09 materializes only completed CP-08 GenerationRun results. It validates the exact generation_number=1 branch matrix using the shared provider order seedance, google_omni and PlatformProfile ratio order. Raw versions use (generation_number - 1) * 2 + provider ordinal, so each ratio stores Seedance as v001 and Google Omni as v002 for generation one, with future generations reserved as v003/v004.
 
-```text
-groups
-listings
-runs
-nodes
-generations
-artifacts
-scan
-retry
-regenerate
-cancel
-```
+Each raw_video Artifact is directly linked to its GenerationRun, node run, provider variant, model, aspect ratio, deterministic version, and physical path Pipeline/Video Output/<ratio-slug>/vNNN.mp4. No provider subfolders are introduced. ArtifactService stages result bytes through an OS temporary file, incrementally enforces VIDEO_GENERATION_MAX_OUTPUT_BYTES, computes CAM SHA-256, validates video/mp4 plus an ftyp container signature, compares a provider checksum when supplied, uploads through a temporary system-owned name, and finalizes by rename. Temporary files are cleaned on all outcomes.
 
-Acceptance:
-
-```text
-[ ] tenant authorization
-[ ] no direct status mutation endpoint
-[ ] safe error responses
-[ ] no provider secrets exposed
-```
+Available artifacts short-circuit fetch_result after physical ownership is verified. Missing physical objects are marked inconsistent and repaired using the same Artifact/version; unknown final-name collisions fail safely without overwrite or deletion. Partial materialization preserves completed branches and retries only missing branches. CP-09 calls fetch_result only, never submit/poll/cancel, creates no raw generation metadata sidecar, performs no transcoding, and leaves watermark_smart_enhance deferred for CP-10.
 
 ### CP-10 — Creative Pipeline UI
 

@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 
+VIDEO_PROVIDER_ORDER = ("seedance", "google_omni")
 CANONICAL_STATES = frozenset({"submitted", "running", "completed", "failed", "cancelled"})
 GENERATION_RUN_ALLOWED_TRANSITIONS = {
     "pending": frozenset({"submitted", "running", "retry_wait", "failed", "cancelled"}),
@@ -98,6 +99,7 @@ class VideoGenerationResult:
     content_length: int | None = None
     checksum: str | None = None
     result_handle: str | None = None
+    content: Any | None = None
 
 
 class VideoGenerationProvider(Protocol):
@@ -180,7 +182,7 @@ async def _maybe(value):
 
 
 class CreativeVideoGenerationExecutor:
-    provider_order = ("seedance", "google_omni")
+    provider_order = VIDEO_PROVIDER_ORDER
 
     def __init__(self, context: JobHandlerContext):
         self.context = context

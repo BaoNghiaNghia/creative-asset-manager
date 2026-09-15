@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import inspect
+import os
+import tempfile
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.modules.creative_pipeline.model import ArtifactModel
+from app.modules.creative_pipeline.model import ArtifactModel, GenerationRunModel
 from app.modules.creative_pipeline.storage import PipelineStorageError, CreativePipelineStorageGateway
 
 
@@ -16,7 +19,7 @@ class ArtifactService:
     def __init__(self, session: Session):
         self.session = session
 
-    def reserve_artifact(self, *, tenant_id, pipeline_run_id, node_run_id, artifact_type, version=1, aspect_ratio=None, variant_key=None, relative_path=None):
+    def reserve_artifact(self, *, tenant_id, pipeline_run_id, node_run_id, generation_run_id=None, artifact_type, version=1, aspect_ratio=None, variant_key=None, relative_path=None):
         value = artifact_type.value if hasattr(artifact_type, "value") else artifact_type
         if variant_key is not None and (not isinstance(variant_key, str) or not variant_key or variant_key != variant_key.lower() or "/" in variant_key or chr(92) in variant_key or not variant_key.replace("_", "").isalnum()):
             raise ValueError("invalid artifact variant_key")
@@ -33,12 +36,16 @@ class ArtifactService:
             stmt = stmt.where(ArtifactModel.aspect_ratio == aspect_ratio)
         existing = self.session.scalar(stmt)
         if existing:
+            if generation_run_id is not None and existing.generation_run_id != generation_run_id:
+                raise PipelineStorageError("artifact_generation_lineage_mismatch")
+            if existing.node_run_id != node_run_id or (aspect_ratio is not None and existing.aspect_ratio != aspect_ratio) or (variant_key is not None and existing.variant_key != variant_key) or (relative_path is not None and existing.relative_path != relative_path):
+                raise PipelineStorageError("artifact_identity_mismatch")
             return existing
         try:
             with self.session.begin_nested():
                 row = ArtifactModel(
                     tenant_id=tenant_id, listing_task_id=self._listing_id(tenant_id, pipeline_run_id),
-                    pipeline_run_id=pipeline_run_id, node_run_id=node_run_id,
+                    pipeline_run_id=pipeline_run_id, node_run_id=node_run_id, generation_run_id=generation_run_id,
                     artifact_type=value, version=version, variant_key=variant_key,
                     relative_path=relative_path or self._default_path(value, version, aspect_ratio, variant_key),
                     status="reserved", metadata_json={},
@@ -48,7 +55,12 @@ class ArtifactService:
                 self.session.flush()
             return row
         except IntegrityError:
-            return self.session.scalar(stmt)
+            row = self.session.scalar(stmt)
+            if row is None:
+                raise PipelineStorageError("artifact_reservation_conflict")
+            if generation_run_id is not None and row.generation_run_id != generation_run_id:
+                raise PipelineStorageError("artifact_generation_lineage_mismatch")
+            return row
 
     def _listing_id(self, tenant_id, run_id):
         from app.modules.creative_pipeline.model import PipelineRunModel
@@ -99,3 +111,75 @@ class ArtifactService:
         artifact.available_at = datetime.now(timezone.utc)
         artifact.relative_path = f"{parent_path}/{final_name}"
         return artifact
+
+    async def materialize_video(self, artifact, gateway, result, *, max_output_bytes: int):
+        if artifact.status == "available" and artifact.external_file_id:
+            if await gateway.get_item(artifact.external_file_id) is not None:
+                return artifact
+            artifact.status = "inconsistent"
+        if result.content_type != "video/mp4":
+            raise PipelineStorageError("creative_video_output_unsupported")
+        if result.content is None:
+            raise PipelineStorageError("creative_video_result_unavailable")
+        digest = hashlib.sha256()
+        total = 0
+        first = bytearray()
+        fd, temp_path = tempfile.mkstemp(prefix="cp-video-", suffix=".mp4")
+        os.close(fd)
+        try:
+            with open(temp_path, "wb") as handle:
+                async def write_chunk(chunk):
+                    nonlocal total
+                    if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                        raise PipelineStorageError("creative_video_output_unsupported")
+                    data = bytes(chunk)
+                    if not data:
+                        return
+                    total += len(data)
+                    if total > max_output_bytes:
+                        raise PipelineStorageError("creative_video_output_too_large")
+                    if len(first) < 64:
+                        first.extend(data[: 64 - len(first)])
+                    digest.update(data)
+                    handle.write(data)
+                content = result.content
+                if isinstance(content, (bytes, bytearray, memoryview)):
+                    await write_chunk(content)
+                elif hasattr(content, "__aiter__"):
+                    async for chunk in content:
+                        await write_chunk(chunk)
+                elif callable(content):
+                    stream = content()
+                    stream = await stream if inspect.isawaitable(stream) else stream
+                    async for chunk in stream:
+                        await write_chunk(chunk)
+                else:
+                    raise PipelineStorageError("creative_video_result_unavailable")
+            if total <= 0 or b"ftyp" not in bytes(first):
+                raise PipelineStorageError("creative_video_output_unsupported")
+            computed = digest.hexdigest()
+            if result.checksum and result.checksum.lower() != computed:
+                raise PipelineStorageError("creative_video_output_checksum_mismatch")
+            final_name = artifact.relative_path.rsplit("/", 1)[-1]
+            parent_id = getattr(artifact, "_artifact_parent_id", None)
+            if not parent_id:
+                raise PipelineStorageError("artifact_parent_unresolved")
+            existing = [item for item in await gateway.list_children(parent_id) if item.name == final_name]
+            if existing and not (artifact.external_file_id and any(item.id == artifact.external_file_id for item in existing)):
+                raise PipelineStorageError("artifact_name_collision")
+            with open(temp_path, "rb") as source:
+                content = source.read()
+            item = await gateway.upload_bytes(parent_id, f".__cp_tmp_{artifact.id}", "video/mp4", content)
+            item = await gateway.rename_item(item.id, final_name)
+            artifact.external_file_id = item.id
+            artifact.content_hash = computed
+            artifact.size_bytes = total
+            artifact.mime_type = "video/mp4"
+            artifact.status = "available"
+            artifact.available_at = datetime.now(timezone.utc)
+            return artifact
+        finally:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
