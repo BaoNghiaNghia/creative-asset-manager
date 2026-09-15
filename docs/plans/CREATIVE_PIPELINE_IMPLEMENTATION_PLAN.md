@@ -1988,27 +1988,13 @@ PlatformProfile centralizes platform aspect-ratio contracts (Etsy 1:1 and Amazon
 
 Prompt Draft and Durable Prompt schemas are strict, versioned, and reject missing, duplicate, unsupported, or out-of-order ratios. One schema-repair request is allowed per target. Each target is staged and checkpointed before materialization so retries recover partial success without repeating completed provider work. Durable metadata records provider request IDs, model, template/schema versions, knowledge snapshot provenance, prompt hash, repair count, and usage. Successful prompt completion unlocks the existing video_generation node, which remains deferred in CP-07; no Seedance/Omni video call, scheduler, API, frontend, or production migration is included.
 
-### CP-08 — Video Output and Watermark/Smart Enhance
+### CP-08 - Video generation provider layer and GenerationRun execution
 
-Implement:
+CP-08 is complete as a provider-neutral remote lifecycle boundary. The Creative Pipeline video_generation node validates both durable CP-07 Prompt artifacts, creates deterministic tenant-scoped GenerationRun rows (Etsy: 2 branches; Amazon: 4 branches), and reuses generation_number=1 rows on ordinary retries. Each branch uses the stable request key creative_pipeline:generation:<generation_run_id> and persists provider_request_id before polling.
 
-```text
-versioned raw output storage
-Artifact registration
-existing watermark-removal integration
-Smart Enhance integration
-artifact-level retry
-final output storage
-```
+VideoGenerationProvider exposes submit, poll, cancel, and fetch_result with canonical submitted/running/completed/failed/cancelled states and bounded VideoGenerationProviderError values. VideoGenerationProviderRegistry accepts only seedance and google_omni logical adapters, rejects duplicates, and never exposes credentials. SeedanceVideoGenerationProvider and GoogleOmniVideoGenerationProvider are dependency-injected transport boundaries; no undocumented endpoint, hostname, request body, or authentication scheme is invented. Production wiring remains pending an explicit provider contract, and the legacy Dola feature remains separate.
 
-Acceptance:
-
-```text
-[ ] raw output never overwritten
-[ ] final output linked to exact raw version
-[ ] failed enhance retries only affected video
-[ ] files remain under listing/Pipeline
-```
+The executor processes branches sequentially in deterministic provider/ratio order. Existing request IDs are polled only; completed branches are preserved, unfinished branches defer without consuming processing attempts, transient failures retain branch state, terminal failures fail the node while preserving sibling runs, and cancellation best-effort cancels active remote requests. No arbitrary source/reference selection is made. CP-08 never calls fetch_result and never materializes raw video or generation metadata artifacts. After all branches complete, video_generation completes and video_output is scheduled but remains deferred for CP-09.
 
 ### CP-09 — Backend APIs
 

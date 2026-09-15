@@ -29,6 +29,9 @@ class CreativePipelineNodeHandler:
             return asyncio.run(self._execute_idea_story(context))
         if node_type == NodeType.PROMPT.value:
             return self._prompt_dispatch(context)
+        if node_type == NodeType.VIDEO_GENERATION.value:
+            from app.modules.creative_pipeline.video_generation import VideoGenerationNodeHandler
+            return VideoGenerationNodeHandler()(context)
         if node_type != NodeType.INPUT_DATA.value:
             return DeferredJobOutcome(
                 "creative_pipeline_node_not_implemented_yet",
