@@ -35,6 +35,9 @@ class CreativePipelineNodeHandler:
         if node_type == NodeType.VIDEO_OUTPUT.value:
             from app.modules.creative_pipeline.video_output import VideoOutputNodeHandler
             return VideoOutputNodeHandler()(context)
+        if node_type == NodeType.WATERMARK_SMART_ENHANCE.value:
+            from app.modules.creative_pipeline.watermark_enhance import WatermarkSmartEnhanceNodeHandler
+            return WatermarkSmartEnhanceNodeHandler()(context)
         if node_type != NodeType.INPUT_DATA.value:
             return DeferredJobOutcome(
                 "creative_pipeline_node_not_implemented_yet",

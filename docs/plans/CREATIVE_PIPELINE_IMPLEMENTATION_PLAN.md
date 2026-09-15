@@ -2004,7 +2004,17 @@ Each raw_video Artifact is directly linked to its GenerationRun, node run, provi
 
 Available artifacts short-circuit fetch_result after physical ownership is verified. Missing physical objects are marked inconsistent and repaired using the same Artifact/version; unknown final-name collisions fail safely without overwrite or deletion. Partial materialization preserves completed branches and retries only missing branches. CP-09 calls fetch_result only, never submit/poll/cancel, creates no raw generation metadata sidecar, performs no transcoding, and leaves watermark_smart_enhance deferred for CP-10.
 
-### CP-10 — Creative Pipeline UI
+### CP-10 - Watermark Removal + Smart Enhance (complete)
+
+CP-10 consumes only completed generation_number=1 raw_video Artifact rows produced by CP-09. It validates tenant/run/generation lineage, MIME, size, SHA-256, and MP4 ftyp before staging the raw file in a secure temporary path; raw artifacts are never renamed, deleted, or modified.
+
+Creative Pipeline exposes a provider-neutral VideoEnhancementProvider boundary with an explicit versioned EnhancementPolicy. No pixel algorithm, endpoint, executable, model, or tuning values are invented. Missing provider or policy returns DeferredJobOutcome without consuming an attempt. A configured provider receives the stable idempotency key creative_pipeline:enhance:<raw_artifact_id>.
+
+Each raw artifact maps to one enhanced_video artifact with the same version, ratio, provider variant, model, generation lineage, and provenance containing raw artifact ID/hash, policy and engine versions. Outputs are materialized under Pipeline/Watermark & Smart Enhance/<ratio>/vNNN_enhanced.mp4; unknown collisions fail without overwrite. Physically verified available outputs are short-circuited, and retries process only missing/failed branches. Once every expected raw branch is enhanced, the terminal node completes the PipelineRun without changing ListingTask status or publishing anything.
+
+CP-09 now uploads staged MP4 files through the normalized streaming/file capability when available, retaining an explicit bounded byte fallback for legacy adapters. Temporary files are always cleaned, JSON artifacts still use upload_bytes, and CP-10 reuses the existing heavy-video resource lane.
+
+### CP-11 — Creative Pipeline UI (future; not implemented)
 
 Implement tab between:
 

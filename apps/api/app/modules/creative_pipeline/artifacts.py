@@ -148,6 +148,13 @@ class ArtifactService:
                 elif hasattr(content, "__aiter__"):
                     async for chunk in content:
                         await write_chunk(chunk)
+                elif isinstance(content, (str, os.PathLike)):
+                    with open(content, "rb") as source:
+                        while True:
+                            chunk = source.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            await write_chunk(chunk)
                 elif callable(content):
                     stream = content()
                     stream = await stream if inspect.isawaitable(stream) else stream
@@ -167,9 +174,16 @@ class ArtifactService:
             existing = [item for item in await gateway.list_children(parent_id) if item.name == final_name]
             if existing and not (artifact.external_file_id and any(item.id == artifact.external_file_id for item in existing)):
                 raise PipelineStorageError("artifact_name_collision")
-            with open(temp_path, "rb") as source:
-                content = source.read()
-            item = await gateway.upload_bytes(parent_id, f".__cp_tmp_{artifact.id}", "video/mp4", content)
+            upload_file = getattr(gateway, "upload_file", None)
+            if upload_file is not None:
+                item = await upload_file(parent_id, f".__cp_tmp_{artifact.id}", "video/mp4", temp_path)
+            else:
+                # Explicit bounded compatibility fallback for legacy byte-only gateways.
+                if total > max_output_bytes:
+                    raise PipelineStorageError("creative_video_output_too_large")
+                with open(temp_path, "rb") as source:
+                    content = source.read()
+                item = await gateway.upload_bytes(parent_id, f".__cp_tmp_{artifact.id}", "video/mp4", content)
             item = await gateway.rename_item(item.id, final_name)
             artifact.external_file_id = item.id
             artifact.content_hash = computed

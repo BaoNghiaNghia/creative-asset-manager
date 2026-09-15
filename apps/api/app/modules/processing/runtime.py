@@ -480,6 +480,8 @@ class WorkerRuntime:
             return VIDEO_ANALYSIS_OWNER_TYPE, job.id
         if job.job_type == "video_generate":
             return VIDEO_GENERATION_OWNER_TYPE, job.entity_id
+        if job.job_type == "creative_pipeline_node" and job.payload.get("node_type") == "watermark_smart_enhance":
+            return "creative_pipeline_enhance", job.entity_id
         return None
 
     def _acquire_heavy_video(self, job: ClaimedJob) -> bool:

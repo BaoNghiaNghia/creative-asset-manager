@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol
+from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +31,7 @@ class CreativePipelineStorageGateway(Protocol):
     async def list_children(self, parent_id: str) -> list[StorageItem]: ...
     async def create_folder(self, parent_id: str, name: str) -> StorageItem: ...
     async def upload_bytes(self, parent_id: str, name: str, mime_type: str, content: bytes) -> StorageItem: ...
+    async def upload_file(self, parent_id: str, name: str, mime_type: str, local_path: str | Path) -> StorageItem: ...
     async def rename_item(self, item_id: str, name: str) -> StorageItem: ...
     async def delete_item(self, item_id: str) -> None: ...
     async def download_bytes(self, item_id: str) -> bytes: ...
@@ -61,6 +63,26 @@ class ExplorerStorageGateway:
         method = getattr(self.provider, "upload_file", None)
         if method is None:
             raise PipelineStorageUnsupported("pipeline_storage_write_unsupported")
+        node = await method(parent_id, name, mime_type, content)
+        return StorageItem(node.id, node.name, node.parent_id, getattr(node, "kind", "other"))
+
+    async def upload_file(self, parent_id, name, mime_type, local_path):
+        stream_method = getattr(self.provider, "upload_file_stream", None)
+        if stream_method is not None:
+            async def chunks():
+                with open(local_path, "rb") as handle:
+                    while True:
+                        chunk = handle.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        yield chunk
+            node = await stream_method(parent_id, name, mime_type, chunks())
+            return StorageItem(node.id, node.name, node.parent_id, getattr(node, "kind", "other"))
+        method = getattr(self.provider, "upload_file", None)
+        if method is None:
+            raise PipelineStorageUnsupported("pipeline_storage_write_unsupported")
+        with open(local_path, "rb") as handle:
+            content = handle.read()
         node = await method(parent_id, name, mime_type, content)
         return StorageItem(node.id, node.name, node.parent_id, getattr(node, "kind", "other"))
 
