@@ -27,6 +27,8 @@ from app.domain.providers.contracts import (
     AiMetadataAnalysisInput,
     AiMetadataAnalysisResult,
     AiProviderError,
+    AiStructuredTextInput,
+    AiStructuredTextResult,
 )
 
 _SCHEMA_NAME_RE = re.compile(r"[^A-Za-z0-9_-]+")
@@ -44,6 +46,7 @@ class OpenAiMetadataProvider:
     provider_name = "openai"
     supports_single = True
     supports_batch = True
+    supports_structured_text = True
 
     def __init__(
         self,
@@ -323,6 +326,67 @@ class OpenAiMetadataProvider:
             },
             raw_response=raw_response,
         )
+
+    async def generate_structured(self, input: AiStructuredTextInput) -> AiStructuredTextResult:
+        self._check_structured_cancelled(input)
+        model = input.preferred_model or self.model
+        if model not in self.allowed_models:
+            raise AiProviderError("The configured OpenAI model is not allowed.", code="openai_model_not_allowed", retryable=False)
+        schema = self._openai_schema(input.json_schema)
+        if schema is None:
+            raise AiProviderError("OpenAI structured output schema is invalid.", code="openai_invalid_schema", retryable=False)
+        request = {
+            "model": model,
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": input.prompt}]}],
+            "text": {"format": {"type": "json_schema", "name": input.schema_name, "strict": True, "schema": schema}},
+            "store": self.store_responses,
+            "timeout": self.timeout_seconds,
+            "extra_headers": {"Idempotency-Key": input.idempotency_key},
+        }
+        try:
+            call = self._client.responses.create(**request)
+            response = await asyncio.wait_for(call, timeout=self.timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            raise self._error("OpenAI request timed out.", "openai_timeout", True, exc)
+        except openai.APITimeoutError as exc:
+            raise self._error("OpenAI request timed out.", "openai_timeout", True, exc)
+        except openai.RateLimitError as exc:
+            raise self._error("OpenAI rate limit was reached.", "openai_rate_limit", True, exc)
+        except openai.AuthenticationError as exc:
+            raise self._error("OpenAI authentication failed.", "openai_authentication_failed", False, exc)
+        except openai.APIConnectionError as exc:
+            raise self._error("OpenAI could not be reached.", "openai_connection_error", True, exc)
+        except openai.APIStatusError as exc:
+            raise self._status_error(exc)
+        except openai.OpenAIError as exc:
+            raise self._error("OpenAI rejected the request.", "openai_request_failed", False, exc)
+        self._check_structured_cancelled(input)
+        text, refusal = self._response_text(response)
+        if refusal:
+            raise AiProviderError("OpenAI refused the structured request.", code="openai_refusal", retryable=False)
+        if not text or not text.strip():
+            raise AiProviderError("OpenAI returned an empty response.", code="openai_empty_response", retryable=True)
+        try:
+            document = json.loads(text)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise AiProviderError("OpenAI returned malformed JSON.", code="openai_invalid_json", retryable=True) from exc
+        if not isinstance(document, Mapping):
+            raise AiProviderError("OpenAI structured result must be an object.", code="openai_invalid_document", retryable=True)
+        usage = self._usage(self._object_dict(getattr(response, "usage", None)))
+        response_id = getattr(response, "id", None)
+        request_id = getattr(response, "_request_id", None) or response_id
+        return AiStructuredTextResult(
+            document=dict(document), provider=self.provider_name,
+            model=str(getattr(response, "model", None) or model),
+            provider_request_id=str(request_id) if request_id else None,
+            usage=usage,
+            provider_metadata={"response_id": str(response_id) if response_id else None, "structured_output": True, "idempotency_key": input.idempotency_key},
+        )
+
+    @staticmethod
+    def _check_structured_cancelled(input: AiStructuredTextInput) -> None:
+        if input.is_cancelled is not None and input.is_cancelled():
+            raise AiProviderError("OpenAI request was cancelled.", code="analysis_cancelled", retryable=True)
 
     async def submit_batch(
         self, input: AiBatchSubmissionInput

@@ -197,6 +197,33 @@ class AiMetadataAnalysisResult:
     raw_response: Mapping[str, Any] | None = None
 
 @dataclass(frozen=True, slots=True)
+class AiStructuredTextInput:
+    tenant_id: str
+    prompt: str
+    json_schema: Mapping[str, Any]
+    schema_name: str
+    idempotency_key: str
+    preferred_model: str | None = None
+    is_cancelled: Callable[[], bool] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AiStructuredTextResult:
+    document: Mapping[str, Any]
+    provider: str
+    model: str | None = None
+    provider_request_id: str | None = None
+    usage: Mapping[str, Any] = field(default_factory=dict)
+    provider_metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class AiStructuredTextProvider(Protocol):
+    provider_name: str
+    async def generate_structured(self, input: AiStructuredTextInput) -> AiStructuredTextResult: ...
+
+
+@dataclass(frozen=True, slots=True)
 class AiBatchSubmissionInput:
     tenant_id: str
     submission_key: str

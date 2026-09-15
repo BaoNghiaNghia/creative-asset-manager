@@ -1972,28 +1972,13 @@ The selected normalized contents are materialized as Pipeline/Input/knowledge_sn
 
 CP-05 intentionally adds no RAG, vector store, embeddings, provider calls, scheduler, API route, frontend, or AI generation. Knowledge files contain only locked ratios and conservative structured creative guidance; no credentials or environment-specific data are persisted.
 
-### CP-06 — OpenAI Idea Story and Prompt
+### CP-06  OpenAI Idea Story  COMPLETE
 
-Implement:
+**Status: COMPLETE.** CP-06 implements only the text-based Idea Story node. A strict Pydantic schema (creative_pipeline_idea_story_v1) drives validation and the OpenAI Responses JSON Schema request. The provider-neutral structured text contract reuses the configured OpenAI registry/client, model allowlist, timeout/retry/error normalization, and deterministic request identity creative_pipeline:idea_story:<node_run_id>:v001 (with one bounded :repair:1 request).
 
-```text
-Idea Story structured output
-Prompt structured output
-Seedance prompt generation
-Google Omni prompt generation
-schema validation
-retry/error handling
-versioning
-```
+The node reads only the immutable input_snapshot artifact and durable CP-05 knowledge snapshot, assembles deterministic idea_story_v1 prompt bytes, reserves Pipeline/Idea Story/idea_v001.json, and persists safe provenance. A valid available artifact or staged document is reused without another provider call. A single schema-repair call is allowed; a second invalid result is terminal. No credentials, raw provider responses, signed URLs, live source folders, or current mutable Knowledge Pack files are included.
 
-Acceptance:
-
-```text
-[ ] Idea Story persisted under Pipeline/Idea Story
-[ ] prompts persisted under Pipeline/Prompt
-[ ] retries do not silently create new creative versions
-[ ] explicit regenerate creates new version
-```
+Creative worker finalization now completes/fails/defer/releases the ProcessingJob before CP node reconciliation, preserving retry and non-retryable state transitions. Prompt remains deferred for CP-07; no prompt artifact, Seedance, Omni, video generation, scheduler, API route, frontend, or production migration is included.
 
 ### CP-07 — Video generation adapters
 

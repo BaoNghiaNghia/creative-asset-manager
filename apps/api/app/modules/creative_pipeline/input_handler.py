@@ -11,17 +11,21 @@ from app.modules.creative_pipeline.artifacts import ArtifactService
 from app.modules.creative_pipeline.constants import ArtifactType, NodeType, ListingTaskStatus
 from app.modules.creative_pipeline.model import ListingTaskModel, NodeRunModel, PipelineRunModel, SourceGroupModel
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator, CREATIVE_PIPELINE_ENTITY_TYPE
-from app.modules.creative_pipeline.knowledge import KnowledgeLoader, KnowledgePackError
+from app.modules.creative_pipeline.knowledge import KnowledgeLoader, KnowledgePackError, KnowledgeStage
 from app.modules.creative_pipeline.storage import PipelineStorageError, PipelineStorageUnsupported, ensure_pipeline_structure
+from app.domain.providers.contracts import AiProviderError, AiStructuredTextInput
+from app.modules.creative_pipeline.idea_story import (IdeaStory, IDEA_STORY_PROMPT_TEMPLATE_VERSION, IDEA_STORY_SCHEMA_NAME, assemble_idea_story_prompt, idea_story_json_schema, prompt_sha256)
 
 
 class CreativePipelineNodeHandler:
-    """Executes only input_data; future nodes are deferred without attempts."""
+    """Executes input_data and idea_story; later creative nodes remain deferred without attempts."""
     def __init__(self, settings=None):
         self.settings = settings
 
     def __call__(self, context: JobHandlerContext):
         node_type = str(context.job.payload.get("node_type") or "")
+        if node_type == NodeType.IDEA_STORY.value:
+            return asyncio.run(self._execute_idea_story(context))
         if node_type != NodeType.INPUT_DATA.value:
             return DeferredJobOutcome(
                 "creative_pipeline_node_not_implemented_yet",
@@ -40,7 +44,7 @@ class CreativePipelineNodeHandler:
                     context.job.tenant_id, context.job.entity_id, context.job.id, context.job.lease_owner
                 )
                 run = session.scalar(select(PipelineRunModel).where(PipelineRunModel.tenant_id == context.job.tenant_id, PipelineRunModel.id == node.pipeline_run_id))
-                listing = session.scalar(select(ListingTaskModel).where(ListingTaskModel.tenant_id == context.job.tenant_id, ListingTaskModel.id == run.listing_task_id))
+                listing = session.scalar(select(ListingTaskModel).where(ListingTaskModel.tenant_id == context.job.tenant_id, ListingTaskModel.id == run.listing_task_id)) if run else None
                 group = session.scalar(select(SourceGroupModel).where(SourceGroupModel.tenant_id == context.job.tenant_id, SourceGroupModel.id == listing.source_group_id))
                 source = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == context.job.tenant_id, ExternalSourceModel.id == group.external_source_id))
                 if source is None or source.status != "active" or listing.status in {ListingTaskStatus.MISSING_SOURCE.value, ListingTaskStatus.ARCHIVED.value}:
@@ -135,6 +139,140 @@ class CreativePipelineNodeHandler:
                 run.knowledge_snapshot_id = snapshot.snapshot_id
         except KnowledgePackError as exc:
             raise PipelineStorageError(str(exc)) from exc
+        orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+        session.commit()
+        return JobHandlerResult.completed()
+
+    async def _execute_idea_story(self, context):
+        if context.is_cancelled or context.shutdown_requested.is_set():
+            return JobHandlerResult.cancelled()
+        registry = context.dependencies.ai_provider_registry
+        if registry is None:
+            return JobHandlerResult.non_retryable("ai_provider_unavailable", "Structured AI provider is unavailable.")
+        with context.dependencies.session_factory() as session:
+            orch = CreativePipelineOrchestrator(session)
+            try:
+                node = orch.begin_node_execution(context.job.tenant_id, context.job.entity_id, context.job.id, context.job.lease_owner)
+                run = session.scalar(select(PipelineRunModel).where(PipelineRunModel.tenant_id == context.job.tenant_id, PipelineRunModel.id == node.pipeline_run_id))
+                listing = session.scalar(select(ListingTaskModel).where(ListingTaskModel.tenant_id == context.job.tenant_id, ListingTaskModel.id == run.listing_task_id)) if run else None
+                group = session.scalar(select(SourceGroupModel).where(SourceGroupModel.tenant_id == context.job.tenant_id, SourceGroupModel.id == listing.source_group_id)) if listing else None
+                source = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == context.job.tenant_id, ExternalSourceModel.id == group.external_source_id)) if group else None
+                factory = context.dependencies.resources.get("creative_pipeline_storage_factory")
+                if run is None or listing is None or source is None or factory is None:
+                    return JobHandlerResult.non_retryable("pipeline_lineage_unavailable", "Creative Pipeline lineage or storage is unavailable.")
+                gateway = factory(context.job.tenant_id, source.id)
+                return await self._generate_idea_story(session, orch, node, run, listing, gateway, registry, context)
+            except AiProviderError as exc:
+                session.rollback()
+                return JobHandlerResult.retryable(exc.code, str(exc)) if exc.retryable else JobHandlerResult.non_retryable(exc.code, str(exc))
+            except (PipelineStorageError, KnowledgePackError, ValueError) as exc:
+                session.rollback()
+                return JobHandlerResult.non_retryable("idea_story_input_inconsistent", str(exc))
+            except (TimeoutError, ConnectionError) as exc:
+                session.rollback()
+                return JobHandlerResult.retryable("idea_story_transient", str(exc))
+            except Exception:
+                session.rollback()
+                return JobHandlerResult.retryable("idea_story_failed", "Idea Story generation failed.")
+
+    async def _read_json_artifact(self, artifact, gateway):
+        if artifact is None or artifact.status != "available" or not artifact.external_file_id or not artifact.content_hash:
+            raise PipelineStorageError("artifact_inconsistent")
+        downloader = getattr(gateway, "download_bytes", None)
+        if downloader is None:
+            raise PipelineStorageError("artifact_download_unsupported")
+        raw = downloader(artifact.external_file_id)
+        if hasattr(raw, "__await__"):
+            raw = await raw
+        import hashlib, json
+        if not isinstance(raw, bytes) or hashlib.sha256(raw).hexdigest() != artifact.content_hash:
+            raise PipelineStorageError("artifact_hash_mismatch")
+        if artifact.size_bytes is not None and len(raw) != artifact.size_bytes:
+            raise PipelineStorageError("artifact_size_mismatch")
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise PipelineStorageError("artifact_json_invalid") from exc
+
+    async def _generate_idea_story(self, session, orch, node, run, listing, gateway, registry, context):
+        from app.modules.creative_pipeline.model import ArtifactModel
+        artifacts = ArtifactService(session)
+        input_artifact = session.scalar(select(ArtifactModel).where(
+            ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.pipeline_run_id == run.id,
+            ArtifactModel.artifact_type == ArtifactType.INPUT_SNAPSHOT.value, ArtifactModel.version == 1,
+            ArtifactModel.status == "available"))
+        input_snapshot = await self._read_json_artifact(input_artifact, gateway)
+        if not isinstance(input_snapshot, dict) or input_snapshot.get("platform") != listing.platform or input_snapshot.get("listing", {}).get("id") != listing.id:
+            raise PipelineStorageError("input_snapshot_lineage_mismatch")
+        loader = KnowledgeLoader()
+        durable = await loader.load_run_snapshot(listing.tenant_id, run.id, session, gateway)
+        if run.knowledge_snapshot_id != durable.snapshot_id:
+            raise KnowledgePackError("knowledge_snapshot_id_mismatch")
+        bundle = loader.bundle_for_stage_from_snapshot(durable, KnowledgeStage.IDEA_STORY)
+        ratios = input_snapshot.get("required_aspect_ratios") or []
+        prompt = assemble_idea_story_prompt(input_snapshot=input_snapshot, knowledge_text=bundle.combined_text, platform=listing.platform, required_aspect_ratios=ratios)
+        prompt_hash = prompt_sha256(prompt)
+        artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.IDEA_STORY, version=1)
+        idea_folder = next((item for item in await gateway.list_children(getattr(listing, "pipeline_folder_id", "") or "") if item.name == "Idea Story" and item.kind == "folder"), None)
+        if idea_folder is None:
+            pipeline = await ensure_pipeline_structure(listing, gateway)
+            idea_folder = next(item for item in await gateway.list_children(pipeline.id) if item.name == "Idea Story" and item.kind == "folder")
+        artifact._artifact_parent_id = idea_folder.id
+        expected = {"input_snapshot_sha256": input_artifact.content_hash, "knowledge_snapshot_id": durable.snapshot_id, "prompt_template_version": IDEA_STORY_PROMPT_TEMPLATE_VERSION}
+        if artifact.status == "available":
+            document = await self._read_json_artifact(artifact, gateway)
+            IdeaStory.validate_document(document)
+            if any(artifact.metadata_json.get(key) != value for key, value in expected.items()):
+                raise PipelineStorageError("idea_artifact_provenance_mismatch")
+            orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+            session.commit()
+            return JobHandlerResult.completed()
+        staged = (artifact.metadata_json or {}).get("staged_document")
+        repair_count = int((artifact.metadata_json or {}).get("repair_count", 0))
+        provider = registry.require("openai")
+        if staged is not None:
+            document = IdeaStory.validate_document(staged).model_dump(mode="json")
+            provider_name = (artifact.metadata_json or {}).get("provider", "openai")
+            model = (artifact.metadata_json or {}).get("model")
+            request_id = (artifact.metadata_json or {}).get("provider_request_id")
+            usage = (artifact.metadata_json or {}).get("usage", {})
+            request_key = (artifact.metadata_json or {}).get("request_idempotency_key", f"creative_pipeline:idea_story:{node.id}:v001")
+        else:
+            if context.is_cancelled or context.shutdown_requested.is_set():
+                return JobHandlerResult.cancelled()
+            request_key = f"creative_pipeline:idea_story:{node.id}:v001"
+            result = await provider.generate_structured(AiStructuredTextInput(
+                tenant_id=listing.tenant_id, prompt=prompt, json_schema=idea_story_json_schema(),
+                schema_name=IDEA_STORY_SCHEMA_NAME, idempotency_key=request_key,
+                preferred_model=getattr(provider, "default_model", None),
+                is_cancelled=lambda: context.is_cancelled or context.shutdown_requested.is_set()))
+            provider_name, model, request_id, usage = result.provider, result.model, result.provider_request_id, dict(result.usage)
+            try:
+                document = IdeaStory.validate_document(result.document).model_dump(mode="json")
+            except Exception as first_error:
+                if context.is_cancelled or context.shutdown_requested.is_set():
+                    return JobHandlerResult.cancelled()
+                repair_key = f"{request_key}:repair:1"
+                repair_prompt = prompt + "\n\nThe previous output failed schema validation. Return a corrected object only. Validation error: " + str(first_error)[:500]
+                repaired = await provider.generate_structured(AiStructuredTextInput(
+                    tenant_id=listing.tenant_id, prompt=repair_prompt, json_schema=idea_story_json_schema(),
+                    schema_name=IDEA_STORY_SCHEMA_NAME, idempotency_key=repair_key,
+                    preferred_model=getattr(provider, "default_model", None),
+                    is_cancelled=lambda: context.is_cancelled or context.shutdown_requested.is_set()))
+                repair_count = 1
+                provider_name, model, request_id, usage = repaired.provider, repaired.model, repaired.provider_request_id, dict(repaired.usage)
+                try:
+                    document = IdeaStory.validate_document(repaired.document).model_dump(mode="json")
+                except Exception as second_error:
+                    raise PipelineStorageError("idea_story_schema_invalid") from second_error
+        provenance = {**expected, "idea_story_schema_version": 1, "provider": provider_name, "model": model, "provider_request_id": request_id, "request_idempotency_key": request_key, "request_prompt_sha256": prompt_hash, "usage": usage, "repair_count": repair_count, "staged_document": document}
+        artifact.metadata_json = provenance
+        session.commit()
+        await artifacts.materialize_json(artifact, gateway, document)
+        artifact.metadata_json = {key: value for key, value in provenance.items() if key != "staged_document"}
+        artifact.model_provider = provider_name
+        artifact.model_name = model
+        session.flush()
         orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
         session.commit()
         return JobHandlerResult.completed()

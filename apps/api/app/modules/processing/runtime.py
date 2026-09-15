@@ -446,10 +446,6 @@ class WorkerRuntime:
                 )
             elif result.outcome is JobOutcome.COMPLETED:
                 service.complete(job_id=job.id, worker_id=self.config.worker_id)
-            if job.entity_type == "creative_pipeline_node_run":
-                from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
-                CreativePipelineOrchestrator(session).reconcile_job(job.tenant_id, job.entity_id)
-                session.commit()
             elif result.outcome is JobOutcome.RETRYABLE_FAILURE:
                 service.fail(
                     job_id=job.id,
@@ -471,6 +467,10 @@ class WorkerRuntime:
                     error_code=result.error_code or "worker_interrupted",
                     error_message=result.error_message or "Worker interrupted the job.",
                 )
+            if job.entity_type == "creative_pipeline_node_run":
+                from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
+                CreativePipelineOrchestrator(session).reconcile_job(job.tenant_id, job.entity_id)
+                session.commit()
         self._release_heavy_video_if_terminal(job, result)
         self.health.set_database_available(True)
 

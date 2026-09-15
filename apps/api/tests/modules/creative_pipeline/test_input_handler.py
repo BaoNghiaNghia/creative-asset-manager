@@ -4,7 +4,7 @@ from threading import Event
 
 from sqlalchemy import select
 
-from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, WorkerDependencies, DeferredJobOutcome
+from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, WorkerDependencies
 from app.modules.creative_pipeline.input_handler import CreativePipelineNodeHandler
 from app.modules.creative_pipeline.model import ArtifactModel, ListingTaskModel, NodeRunModel, PipelineRunModel
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
@@ -51,6 +51,7 @@ def test_input_handler_materializes_snapshot_manifest_and_defers_future_nodes():
             assert knowledge.status == "available" and knowledge.relative_path == "Pipeline/Input/knowledge_snapshot_v001.json"
             assert len(session.scalars(select(ProcessingJobModel)).all()) == 2
         deferred=CreativePipelineNodeHandler()(context_for(sessions, job, "idea_story", storage))
-        assert isinstance(deferred, DeferredJobOutcome)
+        assert deferred.outcome.value == "non_retryable_failure"
+        assert deferred.error_code == "ai_provider_unavailable"
     finally:
         engine.dispose()

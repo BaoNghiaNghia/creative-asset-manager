@@ -42,8 +42,8 @@ class CreativePipelineDependencyError(RuntimeError):
 
 
 _ALLOWED_TRANSITIONS = {
-    NodeRunStatus.PENDING.value: frozenset({NodeRunStatus.READY.value, NodeRunStatus.BLOCKED.value, NodeRunStatus.CANCELLED.value}),
-    NodeRunStatus.READY.value: frozenset({NodeRunStatus.RUNNING.value, NodeRunStatus.BLOCKED.value, NodeRunStatus.CANCELLED.value}),
+    NodeRunStatus.PENDING.value: frozenset({NodeRunStatus.READY.value, NodeRunStatus.FAILED.value, NodeRunStatus.BLOCKED.value, NodeRunStatus.CANCELLED.value}),
+    NodeRunStatus.READY.value: frozenset({NodeRunStatus.RUNNING.value, NodeRunStatus.FAILED.value, NodeRunStatus.BLOCKED.value, NodeRunStatus.CANCELLED.value}),
     NodeRunStatus.RUNNING.value: frozenset({NodeRunStatus.COMPLETED.value, NodeRunStatus.RETRY_WAIT.value, NodeRunStatus.FAILED.value, NodeRunStatus.BLOCKED.value, NodeRunStatus.CANCELLED.value}),
     NodeRunStatus.RETRY_WAIT.value: frozenset({NodeRunStatus.READY.value, NodeRunStatus.BLOCKED.value, NodeRunStatus.CANCELLED.value}),
     NodeRunStatus.BLOCKED.value: frozenset({NodeRunStatus.READY.value, NodeRunStatus.CANCELLED.value}),

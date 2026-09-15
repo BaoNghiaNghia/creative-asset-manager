@@ -19,6 +19,7 @@ class FakeStorage:
         self.items = {item.id: item for item in items}
         self.counter = 0
         self.uploads = []
+        self.contents = {}
     async def get_item(self, item_id):
         return self.items.get(item_id)
     async def list_children(self, parent_id):
@@ -33,6 +34,7 @@ class FakeStorage:
         item = StorageItem(f"file{self.counter}", name, parent_id, "file")
         self.items[item.id] = item
         self.uploads.append((item, content))
+        self.contents[item.id] = content
         return item
     async def rename_item(self, item_id, name):
         old = self.items[item_id]
@@ -41,6 +43,9 @@ class FakeStorage:
         return item
     async def delete_item(self, item_id):
         self.items.pop(item_id, None)
+        self.contents.pop(item_id, None)
+    async def download_bytes(self, item_id):
+        return self.contents[item_id]
 
 
 def make_listing(sessions, platform="etsy"):
