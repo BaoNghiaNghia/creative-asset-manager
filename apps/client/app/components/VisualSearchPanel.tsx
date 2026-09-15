@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type DragEvent } from "react";
 import type { VisualCrop, VisualSearchScope } from "../hooks/useVisualSearch";
 import type { Asset } from "../types";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
@@ -35,6 +35,13 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
   useEffect(() => { cropRef.current = crop; }, [crop]);
   useEffect(() => { cropRef.current = fullCrop; setCrop(fullCrop); }, [reference?.kind, reference?.kind === "asset" ? reference.asset.internal_asset_id : reference?.kind === "upload" ? reference.file.name : ""]);
   const preview = visualReferencePreviewUrl(reference);
+  const uploadFile = (file: File | undefined) => {
+    if (file && file.type.startsWith("image/") && scope) onUpload(file);
+  };
+  const handleDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    uploadFile(event.dataTransfer.files?.[0]);
+  };
   const begin = (event: ReactPointerEvent<HTMLElement>, mode: DragMode) => {
     if (loading) return;
     event.preventDefault();
@@ -70,10 +77,10 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
     dragRef.current = null;
     if (scope && !sameCrop(active.crop, cropRef.current)) onApplyCrop(cropRef.current);
   };
-  return <section className="visual-search-panel visual-search-panel-lens visual-search-panel-direct" aria-label="Visual search">
-    <header><div><small>VISUAL SEARCH</small><h2>Find similar</h2></div><button type="button" className="visual-search-close" onClick={onClose} aria-label="Close visual search" title="Close">×</button></header>
-    {!reference && <div className="visual-search-empty visual-lens-empty"><div><b>Search with an image</b><p>Choose an image from your library or upload one.</p></div><button type="button" className="visual-primary" onClick={() => inputRef.current?.click()} disabled={!scope}>Upload image</button></div>}
-    {reference && <div className="visual-direct-workspace">
+  const picker = <input ref={inputRef} type="file" accept="image/*" hidden onChange={event => { uploadFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />;
+  if (!reference) return <><section className="visual-search-upload-card" aria-label="Search with an image" onDragOver={event => event.preventDefault()} onDrop={handleDrop} onClick={() => inputRef.current?.click()}><div><b>Search with an image</b><p>Drag and drop an image here, or upload one.</p></div><button type="button" className="visual-primary" onClick={event => { event.stopPropagation(); inputRef.current?.click(); }} disabled={!scope}>Upload image</button></section>{error && <div className="visual-search-error" role="alert"><span>{error}</span></div>}{picker}</>;
+  return <section className="visual-search-upload-card visual-search-upload-card--reference" aria-label="Visual search">
+    <div className="visual-direct-workspace">
       <div ref={stageRef} className="visual-direct-stage" onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onDoubleClick={() => { cropRef.current = fullCrop; setCrop(fullCrop); onRetry(); }}>
         <img src={preview || ""} alt="" draggable={false} />
         <button type="button" className="visual-direct-change" onClick={() => inputRef.current?.click()} aria-label="Change image" title="Change image">×</button>
@@ -83,8 +90,8 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
       </div>
       <div className="visual-direct-caption"><small>{loading ? "Searching…" : "Drag the frame to select an area · Double-click to use the full image"}</small></div>
       {!scope && <p className="visual-search-context" role="status">Choose an authorized source or folder before searching.</p>}
-    </div>}
+    </div>
     {error && <div className="visual-search-error" role="alert"><span>{error}</span><button type="button" onClick={() => onRetry(crop)} disabled={loading}>Retry</button></div>}
-    <input ref={inputRef} type="file" accept="image/*" hidden onChange={event => { const file = event.currentTarget.files?.[0]; if (file) onUpload(file); event.currentTarget.value = ""; }} />
+    {picker}
   </section>;
 }

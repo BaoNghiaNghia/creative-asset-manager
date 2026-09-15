@@ -1594,3 +1594,32 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-workbench .search-warning{margin-left:0;margin-right:0}
 .visual-search-panel-direct .visual-direct-caption{min-height:27px;align-content:center}
 @media(max-width:900px){.visual-search-workbench{display:block;padding:12px 0 0}.visual-search-workbench .visual-search-panel-direct{position:static;width:auto;margin:0 12px 12px}.visual-search-workbench .grid{padding:0 12px 90px}}
+
+/* The visual-search entry is a single drop zone; its preview preserves the source aspect ratio. */
+.visual-search-upload-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 34px 18px;
+  padding: 15px;
+  border: 1px dashed #cbd9f3;
+  border-radius: 12px;
+  background: #fafcff;
+  cursor: pointer;
+}
+.visual-search-upload-card:hover { border-color: #82a4ed; background: #f5f8ff; }
+.visual-search-upload-card b { color: #263951; font-size: 13px; }
+.visual-search-upload-card p { margin: 4px 0 0; color: #728096; font-size: 12px; }
+.visual-search-upload-card--reference { display: block; width: fit-content; max-width: calc(25vw + 32px); cursor: default; border-style: solid; background: #fff; }
+.visual-search-upload-card--reference:hover { border-color: #cbd9f3; background: #fff; }
+.visual-search-upload-card--reference .visual-direct-workspace { display: grid; justify-items: center; gap: 8px; }
+.visual-search-upload-card--reference .visual-direct-stage { position: relative; display: block; width: fit-content; max-width: 25vw; max-height: 25vh; overflow: hidden; isolation: isolate; border-radius: 12px; background: #202124; box-shadow: 0 8px 24px rgba(20,29,48,.14); touch-action: none; user-select: none; }
+.visual-search-upload-card--reference .visual-direct-stage > img { display: block; width: auto; height: auto; max-width: 25vw; max-height: 25vh; object-fit: contain; pointer-events: none; }
+.visual-search-upload-card--reference .visual-direct-caption { display: grid; max-width: 25vw; color: #697991; text-align: center; }
+.visual-search-upload-card--reference .visual-direct-caption small { font-size: 10px; line-height: 1.35; }
+.visual-search-upload-card--reference .visual-search-context { width: min(100%, 25vw); margin: 2px 0 0; text-align: center; }
+@media (max-width: 760px) {
+  .visual-search-upload-card { margin: 12px; align-items: flex-start; flex-direction: column; }
+  .visual-search-upload-card--reference { width: fit-content; max-width: calc(25vw + 28px); }
+}
