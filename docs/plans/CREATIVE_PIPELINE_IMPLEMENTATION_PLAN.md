@@ -1932,7 +1932,15 @@ Acceptance:
 [ ] UI cannot directly mutate states
 ```
 
-### CP-04 — Input Data and Artifact framework
+### CP-04  Input Data and Artifact framework  COMPLETE
+
+Implemented in apps/api/app/modules/creative_pipeline/storage.py, artifacts.py, and input_handler.py, with worker registration through the existing processing runtime. Migration 0076_creative_pipeline_artifact_storage adds ListingTask.pipeline_folder_id, artifact lifecycle fields, and separate partial unique indexes for ratio and non-ratio artifact versions.
+
+The storage gateway reuses normalized authenticated source adapters and permits writes only through a validated listing-owned Pipeline/ tree. It creates or reuses Input, Idea Story, Prompt (seedance and google_omni), Generating, Video Output, Watermark & Smart Enhance, Logs, and platform ratio folders. Source/ and UGC - Macro Vid/ remain read-only.
+
+Artifacts reserve deterministic versions, serialize canonical UTF-8 JSON, compute SHA-256/size/MIME, use provider-scoped temporary names, finalize deterministic input filenames, and become available only after verified persistence. Input collection reads only direct Source/ and optional UGC - Macro Vid/ children without credentials or signed URLs. Only input_data executes; future nodes defer without consuming attempts. No AI, video, scheduler, API, UI, or production behavior is included.
+
+Acceptance: validated Pipeline identity, provider capability safety, race-safe artifact versions, deterministic snapshot/manifest materialization, CP-03 integration, crash/retry reuse, downstream deferral, and no Source/UGC mutation are covered by tests.
 
 Implement:
 

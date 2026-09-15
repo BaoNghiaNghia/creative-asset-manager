@@ -36,6 +36,7 @@ from app.modules.pipeline.stages import (
 )
 from app.modules.search.index_sync_handler import SearchIndexSyncJobHandler
 from app.modules.visual_search.index_handler import VisualIndexSyncJobHandler
+from app.modules.creative_pipeline.input_handler import CreativePipelineNodeHandler
 from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 from app.modules.visual_search.encoder_client import HttpVisualEncoderClient
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex
@@ -91,6 +92,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "managed_storage_cleanup": ("PROCESSING_JOBS_ENABLED", "MANAGED_STORAGE_AUTO_CLEANUP_ENABLED"),
     "image_generate": ("PROCESSING_JOBS_ENABLED", "IMAGE_GENERATION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "video_generate": ("PROCESSING_JOBS_ENABLED", "VIDEO_GENERATION_ENABLED", "DOLA_RENDER_GATEWAY_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
+    "creative_pipeline_node": ("PROCESSING_JOBS_ENABLED",),
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
@@ -281,6 +283,7 @@ def build_worker_runtime(
                 ("managed_storage_cleanup", ManagedStorageCleanupJobHandler(settings)),
                 ("image_generate", ImageGenerateJobHandler(settings)),
                 ("video_generate", VideoGenerateJobHandler(settings)),
+                ("creative_pipeline_node", CreativePipelineNodeHandler(settings)),
             )
         ),
         health=WorkerHealthState(worker_id),

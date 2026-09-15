@@ -75,6 +75,7 @@ class ListingTaskModel(Base):
     folder_name: Mapped[str] = mapped_column(String(1024), nullable=False)
     folder_path: Mapped[str] = mapped_column(String(4096), nullable=False)
     external_folder_id: Mapped[str | None] = mapped_column(String(2048))
+    pipeline_folder_id: Mapped[str | None] = mapped_column(String(2048))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=ListingTaskStatus.ACTIVE.value)
     first_discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
@@ -182,8 +183,10 @@ class ArtifactModel(Base):
         ForeignKeyConstraint(["tenant_id", "node_run_id"], ["creative_pipeline_node_runs.tenant_id", "creative_pipeline_node_runs.id"], ondelete="SET NULL", name="fk_cp_artifacts_tenant_node"),
         ForeignKeyConstraint(["tenant_id", "generation_run_id"], ["creative_pipeline_generation_runs.tenant_id", "creative_pipeline_generation_runs.id"], ondelete="SET NULL", name="fk_cp_artifacts_tenant_generation"),
         UniqueConstraint("tenant_id", "id", name="uq_cp_artifacts_tenant_id"),
-        UniqueConstraint("tenant_id", "pipeline_run_id", "artifact_type", "version", "aspect_ratio", name="uq_cp_artifacts_logical_version"),
         CheckConstraint("artifact_type IN ('input_snapshot', 'input_manifest', 'idea_story', 'prompt', 'generation_metadata', 'raw_video', 'enhanced_video')", name="ck_cp_artifacts_type"),
+        CheckConstraint("status IN ('reserved', 'available', 'inconsistent')", name="ck_cp_artifacts_status"),
+        Index("uq_cp_artifacts_logical_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", "aspect_ratio", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL")),
+        Index("uq_cp_artifacts_logical_no_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL")),
         CheckConstraint("version > 0", name="ck_cp_artifacts_version"),
         CheckConstraint("size_bytes IS NULL OR size_bytes >= 0", name="ck_cp_artifacts_size"),
         CheckConstraint("aspect_ratio IS NULL OR aspect_ratio IN ('1:1', '16:9', '9:16')", name="ck_cp_artifacts_aspect_ratio"),
@@ -208,4 +211,7 @@ class ArtifactModel(Base):
     model_provider: Mapped[str | None] = mapped_column(String(64))
     model_name: Mapped[str | None] = mapped_column(String(128))
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
+    external_file_id: Mapped[str | None] = mapped_column(String(2048))
+    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

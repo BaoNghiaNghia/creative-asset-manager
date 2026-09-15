@@ -446,6 +446,10 @@ class WorkerRuntime:
                 )
             elif result.outcome is JobOutcome.COMPLETED:
                 service.complete(job_id=job.id, worker_id=self.config.worker_id)
+            if job.entity_type == "creative_pipeline_node_run":
+                from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
+                CreativePipelineOrchestrator(session).reconcile_job(job.tenant_id, job.entity_id)
+                session.commit()
             elif result.outcome is JobOutcome.RETRYABLE_FAILURE:
                 service.fail(
                     job_id=job.id,
