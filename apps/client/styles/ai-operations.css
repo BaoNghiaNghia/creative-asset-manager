@@ -1411,3 +1411,15 @@
 @media(max-width:1450px){.visual-ops-skeleton-context:nth-child(3){grid-column:1/-1}.visual-ops-skeleton-context:nth-child(3)>div{max-width:420px}}
 @media(max-width:900px){.visual-ops-skeleton .visual-ops-heading{align-items:flex-start}.visual-ops-skeleton-context:nth-child(3){grid-column:auto}.visual-ops-skeleton-line.title{width:190px}.visual-ops-skeleton-line.copy{width:240px}.visual-ops-skeleton-table{overflow:hidden}}
 @media(max-width:460px){.visual-ops-skeleton-pill{display:none}.visual-ops-skeleton-line.title{width:160px}.visual-ops-skeleton-line.copy{width:190px}.visual-ops-skeleton-row{grid-template-columns:1.6fr repeat(5,minmax(44px,1fr));gap:8px}}
+
+/* Metric rows always distribute their actual data cells, instead of reserving fixed empty columns. */
+.pipeline-context-row > .pipeline-scan-card dl,
+.pipeline-context-row > .pipeline-active-job dl,
+.pipeline-context-row > .pipeline-progress-summary dl,
+.visual-ops-context-row .pipeline-scan-card dl,
+.visual-ops-context-row .pipeline-active-job dl,
+.visual-ops-context-row > .pipeline-progress-summary dl,
+.pipeline-scan-card-compact dl,
+.pipeline-progress-summary-compact dl {
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+}
