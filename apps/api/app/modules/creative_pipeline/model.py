@@ -183,7 +183,7 @@ class ArtifactModel(Base):
         ForeignKeyConstraint(["tenant_id", "node_run_id"], ["creative_pipeline_node_runs.tenant_id", "creative_pipeline_node_runs.id"], ondelete="SET NULL", name="fk_cp_artifacts_tenant_node"),
         ForeignKeyConstraint(["tenant_id", "generation_run_id"], ["creative_pipeline_generation_runs.tenant_id", "creative_pipeline_generation_runs.id"], ondelete="SET NULL", name="fk_cp_artifacts_tenant_generation"),
         UniqueConstraint("tenant_id", "id", name="uq_cp_artifacts_tenant_id"),
-        CheckConstraint("artifact_type IN ('input_snapshot', 'input_manifest', 'idea_story', 'prompt', 'generation_metadata', 'raw_video', 'enhanced_video')", name="ck_cp_artifacts_type"),
+        CheckConstraint("artifact_type IN ('input_snapshot', 'input_manifest', 'knowledge_snapshot', 'idea_story', 'prompt', 'generation_metadata', 'raw_video', 'enhanced_video')", name="ck_cp_artifacts_type"),
         CheckConstraint("status IN ('reserved', 'available', 'inconsistent')", name="ck_cp_artifacts_status"),
         Index("uq_cp_artifacts_logical_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", "aspect_ratio", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL")),
         Index("uq_cp_artifacts_logical_no_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL")),

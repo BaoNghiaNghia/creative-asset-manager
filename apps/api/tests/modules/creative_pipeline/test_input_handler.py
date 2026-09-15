@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, WorkerDependencies, DeferredJobOutcome
 from app.modules.creative_pipeline.input_handler import CreativePipelineNodeHandler
-from app.modules.creative_pipeline.model import ListingTaskModel, NodeRunModel, PipelineRunModel
+from app.modules.creative_pipeline.model import ArtifactModel, ListingTaskModel, NodeRunModel, PipelineRunModel
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
 from app.modules.creative_pipeline.storage import StorageItem
 from app.modules.processing.model import ProcessingJobModel
@@ -45,6 +45,10 @@ def test_input_handler_materializes_snapshot_manifest_and_defers_future_nodes():
         assert result.outcome.value == "completed"
         with sessions() as session:
             assert session.scalar(select(NodeRunModel).where(NodeRunModel.node_type=="input_data")).status == "completed"
+            run_row = session.scalar(select(PipelineRunModel).where(PipelineRunModel.id == "handler-run"))
+            assert run_row.knowledge_snapshot_id and run_row.knowledge_snapshot_id.startswith("sha256:")
+            knowledge = session.scalar(select(ArtifactModel).where(ArtifactModel.pipeline_run_id == "handler-run", ArtifactModel.artifact_type == "knowledge_snapshot"))
+            assert knowledge.status == "available" and knowledge.relative_path == "Pipeline/Input/knowledge_snapshot_v001.json"
             assert len(session.scalars(select(ProcessingJobModel)).all()) == 2
         deferred=CreativePipelineNodeHandler()(context_for(sessions, job, "idea_story", storage))
         assert isinstance(deferred, DeferredJobOutcome)

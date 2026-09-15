@@ -56,7 +56,7 @@ class ArtifactService:
 
     @staticmethod
     def _default_path(value, version, aspect_ratio):
-        names = {"input_snapshot": f"input_v{version:03d}.json", "input_manifest": f"input_manifest_v{version:03d}.json"}
+        names = {"input_snapshot": f"input_v{version:03d}.json", "input_manifest": f"input_manifest_v{version:03d}.json", "knowledge_snapshot": f"knowledge_snapshot_v{version:03d}.json"}
         return f"Pipeline/Input/{names.get(value, value + f'_v{version:03d}.json')}"
 
     def canonical_json(self, payload):

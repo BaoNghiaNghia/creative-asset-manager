@@ -1962,24 +1962,15 @@ Acceptance:
 [ ] DB ↔ physical artifact mapping deterministic
 ```
 
-### CP-05 — Knowledge Pack
+### CP-05  Knowledge Pack  COMPLETE
 
-Implement:
+**Status: COMPLETE.** CP-05 adds the application-owned deterministic Knowledge Pack at apps/api/app/modules/creative_pipeline/knowledge/. manifest.json is schema version 1 and explicitly selects idea_story, seedance_2_5, and google_omni files; examples are opt-in and never auto-discovered.
 
-```text
-KnowledgeLoader
-platform/node/model rule selection
-knowledge manifests/hashes
-run-level knowledge snapshot
-```
+KnowledgeLoader resolves the pack relative to its Python module, rejects traversal/absolute paths, symlink escapes, unsupported stages/placeholders, duplicates, missing files, binary or invalid UTF-8 content, and normalizes UTF-8/NFC/LF with one terminal newline. Per-file SHA-256 hashes and a canonical union snapshot produce a content-derived sha256:<64 lowercase hex> knowledge_snapshot_id, independent of filesystem order, timestamps, checkout path, or host.
 
-Acceptance:
+The selected normalized contents are materialized as Pipeline/Input/knowledge_snapshot_v001.json using the CP-04 artifact lifecycle. ArtifactType.KNOWLEDGE_SNAPSHOT and migration 0077_creative_pipeline_knowledge_snapshot extend the existing artifact check constraint without adding tables. PipelineRun.knowledge_snapshot_id is assigned only after the artifact is available. Retry reuses version 1 and validates an existing durable snapshot before use; an unavailable or mismatched artifact is an explicit inconsistency. Stage bundles can be reconstructed from the durable snapshot for future CP-06/CP-07 nodes.
 
-```text
-[ ] deterministic knowledge selection
-[ ] historical run can identify knowledge revision
-[ ] no RAG dependency required for V1
-```
+CP-05 intentionally adds no RAG, vector store, embeddings, provider calls, scheduler, API route, frontend, or AI generation. Knowledge files contain only locked ratios and conservative structured creative guidance; no credentials or environment-specific data are persisted.
 
 ### CP-06 — OpenAI Idea Story and Prompt
 

@@ -32,6 +32,7 @@ class CreativePipelineStorageGateway(Protocol):
     async def upload_bytes(self, parent_id: str, name: str, mime_type: str, content: bytes) -> StorageItem: ...
     async def rename_item(self, item_id: str, name: str) -> StorageItem: ...
     async def delete_item(self, item_id: str) -> None: ...
+    async def download_bytes(self, item_id: str) -> bytes: ...
 
 
 class ExplorerStorageGateway:
@@ -75,6 +76,13 @@ class ExplorerStorageGateway:
         if method is None:
             raise PipelineStorageUnsupported("pipeline_storage_write_unsupported")
         await method(item_id)
+
+    async def download_bytes(self, item_id):
+        method = getattr(self.provider, "download_file", None) or getattr(self.provider, "download_bytes", None)
+        if method is None:
+            raise PipelineStorageUnsupported("pipeline_storage_read_unsupported")
+        result = method(item_id)
+        return await result if hasattr(result, "__await__") else result
 
 
 CANONICAL_CHILDREN = ("Input", "Idea Story", "Prompt", "Generating", "Video Output", "Watermark & Smart Enhance", "Logs")

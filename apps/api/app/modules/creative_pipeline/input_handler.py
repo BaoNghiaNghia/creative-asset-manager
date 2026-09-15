@@ -11,6 +11,7 @@ from app.modules.creative_pipeline.artifacts import ArtifactService
 from app.modules.creative_pipeline.constants import ArtifactType, NodeType, ListingTaskStatus
 from app.modules.creative_pipeline.model import ListingTaskModel, NodeRunModel, PipelineRunModel, SourceGroupModel
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator, CREATIVE_PIPELINE_ENTITY_TYPE
+from app.modules.creative_pipeline.knowledge import KnowledgeLoader, KnowledgePackError
 from app.modules.creative_pipeline.storage import PipelineStorageError, PipelineStorageUnsupported, ensure_pipeline_structure
 
 
@@ -105,6 +106,35 @@ class CreativePipelineNodeHandler:
             "required_aspect_ratios": ratios, "captured_at": snapshot["captured_at"],
         }
         await artifacts.materialize_json(manifest_artifact, gateway, manifest)
+        # Freeze the exact versioned Knowledge Pack before input_data can complete.
+        loader = KnowledgeLoader()
+        knowledge_artifact = artifacts.reserve_artifact(
+            tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id,
+            artifact_type=ArtifactType.KNOWLEDGE_SNAPSHOT, version=1,
+        )
+        knowledge_artifact._artifact_parent_id = input_folder.id
+        try:
+            if knowledge_artifact.status == "available" and knowledge_artifact.external_file_id:
+                downloader = getattr(gateway, "download_bytes", None)
+                if downloader is None:
+                    raise KnowledgePackError("knowledge_snapshot_download_unavailable")
+                raw = downloader(knowledge_artifact.external_file_id)
+                if hasattr(raw, "__await__"):
+                    raw = await raw
+                import json
+                durable = loader.verify_snapshot(json.loads(raw.decode("utf-8")))
+                if run.knowledge_snapshot_id != durable.snapshot_id:
+                    if run.knowledge_snapshot_id:
+                        raise KnowledgePackError("knowledge_snapshot_artifact_mismatch")
+                    run.knowledge_snapshot_id = durable.snapshot_id
+            else:
+                snapshot = loader.create_run_snapshot(listing.platform)
+                await artifacts.materialize_json(knowledge_artifact, gateway, snapshot.as_payload())
+                if knowledge_artifact.status != "available":
+                    raise KnowledgePackError("knowledge_snapshot_not_available")
+                run.knowledge_snapshot_id = snapshot.snapshot_id
+        except KnowledgePackError as exc:
+            raise PipelineStorageError(str(exc)) from exc
         orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
         session.commit()
         return JobHandlerResult.completed()

@@ -66,6 +66,7 @@ class ArtifactType(str, Enum):
     GENERATION_METADATA = "generation_metadata"
     RAW_VIDEO = "raw_video"
     ENHANCED_VIDEO = "enhanced_video"
+    KNOWLEDGE_SNAPSHOT = "knowledge_snapshot"
 
 
 ASPECT_RATIOS = frozenset({"1:1", "16:9", "9:16"})
