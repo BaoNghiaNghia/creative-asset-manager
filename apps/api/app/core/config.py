@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import urlsplit
 
 from pydantic import field_validator, model_validator
@@ -352,6 +353,12 @@ class Settings(BaseSettings):
     SOURCE_SYNC_POLL_INTERVAL_SECONDS: int = 60
     SOURCE_SYNC_MAX_SOURCES_PER_TICK: int = 100
     SOURCE_SYNC_JOB_STALE_SECONDS: int = 900
+    # A daily reconciliation catches provider changes that incremental cursors can miss.
+    SOURCE_SYNC_DAILY_FULL_SCAN_ENABLED: bool = True
+    SOURCE_SYNC_DAILY_FULL_SCAN_HOUR: int = 10
+    SOURCE_SYNC_DAILY_FULL_SCAN_TIMEZONE: str = "Asia/Ho_Chi_Minh"
+    SOURCE_SYNC_FULL_SCAN_PRIORITY: int = 20
+    SOURCE_SYNC_INCREMENTAL_PRIORITY: int = 5
     RETENTION_CLEANUP_BATCH_SIZE: int = 500
     RETENTION_CLEANUP_MAX_ROWS: int = 5000
     RETENTION_CLEANUP_INTERVAL_SECONDS: int = 86400
@@ -409,6 +416,29 @@ class Settings(BaseSettings):
     def validate_source_sync_scheduler_limits(cls, value: int) -> int:
         if value < 1:
             raise ValueError("source sync scheduler limits must be positive")
+        return value
+
+    @field_validator("SOURCE_SYNC_DAILY_FULL_SCAN_HOUR")
+    @classmethod
+    def validate_source_sync_daily_full_scan_hour(cls, value: int) -> int:
+        if not 0 <= value <= 23:
+            raise ValueError("source sync daily full scan hour must be between 0 and 23")
+        return value
+
+    @field_validator("SOURCE_SYNC_FULL_SCAN_PRIORITY", "SOURCE_SYNC_INCREMENTAL_PRIORITY")
+    @classmethod
+    def validate_source_sync_priorities(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("source sync priority must be non-negative")
+        return value
+
+    @field_validator("SOURCE_SYNC_DAILY_FULL_SCAN_TIMEZONE")
+    @classmethod
+    def validate_source_sync_daily_full_scan_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("source sync daily full scan timezone must be an IANA timezone") from exc
         return value
 
     @property

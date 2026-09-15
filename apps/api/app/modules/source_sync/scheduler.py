@@ -5,15 +5,16 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.modules.assets.model import ExternalSourceModel
+from app.modules.assets.source_credentials import source_credential_contract
 from app.modules.assets.source_state import is_external_source_decommissioned
 from app.modules.auth_persistence.model import OAuthConnectionModel
-from app.modules.assets.source_credentials import source_credential_contract
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
@@ -21,6 +22,7 @@ from app.modules.processing_policy.service import ProcessingPolicyService
 from app.modules.source_sync.repository import SourceSyncRepository
 
 ACTIVE_JOB_STATUSES = ("pending", "processing", "retry", "queued", "running", "claimed")
+
 
 @dataclass(frozen=True, slots=True)
 class SourceSyncScheduleResult:
@@ -31,8 +33,10 @@ class SourceSyncScheduleResult:
     created: bool
     skipped_reason: str | None = None
 
+
 class SourceSyncScheduler:
-    """Periodic producer for the existing durable source_sync job queue."""
+    """Periodic producer for durable source_sync jobs, with a daily full reconciliation."""
+
     def __init__(self, session_factory: Callable[[], Session], settings: Settings, *, logger: logging.Logger | None = None):
         self.session_factory = session_factory
         self.settings = settings
@@ -42,7 +46,11 @@ class SourceSyncScheduler:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.settings.PROCESSING_JOBS_ENABLED and self.settings.INCREMENTAL_SOURCE_SYNC_ENABLED and self.settings.SOURCE_SYNC_SCHEDULER_ENABLED)
+        return bool(
+            self.settings.PROCESSING_JOBS_ENABLED
+            and self.settings.INCREMENTAL_SOURCE_SYNC_ENABLED
+            and self.settings.SOURCE_SYNC_SCHEDULER_ENABLED
+        )
 
     def start(self) -> None:
         if not self.enabled or self._thread is not None:
@@ -65,6 +73,18 @@ class SourceSyncScheduler:
                 self.logger.exception("source_sync_scheduler_tick_failed")
             self._stop.wait(self.settings.SOURCE_SYNC_POLL_INTERVAL_SECONDS)
 
+    def _daily_full_scan_date(self, current: datetime) -> str | None:
+        if not self.settings.SOURCE_SYNC_DAILY_FULL_SCAN_ENABLED:
+            return None
+        local = current.astimezone(ZoneInfo(self.settings.SOURCE_SYNC_DAILY_FULL_SCAN_TIMEZONE))
+        if local.hour < self.settings.SOURCE_SYNC_DAILY_FULL_SCAN_HOUR:
+            return None
+        return local.date().isoformat()
+
+    @staticmethod
+    def _daily_key(source_id: str, local_date: str) -> str:
+        return f"source-sync-daily-full:{source_id}:{local_date}"
+
     def _source_credentials(self, session: Session, source: ExternalSourceModel) -> OAuthConnectionModel | None:
         if source.status != "active" or not source.oauth_connection_id:
             return None
@@ -72,25 +92,61 @@ class SourceSyncScheduler:
             contract = source_credential_contract(source.source_type)
         except ValueError:
             return None
-        connection = session.scalar(select(OAuthConnectionModel).where(
-            OAuthConnectionModel.id == source.oauth_connection_id,
-            OAuthConnectionModel.tenant_id == source.tenant_id,
-            OAuthConnectionModel.provider == contract.provider,
-            OAuthConnectionModel.connection_purpose == contract.connection_purpose,
-            OAuthConnectionModel.status == "active",
-            OAuthConnectionModel.revoked_at.is_(None),
-        ).limit(1))
+        connection = session.scalar(
+            select(OAuthConnectionModel)
+            .where(
+                OAuthConnectionModel.id == source.oauth_connection_id,
+                OAuthConnectionModel.tenant_id == source.tenant_id,
+                OAuthConnectionModel.provider == contract.provider,
+                OAuthConnectionModel.connection_purpose == contract.connection_purpose,
+                OAuthConnectionModel.status == "active",
+                OAuthConnectionModel.revoked_at.is_(None),
+            )
+            .limit(1)
+        )
         return connection if connection is not None and (connection.access_token_ciphertext or connection.refresh_token_ciphertext) else None
 
     def _active_job(self, session: Session, tenant_id: str, source_id: str, now: datetime) -> ProcessingJobModel | None:
         stale_cutoff = now - timedelta(seconds=self.settings.SOURCE_SYNC_JOB_STALE_SECONDS)
         running = ProcessingJobModel.status.in_(("processing", "running", "claimed"))
-        return session.scalar(select(ProcessingJobModel).where(ProcessingJobModel.tenant_id == tenant_id, ProcessingJobModel.job_type == "source_sync", ProcessingJobModel.entity_type == "external_source", ProcessingJobModel.entity_id == source_id, or_(ProcessingJobModel.status.in_(("pending", "retry", "queued")), running & or_(ProcessingJobModel.lease_expires_at > now, ProcessingJobModel.updated_at >= stale_cutoff))).order_by(ProcessingJobModel.created_at.desc()).limit(1))
+        return session.scalar(
+            select(ProcessingJobModel)
+            .where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.job_type == "source_sync",
+                ProcessingJobModel.entity_type == "external_source",
+                ProcessingJobModel.entity_id == source_id,
+                or_(
+                    ProcessingJobModel.status.in_(("pending", "retry", "queued")),
+                    running
+                    & or_(
+                        ProcessingJobModel.lease_expires_at > now,
+                        ProcessingJobModel.updated_at >= stale_cutoff,
+                    ),
+                ),
+            )
+            .order_by(ProcessingJobModel.created_at.desc())
+            .limit(1)
+        )
 
-    def enqueue_source(self, tenant_id: str, source_id: str, *, now: datetime | None = None, full: bool = False, dry_run: bool = False) -> SourceSyncScheduleResult:
+    def enqueue_source(
+        self,
+        tenant_id: str,
+        source_id: str,
+        *,
+        now: datetime | None = None,
+        full: bool = False,
+        daily_full_scan_date: str | None = None,
+        dry_run: bool = False,
+    ) -> SourceSyncScheduleResult:
         current = now or datetime.now(timezone.utc)
         with self.session_factory() as session:
-            source = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.id == source_id))
+            source = session.scalar(
+                select(ExternalSourceModel).where(
+                    ExternalSourceModel.tenant_id == tenant_id,
+                    ExternalSourceModel.id == source_id,
+                )
+            )
             if source is None:
                 return SourceSyncScheduleResult(tenant_id, source_id, None, None, False, "source_not_found")
             if is_external_source_decommissioned(source):
@@ -102,30 +158,79 @@ class SourceSyncScheduler:
             if not policy.effective.get("source_sync_enabled", False):
                 session.rollback()
                 return SourceSyncScheduleResult(tenant_id, source_id, None, None, False, "tenant_policy_disabled_or_paused")
+
+            daily_key = self._daily_key(source_id, daily_full_scan_date) if daily_full_scan_date else None
+            daily_job = (
+                session.scalar(
+                    select(ProcessingJobModel).where(
+                        ProcessingJobModel.tenant_id == tenant_id,
+                        ProcessingJobModel.idempotency_key == daily_key,
+                    )
+                )
+                if daily_key
+                else None
+            )
+            daily_full = daily_key is not None and daily_job is None
             active = self._active_job(session, tenant_id, source_id, current)
             if active is not None:
                 session.rollback()
                 return SourceSyncScheduleResult(tenant_id, source_id, None, active.id, False, "active_job")
+
             cursor = SourceSyncRepository(session).get_cursor(tenant_id, source_id, "changes")
-            mode = "full" if full or not cursor else "incremental"
+            mode = "full" if daily_full or full or not cursor else "incremental"
             bucket = int(current.timestamp()) // max(1, self.settings.SOURCE_SYNC_POLL_INTERVAL_SECONDS)
-            key = f"source-sync-scheduler:{source_id}:{mode}:{bucket}"
+            key = daily_key if daily_full else f"source-sync-scheduler:{source_id}:{mode}:{bucket}"
             if dry_run:
                 session.rollback()
                 return SourceSyncScheduleResult(tenant_id, source_id, mode, None, False, "dry_run")
-            existing = session.scalar(select(ProcessingJobModel).where(ProcessingJobModel.tenant_id == tenant_id, ProcessingJobModel.idempotency_key == key))
+            existing = session.scalar(
+                select(ProcessingJobModel).where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.idempotency_key == key,
+                )
+            )
             if existing is not None:
                 session.rollback()
                 return SourceSyncScheduleResult(tenant_id, source_id, mode, existing.id, False, "idempotency_key")
-            job = ProcessingRepository(session).create_job(tenant_id=tenant_id, job_type="source_sync", entity_type="external_source", entity_id=source_id, idempotency_key=key, payload={"external_source_id": source_id, "reconciliation": mode == "full"}, priority=5, provider_key=source.source_type, provider_scope="source")
+
+            priority = (
+                self.settings.SOURCE_SYNC_FULL_SCAN_PRIORITY
+                if mode == "full"
+                else self.settings.SOURCE_SYNC_INCREMENTAL_PRIORITY
+            )
+            job = ProcessingRepository(session).create_job(
+                tenant_id=tenant_id,
+                job_type="source_sync",
+                entity_type="external_source",
+                entity_id=source_id,
+                idempotency_key=key,
+                payload={
+                    "external_source_id": source_id,
+                    "reconciliation": mode == "full",
+                    "scheduled_daily_full_scan": daily_full,
+                },
+                priority=priority,
+                provider_key=source.source_type,
+                provider_scope="source",
+            )
             session.commit()
-            self.logger.info("source_sync_job_scheduled", extra={"source_id": source_id, "tenant_id": tenant_id, "mode": mode, "job_id": job.id})
+            self.logger.info(
+                "source_sync_job_scheduled",
+                extra={
+                    "source_id": source_id,
+                    "tenant_id": tenant_id,
+                    "mode": mode,
+                    "job_id": job.id,
+                    "daily_full_scan": daily_full,
+                },
+            )
             return SourceSyncScheduleResult(tenant_id, source_id, mode, job.id, True)
 
     def tick(self, *, now: datetime | None = None) -> tuple[SourceSyncScheduleResult, ...]:
         if not self.enabled:
             return ()
         current = now or datetime.now(timezone.utc)
+        daily_full_scan_date = self._daily_full_scan_date(current)
         with self.session_factory() as session:
             scheduled_sources = session.scalars(
                 select(ExternalSourceModel)
@@ -133,17 +238,27 @@ class SourceSyncScheduler:
                 .order_by(ExternalSourceModel.tenant_id, ExternalSourceModel.id)
                 .limit(self.settings.SOURCE_SYNC_MAX_SOURCES_PER_TICK)
             )
-            # Keep this portable across SQLite/PostgreSQL JSON implementations.
-            sources = tuple(
-                source
-                for source in scheduled_sources
-                if not is_external_source_decommissioned(source)
-            )
+            sources = tuple(source for source in scheduled_sources if not is_external_source_decommissioned(source))
         results = []
         for source in sources:
             try:
-                results.append(self.enqueue_source(source.tenant_id, source.id, now=current))
+                results.append(
+                    self.enqueue_source(
+                        source.tenant_id,
+                        source.id,
+                        now=current,
+                        daily_full_scan_date=daily_full_scan_date,
+                    )
+                )
             except Exception as exc:
-                self.logger.exception("source_sync_source_failed", extra={"source_id": source.id, "tenant_id": source.tenant_id, "mode": "unknown", "error_code": type(exc).__name__})
+                self.logger.exception(
+                    "source_sync_source_failed",
+                    extra={
+                        "source_id": source.id,
+                        "tenant_id": source.tenant_id,
+                        "mode": "unknown",
+                        "error_code": type(exc).__name__,
+                    },
+                )
                 results.append(SourceSyncScheduleResult(source.tenant_id, source.id, None, None, False, type(exc).__name__))
         return tuple(results)

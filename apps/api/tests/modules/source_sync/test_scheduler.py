@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from sqlalchemy import create_engine, select
@@ -18,7 +19,7 @@ class SourceSyncSchedulerTest(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         Base.metadata.create_all(self.engine)
-        self.settings = Settings(PROCESSING_JOBS_ENABLED=True, INCREMENTAL_SOURCE_SYNC_ENABLED=True, SOURCE_SYNC_SCHEDULER_ENABLED=True, UNIFIED_ASSET_INGESTION_ENABLED=True)
+        self.settings = Settings(PROCESSING_JOBS_ENABLED=True, INCREMENTAL_SOURCE_SYNC_ENABLED=True, SOURCE_SYNC_SCHEDULER_ENABLED=True, UNIFIED_ASSET_INGESTION_ENABLED=True, SOURCE_SYNC_DAILY_FULL_SCAN_ENABLED=False)
         self.session = Session(self.engine, expire_on_commit=False)
         self.session.add(TenantProcessingPolicyModel(tenant_id="tenant-a", pipeline_enabled=True, source_sync_enabled=True))
         self.source = ExternalSourceModel(tenant_id="tenant-a", source_key="google-drive:source-a", source_type="google_drive", source_metadata={})
@@ -210,6 +211,43 @@ class SourceSyncSchedulerTest(unittest.TestCase):
             ),
             history,
         )
+
+    def test_daily_full_scan_runs_after_ten_am_with_high_priority_then_returns_to_incremental(self):
+        self.settings.SOURCE_SYNC_DAILY_FULL_SCAN_ENABLED = True
+        self.session.add(SourceSyncCursorModel(tenant_id="tenant-a", external_source_id=self.source.id, cursor_key="changes", cursor_value="cursor-1"))
+        self.session.commit()
+        ten_am = datetime(2026, 9, 15, 3, 0, tzinfo=timezone.utc)
+
+        daily = self.scheduler.tick(now=ten_am)[0]
+
+        self.assertTrue(daily.created)
+        self.assertEqual(daily.mode, "full")
+        job = self.session.get(ProcessingJobModel, daily.job_id)
+        self.assertEqual(job.idempotency_key, f"source-sync-daily-full:{self.source.id}:2026-09-15")
+        self.assertEqual(job.priority, self.settings.SOURCE_SYNC_FULL_SCAN_PRIORITY)
+        self.assertTrue(job.payload_json["scheduled_daily_full_scan"])
+
+        job.status = "completed"
+        self.session.commit()
+        incremental = self.scheduler.tick(now=ten_am + timedelta(minutes=2))[0]
+
+        self.assertTrue(incremental.created)
+        self.assertEqual(incremental.mode, "incremental")
+        next_job = self.session.get(ProcessingJobModel, incremental.job_id)
+        self.assertEqual(next_job.priority, self.settings.SOURCE_SYNC_INCREMENTAL_PRIORITY)
+        self.assertFalse(next_job.payload_json["scheduled_daily_full_scan"])
+
+    def test_daily_full_scan_is_not_scheduled_before_ten_am(self):
+        self.settings.SOURCE_SYNC_DAILY_FULL_SCAN_ENABLED = True
+        self.session.add(SourceSyncCursorModel(tenant_id="tenant-a", external_source_id=self.source.id, cursor_key="changes", cursor_value="cursor-1"))
+        self.session.commit()
+
+        result = self.scheduler.tick(now=datetime(2026, 9, 15, 2, 59, tzinfo=timezone.utc))[0]
+
+        self.assertEqual(result.mode, "incremental")
+        job = self.session.get(ProcessingJobModel, result.job_id)
+        self.assertEqual(job.priority, self.settings.SOURCE_SYNC_INCREMENTAL_PRIORITY)
+        self.assertFalse(job.payload_json["scheduled_daily_full_scan"])
 
     def test_one_failing_source_does_not_stop_other_sources(self):
         second = ExternalSourceModel(tenant_id="tenant-a", source_key="google-drive:source-b", source_type="google_drive", source_metadata={"oauth_connection_id": self.source.oauth_connection_id}, oauth_connection_id=self.source.oauth_connection_id)

@@ -11,9 +11,16 @@ SOURCE_SYNC_SCHEDULER_ENABLED=true
 SOURCE_SYNC_POLL_INTERVAL_SECONDS=60
 SOURCE_SYNC_MAX_SOURCES_PER_TICK=100
 SOURCE_SYNC_JOB_STALE_SECONDS=900
+SOURCE_SYNC_DAILY_FULL_SCAN_ENABLED=true
+SOURCE_SYNC_DAILY_FULL_SCAN_HOUR=10
+SOURCE_SYNC_DAILY_FULL_SCAN_TIMEZONE=Asia/Ho_Chi_Minh
+SOURCE_SYNC_FULL_SCAN_PRIORITY=20
+SOURCE_SYNC_INCREMENTAL_PRIORITY=5
 ```
 
-The scheduler respects tenant `source_sync_enabled` and processing pauses, skips sources without an active OAuth connection, and uses a cursor for incremental sync. A source without a cursor receives one bounded full scan.
+The scheduler respects tenant `source_sync_enabled` and processing pauses, skips sources without an active OAuth connection, and uses a cursor for incremental sync. A source without a cursor receives one bounded high-priority full scan.
+
+When enabled, the scheduler also creates exactly one high-priority full reconciliation per active source after **10:00 Asia/Ho_Chi_Minh** each day. The daily idempotency key is source/date scoped, so restarts and multiple workers cannot duplicate it. If the scheduler was unavailable at 10:00, it catches up later that same day; a paused tenant remains paused.
 
 Sources explicitly marked with a meaningful source_metadata.decommissioned_at value are retained for historical integrity but are excluded from automatic synchronization. The scheduler does not rebind their OAuth connection or delete historical source assets, cursors, or runs.
 
