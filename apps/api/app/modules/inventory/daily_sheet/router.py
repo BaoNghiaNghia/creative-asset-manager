@@ -12,6 +12,7 @@ from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semanti
 from app.modules.inventory.permissions import INVENTORY_CONTROL_PERMISSION, INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
 from app.modules.inventory.persistence_model import InventorySettingsModel
 from app.modules.inventory.daily_sheet.prompts import PROMPT_TYPES, InventoryPromptConflict, InventoryPromptResolver, InventoryPromptStorageUnavailable
+from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -163,6 +164,12 @@ def get_lifecycle_history(page: int = 1, page_size: int = 25, principal: Current
     except ValueError as exc:
         raise HTTPException(422, detail={"code": str(exc)}) from exc
 
+@router.post("/lifecycle-history/{business_date}/morning-reset/rerun")
+def rerun_morning_reset(business_date: date, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):
+    try:
+        return InventoryDailyScheduler(SessionLocal).retry_v4_morning_reset(principal.active_tenant_id, business_date)
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": str(exc)}) from exc
 @router.post("/discover")
 def discover_workbook(body: DiscoveryRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
     try:

@@ -229,3 +229,14 @@ def test_lifecycle_history_rejects_invalid_pagination():
         response = allowed.get("/api/inventory/daily-sheet/lifecycle-history?page_size=30")
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "invalid_lifecycle_history_pagination"
+
+def test_morning_reset_rerun_requires_control_permission_and_calls_scheduler():
+    denied = client_for(principal({"inventory.read"}))
+    assert denied.post("/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/rerun").status_code == 403
+    allowed = client_for(principal({"inventory.control"}))
+    scheduler = Mock()
+    scheduler.retry_v4_morning_reset.return_value = {"status": "completed", "stage": "morning_reset"}
+    with patch("app.modules.inventory.daily_sheet.router.InventoryDailyScheduler", return_value=scheduler):
+        response = allowed.post("/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/rerun")
+    assert response.status_code == 200
+    scheduler.retry_v4_morning_reset.assert_called_once_with("tenant-a", date(2030, 8, 10))

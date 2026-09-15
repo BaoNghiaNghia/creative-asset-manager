@@ -401,6 +401,25 @@ class DailySheetSchedulerTest(unittest.TestCase):
             snapshot = session.scalar(select(InventoryJobModel).where(InventoryJobModel.job_type == "inventory_v5_afternoon_snapshot_slot"))
             self.assertEqual("retry", reset.status)
             self.assertEqual("completed", snapshot.status)
+    def test_v4_morning_reset_retry_only_runs_within_one_hour(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == "tenant-a"))
+            settings.daily_carry_forward_time_local = "06:00"
+
+        class Carry:
+            def __init__(self): self.calls = 0
+            def run(self, _tenant_id, _business_date):
+                self.calls += 1
+                return SimpleNamespace(status="retryable_failure", error_code="temporary") if self.calls == 1 else SimpleNamespace(status="completed")
+
+        carry = Carry()
+        scheduler = InventoryDailyScheduler(self.sessions, carry_forward_service=carry)
+        scheduler.run_once(datetime(2030, 8, 9, 23, 0, tzinfo=timezone.utc))
+        result = scheduler.retry_v4_morning_reset("tenant-a", date(2030, 8, 10), datetime(2030, 8, 9, 23, 30, tzinfo=timezone.utc))
+        self.assertEqual({"status": "completed", "stage": "morning_reset"}, result)
+        with self.assertRaisesRegex(ValueError, "outside_window"):
+            scheduler.retry_v4_morning_reset("tenant-a", date(2030, 8, 10), datetime(2030, 8, 9, 20, 0, tzinfo=timezone.utc))
     def test_v3_scheduler_ignores_tenant_when_daily_automation_is_disabled(self):
         with self.sessions.begin() as session:
             settings = session.scalar(select(InventorySettingsModel).where(

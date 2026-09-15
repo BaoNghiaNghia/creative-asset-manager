@@ -301,6 +301,37 @@ class InventoryDailyScheduler:
                 )
         return count
 
+    def retry_v4_morning_reset(self, tenant_id: str, business_date: date, now: datetime | None = None) -> dict[str, str]:
+        moment = now or datetime.now(timezone.utc)
+        with self.session_factory.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id))
+            if settings is None or not settings.daily_sheet_automation_enabled or not isinstance(settings.daily_sheet_config_json, dict) or settings.daily_sheet_config_json.get("version") != 4:
+                raise ValueError("inventory_v4_morning_reset_unavailable")
+            local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
+            if business_date != local.date():
+                raise ValueError("inventory_morning_reset_retry_current_day_only")
+            reset_time = _configured_time(settings.daily_carry_forward_time_local, time(5, 0))
+            scheduled = datetime.combine(business_date, reset_time, tzinfo=local.tzinfo)
+            if abs((local - scheduled).total_seconds()) > 3600:
+                raise ValueError("inventory_morning_reset_retry_outside_window")
+            job = session.scalar(select(InventoryJobModel).where(InventoryJobModel.tenant_id == tenant_id, InventoryJobModel.job_type == V4_SLOT_JOB_TYPES["morning_reset"], InventoryJobModel.entity_id == f"{business_date.isoformat()}:morning_reset"))
+            if job is None:
+                raise ValueError("inventory_morning_reset_retry_not_scheduled")
+            if job.status in {"processing", "pending"}:
+                return {"status": job.status, "stage": "morning_reset"}
+            job.status = "retry"
+            job.next_attempt_at = moment
+            job.completed_at = None
+            job.lease_expires_at = None
+            job.claimed_by = None
+            job.claimed_at = None
+            job.last_error_code = None
+            job.last_error_message = None
+            job.updated_at = moment
+        self.run_once(moment)
+        with self.session_factory() as session:
+            job = session.scalar(select(InventoryJobModel).where(InventoryJobModel.tenant_id == tenant_id, InventoryJobModel.job_type == V4_SLOT_JOB_TYPES["morning_reset"], InventoryJobModel.entity_id == f"{business_date.isoformat()}:morning_reset"))
+            return {"status": job.status if job else "unknown", "stage": "morning_reset"}
     def run_once(self, now: datetime | None = None) -> int:
         moment = now or datetime.now(timezone.utc)
         with self.session_factory() as session:
