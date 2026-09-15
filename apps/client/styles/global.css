@@ -1623,3 +1623,41 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   .visual-search-upload-card { margin: 12px; align-items: flex-start; flex-direction: column; }
   .visual-search-upload-card--reference { width: fit-content; max-width: calc(25vw + 28px); }
 }
+
+/* Keep the Lens workspace inside its card and expose only its four crop corners. */
+.visual-search-workbench .visual-search-upload-card--reference,
+.visual-search-upload-card--reference {
+  box-sizing: border-box;
+  width: min(100%, calc(25vw + 32px));
+  min-width: 0;
+}
+.visual-search-upload-card--reference .visual-direct-stage {
+  width: fit-content;
+  max-width: 100%;
+  max-height: 25vh;
+}
+.visual-search-upload-card--reference .visual-direct-stage > img {
+  max-width: min(25vw, 100%);
+  max-height: 25vh;
+}
+.visual-search-upload-card--reference .visual-direct-crop {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  box-shadow: 0 0 0 999px rgba(8, 11, 18, .55);
+  cursor: move;
+  touch-action: none;
+}
+.visual-search-upload-card--reference .visual-direct-handle {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  background: transparent;
+}
+.visual-search-upload-card--reference .visual-direct-handle.nw { top: -4px; left: -4px; border-top: 4px solid #fff; border-left: 4px solid #fff; border-radius: 12px 0 0; cursor: nwse-resize; }
+.visual-search-upload-card--reference .visual-direct-handle.ne { top: -4px; right: -4px; border-top: 4px solid #fff; border-right: 4px solid #fff; border-radius: 0 12px 0 0; cursor: nesw-resize; }
+.visual-search-upload-card--reference .visual-direct-handle.sw { bottom: -4px; left: -4px; border-bottom: 4px solid #fff; border-left: 4px solid #fff; border-radius: 0 0 0 12px; cursor: nesw-resize; }
+.visual-search-upload-card--reference .visual-direct-handle.se { right: -4px; bottom: -4px; border-right: 4px solid #fff; border-bottom: 4px solid #fff; border-radius: 0 0 12px; cursor: nwse-resize; }

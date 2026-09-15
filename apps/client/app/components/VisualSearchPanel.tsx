@@ -5,7 +5,7 @@ import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 type Reference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string } | null;
 type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; };
-type DragMode = "move" | "nw" | "ne" | "sw" | "se";
+type DragMode = "create" | "move" | "nw" | "ne" | "sw" | "se";
 type DragState = { mode: DragMode; start: { x: number; y: number }; crop: VisualCrop };
 const fullCrop: VisualCrop = { x: 0, y: 0, width: 1, height: 1 };
 const MIN_CROP = 0.1;
@@ -42,7 +42,18 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
     event.preventDefault();
     uploadFile(event.dataTransfer.files?.[0]);
   };
-  const begin = (event: ReactPointerEvent<HTMLElement>, mode: DragMode) => {
+  const beginNewCrop = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (loading) return;
+    event.preventDefault();
+    const stage = stageRef.current;
+    if (!stage) return;
+    const start = point(event, stage);
+    const initial = { x: start.x, y: start.y, width: MIN_CROP, height: MIN_CROP };
+    stage.setPointerCapture(event.pointerId);
+    cropRef.current = initial;
+    setCrop(initial);
+    dragRef.current = { mode: "create", start, crop: initial };
+  };  const begin = (event: ReactPointerEvent<HTMLElement>, mode: DragMode) => {
     if (loading) return;
     event.preventDefault();
     event.stopPropagation();
@@ -59,7 +70,12 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
     const current = point(event, stage), dx = current.x - active.start.x, dy = current.y - active.start.y;
     const initial = active.crop;
     let left = initial.x, right = initial.x + initial.width, top = initial.y, bottom = initial.y + initial.height;
-    if (active.mode === "move") {
+    if (active.mode === "create") {
+      left = Math.min(active.start.x, current.x); right = Math.max(active.start.x, current.x);
+      top = Math.min(active.start.y, current.y); bottom = Math.max(active.start.y, current.y);
+      if (right - left < MIN_CROP) { right = Math.min(1, left + MIN_CROP); left = Math.max(0, right - MIN_CROP); }
+      if (bottom - top < MIN_CROP) { bottom = Math.min(1, top + MIN_CROP); top = Math.max(0, bottom - MIN_CROP); }
+    } else if (active.mode === "move") {
       left = clamp(initial.x + dx, 0, 1 - initial.width); right = left + initial.width;
       top = clamp(initial.y + dy, 0, 1 - initial.height); bottom = top + initial.height;
     } else {
@@ -81,7 +97,7 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
   if (!reference) return <><section className="visual-search-upload-card" aria-label="Search with an image" onDragOver={event => event.preventDefault()} onDrop={handleDrop} onClick={() => inputRef.current?.click()}><div><b>Search with an image</b><p>Drag and drop an image here, or upload one.</p></div><button type="button" className="visual-primary" onClick={event => { event.stopPropagation(); inputRef.current?.click(); }} disabled={!scope}>Upload image</button></section>{error && <div className="visual-search-error" role="alert"><span>{error}</span></div>}{picker}</>;
   return <section className="visual-search-upload-card visual-search-upload-card--reference" aria-label="Visual search">
     <div className="visual-direct-workspace">
-      <div ref={stageRef} className="visual-direct-stage" onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onDoubleClick={() => { cropRef.current = fullCrop; setCrop(fullCrop); onRetry(); }}>
+      <div ref={stageRef} className="visual-direct-stage" onPointerDown={beginNewCrop} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onDoubleClick={() => { cropRef.current = fullCrop; setCrop(fullCrop); onRetry(); }}>
         <img src={preview || ""} alt="" draggable={false} />
         <button type="button" className="visual-direct-change" onClick={() => inputRef.current?.click()} aria-label="Change image" title="Change image">×</button>
         <div className="visual-direct-crop" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }} onPointerDown={event => begin(event, "move")} role="presentation">
