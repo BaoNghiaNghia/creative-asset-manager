@@ -382,7 +382,7 @@ function AiWorkerToggle({ workers }: { workers: NonNullable<AiOpsDashboardData["
   const control = (kind: "image" | "video", enabled: boolean, paused: boolean | null) => {
     const label = kind === "image" ? "Image" : "Video";
     const action = enabled ? "Tạm dừng pipeline" : "Tiếp tục pipeline";
-    const status = enabled ? "Đang hoạt động" : "Đã tạm dừng";
+
     const unavailable = kind === "video" && enabled && video?.ready === false;
     return (
     <div className="ops-worker-control">
@@ -401,7 +401,7 @@ function AiWorkerToggle({ workers }: { workers: NonNullable<AiOpsDashboardData["
       >
         <i aria-hidden="true" /><b>{pending === kind ? "Đang cập nhật..." : action}</b>
       </button>
-      <small className="ops-worker-pipeline-status">{status}</small>
+
     </div>
     );
   };
