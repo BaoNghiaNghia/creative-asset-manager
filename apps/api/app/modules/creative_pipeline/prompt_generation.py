@@ -47,8 +47,8 @@ def validate_draft(document: Mapping[str, Any], profile: PlatformProfile) -> Pro
         raise ValueError("prompt draft ratios do not match platform profile")
     return PromptDraft(prompt_draft_schema_version=1, outputs=sorted(draft.outputs,key=lambda x: profile.required_aspect_ratios.index(x.aspect_ratio)))
 
-def durable_prompt(*, provider: str, model: str, platform: str, idea_story_version: int, snapshot_id: str, draft: PromptDraft) -> dict[str, Any]:
-    return DurablePrompt(prompt_schema_version=1,prompt_version=1,idea_story_version=idea_story_version,platform=platform,outputs=[PromptOutput(provider=provider,model=model,aspect_ratio=o.aspect_ratio,prompt=o.prompt,generation_parameters={},knowledge_snapshot_id=snapshot_id) for o in draft.outputs]).model_dump(mode="json")
+def durable_prompt(*, provider: str, model: str, platform: str, prompt_version: int, idea_story_version: int, snapshot_id: str, draft: PromptDraft) -> dict[str, Any]:
+    return DurablePrompt(prompt_schema_version=1,prompt_version=prompt_version,idea_story_version=idea_story_version,platform=platform,outputs=[PromptOutput(provider=provider,model=model,aspect_ratio=o.aspect_ratio,prompt=o.prompt,generation_parameters={},knowledge_snapshot_id=snapshot_id) for o in draft.outputs]).model_dump(mode="json")
 
 def assemble_prompt(*, target_provider: str, target_model: str, template_version: str, idea_story: Mapping[str, Any], knowledge_text: str, platform: PlatformProfile) -> str:
     context=json.dumps({"template_version":template_version,"target_provider":target_provider,"target_model":target_model,"platform":platform.platform,"required_aspect_ratios":list(platform.required_aspect_ratios),"idea_story":idea_story,"knowledge":knowledge_text},ensure_ascii=False,sort_keys=True,separators=(",",":"))

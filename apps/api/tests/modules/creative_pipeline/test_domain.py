@@ -13,6 +13,8 @@ from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
 from app.modules.creative_pipeline.constants import ArtifactType, CreativePlatform, NodeRunStatus, NodeType
 from app.modules.creative_pipeline.model import ArtifactModel, GenerationRunModel, ListingTaskModel, NodeRunModel, PipelineRunModel, SourceGroupModel
 from app.modules.creative_pipeline.repository import CreativePipelineRepository
+from app.modules.creative_pipeline.artifacts import ArtifactService
+from app.modules.creative_pipeline.lineage import CreativePipelineLineageError, CreativePipelineLineageResolver
 
 
 def _session():
@@ -83,10 +85,10 @@ def test_pipeline_runs_and_generation_numbers_are_unique():
             session.flush()
             session.add(PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id, run_number=2, trigger_type="manual"))
             session.flush()
-            session.add(GenerationRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=run.id, provider="seedance", model="seedance-2.5", aspect_ratio="1:1", generation_number=1))
+            session.add(GenerationRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=run.id, listing_task_id=listing.id, provider="seedance", model="seedance-2.5", aspect_ratio="1:1", generation_number=1))
             session.flush()
             with pytest.raises(IntegrityError):
-                session.add(GenerationRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=run.id, provider="seedance", model="seedance-2.5", aspect_ratio="1:1", generation_number=1))
+                session.add(GenerationRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=run.id, listing_task_id=listing.id, provider="seedance", model="seedance-2.5", aspect_ratio="1:1", generation_number=1))
                 session.flush()
     finally:
         engine.dispose()
@@ -136,7 +138,7 @@ def test_generation_aspect_ratios_and_artifact_lineage(ratio):
             run = PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id, run_number=1, trigger_type="discovery")
             session.add(run)
             session.flush()
-            generation = GenerationRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=run.id, provider="seedance", model="seedance-2.5", aspect_ratio=ratio, generation_number=1)
+            generation = GenerationRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=run.id, listing_task_id=listing.id, provider="seedance", model="seedance-2.5", aspect_ratio=ratio, generation_number=1)
             session.add(generation)
             session.flush()
             artifact = ArtifactModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id, pipeline_run_id=run.id, generation_run_id=generation.id, artifact_type=ArtifactType.RAW_VIDEO.value, version=1, relative_path=f"Pipeline/Video Output/{ratio.replace(':', 'x')}/v001.mp4", aspect_ratio=ratio, mime_type="video/mp4", metadata_json={})
@@ -161,5 +163,65 @@ def test_cross_tenant_child_fk_and_repository_scoping():
             _group(session, tenant="tenant-b", source="source-b", folder="b2")
             assert all(item.tenant_id == "tenant-a" for item in repo.list_source_groups("tenant-a"))
             assert repo.list_source_groups("tenant-b")
+    finally:
+        engine.dispose()
+
+def test_input_bundle_allocator_is_retry_stable():
+    engine, sessions = _session()
+    try:
+        session = sessions()
+        listing = _listing(session, _group(session))
+        run = PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id, run_number=1, trigger_type="manual")
+        node = NodeRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=run.id, node_type=NodeType.INPUT_DATA.value, status=NodeRunStatus.READY.value)
+        session.add(run); session.flush(); session.add(node); session.flush()
+        service = ArtifactService(session)
+        first_version, first = service.reserve_input_bundle(tenant_id="tenant-a", pipeline_run_id=run.id, node_run_id=node.id)
+        second_version, second = service.reserve_input_bundle(tenant_id="tenant-a", pipeline_run_id=run.id, node_run_id=node.id)
+        assert first_version == second_version == 1
+        assert {key: value.id for key, value in first.items()} == {key: value.id for key, value in second.items()}
+        session.commit()
+    finally:
+        engine.dispose()
+
+
+def test_lineage_resolver_prefers_parent_and_rejects_cycles():
+    engine, sessions = _session()
+    try:
+        session = sessions()
+        listing = _listing(session, _group(session))
+        parent = PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id, run_number=1, trigger_type="manual")
+        session.add(parent); session.flush()
+        node = NodeRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=parent.id, node_type=NodeType.INPUT_DATA.value, status=NodeRunStatus.READY.value)
+        session.add(node); session.flush()
+        artifact = ArtifactService(session).reserve_artifact(tenant_id="tenant-a", pipeline_run_id=parent.id, node_run_id=node.id, artifact_type=ArtifactType.INPUT_SNAPSHOT, version=1)
+        artifact.status = "available"
+        child = PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id, parent_run_id=parent.id, branch_start_node=NodeType.IDEA_STORY.value, run_number=2, trigger_type="regenerate")
+        session.add(child); session.flush()
+        resolver = CreativePipelineLineageResolver(session)
+        assert resolver.effective_input_snapshot(child).id == artifact.id
+        child.parent_run_id = child.id
+        with pytest.raises(CreativePipelineLineageError): resolver.ancestors(child)
+        session.rollback()
+    finally:
+        engine.dispose()
+
+
+def test_prompt_bundle_partial_retry_preserves_version_and_identity():
+    engine, sessions = _session()
+    try:
+        session = sessions()
+        listing = _listing(session, _group(session))
+        run = PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id, run_number=1, trigger_type="manual")
+        session.add(run); session.flush()
+        node = NodeRunModel(id=str(uuid4()), tenant_id="tenant-a", pipeline_run_id=run.id, node_type=NodeType.PROMPT.value, status=NodeRunStatus.READY.value)
+        session.add(node); session.flush()
+        service = ArtifactService(session)
+        version, first = service.reserve_prompt_bundle(tenant_id="tenant-a", pipeline_run_id=run.id, node_run_id=node.id)
+        first["seedance"].status = "available"
+        retry_version, retry = service.reserve_prompt_bundle(tenant_id="tenant-a", pipeline_run_id=run.id, node_run_id=node.id)
+        assert retry_version == version == 1
+        assert retry["seedance"].id == first["seedance"].id
+        assert retry["google_omni"].id == first["google_omni"].id
+        session.commit()
     finally:
         engine.dispose()

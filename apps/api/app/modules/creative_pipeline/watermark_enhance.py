@@ -126,7 +126,7 @@ class WatermarkSmartEnhanceNodeHandler:
                         raw.status = "inconsistent"
                         session.commit()
                         raise exc
-                orch.complete_node(run.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+                orch.complete_node(run.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version=f"generation_{int((raw_rows[0].metadata_json or {}).get('generation_number', 1)):03d}")
                 session.commit()
                 return JobHandlerResult.completed()
             except VideoEnhancementError as exc:

@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.creative_pipeline.model import ArtifactModel, GenerationRunModel
+from app.modules.creative_pipeline.constants import ArtifactType
 from app.modules.creative_pipeline.storage import PipelineStorageError, CreativePipelineStorageGateway
 
 
@@ -84,10 +85,27 @@ class ArtifactService:
             try:
                 return self.reserve_artifact(tenant_id=tenant_id, pipeline_run_id=pipeline_run_id, node_run_id=node_run_id, generation_run_id=generation_run_id, artifact_type=value, version=version, aspect_ratio=aspect_ratio, variant_key=variant_key, relative_path=path)
             except IntegrityError:
-                self.session.rollback()
                 existing = self.session.scalar(existing_stmt)
                 if existing is not None: return existing
         raise PipelineStorageError("artifact_version_allocation_conflict")
+
+    def reserve_input_bundle(self, *, tenant_id, pipeline_run_id, node_run_id):
+        listing_id = self._listing_id(tenant_id, pipeline_run_id)
+        types = (ArtifactType.INPUT_SNAPSHOT.value, ArtifactType.INPUT_MANIFEST.value, ArtifactType.KNOWLEDGE_SNAPSHOT.value)
+        rows = list(self.session.scalars(select(ArtifactModel).where(ArtifactModel.tenant_id == tenant_id, ArtifactModel.pipeline_run_id == pipeline_run_id, ArtifactModel.node_run_id == node_run_id, ArtifactModel.artifact_type.in_(types))))
+        version = rows[0].version if rows else int(self.session.scalar(select(func.max(ArtifactModel.version)).where(ArtifactModel.tenant_id == tenant_id, ArtifactModel.listing_task_id == listing_id, ArtifactModel.artifact_type.in_(types))) or 0) + 1
+        if any(row.version != version for row in rows): raise PipelineStorageError("input_bundle_version_mismatch")
+        result = {}
+        for value in types:
+            result[value] = self.reserve_artifact(tenant_id=tenant_id, pipeline_run_id=pipeline_run_id, node_run_id=node_run_id, artifact_type=value, version=version)
+        return version, result
+
+    def reserve_prompt_bundle(self, *, tenant_id, pipeline_run_id, node_run_id, variants=("seedance", "google_omni")):
+        listing_id = self._listing_id(tenant_id, pipeline_run_id)
+        rows = list(self.session.scalars(select(ArtifactModel).where(ArtifactModel.tenant_id == tenant_id, ArtifactModel.pipeline_run_id == pipeline_run_id, ArtifactModel.node_run_id == node_run_id, ArtifactModel.artifact_type == ArtifactType.PROMPT.value, ArtifactModel.variant_key.in_(variants))))
+        version = rows[0].version if rows else int(self.session.scalar(select(func.max(ArtifactModel.version)).where(ArtifactModel.tenant_id == tenant_id, ArtifactModel.listing_task_id == listing_id, ArtifactModel.artifact_type == ArtifactType.PROMPT.value)) or 0) + 1
+        if any(row.version != version for row in rows): raise PipelineStorageError("prompt_bundle_version_mismatch")
+        return version, {variant: self.reserve_artifact(tenant_id=tenant_id, pipeline_run_id=pipeline_run_id, node_run_id=node_run_id, artifact_type=ArtifactType.PROMPT, version=version, variant_key=variant) for variant in variants}
 
     def _listing_id(self, tenant_id, run_id):
         from app.modules.creative_pipeline.model import PipelineRunModel

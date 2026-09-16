@@ -9,7 +9,8 @@ from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.creative_pipeline.artifacts import ArtifactService
 from app.modules.creative_pipeline.constants import ArtifactType, NodeType, ListingTaskStatus
-from app.modules.creative_pipeline.model import ListingTaskModel, NodeRunModel, PipelineRunModel, SourceGroupModel
+from app.modules.creative_pipeline.model import ArtifactModel, ListingTaskModel, NodeRunModel, PipelineRunModel, SourceGroupModel
+from app.modules.creative_pipeline.lineage import CreativePipelineLineageResolver
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator, CREATIVE_PIPELINE_ENTITY_TYPE
 from app.modules.creative_pipeline.knowledge import KnowledgeLoader, KnowledgePackError, KnowledgeStage
 from app.modules.creative_pipeline.storage import PipelineStorageError, PipelineStorageUnsupported, ensure_pipeline_structure
@@ -109,7 +110,7 @@ class CreativePipelineNodeHandler:
             "captured_at": datetime.now(timezone.utc).isoformat(),
         }
         artifacts = ArtifactService(session)
-        bundle_version = int(session.scalar(select(func.max(ArtifactModel.version)).where(ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.listing_task_id == listing.id, ArtifactModel.artifact_type.in_([ArtifactType.INPUT_SNAPSHOT.value, ArtifactType.INPUT_MANIFEST.value, ArtifactType.KNOWLEDGE_SNAPSHOT.value]))) or 0) + 1
+        bundle_version, bundle = artifacts.reserve_input_bundle(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id)
         snapshot_artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.INPUT_SNAPSHOT, version=bundle_version)
         manifest_artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.INPUT_MANIFEST, version=bundle_version)
         input_folder = next(item for item in await gateway.list_children(pipeline.id) if item.name == "Input" and item.kind == "folder")
@@ -117,7 +118,7 @@ class CreativePipelineNodeHandler:
         manifest_artifact._artifact_parent_id = input_folder.id
         snapshot_done = await artifacts.materialize_json(snapshot_artifact, gateway, snapshot)
         manifest = {
-            "schema_version": 1, "input_snapshot_version": 1, "input_snapshot_sha256": snapshot_done.content_hash,
+            "schema_version": 1, "input_snapshot_version": bundle_version, "input_snapshot_sha256": snapshot_done.content_hash,
             "source_asset_count": len(snapshot["source_assets"]), "ugc_asset_count": len(snapshot["ugc_macro_video_assets"]),
             "source_folder_id": source_folders[0].id, "ugc_folder_id": ugc_folders[0].id if ugc_folders else None,
             "required_aspect_ratios": ratios, "captured_at": snapshot["captured_at"],
@@ -152,7 +153,7 @@ class CreativePipelineNodeHandler:
                 run.knowledge_snapshot_id = snapshot.snapshot_id
         except KnowledgePackError as exc:
             raise PipelineStorageError(str(exc)) from exc
-        orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+        orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version=f"v{bundle_version:03d}")
         session.commit()
         return JobHandlerResult.completed()
 
@@ -209,23 +210,21 @@ class CreativePipelineNodeHandler:
 
     async def _generate_idea_story(self, session, orch, node, run, listing, gateway, registry, context):
         from app.modules.creative_pipeline.model import ArtifactModel
+        from app.modules.creative_pipeline.lineage import CreativePipelineLineageResolver
         artifacts = ArtifactService(session)
-        input_artifact = session.scalar(select(ArtifactModel).where(
-            ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.pipeline_run_id == run.id,
-            ArtifactModel.artifact_type == ArtifactType.INPUT_SNAPSHOT.value, ArtifactModel.version == 1,
-            ArtifactModel.status == "available"))
+        input_artifact = CreativePipelineLineageResolver(session).effective_input_snapshot(run)
         input_snapshot = await self._read_json_artifact(input_artifact, gateway)
         if not isinstance(input_snapshot, dict) or input_snapshot.get("platform") != listing.platform or input_snapshot.get("listing", {}).get("id") != listing.id:
             raise PipelineStorageError("input_snapshot_lineage_mismatch")
         loader = KnowledgeLoader()
-        durable = await loader.load_run_snapshot(listing.tenant_id, run.id, session, gateway)
+        durable = await loader.load_effective_run_snapshot(listing.tenant_id, run, session, gateway, CreativePipelineLineageResolver(session))
         if run.knowledge_snapshot_id != durable.snapshot_id:
             raise KnowledgePackError("knowledge_snapshot_id_mismatch")
         bundle = loader.bundle_for_stage_from_snapshot(durable, KnowledgeStage.IDEA_STORY)
         ratios = input_snapshot.get("required_aspect_ratios") or []
         prompt = assemble_idea_story_prompt(input_snapshot=input_snapshot, knowledge_text=bundle.combined_text, platform=listing.platform, required_aspect_ratios=ratios)
         prompt_hash = prompt_sha256(prompt)
-        artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.IDEA_STORY, version=(int(session.scalar(select(func.max(ArtifactModel.version)).where(ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.listing_task_id == listing.id, ArtifactModel.artifact_type == ArtifactType.IDEA_STORY.value)) or 0) + 1))
+        artifact = artifacts.reserve_next_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.IDEA_STORY)
         idea_folder = next((item for item in await gateway.list_children(getattr(listing, "pipeline_folder_id", "") or "") if item.name == "Idea Story" and item.kind == "folder"), None)
         if idea_folder is None:
             pipeline = await ensure_pipeline_structure(listing, gateway)
@@ -237,7 +236,7 @@ class CreativePipelineNodeHandler:
             IdeaStory.validate_document(document)
             if any(artifact.metadata_json.get(key) != value for key, value in expected.items()):
                 raise PipelineStorageError("idea_artifact_provenance_mismatch")
-            orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+            orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version=f"v{artifact.version:03d}")
             session.commit()
             return JobHandlerResult.completed()
         staged = (artifact.metadata_json or {}).get("staged_document")
@@ -249,11 +248,11 @@ class CreativePipelineNodeHandler:
             model = (artifact.metadata_json or {}).get("model")
             request_id = (artifact.metadata_json or {}).get("provider_request_id")
             usage = (artifact.metadata_json or {}).get("usage", {})
-            request_key = (artifact.metadata_json or {}).get("request_idempotency_key", f"creative_pipeline:idea_story:{node.id}:v001")
+            request_key = (artifact.metadata_json or {}).get("request_idempotency_key", f"creative_pipeline:idea_story:{node.id}:v{artifact.version:03d}")
         else:
             if context.is_cancelled or context.shutdown_requested.is_set():
                 return JobHandlerResult.cancelled()
-            request_key = f"creative_pipeline:idea_story:{node.id}:v001"
+            request_key = f"creative_pipeline:idea_story:{node.id}:v{artifact.version:03d}"
             result = await provider.generate_structured(AiStructuredTextInput(
                 tenant_id=listing.tenant_id, prompt=prompt, json_schema=idea_story_json_schema(),
                 schema_name=IDEA_STORY_SCHEMA_NAME, idempotency_key=request_key,
@@ -286,7 +285,7 @@ class CreativePipelineNodeHandler:
         artifact.model_provider = provider_name
         artifact.model_name = model
         session.flush()
-        orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+        orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version=f"v{artifact.version:03d}")
         session.commit()
         return JobHandlerResult.completed()
 
@@ -324,19 +323,21 @@ class CreativePipelineNodeHandler:
                     assemble_prompt, durable_prompt, draft_schema, prompt_hash, validate_draft, DurablePrompt,
                 )
                 profile = platform_profile(listing.platform)
-                idea_artifact = session.scalar(select(ArtifactModel).where(ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.pipeline_run_id == run.id, ArtifactModel.artifact_type == ArtifactType.IDEA_STORY.value, ArtifactModel.version == 1, ArtifactModel.status == "available", ArtifactModel.variant_key.is_(None)))
+                idea_artifact = CreativePipelineLineageResolver(session).effective_idea_story(run)
+                if idea_artifact is None: raise PipelineStorageError("idea_artifact_unavailable")
                 idea_doc = await self._read_json_artifact(idea_artifact, gateway)
                 IdeaStory.validate_document(idea_doc)
                 loader = KnowledgeLoader()
-                durable = await loader.load_run_snapshot(listing.tenant_id, run.id, session, gateway)
+                durable = await loader.load_effective_run_snapshot(listing.tenant_id, run, session, gateway, CreativePipelineLineageResolver(session))
                 if durable.snapshot_id != run.knowledge_snapshot_id or (idea_artifact.metadata_json or {}).get("knowledge_snapshot_id") != durable.snapshot_id:
                     raise KnowledgePackError("knowledge_snapshot_id_mismatch")
                 provider = registry.require("openai")
                 pipeline = await ensure_pipeline_structure(listing, gateway)
                 prompt_root = next(item for item in await gateway.list_children(pipeline.id) if item.name == "Prompt" and item.kind == "folder")
                 targets = (("seedance", seedance_model, KnowledgeStage.SEEDANCE_2_5, SEEDANCE_PROMPT_TEMPLATE_VERSION), ("google_omni", omni_model, KnowledgeStage.GOOGLE_OMNI, GOOGLE_OMNI_PROMPT_TEMPLATE_VERSION))
+                prompt_version, prompt_bundle = ArtifactService(session).reserve_prompt_bundle(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id)
                 for target, model, stage, template in targets:
-                    artifact = ArtifactService(session).reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.PROMPT, version=1, variant_key=target)
+                    artifact = prompt_bundle[target]
                     folder = next((x for x in await gateway.list_children(prompt_root.id) if x.name == target and x.kind == "folder"), None)
                     if folder is None:
                         folder = await gateway.create_folder(prompt_root.id, target)
@@ -364,7 +365,7 @@ class CreativePipelineNodeHandler:
                     else:
                         bundle = loader.bundle_for_stage_from_snapshot(durable, stage)
                         prompt = assemble_prompt(target_provider=target, target_model=model, template_version=template, idea_story=idea_doc, knowledge_text=bundle.combined_text, platform=profile)
-                        result = await provider.generate_structured(AiStructuredTextInput(tenant_id=listing.tenant_id, prompt=prompt, json_schema=draft_schema(), schema_name=f"creative_pipeline_{target}_prompt_draft_v1", idempotency_key=f"creative_pipeline:prompt:{node.id}:{target}:v001", preferred_model=getattr(provider, "default_model", None), is_cancelled=lambda: context.is_cancelled or context.shutdown_requested.is_set()))
+                        result = await provider.generate_structured(AiStructuredTextInput(tenant_id=listing.tenant_id, prompt=prompt, json_schema=draft_schema(), schema_name=f"creative_pipeline_{target}_prompt_draft_v1", idempotency_key=f"creative_pipeline:prompt:{node.id}:{target}:v{prompt_version:03d}", preferred_model=getattr(provider, "default_model", None), is_cancelled=lambda: context.is_cancelled or context.shutdown_requested.is_set()))
                         try:
                             draft = validate_draft(result.document, profile)
                         except Exception as first_error:
@@ -375,7 +376,7 @@ class CreativePipelineNodeHandler:
                                     prompt=repair_prompt,
                                     json_schema=draft_schema(),
                                     schema_name=f"creative_pipeline_{target}_prompt_draft_v1",
-                                    idempotency_key=f"creative_pipeline:prompt:{node.id}:{target}:v001:repair:1",
+                                    idempotency_key=f"creative_pipeline:prompt:{node.id}:{target}:v{prompt_version:03d}:repair:1",
                                     preferred_model=getattr(provider, "default_model", None),
                                     is_cancelled=lambda: context.is_cancelled or context.shutdown_requested.is_set(),
                                 )
@@ -383,8 +384,8 @@ class CreativePipelineNodeHandler:
                             repair_count = 1
                             try: draft = validate_draft(repair.document, profile)
                             except Exception as exc: raise PipelineStorageError("prompt_schema_invalid") from exc
-                        durable_doc = durable_prompt(provider=target, model=model, platform=listing.platform, idea_story_version=1, snapshot_id=durable.snapshot_id, draft=draft)
-                        provenance = {**expected, "authoring_provider": result.provider, "authoring_model": result.model, "provider_request_id": result.provider_request_id, "request_idempotency_key": f"creative_pipeline:prompt:{node.id}:{target}:v001", "request_prompt_sha256": prompt_hash(prompt), "repair_count": repair_count, "usage": dict(result.usage), "staged_document": durable_doc}
+                        durable_doc = durable_prompt(provider=target, model=model, platform=listing.platform, prompt_version=prompt_version, idea_story_version=1, snapshot_id=durable.snapshot_id, draft=draft)
+                        provenance = {**expected, "authoring_provider": result.provider, "authoring_model": result.model, "provider_request_id": result.provider_request_id, "request_idempotency_key": f"creative_pipeline:prompt:{node.id}:{target}:v{prompt_version:03d}", "request_prompt_sha256": prompt_hash(prompt), "repair_count": repair_count, "usage": dict(result.usage), "staged_document": durable_doc}
                         artifact.metadata_json = provenance
                         session.commit()
                     if staged is not None:
@@ -394,7 +395,7 @@ class CreativePipelineNodeHandler:
                     artifact.model_name = model
                     artifact.metadata_json = {k:v for k,v in (artifact.metadata_json or {}).items() if k != "staged_document"}
                     session.flush()
-                orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+                orch.complete_node(listing.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version=f"v{prompt_version:03d}")
                 session.commit()
                 return JobHandlerResult.completed()
             except AiProviderError as exc:

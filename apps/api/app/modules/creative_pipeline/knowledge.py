@@ -150,6 +150,8 @@ class KnowledgeLoader:
     def bundle_for_stage_from_snapshot(self,snapshot,stage):
         verified=self.verify_snapshot(snapshot); return self.load_bundle(verified.platform,stage,verified)
 
+    async def load_effective_run_snapshot(self, tenant_id, run, session, gateway, lineage_resolver): sid, owner_id = lineage_resolver.effective_knowledge_snapshot(run); return await self.load_run_snapshot(tenant_id, owner_id, session, gateway) if sid and owner_id else (_ for _ in ()).throw(KnowledgePackError("knowledge snapshot unavailable"))
+
     async def load_run_snapshot(self, tenant_id: str, pipeline_run_id: str, session, gateway) -> KnowledgeSnapshot:
         from sqlalchemy import select
         from app.modules.creative_pipeline.model import ArtifactModel, PipelineRunModel

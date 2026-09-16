@@ -41,6 +41,16 @@ class CreativePipelineLineageResolver:
             if row is not None: return row, owner.id != run.id
         return None, False
 
+    def effective_input_snapshot(self, run): return self.effective_artifact(run, "input_snapshot")
+
+    def effective_knowledge_artifact(self, run): return self.effective_artifact(run, "knowledge_snapshot")
+
+    def effective_idea_story(self, run): return self.effective_artifact(run, "idea_story")
+
+    def effective_prompt(self, run, provider): return self.effective_artifact(run, "prompt", variant_key=provider)
+
+    def is_ancestor_run(self, candidate_run_id, child_run): return any(owner.id == candidate_run_id for owner in self.ancestors(child_run))
+
     def effective_knowledge_snapshot(self, run):
         for owner in self.ancestors(run):
             if owner.knowledge_snapshot_id: return owner.knowledge_snapshot_id, owner.id

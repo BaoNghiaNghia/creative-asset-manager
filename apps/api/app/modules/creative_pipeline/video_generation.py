@@ -9,6 +9,7 @@ from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext
 from app.modules.creative_pipeline.constants import ArtifactType, GenerationRunStatus, NodeType
 from app.modules.creative_pipeline.model import ArtifactModel, GenerationRunModel, ListingTaskModel, PipelineRunModel, SourceGroupModel
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
+from app.modules.creative_pipeline.lineage import CreativePipelineLineageResolver
 from app.modules.creative_pipeline.platforms import platform_profile
 from app.modules.creative_pipeline.prompt_generation import DurablePrompt
 from sqlalchemy import func, select
@@ -208,13 +209,7 @@ class CreativeVideoGenerationExecutor:
             model = self._model(provider)
             if not model:
                 raise VideoGenerationProviderError("Video generation model is not configured.", code="creative_video_generation_config_missing", retryable=False)
-            artifact = session.scalar(select(ArtifactModel).where(
-                ArtifactModel.tenant_id == run.tenant_id,
-                ArtifactModel.listing_task_id == run.listing_task_id,
-                ArtifactModel.artifact_type == ArtifactType.PROMPT.value,
-                ArtifactModel.variant_key == provider,
-                ArtifactModel.status == "available",
-            ))
+            artifact = CreativePipelineLineageResolver(session).effective_prompt(run, provider)
             if artifact is None:
                 raise VideoGenerationProviderError("Prompt artifact is unavailable.", code="prompt_artifact_unavailable", retryable=False)
             document = await self._read_json_artifact(artifact, gateway)
@@ -240,6 +235,7 @@ class CreativeVideoGenerationExecutor:
 
     def _ensure_runs(self, session, run, rows):
         output = []
+        cycle = session.scalar(select(func.max(GenerationRunModel.generation_number)).where(GenerationRunModel.tenant_id == run.tenant_id, GenerationRunModel.pipeline_run_id == run.id)) or (int(session.scalar(select(func.max(GenerationRunModel.generation_number)).where(GenerationRunModel.tenant_id == run.tenant_id, GenerationRunModel.listing_task_id == run.listing_task_id)) or 0) + 1)
         for provider, model, prompt, artifact in rows:
             existing = session.scalar(select(GenerationRunModel).where(
                 GenerationRunModel.tenant_id == run.tenant_id,
@@ -248,19 +244,17 @@ class CreativeVideoGenerationExecutor:
                 GenerationRunModel.provider == provider,
                 GenerationRunModel.model == model,
                 GenerationRunModel.aspect_ratio == prompt.aspect_ratio,
-                GenerationRunModel.generation_number == 1,
             ))
             if existing is None:
                 existing = GenerationRunModel(
                     tenant_id=run.tenant_id, pipeline_run_id=run.id, listing_task_id=run.listing_task_id, prompt_artifact_id=artifact.id,
                     provider=provider, model=model, aspect_ratio=prompt.aspect_ratio,
-                    generation_number=1, status=GenerationRunStatus.PENDING.value,
+                    generation_number=cycle, status=GenerationRunStatus.PENDING.value,
                 )
                 session.add(existing)
                 try:
                     session.flush()
                 except IntegrityError:
-                    session.rollback()
                     existing = session.scalar(select(GenerationRunModel).where(
                         GenerationRunModel.tenant_id == run.tenant_id,
                         GenerationRunModel.pipeline_run_id == run.id,
@@ -268,7 +262,6 @@ class CreativeVideoGenerationExecutor:
                         GenerationRunModel.provider == provider,
                         GenerationRunModel.model == model,
                         GenerationRunModel.aspect_ratio == prompt.aspect_ratio,
-                        GenerationRunModel.generation_number == 1,
                     ))
             output.append((existing, prompt, artifact))
         return output
@@ -326,7 +319,6 @@ class CreativeVideoGenerationExecutor:
                         try:
                             submission = await _maybe(provider.submit(request))
                         except VideoGenerationProviderError as exc:
-                            session.rollback()
                             generation_run = session.get(GenerationRunModel, generation_run.id)
                             if exc.code == "submission_unknown":
                                 return self._defer("creative_generation_submission_recovery_required", str(exc), 120)
@@ -368,7 +360,7 @@ class CreativeVideoGenerationExecutor:
                 if any(item.status == GenerationRunStatus.FAILED.value for item, *_ in generation_runs):
                     return JobHandlerResult.non_retryable("creative_video_generation_failed", "A video generation branch failed.")
                 if all(item.status == GenerationRunStatus.COMPLETED.value for item, *_ in generation_runs):
-                    orch.complete_node(run.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+                    orch.complete_node(run.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version=f"generation_{generation_runs[0][0].generation_number:03d}")
                     session.commit()
                     return JobHandlerResult.completed()
                 return self._defer("creative_video_generation_waiting", "Video generation is waiting.", 30)

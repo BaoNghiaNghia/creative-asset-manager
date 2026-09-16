@@ -7,6 +7,7 @@ from app.modules.creative_pipeline.artifacts import ArtifactService
 from app.modules.creative_pipeline.constants import ArtifactType, GenerationRunStatus
 from app.modules.creative_pipeline.model import ArtifactModel, GenerationRunModel, ListingTaskModel, PipelineRunModel, SourceGroupModel
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
+from app.modules.creative_pipeline.lineage import CreativePipelineLineageResolver
 from app.modules.creative_pipeline.platforms import platform_profile
 from app.modules.creative_pipeline.storage import PipelineStorageError, ensure_pipeline_structure
 from app.modules.creative_pipeline.video_generation import (
@@ -63,11 +64,11 @@ class VideoOutputNodeHandler:
                         prompt_artifact = session.scalar(select(ArtifactModel).where(
                             ArtifactModel.tenant_id == run.tenant_id,
                             ArtifactModel.id == generation.prompt_artifact_id,
-                            ArtifactModel.pipeline_run_id == run.id,
+                            ArtifactModel.listing_task_id == run.listing_task_id,
                             ArtifactModel.artifact_type == ArtifactType.PROMPT.value,
                             ArtifactModel.status == "available",
                         ))
-                        if prompt_artifact is None:
+                        if prompt_artifact is None or not CreativePipelineLineageResolver(session).is_ancestor_run(prompt_artifact.pipeline_run_id, run):
                             return JobHandlerResult.non_retryable("prompt_artifact_provenance_mismatch", "GenerationRun prompt lineage is invalid.")
                         expected.append((ratio, provider, model, generation, prompt_artifact))
                 for ratio, provider, model, generation, prompt_artifact in expected:
@@ -103,7 +104,7 @@ class VideoOutputNodeHandler:
                         "provider_checksum": result.checksum,
                     }
                     session.commit()
-                orch.complete_node(run.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version="v001")
+                orch.complete_node(run.tenant_id, node.id, context.job.id, context.job.lease_owner, output_version=f"generation_{expected[0][3].generation_number:03d}")
                 session.commit()
                 return JobHandlerResult.completed()
             except VideoGenerationProviderError as exc:
