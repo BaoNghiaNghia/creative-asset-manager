@@ -325,7 +325,7 @@
 @media (min-width: 901px) {
   .ops-tabs {
     display:grid;
-    grid-template-columns:repeat(8,minmax(110px,1fr));
+    grid-template-columns:repeat(9,minmax(0,1fr));
     width:100%;
     overflow-x:auto;
     overflow-y:hidden;
