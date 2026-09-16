@@ -20,6 +20,16 @@ def _timestamps():
 
 
 def upgrade():
+    # Alembic's legacy version table is VARCHAR(32), but the CP revisions use
+    # descriptive identifiers longer than 32 characters. Widen it before this
+    # migration completes so Alembic can record the next revision atomically.
+    op.alter_column(
+        "alembic_version",
+        "version_num",
+        existing_type=sa.String(length=32),
+        type_=sa.String(length=255),
+        existing_nullable=False,
+    )
     op.create_table(
         "creative_pipeline_source_groups",
         sa.Column("id", sa.String(36), primary_key=True),
