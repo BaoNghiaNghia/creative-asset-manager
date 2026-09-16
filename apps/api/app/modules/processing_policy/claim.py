@@ -156,7 +156,10 @@ class TenantAwareJobClaimer:
         starvation_cutoff = now - STARVATION_PREVENTION_AGE
         effective_priority = case(
             (
-                ProcessingJobModel.next_attempt_at <= starvation_cutoff,
+                and_(
+                    ProcessingJobModel.next_attempt_at <= starvation_cutoff,
+                    ProcessingJobModel.job_type != "source_asset_download",
+                ),
                 case(
                     (
                         ProcessingJobModel.priority < STARVATION_PREVENTION_PRIORITY,

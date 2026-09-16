@@ -133,6 +133,32 @@ class ProcessingPolicyTest(unittest.TestCase):
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.id, old)
 
+    def test_aged_visual_work_beats_aged_download_backlog_between_fairness_turns(self):
+        self.policy("tenant", total=4, ai=4)
+        visual = self.job(
+            "tenant", "old-visual", kind="visual_index_sync",
+            provider="elasticsearch", scope="search",
+        )
+        download = self.job(
+            "tenant", "old-download", kind="source_asset_download",
+            provider="onedrive", scope="source",
+        )
+        with self.sessions.begin() as session:
+            visual_job = session.get(ProcessingJobModel, visual)
+            visual_job.priority = 0
+            visual_job.next_attempt_at = NOW - timedelta(minutes=16)
+            download_job = session.get(ProcessingJobModel, download)
+            download_job.priority = 15
+            download_job.next_attempt_at = NOW - timedelta(days=2)
+
+        claimed = self.claim(
+            "image-worker", ("visual_index_sync", "source_asset_download"),
+            worker_role="image",
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, visual)
+
     def test_disabled_and_paused_tenants_are_skipped_without_starvation(self):
         self.policy("disabled", enabled=False); self.policy("paused", paused=True); self.policy("enabled")
         self.job("disabled", "a"); self.job("paused", "b"); enabled = self.job("enabled", "c")
