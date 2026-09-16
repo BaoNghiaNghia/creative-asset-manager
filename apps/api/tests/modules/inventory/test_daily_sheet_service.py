@@ -1184,6 +1184,25 @@ def test_scheduler_oriented_snapshot_still_requires_daily_automation_enabled(dai
     with pytest.raises(DailySheetConfigurationError, match="automation is disabled"):
         worker.snapshot_and_reset("tenant-a", date(2030, 8, 9))
 
+def test_lifecycle_history_exposes_stage_error_message(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        session.add(InventoryDailyCarryForwardModel(
+            tenant_id="tenant-a",
+            target_business_date=date(2030, 8, 10),
+            previous_business_date=date(2030, 8, 9),
+            idempotency_key="carry-failed",
+            status="terminal_failure",
+            error_code="previous_day_gemini_not_verified",
+            error_message="The previous Gemini workbook is not verified.",
+        ))
+
+    history = service(daily_sheet_db, FakeGoogle(), datetime(2030, 8, 10, 8, tzinfo=timezone.utc)).lifecycle_history("tenant-a")
+    morning = history["items"][0]["stages"][0]
+    assert morning["status"] == "failed"
+    assert morning["error_code"] == "previous_day_gemini_not_verified"
+    assert morning["error_message"] == "The previous Gemini workbook is not verified."
+
+
 def test_lifecycle_history_derives_current_and_completed_pipeline_without_writes(daily_sheet_db):
     completed_at = datetime(2030, 8, 9, 16, tzinfo=timezone.utc)
     with daily_sheet_db.begin() as session:

@@ -1764,12 +1764,22 @@ info \
 systemctl stop \
   creative-asset-manager-inventory-v41-snapshot.timer \
   creative-asset-manager-inventory-v41-reconcile.timer \
+  creative-asset-manager-inventory-v41-snapshot.service \
+  creative-asset-manager-inventory-v41-reconcile.service \
   || true
 
 
 systemctl disable \
   creative-asset-manager-inventory-v41-snapshot.timer \
   creative-asset-manager-inventory-v41-reconcile.timer \
+  || true
+
+
+# The legacy one-shot units use Restart=on-failure.  Stopping their timers alone
+# does not stop an already-retrying process, which can contend with V5J.
+systemctl reset-failed \
+  creative-asset-manager-inventory-v41-snapshot.service \
+  creative-asset-manager-inventory-v41-reconcile.service \
   || true
 
 

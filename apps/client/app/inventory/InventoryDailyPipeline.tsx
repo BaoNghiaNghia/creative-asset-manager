@@ -9,8 +9,27 @@ function format(value: string | null) { return value ? new Intl.DateTimeFormat("
 function Stage({ stage, onClick, onMenu }: { stage: InventoryLifecycleStage; onClick: () => void; onMenu: (event: MouseEvent<HTMLButtonElement>) => void }) {
   return <button type="button" className={`inventory-pipeline-stage ${stage.status}`} onClick={onClick} onContextMenu={onMenu} title={`${stage.label}: ${stage.status}`}><span aria-hidden="true">{symbols[stage.status]}</span><small>{stage.label.replace(" đầu ngày", "")}</small></button>;
 }
+const errorHints: Record<string, string> = {
+  previous_day_gemini_not_verified: "Reset bị chặn vì Gemini của snapshot ngày trước chưa hoàn tất và chưa được xác minh.",
+  inventory_gemini_transport_error: "Không kết nối được Gemini trong lần xử lý này. Hãy kiểm tra credential và trạng thái provider trước khi chạy lại.",
+};
 function Details({ item, onClose }: { item: InventoryLifecycleHistoryItem; onClose: () => void }) {
-  return <aside className="inventory-pipeline-details" role="dialog" aria-label="Chi tiết tiến trình"><button onClick={onClose} aria-label="Đóng">×</button><h3>{item.business_date}</h3><p>Giai đoạn hiện tại: <b>{labels[item.current_stage] || item.current_stage}</b></p>{item.stages.map((stage) => <dl key={stage.key}><dt>{stage.label} · {stage.status}</dt><dd>Lịch: {stage.scheduled_time || "—"}<br />Bắt đầu: {format(stage.started_at || null)}<br />Hoàn tất: {format(stage.completed_at || null)}{stage.error_code ? <><br />Lỗi: {stage.error_code}</> : null}{stage.run_id ? <><br />Run: {stage.run_id}</> : null}</dd></dl>)}</aside>;
+  return <aside className="inventory-pipeline-details" role="dialog" aria-label="Chi tiết và nhật ký tiến trình">
+    <header><div><span>NHẬT KÝ VẬN HÀNH</span><h3>{item.business_date}</h3><p>Giai đoạn hiện tại: <b>{labels[item.current_stage] || item.current_stage}</b></p></div><button onClick={onClose} aria-label="Đóng">×</button></header>
+    <div className="inventory-pipeline-detail-list">{item.stages.map((stage) => {
+      const message = stage.error_message || (stage.error_code ? errorHints[stage.error_code] : null);
+      return <section key={stage.key} className={"inventory-pipeline-detail-stage " + stage.status}>
+        <div className="inventory-pipeline-detail-stage-title"><span aria-hidden="true">{symbols[stage.status]}</span><div><b>{stage.label}</b><small>{stage.status}</small></div></div>
+        <ol className="inventory-pipeline-log">
+          <li><span>Đã lên lịch</span><time>{stage.scheduled_time || "—"}</time></li>
+          <li><span>Bắt đầu</span><time>{format(stage.started_at || null)}</time></li>
+          <li><span>Hoàn tất</span><time>{format(stage.completed_at || null)}</time></li>
+        </ol>
+        {stage.error_code ? <div className="inventory-pipeline-log-error"><b>Chi tiết lỗi</b><code>{stage.error_code}</code>{message ? <p>{message}</p> : null}</div> : null}
+        {stage.run_id ? <p className="inventory-pipeline-run-id">Run: <code>{stage.run_id}</code></p> : null}
+      </section>;
+    })}</div>
+  </aside>;
 }
 
 export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolean }) {
