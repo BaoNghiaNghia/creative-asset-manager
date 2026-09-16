@@ -15,6 +15,8 @@ from app.modules.creative_pipeline.model import ArtifactModel, GenerationRunMode
 from app.modules.creative_pipeline.repository import CreativePipelineRepository
 from app.modules.creative_pipeline.artifacts import ArtifactService
 from app.modules.creative_pipeline.lineage import CreativePipelineLineageError, CreativePipelineLineageResolver
+from app.modules.creative_pipeline.api_service import CreativePipelineApiService
+from app.modules.authorization.principal import CurrentPrincipal
 
 
 def _session():
@@ -223,5 +225,62 @@ def test_prompt_bundle_partial_retry_preserves_version_and_identity():
         assert retry["seedance"].id == first["seedance"].id
         assert retry["google_omni"].id == first["google_omni"].id
         session.commit()
+    finally:
+        engine.dispose()
+
+
+def test_group_summary_uses_only_latest_run_and_marks_inherited_nodes():
+    engine, sessions = _session()
+    try:
+        session = sessions()
+        group = _group(session)
+        listing_a = _listing(session, group, listing_key="a")
+        listing_b = _listing(session, group, folder="listing-b", listing_key="b")
+        runs = [PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing_a.id, run_number=1, status="completed", trigger_type="manual"), PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing_a.id, run_number=2, status="failed", trigger_type="manual"), PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing_a.id, run_number=3, status="running", trigger_type="manual"), PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing_b.id, run_number=1, status="completed", trigger_type="manual")]
+        session.add_all(runs); session.flush()
+        child = PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing_b.id, parent_run_id=runs[-1].id, run_number=2, status="queued", trigger_type="regenerate", branch_start_node=NodeType.PROMPT.value)
+        session.add(child); session.flush()
+        summary = CreativePipelineApiService(session).group_summary(group)
+        assert summary["current_runs"]["running"] == 1
+        assert summary["current_runs"]["completed"] == 0
+        nodes = CreativePipelineApiService(session).node_summary(child)
+        assert next(row for row in nodes if row["node_type"] == NodeType.INPUT_DATA.value)["inherited"] is True
+        assert next(row for row in nodes if row["node_type"] == NodeType.PROMPT.value)["inherited"] is False
+        session.commit()
+    finally:
+        engine.dispose()
+
+
+def test_branch_run_creation_is_idempotent_after_listing_lock(monkeypatch):
+    class _Orchestrator:
+        def __init__(self, session):
+            self.session = session
+        def initialize_branch(self, *args):
+            return []
+        def schedule_ready_nodes(self, *args):
+            return []
+    monkeypatch.setattr(
+        "app.modules.creative_pipeline.api_service.CreativePipelineOrchestrator",
+        _Orchestrator,
+    )
+    engine, sessions = _session()
+    try:
+        session = sessions()
+        listing = _listing(session, _group(session))
+        principal = CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="member-a",
+            external_identity=None, effective_roles=frozenset({"tenant_admin"}),
+            effective_permissions=frozenset(), platform_admin=False,
+            session_id="session-a", authorization_source="test",
+        )
+        service = CreativePipelineApiService(session)
+        first = service.create_branch_run(principal, listing, "run", "operator-key")
+        repeated = service.create_branch_run(principal, listing, "run", "operator-key")
+        assert repeated.id == first.id
+        assert first.run_number == 1
+        assert len(session.scalars(select(PipelineRunModel).where(
+            PipelineRunModel.tenant_id == "tenant-a",
+            PipelineRunModel.listing_task_id == listing.id,
+        )).all()) == 1
     finally:
         engine.dispose()

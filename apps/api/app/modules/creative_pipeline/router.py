@@ -73,7 +73,7 @@ def start_initial_run(listing_id: str, session: Session = Depends(get_db), princ
     service=svc(session); listing, group=service.require_listing(principal, listing_id)
     if listing is None: return not_found()
     run=service._current_run(principal.active_tenant_id, listing.id)
-    if run is None or run.run_number != 1:
+    if listing.status != "active" or run is None or run.run_number != 1:
         raise HTTPException(409, detail={"code":"creative_pipeline_initial_run_unavailable","message":"Initial discovery run is unavailable."})
     if run.status != "queued":
         return _branch_response(service, run)
@@ -95,7 +95,7 @@ def _create_branch(listing_id, action, idempotency_key, session, principal):
         session.rollback(); raise HTTPException(409, detail={"code":"creative_pipeline_active_run_exists","message":"A pipeline run is already active."}) from exc
     except ValueError as exc:
         session.rollback(); code=str(exc)
-        status=409 if code in {"creative_pipeline_idempotency_conflict","effective_input_unavailable","effective_idea_unavailable","effective_prompt_unavailable","invalid_idempotency_key","listing_source_unavailable"} else 400
+        status=409 if code in {"creative_pipeline_idempotency_conflict","effective_input_unavailable","effective_idea_unavailable","effective_prompt_unavailable","invalid_idempotency_key","listing_source_unavailable","parent_run_required"} else 400
         raise HTTPException(status, detail={"code":code,"message":"The requested pipeline branch is unavailable."}) from exc
     return _branch_response(service, run)
 

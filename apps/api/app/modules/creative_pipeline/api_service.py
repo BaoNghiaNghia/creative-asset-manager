@@ -3,6 +3,7 @@ import re
 from collections import Counter
 from datetime import datetime
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.authorization.principal import CurrentPrincipal, is_pure_viewer
 from app.modules.creative_pipeline.constants import NodeType
@@ -14,7 +15,7 @@ from app.modules.creative_pipeline.model import (
 from app.modules.creative_pipeline.platforms import platform_profile
 from app.modules.creative_pipeline.repository import CreativePipelineRepository
 from app.modules.creative_pipeline.constants import PipelineRunStatus, PipelineTriggerType
-from app.modules.creative_pipeline.orchestrator import CreativePipelineStateError
+from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator, CreativePipelineStateError
 
 NODE_TYPES = tuple(node.value for node in (
     NodeType.INPUT_DATA, NodeType.IDEA_STORY, NodeType.PROMPT,
@@ -26,6 +27,7 @@ SAFE_METADATA = frozenset({
     "raw_content_hash", "enhancement_policy_version", "enhancement_engine",
     "enhancement_engine_version",
 })
+NODE_TYPE_INDEX = {node_type: index for index, node_type in enumerate(NODE_TYPES)}
 STATUS_KEYS = ("queued", "running", "retrying", "blocked", "failed", "completed", "cancelled")
 
 def _safe_text(value, limit=1000):
@@ -88,7 +90,8 @@ class CreativePipelineApiService:
         result = []
         for node_type in NODE_TYPES:
             row = rows.get(node_type)
-            result.append({"id": row.id if row else None, "node_type": node_type,
+            inherited = bool(run.branch_start_node and NODE_TYPE_INDEX[node_type] < NODE_TYPE_INDEX[run.branch_start_node])
+            result.append({"id": row.id if row else None, "node_type": node_type, "inherited": inherited,
                 "status": row.status if row else "not_initialized", "attempt_count": row.attempt_count if row else 0,
                 "max_attempts": row.max_attempts if row else None, "next_retry_at": row.next_retry_at if row else None,
                 "output_version": row.output_version if row else None, "last_error_code": _safe_text(row.last_error_code,100) if row else None,
@@ -133,8 +136,10 @@ class CreativePipelineApiService:
 
     def group_summary(self, group):
         listings = list(self.session.scalars(select(ListingTaskModel).where(ListingTaskModel.tenant_id == group.tenant_id, ListingTaskModel.source_group_id == group.id)))
-        runs = self.session.scalars(select(PipelineRunModel).where(PipelineRunModel.tenant_id == group.tenant_id, PipelineRunModel.listing_task_id.in_([x.id for x in listings]))).all() if listings else []
-        counts = Counter(row.status for row in runs)
+        runs = self.session.scalars(select(PipelineRunModel).where(PipelineRunModel.tenant_id == group.tenant_id, PipelineRunModel.listing_task_id.in_([x.id for x in listings])).order_by(PipelineRunModel.listing_task_id, PipelineRunModel.run_number.desc())).all() if listings else []
+        latest = {}
+        for row in runs: latest.setdefault(row.listing_task_id, row)
+        counts = Counter(row.status for row in latest.values())
         return {"id": group.id, "platform": group.platform, "name": group.name, "active": group.active,
             "scan_enabled": group.scan_enabled, "last_scan_at": group.last_scan_at,
             "last_successful_scan_at": group.last_successful_scan_at, "listing_count": len(listings),
@@ -185,6 +190,15 @@ class CreativePipelineApiService:
         key = str(idempotency_key).strip()
         if not key or len(key) > 255:
             raise ValueError("invalid_idempotency_key")
+        # PostgreSQL serializes branch allocation per listing. Repeat the
+        # idempotency lookup after acquiring the lock to close request races.
+        locked_listing = self.session.scalar(select(ListingTaskModel).where(
+            ListingTaskModel.tenant_id == principal.active_tenant_id,
+            ListingTaskModel.id == listing.id,
+        ).with_for_update())
+        if locked_listing is None:
+            raise ValueError("listing_source_unavailable")
+        listing = locked_listing
         existing = self.session.scalar(select(PipelineRunModel).where(
             PipelineRunModel.tenant_id == principal.active_tenant_id,
             PipelineRunModel.listing_task_id == listing.id,
@@ -197,11 +211,13 @@ class CreativePipelineApiService:
                 raise ValueError("creative_pipeline_idempotency_conflict")
             return existing
         current = self._current_run(principal.active_tenant_id, listing.id)
+        if action != "run" and current is None: raise ValueError("parent_run_required")
         if current is not None and current.status not in {"completed", "failed", "cancelled"}:
             raise CreativePipelineStateError("creative_pipeline_active_run_exists")
         if listing.status != "active":
             raise ValueError("listing_source_unavailable")
         from app.modules.creative_pipeline.lineage import CreativePipelineLineageResolver
+        resolver = CreativePipelineLineageResolver(self.session)
         if action == "regenerate-idea" and current is not None:
             resolver=CreativePipelineLineageResolver(self.session)
             if resolver.effective_artifact(current, "input_snapshot") is None or resolver.effective_knowledge_snapshot(current)[0] is None: raise ValueError("effective_input_unavailable")
@@ -212,10 +228,24 @@ class CreativePipelineApiService:
             resolver=CreativePipelineLineageResolver(self.session)
             if not all(resolver.effective_prompt_artifacts(current)): raise ValueError("effective_prompt_unavailable")
         run_number = (self.session.scalar(select(func.max(PipelineRunModel.run_number)).where(PipelineRunModel.tenant_id==principal.active_tenant_id, PipelineRunModel.listing_task_id==listing.id)) or 0) + 1
-        run = PipelineRunModel(tenant_id=principal.active_tenant_id, listing_task_id=listing.id, run_number=run_number,
-            status="queued", trigger_type=PipelineTriggerType.REGENERATE.value if action != "run" else PipelineTriggerType.MANUAL.value,
-            triggered_by=principal.actor_id, parent_run_id=current.id if current else None, branch_start_node=branch, operator_idempotency_key=key)
-        self.session.add(run); self.session.flush()
+        try:
+            with self.session.begin_nested():
+                run = PipelineRunModel(tenant_id=principal.active_tenant_id, listing_task_id=listing.id, run_number=run_number,
+                    status="queued", trigger_type=PipelineTriggerType.REGENERATE.value if action != "run" else PipelineTriggerType.MANUAL.value,
+                    triggered_by=principal.actor_id, parent_run_id=current.id if current else None, branch_start_node=branch, operator_idempotency_key=key, knowledge_snapshot_id=(resolver.effective_knowledge_snapshot(current)[0] if action != "run" else None))
+                self.session.add(run)
+                self.session.flush()
+        except IntegrityError:
+            existing = self.session.scalar(select(PipelineRunModel).where(
+                PipelineRunModel.tenant_id == principal.active_tenant_id,
+                PipelineRunModel.listing_task_id == listing.id,
+                PipelineRunModel.operator_idempotency_key == key,
+            ))
+            if existing is not None:
+                if existing.branch_start_node != branch:
+                    raise ValueError("creative_pipeline_idempotency_conflict")
+                return existing
+            raise
         orch=CreativePipelineOrchestrator(self.session)
         orch.initialize_branch(principal.active_tenant_id, run.id, branch, current.id if current else None)
         orch.schedule_ready_nodes(principal.active_tenant_id, run.id)
