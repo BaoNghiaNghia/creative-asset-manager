@@ -109,6 +109,30 @@ class ProcessingPolicyTest(unittest.TestCase):
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.id, download)
 
+    def test_due_job_is_not_starved_by_continuous_high_priority_work(self):
+        self.policy("tenant", total=4, ai=4)
+        old = self.job(
+            "tenant", "old-visual", kind="visual_index_sync",
+            provider="elasticsearch", scope="search",
+        )
+        fresh = self.job(
+            "tenant", "fresh-visual", kind="visual_index_sync",
+            provider="elasticsearch", scope="search",
+        )
+        with self.sessions.begin() as session:
+            old_job = session.get(ProcessingJobModel, old)
+            old_job.priority = 0
+            old_job.created_at = NOW - timedelta(minutes=16)
+            old_job.next_attempt_at = NOW - timedelta(minutes=16)
+            session.get(ProcessingJobModel, fresh).priority = 20
+
+        claimed = self.claim(
+            "image-worker", ("visual_index_sync",), worker_role="image",
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, old)
+
     def test_disabled_and_paused_tenants_are_skipped_without_starvation(self):
         self.policy("disabled", enabled=False); self.policy("paused", paused=True); self.policy("enabled")
         self.job("disabled", "a"); self.job("paused", "b"); enabled = self.job("enabled", "c")

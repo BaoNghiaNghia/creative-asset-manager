@@ -32,6 +32,12 @@ AI_MODEL_SLOT_PAYLOAD_KEY = "_ai_model_start_slot"
 AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE = "ai_analysis_model_gate_unresolvable"
 _ANALYSIS_MODEL_GATE_UNRESOLVABLE = object()
 
+# Keep a sustained stream of newly-created high-priority jobs from starving
+# already-due work forever. Fifteen minutes preserves the normal new-content
+# priority while bounding the wait for backlog.
+STARVATION_PREVENTION_AGE = timedelta(minutes=15)
+STARVATION_PREVENTION_PRIORITY = 20
+
 STAGE_POLICY = {
     "source_sync": "source_sync_enabled",
     "source_asset_download": "download_enabled",
@@ -78,10 +84,10 @@ class TenantAwareJobClaimer:
                 worker_role=worker_role,
             )
             candidate = self._next_candidate(
-                eligibility, preferred_job_types=preferred_job_types,
+                eligibility, now=now, preferred_job_types=preferred_job_types,
             )
             if candidate is None and preferred_job_types:
-                candidate = self._next_candidate(eligibility)
+                candidate = self._next_candidate(eligibility, now=now)
             if candidate is None:
                 return None
 
@@ -141,16 +147,31 @@ class TenantAwareJobClaimer:
             return claimed
 
     def _next_candidate(
-        self, eligibility, *, preferred_job_types: tuple[str, ...] = (),
+        self, eligibility, *, now: datetime,
+        preferred_job_types: tuple[str, ...] = (),
     ) -> ProcessingJobModel | None:
         conditions = [eligibility]
         if preferred_job_types:
             conditions.append(ProcessingJobModel.job_type.in_(preferred_job_types))
+        starvation_cutoff = now - STARVATION_PREVENTION_AGE
+        effective_priority = case(
+            (
+                ProcessingJobModel.next_attempt_at <= starvation_cutoff,
+                case(
+                    (
+                        ProcessingJobModel.priority < STARVATION_PREVENTION_PRIORITY,
+                        STARVATION_PREVENTION_PRIORITY,
+                    ),
+                    else_=ProcessingJobModel.priority,
+                ),
+            ),
+            else_=ProcessingJobModel.priority,
+        )
         statement = (
             select(ProcessingJobModel)
             .where(*conditions)
             .order_by(
-                ProcessingJobModel.priority.desc(),
+                effective_priority.desc(),
                 ProcessingJobModel.next_attempt_at,
                 ProcessingJobModel.created_at,
             )
