@@ -134,6 +134,9 @@ class CreativePipelineDiscoveryScanner:
                         last_scan_at=now,
                     )
                     self.session.add(group)
+                    # SourceGroup's UUID is assigned by the flush, and its child
+                    # ListingTask stores that ID as a scalar foreign key.
+                    self.session.flush()
                     result.groups_created += 1
                 else:
                     group.platform = parsed.platform.value
