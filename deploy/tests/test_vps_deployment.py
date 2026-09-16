@@ -12,6 +12,7 @@ FRONTEND = SCRIPTS / "deploy-cam-frontend.sh"
 BACKEND = SCRIPTS / "cam-rebuild-backend.sh"
 COMPOSE = ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml"
 IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker.service"
+SECONDARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-2.service"
 VIDEO_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
 
 
@@ -63,6 +64,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             '$label is healthy (attempt $attempt/30)',
             "creative-asset-manager-api.service",
             "creative-asset-manager-image-worker.service",
+            "creative-asset-manager-image-worker-2.service",
             "creative-asset-manager-video-worker.service",
             "Preparing persistent isolated visual encoder runtime",
             "VISUAL_ENCODER_RUNTIME_DIR",
@@ -88,6 +90,9 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
 
     def test_worker_units_have_exclusive_roles(self) -> None:
         self.assertIn("WORKER_ROLE=image", IMAGE_UNIT.read_text())
+        self.assertIn("WORKER_ROLE=image", SECONDARY_IMAGE_UNIT.read_text())
+        self.assertIn("WORKER_ID=creativeasset-image-secondary", SECONDARY_IMAGE_UNIT.read_text())
+        self.assertIn("WORKER_HEALTH_PORT=8083", SECONDARY_IMAGE_UNIT.read_text())
         self.assertIn("WORKER_ROLE=video", VIDEO_UNIT.read_text())
 
     def test_scripts_have_valid_shell_syntax(self) -> None:
