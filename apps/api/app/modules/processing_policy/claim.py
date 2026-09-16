@@ -36,7 +36,7 @@ _ANALYSIS_MODEL_GATE_UNRESOLVABLE = object()
 # already-due work forever. Fifteen minutes preserves the normal new-content
 # priority while bounding the wait for backlog.
 STARVATION_PREVENTION_AGE = timedelta(minutes=15)
-STARVATION_PREVENTION_PRIORITY = 20
+STARVATION_PREVENTION_PRIORITY = 50
 
 STAGE_POLICY = {
     "source_sync": "source_sync_enabled",

@@ -124,7 +124,7 @@ class ProcessingPolicyTest(unittest.TestCase):
             old_job.priority = 0
             old_job.created_at = NOW - timedelta(minutes=16)
             old_job.next_attempt_at = NOW - timedelta(minutes=16)
-            session.get(ProcessingJobModel, fresh).priority = 20
+            session.get(ProcessingJobModel, fresh).priority = 40
 
         claimed = self.claim(
             "image-worker", ("visual_index_sync",), worker_role="image",
