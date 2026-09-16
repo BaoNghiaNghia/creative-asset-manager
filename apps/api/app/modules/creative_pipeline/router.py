@@ -12,10 +12,12 @@ from app.modules.creative_pipeline.model import (
 )
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator, CreativePipelineStateError
 from app.modules.creative_pipeline.canary import ENTITY_TYPE
+from app.modules.creative_pipeline.observability import CreativePipelineObservabilityService
 from app.modules.processing.model import ProcessingJobModel
 
 router = APIRouter(prefix="/api/v1/creative-pipeline", tags=["creative-pipeline"])
 READ = require_permission("assets.read")
+OPERATIONS_READ = require_permission("ai_operations.read")
 MUTATE = require_permission("assets.generate")
 
 def not_found():
@@ -38,6 +40,11 @@ def canary_status(session: Session = Depends(get_db), principal: CurrentPrincipa
         ProcessingJobModel.entity_type == ENTITY_TYPE,
     ).order_by(ProcessingJobModel.created_at.desc()).limit(1))
     return {"enabled": bool(settings.CREATIVE_PIPELINE_CANARY_ENABLED), "root_folder_id": settings.CREATIVE_PIPELINE_CANARY_ROOT_FOLDER_ID.strip() or None, "timezone": settings.CREATIVE_PIPELINE_CANARY_TIMEZONE, "scan_hour": settings.CREATIVE_PIPELINE_CANARY_SCAN_HOUR, "max_active_runs": settings.CREATIVE_PIPELINE_CANARY_MAX_ACTIVE_RUNS, "latest_job": None if job is None else {"id": job.id, "status": job.status, "attempt_count": job.attempt_count, "last_error_code": job.last_error_code, "created_at": job.created_at, "updated_at": job.updated_at}}
+
+@router.get("/diagnostics")
+def diagnostics(session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(OPERATIONS_READ)):
+    """Bounded Operations data for the active tenant; no provider secrets or writes."""
+    return CreativePipelineObservabilityService(session).snapshot(principal.active_tenant_id)
 
 @router.get("/groups")
 def groups(session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(READ)):

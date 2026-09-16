@@ -2054,6 +2054,22 @@ Acceptance:
 
 CP-14 covers concurrency/restart recovery. CP-15 covers observability and integration tests. CP-16 covers canary and rollout controls.
 
+### CP-15 - Observability and integration tests (complete)
+
+CP-15 adds the tenant-scoped, read-only endpoint
+`GET /api/v1/creative-pipeline/diagnostics`, protected by
+`ai_operations.read`. It reports durable run, node, Creative Pipeline job,
+scan-job and artifact state, bounded recent error codes, and bounded job-duration
+percentiles. It never returns provider secrets, error messages, source metadata,
+or credentials, and it makes no database or provider mutation.
+
+The diagnostic is derived directly from authoritative PostgreSQL rows, so a
+restart cannot erase the operational state. The focused test matrix proves
+tenant isolation, empty-state behavior, recent-completion windowing, status
+aggregation, bounded duration metrics, failure redaction, route registration,
+and the existing complete Creative Pipeline regression suite.
+
+
 Implement:
 
 ```text
