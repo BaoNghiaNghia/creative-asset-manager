@@ -63,7 +63,6 @@ class WatermarkSmartEnhanceNodeHandler:
                     ArtifactModel.pipeline_run_id == run.id,
                     ArtifactModel.artifact_type == ArtifactType.RAW_VIDEO.value,
                     ArtifactModel.status == "available",
-                    GenerationRunModel.generation_number == 1,
                     GenerationRunModel.status == "completed",
                 )).all()
                 order = {ratio: i for i, ratio in enumerate(platform_profile(listing.platform).required_aspect_ratios)}

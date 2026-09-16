@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.modules.assets.model import ExternalSourceModel
@@ -109,8 +109,9 @@ class CreativePipelineNodeHandler:
             "captured_at": datetime.now(timezone.utc).isoformat(),
         }
         artifacts = ArtifactService(session)
-        snapshot_artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.INPUT_SNAPSHOT, version=1)
-        manifest_artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.INPUT_MANIFEST, version=1)
+        bundle_version = int(session.scalar(select(func.max(ArtifactModel.version)).where(ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.listing_task_id == listing.id, ArtifactModel.artifact_type.in_([ArtifactType.INPUT_SNAPSHOT.value, ArtifactType.INPUT_MANIFEST.value, ArtifactType.KNOWLEDGE_SNAPSHOT.value]))) or 0) + 1
+        snapshot_artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.INPUT_SNAPSHOT, version=bundle_version)
+        manifest_artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.INPUT_MANIFEST, version=bundle_version)
         input_folder = next(item for item in await gateway.list_children(pipeline.id) if item.name == "Input" and item.kind == "folder")
         snapshot_artifact._artifact_parent_id = input_folder.id
         manifest_artifact._artifact_parent_id = input_folder.id
@@ -126,7 +127,7 @@ class CreativePipelineNodeHandler:
         loader = KnowledgeLoader()
         knowledge_artifact = artifacts.reserve_artifact(
             tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id,
-            artifact_type=ArtifactType.KNOWLEDGE_SNAPSHOT, version=1,
+            artifact_type=ArtifactType.KNOWLEDGE_SNAPSHOT, version=bundle_version,
         )
         knowledge_artifact._artifact_parent_id = input_folder.id
         try:
@@ -224,7 +225,7 @@ class CreativePipelineNodeHandler:
         ratios = input_snapshot.get("required_aspect_ratios") or []
         prompt = assemble_idea_story_prompt(input_snapshot=input_snapshot, knowledge_text=bundle.combined_text, platform=listing.platform, required_aspect_ratios=ratios)
         prompt_hash = prompt_sha256(prompt)
-        artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.IDEA_STORY, version=1)
+        artifact = artifacts.reserve_artifact(tenant_id=listing.tenant_id, pipeline_run_id=run.id, node_run_id=node.id, artifact_type=ArtifactType.IDEA_STORY, version=(int(session.scalar(select(func.max(ArtifactModel.version)).where(ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.listing_task_id == listing.id, ArtifactModel.artifact_type == ArtifactType.IDEA_STORY.value)) or 0) + 1))
         idea_folder = next((item for item in await gateway.list_children(getattr(listing, "pipeline_folder_id", "") or "") if item.name == "Idea Story" and item.kind == "folder"), None)
         if idea_folder is None:
             pipeline = await ensure_pipeline_structure(listing, gateway)

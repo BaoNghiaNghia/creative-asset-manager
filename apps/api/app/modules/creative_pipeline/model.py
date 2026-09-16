@@ -92,6 +92,7 @@ class PipelineRunModel(Base):
         UniqueConstraint("tenant_id", "listing_task_id", "run_number", name="uq_cp_runs_listing_number"),
         Index("ix_cp_runs_tenant_parent", "tenant_id", "parent_run_id"),
         Index("uq_cp_runs_tenant_listing_idempotency", "tenant_id", "listing_task_id", "operator_idempotency_key", unique=True, postgresql_where=__import__("sqlalchemy").text("operator_idempotency_key IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("operator_idempotency_key IS NOT NULL")),
+        CheckConstraint("branch_start_node IS NULL OR length(branch_start_node) > 0", name="ck_cp_runs_branch_start_node"),
         CheckConstraint("run_number > 0", name="ck_cp_runs_run_number"),
         CheckConstraint("status IN ('queued', 'running', 'retrying', 'blocked', 'failed', 'completed', 'cancelled')", name="ck_cp_runs_status"),
         CheckConstraint("trigger_type IN ('discovery', 'manual', 'regenerate')", name="ck_cp_runs_trigger"),

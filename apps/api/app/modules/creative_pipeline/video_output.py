@@ -57,7 +57,6 @@ class VideoOutputNodeHandler:
                             GenerationRunModel.provider == provider,
                             GenerationRunModel.model == model,
                             GenerationRunModel.aspect_ratio == ratio,
-                            GenerationRunModel.generation_number == 1,
                         ))
                         if generation is None or generation.status != GenerationRunStatus.COMPLETED.value or not generation.provider_request_id or not generation.prompt_artifact_id:
                             return DeferredJobOutcome("creative_video_generation_incomplete", "Required completed video generation branches are not ready.", self._retry_at(30))
