@@ -14,6 +14,7 @@ from app.modules.creative_pipeline.model import ListingTaskModel, PipelineRunMod
 from app.modules.creative_pipeline.parser import parse_listing_folder_name, parse_source_group_name
 from app.modules.creative_pipeline.provider import ExplorerFolderListingGateway, FolderEntry, FolderListingGateway
 from app.modules.creative_pipeline.repository import CreativePipelineRepository
+from app.modules.creative_pipeline.rollout import CreativePipelineRolloutPolicy
 from app.modules.explorer.tenant_source import TenantSourceResolver
 
 
@@ -55,9 +56,10 @@ def _error_code(exc: Exception) -> str:
 class CreativePipelineDiscoveryScanner:
     """Bounded, read-only provider discovery and tenant-scoped reconciliation."""
 
-    def __init__(self, session: Session, *, page_size: int = 100):
+    def __init__(self, session: Session, *, page_size: int = 100, rollout_policy: CreativePipelineRolloutPolicy | None = None):
         self.session = session
         self.page_size = page_size
+        self.rollout_policy = rollout_policy
         self.repository = CreativePipelineRepository(session)
 
     async def scan(
@@ -207,15 +209,7 @@ class CreativePipelineDiscoveryScanner:
                 )
                 self.session.add(listing)
                 self.session.flush()
-                self.session.add(PipelineRunModel(
-                    tenant_id=tenant_id,
-                    listing_task_id=listing.id,
-                    run_number=1,
-                    status=PipelineRunStatus.QUEUED.value,
-                    trigger_type=PipelineTriggerType.DISCOVERY.value,
-                ))
                 result.listings_created += 1
-                result.pipeline_runs_created += 1
             else:
                 listing.platform = group.platform
                 listing.listing_key = parsed.listing_key
@@ -224,6 +218,26 @@ class CreativePipelineDiscoveryScanner:
                 listing.last_seen_at = now
                 listing.status = ListingTaskStatus.ACTIVE.value
                 result.listings_updated += 1
+            if (
+                self.rollout_policy is None
+                or self.rollout_policy.allows_listing(
+                    tenant_id=tenant_id,
+                    external_source_id=group.external_source_id,
+                    source_group_folder_id=group.external_folder_id,
+                    listing_folder_id=entry.id,
+                )
+            ) and self.session.scalar(select(PipelineRunModel.id).where(
+                PipelineRunModel.tenant_id == tenant_id,
+                PipelineRunModel.listing_task_id == listing.id,
+            ).limit(1)) is None:
+                self.session.add(PipelineRunModel(
+                    tenant_id=tenant_id,
+                    listing_task_id=listing.id,
+                    run_number=1,
+                    status=PipelineRunStatus.QUEUED.value,
+                    trigger_type=PipelineTriggerType.DISCOVERY.value,
+                ))
+                result.pipeline_runs_created += 1
         known = list(self.session.scalars(select(ListingTaskModel).where(
             ListingTaskModel.tenant_id == tenant_id,
             ListingTaskModel.source_group_id == group.id,

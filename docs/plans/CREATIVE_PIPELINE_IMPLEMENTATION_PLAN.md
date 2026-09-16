@@ -2069,6 +2069,20 @@ tenant isolation, empty-state behavior, recent-completion windowing, status
 aggregation, bounded duration metrics, failure redaction, route registration,
 and the existing complete Creative Pipeline regression suite.
 
+### CP-16 - Canary and rollout controls (complete)
+
+CP-16 keeps execution deny-by-default, independently of daily discovery. A
+single rollout policy requires an exact tenant ID, external source ID and Source
+Group folder ID. An optional external listing-folder allowlist narrows the group
+to one or more listings; an empty listing allowlist permits only that exact
+group. Active PipelineRun capacity is bounded per tenant.
+
+Canary discovery may still maintain the source inventory, but creates initial
+PipelineRuns only for an allowed listing. Start, branch generation and retry
+operations enforce the same policy. The canary status endpoint exposes only
+scope counts and capacity, never the allowlisted identifiers. No migration,
+provider call or automatic production enablement is introduced.
+
 
 Implement:
 

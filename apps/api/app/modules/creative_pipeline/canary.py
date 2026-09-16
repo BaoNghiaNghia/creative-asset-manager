@@ -14,6 +14,7 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.creative_pipeline.discovery import CreativePipelineDiscoveryScanner
+from app.modules.creative_pipeline.rollout import CreativePipelineRolloutPolicy
 from app.modules.processing.repository import ProcessingRepository
 
 JOB_TYPE = "creative_pipeline_scan"
@@ -43,8 +44,18 @@ class CreativePipelineCanaryScheduler:
         if not self.enabled or not date:
             return None
         tenant_id = self.settings.AUTH_DEFAULT_TENANT_ID.strip()
+        policy = CreativePipelineRolloutPolicy.from_settings(self.settings)
+        if policy.enabled and tenant_id not in policy.tenant_ids:
+            return None
         with self.session_factory() as session:
-            source = session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.source_type == "google_drive", ExternalSourceModel.status == "active").order_by(ExternalSourceModel.id).limit(1))
+            statement = select(ExternalSourceModel).where(
+                ExternalSourceModel.tenant_id == tenant_id,
+                ExternalSourceModel.source_type == "google_drive",
+                ExternalSourceModel.status == "active",
+            )
+            if policy.enabled:
+                statement = statement.where(ExternalSourceModel.id.in_(policy.external_source_ids))
+            source = session.scalar(statement.order_by(ExternalSourceModel.id).limit(1))
             if source is None:
                 return None
             job = ProcessingRepository(session).create_job(
@@ -87,9 +98,21 @@ class CreativePipelineCanaryScanHandler:
         if not isinstance(source_id, str) or not isinstance(root_id, str) or not root_id:
             return JobHandlerResult.non_retryable("creative_pipeline_scan_payload_invalid", "Google Drive root scan payload is invalid.")
         if context.is_cancelled or context.shutdown_requested.is_set(): return JobHandlerResult.cancelled()
+        policy = CreativePipelineRolloutPolicy.from_settings(settings)
+        if policy.enabled and not policy.allows_source(
+            tenant_id=context.job.tenant_id, external_source_id=source_id,
+        ):
+            return JobHandlerResult.non_retryable(
+                "creative_pipeline_rollout_source_denied",
+                "Creative Pipeline source is outside the configured rollout.",
+            )
         try:
             with context.dependencies.session_factory() as session:
-                result = asyncio.run(CreativePipelineDiscoveryScanner(session).scan_authorized(tenant_id=context.job.tenant_id, external_source_id=source_id, root_folder_id=root_id))
+                scanner = CreativePipelineDiscoveryScanner(session, rollout_policy=policy)
+                asyncio.run(scanner.scan_authorized(
+                    tenant_id=context.job.tenant_id, external_source_id=source_id,
+                    root_folder_id=root_id,
+                ))
             return JobHandlerResult.completed()
         except ValueError as exc:
             return JobHandlerResult.non_retryable("creative_pipeline_scan_source_unavailable", str(exc))

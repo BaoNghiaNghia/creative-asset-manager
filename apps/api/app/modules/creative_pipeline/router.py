@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -13,12 +13,31 @@ from app.modules.creative_pipeline.model import (
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator, CreativePipelineStateError
 from app.modules.creative_pipeline.canary import ENTITY_TYPE
 from app.modules.creative_pipeline.observability import CreativePipelineObservabilityService
+from app.modules.creative_pipeline.rollout import CreativePipelineRolloutPolicy
 from app.modules.processing.model import ProcessingJobModel
 
 router = APIRouter(prefix="/api/v1/creative-pipeline", tags=["creative-pipeline"])
 READ = require_permission("assets.read")
 OPERATIONS_READ = require_permission("ai_operations.read")
 MUTATE = require_permission("assets.generate")
+
+def _require_rollout(listing, group, session, *, creating_run: bool = False):
+    policy = CreativePipelineRolloutPolicy.from_settings(get_settings())
+    code = policy.reason_for_listing(
+        tenant_id=listing.tenant_id, external_source_id=group.external_source_id,
+        source_group_folder_id=group.external_folder_id,
+        listing_folder_id=listing.external_folder_id,
+    )
+    if code is not None:
+        raise HTTPException(409, detail={"code": code, "message": "Creative Pipeline rollout does not allow this listing."})
+    if creating_run:
+        active = int(session.scalar(select(func.count()).select_from(PipelineRunModel).where(
+            PipelineRunModel.tenant_id == listing.tenant_id,
+            PipelineRunModel.status.in_(("queued", "running", "retrying", "blocked")),
+        )) or 0)
+        if active >= policy.max_active_runs:
+            raise HTTPException(409, detail={"code": "creative_pipeline_rollout_capacity_reached", "message": "Creative Pipeline rollout capacity is reached."})
+
 
 def not_found():
     raise HTTPException(404, detail={"code": "creative_pipeline_not_found", "message": "Creative Pipeline resource was not found."})
@@ -39,7 +58,8 @@ def canary_status(session: Session = Depends(get_db), principal: CurrentPrincipa
         ProcessingJobModel.tenant_id == configured_tenant,
         ProcessingJobModel.entity_type == ENTITY_TYPE,
     ).order_by(ProcessingJobModel.created_at.desc()).limit(1))
-    return {"enabled": bool(settings.CREATIVE_PIPELINE_CANARY_ENABLED), "root_folder_id": settings.CREATIVE_PIPELINE_CANARY_ROOT_FOLDER_ID.strip() or None, "timezone": settings.CREATIVE_PIPELINE_CANARY_TIMEZONE, "scan_hour": settings.CREATIVE_PIPELINE_CANARY_SCAN_HOUR, "max_active_runs": settings.CREATIVE_PIPELINE_CANARY_MAX_ACTIVE_RUNS, "latest_job": None if job is None else {"id": job.id, "status": job.status, "attempt_count": job.attempt_count, "last_error_code": job.last_error_code, "created_at": job.created_at, "updated_at": job.updated_at}}
+    rollout = CreativePipelineRolloutPolicy.from_settings(settings)
+    return {"enabled": bool(settings.CREATIVE_PIPELINE_CANARY_ENABLED), "root_folder_id": settings.CREATIVE_PIPELINE_CANARY_ROOT_FOLDER_ID.strip() or None, "timezone": settings.CREATIVE_PIPELINE_CANARY_TIMEZONE, "scan_hour": settings.CREATIVE_PIPELINE_CANARY_SCAN_HOUR, "max_active_runs": settings.CREATIVE_PIPELINE_CANARY_MAX_ACTIVE_RUNS, "rollout": {"enabled": rollout.enabled, "max_active_runs": rollout.max_active_runs, "tenant_scope_count": len(rollout.tenant_ids), "source_scope_count": len(rollout.external_source_ids), "source_group_scope_count": len(rollout.source_group_folder_ids), "listing_scope_count": len(rollout.listing_folder_ids)}, "latest_job": None if job is None else {"id": job.id, "status": job.status, "attempt_count": job.attempt_count, "last_error_code": job.last_error_code, "created_at": job.created_at, "updated_at": job.updated_at}}
 
 @router.get("/diagnostics")
 def diagnostics(session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(OPERATIONS_READ)):
@@ -95,6 +115,7 @@ def start_initial_run(listing_id: str, session: Session = Depends(get_db), princ
     service=svc(session); listing, group=service.require_listing(principal, listing_id)
     if listing is None: return not_found()
     run=service._current_run(principal.active_tenant_id, listing.id)
+    _require_rollout(listing, group, session)
     if listing.status != "active" or run is None or run.run_number != 1:
         raise HTTPException(409, detail={"code":"creative_pipeline_initial_run_unavailable","message":"Initial discovery run is unavailable."})
     if run.status != "queued":
@@ -110,6 +131,7 @@ def start_initial_run(listing_id: str, session: Session = Depends(get_db), princ
 def _create_branch(listing_id, action, idempotency_key, session, principal):
     service=svc(session); listing, group=service.require_listing(principal, listing_id)
     if listing is None: return not_found()
+    _require_rollout(listing, group, session, creating_run=True)
     try:
         run=service.create_branch_run(principal, listing, action, idempotency_key)
         session.commit()
@@ -182,6 +204,7 @@ def retry_node(node_id: str, session: Session = Depends(get_db), principal: Curr
     if row is None: return not_found()
     service = svc(session); run, listing, group = service.require_run(principal, row.pipeline_run_id)
     if run is None: return not_found()
+    _require_rollout(listing, group, session)
     if row.status != NodeRunStatus.RETRY_WAIT.value:
         code = "creative_terminal_node_retry_not_supported" if row.status in {"failed", "completed", "cancelled"} else "creative_node_retry_not_ready"
         raise HTTPException(409, detail={"code": code, "message": "Only retry_wait nodes can be retried."})
