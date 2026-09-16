@@ -186,6 +186,13 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
                 reason_message=str(exc),
                 retry_at=datetime.now(timezone.utc) + timedelta(minutes=1),
             )
+        except TimeoutError:
+            return self._failed(
+                context,
+                RuntimeError("Source download exceeded the configured timeout."),
+                retryable=True,
+                error_code="download_timeout",
+            )
         except OneDriveDownloadError as exc:
             code = f"onedrive_{exc.graph_code or f'http_{exc.status_code}'}"
             return self._failed(

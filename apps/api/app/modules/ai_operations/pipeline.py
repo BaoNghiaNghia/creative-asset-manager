@@ -233,7 +233,9 @@ class PipelineOperationsRepository:
         if not job:
             return None
         filename = self.session.scalar(select(SourceAssetModel.filename).where(SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.id == job.entity_id)) if job.job_type == "source_asset_download" else None
-        labels = {"source_asset_download": "Downloading from Google Drive", "asset_store": "Saving asset content and source linkage", "asset_analyze": "Analyzing metadata", "search_projection_build": "Building searchable metadata", "asset_index": "Indexing document in Elasticsearch"}
+        source_type = self.session.scalar(select(ExternalSourceModel.source_type).join(SourceAssetModel, SourceAssetModel.external_source_id == ExternalSourceModel.id).where(SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.id == job.entity_id, ExternalSourceModel.tenant_id == tenant_id)) if job.job_type == "source_asset_download" else None
+        provider_label = {"google_drive": "Google Drive", "onedrive": "OneDrive", "sharepoint": "SharePoint"}.get(source_type or job.provider_key or "", "source")
+        labels = {"source_asset_download": f"Downloading from {provider_label}", "asset_store": "Saving asset content and source linkage", "asset_analyze": "Analyzing metadata", "search_projection_build": "Building searchable metadata", "asset_index": "Indexing document in Elasticsearch"}
         label = next((value for key, value, _ in PIPELINE_STAGES if key == job.job_type), job.job_type)
         started = self._aware(job.claimed_at or job.updated_at)
         return {"stage": label, "job_type": job.job_type, "status": job.status, "filename": filename, "provider": job.provider_key, "attempt_count": job.attempt_count, "max_attempts": job.max_attempts, "started_at": started, "elapsed_ms": max(0, int((now - started).total_seconds() * 1000)) if started else None, "message": labels.get(job.job_type, "Processing pipeline work")}

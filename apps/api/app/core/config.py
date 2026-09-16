@@ -204,6 +204,7 @@ class Settings(BaseSettings):
     PIPELINE_TEMP_DIRECTORY: str = ""
     PIPELINE_TEMP_GOOGLE_DRIVE_FOLDER_ID: str = ""
     PIPELINE_TEMP_MAX_FILES: int = 2000
+    PIPELINE_DOWNLOAD_TIMEOUT_SECONDS: float = 120.0
     INVENTORY_AUTOMATION_ENABLED: bool = False
     INVENTORY_WORKER_ENABLED: bool = False
     INVENTORY_DRIVE_POLLER_ENABLED: bool = False
@@ -1012,6 +1013,8 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_DRAIN_TIMEOUT_SECONDS cannot be negative")
         if self.WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY < 1:
             raise ValueError("WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY must be positive")
+        if self.PIPELINE_DOWNLOAD_TIMEOUT_SECONDS <= 0:
+            raise ValueError("PIPELINE_DOWNLOAD_TIMEOUT_SECONDS must be positive")
         if not 1 <= self.WORKER_HEALTH_PORT <= 65535:
             raise ValueError("WORKER_HEALTH_PORT must be between 1 and 65535")
         if self.INVENTORY_WORKER_ENABLED and not self.INVENTORY_AUTOMATION_ENABLED:

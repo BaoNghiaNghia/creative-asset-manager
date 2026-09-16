@@ -106,6 +106,19 @@ class SourceAssetDownloadJobHandlerTest(unittest.TestCase):
             self.assertEqual(pipeline.last_error_code, "download_stage_unconfigured")
             self.assertTrue(pipeline.failure_retryable)
 
+    def test_download_timeout_is_retryable_with_stable_error_code(self) -> None:
+        result = SourceAssetDownloadJobHandler(self.settings)(
+            self._context("image/jpeg", FailIfCalledStage(TimeoutError()))
+        )
+
+        self.assertEqual(result.outcome, JobOutcome.RETRYABLE_FAILURE)
+        self.assertEqual(result.error_code, "download_timeout")
+        with self.sessions() as session:
+            pipeline = session.scalar(select(AssetPipelineModel))
+            self.assertEqual(pipeline.state, "download_failed")
+            self.assertEqual(pipeline.last_error_code, "download_timeout")
+            self.assertTrue(pipeline.failure_retryable)
+
     def test_unsupported_google_drive_mime_is_terminal_before_download(self) -> None:
         stage = FailIfCalledStage()
         result = SourceAssetDownloadJobHandler(self.settings)(

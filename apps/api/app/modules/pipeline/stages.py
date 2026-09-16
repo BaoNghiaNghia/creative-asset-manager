@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -35,6 +36,7 @@ class ProviderDownloadStage:
     def __init__(self, session_factory: Callable[[], Session], resolver: PipelineContentResolver, *,
                  max_bytes: int = 25_000_000, max_pixels: int = 80_000_000,
                  temp_directory: str | None = None, max_temp_files: int = 2000,
+                 download_timeout_seconds: float = 120.0,
                  google_drive_temp_folder_id: str | None = None,
                  google_drive_file_counter: Callable[[str, int], Awaitable[int]] | None = None):
         self.session_factory = session_factory
@@ -43,16 +45,25 @@ class ProviderDownloadStage:
         self.max_pixels = max_pixels
         self.temp_directory = temp_directory
         self.max_temp_files = max_temp_files
+        if download_timeout_seconds <= 0:
+            raise ValueError("download_timeout_seconds must be positive")
+        self.download_timeout_seconds = download_timeout_seconds
         self.google_drive_temp_folder_id = google_drive_temp_folder_id
         self.google_drive_file_counter = google_drive_file_counter
 
     async def execute(self, *, tenant_id: str, pipeline: AssetPipelineModel) -> DownloadStageResult:
         path: Path | None = None
         stream: AssetDownloadStream | None = None
-        try:
+
+        async def download() -> DownloadStageResult:
+            nonlocal path, stream
             async with self.resolver.open(tenant_id=tenant_id, pipeline=pipeline) as stream:
-                path, size = await self._bounded_copy(stream.body)
-                mime_type = self._validate(path, stream.content_type, self._source_asset_mime_type(tenant_id, pipeline.source_asset_id))
+                path, _ = await self._bounded_copy(stream.body)
+                mime_type = self._validate(
+                    path,
+                    stream.content_type,
+                    self._source_asset_mime_type(tenant_id, pipeline.source_asset_id),
+                )
             with self.session_factory() as session:
                 source_asset_id = pipeline.source_asset_id
                 if not source_asset_id:
@@ -68,6 +79,9 @@ class ProviderDownloadStage:
                     content_hash=result.asset.content_hash,
                     duplicate=result.reused_asset and (before is None or before.id != result.asset.id),
                 )
+
+        try:
+            return await asyncio.wait_for(download(), timeout=self.download_timeout_seconds)
         finally:
             if stream is not None:
                 await stream.close()

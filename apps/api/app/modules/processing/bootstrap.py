@@ -205,6 +205,7 @@ def build_worker_runtime(
             session_factory, resolver,
             temp_directory=settings.PIPELINE_TEMP_DIRECTORY or None,
             max_temp_files=settings.PIPELINE_TEMP_MAX_FILES,
+            download_timeout_seconds=settings.PIPELINE_DOWNLOAD_TIMEOUT_SECONDS,
             google_drive_temp_folder_id=(
                 settings.PIPELINE_TEMP_GOOGLE_DRIVE_FOLDER_ID or None
             ),

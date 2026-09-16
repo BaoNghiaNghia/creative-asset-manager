@@ -18,6 +18,16 @@ async def _close():
     return None
 
 
+class HangingResolver:
+    @asynccontextmanager
+    async def open(self, *, tenant_id, pipeline):
+        async def body():
+            await asyncio.Event().wait()
+            yield b"unreachable"
+
+        yield AssetDownloadStream(body=body(), close=_close, content_type="image/png")
+
+
 class BytesResolver:
     def __init__(self, content: bytes, content_type: str = "image/png"):
         self.content = content
@@ -78,6 +88,13 @@ class ProviderDownloadStageTest(unittest.TestCase):
             )
             session.commit()
             return pipeline
+
+    def test_download_timeout_cancels_a_stalled_stream(self):
+        pipeline = self.pipeline("onedrive", "onedrive", "stalled", "stalled.heic", "image/heic")
+        with self.assertRaises(asyncio.TimeoutError):
+            asyncio.run(ProviderDownloadStage(
+                self.sessions, HangingResolver(), download_timeout_seconds=0.01,
+            ).execute(tenant_id="tenant-a", pipeline=pipeline))
 
     def test_same_bytes_from_drive_and_sharepoint_reuse_asset(self):
         content = png("red")
