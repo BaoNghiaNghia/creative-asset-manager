@@ -72,6 +72,23 @@ class ProcessingPolicyTest(unittest.TestCase):
                 worker_role=worker_role,
             )
 
+    def test_creative_pipeline_node_obeys_total_cap_and_recovers_expired_lease(self):
+        self.policy("tenant", total=1, ai=1)
+        first = self.job("tenant", "creative-first", kind="creative_pipeline_node", provider="openai", scope="creative_pipeline")
+        second = self.job("tenant", "creative-second", kind="creative_pipeline_node", provider="openai", scope="creative_pipeline")
+        claimed = self.claim("worker-a", ("creative_pipeline_node",))
+        self.assertEqual(claimed.id, first)
+        self.assertIsNone(self.claim("worker-b", ("creative_pipeline_node",)))
+        with self.sessions.begin() as session:
+            job = session.get(ProcessingJobModel, first)
+            job.lease_expires_at = NOW - timedelta(seconds=1)
+        recovered = self.claim("worker-b", ("creative_pipeline_node",))
+        self.assertEqual(recovered.id, first)
+        self.assertEqual(recovered.claimed_by, "worker-b")
+        with self.sessions() as session:
+            policy = session.get(TenantProcessingPolicyModel, "tenant")
+            self.assertEqual(policy.total_active_jobs, 1)
+
     def test_preferred_download_claim_prevents_priority_starvation(self):
         self.policy("tenant", total=4, ai=4)
         download = self.job(

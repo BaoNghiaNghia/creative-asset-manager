@@ -26,7 +26,7 @@ def rate_limit_provider_key(
     return resolve_provider_key(session, settings, tenant_id, provider, **kwargs)
 
 AI_JOB_TYPES = ("asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate")
-SOURCE_JOB_TYPES = ("source_sync", "source_asset_download")
+SOURCE_JOB_TYPES = ("source_sync", "source_asset_download", "creative_pipeline_scan")
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export")
 AI_MODEL_SLOT_PAYLOAD_KEY = "_ai_model_start_slot"
 AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE = "ai_analysis_model_gate_unresolvable"
@@ -53,6 +53,10 @@ STAGE_POLICY = {
     "managed_storage_cleanup": "pipeline_enabled",
     "image_generate": "pipeline_enabled",
     "video_generate": "pipeline_enabled",
+    # Creative Pipeline execution and its catalog scan use the same canonical
+    # tenant pause/total-cap gate as other pipeline work.
+    "creative_pipeline_node": "pipeline_enabled",
+    "creative_pipeline_scan": "pipeline_enabled",
 }
 
 
