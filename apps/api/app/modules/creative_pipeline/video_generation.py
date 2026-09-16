@@ -11,7 +11,7 @@ from app.modules.creative_pipeline.model import ArtifactModel, GenerationRunMode
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator
 from app.modules.creative_pipeline.platforms import platform_profile
 from app.modules.creative_pipeline.prompt_generation import DurablePrompt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 
@@ -210,10 +210,9 @@ class CreativeVideoGenerationExecutor:
                 raise VideoGenerationProviderError("Video generation model is not configured.", code="creative_video_generation_config_missing", retryable=False)
             artifact = session.scalar(select(ArtifactModel).where(
                 ArtifactModel.tenant_id == run.tenant_id,
-                ArtifactModel.pipeline_run_id == run.id,
+                ArtifactModel.listing_task_id == run.listing_task_id,
                 ArtifactModel.artifact_type == ArtifactType.PROMPT.value,
                 ArtifactModel.variant_key == provider,
-                ArtifactModel.version == 1,
                 ArtifactModel.status == "available",
             ))
             if artifact is None:
@@ -245,6 +244,7 @@ class CreativeVideoGenerationExecutor:
             existing = session.scalar(select(GenerationRunModel).where(
                 GenerationRunModel.tenant_id == run.tenant_id,
                 GenerationRunModel.pipeline_run_id == run.id,
+                GenerationRunModel.listing_task_id == run.listing_task_id,
                 GenerationRunModel.provider == provider,
                 GenerationRunModel.model == model,
                 GenerationRunModel.aspect_ratio == prompt.aspect_ratio,
@@ -252,7 +252,7 @@ class CreativeVideoGenerationExecutor:
             ))
             if existing is None:
                 existing = GenerationRunModel(
-                    tenant_id=run.tenant_id, pipeline_run_id=run.id, prompt_artifact_id=artifact.id,
+                    tenant_id=run.tenant_id, pipeline_run_id=run.id, listing_task_id=run.listing_task_id, prompt_artifact_id=artifact.id,
                     provider=provider, model=model, aspect_ratio=prompt.aspect_ratio,
                     generation_number=1, status=GenerationRunStatus.PENDING.value,
                 )
@@ -264,6 +264,7 @@ class CreativeVideoGenerationExecutor:
                     existing = session.scalar(select(GenerationRunModel).where(
                         GenerationRunModel.tenant_id == run.tenant_id,
                         GenerationRunModel.pipeline_run_id == run.id,
+                GenerationRunModel.listing_task_id == run.listing_task_id,
                         GenerationRunModel.provider == provider,
                         GenerationRunModel.model == model,
                         GenerationRunModel.aspect_ratio == prompt.aspect_ratio,

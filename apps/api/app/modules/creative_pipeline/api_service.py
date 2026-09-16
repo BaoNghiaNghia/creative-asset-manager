@@ -13,6 +13,8 @@ from app.modules.creative_pipeline.model import (
 )
 from app.modules.creative_pipeline.platforms import platform_profile
 from app.modules.creative_pipeline.repository import CreativePipelineRepository
+from app.modules.creative_pipeline.constants import PipelineRunStatus, PipelineTriggerType
+from app.modules.creative_pipeline.orchestrator import CreativePipelineStateError
 
 NODE_TYPES = tuple(node.value for node in (
     NodeType.INPUT_DATA, NodeType.IDEA_STORY, NodeType.PROMPT,
@@ -97,7 +99,8 @@ class CreativePipelineApiService:
         nodes = self.node_summary(run)
         generations = self.generation_summaries(run) if include_children else []
         artifacts = self.artifact_summaries(run) if include_children else []
-        return {"id": run.id, "run_number": run.run_number, "trigger_type": run.trigger_type,
+        return {"id": run.id, "run_number": run.run_number, "parent_run_id": run.parent_run_id,
+            "branch_start_node": run.branch_start_node, "trigger_type": run.trigger_type,
             "triggered_by": _safe_text(run.triggered_by,255), "status": run.status,
             "knowledge_snapshot_id": run.knowledge_snapshot_id, "started_at": run.started_at,
             "completed_at": run.completed_at, "created_at": run.created_at, "updated_at": run.updated_at,
@@ -148,7 +151,7 @@ class CreativePipelineApiService:
             "required_aspect_ratios": list(platform_profile(listing.platform).required_aspect_ratios),
             "current_run": self.run_summary(run, listing) if run else None}
         if include_detail:
-            payload["capabilities"] = self.capabilities()
+            payload["capabilities"] = self.listing_capabilities(listing)
             payload["artifact_count"] = self.session.scalar(select(func.count()).select_from(ArtifactModel).where(ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.pipeline_run_id == run.id)) if run else 0
             payload["generation_count"] = self.session.scalar(select(func.count()).select_from(GenerationRunModel).where(GenerationRunModel.tenant_id == listing.tenant_id, GenerationRunModel.pipeline_run_id == run.id)) if run else 0
         return payload
@@ -156,9 +159,67 @@ class CreativePipelineApiService:
     @staticmethod
     def capabilities():
         return {"scan_group": True, "retry_wait_node": True, "cancel_run": True,
-            "start_uninitialized_run": False, "terminal_failed_retry": False,
-            "regenerate_idea": False, "regenerate_prompt": False, "generate_another_video": False,
+            "start_uninitialized_run": False, "start_new_run": False,
+            "terminal_failed_retry": False, "regenerate_idea": False,
+            "regenerate_prompt": False, "generate_another_video": False,
             "retry_failed_enhance": False}
+
+    def listing_capabilities(self, listing):
+        current = self._current_run(listing.tenant_id, listing.id)
+        caps = dict(self.capabilities())
+        if current is None:
+            caps["start_uninitialized_run"] = True
+            return caps
+        caps["start_uninitialized_run"] = current.run_number == 1 and current.status == "queued" and not self.session.scalar(select(NodeRunModel.id).where(NodeRunModel.tenant_id==listing.tenant_id, NodeRunModel.pipeline_run_id==current.id))
+        terminal = current.status in {"completed", "failed", "cancelled"}
+        caps["start_new_run"] = terminal and listing.status == "active"
+        if terminal:
+            from app.modules.creative_pipeline.lineage import CreativePipelineLineageResolver
+            resolver=CreativePipelineLineageResolver(self.session)
+            caps["regenerate_idea"] = resolver.effective_artifact(current, "input_snapshot") is not None and resolver.effective_knowledge_snapshot(current)[0] is not None
+            caps["regenerate_prompt"] = caps["regenerate_idea"] and resolver.effective_artifact(current, "idea_story") is not None
+            caps["generate_another_video"] = caps["regenerate_prompt"] and all(resolver.effective_prompt_artifacts(current))
+        return caps
+
+    def create_branch_run(self, principal, listing, action, idempotency_key):
+        key = str(idempotency_key).strip()
+        if not key or len(key) > 255:
+            raise ValueError("invalid_idempotency_key")
+        existing = self.session.scalar(select(PipelineRunModel).where(
+            PipelineRunModel.tenant_id == principal.active_tenant_id,
+            PipelineRunModel.listing_task_id == listing.id,
+            PipelineRunModel.operator_idempotency_key == key,
+        ))
+        branch = {"run": "input_data", "regenerate-idea": "idea_story", "regenerate-prompt": "prompt", "generate-another-video": "video_generation"}.get(action)
+        if branch is None: raise ValueError("unsupported_branch_action")
+        if existing is not None:
+            if existing.branch_start_node != branch:
+                raise ValueError("creative_pipeline_idempotency_conflict")
+            return existing
+        current = self._current_run(principal.active_tenant_id, listing.id)
+        if current is not None and current.status not in {"completed", "failed", "cancelled"}:
+            raise CreativePipelineStateError("creative_pipeline_active_run_exists")
+        if listing.status != "active":
+            raise ValueError("listing_source_unavailable")
+        from app.modules.creative_pipeline.lineage import CreativePipelineLineageResolver
+        if action == "regenerate-idea" and current is not None:
+            resolver=CreativePipelineLineageResolver(self.session)
+            if resolver.effective_artifact(current, "input_snapshot") is None or resolver.effective_knowledge_snapshot(current)[0] is None: raise ValueError("effective_input_unavailable")
+        if action == "regenerate-prompt" and current is not None:
+            resolver=CreativePipelineLineageResolver(self.session)
+            if resolver.effective_artifact(current, "idea_story") is None: raise ValueError("effective_idea_unavailable")
+        if action == "generate-another-video" and current is not None:
+            resolver=CreativePipelineLineageResolver(self.session)
+            if not all(resolver.effective_prompt_artifacts(current)): raise ValueError("effective_prompt_unavailable")
+        run_number = (self.session.scalar(select(func.max(PipelineRunModel.run_number)).where(PipelineRunModel.tenant_id==principal.active_tenant_id, PipelineRunModel.listing_task_id==listing.id)) or 0) + 1
+        run = PipelineRunModel(tenant_id=principal.active_tenant_id, listing_task_id=listing.id, run_number=run_number,
+            status="queued", trigger_type=PipelineTriggerType.REGENERATE.value if action != "run" else PipelineTriggerType.MANUAL.value,
+            triggered_by=principal.actor_id, parent_run_id=current.id if current else None, branch_start_node=branch, operator_idempotency_key=key)
+        self.session.add(run); self.session.flush()
+        orch=CreativePipelineOrchestrator(self.session)
+        orch.initialize_branch(principal.active_tenant_id, run.id, branch, current.id if current else None)
+        orch.schedule_ready_nodes(principal.active_tenant_id, run.id)
+        return run
 
     async def scan_group(self, principal, group):
         from app.modules.assets.source_credentials import source_credential_contract

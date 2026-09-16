@@ -87,8 +87,11 @@ class PipelineRunModel(Base):
     __tablename__ = "creative_pipeline_runs"
     __table_args__ = (
         ForeignKeyConstraint(["tenant_id", "listing_task_id"], ["creative_pipeline_listing_tasks.tenant_id", "creative_pipeline_listing_tasks.id"], ondelete="CASCADE", name="fk_cp_runs_tenant_listing"),
+        ForeignKeyConstraint(["tenant_id", "parent_run_id"], ["creative_pipeline_runs.tenant_id", "creative_pipeline_runs.id"], ondelete="RESTRICT", name="fk_cp_runs_tenant_parent"),
         UniqueConstraint("tenant_id", "id", name="uq_cp_runs_tenant_id"),
         UniqueConstraint("tenant_id", "listing_task_id", "run_number", name="uq_cp_runs_listing_number"),
+        Index("ix_cp_runs_tenant_parent", "tenant_id", "parent_run_id"),
+        Index("uq_cp_runs_tenant_listing_idempotency", "tenant_id", "listing_task_id", "operator_idempotency_key", unique=True, postgresql_where=__import__("sqlalchemy").text("operator_idempotency_key IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("operator_idempotency_key IS NOT NULL")),
         CheckConstraint("run_number > 0", name="ck_cp_runs_run_number"),
         CheckConstraint("status IN ('queued', 'running', 'retrying', 'blocked', 'failed', 'completed', 'cancelled')", name="ck_cp_runs_status"),
         CheckConstraint("trigger_type IN ('discovery', 'manual', 'regenerate')", name="ck_cp_runs_trigger"),
@@ -98,6 +101,9 @@ class PipelineRunModel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
     listing_task_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    parent_run_id: Mapped[str | None] = mapped_column(String(36))
+    branch_start_node: Mapped[str | None] = mapped_column(String(48))
+    operator_idempotency_key: Mapped[str | None] = mapped_column(String(255))
     run_number: Mapped[int] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=PipelineRunStatus.QUEUED.value)
     trigger_type: Mapped[str] = mapped_column(String(32), nullable=False, default=PipelineTriggerType.DISCOVERY.value)
@@ -144,8 +150,10 @@ class GenerationRunModel(Base):
     __tablename__ = "creative_pipeline_generation_runs"
     __table_args__ = (
         ForeignKeyConstraint(["tenant_id", "pipeline_run_id"], ["creative_pipeline_runs.tenant_id", "creative_pipeline_runs.id"], ondelete="CASCADE", name="fk_cp_generation_runs_tenant_run"),
+        ForeignKeyConstraint(["tenant_id", "listing_task_id"], ["creative_pipeline_listing_tasks.tenant_id", "creative_pipeline_listing_tasks.id"], ondelete="CASCADE", name="fk_cp_generation_runs_tenant_listing"),
         UniqueConstraint("tenant_id", "id", name="uq_cp_generation_runs_tenant_id"),
-        UniqueConstraint("tenant_id", "pipeline_run_id", "provider", "model", "aspect_ratio", "generation_number", name="uq_cp_generation_runs_logical_generation"),
+        UniqueConstraint("tenant_id", "listing_task_id", "provider", "model", "aspect_ratio", "generation_number", name="uq_cp_generation_runs_logical_generation"),
+        UniqueConstraint("tenant_id", "pipeline_run_id", "provider", "model", "aspect_ratio", "generation_number", name="uq_cp_generation_runs_run_generation"),
         CheckConstraint("aspect_ratio IN ('1:1', '16:9', '9:16')", name="ck_cp_generation_runs_aspect_ratio"),
         CheckConstraint("status IN ('pending', 'submitted', 'running', 'retry_wait', 'completed', 'failed', 'cancelled')", name="ck_cp_generation_runs_status"),
         CheckConstraint("generation_number > 0", name="ck_cp_generation_runs_number"),
@@ -157,6 +165,7 @@ class GenerationRunModel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
     pipeline_run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    listing_task_id: Mapped[str] = mapped_column(String(36), nullable=True)
     prompt_artifact_id: Mapped[str | None] = mapped_column(String(36))
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -185,10 +194,10 @@ class ArtifactModel(Base):
         UniqueConstraint("tenant_id", "id", name="uq_cp_artifacts_tenant_id"),
         CheckConstraint("artifact_type IN ('input_snapshot', 'input_manifest', 'knowledge_snapshot', 'idea_story', 'prompt', 'generation_metadata', 'raw_video', 'enhanced_video')", name="ck_cp_artifacts_type"),
         CheckConstraint("status IN ('reserved', 'available', 'inconsistent')", name="ck_cp_artifacts_status"),
-        Index("uq_cp_artifacts_logical_no_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NULL")),
-        Index("uq_cp_artifacts_logical_no_ratio_variant", "tenant_id", "pipeline_run_id", "artifact_type", "version", "variant_key", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NOT NULL")),
-        Index("uq_cp_artifacts_logical_ratio", "tenant_id", "pipeline_run_id", "artifact_type", "version", "aspect_ratio", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NULL")),
-        Index("uq_cp_artifacts_logical_ratio_variant", "tenant_id", "pipeline_run_id", "artifact_type", "version", "aspect_ratio", "variant_key", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NOT NULL")),
+        Index("uq_cp_artifacts_logical_no_ratio", "tenant_id", "listing_task_id", "artifact_type", "version", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NULL")),
+        Index("uq_cp_artifacts_logical_no_ratio_variant", "tenant_id", "listing_task_id", "artifact_type", "version", "variant_key", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NULL AND variant_key IS NOT NULL")),
+        Index("uq_cp_artifacts_logical_ratio", "tenant_id", "listing_task_id", "artifact_type", "version", "aspect_ratio", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NULL")),
+        Index("uq_cp_artifacts_logical_ratio_variant", "tenant_id", "listing_task_id", "artifact_type", "version", "aspect_ratio", "variant_key", unique=True, postgresql_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NOT NULL"), sqlite_where=__import__("sqlalchemy").text("aspect_ratio IS NOT NULL AND variant_key IS NOT NULL")),
         CheckConstraint("version > 0", name="ck_cp_artifacts_version"),
         CheckConstraint("size_bytes IS NULL OR size_bytes >= 0", name="ck_cp_artifacts_size"),
         CheckConstraint("aspect_ratio IS NULL OR aspect_ratio IN ('1:1', '16:9', '9:16')", name="ck_cp_artifacts_aspect_ratio"),

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -63,6 +63,61 @@ def listing_detail(listing_id: str, session: Session = Depends(get_db), principa
     service = svc(session); listing, group = service.require_listing(principal, listing_id)
     if listing is None: return not_found()
     return service.listing_summary(listing, group, include_detail=True)
+
+def _branch_response(service, run):
+    listing = service._listing(run.tenant_id, run.listing_task_id)
+    return service.run_summary(run, listing)
+
+@router.post("/listings/{listing_id}/start")
+def start_initial_run(listing_id: str, session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(MUTATE)):
+    service=svc(session); listing, group=service.require_listing(principal, listing_id)
+    if listing is None: return not_found()
+    run=service._current_run(principal.active_tenant_id, listing.id)
+    if run is None or run.run_number != 1:
+        raise HTTPException(409, detail={"code":"creative_pipeline_initial_run_unavailable","message":"Initial discovery run is unavailable."})
+    if run.status != "queued":
+        return _branch_response(service, run)
+    if session.scalar(select(NodeRunModel.id).where(NodeRunModel.tenant_id==principal.active_tenant_id,NodeRunModel.pipeline_run_id==run.id)):
+        return _branch_response(service, run)
+    try:
+        orch=CreativePipelineOrchestrator(session); orch.initialize_run(principal.active_tenant_id, run.id); orch.schedule_ready_nodes(principal.active_tenant_id, run.id); session.commit()
+    except CreativePipelineStateError as exc:
+        session.rollback(); raise HTTPException(409, detail={"code":"creative_pipeline_initial_run_unavailable","message":str(exc)}) from exc
+    return _branch_response(service, run)
+
+def _create_branch(listing_id, action, idempotency_key, session, principal):
+    service=svc(session); listing, group=service.require_listing(principal, listing_id)
+    if listing is None: return not_found()
+    try:
+        run=service.create_branch_run(principal, listing, action, idempotency_key)
+        session.commit()
+    except CreativePipelineStateError as exc:
+        session.rollback(); raise HTTPException(409, detail={"code":"creative_pipeline_active_run_exists","message":"A pipeline run is already active."}) from exc
+    except ValueError as exc:
+        session.rollback(); code=str(exc)
+        status=409 if code in {"creative_pipeline_idempotency_conflict","effective_input_unavailable","effective_idea_unavailable","effective_prompt_unavailable","invalid_idempotency_key","listing_source_unavailable"} else 400
+        raise HTTPException(status, detail={"code":code,"message":"The requested pipeline branch is unavailable."}) from exc
+    return _branch_response(service, run)
+
+@router.post("/listings/{listing_id}/run")
+def create_full_run(listing_id: str, idempotency_key: str | None = Header(None, alias="Idempotency-Key"), session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(MUTATE)):
+    if idempotency_key is None: raise HTTPException(400, detail={"code":"idempotency_key_required","message":"Idempotency-Key is required."})
+    return _create_branch(listing_id, "run", idempotency_key, session, principal)
+
+@router.post("/listings/{listing_id}/regenerate-idea")
+def regenerate_idea(listing_id: str, idempotency_key: str | None = Header(None, alias="Idempotency-Key"), session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(MUTATE)):
+    if idempotency_key is None: raise HTTPException(400, detail={"code":"idempotency_key_required","message":"Idempotency-Key is required."})
+    return _create_branch(listing_id, "regenerate-idea", idempotency_key, session, principal)
+
+@router.post("/listings/{listing_id}/regenerate-prompt")
+def regenerate_prompt(listing_id: str, idempotency_key: str | None = Header(None, alias="Idempotency-Key"), session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(MUTATE)):
+    if idempotency_key is None: raise HTTPException(400, detail={"code":"idempotency_key_required","message":"Idempotency-Key is required."})
+    return _create_branch(listing_id, "regenerate-prompt", idempotency_key, session, principal)
+
+@router.post("/listings/{listing_id}/generate-another-video")
+def generate_another_video(listing_id: str, idempotency_key: str | None = Header(None, alias="Idempotency-Key"), session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(MUTATE)):
+    if idempotency_key is None: raise HTTPException(400, detail={"code":"idempotency_key_required","message":"Idempotency-Key is required."})
+    return _create_branch(listing_id, "generate-another-video", idempotency_key, session, principal)
 
 @router.get("/listings/{listing_id}/runs")
 def listing_runs(listing_id: str, session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(READ)):

@@ -131,6 +131,29 @@ class CreativePipelineOrchestrator:
         self._derive(run)
         return [existing[node_type.value] for node_type in PIPELINE_NODE_ORDER]
 
+    def initialize_branch(self, tenant_id: str, pipeline_run_id: str, branch_start_node: NodeType | str, parent_run_id: str | None = None) -> list[NodeRunModel]:
+        run = self._run(tenant_id, pipeline_run_id)
+        start = branch_start_node.value if isinstance(branch_start_node, NodeType) else str(branch_start_node)
+        try:
+            start_index = next(i for i, item in enumerate(PIPELINE_NODE_ORDER) if item.value == start)
+        except StopIteration as exc:
+            raise CreativePipelineStateError("invalid branch start node") from exc
+        existing = {node.node_type: node for node in self._nodes(run)}
+        for index, node_type in enumerate(PIPELINE_NODE_ORDER):
+            if node_type.value in existing:
+                continue
+            inherited = index < start_index
+            node = NodeRunModel(
+                tenant_id=tenant_id, pipeline_run_id=run.id, node_type=node_type.value,
+                status=NodeRunStatus.COMPLETED.value if inherited else (
+                    NodeRunStatus.READY.value if index == start_index else NodeRunStatus.PENDING.value
+                ),
+                output_version=None,
+            )
+            self.session.add(node); self.session.flush(); existing[node_type.value] = node
+        self._derive(run)
+        return [existing[item.value] for item in PIPELINE_NODE_ORDER]
+
     def _dependency(self, node: NodeRunModel) -> NodeRunModel | None:
         index = next((i for i, item in enumerate(PIPELINE_NODE_ORDER) if item.value == node.node_type), None)
         if index is None or index == 0:

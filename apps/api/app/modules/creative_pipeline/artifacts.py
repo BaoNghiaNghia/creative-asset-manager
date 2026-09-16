@@ -7,7 +7,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -61,6 +61,33 @@ class ArtifactService:
             if generation_run_id is not None and row.generation_run_id != generation_run_id:
                 raise PipelineStorageError("artifact_generation_lineage_mismatch")
             return row
+
+    def reserve_next_artifact(self, *, tenant_id, pipeline_run_id, node_run_id, artifact_type, aspect_ratio=None, variant_key=None, generation_run_id=None, relative_path_factory=None):
+        listing_id = self._listing_id(tenant_id, pipeline_run_id)
+        value = artifact_type.value if hasattr(artifact_type, "value") else artifact_type
+        existing_stmt = select(ArtifactModel).where(
+            ArtifactModel.tenant_id == tenant_id, ArtifactModel.pipeline_run_id == pipeline_run_id,
+            ArtifactModel.artifact_type == value, ArtifactModel.listing_task_id == listing_id,
+            ArtifactModel.aspect_ratio == aspect_ratio, ArtifactModel.variant_key == variant_key,
+        )
+        existing = self.session.scalar(existing_stmt)
+        if existing is not None:
+            return existing
+        for _ in range(3):
+            max_stmt = select(func.max(ArtifactModel.version)).where(
+                ArtifactModel.tenant_id == tenant_id, ArtifactModel.listing_task_id == listing_id,
+                ArtifactModel.artifact_type == value, ArtifactModel.aspect_ratio == aspect_ratio,
+                ArtifactModel.variant_key == variant_key,
+            )
+            version = int(self.session.scalar(max_stmt) or 0) + 1
+            path = relative_path_factory(version) if relative_path_factory else None
+            try:
+                return self.reserve_artifact(tenant_id=tenant_id, pipeline_run_id=pipeline_run_id, node_run_id=node_run_id, generation_run_id=generation_run_id, artifact_type=value, version=version, aspect_ratio=aspect_ratio, variant_key=variant_key, relative_path=path)
+            except IntegrityError:
+                self.session.rollback()
+                existing = self.session.scalar(existing_stmt)
+                if existing is not None: return existing
+        raise PipelineStorageError("artifact_version_allocation_conflict")
 
     def _listing_id(self, tenant_id, run_id):
         from app.modules.creative_pipeline.model import PipelineRunModel
