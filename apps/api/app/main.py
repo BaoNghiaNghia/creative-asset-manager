@@ -38,6 +38,7 @@ from app.modules.search.governance_router import router as search_governance_rou
 from app.modules.search.router import router as search_router
 from app.modules.visual_search.router import router as visual_search_router
 from app.modules.visual_search.admin_router import router as visual_search_admin_router
+from app.modules.creative_pipeline.router import router as creative_pipeline_router
 from app.modules.visual_search.encoder_client import HttpVisualEncoderClient
 from app.modules.video_search.router import router as video_search_router
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
@@ -131,6 +132,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(search_router)
     api.include_router(visual_search_router)
     api.include_router(visual_search_admin_router)
+    api.include_router(creative_pipeline_router)
     api.include_router(video_search_router)
     api.include_router(search_governance_router)
     # Inventory runtime execution remains default-off, but its authenticated

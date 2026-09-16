@@ -2014,7 +2014,11 @@ Each raw artifact maps to one enhanced_video artifact with the same version, rat
 
 CP-09 now uploads staged MP4 files through the normalized streaming/file capability when available, retaining an explicit bounded byte fallback for legacy adapters. Temporary files are always cleaned, JSON artifacts still use upload_bytes, and CP-10 reuses the existing heavy-video resource lane.
 
-### CP-11 — Creative Pipeline UI (future; not implemented)
+### CP-11 - Backend Read + Safe Control APIs (CP-11A complete)
+
+CP-11A adds tenant- and folder-authorized read endpoints for groups, listings, runs, generations, artifacts, capabilities, bounded listing pagination, retry_wait-only retry, idempotent run cancellation, and bounded known-group discovery scans. Responses use safe allowlisted metadata and redact provider secrets. Terminal retries, regeneration, second-run creation, and artifact content streaming remain deferred to CP-11B or a later provider-safe contract.
+
+### CP-12 - Creative Pipeline UI (future; not implemented)
 
 Implement tab between:
 
@@ -2046,7 +2050,9 @@ Acceptance:
 [ ] version/history accessible from detail drawer
 ```
 
-### CP-11 — Scheduler, observability, E2E hardening and rollout
+### CP-13 - Daily scheduler, observability, E2E hardening and rollout
+
+CP-14 covers concurrency/restart recovery. CP-15 covers observability and integration tests. CP-16 covers canary and rollout controls.
 
 Implement:
 
