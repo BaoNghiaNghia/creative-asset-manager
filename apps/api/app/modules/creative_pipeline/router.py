@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.creative_pipeline.api_service import CreativePipelineApiService
 from app.modules.creative_pipeline.constants import NodeRunStatus
@@ -10,6 +11,8 @@ from app.modules.creative_pipeline.model import (
     ArtifactModel, ListingTaskModel, NodeRunModel, PipelineRunModel, SourceGroupModel,
 )
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator, CreativePipelineStateError
+from app.modules.creative_pipeline.canary import ENTITY_TYPE
+from app.modules.processing.model import ProcessingJobModel
 
 router = APIRouter(prefix="/api/v1/creative-pipeline", tags=["creative-pipeline"])
 READ = require_permission("assets.read")
@@ -23,6 +26,18 @@ def svc(session): return CreativePipelineApiService(session)
 @router.get("/capabilities")
 def capabilities(principal: CurrentPrincipal = Depends(READ)):
     return svc(None).capabilities()
+
+@router.get("/canary")
+def canary_status(session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(READ)):
+    settings = get_settings()
+    configured_tenant = settings.AUTH_DEFAULT_TENANT_ID.strip()
+    if principal.active_tenant_id != configured_tenant:
+        raise HTTPException(404, detail={"code": "creative_pipeline_canary_not_found", "message": "Creative Pipeline canary is not configured for this tenant."})
+    job = session.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == configured_tenant,
+        ProcessingJobModel.entity_type == ENTITY_TYPE,
+    ).order_by(ProcessingJobModel.created_at.desc()).limit(1))
+    return {"enabled": bool(settings.CREATIVE_PIPELINE_CANARY_ENABLED), "root_folder_id": settings.CREATIVE_PIPELINE_CANARY_ROOT_FOLDER_ID.strip() or None, "timezone": settings.CREATIVE_PIPELINE_CANARY_TIMEZONE, "scan_hour": settings.CREATIVE_PIPELINE_CANARY_SCAN_HOUR, "max_active_runs": settings.CREATIVE_PIPELINE_CANARY_MAX_ACTIVE_RUNS, "latest_job": None if job is None else {"id": job.id, "status": job.status, "attempt_count": job.attempt_count, "last_error_code": job.last_error_code, "created_at": job.created_at, "updated_at": job.updated_at}}
 
 @router.get("/groups")
 def groups(session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(READ)):

@@ -37,6 +37,7 @@ from app.modules.pipeline.stages import (
 from app.modules.search.index_sync_handler import SearchIndexSyncJobHandler
 from app.modules.visual_search.index_handler import VisualIndexSyncJobHandler
 from app.modules.creative_pipeline.input_handler import CreativePipelineNodeHandler
+from app.modules.creative_pipeline.canary import CreativePipelineCanaryScanHandler, CreativePipelineCanaryScheduler
 from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 from app.modules.visual_search.encoder_client import HttpVisualEncoderClient
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex
@@ -93,6 +94,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "image_generate": ("PROCESSING_JOBS_ENABLED", "IMAGE_GENERATION_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "video_generate": ("PROCESSING_JOBS_ENABLED", "VIDEO_GENERATION_ENABLED", "DOLA_RENDER_GATEWAY_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "creative_pipeline_node": ("PROCESSING_JOBS_ENABLED",),
+    "creative_pipeline_scan": ("PROCESSING_JOBS_ENABLED", "CREATIVE_PIPELINE_CANARY_ENABLED"),
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
@@ -284,6 +286,7 @@ def build_worker_runtime(
                 ("image_generate", ImageGenerateJobHandler(settings)),
                 ("video_generate", VideoGenerateJobHandler(settings)),
                 ("creative_pipeline_node", CreativePipelineNodeHandler(settings)),
+                ("creative_pipeline_scan", CreativePipelineCanaryScanHandler(settings)),
             )
         ),
         health=WorkerHealthState(worker_id),
@@ -304,6 +307,7 @@ def run_worker(
     runtime: WorkerRuntime | None = None
     health_server: WorkerHealthServer | None = None
     source_sync_scheduler: SourceSyncScheduler | None = None
+    creative_pipeline_canary_scheduler: CreativePipelineCanaryScheduler | None = None
     managed_cleanup_scheduler: ManagedStorageCleanupSchedulerRunner | None = None
     try:
         runtime = build_worker_runtime(
@@ -323,6 +327,8 @@ def run_worker(
                 session_factory, settings, logger=worker_logger,
             )
             source_sync_scheduler.start()
+            creative_pipeline_canary_scheduler = CreativePipelineCanaryScheduler(session_factory, settings, logger=worker_logger)
+            creative_pipeline_canary_scheduler.start()
             if settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED:
                 managed_cleanup_scheduler = ManagedStorageCleanupSchedulerRunner(
                     session_factory, settings, logger=worker_logger,
@@ -378,6 +384,8 @@ def run_worker(
         )
         return 1
     finally:
+        if creative_pipeline_canary_scheduler is not None:
+            creative_pipeline_canary_scheduler.stop()
         if source_sync_scheduler is not None:
             source_sync_scheduler.stop()
         if managed_cleanup_scheduler is not None:
