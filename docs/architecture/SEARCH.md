@@ -156,3 +156,41 @@ previous indices, and rechecks cluster aliases immediately before deletion.
 ## Search generation
 
 User-facing search and suggestions use Search V3 exclusively. Legacy Explorer search routes, shadow comparisons, and search-triggered folder indexing are removed. Search V3 readiness failures remain explicit and retryable.
+
+## Visual Search CPU-only optimization track
+
+Visual Search has a dedicated optimization plan for the current CPU-only VPS:
+
+- `docs/plans/CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md` remains the master Visual Search implementation/history guide.
+- `docs/plans/VISUAL_SEARCH_FULL_CORPUS_OPERATIONS_PLAN.md` remains the source for full-corpus coverage, retrieval breadth, durable backfill, and operations behavior.
+- `docs/plans/VISUAL_SEARCH_CPU_OPTIMIZATION_PLAN.md` is the source for the current CPU-only performance track.
+
+The CPU-only track is intentionally narrow. It optimizes the existing isolated visual encoder and Elasticsearch KNN path before adding another heavyweight visual model.
+
+Current target architecture:
+
+```text
+image/crop
+  -> deterministic 224px preparation
+  -> SigLIP2 Base 224, pinned local snapshot
+  -> OpenVINO CPU backend where compatibility is verified
+  -> one resident model / one encoder process initially
+  -> bounded inference queue
+  -> versioned visual_embedding_v2
+  -> tenant-scoped Elasticsearch ANN/KNN
+  -> ranking/hydration/pagination
+```
+
+On the current 3-vCPU / ~8-GiB CPU-only host, do not scale Visual Search by duplicating the encoder model across Uvicorn processes. Start with one encoder process, one resident model, two inference threads, one stream, and bounded queueing; treat these as measured starting values rather than permanent constants.
+
+The current immediate `encoder busy` rejection behavior should evolve into bounded queueing with explicit queue-full/queue-timeout observations. Do not replace the existing lock with unconstrained concurrent inference, because CPU thread-pool oversubscription can increase p95 latency and starve Elasticsearch/API work.
+
+SigLIP2 migration must create/use a distinct versioned descriptor/index. SigLIP v1 and SigLIP2 v2 vectors must never share one embedding space. Keep the previous v1 index available for rollback during v2 rollout, but the previous model does not need to remain resident in RAM.
+
+OpenVINO INT8 is a later optimization candidate for the current Intel CPU after the SigLIP2/OpenVINO baseline passes contract and relevance checks. INT8 promotion requires a representative CAM relevance sanity set and must not reuse an incompatible embedding descriptor silently.
+
+Elasticsearch vector quantization/index-option changes must only be made after checking the deployed Elasticsearch version. Candidate `int8_hnsw` work must use a new versioned visual index and the existing alias/lifecycle rollback model; never mutate the active physical index in place.
+
+Visual retrieval breadth remains separate from UI page size. Tune `retrieval K` and `num_candidates` against real relevance, KNN p95, total p95, CPU, and Elasticsearch memory instead of lowering them globally for latency alone.
+
+Interactive Visual Search has priority over full-corpus backfill. Backfill must remain bounded and should pause/throttle when encoder queue saturation, interactive latency, low available RAM, swap growth, Elasticsearch pressure, or disk pressure crosses the accepted operational threshold.
