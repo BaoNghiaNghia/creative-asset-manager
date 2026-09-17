@@ -75,9 +75,13 @@ def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Que
  with SessionLocal() as s:
   limit(s,request,"traversal",120);scope=PublicShareScopeService(s)
   if not scope.allows_external_asset(principal=p,external_source_id=source_id,external_asset_id=folder_id): raise denied()
-  rows=s.execute(select(SourceAssetModel).where(SourceAssetModel.tenant_id==p.tenant_id,SourceAssetModel.external_source_id==source_id,SourceAssetModel.deleted_at.is_(None))).scalars();out=[]
-  for x in rows:
-   if folder_id in ((x.source_metadata or {}).get("parents") or []) and scope.allows_external_asset(principal=p,external_source_id=source_id,external_asset_id=x.external_asset_id): out.append({"id":x.external_asset_id,"name":x.filename or "Untitled","mime_type":x.mime_type})
+  rows=s.execute(select(SourceAssetModel,AssetSourceLinkModel.asset_id).outerjoin(AssetSourceLinkModel,(AssetSourceLinkModel.tenant_id==SourceAssetModel.tenant_id)&(AssetSourceLinkModel.source_asset_id==SourceAssetModel.id)).where(SourceAssetModel.tenant_id==p.tenant_id,SourceAssetModel.external_source_id==source_id,SourceAssetModel.deleted_at.is_(None))).all();out=[]
+  for x,asset_id in rows:
+   if folder_id not in ((x.source_metadata or {}).get("parents") or []) or not scope.allows_external_asset(principal=p,external_source_id=source_id,external_asset_id=x.external_asset_id): continue
+   if (x.source_metadata or {}).get("is_folder") is True:
+    out.append({"kind":"folder","source_id":source_id,"folder_id":x.external_asset_id,"name":x.filename or "Untitled folder"})
+   elif asset_id:
+    out.append(doc(type("AssetRef",(),{"id":asset_id,"mime_type":None})(),x,public_share_id)|{"kind":"asset"})
    if len(out)>=limit_value: break
   s.commit();return safe({"items":out})
 @router.get("/{public_share_id}/assets/{asset_id}")

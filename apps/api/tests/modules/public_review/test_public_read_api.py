@@ -40,7 +40,7 @@ def test_session_exchange_headers_and_generic_denial(ctx):
 def test_scoped_browse_asset_and_search(ctx):
  assert exchange(ctx).status_code==201
  folders=request(ctx,"GET","/api/public/review/share-a/folders");assert folders.status_code==200 and folders.json()["items"][0]["folder_id"]=="root"
- child=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-a");assert child.status_code==200 and child.json()["items"][0]["id"]=="child"
+ child=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-a");assert child.status_code==200 and child.json()["items"][0]["kind"]=="asset" and child.json()["items"][0]["asset_id"]=="asset-good" and child.json()["items"][0]["source_asset_id"]=="child"
  foreign=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-b");assert foreign.status_code==404
  allowed=request(ctx,"GET","/api/public/review/share-a/assets/asset-good?source_asset_id=child");denied=request(ctx,"GET","/api/public/review/share-a/assets/asset-private?source_asset_id=sibling");assert allowed.status_code==200 and denied.status_code==404 and "source_metadata" not in allowed.text
  found=request(ctx,"GET","/api/public/review/share-a/search?q=cat");assert found.status_code==200 and [x["asset_id"] for x in found.json()["items"]]==["asset-good"] and "private" not in found.text
