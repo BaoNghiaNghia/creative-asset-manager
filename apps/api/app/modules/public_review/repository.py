@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.auth_persistence.model import AuthAuditEventModel
 from app.modules.public_review.model import AssetAnnotationModel, PublicShareGuestModel, PublicShareModel, PublicShareScopeModel, PublicShareSessionModel, utcnow
-from app.modules.public_review.schema import extract_plain_text
+from app.modules.public_review.schema import extract_plain_text, validate_annotation_document
 
 
 class PublicReviewRepository:
@@ -127,7 +127,7 @@ class PublicReviewRepository:
 
     def create_annotation(self, **values) -> AssetAnnotationModel:
         self._validate_annotation_context(**values)
-        content_json = values["content_json"]
+        content_json = validate_annotation_document(values["content_json"])
         values["plain_text"] = extract_plain_text(content_json)
         row = AssetAnnotationModel(**values)
         self.session.add(row)
@@ -140,7 +140,7 @@ class PublicReviewRepository:
     def update_annotation(self, tenant_id: str, share_id: str, annotation_id: str, **values) -> AssetAnnotationModel:
         row = self._required_annotation(tenant_id, share_id, annotation_id)
         if "content_json" in values:
-            row.content_json = values["content_json"]
+            row.content_json = validate_annotation_document(values["content_json"])
             row.plain_text = extract_plain_text(row.content_json)
         for field in {"anchor_x", "anchor_y"} & values.keys():
             setattr(row, field, values[field])

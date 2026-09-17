@@ -58,3 +58,25 @@ def extract_plain_text(content: dict[str, Any]) -> str:
     if len(result) > 10000:
         raise ValueError("annotation text is too long")
     return result
+
+_ALLOWED_NODES = {"doc", "paragraph", "heading", "text", "hardBreak", "bulletList", "orderedList", "taskList", "taskItem", "blockquote", "horizontalRule"}
+_ALLOWED_MARKS = {"bold", "italic", "strike", "code", "link"}
+def validate_annotation_document(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("type") != "doc" or not isinstance(value.get("content", []), list): raise ValueError("invalid annotation document")
+    nodes = 0
+    def walk(node, depth=0):
+        nonlocal nodes
+        if not isinstance(node, dict) or depth > 20: raise ValueError("invalid annotation document")
+        nodes += 1
+        if nodes > 500 or node.get("type") not in _ALLOWED_NODES: raise ValueError("invalid annotation document")
+        if node.get("type") == "heading" and node.get("attrs", {}).get("level") not in {1,2,3}: raise ValueError("invalid annotation document")
+        if node.get("type") == "text" and not isinstance(node.get("text"), str): raise ValueError("invalid annotation document")
+        for mark in node.get("marks", []):
+            if not isinstance(mark, dict) or mark.get("type") not in _ALLOWED_MARKS: raise ValueError("invalid annotation document")
+            if mark.get("type") == "link":
+                href=str(mark.get("attrs", {}).get("href", ""))
+                if not href.startswith(("http://", "https://")) or len(href)>2048: raise ValueError("invalid annotation document")
+        for child in node.get("content", []): walk(child, depth+1)
+    walk(value)
+    if len(str(value).encode()) > 100_000 or len(extract_plain_text(value)) > 10_000: raise ValueError("invalid annotation document")
+    return value

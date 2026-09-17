@@ -44,3 +44,16 @@ def test_scoped_browse_asset_and_search(ctx):
  foreign=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-b");assert foreign.status_code==404
  allowed=request(ctx,"GET","/api/public/review/share-a/assets/asset-good?source_asset_id=child");denied=request(ctx,"GET","/api/public/review/share-a/assets/asset-private?source_asset_id=sibling");assert allowed.status_code==200 and denied.status_code==404 and "source_metadata" not in allowed.text
  found=request(ctx,"GET","/api/public/review/share-a/search?q=cat");assert found.status_code==200 and [x["asset_id"] for x in found.json()["items"]]==["asset-good"] and "private" not in found.text
+
+def note_body():
+ return {"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]},"anchor_x":None,"anchor_y":None}
+def test_anonymous_annotation_origin_and_ownership(ctx):
+ assert exchange(ctx).status_code==201
+ path="/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"
+ assert request(ctx,"POST",path,json=note_body()).status_code==404
+ created=request(ctx,"POST",path,json=note_body(),headers={"Origin":"http://localhost:5173"})
+ assert created.status_code==201 and created.json()["plain_text"]=="hello" and created.json()["can_edit"]
+ annotation_id=created.json()["id"]
+ assert request(ctx,"GET",path).status_code==200
+ assert request(ctx,"PATCH","/api/public/review/share-a/annotations/"+annotation_id,json={"content_json":note_body()["content_json"]},headers={"Origin":"http://localhost:5173"}).status_code==200
+ assert request(ctx,"DELETE","/api/public/review/share-a/annotations/"+annotation_id,headers={"Origin":"http://localhost:5173"}).status_code==200

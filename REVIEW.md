@@ -2545,3 +2545,10 @@ npm run typecheck -- --pretty false (passed).
 - Public responses and media use no-store, strict referrer policy, and do not return provider credentials, signed URLs, paths, or raw bearer values.
 - Application rate limiting is PostgreSQL-backed through public_review_rate_limits and stores only a SHA-256 client identity digest. It is shared across API replicas. Edge IP rate limiting remains a production reverse-proxy deployment requirement.
 - Phase 4 public search is deliberately filename-only. It is authorization-filtered after tenant-scoped candidate retrieval and is not represented as full CAM or Elasticsearch query-parser semantics.
+
+## Public Review Phase 5 review
+
+- First annotation write automatically creates a bounded anonymous guest attached to the share session; no display name, CAM account, password, or email is required.
+- Annotation reads remain scoped by the current share and exact asset/source pair. Mutations require current-session guest ownership, allow_comments, valid Origin, and PostgreSQL durable annotation_write limits.
+- ProseMirror-style JSON is validated server-side; server derives plain text and rejects unsupported node/mark types and unsafe link schemes.
+- Public routes do not expose resolve/reopen behavior, provider credentials, share secrets, or session digests. No frontend or Phase 6+ code was added.
