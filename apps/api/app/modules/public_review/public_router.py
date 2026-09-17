@@ -110,8 +110,8 @@ from app.modules.public_review.service import validate_anchors
 def origin_required(request):
  parsed=urlsplit(get_settings().PUBLIC_APP_URL); origin=request.headers.get("origin")
  if not origin or origin.rstrip("/") != f"{parsed.scheme}://{parsed.netloc}".rstrip("/"): raise denied()
-def annotation_dto(row,p):
- return {"id":row.id,"author":row.guest_id,"content_json":row.content_json,"plain_text":row.plain_text,"parent_annotation_id":row.parent_annotation_id,"anchor_x":row.anchor_x,"anchor_y":row.anchor_y,"created_at":row.created_at,"updated_at":row.updated_at,"can_edit":row.guest_id==p.guest_id,"can_delete":row.guest_id==p.guest_id}
+def annotation_dto(row,p,display_name=None):
+ return {"id":row.id,"author":{"display_name": display_name or "Guest"},"content_json":row.content_json,"plain_text":row.plain_text,"parent_annotation_id":row.parent_annotation_id,"anchor_x":row.anchor_x,"anchor_y":row.anchor_y,"created_at":row.created_at,"updated_at":row.updated_at,"can_edit":row.guest_id==p.guest_id,"can_delete":row.guest_id==p.guest_id}
 def ensure_guest(s,p):
  row=s.scalar(select(PublicShareSessionModel).where(PublicShareSessionModel.tenant_id==p.tenant_id,PublicShareSessionModel.share_id==p.share_id,PublicShareSessionModel.id==p.session_id).with_for_update())
  if row is None or row.revoked_at is not None: raise denied()
@@ -122,7 +122,7 @@ def ensure_guest(s,p):
 def annotations(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
  p=user(request,public_share_id);_a,src=asset_pair(p,asset_id,source_asset_id)
  with SessionLocal() as s:
-  rows=PublicReviewRepository(s).list_annotations(p.tenant_id,p.share_id,asset_id,src.id);return safe({"items":[annotation_dto(x,p) for x in rows]})
+  rows=PublicReviewRepository(s).list_annotations_with_guests(p.tenant_id,p.share_id,asset_id,src.id);return safe({"items":[annotation_dto(x,p,name) for x,name in rows]})
 @router.post("/{public_share_id}/assets/{asset_id}/annotations",status_code=201)
 def create_annotation(public_share_id:str,asset_id:str,request:Request,body:dict,source_asset_id:str|None=None):
  origin_required(request);p=user(request,public_share_id);_a,src=asset_pair(p,asset_id,source_asset_id)
@@ -132,7 +132,7 @@ def create_annotation(public_share_id:str,asset_id:str,request:Request,body:dict
   try:
    content=validate_annotation_document(body.get("content_json"));validate_anchors(body.get("anchor_x"),body.get("anchor_y"));guest=ensure_guest(s,p)
    row=PublicReviewRepository(s).create_annotation(tenant_id=p.tenant_id,share_id=p.share_id,asset_id=asset_id,source_asset_id=src.id,guest_id=guest,parent_annotation_id=body.get("parent_annotation_id"),anchor_x=body.get("anchor_x"),anchor_y=body.get("anchor_y"),content_json=content,status="open")
-   s.commit(); payload=annotation_dto(row,p); payload["can_edit"]=True; payload["can_delete"]=True; return safe(payload,201)
+   s.commit(); payload=annotation_dto(row,p,PublicReviewRepository(s).get_guest(p.tenant_id,p.share_id,row.guest_id).display_name); payload["can_edit"]=True; payload["can_delete"]=True; return safe(payload,201)
   except (ValueError,LookupError): s.rollback();raise denied()
 @router.patch("/{public_share_id}/annotations/{annotation_id}")
 def update_annotation(public_share_id:str,annotation_id:str,request:Request,body:dict):
@@ -145,7 +145,7 @@ def update_annotation(public_share_id:str,annotation_id:str,request:Request,body
   try:
    values={"content_json":validate_annotation_document(body["content_json"])} if "content_json" in body else {}
    if "anchor_x" in body or "anchor_y" in body: validate_anchors(body.get("anchor_x"),body.get("anchor_y"));values.update(anchor_x=body.get("anchor_x"),anchor_y=body.get("anchor_y"))
-   row=PublicReviewRepository(s).update_annotation(p.tenant_id,p.share_id,annotation_id,**values);s.commit();return safe(annotation_dto(row,p))
+   row=PublicReviewRepository(s).update_annotation(p.tenant_id,p.share_id,annotation_id,**values);s.commit();return safe(annotation_dto(row,p,PublicReviewRepository(s).get_guest(p.tenant_id,p.share_id,row.guest_id).display_name))
   except (ValueError,KeyError):s.rollback();raise denied()
 @router.delete("/{public_share_id}/annotations/{annotation_id}")
 def delete_annotation(public_share_id:str,annotation_id:str,request:Request):

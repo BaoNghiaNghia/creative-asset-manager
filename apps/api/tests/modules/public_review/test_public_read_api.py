@@ -52,7 +52,7 @@ def test_anonymous_annotation_origin_and_ownership(ctx):
  path="/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"
  assert request(ctx,"POST",path,json=note_body()).status_code==404
  created=request(ctx,"POST",path,json=note_body(),headers={"Origin":"http://localhost:5173"})
- assert created.status_code==201 and created.json()["plain_text"]=="hello" and created.json()["can_edit"]
+ assert created.status_code==201 and created.json()["plain_text"]=="hello" and created.json()["can_edit"] and created.json()["author"]["display_name"].startswith("Guest ") and "guest_id" not in created.text and "session" not in created.text
  annotation_id=created.json()["id"]
  assert request(ctx,"GET",path).status_code==200
  assert request(ctx,"PATCH","/api/public/review/share-a/annotations/"+annotation_id,json={"content_json":note_body()["content_json"]},headers={"Origin":"http://localhost:5173"}).status_code==200

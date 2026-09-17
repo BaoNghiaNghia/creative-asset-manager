@@ -188,3 +188,6 @@ class PublicReviewRepository:
         if row is None:
             raise LookupError("asset annotation not found")
         return row
+
+    def list_annotations_with_guests(self, tenant_id: str, share_id: str, asset_id: str, source_asset_id: str):
+        return list(self.session.execute(select(AssetAnnotationModel, PublicShareGuestModel.display_name).join(PublicShareGuestModel, (PublicShareGuestModel.tenant_id == AssetAnnotationModel.tenant_id) & (PublicShareGuestModel.share_id == AssetAnnotationModel.share_id) & (PublicShareGuestModel.id == AssetAnnotationModel.guest_id)).where(AssetAnnotationModel.tenant_id == tenant_id, AssetAnnotationModel.share_id == share_id, AssetAnnotationModel.asset_id == asset_id, AssetAnnotationModel.source_asset_id == source_asset_id).order_by(AssetAnnotationModel.created_at)))
