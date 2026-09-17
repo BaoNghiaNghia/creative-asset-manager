@@ -13,6 +13,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@tiptap/extension-link": "^2.11.5",
+    "@tiptap/extension-placeholder": "^2.11.5",
+    "@tiptap/extension-task-item": "^2.11.5",
+    "@tiptap/extension-task-list": "^2.11.5",
+    "@tiptap/react": "^2.11.5",
+    "@tiptap/starter-kit": "^2.11.5",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-markdown": "9.1.0",

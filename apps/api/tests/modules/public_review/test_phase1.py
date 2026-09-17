@@ -144,3 +144,14 @@ def test_public_share_requires_an_existing_tenant(session):
         session.flush()
     session.rollback()
 
+
+def test_annotation_document_accepts_tiptap_lists_and_rejects_unsafe_nodes():
+    from app.modules.public_review.schema import validate_annotation_document
+    for list_type in ("bulletList", "orderedList"):
+        document = {"type": "doc", "content": [{"type": list_type, "content": [{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "safe"}]}]}]}]}
+        assert validate_annotation_document(document) == document
+    for unsafe in ("codeBlock", "html"):
+        with pytest.raises(ValueError):
+            validate_annotation_document({"type": "doc", "content": [{"type": unsafe, "text": "<script>alert(1)</script>"}]})
+    with pytest.raises(ValueError):
+        validate_annotation_document({"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "unsafe", "marks": [{"type": "link", "attrs": {"href": "javascript:alert(1)"}}]}]}]})

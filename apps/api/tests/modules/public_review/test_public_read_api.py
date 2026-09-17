@@ -90,3 +90,14 @@ def test_annotation_mutation_denies_foreign_guest_and_comment_disabled(ctx):
  disabled_delete=request(ctx,"DELETE","/api/public/review/share-a/annotations/"+annotation_id,headers={"Origin":"http://localhost:5173"})
  assert disabled_patch.status_code==disabled_delete.status_code==404
  assert disabled_patch.json()==disabled_delete.json()=={"detail":{"code":"public_review_unavailable"}}
+
+def test_pinned_annotation_bounds_and_text_edits_preserve_anchor(ctx):
+    assert exchange(ctx).status_code == 201
+    path = "/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"
+    for body in ({**note_body(), "anchor_x": -.01, "anchor_y": .5}, {**note_body(), "anchor_x": 1.01, "anchor_y": .5}, {**note_body(), "anchor_x": .5, "anchor_y": -.01}, {**note_body(), "anchor_x": .5, "anchor_y": 1.01}, {**note_body(), "anchor_x": .5}):
+        assert request(ctx, "POST", path, json=body, headers={"Origin": "http://localhost:5173"}).status_code == 404
+    created = request(ctx, "POST", path, json={**note_body(), "anchor_x": .25, "anchor_y": .75}, headers={"Origin": "http://localhost:5173"})
+    assert created.status_code == 201
+    updated = request(ctx, "PATCH", "/api/public/review/share-a/annotations/" + created.json()["id"], json={"content_json": note_body()["content_json"]}, headers={"Origin": "http://localhost:5173"})
+    assert updated.status_code == 200
+    assert updated.json()["anchor_x"] == .25 and updated.json()["anchor_y"] == .75

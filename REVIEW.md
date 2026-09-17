@@ -2552,3 +2552,10 @@ npm run typecheck -- --pretty false (passed).
 - Annotation reads remain scoped by the current share and exact asset/source pair. Mutations require current-session guest ownership, allow_comments, valid Origin, and PostgreSQL durable annotation_write limits.
 - ProseMirror-style JSON is validated server-side; server derives plain text and rejects unsupported node/mark types and unsafe link schemes.
 - Public routes do not expose resolve/reopen behavior, provider credentials, share secrets, or session digests. No frontend or Phase 6+ code was added.
+
+## Public Review Phase 7 review
+
+- Added a focused Tiptap editor configuration for the server-approved ProseMirror schema: paragraph, H1-H3, bullet/ordered/task lists with listItem, quote, divider, hard break, and approved inline marks. Code blocks and all unapproved nodes remain disabled; links are constrained to HTTP(S).
+- Annotation JSON remains the source of truth. The public renderer recursively maps only approved JSON nodes and marks to React elements; it never uses raw HTML injection and degrades unknown nodes or unsafe links safely.
+- Image pins are derived from annotation anchors only. Clicks are normalized against the actual contained image rectangle, reject letterbox clicks, and pins recompute with ResizeObserver on layout changes. Pins are unavailable for non-images and when comments are disabled.
+- No Yjs, collaboration transport, CAM login, mandatory guest name, public resolve/reopen, migration, deployment, or production migration was added. Rollback is a revert of the Phase 7 commit plus its tracked client build artifacts.

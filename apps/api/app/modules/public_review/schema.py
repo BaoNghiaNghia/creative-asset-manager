@@ -59,7 +59,7 @@ def extract_plain_text(content: dict[str, Any]) -> str:
         raise ValueError("annotation text is too long")
     return result
 
-_ALLOWED_NODES = {"doc", "paragraph", "heading", "text", "hardBreak", "bulletList", "orderedList", "taskList", "taskItem", "blockquote", "horizontalRule"}
+_ALLOWED_NODES = {"doc", "paragraph", "heading", "text", "hardBreak", "bulletList", "orderedList", "listItem", "taskList", "taskItem", "blockquote", "horizontalRule"}
 _ALLOWED_MARKS = {"bold", "italic", "strike", "code", "link"}
 def validate_annotation_document(value: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("type") != "doc" or not isinstance(value.get("content", []), list): raise ValueError("invalid annotation document")
