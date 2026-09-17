@@ -14,6 +14,8 @@ COMPOSE = ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml"
 IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker.service"
 SECONDARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-2.service"
 TERTIARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-3.service"
+QUATERNARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-4.service"
+QUINARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-5.service"
 VIDEO_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
 
 
@@ -67,6 +69,8 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             "creative-asset-manager-image-worker.service",
             "creative-asset-manager-image-worker-2.service",
             "creative-asset-manager-image-worker-3.service",
+            "creative-asset-manager-image-worker-4.service",
+            "creative-asset-manager-image-worker-5.service",
             "creative-asset-manager-video-worker.service",
             "Preparing persistent isolated visual encoder runtime",
             "VISUAL_ENCODER_RUNTIME_DIR",
@@ -98,6 +102,10 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("WORKER_ROLE=image", TERTIARY_IMAGE_UNIT.read_text())
         self.assertIn("WORKER_ID=creativeasset-image-tertiary", TERTIARY_IMAGE_UNIT.read_text())
         self.assertIn("WORKER_HEALTH_PORT=8084", TERTIARY_IMAGE_UNIT.read_text())
+        self.assertIn("WORKER_ID=creativeasset-image-quaternary", QUATERNARY_IMAGE_UNIT.read_text())
+        self.assertIn("WORKER_HEALTH_PORT=8085", QUATERNARY_IMAGE_UNIT.read_text())
+        self.assertIn("WORKER_ID=creativeasset-image-quinary", QUINARY_IMAGE_UNIT.read_text())
+        self.assertIn("WORKER_HEALTH_PORT=8086", QUINARY_IMAGE_UNIT.read_text())
         self.assertIn("WORKER_ROLE=video", VIDEO_UNIT.read_text())
 
     def test_scripts_have_valid_shell_syntax(self) -> None:
