@@ -455,10 +455,10 @@ GET    /api/public/review/{public_share_id}/assets/{asset_id}/annotations
 POST   /api/public/review/{public_share_id}/assets/{asset_id}/annotations
 PATCH  /api/public/review/{public_share_id}/annotations/{annotation_id}
 DELETE /api/public/review/{public_share_id}/annotations/{annotation_id}
-POST   /api/public/review/{public_share_id}/annotations/{annotation_id}/resolve
 ```
 
 Annotation writes require `allow_comments=true` and a guest associated with the current share session. A guest may edit/delete only its own annotation in MVP unless a later owner-moderation path is explicitly designed.
+Public guests cannot resolve or reopen annotations; owner moderation belongs to the authenticated Review Board phase.
 
 ### 11.5 Download API
 

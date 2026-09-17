@@ -222,6 +222,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   const [explorerReady, setExplorerReady] = useState(false);
   const [applicationAuthenticated, setApplicationAuthenticated] = useState<boolean | null>(null);
   const [applicationUser, setApplicationUser] = useState<CloudUser | null>(null);
+  const [applicationPermissions, setApplicationPermissions] = useState<string[]>([]);
   const [applicationAuthProvider, setApplicationAuthProvider] = useState<"google" | "microsoft" | null>(null);
   const [authByProvider, setAuthByProvider] = useState<ProviderSessions>({
     "google-drive": { authenticated: false, user: null, checking: true },
@@ -952,11 +953,13 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       try {
         identity = await readIdentity();
         setApplicationAuthenticated(true);
+        setApplicationPermissions(identity.permissions || []);
         setApplicationUser({ id: identity.user_id, name: identity.display_name || undefined, email: identity.email || undefined, picture: identity.avatar_url || undefined });
         setApplicationAuthProvider(identity.application_auth_provider || null);
       } catch (reason) {
         const status = typeof reason === "object" && reason && "status" in reason ? Number((reason as { status?: number }).status) : 0;
         setApplicationAuthenticated(status === 401 ? false : null);
+        setApplicationPermissions([]);
         setApplicationUser(null);
         setApplicationAuthProvider(null);
         setAuthByProvider({
@@ -1261,6 +1264,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     disconnectSource,
     applicationAuthenticated,
     applicationUser,
+    applicationPermissions,
     oauthError,
     metadataIndex,
     explorerReady,

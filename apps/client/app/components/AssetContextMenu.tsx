@@ -15,6 +15,7 @@ type Props = {
   onRename: () => void;
   onMove: () => void;
   onGenerate?: () => void;
+  onShareForReview?: () => void;
   onDetails: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -61,6 +62,7 @@ export function AssetContextMenu({
   onRename,
   onMove,
   onGenerate,
+  onShareForReview,
   onDetails,
   onDelete,
   onClose,
@@ -127,6 +129,7 @@ export function AssetContextMenu({
       <MenuIcon name="generate" /><b>Generate square 1:1</b>
     </button>}
     <div className="asset-context-separator" role="separator" />
+    {item.kind === "folder" && onShareForReview && <button type="button" role="menuitem" onClick={() => run(onShareForReview)}><MenuIcon name="copy" /><b>Share for review</b></button>}
     <button type="button" role="menuitem" onClick={() => run(onCopy)}>
       <MenuIcon name="copy" /><b>Make a copy</b><kbd>Ctrl+C</kbd>
     </button>

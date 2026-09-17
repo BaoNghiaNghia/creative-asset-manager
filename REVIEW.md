@@ -2559,3 +2559,11 @@ npm run typecheck -- --pretty false (passed).
 - Annotation JSON remains the source of truth. The public renderer recursively maps only approved JSON nodes and marks to React elements; it never uses raw HTML injection and degrades unknown nodes or unsafe links safely.
 - Image pins are derived from annotation anchors only. Clicks are normalized against the actual contained image rectangle, reject letterbox clicks, and pins recompute with ResizeObserver on layout changes. Pins are unavailable for non-images and when comments are disabled.
 - No Yjs, collaboration transport, CAM login, mandatory guest name, public resolve/reopen, migration, deployment, or production migration was added. Rollback is a revert of the Phase 7 commit plus its tracked client build artifacts.
+
+## Public Review Phase 8 review
+
+- Added the authenticated, permission-gated Asset Explorer folder action and an internal-only management boundary for create/list/edit/rotate/revoke of review shares. It calls only the existing authenticated management API; public bearer endpoints remain separate.
+- The one-time share URL is kept only in component memory, shown after create/rotate, and never reconstructed from public_id or written to browser storage. Rotation and revocation require explicit confirmation.
+- Explorer folder scope submission uses external source ID plus the actual folder ID, never canonical asset or source-asset identity. The server continues to enforce the management permission, tenant source ownership, scope validation, and secret-free audits.
+- ROADMAP now records the previously omitted Phase 6 and completed Phase 8 entries. No Review Board/Phase 9 functionality, migration, deployment, or production migration was added.
+- Dependency review: production audit reports 28 moderate runtime findings in the Tiptap 2.x dependency graph; the available remediation is a breaking major upgrade. Full audit reports 36 findings total, including dev/build-tool findings. No forced or unrelated upgrade was performed.

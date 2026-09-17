@@ -402,7 +402,6 @@ GET    /api/public/review/{public_share_id}/assets/{asset_id}/annotations
 POST   /api/public/review/{public_share_id}/assets/{asset_id}/annotations
 PATCH  /api/public/review/{public_share_id}/annotations/{annotation_id}
 DELETE /api/public/review/{public_share_id}/annotations/{annotation_id}
-POST   /api/public/review/{public_share_id}/annotations/{annotation_id}/resolve
 ```
 
 ## Ownership rules
@@ -410,6 +409,7 @@ POST   /api/public/review/{public_share_id}/annotations/{annotation_id}/resolve
 - annotation reads require current share authorization;
 - writes require `allow_comments=true`;
 - writes require associated guest identity;
+- public guests cannot resolve or reopen annotations; those authenticated controls are reserved for the Review Board phase;
 - guest may edit/delete only its own annotation in MVP;
 - replies must belong to same share and same asset/source thread;
 - cross-share IDs return generic denial/not-found;
@@ -507,7 +507,7 @@ Never persist the raw share key in localStorage/sessionStorage/IndexedDB.
 - annotation-count badge when available;
 - image viewer/lightbox;
 - review sidebar;
-- guest-name dialog;
+- no mandatory guest-name dialog;
 - temporary plain-text composer through a stable `AnnotationEditor` interface;
 - previous/next keyboard navigation;
 - loading/empty/error/revoked/expired/comments-disabled states;
@@ -537,7 +537,7 @@ Forbidden implicit reuse:
 - invalid/revoked/expired states;
 - viewer navigation;
 - comments-disabled state;
-- guest-name flow;
+- anonymous session guest flow;
 - create annotation flow;
 - edit-own affordance only;
 - raw HTML not rendered;

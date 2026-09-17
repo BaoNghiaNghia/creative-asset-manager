@@ -141,4 +141,6 @@
 - [x] PUBLIC-REVIEW-03 Authenticated share-management API with tenant RBAC, scope validation, rotate/revoke, and secret-free audit.
 - [x] PUBLIC-REVIEW-04 Scoped bearer-link read API, durable public rate limits, and CAM-side media delivery.
 - [x] PUBLIC-REVIEW-05 Anonymous session guest annotation backend with ownership, rich-text validation, CSRF and durable write limits.
+- [x] PUBLIC-REVIEW-06 Public Review frontend portal with bearer-link bootstrap, scoped browse/search/view, annotation interactions, and no mandatory reviewer identity prompt.
 - [x] PUBLIC-REVIEW-07 Tiptap rich annotations, safe JSON rendering, and normalized image pins.
+- [x] PUBLIC-REVIEW-08 Asset Explorer share-management integration, one-time link handling, rotate/revoke controls, and final Public Review hardening.

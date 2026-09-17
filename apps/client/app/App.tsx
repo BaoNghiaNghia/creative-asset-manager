@@ -8,6 +8,7 @@ import type { VideoSearchItem } from "./hooks/useVideoSearch";
 import { useVideoSearch } from "./hooks/useVideoSearch";
 import { useVisualSearch } from "./hooks/useVisualSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
+import { PublicReviewManagementDialog } from "./public-review-management/PublicReviewManagementDialog";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { SquareImageGenerationDialog } from "./components/SquareImageGenerationDialog";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
@@ -260,6 +261,7 @@ export default function App() {
   const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextState | null>(null);
+  const [reviewFolder, setReviewFolder] = useState<Asset | null>(null);
   const [generationItem, setGenerationItem] = useState<Asset | null>(null);
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
@@ -1133,10 +1135,12 @@ export default function App() {
       onRename={() => renameContextItem(assetContextMenu.item)}
       onMove={() => moveContextItem(assetContextMenu.item)}
       onGenerate={assetContextMenu.item.kind === "image" && Boolean(assetContextMenu.item.internal_asset_id) ? () => openGenerator(assetContextMenu.item) : undefined}
+      onShareForReview={assetContextMenu.item.kind === "folder" && explorer.applicationPermissions.includes("public_review.manage") && Boolean(assetContextMenu.item.external_source_id) ? () => setReviewFolder(assetContextMenu.item) : undefined}
       onDetails={() => openDetails(assetContextMenu.item)}
       onDelete={() => deleteContextItem(assetContextMenu.item)}
       onClose={() => setAssetContextMenu(null)}
     />}
+    {reviewFolder?.external_source_id && <PublicReviewManagementDialog initialScope={{ external_source_id: reviewFolder.external_source_id, folder_external_id: reviewFolder.id, folder_name: reviewFolder.name }} availableScopes={[{ external_source_id: reviewFolder.external_source_id, folder_external_id: reviewFolder.id, folder_name: reviewFolder.name }, ...(reviewFolder.location_breadcrumb || []).map(folder => ({ external_source_id: reviewFolder.external_source_id!, folder_external_id: folder.id, folder_name: folder.name }))]} onClose={() => setReviewFolder(null)} />}
     {generationItem?.internal_asset_id && <SquareImageGenerationDialog
       open
       assetId={generationItem.internal_asset_id}
