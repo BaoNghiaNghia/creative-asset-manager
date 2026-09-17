@@ -1159,8 +1159,6 @@ verify_services() {
     creative-asset-manager-image-worker.service \
     creative-asset-manager-image-worker-2.service \
     creative-asset-manager-image-worker-3.service \
-    creative-asset-manager-image-worker-4.service \
-    creative-asset-manager-image-worker-5.service \
     creative-asset-manager-video-worker.service \
     creative-asset-manager-visual-encoder.service
   do
@@ -1243,8 +1241,6 @@ verify_services() {
     "$IMAGE_WORKER_HEALTH_PORT" \
     "8083" \
     "8084" \
-    "8085" \
-    "8086" \
     "$VIDEO_WORKER_HEALTH_PORT"
   do
 
@@ -1288,15 +1284,6 @@ restart_services() {
 
   systemctl restart \
     creative-asset-manager-image-worker-3.service
-
-
-  info "Restarting additional Image workers"
-
-  systemctl restart \
-    creative-asset-manager-image-worker-4.service
-
-  systemctl restart \
-    creative-asset-manager-image-worker-5.service
 
 
   info "Restarting Video worker"
@@ -1724,8 +1711,6 @@ for unit in \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
-  creative-asset-manager-image-worker-4.service \
-  creative-asset-manager-image-worker-5.service \
   creative-asset-manager-video-worker.service \
   creative-asset-manager-visual-encoder.service \
   creative-asset-manager-inventory-v41-snapshot.service \
@@ -1747,6 +1732,23 @@ done
 
 
 systemctl daemon-reload
+
+
+#
+# Optional workers 4 and 5 are retained as unit files for controlled future
+# scale-up, but must never be enabled in the default three-worker profile.
+#
+info "Stopping/disabling optional image workers 4 and 5"
+
+systemctl stop \
+  creative-asset-manager-image-worker-4.service \
+  creative-asset-manager-image-worker-5.service \
+  || true
+
+systemctl disable \
+  creative-asset-manager-image-worker-4.service \
+  creative-asset-manager-image-worker-5.service \
+  || true
 
 
 #
@@ -1792,8 +1794,6 @@ systemctl enable \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
-  creative-asset-manager-image-worker-4.service \
-  creative-asset-manager-image-worker-5.service \
   creative-asset-manager-video-worker.service \
   creative-asset-manager-visual-encoder.service
 
