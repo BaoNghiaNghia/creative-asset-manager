@@ -2528,3 +2528,12 @@ npm run typecheck -- --pretty false (passed).
 - No browser-facing public route, frontend, migration, provider call, feature flag, deployment, or production migration was added.
 - Focused Phase 1/2 authorization, legacy Viewer scope, and API smoke suite: 41 passed; Alembic remains one head (0080_public_review_phase_1).
 - Rollback: revert the Phase 2 commit. It has no schema or deployed-state change.
+
+
+## Public Review Phase 3 review
+
+- Added authenticated `/api/v1/public-review/shares` management routes guarded by `CurrentPrincipal` and `public_review.manage`; no public/session-exchange route or frontend was introduced.
+- Create and rotate return a configured-base fragment URL once. PostgreSQL stores only SHA-256 secret digests; ordinary list/get payloads and bounded audit events exclude both raw secrets and digests.
+- Scope changes require active-tenant sources and a source-local registered folder identity; duplicate scopes and foreign tenant sources are denied. Rotate/revoke invalidate active share sessions; revoke retains durable records and is idempotent.
+- No migration or dependency was added. Focused Phase 1–3, authorization, folder-scope and app-smoke suite: 46 passed; Alembic remains one head (`0080_public_review_phase_1`).
+- Rollback: revert the Phase 3 commit; no schema or production state migration is involved.

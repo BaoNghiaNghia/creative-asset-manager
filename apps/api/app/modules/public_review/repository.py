@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.auth_persistence.model import AuthAuditEventModel
 from app.modules.public_review.model import AssetAnnotationModel, PublicShareGuestModel, PublicShareModel, PublicShareScopeModel, PublicShareSessionModel, utcnow
 from app.modules.public_review.schema import extract_plain_text
 
@@ -43,8 +44,9 @@ class PublicReviewRepository:
 
     def revoke_share(self, tenant_id: str, share_id: str, now: datetime | None = None) -> PublicShareModel:
         row = self._required_share(tenant_id, share_id)
-        row.status, row.revoked_at = "revoked", now or utcnow()
-        self.revoke_sessions(tenant_id, share_id, row.revoked_at)
+        if row.status != "revoked":
+            row.status, row.revoked_at = "revoked", now or utcnow()
+            self.revoke_sessions(tenant_id, share_id, row.revoked_at)
         self.session.flush()
         return row
 
@@ -53,7 +55,7 @@ class PublicReviewRepository:
         unique = {(item["external_source_id"], item["folder_external_id"]) for item in scopes}
         if len(unique) != len(scopes):
             raise ValueError("duplicate share scope")
-        for source_id, _ in unique:
+        for source_id, folder_id in unique:
             if self.session.scalar(select(ExternalSourceModel.id).where(ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.id == source_id)) is None:
                 raise LookupError("external source is outside the share tenant")
         for row in self.session.scalars(select(PublicShareScopeModel).where(PublicShareScopeModel.tenant_id == tenant_id, PublicShareScopeModel.share_id == share_id)):
@@ -62,6 +64,18 @@ class PublicReviewRepository:
         self.session.add_all(rows)
         self.session.flush()
         return rows
+
+    def validate_management_scopes(self, tenant_id: str, scopes: list[dict]) -> None:
+        unique = {(item["external_source_id"], item["folder_external_id"]) for item in scopes}
+        if len(unique) != len(scopes):
+            raise ValueError("duplicate share scope")
+        for source_id, folder_id in unique:
+            source = self.session.scalar(select(ExternalSourceModel.id).where(ExternalSourceModel.tenant_id == tenant_id, ExternalSourceModel.id == source_id))
+            if source is None:
+                raise LookupError("external source is outside the share tenant")
+            folder = self.session.scalar(select(SourceAssetModel.id).where(SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.external_source_id == source_id, SourceAssetModel.external_asset_id == folder_id, SourceAssetModel.deleted_at.is_(None)))
+            if folder is None:
+                raise LookupError("folder is not available in the selected source")
 
     def list_scopes(self, tenant_id: str, share_id: str) -> list[PublicShareScopeModel]:
         return list(self.session.scalars(select(PublicShareScopeModel).where(PublicShareScopeModel.tenant_id == tenant_id, PublicShareScopeModel.share_id == share_id).order_by(PublicShareScopeModel.created_at)))
@@ -106,6 +120,10 @@ class PublicReviewRepository:
         timestamp = now or utcnow()
         for row in self.session.scalars(select(PublicShareSessionModel).where(PublicShareSessionModel.tenant_id == tenant_id, PublicShareSessionModel.share_id == share_id, PublicShareSessionModel.revoked_at.is_(None))):
             row.revoked_at = timestamp
+
+    def audit_share_event(self, *, tenant_id: str, actor_id: str, action: str, share_id: str, detail: dict | None = None) -> None:
+        self.session.add(AuthAuditEventModel(tenant_id=tenant_id, actor_id=actor_id, action=action, detail_json={"share_id": share_id, **dict(detail or {})}))
+        self.session.flush()
 
     def create_annotation(self, **values) -> AssetAnnotationModel:
         self._validate_annotation_context(**values)

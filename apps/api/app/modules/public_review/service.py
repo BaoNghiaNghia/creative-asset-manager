@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from hashlib import sha256
+from secrets import token_urlsafe
+from uuid import uuid4
 
 from app.modules.public_review.model import PublicShareModel, PublicShareSessionModel, utcnow
 from app.modules.public_review.repository import PublicReviewRepository
@@ -84,3 +86,61 @@ class PublicReviewService:
             plain_text=extract_plain_text(content_json),
             **values,
         )
+
+
+    @staticmethod
+    def _validate_expiry(expires_at: datetime | None, now: datetime) -> None:
+        if expires_at is not None and (expires_at.tzinfo is None or expires_at.astimezone(timezone.utc) <= now):
+            raise ValueError("share expiry must be in the future")
+
+    @staticmethod
+    def _new_secret() -> str:
+        return token_urlsafe(32)
+
+    def create_managed_share(self, *, tenant_id: str, actor_id: str, name: str, scopes: list[dict], allow_comments: bool = True, allow_download: bool = False, expires_at: datetime | None = None):
+        now = self._now()
+        self._validate_expiry(expires_at, now)
+        if not scopes:
+            raise ValueError("at least one share scope is required")
+        self.repository.validate_management_scopes(tenant_id, scopes)
+        raw_secret = self._new_secret()
+        share = self.create_share(tenant_id=tenant_id, public_id=uuid4().hex, name=name, raw_secret=raw_secret, created_by=actor_id, allow_comments=allow_comments, allow_download=allow_download, expires_at=expires_at)
+        self.repository.replace_scopes(tenant_id, share.id, scopes)
+        self.repository.audit_share_event(tenant_id=tenant_id, actor_id=actor_id, action="public_review_share_created", share_id=share.id, detail={"scope_count": len(scopes)})
+        return share, raw_secret
+
+    def update_managed_share(self, *, tenant_id: str, actor_id: str, share_id: str, changes: dict, scopes: list[dict] | None = None):
+        share = self.repository.get_share(tenant_id, share_id)
+        if share is None:
+            raise LookupError("public share not found")
+        if "name" in changes:
+            changes["name"] = " ".join(changes["name"].split())
+            if not changes["name"]:
+                raise ValueError("share name must be between 1 and 255 characters")
+        if "expires_at" in changes:
+            self._validate_expiry(changes["expires_at"], self._now())
+        if changes:
+            share = self.repository.update_share(tenant_id, share_id, **changes)
+            self.repository.audit_share_event(tenant_id=tenant_id, actor_id=actor_id, action="public_review_share_updated", share_id=share_id, detail={"fields": sorted(changes)})
+        if scopes is not None:
+            if not scopes:
+                raise ValueError("at least one share scope is required")
+            self.repository.validate_management_scopes(tenant_id, scopes)
+            self.repository.replace_scopes(tenant_id, share_id, scopes)
+            self.repository.audit_share_event(tenant_id=tenant_id, actor_id=actor_id, action="public_review_share_scopes_updated", share_id=share_id, detail={"scope_count": len(scopes)})
+        return share
+
+    def rotate_managed_share_secret(self, *, tenant_id: str, actor_id: str, share_id: str):
+        share = self.repository.get_share(tenant_id, share_id)
+        if share is None or not share.is_active_at(self._now()):
+            raise LookupError("public share is unavailable")
+        raw_secret = self._new_secret()
+        share = self.repository.update_share(tenant_id, share_id, secret_digest=sha256_digest(raw_secret))
+        self.repository.revoke_sessions(tenant_id, share_id, self._now())
+        self.repository.audit_share_event(tenant_id=tenant_id, actor_id=actor_id, action="public_review_share_secret_rotated", share_id=share_id)
+        return share, raw_secret
+
+    def revoke_managed_share(self, *, tenant_id: str, actor_id: str, share_id: str):
+        share = self.repository.revoke_share(tenant_id, share_id, self._now())
+        self.repository.audit_share_event(tenant_id=tenant_id, actor_id=actor_id, action="public_review_share_revoked", share_id=share_id)
+        return share

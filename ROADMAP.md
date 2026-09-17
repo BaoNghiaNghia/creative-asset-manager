@@ -138,3 +138,4 @@
 
 - [x] PUBLIC-REVIEW-01 Durable share, scope, guest, session, and annotation foundation.
 - [x] PUBLIC-REVIEW-02 Server-side public-share principal and fail-closed folder-scope authorization.
+- [x] PUBLIC-REVIEW-03 Authenticated share-management API with tenant RBAC, scope validation, rotate/revoke, and secret-free audit.

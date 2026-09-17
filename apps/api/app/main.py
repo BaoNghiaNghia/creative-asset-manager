@@ -27,6 +27,7 @@ from app.modules.auth.desktop_router import router as desktop_oauth_router
 from app.modules.auth.router import router as auth_router
 from app.modules.authorization.admin_router import router as access_management_router
 from app.modules.authorization.router import router as authorization_router
+from app.modules.public_review.router import router as public_review_router
 from app.modules.explorer.router import router as explorer_router
 from app.modules.external_ingestion.router import router as external_ingestion_router
 from app.modules.metadata.router import router as metadata_router
@@ -119,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(microsoft_auth_router, prefix="/api")
     api.include_router(desktop_oauth_router, prefix="/api")
     api.include_router(authorization_router)
+    api.include_router(public_review_router)
     api.include_router(access_management_router)
     api.include_router(explorer_router, prefix="/api")
     api.include_router(source_router)
