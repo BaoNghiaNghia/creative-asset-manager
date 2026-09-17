@@ -787,6 +787,7 @@ cleanup_old_releases() {
     creative-asset-manager-api.service \
     creative-asset-manager-image-worker.service \
     creative-asset-manager-image-worker-2.service \
+    creative-asset-manager-image-worker-3.service \
     creative-asset-manager-video-worker.service
   do
 
@@ -1155,6 +1156,7 @@ verify_services() {
     creative-asset-manager-api.service \
     creative-asset-manager-image-worker.service \
     creative-asset-manager-image-worker-2.service \
+    creative-asset-manager-image-worker-3.service \
     creative-asset-manager-video-worker.service \
     creative-asset-manager-visual-encoder.service
   do
@@ -1236,6 +1238,7 @@ verify_services() {
   for port in \
     "$IMAGE_WORKER_HEALTH_PORT" \
     "8083" \
+    "8084" \
     "$VIDEO_WORKER_HEALTH_PORT"
   do
 
@@ -1273,6 +1276,12 @@ restart_services() {
 
   systemctl restart \
     creative-asset-manager-image-worker-2.service
+
+
+  info "Restarting tertiary Image worker"
+
+  systemctl restart \
+    creative-asset-manager-image-worker-3.service
 
 
   info "Restarting Video worker"
@@ -1699,6 +1708,7 @@ for unit in \
   creative-asset-manager-api.service \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
+  creative-asset-manager-image-worker-3.service \
   creative-asset-manager-video-worker.service \
   creative-asset-manager-visual-encoder.service \
   creative-asset-manager-inventory-v41-snapshot.service \
@@ -1764,6 +1774,7 @@ systemctl enable \
   creative-asset-manager-api.service \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
+  creative-asset-manager-image-worker-3.service \
   creative-asset-manager-video-worker.service \
   creative-asset-manager-visual-encoder.service
 

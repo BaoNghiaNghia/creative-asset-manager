@@ -48,6 +48,7 @@ sudo systemctl stop creative-asset-manager-worker.service
 sudo systemctl disable creative-asset-manager-worker.service
 sudo systemctl enable --now creative-asset-manager-image-worker.service
 sudo systemctl enable --now creative-asset-manager-image-worker-2.service
+sudo systemctl enable --now creative-asset-manager-image-worker-3.service
 sudo systemctl enable --now creative-asset-manager-video-worker.service
 ```
 
@@ -59,6 +60,7 @@ The image worker has `WORKER_ROLE=image` and health port 8081. The video worker 
 systemctl is-active creative-asset-manager-api.service
 systemctl is-active creative-asset-manager-image-worker.service
 systemctl is-active creative-asset-manager-image-worker-2.service
+systemctl is-active creative-asset-manager-image-worker-3.service
 systemctl is-active creative-asset-manager-video-worker.service
 systemctl is-active creative-asset-manager-worker.service
 
