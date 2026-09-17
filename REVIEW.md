@@ -2537,3 +2537,11 @@ npm run typecheck -- --pretty false (passed).
 - Scope changes require active-tenant sources and a source-local registered folder identity; duplicate scopes and foreign tenant sources are denied. Rotate/revoke invalidate active share sessions; revoke retains durable records and is idempotent.
 - No migration or dependency was added. Focused Phase 1–3, authorization, folder-scope and app-smoke suite: 46 passed; Alembic remains one head (`0080_public_review_phase_1`).
 - Rollback: revert the Phase 3 commit; no schema or production state migration is involved.
+
+## Public Review Phase 4 review
+
+- Public routes resolve and revalidate the dedicated share principal for every request; no CAM login, guest creation, or annotation write route was added.
+- Folder and asset access reuse the Phase 2 shared folder-scope resolver. Direct assets retain an exact asset/source-pair check.
+- Public responses and media use no-store, strict referrer policy, and do not return provider credentials, signed URLs, paths, or raw bearer values.
+- Application rate limiting is PostgreSQL-backed through public_review_rate_limits and stores only a SHA-256 client identity digest. It is shared across API replicas. Edge IP rate limiting remains a production reverse-proxy deployment requirement.
+- Phase 4 public search is deliberately filename-only. It is authorization-filtered after tenant-scoped candidate retrieval and is not represented as full CAM or Elasticsearch query-parser semantics.

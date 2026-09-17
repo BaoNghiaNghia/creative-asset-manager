@@ -130,7 +130,7 @@ def test_migration_has_single_phase1_head():
     root = Path(__file__).resolve().parents[5]
     config = Config(str(root / "apps/api/alembic.ini"))
     config.set_main_option("script_location", str(root / "database/migrations"))
-    assert ScriptDirectory.from_config(config).get_heads() == ["0080_public_review_phase_1"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["0081_public_review_rate_limits"]
 
 def test_public_share_requires_an_existing_tenant(session):
     session.add(PublicShareModel(

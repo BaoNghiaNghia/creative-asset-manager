@@ -1,0 +1,46 @@
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, event, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+from app.core.database import Base
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
+from app.modules.public_review.model import PublicReviewRateLimitModel
+from app.modules.public_review.public_router import COOKIE, router
+from app.modules.public_review.repository import PublicReviewRepository
+from app.modules.public_review.service import PublicReviewService
+
+@pytest.fixture()
+def ctx():
+ engine=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool)
+ event.listen(engine,"connect",lambda c,_: c.execute("PRAGMA foreign_keys=ON")); Base.metadata.create_all(engine); factory=sessionmaker(engine,class_=Session,expire_on_commit=False)
+ with factory() as s:
+  s.add_all([TenantModel(id="tenant-a",name="A",slug="a"),TenantModel(id="tenant-b",name="B",slug="b")]);s.flush()
+  s.add_all([OAuthConnectionModel(id="conn-a",tenant_id="tenant-a",provider="google",provider_account_id="a",key_version="v1"),OAuthConnectionModel(id="conn-b",tenant_id="tenant-b",provider="google",provider_account_id="b",key_version="v1")]);s.flush()
+  s.add_all([ExternalSourceModel(id="source-a",tenant_id="tenant-a",source_key="a",source_type="google_drive",oauth_connection_id="conn-a"),ExternalSourceModel(id="source-b",tenant_id="tenant-b",source_key="b",source_type="google_drive",oauth_connection_id="conn-b")]);s.flush()
+  s.add_all([SourceAssetModel(id="root",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="root",filename="Root"),SourceAssetModel(id="child",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="child",filename="cat-good.jpg",mime_type="image/jpeg",source_metadata={"parents":["root"]}),SourceAssetModel(id="sibling",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="sibling",filename="cat-private.jpg",mime_type="image/jpeg",source_metadata={"parents":["other"]}),SourceAssetModel(id="foreign",tenant_id="tenant-b",external_source_id="source-b",external_asset_id="root",filename="cat-foreign.jpg",mime_type="image/jpeg")]);s.flush()
+  s.add_all([AssetModel(id="asset-good",tenant_id="tenant-a",content_hash="a"*64),AssetModel(id="asset-private",tenant_id="tenant-a",content_hash="b"*64),AssetModel(id="asset-foreign",tenant_id="tenant-b",content_hash="c"*64)]);s.flush();s.add_all([AssetSourceLinkModel(id="l1",tenant_id="tenant-a",asset_id="asset-good",source_asset_id="child"),AssetSourceLinkModel(id="l2",tenant_id="tenant-a",asset_id="asset-private",source_asset_id="sibling"),AssetSourceLinkModel(id="l3",tenant_id="tenant-b",asset_id="asset-foreign",source_asset_id="foreign")]);s.flush()
+  service=PublicReviewService(PublicReviewRepository(s));share=service.create_share(tenant_id="tenant-a",public_id="share-a",name="Review",raw_secret="fake-public-secret",created_by="u");PublicReviewRepository(s).replace_scopes("tenant-a",share.id,[{"external_source_id":"source-a","folder_external_id":"root"}]);s.commit()
+ app=FastAPI();app.include_router(router); yield TestClient(app),factory,share;engine.dispose()
+def request(ctx,method,path,**kw):
+ with patch("app.modules.public_review.public_router.SessionLocal",ctx[1]): return ctx[0].request(method,path,**kw)
+def exchange(ctx,secret="fake-public-secret"):
+ return request(ctx,"POST","/api/public/review/share-a/session",json={"secret":secret},headers={"Origin":"http://localhost:5173"})
+def test_session_exchange_headers_and_generic_denial(ctx):
+ good=exchange(ctx);assert good.status_code==201 and "fake-public-secret" not in good.text
+ cookie=good.headers["set-cookie"].lower();assert "httponly" in cookie and "samesite=lax" in cookie
+ missing=request(ctx,"POST","/api/public/review/share-a/session",json={"secret":"fake-public-secret"});wrong=request(ctx,"POST","/api/public/review/missing/session",json={"secret":"bad"},headers={"Origin":"http://localhost:5173"});assert missing.status_code==wrong.status_code==404 and missing.json()==wrong.json()
+ with ctx[1]() as s:
+  assert s.scalar(select(PublicReviewRateLimitModel)) is not None
+  assert "198.51.100" not in str(s.scalar(select(PublicReviewRateLimitModel)).client_digest)
+def test_scoped_browse_asset_and_search(ctx):
+ assert exchange(ctx).status_code==201
+ folders=request(ctx,"GET","/api/public/review/share-a/folders");assert folders.status_code==200 and folders.json()["items"][0]["folder_id"]=="root"
+ child=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-a");assert child.status_code==200 and child.json()["items"][0]["id"]=="child"
+ foreign=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-b");assert foreign.status_code==404
+ allowed=request(ctx,"GET","/api/public/review/share-a/assets/asset-good?source_asset_id=child");denied=request(ctx,"GET","/api/public/review/share-a/assets/asset-private?source_asset_id=sibling");assert allowed.status_code==200 and denied.status_code==404 and "source_metadata" not in allowed.text
+ found=request(ctx,"GET","/api/public/review/share-a/search?q=cat");assert found.status_code==200 and [x["asset_id"] for x in found.json()["items"]]==["asset-good"] and "private" not in found.text

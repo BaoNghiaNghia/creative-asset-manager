@@ -143,3 +143,17 @@ class AssetAnnotationModel(Base):
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_by: Mapped[str | None] = mapped_column(String(512))
+
+class PublicReviewRateLimitModel(Base):
+    """Shared fixed-window counters. Client identity is SHA-256 digested."""
+    __tablename__ = "public_review_rate_limits"
+    __table_args__ = (
+        UniqueConstraint("operation", "client_digest", "window_start", name="uq_public_review_rate_limits_window"),
+        CheckConstraint("request_count > 0", name="ck_public_review_rate_limits_count"),
+        Index("ix_public_review_rate_limits_window", "window_start"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    client_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    request_count: Mapped[int] = mapped_column(nullable=False, default=1)
