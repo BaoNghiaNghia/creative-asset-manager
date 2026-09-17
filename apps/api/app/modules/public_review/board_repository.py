@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import case, false, func, select
 from sqlalchemy.orm import Session, aliased
 
+from app.modules.auth_persistence.model import AuthAuditEventModel
 from app.modules.assets.model import (
     AssetModel,
     AssetSourceLinkModel,
@@ -207,6 +208,80 @@ class BoardRepository:
                 AssetAnnotationModel.id == annotation_id
             )
         ).first()
+
+    @staticmethod
+    def _mutation_query(*, tenant_id: str, annotation_id: str):
+        annotation = AssetAnnotationModel
+        return (
+            select(annotation)
+            .join(
+                PublicShareModel,
+                (PublicShareModel.tenant_id == annotation.tenant_id)
+                & (PublicShareModel.id == annotation.share_id),
+            )
+            .join(
+                AssetSourceLinkModel,
+                (AssetSourceLinkModel.tenant_id == annotation.tenant_id)
+                & (AssetSourceLinkModel.asset_id == annotation.asset_id)
+                & (AssetSourceLinkModel.source_asset_id == annotation.source_asset_id),
+            )
+            .join(
+                AssetModel,
+                (AssetModel.tenant_id == annotation.tenant_id)
+                & (AssetModel.id == AssetSourceLinkModel.asset_id),
+            )
+            .join(
+                SourceAssetModel,
+                (SourceAssetModel.tenant_id == annotation.tenant_id)
+                & (SourceAssetModel.id == AssetSourceLinkModel.source_asset_id),
+            )
+            .where(
+                annotation.tenant_id == tenant_id,
+                annotation.id == annotation_id,
+                annotation.parent_annotation_id.is_(None),
+            )
+        )
+
+    def get_issue_for_update(
+        self, *, tenant_id: str, annotation_id: str
+    ) -> AssetAnnotationModel | None:
+        return self.session.scalar(
+            self._mutation_query(
+                tenant_id=tenant_id, annotation_id=annotation_id
+            ).with_for_update(of=AssetAnnotationModel)
+        )
+
+    def save_issue_transition(self, issue: AssetAnnotationModel) -> None:
+        self.session.add(issue)
+        self.session.flush()
+
+    def audit_issue_transition(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        action: str,
+        issue: AssetAnnotationModel,
+        old_status: str,
+        new_status: str,
+    ) -> None:
+        self.session.add(
+            AuthAuditEventModel(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action=action,
+                detail_json={
+                    "annotation_id": str(issue.id)[:36],
+                    "share_id": str(issue.share_id)[:36],
+                    "asset_id": str(issue.asset_id)[:36],
+                    "source_asset_id": str(issue.source_asset_id)[:36],
+                    "old_status": str(old_status)[:16],
+                    "new_status": str(new_status)[:16],
+                },
+            )
+        )
+        self.session.flush()
+
 
     def reply_counts(
         self, *, tenant_id: str, issue_rows: list[tuple]

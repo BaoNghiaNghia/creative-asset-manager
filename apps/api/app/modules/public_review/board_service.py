@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.modules.public_review.model import utcnow
 from app.modules.public_review.board_repository import BoardRepository
 from app.modules.public_review.board_schema import (
     ANNOTATION_PREVIEW_LIMIT,
@@ -17,6 +18,7 @@ from app.modules.public_review.board_schema import (
     BoardIssueListDTO,
     BoardReplyDTO,
     BoardStatsDTO,
+    BoardTransitionDTO,
     ResolverDTO,
     ReviewerDTO,
     ShareDTO,
@@ -32,8 +34,9 @@ def _bounded(value: object, limit: int) -> str:
 
 
 class BoardService:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, *, now=utcnow):
         self.repository = BoardRepository(session)
+        self._now = now
 
     @staticmethod
     def _issue_dto(row: tuple, reply_count: int) -> BoardIssueDTO:
@@ -129,6 +132,83 @@ class BoardService:
             plain_text=_bounded(annotation.plain_text, 10000),
             replies=replies,
         )
+
+    @staticmethod
+    def _transition_dto(
+        issue, *, transitioned: bool
+    ) -> BoardTransitionDTO:
+        return BoardTransitionDTO(
+            id=issue.id,
+            status=issue.status,
+            resolved_at=issue.resolved_at,
+            resolver=(
+                ResolverDTO(actor_id=_bounded(issue.resolved_by, RESOLVER_LIMIT))
+                if issue.resolved_by
+                else None
+            ),
+            updated_at=issue.updated_at,
+            transitioned=transitioned,
+        )
+
+    def _transition_issue(
+        self,
+        *,
+        tenant_id: str,
+        annotation_id: str,
+        actor_id: str,
+        target_status: str,
+    ) -> BoardTransitionDTO:
+        issue = self.repository.get_issue_for_update(
+            tenant_id=tenant_id, annotation_id=annotation_id
+        )
+        if issue is None:
+            raise BoardIssueNotFound("review issue unavailable")
+        if issue.status == target_status:
+            return self._transition_dto(issue, transitioned=False)
+
+        old_status = issue.status
+        if target_status == "resolved":
+            issue.status = "resolved"
+            issue.resolved_at = self._now()
+            issue.resolved_by = actor_id
+            action = "review_issue_resolved"
+        else:
+            issue.status = "open"
+            issue.resolved_at = None
+            issue.resolved_by = None
+            action = "review_issue_reopened"
+
+        self.repository.save_issue_transition(issue)
+        self.repository.audit_issue_transition(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            action=action,
+            issue=issue,
+            old_status=old_status,
+            new_status=target_status,
+        )
+        return self._transition_dto(issue, transitioned=True)
+
+    def resolve_issue(
+        self, *, tenant_id: str, annotation_id: str, actor_id: str
+    ) -> BoardTransitionDTO:
+        return self._transition_issue(
+            tenant_id=tenant_id,
+            annotation_id=annotation_id,
+            actor_id=actor_id,
+            target_status="resolved",
+        )
+
+    def reopen_issue(
+        self, *, tenant_id: str, annotation_id: str, actor_id: str
+    ) -> BoardTransitionDTO:
+        return self._transition_issue(
+            tenant_id=tenant_id,
+            annotation_id=annotation_id,
+            actor_id=actor_id,
+            target_status="open",
+        )
+
 
     def stats(self, *, tenant_id: str) -> BoardStatsDTO:
         stats = self.repository.stats(tenant_id=tenant_id)

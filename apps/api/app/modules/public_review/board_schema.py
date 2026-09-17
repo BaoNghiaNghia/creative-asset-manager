@@ -154,3 +154,13 @@ class BoardStatsDTO(BaseModel):
     assets_with_open_issues: int
     shares_with_open_issues: int
 
+
+
+class BoardTransitionDTO(BaseModel):
+    id: str
+    status: str
+    resolved_at: datetime | None
+    resolver: ResolverDTO | None
+    updated_at: datetime
+    transitioned: bool
+

@@ -2577,3 +2577,12 @@ npm run typecheck -- --pretty false (passed).
 - Statistics count top-level issues only. assets_with_open_issues counts distinct exact asset/source pairs, preserving source-specific public review identity.
 - Phase 9A intentionally adds no resolve/reopen mutation, resolution audit, Review Board frontend, client route/sidebar, migration, production deployment, or production migration.
 
+
+## Public Review Phase 9B review
+
+- Added authenticated resolve and reopen endpoints guarded only by public_review.resolve. Tenant and actor authority come exclusively from CurrentPrincipal.active_tenant_id and CurrentPrincipal.user_id; public bearer sessions cannot access these routes.
+- Mutation lookup locks and validates a top-level annotation through tenant-qualified share, canonical asset, exact asset/source link, and source-asset joins. Unknown, foreign-tenant, reply, and malformed-pair targets share one generic unavailable response.
+- Resolve and reopen are idempotent. A repeated resolve preserves the first resolved_at and resolved_by values, while no-op resolve/reopen requests do not create audit events or update the annotation.
+- Status transition and the bounded AuthAuditEventModel record share one database transaction. Audit failure rolls back both durable effects. Audit details contain only annotation/share/asset/source identifiers and old/new status.
+- Phase 9B intentionally adds no frontend, public mutation API, new status, resolution note, migration, production deployment, or production migration. Full Phase 9 remains incomplete until the authenticated Review Board frontend slice is implemented.
+
