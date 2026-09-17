@@ -168,3 +168,13 @@ def test_public_principal_denies_unknown_revoked_and_expired_sessions(
     with pytest.raises(PublicShareAccessDenied) as denied:
         service.resolve_principal(raw_session_token=token, expected_public_id=public_id)
     assert denied.value.args == ()
+
+def test_public_scope_rechecks_session_and_share_for_each_authorization(review_context):
+    db, share, session = review_context
+    service = PublicShareScopeService(db, now=lambda: NOW)
+    principal = service.resolve_principal(raw_session_token="session-a")
+    PublicReviewRepository(db).revoke_session("tenant-a", share.id, session.id, NOW)
+
+    with pytest.raises(PublicShareAccessDenied):
+        service.allowed_asset_source_pairs(principal=principal)
+

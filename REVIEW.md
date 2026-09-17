@@ -2526,5 +2526,5 @@ npm run typecheck -- --pretty false (passed).
 - Added SharePrincipal and PublicShareScopeService; every session and share is revalidated server-side for active, revoked, and expired state.
 - Share access is tenant-scoped and limited to explicitly selected provider-folder roots and their synchronized descendants. Unknown hierarchy, sibling folders, unselected sources, provider-ID masquerading, cross-tenant pairs, and alternate source pairs are denied without disclosing why.
 - No browser-facing public route, frontend, migration, provider call, feature flag, deployment, or production migration was added.
-- Focused Phase 1/2 authorization, legacy Viewer scope, and API smoke suite: 40 passed; Alembic remains one head (0080_public_review_phase_1).
+- Focused Phase 1/2 authorization, legacy Viewer scope, and API smoke suite: 41 passed; Alembic remains one head (0080_public_review_phase_1).
 - Rollback: revert the Phase 2 commit. It has no schema or deployed-state change.

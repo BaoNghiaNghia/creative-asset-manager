@@ -87,7 +87,35 @@ class PublicShareScopeService:
     def _instant(value: datetime) -> datetime:
         return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
+    def _require_active_principal(self, principal: SharePrincipal) -> None:
+        now = self._instant(self._now())
+        session_row = self.session.scalar(
+            select(PublicShareSessionModel).where(
+                PublicShareSessionModel.tenant_id == principal.tenant_id,
+                PublicShareSessionModel.share_id == principal.share_id,
+                PublicShareSessionModel.id == principal.session_id,
+            )
+        )
+        share = self.session.scalar(
+            select(PublicShareModel).where(
+                PublicShareModel.tenant_id == principal.tenant_id,
+                PublicShareModel.id == principal.share_id,
+            )
+        )
+        if (
+            session_row is None
+            or session_row.revoked_at is not None
+            or self._instant(session_row.expires_at) <= now
+            or share is None
+            or share.public_id != principal.public_id
+            or share.status != "active"
+            or share.revoked_at is not None
+            or (share.expires_at is not None and self._instant(share.expires_at) <= now)
+        ):
+            raise PublicShareAccessDenied()
+
     def scoped_accesses(self, *, principal: SharePrincipal) -> dict[str, FolderScopeAccess]:
+        self._require_active_principal(principal)
         rows = self.session.execute(
             select(PublicShareScopeModel.external_source_id, PublicShareScopeModel.folder_external_id)
             .where(
