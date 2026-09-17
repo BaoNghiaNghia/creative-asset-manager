@@ -47,12 +47,13 @@ Before changing a feature area, read its dedicated architecture/implementation d
 For Public Review Portal and Review Board work, the authoritative documents are:
 
 - `docs/architecture/PUBLIC_REVIEW.md`
+- `docs/architecture/PUBLIC_REVIEW_LINK_ACCESS.md`
 - `docs/architecture/PUBLIC_REVIEW_BOARD.md`
 - `docs/plans/PUBLIC_REVIEW_IMPLEMENTATION.md`
 - `docs/plans/PUBLIC_REVIEW_REVIEW_BOARD_PHASE_09.md`
 - `docs/plans/PUBLIC_REVIEW_CODEX_RUNBOOK.md`
 
-`PUBLIC_REVIEW_BOARD.md` is an approved extension of the Public Review architecture and supersedes older statements that classify internal owner moderation, annotation activity, resolution tracking, or review statistics as future-only work. `PUBLIC_REVIEW_REVIEW_BOARD_PHASE_09.md` extends the implementation plan with mandatory Phase 9. Public Review work must follow the documented phase boundaries and must not reinterpret public-session, folder-scope, asset/source identity, media-delivery, guest-identity, annotation, resolution, statistics, or rich-text security contracts without first updating and reviewing those documents.
+`PUBLIC_REVIEW_LINK_ACCESS.md` is an approved amendment that makes the review URL a bearer capability: anyone with a valid link may browse, view, search within share scope, and create notes/replies when comments are enabled, without CAM login or a mandatory display-name prompt. It supersedes older statements treating share-scoped search as future-only work or mandatory guest-name entry as a prerequisite to writing. `PUBLIC_REVIEW_BOARD.md` is an approved extension of the Public Review architecture and supersedes older statements that classify internal owner moderation, annotation activity, resolution tracking, or review statistics as future-only work. `PUBLIC_REVIEW_REVIEW_BOARD_PHASE_09.md` extends the implementation plan with mandatory Phase 9. Public Review work must follow the documented phase boundaries and must not reinterpret bearer-link/session, folder-scope, share-scoped search, asset/source identity, media-delivery, guest-identity, annotation, resolution, statistics, or rich-text security contracts without first updating and reviewing those documents.
 
 ## Implementation rules
 
