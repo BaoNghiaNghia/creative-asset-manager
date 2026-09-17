@@ -485,3 +485,22 @@ internal asset IDs. Scope rows are tenant- and membership-scoped and are
 replaced idempotently by the access-management API. A viewer with configured
 scopes can browse/search only selected folders and their descendants; operators
 and tenant administrators are not restricted by viewer scopes.
+
+
+## Public Review durable foundation
+
+Revision 0080_public_review_phase_1 adds the Phase 1-only durable public review
+foundation: public_shares, public_share_scopes, public_share_sessions,
+public_share_guests, and asset_annotations. PostgreSQL stores annotation
+documents as JSONB while SQLite continues to use JSON for local/test compatibility.
+Composite tenant/share, tenant/source, tenant/asset, tenant/source-asset, guest,
+and reply constraints preserve ownership boundaries; repository validation also
+requires the exact canonical asset/source link before an annotation is created.
+
+Share and session credentials are persisted only as SHA-256 digests. Public
+shares default to allow_download=false; revoking a share revokes its existing
+sessions. Annotation anchors are paired normalized coordinates in [0,1] (or
+both NULL), statuses are open/resolved, and plain text is derived from the
+structured annotation document. This revision is additive and its downgrade
+drops only these five feature tables and their indexes. No public routes or
+frontend behavior are introduced by this revision.
