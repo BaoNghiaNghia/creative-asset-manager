@@ -105,6 +105,11 @@ jobs:
           result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(selected))
           raise SystemExit(0 if result.wasSuccessful() else 1)
           PY
+      - name: Public Review and Review Board security suite
+        working-directory: apps/api
+        run: |
+          set -o pipefail
+          python -m pytest tests/modules/public_review tests/modules/authorization tests/test_app_smoke.py -q
       - name: Dola deployment-template tests
         run: |
           bash -n deploy/tools/prepare_dola_runtime.sh
@@ -184,6 +189,7 @@ jobs:
         run: |
           set -o pipefail
           timeout 10m python -m unittest tests.integration.test_postgresql tests.integration.test_ai_operations_postgresql tests.integration.test_inventory_postgresql -v 2>&1 | tee ../../artifacts/postgres/tests.log
+          timeout 10m python -m pytest tests/integration/test_public_review_postgresql.py -q 2>&1 | tee -a ../../artifacts/postgres/tests.log
       - name: Upload PostgreSQL failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

@@ -144,3 +144,4 @@
 - [x] PUBLIC-REVIEW-06 Public Review frontend portal with bearer-link bootstrap, scoped browse/search/view, annotation interactions, and no mandatory reviewer identity prompt.
 - [x] PUBLIC-REVIEW-07 Tiptap rich annotations, safe JSON rendering, and normalized image pins.
 - [x] PUBLIC-REVIEW-08 Asset Explorer share-management integration, one-time link handling, rotate/revoke controls, and final Public Review hardening.
+- [x] PUBLIC-REVIEW-09 Internal Review Board with tenant-scoped read/stat APIs, resolution workflow, audit, authenticated UI, and production-readiness hardening.
