@@ -25,6 +25,7 @@ from app.modules.inventory import persistence_model as inventory_persistence_mod
 from app.modules.video_generation import model as video_generation_models  # noqa: F401
 from app.modules.visual_search import backfill_model as visual_search_backfill_models  # noqa: F401
 from app.modules.creative_pipeline import model as creative_pipeline_models  # noqa: F401
+from app.modules.public_review import model as public_review_models  # noqa: F401
 
 config = context.config
 if (
