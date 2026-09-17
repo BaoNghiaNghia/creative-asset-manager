@@ -2518,3 +2518,13 @@ selection for viewer memberships. Focused tests:
 .venv/bin/python -m unittest tests.modules.authorization.test_folder_scope -v
 (4 passed). Frontend typecheck:
 npm run typecheck -- --pretty false (passed).
+
+
+## Public Review Phase 2 review
+
+- Extracted the tenant-local folder hierarchy resolver from Viewer scope code and retained the existing Viewer-facing service/API as a delegating compatibility layer.
+- Added SharePrincipal and PublicShareScopeService; every session and share is revalidated server-side for active, revoked, and expired state.
+- Share access is tenant-scoped and limited to explicitly selected provider-folder roots and their synchronized descendants. Unknown hierarchy, sibling folders, unselected sources, provider-ID masquerading, cross-tenant pairs, and alternate source pairs are denied without disclosing why.
+- No browser-facing public route, frontend, migration, provider call, feature flag, deployment, or production migration was added.
+- Focused Phase 1/2 authorization, legacy Viewer scope, and API smoke suite: 40 passed; Alembic remains one head (0080_public_review_phase_1).
+- Rollback: revert the Phase 2 commit. It has no schema or deployed-state change.

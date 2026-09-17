@@ -133,3 +133,8 @@
 
 - [x] Viewer folder scopes: tenant administrators can select external Drive
   folders for viewer memberships; Explorer and search enforce the scope.
+
+## Public Review Portal
+
+- [x] PUBLIC-REVIEW-01 Durable share, scope, guest, session, and annotation foundation.
+- [x] PUBLIC-REVIEW-02 Server-side public-share principal and fail-closed folder-scope authorization.
