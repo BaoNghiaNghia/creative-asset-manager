@@ -73,15 +73,16 @@ For security-sensitive changes report:
 
 ## Public Review Portal work
 
-Before planning, implementing, modifying, reviewing, or deploying the Public Review Portal, Review Board, or any public-review share/session/annotation/resolution behavior, read all of:
+Before planning, implementing, modifying, reviewing, or deploying the Public Review Portal, Review Board, or any public-review share/session/search/annotation/resolution behavior, read all of:
 
 - [docs/architecture/PUBLIC_REVIEW.md](docs/architecture/PUBLIC_REVIEW.md)
+- [docs/architecture/PUBLIC_REVIEW_LINK_ACCESS.md](docs/architecture/PUBLIC_REVIEW_LINK_ACCESS.md)
 - [docs/architecture/PUBLIC_REVIEW_BOARD.md](docs/architecture/PUBLIC_REVIEW_BOARD.md)
 - [docs/plans/PUBLIC_REVIEW_IMPLEMENTATION.md](docs/plans/PUBLIC_REVIEW_IMPLEMENTATION.md)
 - [docs/plans/PUBLIC_REVIEW_REVIEW_BOARD_PHASE_09.md](docs/plans/PUBLIC_REVIEW_REVIEW_BOARD_PHASE_09.md)
 - [docs/plans/PUBLIC_REVIEW_CODEX_RUNBOOK.md](docs/plans/PUBLIC_REVIEW_CODEX_RUNBOOK.md)
 
-These files are the implementation source of truth for Public Review unless the current user explicitly authorizes a reviewed architecture change. `PUBLIC_REVIEW_BOARD.md` is an approved extension of the parent architecture and supersedes older statements that treated owner moderation, annotation activity, resolution tracking, or review statistics as future-only work. `PUBLIC_REVIEW_REVIEW_BOARD_PHASE_09.md` extends the implementation sequence with mandatory Phase 9. Work on exactly one documented phase at a time. Do not silently expand phase scope or replace the documented public-link/session, folder-scope authorization, asset/source identity, media-proxy, guest identity, annotation, resolution, statistics, or rich-text security contracts.
+These files are the implementation source of truth for Public Review unless the current user explicitly authorizes a reviewed architecture change. `PUBLIC_REVIEW_LINK_ACCESS.md` is an approved amendment that supersedes older statements making reviewer display-name entry mandatory before writing or treating share-scoped public search as future-only work. `PUBLIC_REVIEW_BOARD.md` is an approved extension of the parent architecture and supersedes older statements that treated owner moderation, annotation activity, resolution tracking, or review statistics as future-only work. `PUBLIC_REVIEW_REVIEW_BOARD_PHASE_09.md` extends the implementation sequence with mandatory Phase 9. Work on exactly one documented phase at a time. Do not silently expand phase scope or replace the documented bearer-link/session, folder-scope authorization, share-scoped search, asset/source identity, media-proxy, guest identity, annotation, resolution, statistics, or rich-text security contracts.
 
 Public Review is security-sensitive because it introduces an internet-facing authorization boundary and authenticated resolution operations. Every implementation phase requires the negative tests, independent review pass, and completion report defined in the Public Review runbook. Completing an implementation phase never authorizes production deployment.
 
