@@ -29,11 +29,11 @@ def ctx():
 def request(ctx,method,path,**kw):
  with patch("app.modules.public_review.public_router.SessionLocal",ctx[1]): return ctx[0].request(method,path,**kw)
 def exchange(ctx,secret="fake-public-secret"):
- return request(ctx,"POST","/api/public/review/share-a/session",json={"secret":secret},headers={"Origin":"http://localhost:5173"})
+ return request(ctx,"POST","/api/public/review/share-a/session",json={"key":secret},headers={"Origin":"http://localhost:5173"})
 def test_session_exchange_headers_and_generic_denial(ctx):
  good=exchange(ctx);assert good.status_code==201 and "fake-public-secret" not in good.text
  cookie=good.headers["set-cookie"].lower();assert "httponly" in cookie and "samesite=lax" in cookie
- missing=request(ctx,"POST","/api/public/review/share-a/session",json={"secret":"fake-public-secret"});wrong=request(ctx,"POST","/api/public/review/missing/session",json={"secret":"bad"},headers={"Origin":"http://localhost:5173"});assert missing.status_code==wrong.status_code==404 and missing.json()==wrong.json()
+ missing=request(ctx,"POST","/api/public/review/share-a/session",json={"key":"fake-public-secret"});wrong=request(ctx,"POST","/api/public/review/missing/session",json={"key":"bad"},headers={"Origin":"http://localhost:5173"});assert missing.status_code==wrong.status_code==404 and missing.json()==wrong.json()
  with ctx[1]() as s:
   assert s.scalar(select(PublicReviewRateLimitModel)) is not None
   assert "198.51.100" not in str(s.scalar(select(PublicReviewRateLimitModel)).client_digest)

@@ -48,7 +48,7 @@ def asset_pair(p,asset_id,source_id):
 def session(public_share_id:str,request:Request,body:dict):
  parsed=urlsplit(get_settings().PUBLIC_APP_URL); origin=request.headers.get("origin")
  if not origin or origin.rstrip("/") != f"{parsed.scheme}://{parsed.netloc}".rstrip("/"): raise denied()
- secret=body.get("secret") if isinstance(body,dict) else None
+ secret=body.get("key") if isinstance(body,dict) else None
  if not isinstance(secret,str) or not secret or len(secret)>512: raise denied()
  with SessionLocal() as s:
   limit(s,request,"session",20); service=PublicReviewService(PublicReviewRepository(s))
