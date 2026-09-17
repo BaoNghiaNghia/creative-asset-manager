@@ -40,6 +40,18 @@ Required query semantics:
 - Domain and application services do not depend directly on Google Drive, Microsoft Graph, Gemini, OpenAI, storage, or Elasticsearch SDKs.
 - SDK and HTTP implementation details belong in provider/infrastructure adapters.
 
+## Implementation-specific architecture documents
+
+Before changing a feature area, read its dedicated architecture/implementation documents in addition to this file and the repository security baseline.
+
+For Public Review Portal work, the authoritative documents are:
+
+- `docs/architecture/PUBLIC_REVIEW.md`
+- `docs/plans/PUBLIC_REVIEW_IMPLEMENTATION.md`
+- `docs/plans/PUBLIC_REVIEW_CODEX_RUNBOOK.md`
+
+Public Review work must follow the documented phase boundaries and must not reinterpret public-session, folder-scope, asset/source identity, media-delivery, guest-identity, annotation, or rich-text security contracts without first updating and reviewing those documents.
+
 ## Implementation rules
 
 - Inspect existing conventions before changing code.
