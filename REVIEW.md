@@ -2567,3 +2567,13 @@ npm run typecheck -- --pretty false (passed).
 - Explorer folder scope submission uses external source ID plus the actual folder ID, never canonical asset or source-asset identity. The server continues to enforce the management permission, tenant source ownership, scope validation, and secret-free audits.
 - ROADMAP now records the previously omitted Phase 6 and completed Phase 8 entries. No Review Board/Phase 9 functionality, migration, deployment, or production migration was added.
 - Dependency review: production audit reports 28 moderate runtime findings in the Tiptap 2.x dependency graph; the available remediation is a breaking major upgrade. Full audit reports 36 findings total, including dev/build-tool findings. No forced or unrelated upgrade was performed.
+
+## Public Review Phase 9A review
+
+- Added the authenticated Review Board read slice only: tenant-scoped issue list, issue detail/thread, and statistics endpoints, all requiring the exact public_review.read permission.
+- Board hydration preserves the exact (asset_id, source_asset_id) relation through tenant-qualified asset_source_links; replies are isolated by tenant/share/asset/source/thread and counted with one batched aggregate query.
+- Filters, deterministic sorting, and pagination are server-side and bounded. Folder filtering reuses Asset Explorer's synchronized fail-closed FolderScopeResolver; it does not infer paths from filenames, URLs, or display names and performs no provider calls.
+- List DTOs exclude rich content and all board DTOs exclude tenant, guest/session, secret/digest, credential, source metadata, provider URL, and filesystem-path fields. Detail returns rich content only for one authorized top-level issue.
+- Statistics count top-level issues only. assets_with_open_issues counts distinct exact asset/source pairs, preserving source-specific public review identity.
+- Phase 9A intentionally adds no resolve/reopen mutation, resolution audit, Review Board frontend, client route/sidebar, migration, production deployment, or production migration.
+
