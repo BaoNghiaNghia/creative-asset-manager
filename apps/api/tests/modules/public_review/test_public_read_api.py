@@ -23,7 +23,7 @@ def ctx():
   s.add_all([OAuthConnectionModel(id="conn-a",tenant_id="tenant-a",provider="google",provider_account_id="a",key_version="v1"),OAuthConnectionModel(id="conn-b",tenant_id="tenant-b",provider="google",provider_account_id="b",key_version="v1")]);s.flush()
   s.add_all([ExternalSourceModel(id="source-a",tenant_id="tenant-a",source_key="a",source_type="google_drive",oauth_connection_id="conn-a"),ExternalSourceModel(id="source-b",tenant_id="tenant-b",source_key="b",source_type="google_drive",oauth_connection_id="conn-b")]);s.flush()
   s.add_all([SourceAssetModel(id="root",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="root",filename="Root"),SourceAssetModel(id="child",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="child",filename="cat-good.jpg",mime_type="image/jpeg",source_metadata={"parents":["root"]}),SourceAssetModel(id="sibling",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="sibling",filename="cat-private.jpg",mime_type="image/jpeg",source_metadata={"parents":["other"]}),SourceAssetModel(id="foreign",tenant_id="tenant-b",external_source_id="source-b",external_asset_id="root",filename="cat-foreign.jpg",mime_type="image/jpeg")]);s.flush()
-  s.add_all([AssetModel(id="asset-good",tenant_id="tenant-a",content_hash="a"*64),AssetModel(id="asset-private",tenant_id="tenant-a",content_hash="b"*64),AssetModel(id="asset-foreign",tenant_id="tenant-b",content_hash="c"*64)]);s.flush();s.add_all([AssetSourceLinkModel(id="l1",tenant_id="tenant-a",asset_id="asset-good",source_asset_id="child"),AssetSourceLinkModel(id="l2",tenant_id="tenant-a",asset_id="asset-private",source_asset_id="sibling"),AssetSourceLinkModel(id="l3",tenant_id="tenant-b",asset_id="asset-foreign",source_asset_id="foreign")]);s.flush()
+  s.add_all([AssetModel(id="asset-good",tenant_id="tenant-a",content_hash="a"*64),AssetModel(id="asset-private",tenant_id="tenant-a",content_hash="b"*64),AssetModel(id="asset-foreign",tenant_id="tenant-b",content_hash="c"*64)]);s.flush();s.add_all([AssetSourceLinkModel(id="l1",tenant_id="tenant-a",asset_id="asset-good",source_asset_id="child"),AssetSourceLinkModel(id="l2",tenant_id="tenant-a",asset_id="asset-private",source_asset_id="sibling"),AssetSourceLinkModel(id="l3",tenant_id="tenant-b",asset_id="asset-foreign",source_asset_id="foreign"),AssetSourceLinkModel(id="l4",tenant_id="tenant-a",asset_id="asset-good",source_asset_id="sibling")]);s.flush()
   service=PublicReviewService(PublicReviewRepository(s));share=service.create_share(tenant_id="tenant-a",public_id="share-a",name="Review",raw_secret="fake-public-secret",created_by="u");PublicReviewRepository(s).replace_scopes("tenant-a",share.id,[{"external_source_id":"source-a","folder_external_id":"root"}]);s.commit()
  app=FastAPI();app.include_router(router); yield TestClient(app),factory,share;engine.dispose()
 def request(ctx,method,path,**kw):
@@ -57,3 +57,36 @@ def test_anonymous_annotation_origin_and_ownership(ctx):
  assert request(ctx,"GET",path).status_code==200
  assert request(ctx,"PATCH","/api/public/review/share-a/annotations/"+annotation_id,json={"content_json":note_body()["content_json"]},headers={"Origin":"http://localhost:5173"}).status_code==200
  assert request(ctx,"DELETE","/api/public/review/share-a/annotations/"+annotation_id,headers={"Origin":"http://localhost:5173"}).status_code==200
+
+def test_annotation_mutations_revalidate_the_exact_asset_source_scope(ctx):
+ assert exchange(ctx).status_code==201
+ path="/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"
+ created=request(ctx,"POST",path,json=note_body(),headers={"Origin":"http://localhost:5173"})
+ assert created.status_code==201
+ annotation_id=created.json()["id"]
+ with ctx[1]() as s:
+  PublicReviewRepository(s).replace_scopes("tenant-a",ctx[2].id,[{"external_source_id":"source-a","folder_external_id":"other"}]);s.commit()
+ assert request(ctx,"GET","/api/public/review/share-a/assets/asset-good?source_asset_id=sibling").status_code==200
+ patch=request(ctx,"PATCH","/api/public/review/share-a/annotations/"+annotation_id,json={"content_json":note_body()["content_json"]},headers={"Origin":"http://localhost:5173"})
+ delete=request(ctx,"DELETE","/api/public/review/share-a/annotations/"+annotation_id,headers={"Origin":"http://localhost:5173"})
+ assert patch.status_code==delete.status_code==404
+ assert patch.json()==delete.json()=={"detail":{"code":"public_review_unavailable"}}
+
+def test_annotation_mutation_denies_foreign_guest_and_comment_disabled(ctx):
+ assert exchange(ctx).status_code==201
+ first_token=ctx[0].cookies.get(COOKIE)
+ path="/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"
+ created=request(ctx,"POST",path,json=note_body(),headers={"Origin":"http://localhost:5173"})
+ assert created.status_code==201
+ annotation_id=created.json()["id"]
+ assert exchange(ctx).status_code==201
+ foreign_patch=request(ctx,"PATCH","/api/public/review/share-a/annotations/"+annotation_id,json={"content_json":note_body()["content_json"]},headers={"Origin":"http://localhost:5173"})
+ foreign_delete=request(ctx,"DELETE","/api/public/review/share-a/annotations/"+annotation_id,headers={"Origin":"http://localhost:5173"})
+ assert foreign_patch.status_code==foreign_delete.status_code==404
+ ctx[0].cookies.set(COOKIE,first_token)
+ with ctx[1]() as s:
+  share=s.merge(ctx[2]);share.allow_comments=False;s.commit()
+ disabled_patch=request(ctx,"PATCH","/api/public/review/share-a/annotations/"+annotation_id,json={"content_json":note_body()["content_json"]},headers={"Origin":"http://localhost:5173"})
+ disabled_delete=request(ctx,"DELETE","/api/public/review/share-a/annotations/"+annotation_id,headers={"Origin":"http://localhost:5173"})
+ assert disabled_patch.status_code==disabled_delete.status_code==404
+ assert disabled_patch.json()==disabled_delete.json()=={"detail":{"code":"public_review_unavailable"}}

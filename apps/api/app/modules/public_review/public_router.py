@@ -146,6 +146,7 @@ def update_annotation(public_share_id:str,annotation_id:str,request:Request,body
   if not p.allow_comments: raise denied()
   row=s.scalar(select(AssetAnnotationModel).where(AssetAnnotationModel.tenant_id==p.tenant_id,AssetAnnotationModel.share_id==p.share_id,AssetAnnotationModel.id==annotation_id))
   if row is None or row.guest_id!=p.guest_id: raise denied()
+  if not permitted(PublicShareScopeService(s),p,row.asset_id,row.source_asset_id): raise denied()
   try:
    values={"content_json":validate_annotation_document(body["content_json"])} if "content_json" in body else {}
    if "anchor_x" in body or "anchor_y" in body: validate_anchors(body.get("anchor_x"),body.get("anchor_y"));values.update(anchor_x=body.get("anchor_x"),anchor_y=body.get("anchor_y"))
@@ -159,4 +160,5 @@ def delete_annotation(public_share_id:str,annotation_id:str,request:Request):
   if not p.allow_comments: raise denied()
   row=s.scalar(select(AssetAnnotationModel).where(AssetAnnotationModel.tenant_id==p.tenant_id,AssetAnnotationModel.share_id==p.share_id,AssetAnnotationModel.id==annotation_id))
   if row is None or row.guest_id!=p.guest_id:raise denied()
+  if not permitted(PublicShareScopeService(s),p,row.asset_id,row.source_asset_id): raise denied()
   PublicReviewRepository(s).delete_annotation(p.tenant_id,p.share_id,annotation_id);s.commit();return safe({"deleted":True})
