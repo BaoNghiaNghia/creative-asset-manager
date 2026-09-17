@@ -2586,3 +2586,11 @@ npm run typecheck -- --pretty false (passed).
 - Status transition and the bounded AuthAuditEventModel record share one database transaction. Audit failure rolls back both durable effects. Audit details contain only annotation/share/asset/source identifiers and old/new status.
 - Phase 9B intentionally adds no frontend, public mutation API, new status, resolution note, migration, production deployment, or production migration. Full Phase 9 remains incomplete until the authenticated Review Board frontend slice is implemented.
 
+
+## Public Review Phase 9C review
+
+- Added the authenticated `/review-board` lazy route and permission-aware workspace navigation. Visibility requires `public_review.read`; API authority remains entirely server-side.
+- The board uses only the authenticated Phase 9A/9B APIs, separates read and resolve capabilities, uses server-side pagination/filters, and keeps replies in the selected issue detail only.
+- It reuses the existing safe `RichAnnotation` renderer. No public bearer endpoint, browser-supplied actor/tenant, raw HTML renderer, provider URL, or provider credential was added.
+- Authenticated media preview has no existing exact-source-safe Board contract, so this phase shows a bounded preview-unavailable state rather than reusing public media or guessing provider paths. No Explorer authorization is broadened.
+- Phase 9C adds no backend changes, migration, public resolve/reopen, new workflow status, deployment, or production migration. Phase 9D remains the production-readiness gate.
