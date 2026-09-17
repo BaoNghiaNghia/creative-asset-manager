@@ -131,3 +131,16 @@ def test_migration_has_single_phase1_head():
     config = Config(str(root / "apps/api/alembic.ini"))
     config.set_main_option("script_location", str(root / "database/migrations"))
     assert ScriptDirectory.from_config(config).get_heads() == ["0080_public_review_phase_1"]
+
+def test_public_share_requires_an_existing_tenant(session):
+    session.add(PublicShareModel(
+        public_id="orphan-public-share",
+        tenant_id="tenant-does-not-exist",
+        name="Orphan share",
+        secret_digest="f" * 64,
+        created_by="operator-a",
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+    session.rollback()
+
