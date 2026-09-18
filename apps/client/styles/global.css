@@ -72,13 +72,18 @@
 .source-provider-logo{display:block;width:18px;height:18px;flex:0 0 18px;object-fit:contain}
 .source span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.source .source-label{display:flex;align-items:baseline;gap:4px}.source .source-label small{overflow:hidden;color:#758198;font-size:10px;font-weight:500;text-overflow:ellipsis}
 
-.tree-row{grid-template-columns:28px minmax(0,1fr)}
+.tree-row{grid-template-columns:28px minmax(0,1fr) auto}
 .tree-toggle{border-radius:6px;color:#788596;transition:background .15s ease,color .15s ease}
 .tree-toggle:hover{background:#e6ebf2;color:#334155}
 .chevron-icon{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .16s ease}
 .chevron-icon.expanded{transform:rotate(90deg)}
 .tree-label{display:flex;align-items:center;gap:7px}
 .tree-label span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tree-review-link{display:grid;place-items:center;width:28px;height:28px;margin-right:4px;padding:0;border:0;border-radius:6px;background:transparent;color:#65758b;cursor:pointer;opacity:0;transition:background-color .16s ease,color .16s ease,opacity .16s ease}
+.tree-review-link svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
+.tree-row:hover .tree-review-link,.tree-review-link:focus-visible{opacity:1}
+.tree-review-link:hover{background:#dce7fb;color:#1f5eea}
+.tree-review-link:focus-visible{outline:2px solid #4f7ff0;outline-offset:1px}
 .folder-tree-icon{flex:0 0 auto;width:16px;height:16px;fill:#f5b83d;stroke:#c88b17;stroke-width:1.05;stroke-linejoin:round}
 .tree-row.active .folder-tree-icon{fill:#6e9ff7;stroke:#2f65c8}
 .source-folder-brand{display:grid;place-items:center;flex:0 0 auto;width:17px;height:17px;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;font-weight:800;line-height:1;color:#fff;text-transform:lowercase}

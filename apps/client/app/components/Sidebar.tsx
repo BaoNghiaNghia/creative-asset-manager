@@ -29,6 +29,7 @@ type Props = {
   onToggle: (node: Asset) => void;
   onPrefetch: (id: string) => void;
   onCancelPrefetch: () => void;
+  onManageReviewLink?: (folder: Asset) => void;
   onCollapse: () => void;
   onResizeStart: PointerEventHandler<HTMLDivElement>;
   applicationAuthenticated?: boolean;
@@ -91,7 +92,7 @@ function beginSourceOAuth(provider: Provider, sourceId?: string, accountType?: O
 export function Sidebar({
   provider, auth, authByProvider, sources: connectedSources, activeExternalSourceId, tags, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onSelectSource, onDisconnectSource, onSyncSource, onOpen,
-  onToggle, onPrefetch, onCancelPrefetch, onCollapse, onResizeStart,
+  onToggle, onPrefetch, onCancelPrefetch, onManageReviewLink, onCollapse, onResizeStart,
   applicationAuthenticated = false,
 }: Props) {
   const currentRoot = provider === "sharepoint" ? "sharepoint-root" : provider === "onedrive" ? "onedrive-root" : "root";
@@ -184,6 +185,7 @@ export function Sidebar({
                   activePathIds={activePathIds} childrenByParent={childrenByParent}
                   expanded={expanded} loadingNodes={loadingNodes} onOpen={onOpen}
                   onToggle={onToggle} onPrefetch={onPrefetch} onCancelPrefetch={onCancelPrefetch}
+                  onManageReviewLink={onManageReviewLink ? folder => onManageReviewLink({ ...folder, external_source_id: folder.external_source_id || connected.id }) : undefined}
                 />)}
               </div>}
             </div>;

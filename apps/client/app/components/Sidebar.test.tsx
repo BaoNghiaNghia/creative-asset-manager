@@ -80,4 +80,21 @@ describe("Sidebar multi-source accounts", () => {
     expect(markup).not.toContain("source-reconnect");
   });
 
+
+  it("offers a secure review-link action for folders only when the caller has enabled it", () => {
+    const folder = { id: "folder-1", name: "Desify - Image & Video Assets", kind: "folder" as const, provider: "google-drive" as const, mime_type: "application/vnd.google-apps.folder" };
+    const props = {
+      provider: "google-drive" as const, auth: { authenticated: true, user: null, checking: false }, authByProvider: { ...sessions, "google-drive": { authenticated: true, user: null, checking: false } },
+      sources: [{ ...source("google-one", "drive@example.com"), source_type: "google_drive" as const, provider: "google" as const }], activeExternalSourceId: "google-one", tags: [], path: [], activeId: undefined,
+      rootFolders: [folder], childrenByParent: {}, expanded: new Set<string>(), loadingNodes: new Set<string>(),
+      onSelectProvider: () => undefined, onSelectSource: async () => undefined, onDisconnectSource: async () => undefined, onSyncSource: async () => undefined,
+      onOpen: () => undefined, onToggle: () => undefined, onPrefetch: () => undefined, onCancelPrefetch: () => undefined, onCollapse: () => undefined, onResizeStart: () => undefined,
+      applicationAuthenticated: true,
+    };
+    const enabled = renderToStaticMarkup(<Sidebar {...props} onManageReviewLink={() => undefined} />);
+    const disabled = renderToStaticMarkup(<Sidebar {...props} />);
+    expect(enabled).toContain('aria-label="Manage secure review link for Desify - Image &amp; Video Assets"');
+    expect(disabled).not.toContain("Manage secure review link");
+  });
+
 });
