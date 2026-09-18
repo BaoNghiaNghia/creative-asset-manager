@@ -154,3 +154,6 @@
 .public-folder-card.amazon .public-folder-icon:after,.public-folder-card.etsy .public-folder-icon:after{font-size:39px;line-height:1}
 .public-folder-card .public-folder-glyph .public-folder-icon{transform:scale(2.15)}
 .public-folder-card.amazon .public-folder-glyph .public-folder-icon,.public-folder-card.etsy .public-folder-glyph .public-folder-icon{transform:none}
+
+/* Folder cards are grid items, not text-only buttons: never inherit the generic text-card inset. */
+.public-grid>button.public-folder-card{padding:0;align-items:stretch}
