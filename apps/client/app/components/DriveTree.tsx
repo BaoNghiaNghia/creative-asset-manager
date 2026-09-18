@@ -1,4 +1,5 @@
 import type { Asset, TreeCache } from "../types";
+import sharedLinkIcon from "../../assets/icons/shared-link.svg";
 import { ChevronIcon, SourceFolderIcon } from "./Icons";
 
 export function TreeChildrenSkeleton({ rows = 3 }: { rows?: number }) {
@@ -21,14 +22,9 @@ type Props = {
   onToggle: (node: Asset) => void;
   onPrefetch: (id: string) => void;
   onCancelPrefetch: () => void;
-  onManageReviewLink?: (node: Asset) => void;
+  onCopyReviewLink?: (node: Asset) => void | Promise<void>;
+  reviewLinkCopying?: boolean;
 };
-
-function ReviewLinkIcon() {
-  return <svg viewBox="0 0 16 16" aria-hidden="true">
-    <path d="M6.1 9.9 9.9 6.1M5.2 12.7l-1.1 1.1a2.55 2.55 0 0 1-3.6-3.6l2.1-2.1a2.55 2.55 0 0 1 3.6 0M10.8 3.3l1.1-1.1a2.55 2.55 0 1 1 3.6 3.6l-2.1 2.1a2.55 2.55 0 0 1-3.6 0" />
-  </svg>;
-}
 
 export function DriveTreeNode({
   node,
@@ -42,7 +38,8 @@ export function DriveTreeNode({
   onToggle,
   onPrefetch,
   onCancelPrefetch,
-  onManageReviewLink,
+  onCopyReviewLink,
+  reviewLinkCopying = false,
 }: Props) {
   const isExpanded = expanded.has(node.id);
   const isLoading = loadingNodes.has(node.id);
@@ -71,16 +68,17 @@ export function DriveTreeNode({
         <SourceFolderIcon name={node.name} />
         <span>{node.name}</span>
       </button>
-      {onManageReviewLink && <button
+      {onCopyReviewLink && <button
         type="button"
         className="tree-review-link"
-        title={"Manage secure review link for " + node.name}
-        aria-label={"Manage secure review link for " + node.name}
+        title={"Copy a new secure review link for " + node.name}
+        aria-label={"Copy a new secure review link for " + node.name}
+        disabled={reviewLinkCopying}
         onClick={event => {
           event.stopPropagation();
-          onManageReviewLink(node);
+          void onCopyReviewLink(node);
         }}
-      ><ReviewLinkIcon /></button>}
+      ><img src={sharedLinkIcon} alt="" aria-hidden="true" /></button>}
     </div>
     {isExpanded && (isLoading
       ? <TreeChildrenSkeleton />
@@ -98,7 +96,8 @@ export function DriveTreeNode({
           onToggle={onToggle}
           onPrefetch={onPrefetch}
           onCancelPrefetch={onCancelPrefetch}
-          onManageReviewLink={onManageReviewLink}
+          onCopyReviewLink={onCopyReviewLink}
+          reviewLinkCopying={reviewLinkCopying}
         />)}
       </div>
     )}

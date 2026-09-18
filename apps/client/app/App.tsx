@@ -704,7 +704,7 @@ export default function App() {
       onToggle={explorer.toggleTree}
       onPrefetch={explorer.scheduleFolderPrefetch}
       onCancelPrefetch={explorer.cancelFolderPrefetch}
-      onManageReviewLink={explorer.applicationPermissions.includes("public_review.manage") ? folder => setReviewFolder(folder) : undefined}
+      canManageReviewLinks={explorer.applicationPermissions.includes("public_review.manage")}
       onCollapse={sidebar.collapse}
       onResizeStart={sidebar.startResize}
       applicationAuthenticated={explorer.applicationAuthenticated === true}

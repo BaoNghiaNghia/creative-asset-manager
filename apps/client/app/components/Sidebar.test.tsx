@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ConnectedSource, ProviderSessions } from "../types";
-import { Sidebar } from "./Sidebar";
+import { activeShareFolderIds, Sidebar } from "./Sidebar";
+import type { Share } from "../public-review-management/api";
 
 const sessions: ProviderSessions = {
   "google-drive": { authenticated: false, user: null, checking: false },
@@ -81,20 +82,16 @@ describe("Sidebar multi-source accounts", () => {
   });
 
 
-  it("offers a secure review-link action for folders only when the caller has enabled it", () => {
-    const folder = { id: "folder-1", name: "Desify - Image & Video Assets", kind: "folder" as const, provider: "google-drive" as const, mime_type: "application/vnd.google-apps.folder" };
-    const props = {
-      provider: "google-drive" as const, auth: { authenticated: true, user: null, checking: false }, authByProvider: { ...sessions, "google-drive": { authenticated: true, user: null, checking: false } },
-      sources: [{ ...source("google-one", "drive@example.com"), source_type: "google_drive" as const, provider: "google" as const }], activeExternalSourceId: "google-one", tags: [], path: [], activeId: undefined,
-      rootFolders: [folder], childrenByParent: {}, expanded: new Set<string>(), loadingNodes: new Set<string>(),
-      onSelectProvider: () => undefined, onSelectSource: async () => undefined, onDisconnectSource: async () => undefined, onSyncSource: async () => undefined,
-      onOpen: () => undefined, onToggle: () => undefined, onPrefetch: () => undefined, onCancelPrefetch: () => undefined, onCollapse: () => undefined, onResizeStart: () => undefined,
-      applicationAuthenticated: true,
-    };
-    const enabled = renderToStaticMarkup(<Sidebar {...props} onManageReviewLink={() => undefined} />);
-    const disabled = renderToStaticMarkup(<Sidebar {...props} />);
-    expect(enabled).toContain('aria-label="Manage secure review link for Desify - Image &amp; Video Assets"');
-    expect(disabled).not.toContain("Manage secure review link");
+  it("identifies only active, non-revoked share scopes for source-tree link actions", () => {
+    const folders = activeShareFolderIds([
+      { id: "active-share", status: "active", revoked_at: null, scopes: [{ external_source_id: "google-one", folder_external_id: "folder-1" }] },
+      { id: "revoked-share", status: "active", revoked_at: "2026-09-18T00:00:00Z", scopes: [{ external_source_id: "google-one", folder_external_id: "folder-2" }] },
+      { id: "inactive-share", status: "revoked", revoked_at: null, scopes: [{ external_source_id: "google-one", folder_external_id: "folder-3" }] },
+    ] as Share[]);
+
+    expect(folders.get("google-one:folder-1")).toBe("active-share");
+    expect(folders.has("google-one:folder-2")).toBe(false);
+    expect(folders.has("google-one:folder-3")).toBe(false);
   });
 
 });
