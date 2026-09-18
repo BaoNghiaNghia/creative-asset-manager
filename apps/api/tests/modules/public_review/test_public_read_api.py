@@ -111,7 +111,7 @@ def test_pinned_annotation_bounds_and_text_edits_preserve_anchor(ctx):
 def test_scoped_folder_pagination_keeps_image_and_video_visible(ctx):
  assert exchange(ctx).status_code == 201
  with ctx[1]() as s:
-  video_source=SourceAssetModel(id="video-child",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="video-child",filename="clip-good.mp4",mime_type="video/mp4",source_metadata={"parents":["root"]})
+  video_source=SourceAssetModel(id="video-child",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="video-child",filename="clip-good.mp4",mime_type="application/octet-stream",source_metadata={"parents":["root"]})
   video_asset=AssetModel(id="asset-video",tenant_id="tenant-a",content_hash="d"*64)
   s.add_all([video_source,video_asset]);s.flush()
   s.add(AssetSourceLinkModel(id="l-video",tenant_id="tenant-a",asset_id="asset-video",source_asset_id="video-child"));s.commit()

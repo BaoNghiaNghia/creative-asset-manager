@@ -24,13 +24,15 @@ const GOOGLE_TYPES: Record<string, FileType> = {
   "application/vnd.google-apps.drawing": "drawing",
 };
 
+const VIDEO_EXTENSION = /\.(?:avi|m4v|mkv|mov|mp4|mpeg|mpg|webm)$/i;
+
 export function getFileType(mimeType?: string | null, kind?: Asset["kind"], name?: string | null): FileType {
   const normalized = (mimeType || "").split(";", 1)[0].trim().toLowerCase();
   if (GOOGLE_TYPES[normalized]) return GOOGLE_TYPES[normalized];
   if (kind === "folder") return "folder";
   if (normalized === "application/pdf" || kind === "pdf") return "pdf";
   if (normalized.startsWith("image/") || kind === "image") return "image";
-  if (normalized.startsWith("video/") || kind === "video") return "video";
+  if (normalized.startsWith("video/") || kind === "video" || VIDEO_EXTENSION.test(name || "")) return "video";
   if (normalized === "text/plain" || /\.txt$/i.test(name || "")) return "text";
   if (kind === "document") return "document";
   return "file";

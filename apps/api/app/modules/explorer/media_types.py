@@ -12,8 +12,20 @@ _IMAGE_MIME_BY_EXTENSION = {
     ".webp": "image/webp",
 }
 
+_VIDEO_MIME_BY_EXTENSION = {
+    ".avi": "video/x-msvideo",
+    ".m4v": "video/x-m4v",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg",
+    ".webm": "video/webm",
+}
+
 def infer_media_type(filename: str | None, declared: str | None = None, upstream: str | None = None) -> str:
-    extension_type = _IMAGE_MIME_BY_EXTENSION.get(Path(filename or "").suffix.lower())
+    extension = Path(filename or "").suffix.lower()
+    extension_type = _IMAGE_MIME_BY_EXTENSION.get(extension) or _VIDEO_MIME_BY_EXTENSION.get(extension)
     if extension_type == "image/avif":
         return extension_type
     for value in (declared, upstream):

@@ -142,3 +142,15 @@
 .public-folder-card .public-card-copy small{margin-top:5px;color:#6b7785;font-size:10px}
 .public-folder-card .public-status{margin-top:9px;background:#eef2f7;color:#64748b}
 .public-folder-card .public-folder-glyph .public-folder-icon{transform:scale(2.1)}
+
+/* Marketplace folders use the same branded Explorer card treatment. */
+.public-grid>.public-card.public-folder-card{grid-template-rows:132px minmax(92px,auto);min-height:226px}
+.public-folder-card .public-card-thumb,.public-folder-card .public-folder-glyph{min-height:132px;background:#f7f2e7}
+.public-folder-card .public-card-copy{padding:13px 14px 16px}
+.public-folder-card .public-card-copy b{font-size:14px;font-weight:700;color:#111827}
+.public-folder-card .public-card-copy small{margin-top:4px;font-size:11px;font-weight:600}
+.public-folder-card .public-status{display:none}
+.public-folder-card.amazon .public-folder-icon,.public-folder-card.etsy .public-folder-icon{width:57px;height:57px;border-radius:13px;transform:none}
+.public-folder-card.amazon .public-folder-icon:after,.public-folder-card.etsy .public-folder-icon:after{font-size:39px;line-height:1}
+.public-folder-card .public-folder-glyph .public-folder-icon{transform:scale(2.15)}
+.public-folder-card.amazon .public-folder-glyph .public-folder-icon,.public-folder-card.etsy .public-folder-glyph .public-folder-icon{transform:none}

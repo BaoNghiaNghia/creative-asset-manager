@@ -15,6 +15,7 @@ from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAss
 from app.modules.public_review.authorization import PublicShareAccessDenied, PublicShareScopeService
 from app.modules.public_review.model import PublicShareModel
 from app.modules.public_review.public_thumbnail import PublicThumbnailResolver, PublicThumbnailUnavailable
+from app.modules.explorer.media_types import infer_media_type
 from app.modules.public_review.rate_limit import PublicRateLimitExceeded, consume
 from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.service import PublicReviewService, utcnow
@@ -43,7 +44,7 @@ def permitted(scope,p,asset,source):
  except PublicShareAccessDenied: return False
 def doc(asset,source,pid):
  base=f"/api/public/review/{pid}/assets/{asset.id}"
- return {"asset_id":asset.id,"source_asset_id":source.id,"filename":source.filename or "Untitled asset","media_type":source.mime_type or asset.mime_type,"folder_context":list((source.source_metadata or {}).get("parents") or [])[:8],"thumbnail_url":f"{base}/thumbnail?source_asset_id={source.id}","preview_url":f"{base}/preview?source_asset_id={source.id}"}
+ return {"asset_id":asset.id,"source_asset_id":source.id,"filename":source.filename or "Untitled asset","media_type":infer_media_type(source.filename,source.mime_type or asset.mime_type),"folder_context":list((source.source_metadata or {}).get("parents") or [])[:8],"thumbnail_url":f"{base}/thumbnail?source_asset_id={source.id}","preview_url":f"{base}/preview?source_asset_id={source.id}"}
 def asset_pair(p,asset_id,source_id):
  with SessionLocal() as s:
   scope=PublicShareScopeService(s); q=select(AssetModel,SourceAssetModel).join(AssetSourceLinkModel,(AssetSourceLinkModel.tenant_id==AssetModel.tenant_id)&(AssetSourceLinkModel.asset_id==AssetModel.id)).join(SourceAssetModel,(SourceAssetModel.tenant_id==AssetSourceLinkModel.tenant_id)&(SourceAssetModel.id==AssetSourceLinkModel.source_asset_id)).where(AssetModel.tenant_id==p.tenant_id,AssetModel.id==asset_id,SourceAssetModel.deleted_at.is_(None))
@@ -129,7 +130,7 @@ async def media(public_share_id,asset_id,request,source_id):
     async for chunk in stream.body: yield chunk
   finally:
    await release()
- r=StreamingResponse(body(),media_type=src.mime_type or "application/octet-stream",background=BackgroundTask(release));r.headers.update({"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"});return r
+ r=StreamingResponse(body(),media_type=infer_media_type(getattr(src, "filename", None),src.mime_type),background=BackgroundTask(release));r.headers.update({"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"});return r
 @router.get("/{public_share_id}/assets/{asset_id}/thumbnail")
 async def thumbnail(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
  # Scope authorization happens before the cache/provider lookup. The thumbnail

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache, thumbnail_negative_cache
+from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.providers.google.drive import (
     GoogleDriveThumbnailUnavailable,
@@ -62,7 +63,7 @@ class PublicThumbnailResolver:
             source_type = source.source_type
             source_id = source.id
             external_asset_id = source_asset.external_asset_id
-            mime_type = source_asset.mime_type or ""
+            mime_type = infer_media_type(source_asset.filename, source_asset.mime_type)
             try:
                 resolved = await TenantSourceResolver(session).resolve(
                     tenant_id=tenant_id,

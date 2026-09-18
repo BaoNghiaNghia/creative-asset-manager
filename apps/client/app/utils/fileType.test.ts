@@ -17,6 +17,7 @@ describe("Google Drive file type presentation", () => {
   it("keeps media classification for previews", () => {
     expect(getFileType("image/avif", "other")).toBe("image");
     expect(getFileType("video/mp4", "other")).toBe("video");
+    expect(getFileType("application/octet-stream", "other", "campaign.MP4")).toBe("video");
   });
 });
 

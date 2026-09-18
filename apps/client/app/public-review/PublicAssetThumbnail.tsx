@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Asset } from "./api";
+import { getFileType } from "../utils/fileType";
 
 const PUBLIC_THUMBNAIL_CONCURRENCY = 3;
 
@@ -43,8 +44,8 @@ export function createPublicThumbnailQueue(limit = PUBLIC_THUMBNAIL_CONCURRENCY)
 }
 
 const thumbnailQueue = createPublicThumbnailQueue();
-const imageAsset = (asset: Asset) => (asset.media_type || "").startsWith("image/");
-const videoAsset = (asset: Asset) => (asset.media_type || "").startsWith("video/");
+const imageAsset = (asset: Asset) => getFileType(asset.media_type, undefined, asset.filename) === "image";
+const videoAsset = (asset: Asset) => getFileType(asset.media_type, undefined, asset.filename) === "video";
 
 export function PublicAssetThumbnail({ asset }: { asset: Asset }) {
   const frameRef = useRef<HTMLSpanElement>(null);
