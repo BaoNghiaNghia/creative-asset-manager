@@ -147,8 +147,17 @@ export function Sidebar({
             const account = connected.account.email || connected.display_name || "Connected account";
             const reconnectRequired = connected.status === "reconnect_required";
             return <div className="source-entry" key={connected.id}>
-              <button className={"source " + (selected ? "active" : "")} title="Right-click for source actions" onClick={() => {
-                if (connected.status === "active") void onSelectSource(connected.id);
+              <button className={"source " + (selected ? "active" : "")} title={reconnectRequired ? "Reconnect Google Drive" : "Right-click for source actions"} onClick={() => {
+                if (connected.status === "active") {
+                  void onSelectSource(connected.id);
+                  return;
+                }
+                if (reconnectRequired && connected.capabilities.reconnect) {
+                  const accountType = connected.metadata.drive_type === "personal" ? "personal" : "work";
+                  if (!beginSourceOAuth(source.provider, connected.id, accountType)) {
+                    window.location.assign(sourceLogin(source.provider, connected.id, accountType));
+                  }
+                }
               }} onContextMenu={event => {
                 event.preventDefault();
                 setSourceContextMenu({
@@ -217,7 +226,7 @@ export function Sidebar({
           const accountType = connected.metadata.drive_type === "personal" ? "personal" : "work";
           setSourceContextMenu(null);
           if (!beginSourceOAuth(provider, connected.id, accountType)) window.location.assign(sourceLogin(provider, connected.id, accountType));
-        }}>{sourceContextMenu.provider === "google-drive" ? "Switch Google account" : sourceContextMenu.reconnectRequired ? "Reconnect" : "Reauthorize"}</button>}
+        }}>{sourceContextMenu.reconnectRequired ? (sourceContextMenu.provider === "google-drive" ? "Reconnect Google Drive" : "Reconnect") : sourceContextMenu.provider === "google-drive" ? "Switch Google account" : "Reauthorize"}</button>}
         {sourceContextMenu.connected.capabilities.disconnect && sourceContextMenu.connected.status !== "disconnected" && <button type="button" role="menuitem" className="danger" disabled={busySourceId === sourceContextMenu.connected.id} onClick={() => {
           const { account, connected, label } = sourceContextMenu;
           if (!window.confirm("Disconnect " + label + " account " + account + "?")) return;

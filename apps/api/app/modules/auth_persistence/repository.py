@@ -14,6 +14,7 @@ from app.modules.auth_persistence.encryption import TokenCipher, TokenEncryption
 from app.modules.auth_persistence.identity import ApplicationUserInactiveError
 from app.modules.authorization.principal_cache import principal_cache
 from app.modules.auth_persistence.model import AuthAuditEventModel, AuthSessionModel, OAuthConnectionModel, OAuthTransactionModel, TenantMembershipModel, TenantModel, UserModel
+from app.modules.assets.model import ExternalSourceModel
 
 def utcnow():
     return datetime.now(timezone.utc)
@@ -59,6 +60,27 @@ class AuthPersistenceRepository:
     @staticmethod
     def _aad(connection: OAuthConnectionModel, field: str) -> str:
         return f"cam-oauth:{connection.tenant_id}:{connection.provider}:{connection.provider_account_id}:{field}"
+
+    def _mark_bound_sources_reconnect_required(
+        self, *, tenant_id: str, connection_id: str
+    ) -> None:
+        """Make a permanently invalid source credential visible and actionable.
+
+        A source can no longer be browsed once its bound OAuth connection
+        requires reconnect. Keeping the source marked active misleads the UI
+        and causes it to select a credential that is guaranteed to fail.
+        Disconnected sources are deliberately left untouched.
+        """
+        self.session.execute(
+            update(ExternalSourceModel)
+            .where(
+                ExternalSourceModel.tenant_id == tenant_id,
+                ExternalSourceModel.oauth_connection_id == connection_id,
+                ExternalSourceModel.status != "disconnected",
+            )
+            .values(status="reconnect_required", updated_at=utcnow())
+            .execution_options(synchronize_session="fetch")
+        )
 
     def remember_state(self, *, provider: str, state: str, code_verifier: str | None, ttl_seconds: int, redirect_intent: str = "/", session_binding: str | None = None):
         state_hash = digest(state)
@@ -213,6 +235,9 @@ class AuthPersistenceRepository:
         except TokenEncryptionError:
             connection.status = "reconnect_required"
             connection.refresh_error_json = {"code": "token_decryption_failed", "retryable": False}
+            self._mark_bound_sources_reconnect_required(
+                tenant_id=connection.tenant_id, connection_id=connection.id
+            )
             self.audit("reconnect_required", tenant_id=row.tenant_id, provider=provider, connection_id=connection.id, actor_id=connection.provider_account_id, detail={"code": "token_decryption_failed"})
             self.session.flush()
             return None
@@ -375,6 +400,10 @@ class AuthPersistenceRepository:
         if row is None:
             return
         row.status = "refresh_error" if retryable else "reconnect_required"
+        if not retryable:
+            self._mark_bound_sources_reconnect_required(
+                tenant_id=tenant_id, connection_id=connection_id
+            )
         row.refresh_error_json = {"code": code[:100], "retryable": retryable, "occurred_at": utcnow().isoformat()}
         row.refresh_claimed_by = None; row.refresh_lease_expires_at = None; row.updated_at = utcnow()
         self.audit("refresh_failed" if retryable else "reconnect_required", tenant_id=tenant_id, provider=row.provider, connection_id=row.id, actor_id=row.provider_account_id, detail={"code": code[:100], "retryable": retryable})

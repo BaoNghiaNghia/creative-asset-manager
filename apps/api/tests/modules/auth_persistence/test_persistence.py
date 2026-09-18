@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.modules.auth_persistence.encryption import TokenCipher, TokenEncryptionError
 from app.modules.auth_persistence.model import AuthAuditEventModel, AuthSessionModel, OAuthConnectionModel, OAuthTransactionModel
+from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.repository import AuthPersistenceRepository
 
 def key(byte):
@@ -81,8 +82,16 @@ class PersistenceTest(unittest.TestCase):
         with self.factory() as third:
             repository=AuthPersistenceRepository(third,self.old)
             self.assertTrue(repository.claim_refresh(tenant_id="tenant-a",connection_id=connection_id,owner="three",lease_seconds=30))
+            source = ExternalSourceModel(
+                id="source-a", tenant_id="tenant-a", source_key="google-source-a",
+                source_type="google_drive", oauth_connection_id=connection_id,
+                status="active", source_metadata={},
+            )
+            third.add(source)
+            third.commit()
             repository.fail_refresh(tenant_id="tenant-a",connection_id=connection_id,owner="three",code="invalid_grant",retryable=False); third.commit()
             row=third.get(OAuthConnectionModel,connection_id); self.assertEqual(row.status,"reconnect_required")
+            self.assertEqual(third.get(ExternalSourceModel, "source-a").status, "reconnect_required")
             row.status="active"; row.refresh_error_json=None; third.commit()
         with self.factory() as rotation:
             repository=AuthPersistenceRepository(rotation,self.rotating)
@@ -91,6 +100,34 @@ class PersistenceTest(unittest.TestCase):
             row=rotation.get(OAuthConnectionModel,connection_id); self.assertEqual(row.key_version,"v2")
             self.assertEqual(repository.cipher.decrypt(row.refresh_token_ciphertext,key_version="v2",aad=repository._aad(row,"refresh")),"refresh-new")
             self.assertTrue(rotation.scalar(select(AuthAuditEventModel).where(AuthAuditEventModel.action=="key_rotated")))
+
+    def test_retryable_refresh_failure_keeps_bound_source_available(self):
+        with self.factory() as session:
+            repository = AuthPersistenceRepository(session, self.old)
+            connection = repository.upsert_connection(
+                tenant_id="tenant-a", provider="google", provider_account_id="drive-account",
+                connection_purpose="google_drive_source", account_email="a@example.com",
+                access_token="access", refresh_token="refresh",
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                scopes=["drive"], token_type="Bearer",
+            )
+            source = ExternalSourceModel(
+                id="source-retry", tenant_id="tenant-a", source_key="google-source-retry",
+                source_type="google_drive", oauth_connection_id=connection.id,
+                status="active", source_metadata={},
+            )
+            session.add(source)
+            session.commit()
+            self.assertTrue(repository.claim_refresh(
+                tenant_id="tenant-a", connection_id=connection.id, owner="retry", lease_seconds=30,
+            ))
+            repository.fail_refresh(
+                tenant_id="tenant-a", connection_id=connection.id, owner="retry",
+                code="temporary_provider_error", retryable=True,
+            )
+            session.commit()
+            self.assertEqual(session.get(OAuthConnectionModel, connection.id).status, "refresh_error")
+            self.assertEqual(session.get(ExternalSourceModel, "source-retry").status, "active")
 
     def test_expired_session_cleanup_and_no_plaintext_persistence(self):
         with self.factory() as session:
