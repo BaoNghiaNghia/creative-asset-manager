@@ -1,4 +1,7 @@
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
 from fastapi import FastAPI
@@ -11,6 +14,7 @@ from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalS
 from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
 from app.modules.public_review.model import PublicReviewRateLimitModel
 from app.modules.authorization.folder_scope_cache import viewer_folder_hierarchy_cache
+import app.modules.public_review.public_router as public_router
 from app.modules.public_review.public_router import COOKIE, router
 from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.service import PublicReviewService
@@ -119,3 +123,24 @@ def test_scoped_folder_pagination_keeps_image_and_video_visible(ctx):
  items=first.json()["items"]+second.json()["items"]
  assert {item["media_type"] for item in items} == {"image/jpeg","video/mp4"}
  assert {item["asset_id"] for item in items} == {"asset-good","asset-video"}
+
+
+def test_public_media_guard_releases_the_limited_slot(monkeypatch):
+ before=public_router._public_media_slots._value
+ principal=SimpleNamespace(tenant_id="tenant-a")
+ source=SimpleNamespace(id="child",mime_type="image/jpeg")
+ class Resolver:
+  def __init__(self,*_): pass
+  @asynccontextmanager
+  async def open(self,**_):
+   yield SimpleNamespace(body=chunks())
+ async def chunks():
+  yield b"image"
+ monkeypatch.setattr(public_router,"user",lambda *_: principal)
+ monkeypatch.setattr(public_router,"asset_pair",lambda *_: (SimpleNamespace(),source))
+ monkeypatch.setattr(public_router,"SourceAssetContentResolver",Resolver)
+ async def consume():
+  response=await public_router.media("share-a","asset-good",SimpleNamespace(headers={}),"child")
+  return [chunk async for chunk in response.body_iterator]
+ assert asyncio.run(consume())==[b"image"]
+ assert public_router._public_media_slots._value==before

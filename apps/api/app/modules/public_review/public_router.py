@@ -1,10 +1,12 @@
 from __future__ import annotations
+import asyncio
 from datetime import timedelta
 from secrets import token_urlsafe
 from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -17,6 +19,9 @@ from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.service import PublicReviewService, utcnow
 router=APIRouter(prefix="/api/public/review",tags=["public-review"])
 COOKIE="cam_public_review_session"; TTL=timedelta(hours=12)
+# Public media streams must not exhaust the small production database/provider pool.
+PUBLIC_MEDIA_CONCURRENCY=3
+_public_media_slots=asyncio.Semaphore(PUBLIC_MEDIA_CONCURRENCY)
 def denied(): return HTTPException(404,detail={"code":"public_review_unavailable"})
 def limited(): return HTTPException(429,detail={"code":"public_review_unavailable"})
 def safe(payload,status=200):
@@ -100,11 +105,29 @@ def search(public_share_id:str,request:Request,q:str=Query(...,min_length=1,max_
    if len(out)>=limit_value: break
   s.commit();return safe({"items":out,"query":q})
 async def media(public_share_id,asset_id,request,source_id):
- p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_id);resolver=SourceAssetContentResolver(SessionLocal)
+ # Bound the entire request lifetime, including authorization, resolver setup and
+ # the provider stream. This keeps a burst of thumbnails from starving API DB
+ # connections or provider clients; BackgroundTask also releases a slot if the
+ # response is cancelled before the generator begins.
+ await _public_media_slots.acquire()
+ released=False
+ async def release():
+  nonlocal released
+  if not released:
+   released=True
+   _public_media_slots.release()
+ try:
+  p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_id);resolver=SourceAssetContentResolver(SessionLocal)
+ except BaseException:
+  await release()
+  raise
  async def body():
-  async with resolver.open(tenant_id=p.tenant_id,source_asset_id=src.id,range_header=request.headers.get("range")) as stream:
-   async for chunk in stream.body: yield chunk
- r=StreamingResponse(body(),media_type=src.mime_type or "application/octet-stream");r.headers.update({"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"});return r
+  try:
+   async with resolver.open(tenant_id=p.tenant_id,source_asset_id=src.id,range_header=request.headers.get("range")) as stream:
+    async for chunk in stream.body: yield chunk
+  finally:
+   await release()
+ r=StreamingResponse(body(),media_type=src.mime_type or "application/octet-stream",background=BackgroundTask(release));r.headers.update({"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"});return r
 @router.get("/{public_share_id}/assets/{asset_id}/thumbnail")
 async def thumbnail(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None): return await media(public_share_id,asset_id,request,source_asset_id)
 @router.get("/{public_share_id}/assets/{asset_id}/preview")
