@@ -10,12 +10,21 @@ type Props = {
   onOpen: (folder: Folder, trail: Folder[]) => void;
 };
 
+export function PublicTreeSkeleton({ count = 4 }: { count?: number }) {
+  return <ol className="public-tree-skeleton" aria-label="Loading folders">
+    {Array.from({ length: count }, (_, index) => <li className="public-tree-skeleton-row" key={index} aria-hidden="true"><i /><span /></li>)}
+  </ol>;
+}
+
 export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
   const [children, setChildren] = useState<Record<string, Child[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
 
-  const openRoot = async (folder: Folder) => {
+  const loadFolder = async (folder: Folder) => {
     const key = keyOf(folder);
+    setExpanded(previous => ({ ...previous, [key]: true }));
+    setLoading(previous => ({ ...previous, [key]: true }));
     try {
       const first = await api.children(shareId, folder);
       const items = [...first.items];
@@ -26,14 +35,18 @@ export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
         nextOffset = page.next_offset;
       }
       setChildren(previous => ({ ...previous, [key]: items }));
-      setExpanded(previous => ({ ...previous, [key]: true }));
     } catch {
       // Keep the generic public-share denial behavior.
+    } finally {
+      setLoading(previous => ({ ...previous, [key]: false }));
     }
   };
 
   useEffect(() => {
-    roots.forEach(folder => { void openRoot(folder); });
+    setChildren({});
+    setExpanded({});
+    setLoading({});
+    roots.forEach(folder => { void loadFolder(folder); });
   }, [shareId, roots]);
 
   const toggle = async (folder: Folder) => {
@@ -42,25 +55,25 @@ export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
       setExpanded(previous => ({ ...previous, [key]: false }));
       return;
     }
-    try {
-      const items = children[key] || (await api.children(shareId, folder)).items;
-      setChildren(previous => ({ ...previous, [key]: items }));
+    if (children[key]) {
       setExpanded(previous => ({ ...previous, [key]: true }));
-    } catch {
-      // The parent route retains the generic public-share denial behavior.
+      return;
     }
+    await loadFolder(folder);
   };
 
   const Node = ({ folder, trail }: { folder: Folder; trail: Folder[] }) => {
     const key = keyOf(folder);
     const isExpanded = Boolean(expanded[key]);
+    const isLoading = Boolean(loading[key]);
     const folders = (children[key] || []).filter((item): item is Folder & { kind: "folder" } => item.kind === "folder");
     return <li>
       <div className={"public-tree-row" + (active && keyOf(active) === key ? " active" : "") + (folder.name.startsWith("Amazon") ? " amazon" : folder.name.startsWith("Etsy") ? " etsy" : "")}>
-        <button className="public-tree-toggle" aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} onClick={() => void toggle(folder)}>{isExpanded ? "⌄" : "›"}</button>
+        <button className="public-tree-toggle" aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} aria-busy={isLoading || undefined} onClick={() => void toggle(folder)}>{isLoading ? <span className="public-tree-spinner" aria-hidden="true" /> : isExpanded ? "⌄" : "›"}</button>
         <button className="public-tree-label" onClick={() => onOpen(folder, trail)}><span className="public-folder-icon" aria-hidden="true" /><span>{folder.name}</span></button>
       </div>
-      {isExpanded && folders.length > 0 && <ol className="public-tree-children">{folders.map(child => <Node key={keyOf(child)} folder={child} trail={[...trail, child]} />)}</ol>}
+      {isExpanded && isLoading && <PublicTreeSkeleton />}
+      {isExpanded && !isLoading && folders.length > 0 && <ol className="public-tree-children">{folders.map(child => <Node key={keyOf(child)} folder={child} trail={[...trail, child]} />)}</ol>}
     </li>;
   };
 
