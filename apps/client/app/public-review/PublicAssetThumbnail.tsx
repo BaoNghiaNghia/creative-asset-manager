@@ -46,6 +46,7 @@ export function createPublicThumbnailQueue(limit = PUBLIC_THUMBNAIL_CONCURRENCY)
 const thumbnailQueue = createPublicThumbnailQueue();
 const imageAsset = (asset: Asset) => getFileType(asset.media_type, undefined, asset.filename) === "image";
 const videoAsset = (asset: Asset) => getFileType(asset.media_type, undefined, asset.filename) === "video";
+export const usesPublicThumbnail = (asset: Asset) => imageAsset(asset) || videoAsset(asset);
 
 export function PublicAssetThumbnail({ asset }: { asset: Asset }) {
   const frameRef = useRef<HTMLSpanElement>(null);
@@ -64,7 +65,7 @@ export function PublicAssetThumbnail({ asset }: { asset: Asset }) {
   }, [asset.asset_id, asset.source_asset_id, asset.thumbnail_url]);
 
   useEffect(() => {
-    if (!imageAsset(asset)) return;
+    if (!usesPublicThumbnail(asset)) return;
     const target = frameRef.current;
     if (!target || typeof IntersectionObserver === "undefined") {
       setInViewport(true);
@@ -80,7 +81,7 @@ export function PublicAssetThumbnail({ asset }: { asset: Asset }) {
   }, [asset.asset_id, asset.source_asset_id, asset.media_type]);
 
   useEffect(() => {
-    if (!inViewport || !imageAsset(asset) || failed) return;
+    if (!inViewport || !usesPublicThumbnail(asset) || failed) return;
     const ticket = thumbnailQueue.acquire(() => setGrantedUrl(asset.thumbnail_url));
     ticketRef.current = ticket;
     // A stalled connection must not permanently consume a queue slot.
@@ -105,8 +106,7 @@ export function PublicAssetThumbnail({ asset }: { asset: Asset }) {
     ticketRef.current = null;
   };
 
-  if (videoAsset(asset)) return <span className="public-video-glyph" aria-label="Video"><i aria-hidden="true">▶</i><span>Video</span></span>;
-  if (!imageAsset(asset) || failed) return <span className="public-file-glyph" aria-label="File">File</span>;
+  if (!usesPublicThumbnail(asset) || failed) return <span className="public-file-glyph" aria-label={videoAsset(asset) ? "Video" : "File"}>{videoAsset(asset) ? "Video" : "File"}</span>;
 
   return <span ref={frameRef} className="public-lazy-thumbnail">
     {!loaded && <span className="public-thumbnail-skeleton" aria-hidden="true" />}

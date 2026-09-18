@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPublicThumbnailQueue } from "./PublicAssetThumbnail";
+import { createPublicThumbnailQueue, usesPublicThumbnail } from "./PublicAssetThumbnail";
 
 describe("public thumbnail queue", () => {
   it("limits concurrent media loads and drains in request order", () => {
@@ -35,5 +35,17 @@ describe("public thumbnail queue", () => {
 
     expect(queue.activeCount()).toBe(0);
     expect(queue.pendingCount()).toBe(0);
+  });
+});
+
+describe("public thumbnail eligibility", () => {
+  it("uses the authorized thumbnail proxy for image and video cards", () => {
+    const image = { media_type: "image/jpeg", filename: "image.jpg" };
+    const video = { media_type: "application/octet-stream", filename: "clip.mp4" };
+    const file = { media_type: "application/pdf", filename: "brief.pdf" };
+
+    expect(usesPublicThumbnail(image as never)).toBe(true);
+    expect(usesPublicThumbnail(video as never)).toBe(true);
+    expect(usesPublicThumbnail(file as never)).toBe(false);
   });
 });
