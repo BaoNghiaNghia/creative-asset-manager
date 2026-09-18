@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type Child, type Folder } from "./api";
 
 const keyOf = (folder: Folder) => folder.source_id + ":" + folder.folder_id;
@@ -13,6 +13,21 @@ type Props = {
 export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
   const [children, setChildren] = useState<Record<string, Child[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const openRoot = async (folder: Folder) => {
+    const key = keyOf(folder);
+    try {
+      const items = (await api.children(shareId, folder)).items;
+      setChildren(previous => ({ ...previous, [key]: items }));
+      setExpanded(previous => ({ ...previous, [key]: true }));
+    } catch {
+      // Keep the generic public-share denial behavior.
+    }
+  };
+
+  useEffect(() => {
+    roots.forEach(folder => { void openRoot(folder); });
+  }, [shareId, roots]);
 
   const toggle = async (folder: Folder) => {
     const key = keyOf(folder);
@@ -34,7 +49,7 @@ export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
     const isExpanded = Boolean(expanded[key]);
     const folders = (children[key] || []).filter((item): item is Folder & { kind: "folder" } => item.kind === "folder");
     return <li>
-      <div className={"public-tree-row" + (active && keyOf(active) === key ? " active" : "")}>
+      <div className={"public-tree-row" + (active && keyOf(active) === key ? " active" : "") + (folder.name.startsWith("Amazon") ? " amazon" : folder.name.startsWith("Etsy") ? " etsy" : "")}>
         <button className="public-tree-toggle" aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} onClick={() => void toggle(folder)}>{isExpanded ? "⌄" : "›"}</button>
         <button className="public-tree-label" onClick={() => onOpen(folder, trail)}><span className="public-folder-icon" aria-hidden="true" /><span>{folder.name}</span></button>
       </div>
