@@ -22,8 +22,9 @@ type Props = {
   onToggle: (node: Asset) => void;
   onPrefetch: (id: string) => void;
   onCancelPrefetch: () => void;
-  onCopyReviewLink?: (node: Asset) => void | Promise<void>;
-  reviewLinkCopying?: boolean;
+  reviewLinkShareIds?: ReadonlyMap<string, string>;
+  onCopyReviewLink?: (shareId: string, node: Asset) => void | Promise<void>;
+  copyingReviewLinkShareId?: string | null;
 };
 
 export function DriveTreeNode({
@@ -38,8 +39,9 @@ export function DriveTreeNode({
   onToggle,
   onPrefetch,
   onCancelPrefetch,
+  reviewLinkShareIds,
   onCopyReviewLink,
-  reviewLinkCopying = false,
+  copyingReviewLinkShareId,
 }: Props) {
   const isExpanded = expanded.has(node.id);
   const isLoading = loadingNodes.has(node.id);
@@ -49,6 +51,7 @@ export function DriveTreeNode({
   const isCurrent = activeId === node.id;
   const isAncestor = !isCurrent && activePathIds.has(node.id);
   const rowState = isCurrent ? "active" : isAncestor ? "active-path" : "";
+  const reviewLinkShareId = reviewLinkShareIds?.get(node.id);
 
   return <div className="tree-node">
     <div
@@ -68,15 +71,15 @@ export function DriveTreeNode({
         <SourceFolderIcon name={node.name} />
         <span>{node.name}</span>
       </button>
-      {onCopyReviewLink && <button
+      {reviewLinkShareId && onCopyReviewLink && <button
         type="button"
         className="tree-review-link"
         title={"Copy a new secure review link for " + node.name}
         aria-label={"Copy a new secure review link for " + node.name}
-        disabled={reviewLinkCopying}
+        disabled={copyingReviewLinkShareId === reviewLinkShareId}
         onClick={event => {
           event.stopPropagation();
-          void onCopyReviewLink(node);
+          void onCopyReviewLink(reviewLinkShareId, node);
         }}
       ><img src={sharedLinkIcon} alt="" aria-hidden="true" /></button>}
     </div>
@@ -96,8 +99,9 @@ export function DriveTreeNode({
           onToggle={onToggle}
           onPrefetch={onPrefetch}
           onCancelPrefetch={onCancelPrefetch}
+          reviewLinkShareIds={reviewLinkShareIds}
           onCopyReviewLink={onCopyReviewLink}
-          reviewLinkCopying={reviewLinkCopying}
+          copyingReviewLinkShareId={copyingReviewLinkShareId}
         />)}
       </div>
     )}

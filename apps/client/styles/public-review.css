@@ -132,3 +132,13 @@
 /* Reuse the authenticated Explorer tree state treatment in the public shell. */
 .public-source-tree .tree-node{min-width:0}.public-source-tree .tree-row{min-height:37px;border-radius:0}.public-source-tree .tree-label{gap:10px;color:#344a67;font-size:16px;font-weight:500}.public-source-tree .tree-children{margin-left:28px;padding-left:7px}.public-source-tree .tree-row.active{background:#e1e9fb}.public-source-tree .tree-row.active-path{background:#f1f4fb}.public-source-tree .tree-toggle{width:28px;height:37px}.public-source-tree .tree-toggle-placeholder{width:28px;height:37px}.public-source-tree .tree-children-skeleton{margin-left:28px;padding-left:7px}.public-source-tree .source-folder-brand{flex:0 0 18px}
 @media(max-width:1100px){.public-source-tree .tree-label{font-size:14px}}
+
+/* Shared folder cards use the same dimensions, hierarchy and neutral folder surface as the authenticated Explorer. */
+.public-grid>.public-card.public-folder-card{grid-template-rows:124px minmax(88px,auto);border-color:#e5e9ee;border-radius:11px;background:#fff;box-shadow:none}
+.public-grid>.public-card.public-folder-card:hover{transform:translateY(-2px);border-color:#cbd4e1;box-shadow:0 8px 22px #18213317}
+.public-folder-card .public-card-thumb,.public-folder-card .public-folder-glyph{min-height:124px;background:#f8f4e8}
+.public-folder-card .public-card-copy{padding:12px}
+.public-folder-card .public-card-copy b{font-size:13px;font-weight:700;color:#1f2933}
+.public-folder-card .public-card-copy small{margin-top:5px;color:#6b7785;font-size:10px}
+.public-folder-card .public-status{margin-top:9px;background:#eef2f7;color:#64748b}
+.public-folder-card .public-folder-glyph .public-folder-icon{transform:scale(2.1)}

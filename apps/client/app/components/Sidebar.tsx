@@ -195,6 +195,11 @@ export function Sidebar({
             const selected = connected.status === "active" && activeExternalSourceId === connected.id;
             const account = connected.account.email || connected.display_name || "Connected account";
             const reconnectRequired = connected.status === "reconnect_required";
+            const reviewLinkShareIds = new Map(
+              [...sharedFolderIds].flatMap(([scopeKey, shareId]) => scopeKey.startsWith(connected.id + ":")
+                ? [[scopeKey.slice(connected.id.length + 1), shareId] as const]
+                : []),
+            );
             return <div className="source-entry" key={connected.id}>
               <button className={"source " + (selected ? "active" : "")} title={reconnectRequired ? "Reconnect Google Drive" : "Right-click for source actions"} onClick={() => {
                 if (connected.status === "active") {
@@ -233,8 +238,9 @@ export function Sidebar({
                   activePathIds={activePathIds} childrenByParent={childrenByParent}
                   expanded={expanded} loadingNodes={loadingNodes} onOpen={onOpen}
                   onToggle={onToggle} onPrefetch={onPrefetch} onCancelPrefetch={onCancelPrefetch}
-                  onCopyReviewLink={sharedFolderIds.has(connected.id + ":" + folder.id) ? () => copyReviewLink(sharedFolderIds.get(connected.id + ":" + folder.id)!) : undefined}
-                  reviewLinkCopying={copyingShareId === sharedFolderIds.get(connected.id + ":" + folder.id)}
+                  reviewLinkShareIds={reviewLinkShareIds}
+                  onCopyReviewLink={copyReviewLink}
+                  copyingReviewLinkShareId={copyingShareId}
                 />)}
               </div>}
             </div>;
