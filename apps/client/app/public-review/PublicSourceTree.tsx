@@ -17,7 +17,14 @@ export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
   const openRoot = async (folder: Folder) => {
     const key = keyOf(folder);
     try {
-      const items = (await api.children(shareId, folder)).items;
+      const first = await api.children(shareId, folder);
+      const items = [...first.items];
+      let nextOffset = first.next_offset;
+      while (nextOffset !== null) {
+        const page = await api.children(shareId, folder, nextOffset);
+        items.push(...page.items);
+        nextOffset = page.next_offset;
+      }
       setChildren(previous => ({ ...previous, [key]: items }));
       setExpanded(previous => ({ ...previous, [key]: true }));
     } catch {

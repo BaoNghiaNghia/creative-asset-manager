@@ -70,7 +70,7 @@ def folders(public_share_id:str,request:Request):
   scope=PublicShareScopeService(s); access=scope.scoped_accesses(principal=p); rows=s.execute(select(SourceAssetModel).where(SourceAssetModel.tenant_id==p.tenant_id,SourceAssetModel.external_source_id.in_(list(access)),SourceAssetModel.deleted_at.is_(None))).scalars()
   return safe({"items":[{"source_id":x.external_source_id,"folder_id":x.external_asset_id,"name":x.filename or "Untitled folder"} for x in rows if x.external_asset_id in access[x.external_source_id].folder_ids]})
 @router.get("/{public_share_id}/folders/{folder_id}/children")
-def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Query(...,max_length=36),limit_value:int=Query(50,ge=1,le=100)):
+def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Query(...,max_length=36),limit_value:int=Query(50,ge=1,le=100),offset:int=Query(0,ge=0,le=100000)):
  p=user(request,public_share_id)
  with SessionLocal() as s:
   limit(s,request,"traversal",120);scope=PublicShareScopeService(s)
@@ -82,8 +82,10 @@ def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Que
     out.append({"kind":"folder","source_id":source_id,"folder_id":x.external_asset_id,"name":x.filename or "Untitled folder"})
    elif asset_id:
     out.append(doc(type("AssetRef",(),{"id":asset_id,"mime_type":None})(),x,public_share_id)|{"kind":"asset"})
-   if len(out)>=limit_value: break
-  s.commit();return safe({"items":out})
+  out.sort(key=lambda item: (item["kind"] != "folder", item["name" if item["kind"] == "folder" else "filename"].casefold(), item.get("folder_id") or item["source_asset_id"]))
+  page=out[offset:offset+limit_value]
+  next_offset=offset+len(page) if offset+len(page)<len(out) else None
+  s.commit();return safe({"items":page,"next_offset":next_offset})
 @router.get("/{public_share_id}/assets/{asset_id}")
 def metadata(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
  a,src=asset_pair(user(request,public_share_id),asset_id,source_asset_id);return safe(doc(a,src,public_share_id))

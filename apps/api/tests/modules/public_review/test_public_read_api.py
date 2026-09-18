@@ -10,6 +10,7 @@ from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
 from app.modules.public_review.model import PublicReviewRateLimitModel
+from app.modules.authorization.folder_scope_cache import viewer_folder_hierarchy_cache
 from app.modules.public_review.public_router import COOKIE, router
 from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.service import PublicReviewService
@@ -101,3 +102,20 @@ def test_pinned_annotation_bounds_and_text_edits_preserve_anchor(ctx):
     updated = request(ctx, "PATCH", "/api/public/review/share-a/annotations/" + created.json()["id"], json={"content_json": note_body()["content_json"]}, headers={"Origin": "http://localhost:5173"})
     assert updated.status_code == 200
     assert updated.json()["anchor_x"] == .25 and updated.json()["anchor_y"] == .75
+
+
+def test_scoped_folder_pagination_keeps_image_and_video_visible(ctx):
+ assert exchange(ctx).status_code == 201
+ with ctx[1]() as s:
+  video_source=SourceAssetModel(id="video-child",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="video-child",filename="clip-good.mp4",mime_type="video/mp4",source_metadata={"parents":["root"]})
+  video_asset=AssetModel(id="asset-video",tenant_id="tenant-a",content_hash="d"*64)
+  s.add_all([video_source,video_asset]);s.flush()
+  s.add(AssetSourceLinkModel(id="l-video",tenant_id="tenant-a",asset_id="asset-video",source_asset_id="video-child"));s.commit()
+ viewer_folder_hierarchy_cache.invalidate(tenant_id="tenant-a",external_source_id="source-a")
+ first=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-a&limit_value=1")
+ assert first.status_code == 200 and first.json()["next_offset"] == 1
+ second=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-a&limit_value=1&offset="+str(first.json()["next_offset"]))
+ assert second.status_code == 200 and second.json()["next_offset"] is None
+ items=first.json()["items"]+second.json()["items"]
+ assert {item["media_type"] for item in items} == {"image/jpeg","video/mp4"}
+ assert {item["asset_id"] for item in items} == {"asset-good","asset-video"}
