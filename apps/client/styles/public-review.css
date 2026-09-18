@@ -58,6 +58,20 @@
 .public-review-sidebar{overflow:auto;padding:0 0 0 16px;border-left:1px solid #e1e8f1}.public-review-sidebar h2{margin:0 0 10px;font-size:17px}.public-review-sidebar article{padding:13px;border:1px solid transparent;border-bottom-color:#e6edf5;border-radius:8px;cursor:pointer}.public-review-sidebar article:hover{background:#f7f9fd}.public-review-sidebar article.selected{border-color:#cddcff;background:#edf3ff}.public-review-sidebar article b{font-size:12px;color:#31435c}.public-review-sidebar p{color:#718096}.public-reply{margin:11px 0 0 15px;padding-left:10px;border-left:2px solid #ccd9ed}.public-rich-annotation{line-height:1.55}.public-rich-annotation p{margin:6px 0}.public-rich-annotation h1,.public-rich-annotation h2,.public-rich-annotation h3{margin:10px 0 6px}.public-rich-annotation blockquote{margin:8px 0;padding-left:10px;border-left:3px solid #9eb6df}.public-rich-annotation a{color:#245cc7;text-decoration:underline}.public-task-list{padding-left:0;list-style:none}.public-task-item{display:flex;gap:6px}
 .public-editor{position:relative;margin-top:12px;border:1px solid #cbd8e9;border-radius:10px;background:#fff;box-shadow:0 4px 12px #21385c0b}.public-editor-toolbar{display:flex;gap:4px;padding:7px;border-bottom:1px solid #e5ebf3}.public-tiptap{min-height:90px;padding:11px;outline:none}.public-tiptap p.is-editor-empty:first-child:before{float:left;height:0;pointer-events:none;color:#8190a6;content:attr(data-placeholder)}.public-slash-menu{position:absolute;z-index:5;bottom:52px;left:10px;display:grid;min-width:170px;padding:4px;border:1px solid #cad5e8;border-radius:7px;background:#fff;box-shadow:0 8px 22px #17243d22}.public-slash-menu button{text-align:left;border:0;background:transparent;padding:7px}.public-slash-menu button.active,.public-slash-menu button:hover{background:#edf2ff}.public-editor-actions{display:flex;gap:8px;padding:8px;border-top:1px solid #e4ebf3}
 .public-review.state{display:grid;min-height:100vh;place-items:center;padding:36px;color:#607086;font-weight:700}
+/* Keep the review surface proportional to the asset on desktop, while the
+   existing responsive rules below retain a practical full-screen mobile flow. */
+@media(min-width:901px){
+  .public-viewer{
+    top:50%;right:auto;bottom:auto;left:50%;
+    width:50vw;height:50vh;min-width:0;min-height:0;
+    transform:translate(-50%,-50%);
+    grid-template-columns:minmax(0,1fr) minmax(220px,32%);
+    grid-template-rows:auto minmax(0,1fr);
+    gap:12px;padding:14px;
+  }
+  .public-viewer-controls{gap:6px;padding-bottom:10px}
+  .public-review-sidebar{min-width:0;padding-left:12px}
+}
 @media(max-width:900px){.public-review>header{grid-template-columns:1fr;padding:20px}.public-workspace{grid-template-columns:1fr;padding:16px}.public-workspace>aside{position:static;max-height:220px}.public-viewer{inset:10px;grid-template-columns:1fr;grid-template-rows:auto minmax(250px,46vh) minmax(0,1fr)}.public-review-sidebar{padding:0;border-left:0}.public-grid{grid-template-columns:repeat(auto-fill,minmax(145px,1fr))}}
 @media(max-width:560px){.public-review>header{padding:17px}.public-review>header h1{font-size:21px}.public-workspace{padding:12px}.public-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.public-grid img{height:125px}.public-viewer{inset:0;border:0;border-radius:0}.public-viewer-controls{overflow:auto;white-space:nowrap}}
 
