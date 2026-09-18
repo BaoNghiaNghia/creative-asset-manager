@@ -1,3 +1,12 @@
+import pipelineOverviewIcon from "../../assets/navigation/pipeline-overview.svg";
+import aiAnalysisIcon from "../../assets/navigation/ai-analysis.svg";
+import processingIcon from "../../assets/navigation/processing.svg";
+import visualSearchIcon from "../../assets/navigation/visual-search.svg";
+import creativePipelineIcon from "../../assets/navigation/creative-pipeline.svg";
+import inventoryDailyIcon from "../../assets/navigation/inventory-daily.svg";
+import costUsageIcon from "../../assets/navigation/cost-usage.svg";
+import providersIcon from "../../assets/navigation/providers.svg";
+import configurationIcon from "../../assets/navigation/configuration.svg";
 import oneDrivePlatformLogo from "../../assets/logos/onedrive-platform.png";
 import googleDrivePlatformLogo from "../../assets/logos/google-drive-platform.png";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -44,19 +53,20 @@ const tabs: Array<{ id: AiOpsTab; label: string; icon: TabIconName }> = [
 ];
 type TabIconName = "pipeline" | "spark" | "processing" | "visual" | "creative" | "inventory" | "cost" | "providers" | "configuration";
 
+const tabIconSources: Record<TabIconName, string> = {
+  pipeline: pipelineOverviewIcon,
+  spark: aiAnalysisIcon,
+  processing: processingIcon,
+  visual: visualSearchIcon,
+  creative: creativePipelineIcon,
+  inventory: inventoryDailyIcon,
+  cost: costUsageIcon,
+  providers: providersIcon,
+  configuration: configurationIcon,
+};
+
 function TabIcon({ name }: { name: TabIconName }) {
-  const paths: Record<TabIconName, string> = {
-    pipeline: "M4 5h16M4 12h16M4 19h16",
-    spark: "M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z",
-    processing: "M6 4h12v16H6z M9 8h6M9 12h6M9 16h4",
-    visual: "M4 7h3l1.4-2h7.2L17 7h3v11H4V7z M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
-    creative: "M4 19V5h16v14H4zm4-4 3-3 2 2 3-4",
-    inventory: "M4 7l8-4 8 4-8 4-8-4z M4 12l8 4 8-4 M4 17l8 4 8-4",
-    cost: "M12 3v18 M16 7.5c0-1.7-1.8-3-4-3s-4 1.3-4 3c0 1.7 1.8 3 4 3s4 1.3 4 3c0 1.7-1.8 3-4 3s-4-1.3-4-3",
-    providers: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z M4 7.5l8 4.5 8-4.5 M12 12v9",
-    configuration: "M4 7h10M18 7h2M4 17h2M10 17h10 M14 5v4M8 15v4",
-  };
-  return <svg className="ops-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>;
+  return <img className="ops-tab-icon" src={tabIconSources[name]} alt="" aria-hidden="true" />;
 }
 
 const emptyPage = <T,>(page = 1) => ({ page, page_size: 25, total: 0, items: [] as T[] });
