@@ -5,7 +5,7 @@ from secrets import token_urlsafe
 from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy import select
 from app.core.config import get_settings
@@ -14,6 +14,7 @@ from app.modules.assets.content_resolver import SourceAssetContentResolver
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.public_review.authorization import PublicShareAccessDenied, PublicShareScopeService
 from app.modules.public_review.model import PublicShareModel
+from app.modules.public_review.public_thumbnail import PublicThumbnailResolver, PublicThumbnailUnavailable
 from app.modules.public_review.rate_limit import PublicRateLimitExceeded, consume
 from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.service import PublicReviewService, utcnow
@@ -22,6 +23,7 @@ COOKIE="cam_public_review_session"; TTL=timedelta(hours=12)
 # Public media streams must not exhaust the small production database/provider pool.
 PUBLIC_MEDIA_CONCURRENCY=3
 _public_media_slots=asyncio.Semaphore(PUBLIC_MEDIA_CONCURRENCY)
+_public_thumbnail_slots=asyncio.Semaphore(PUBLIC_MEDIA_CONCURRENCY)
 def denied(): return HTTPException(404,detail={"code":"public_review_unavailable"})
 def limited(): return HTTPException(429,detail={"code":"public_review_unavailable"})
 def safe(payload,status=200):
@@ -129,7 +131,15 @@ async def media(public_share_id,asset_id,request,source_id):
    await release()
  r=StreamingResponse(body(),media_type=src.mime_type or "application/octet-stream",background=BackgroundTask(release));r.headers.update({"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"});return r
 @router.get("/{public_share_id}/assets/{asset_id}/thumbnail")
-async def thumbnail(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None): return await media(public_share_id,asset_id,request,source_asset_id)
+async def thumbnail(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
+ # Scope authorization happens before the cache/provider lookup. The thumbnail
+ # resolver is bounded and never falls back to streaming the original asset.
+ async with _public_thumbnail_slots:
+  p=user(request,public_share_id);_,src=asset_pair(p,asset_id,source_asset_id)
+  try:
+   value=await PublicThumbnailResolver(SessionLocal).load(tenant_id=p.tenant_id,source_asset_id=src.id)
+  except Exception: raise denied()
+ return Response(content=value.content,media_type=value.content_type,headers={"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"})
 @router.get("/{public_share_id}/assets/{asset_id}/preview")
 async def preview(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None): return await media(public_share_id,asset_id,request,source_asset_id)
 from app.modules.public_review.model import AssetAnnotationModel, PublicShareSessionModel

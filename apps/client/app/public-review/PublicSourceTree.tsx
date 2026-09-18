@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronIcon, SourceFolderIcon } from "../components/Icons";
 import { api, type Child, type Folder } from "./api";
 
 const keyOf = (folder: Folder) => folder.source_id + ":" + folder.folder_id;
@@ -7,16 +8,17 @@ type Props = {
   shareId: string;
   roots: Folder[];
   active?: Folder;
+  activeTrail: Folder[];
   onOpen: (folder: Folder, trail: Folder[]) => void;
 };
 
 export function PublicTreeSkeleton({ count = 4 }: { count?: number }) {
-  return <ol className="public-tree-skeleton" aria-label="Loading folders">
-    {Array.from({ length: count }, (_, index) => <li className="public-tree-skeleton-row" key={index} aria-hidden="true"><i /><span /></li>)}
-  </ol>;
+  return <div className="tree-children tree-children-skeleton" aria-label="Loading folders" aria-busy="true">
+    {Array.from({ length: count }, (_, index) => <div className="tree-skeleton-row" key={index}><i aria-hidden="true" /><span aria-hidden="true" /></div>)}
+  </div>;
 }
 
-export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
+export function PublicSourceTree({ shareId, roots, active, activeTrail, onOpen }: Props) {
   const [children, setChildren] = useState<Record<string, Child[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -36,7 +38,7 @@ export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
       }
       setChildren(previous => ({ ...previous, [key]: items }));
     } catch {
-      // Keep the generic public-share denial behavior.
+      // Retain generic public-share denial and do not reveal folder state.
     } finally {
       setLoading(previous => ({ ...previous, [key]: false }));
     }
@@ -66,19 +68,24 @@ export function PublicSourceTree({ shareId, roots, active, onOpen }: Props) {
     const key = keyOf(folder);
     const isExpanded = Boolean(expanded[key]);
     const isLoading = Boolean(loading[key]);
-    const folders = (children[key] || []).filter((item): item is Folder & { kind: "folder" } => item.kind === "folder");
-    return <li>
-      <div className={"public-tree-row" + (active && keyOf(active) === key ? " active" : "") + (folder.name.startsWith("Amazon") ? " amazon" : folder.name.startsWith("Etsy") ? " etsy" : "")}>
-        <button className="public-tree-toggle" aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} aria-busy={isLoading || undefined} onClick={() => void toggle(folder)}>{isLoading ? <span className="public-tree-spinner" aria-hidden="true" /> : isExpanded ? "⌄" : "›"}</button>
-        <button className="public-tree-label" onClick={() => onOpen(folder, trail)}><span className="public-folder-icon" aria-hidden="true" /><span>{folder.name}</span></button>
+    const childFolders = (children[key] || []).filter((item): item is Folder & { kind: "folder" } => item.kind === "folder");
+    const childrenLoaded = Object.prototype.hasOwnProperty.call(children, key);
+    const canExpand = !childrenLoaded || childFolders.length > 0;
+    const isCurrent = Boolean(active && keyOf(active) === key);
+    const isAncestor = !isCurrent && activeTrail.some(item => keyOf(item) === key);
+    const rowState = isCurrent ? "active" : isAncestor ? "active-path" : "";
+
+    return <div className="tree-node">
+      <div className={"tree-row " + rowState}>
+        {canExpand ? <button className={"tree-toggle " + (isLoading ? "loading" : "")} onClick={() => void toggle(folder)} aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} disabled={isLoading}>{isLoading ? <span className="tree-loading" /> : <ChevronIcon expanded={isExpanded} />}</button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
+        <button className="tree-label" title={folder.name} onClick={() => onOpen(folder, trail)}><SourceFolderIcon name={folder.name} /><span>{folder.name}</span></button>
       </div>
-      {isExpanded && isLoading && <PublicTreeSkeleton />}
-      {isExpanded && !isLoading && folders.length > 0 && <ol className="public-tree-children">{folders.map(child => <Node key={keyOf(child)} folder={child} trail={[...trail, child]} />)}</ol>}
-    </li>;
+      {isExpanded && (isLoading ? <PublicTreeSkeleton /> : childFolders.length > 0 && <div className="tree-children">{childFolders.map(child => <Node key={keyOf(child)} folder={child} trail={[...trail, child]} />)}</div>)}
+    </div>;
   };
 
   return <aside className="public-source-tree" aria-label="Shared folder tree">
     <h2>Source tree</h2>
-    <ol className="public-tree-roots">{roots.map(folder => <Node key={keyOf(folder)} folder={folder} trail={[folder]} />)}</ol>
+    {roots.map(folder => <Node key={keyOf(folder)} folder={folder} trail={[folder]} />)}
   </aside>;
 }

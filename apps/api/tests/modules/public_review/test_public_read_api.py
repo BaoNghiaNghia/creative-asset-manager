@@ -144,3 +144,22 @@ def test_public_media_guard_releases_the_limited_slot(monkeypatch):
   return [chunk async for chunk in response.body_iterator]
  assert asyncio.run(consume())==[b"image"]
  assert public_router._public_media_slots._value==before
+
+
+def test_public_thumbnail_uses_bounded_thumbnail_resolver_not_original_media(monkeypatch):
+ principal=SimpleNamespace(tenant_id="tenant-a")
+ source=SimpleNamespace(id="child")
+ class Resolver:
+  def __init__(self,*_): pass
+  async def load(self,**kwargs):
+   assert kwargs == {"tenant_id":"tenant-a","source_asset_id":"child"}
+   return SimpleNamespace(content=b"thumbnail",content_type="image/webp")
+ monkeypatch.setattr(public_router,"user",lambda *_: principal)
+ monkeypatch.setattr(public_router,"asset_pair",lambda *_: (SimpleNamespace(),source))
+ monkeypatch.setattr(public_router,"PublicThumbnailResolver",Resolver)
+ async def request_thumbnail():
+  return await public_router.thumbnail("share-a","asset-good",SimpleNamespace(),"child")
+ response=asyncio.run(request_thumbnail())
+ assert response.body == b"thumbnail"
+ assert response.media_type == "image/webp"
+ assert response.headers["cache-control"] == "no-store, private"

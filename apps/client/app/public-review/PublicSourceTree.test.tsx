@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { PublicTreeSkeleton } from "./PublicSourceTree";
 
 describe("PublicTreeSkeleton", () => {
-  it("renders the requested number of source-tree loading rows", () => {
+  it("uses the same skeleton structure as Explorer tree loading", () => {
     const markup = renderToStaticMarkup(<PublicTreeSkeleton count={3} />);
-    expect(markup).toContain('aria-label="Loading folders"');
-    expect((markup.match(/public-tree-skeleton-row/g) || []).length).toBe(3);
+    expect(markup).toContain('class="tree-children tree-children-skeleton"');
+    expect((markup.match(/tree-skeleton-row/g) || []).length).toBe(3);
   });
 });
