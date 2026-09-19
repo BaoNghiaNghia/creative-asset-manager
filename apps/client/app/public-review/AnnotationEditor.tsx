@@ -60,7 +60,7 @@ export function AnnotationEditor({
   };
 
   return <div className="public-editor">
-    <EditorContent editor={editor}/>
+    <div className="public-editor-input"><EditorContent editor={editor}/></div>
     <button type="button" className="public-editor-submit" disabled={!hasText || submitting} onClick={() => void submit()}>{submitLabel}</button>
   </div>;
 }

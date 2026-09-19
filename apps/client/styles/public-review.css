@@ -226,3 +226,12 @@
 .public-comment-reply{display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;margin:10px 0 0;padding:0;border:0}.public-comment-reply .public-comment-avatar{width:26px;height:26px;font-size:9px}.public-comment-reply .public-comment-body>b{font-size:12px}.public-comment-reply .public-comment-body .public-rich-annotation{font-size:13px}.public-comment-reply .public-comment-body>time{display:block;margin-top:4px}
 .public-review-empty{padding:32px 4px;color:#98a4b4}
 .public-review-composer{padding:10px 14px;border-top:1px solid #e8edf3}.public-review-composer .public-editor{align-items:center;gap:8px;padding:4px 0;border:0;border-radius:0;background:transparent;box-shadow:none}.public-review-composer .public-editor:focus-within{border-color:transparent;box-shadow:none}.public-review-composer .public-tiptap{min-height:28px;max-height:94px;padding:5px 0;font-size:14px}.public-editor-submit{margin-left:auto;padding:6px 8px;border:0;border-radius:0;background:transparent;color:#3862c8;font-size:14px;font-weight:700}.public-editor-submit:hover:not(:disabled){background:transparent;color:#244ea9;opacity:.82}.public-editor-submit:disabled{background:transparent;color:#8f9baa;opacity:.42;cursor:default}
+
+
+/* The EditorContent wrapper, not only ProseMirror, must own the available flex width. */
+.public-review-composer .public-editor{width:100%;min-width:0}
+.public-review-composer .public-editor-input{display:flex;flex:1 1 auto;align-self:stretch;min-width:0}
+.public-review-composer .public-editor-input>.public-tiptap{width:100%;min-width:0;font:inherit;letter-spacing:normal}
+.public-review-composer .public-editor-input>.public-tiptap,.public-review-composer .public-editor-input>.public-tiptap *{font-family:inherit}
+.public-review-composer .public-editor-submit{flex:0 0 auto;margin-left:8px;font:inherit;letter-spacing:normal}
+.public-review-sidebar,.public-review-sidebar h2,.public-review-sidebar button,.public-review-sidebar time,.public-review-sidebar .public-comment-body,.public-review-sidebar .public-rich-annotation,.public-review-sidebar .public-tiptap{font-family:inherit}
