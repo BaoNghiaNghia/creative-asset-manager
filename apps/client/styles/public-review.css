@@ -442,3 +442,48 @@
 }
 .public-review-notes-loading span:nth-child(2) { width:93%; }
 .public-review-notes-loading span:nth-child(3) { width:58%; }
+/* Keep the Review composer readable without changing editors elsewhere. The global
+   aside p rule must not shrink or mute paragraphs inside Tiptap. */
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap {
+  min-height:58px;
+  max-height:min(450px, calc(94dvh - 160px));
+  padding:15px 10px 15px 0;
+  overflow-x:hidden;
+  overflow-y:auto;
+  font-size:18px;
+  line-height:28px;
+  font-weight:400;
+  color:#fffffff2;
+  scrollbar-width:thin;
+  scrollbar-color:#ffffff73 transparent;
+}
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap p,
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap li {
+  margin:0;
+  font:inherit;
+  line-height:inherit;
+  letter-spacing:normal;
+  color:inherit;
+}
+.public-review-backdrop .public-review-composer .public-tiptap p.is-editor-empty:first-child:before {
+  font-size:18px;
+  line-height:28px;
+  color:#ffffff99;
+}
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap::-webkit-scrollbar { width:6px; }
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap::-webkit-scrollbar-track { background:transparent; }
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap::-webkit-scrollbar-thumb {
+  border-radius:6px;
+  background:#ffffff73;
+}
+.public-review-backdrop .public-review-composer .public-editor-submit {
+  align-self:flex-end;
+  min-height:44px;
+  margin-bottom:7px;
+  font-size:16px;
+}
+@media(max-width:900px) {
+  .public-review-backdrop .public-review-composer .public-editor-input .public-tiptap {
+    max-height:min(450px, max(84px, calc(48dvh - 154px)));
+  }
+}
