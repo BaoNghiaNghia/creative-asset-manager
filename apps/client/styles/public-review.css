@@ -157,3 +157,34 @@
 
 /* Folder cards are grid items, not text-only buttons: never inherit the generic text-card inset. */
 .public-grid>button.public-folder-card{padding:0;align-items:stretch}
+
+/* Card-level Public Review actions are intentionally limited to review notes
+   and the in-memory bearer review link; provider URLs never reach this surface. */
+.public-grid>article.public-card{position:relative;min-width:0;overflow:hidden;border:1px solid #dfe5ed;border-radius:11px;background:#fff;color:#33455e;box-shadow:none}
+.public-grid>article.public-card:hover{border-color:#bdcce0;box-shadow:0 3px 10px #20365310}
+.public-card-open{display:block;width:100%;height:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.public-card-open:focus-visible{outline:3px solid #4f7ff055;outline-offset:-3px}
+.public-grid>article.public-card.public-media-card{display:block;min-height:0;aspect-ratio:1/1}
+.public-card-actions{position:absolute;z-index:4;right:10px;bottom:10px;display:flex;gap:6px;opacity:0;transform:translateY(5px);transition:opacity .16s ease,transform .16s ease}
+.public-media-card:hover .public-card-actions,.public-media-card:focus-within .public-card-actions{opacity:1;transform:translateY(0)}
+.public-card-actions button{display:grid;width:30px;height:30px;place-items:center;padding:0;border:1px solid #ffffffb8;border-radius:50%;background:#18243bd9;color:#fff;box-shadow:0 2px 8px #17243d33;cursor:pointer}
+.public-card-actions button:hover{background:#315fe9}
+.public-card-actions button:focus-visible{outline:2px solid #315fe9;outline-offset:2px}
+.public-card-actions svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.public-share-notice{margin:0 20px 14px;padding:8px 10px;border-radius:8px;background:#edf4ff;color:#2454b8;font-size:12px;font-weight:650}
+@media(prefers-reduced-motion:reduce){.public-card-actions{transition:none}}
+
+
+/* Modal interaction follows the public-review viewer contract: the backdrop owns
+   dismissal while the dialog and its editor stay isolated and sharp. */
+.public-review-backdrop{position:fixed;z-index:90;inset:0;display:grid;place-items:center;padding:22px;background:rgba(15,23,42,.42);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.public-review-backdrop .public-viewer{position:relative;z-index:1;inset:auto;top:auto;right:auto;bottom:auto;left:auto;width:50vw;height:50vh;min-width:0;min-height:0;transform:none;grid-template-columns:minmax(0,1fr) minmax(220px,32%);grid-template-rows:auto minmax(0,1fr);gap:12px;padding:14px}
+.public-media-nav{position:absolute;z-index:4;top:50%;display:grid!important;width:42px;height:42px;min-height:42px!important;place-items:center;padding:0!important;border:1px solid #ffffff9c!important;border-radius:50%!important;background:rgba(255,255,255,.92)!important;color:#111827!important;box-shadow:0 2px 8px #0004;transform:translateY(-50%);transition:background .16s ease,opacity .16s ease,transform .16s ease}
+.public-media-nav:hover:not(:disabled){background:#fff!important;transform:translateY(-50%) scale(1.04)}
+.public-media-nav:focus-visible{outline:3px solid #a8c5ff;outline-offset:3px}
+.public-media-nav:disabled{cursor:default;opacity:.4}
+.public-media-nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2.25;stroke-linecap:round;stroke-linejoin:round}
+.public-media-nav-previous{left:16px}.public-media-nav-next{right:16px}
+@media(max-width:900px){.public-review-backdrop{padding:10px}.public-review-backdrop .public-viewer{width:100%;height:calc(100vh - 20px);grid-template-columns:1fr;grid-template-rows:auto minmax(250px,46vh) minmax(0,1fr)}}
+@media(max-width:560px){.public-review-backdrop{padding:0}.public-review-backdrop .public-viewer{width:100%;height:100vh;border:0;border-radius:0}.public-media-nav-previous{left:10px}.public-media-nav-next{right:10px}}
+@media(prefers-reduced-motion:reduce){.public-media-nav{transition:none}.public-media-nav:hover:not(:disabled){transform:translateY(-50%)}}
