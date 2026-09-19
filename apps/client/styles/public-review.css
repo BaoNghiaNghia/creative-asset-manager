@@ -389,3 +389,56 @@
     border-left:0;
   }
 }
+.public-review-backdrop .public-media-stage>img,
+.public-review-backdrop .public-video-preview {
+  background:#0b0f19;
+}
+.public-review-backdrop .public-video-loading { background:transparent; }
+.public-review-backdrop .public-media-position { top:auto; bottom:16px; }
+.public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation {
+  font-family:Inter,system-ui,sans-serif;
+  font-size:16px;
+  font-weight:400;
+  line-height:1.5;
+  letter-spacing:normal;
+  color:#fffffff2;
+}
+.public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation p,
+.public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation li,
+.public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation blockquote {
+  color:inherit;
+  font:inherit;
+  letter-spacing:normal;
+}
+.public-review-backdrop .public-review-feed .public-comment-body>b {
+  font-size:14px;
+  font-weight:600;
+  color:#fffffff2;
+}
+.public-review-backdrop .public-comment-footer time,
+.public-review-backdrop .public-comment-body>time {
+  font-size:12px;
+  color:#ffffff80;
+}
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap {
+  font-size:16px;
+  color:#fffffff2;
+}
+.public-review-backdrop .public-review-composer .public-tiptap p.is-editor-empty:first-child:before {
+  font-size:15px;
+  color:#ffffff8c;
+}
+.public-review-notes-loading {
+  display:grid;
+  gap:12px;
+  padding:16px 14px;
+}
+.public-review-notes-loading span {
+  display:block;
+  height:8px;
+  width:78%;
+  border-radius:6px;
+  background:#ffffff1c;
+}
+.public-review-notes-loading span:nth-child(2) { width:93%; }
+.public-review-notes-loading span:nth-child(3) { width:58%; }
