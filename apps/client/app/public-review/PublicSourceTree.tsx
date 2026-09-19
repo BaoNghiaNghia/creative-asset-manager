@@ -13,8 +13,8 @@ type Props = {
 };
 
 export function PublicTreeSkeleton({ count = 4 }: { count?: number }) {
-  return <div className="tree-children tree-children-skeleton" aria-label="Loading folders" aria-busy="true">
-    {Array.from({ length: count }, (_, index) => <div className="tree-skeleton-row" key={index}><i aria-hidden="true" /><span aria-hidden="true" /></div>)}
+  return <div className="public-tree-skeleton" aria-label="Loading folders" aria-busy="true">
+    {Array.from({ length: count }, (_, index) => <div className="public-tree-skeleton-row" key={index}><i aria-hidden="true" /><span aria-hidden="true" /></div>)}
   </div>;
 }
 
@@ -77,8 +77,8 @@ export function PublicSourceTree({ shareId, roots, active, activeTrail, onOpen }
 
     return <div className="tree-node">
       <div className={"tree-row " + rowState}>
-        {canExpand ? <button className={"tree-toggle " + (isLoading ? "loading" : "")} onClick={() => void toggle(folder)} aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} disabled={isLoading}>{isLoading ? <span className="tree-loading" /> : <ChevronIcon expanded={isExpanded} />}</button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
-        <button className="tree-label" title={folder.name} onClick={() => onOpen(folder, trail)}><SourceFolderIcon name={folder.name} /><span>{folder.name}</span></button>
+        {canExpand ? <button className={"tree-toggle " + (isLoading ? "loading" : "")} onClick={() => void toggle(folder)} aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} disabled={isLoading}>{isLoading ? <span className="public-tree-spinner" /> : <ChevronIcon expanded={isExpanded} />}</button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
+        <button className="tree-label" title={folder.name} onClick={() => { if (canExpand) void toggle(folder); onOpen(folder, trail); }}><SourceFolderIcon name={folder.name} /><span>{folder.name}</span></button>
       </div>
       {isExpanded && (isLoading ? <PublicTreeSkeleton /> : childFolders.length > 0 && <div className="tree-children">{childFolders.map(child => <Node key={keyOf(child)} folder={child} trail={[...trail, child]} />)}</div>)}
     </div>;
