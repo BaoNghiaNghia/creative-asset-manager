@@ -261,3 +261,131 @@
 .public-review-backdrop .public-review-composer .public-editor-submit:hover:not(:disabled){background:transparent;color:#b9ccff}
 .public-review-backdrop .public-review-composer .public-editor-submit:disabled{border:0;background:transparent;color:#ffffff54;opacity:1;cursor:default}
 .public-review-backdrop .public-comment-reply{border:0}
+
+
+/* Review viewer refinement: the outer dialog alone owns clipping/radius, while
+   the media and Review columns meet on one uninterrupted dark surface. */
+.public-review-backdrop .public-viewer{
+  gap:0;
+  padding:0;
+  overflow:hidden;
+  border:1px solid #ffffff26;
+  border-radius:14px;
+  background:#0b0f19;
+}
+.public-review-backdrop .public-media-stage{
+  border:0;
+  border-radius:0;
+  outline:0;
+  box-shadow:none;
+  background:#0b0f19;
+}
+.public-review-backdrop .public-review-sidebar{
+  border:0;
+  border-left:1px solid #ffffff14;
+  border-radius:0;
+}
+
+/* One position marker for every item in the same ordered assets collection
+   consumed by Previous, Next, and keyboard navigation. */
+.public-media-position{
+  position:absolute;
+  z-index:8;
+  top:16px;
+  left:50%;
+  display:flex;
+  width:max-content;
+  max-width:min(70%,360px);
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  overflow:hidden;
+  padding:5px 7px;
+  transform:translateX(-50%);
+  pointer-events:none;
+}
+.public-media-position span{
+  display:block;
+  flex:1 1 6px;
+  width:6px;
+  min-width:2px;
+  max-width:6px;
+  height:6px;
+  border-radius:9999px;
+  background:#ffffff66;
+}
+.public-media-position span.active{background:#fffffff2}
+
+/* EditorContent adds a wrapper around the ProseMirror element. Both wrapper
+   layers and the real editable surface must stretch, so the whole left region
+   is a native contenteditable hit area rather than a content-sized label. */
+.public-review-backdrop .public-review-composer{
+  padding:0 14px;
+  font-family:Inter,system-ui,sans-serif;
+}
+.public-review-backdrop .public-review-composer .public-editor{
+  display:flex;
+  width:100%;
+  min-width:0;
+  min-height:56px;
+  align-items:stretch;
+  gap:8px;
+  margin:0;
+  padding:0;
+}
+.public-review-backdrop .public-review-composer .public-editor-input,
+.public-review-backdrop .public-review-composer .public-editor-input>div{
+  display:flex;
+  width:100%;
+  min-width:0;
+  align-self:stretch;
+  flex:1 1 0%;
+}
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap{
+  display:block;
+  width:100%;
+  min-width:0;
+  min-height:56px;
+  max-height:112px;
+  flex:1 1 auto;
+  box-sizing:border-box;
+  overflow-y:auto;
+  padding:17px 0 15px;
+  font-family:Inter,system-ui,sans-serif;
+  font-size:14px;
+  font-weight:400;
+  line-height:1.45;
+  letter-spacing:normal;
+}
+.public-review-backdrop .public-review-composer .public-editor-input .public-tiptap *,
+.public-review-backdrop .public-review-feed .public-comment-body,
+.public-review-backdrop .public-review-feed .public-comment-body>b,
+.public-review-backdrop .public-review-feed .public-rich-annotation,
+.public-review-backdrop .public-comment-footer time,
+.public-review-backdrop .public-comment-body>time{
+  font-family:Inter,system-ui,sans-serif;
+  letter-spacing:normal;
+}
+.public-review-backdrop .public-review-composer .public-tiptap p.is-editor-empty:first-child:before{
+  font-family:Inter,system-ui,sans-serif;
+  font-size:14px;
+  font-weight:400;
+  line-height:1.45;
+  letter-spacing:normal;
+}
+.public-review-backdrop .public-review-composer .public-editor-submit{
+  align-self:stretch;
+  flex:0 0 auto;
+  margin-left:8px;
+  padding:0 8px;
+  font-family:Inter,system-ui,sans-serif;
+  font-size:14px;
+  font-weight:700;
+  letter-spacing:normal;
+}
+@media(max-width:900px){
+  .public-review-backdrop .public-review-sidebar{
+    border-top:1px solid #ffffff14;
+    border-left:0;
+  }
+}

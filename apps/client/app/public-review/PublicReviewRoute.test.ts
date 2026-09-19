@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { autoplayReviewVideo, reviewShareUrl } from "./PublicReviewRoute";
+import { autoplayReviewVideo, reviewMediaPosition, reviewShareUrl } from "./PublicReviewRoute";
+import type { Asset } from "./api";
 
 describe("reviewShareUrl", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -9,6 +10,41 @@ describe("reviewShareUrl", () => {
     expect(reviewShareUrl("share-id", "key+/=?")).toBe(
       "https://creative-assets.example/share/share-id#key=key%2B%2F%3D%3F",
     );
+  });
+});
+
+
+
+describe("reviewMediaPosition", () => {
+  const asset = (asset_id: string, media_type: string): Asset => ({
+    kind: "asset",
+    asset_id,
+    source_asset_id: "source-" + asset_id,
+    filename: asset_id + (media_type.startsWith("video/") ? ".mp4" : ".jpg"),
+    media_type,
+    thumbnail_url: "/thumbnail/" + asset_id,
+    preview_url: "/preview/" + asset_id,
+  });
+
+  it("keeps mixed images and videos in the exact navigation order", () => {
+    const items = [
+      asset("image-1", "image/jpeg"),
+      asset("video-1", "video/mp4"),
+      asset("image-2", "image/png"),
+      asset("video-2", "video/webm"),
+    ];
+
+    expect(reviewMediaPosition(items, items[2])).toEqual({
+      keys: [
+        "image-1:source-image-1",
+        "video-1:source-video-1",
+        "image-2:source-image-2",
+        "video-2:source-video-2",
+      ],
+      currentIndex: 2,
+    });
+    expect(reviewMediaPosition(items, items[0]).currentIndex).toBe(0);
+    expect(reviewMediaPosition(items, items[3]).currentIndex).toBe(3);
   });
 });
 
