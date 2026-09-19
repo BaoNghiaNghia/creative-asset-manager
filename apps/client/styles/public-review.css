@@ -235,3 +235,29 @@
 .public-review-composer .public-editor-input>.public-tiptap,.public-review-composer .public-editor-input>.public-tiptap *{font-family:inherit}
 .public-review-composer .public-editor-submit{flex:0 0 auto;margin-left:8px;font:inherit;letter-spacing:normal}
 .public-review-sidebar,.public-review-sidebar h2,.public-review-sidebar button,.public-review-sidebar time,.public-review-sidebar .public-comment-body,.public-review-sidebar .public-rich-annotation,.public-review-sidebar .public-tiptap{font-family:inherit}
+
+
+/* Dark Review surface is scoped to the media modal only. */
+.public-review-backdrop .public-review-sidebar{background:#212328;border-color:#ffffff1c;color:#f5f5f5}
+.public-review-backdrop .public-review-header{background:#212328;border-bottom:1px solid #ffffff1c}
+.public-review-backdrop .public-review-header h2{color:#f5f5f5}
+.public-review-backdrop .public-viewer-close{border-color:#ffffff24!important;background:#ffffff14!important;color:#ffffffe6!important;box-shadow:none}
+.public-review-backdrop .public-viewer-close:hover{background:#ffffff24!important;color:#fff!important}
+.public-review-backdrop .public-review-feed{background:#212328;scrollbar-color:#ffffff40 transparent}
+.public-review-backdrop .public-review-feed>.public-comment,.public-review-backdrop .public-review-feed>.public-comment:hover,.public-review-backdrop .public-review-feed>.public-comment.selected{border:0;background:transparent;box-shadow:none}
+.public-review-backdrop .public-comment-avatar{background:#ffffff1c;color:#f5f5f5}
+.public-review-backdrop .public-review-feed .public-comment-body>b,.public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation,.public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation p,.public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation li,.public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation blockquote{color:#fffffff0}
+.public-review-backdrop .public-review-feed .public-rich-annotation a{color:#8eb0ff}
+.public-review-backdrop .public-comment-footer time,.public-review-backdrop .public-comment-body>time,.public-review-backdrop .public-review-empty{color:#ffffff80}
+.public-review-backdrop .public-note-actions button{border:0;background:transparent;color:#ffffffa8}
+.public-review-backdrop .public-note-actions button:hover{background:#ffffff14;color:#fff}
+.public-review-backdrop .public-note-actions .public-note-delete:hover{background:#e2565626;color:#ff8888}
+.public-review-backdrop .public-review-composer{background:#212328;border-top:1px solid #ffffff1c;color:#f5f5f5}
+.public-review-backdrop .public-review-composer>p{color:#ffffffa8}
+.public-review-backdrop .public-review-composer .public-editor,.public-review-backdrop .public-review-composer .public-editor:focus-within{border:0;background:transparent;box-shadow:none}
+.public-review-backdrop .public-review-composer .public-tiptap{background:transparent;color:#fffffff0;caret-color:#fff}
+.public-review-backdrop .public-review-composer .public-tiptap p.is-editor-empty:first-child:before{color:#ffffff75}
+.public-review-backdrop .public-review-composer .public-editor-submit{border:0;background:transparent;color:#8eb0ff}
+.public-review-backdrop .public-review-composer .public-editor-submit:hover:not(:disabled){background:transparent;color:#b9ccff}
+.public-review-backdrop .public-review-composer .public-editor-submit:disabled{border:0;background:transparent;color:#ffffff54;opacity:1;cursor:default}
+.public-review-backdrop .public-comment-reply{border:0}
