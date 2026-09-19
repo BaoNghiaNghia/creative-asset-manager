@@ -57,7 +57,7 @@ afterEach(() => {
 
 describe("Review notes follow the selected asset", () => {
   it("clears stale notes and drafts, ignores late responses, and creates on the active asset", async () => {
-    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "http://localhost" });
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
     vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
