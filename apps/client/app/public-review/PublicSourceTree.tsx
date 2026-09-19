@@ -77,8 +77,8 @@ export function PublicSourceTree({ shareId, roots, active, activeTrail, onOpen }
 
     return <div className="tree-node">
       <div className={"tree-row " + rowState}>
-        {canExpand ? <button className={"tree-toggle " + (isLoading ? "loading" : "")} onClick={() => void toggle(folder)} aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} disabled={isLoading}>{isLoading ? <span className="public-tree-spinner" /> : <ChevronIcon expanded={isExpanded} />}</button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
-        <button className="tree-label" title={folder.name} onClick={() => { if (canExpand) void toggle(folder); onOpen(folder, trail); }}><SourceFolderIcon name={folder.name} /><span>{folder.name}</span></button>
+        {canExpand ? <button className="tree-toggle" onClick={() => void toggle(folder)} aria-label={(isExpanded ? "Collapse " : "Expand ") + folder.name} disabled={isLoading}>{isLoading ? <span className="public-tree-spinner" /> : <ChevronIcon expanded={isExpanded} />}</button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
+        <button className="tree-label" title={folder.name} aria-expanded={canExpand ? isExpanded : undefined} onClick={() => { if (canExpand) void toggle(folder); onOpen(folder, trail); }}><SourceFolderIcon name={folder.name} /><span>{folder.name}</span></button>
       </div>
       {isExpanded && (isLoading ? <PublicTreeSkeleton /> : childFolders.length > 0 && <div className="tree-children">{childFolders.map(child => <Node key={keyOf(child)} folder={child} trail={[...trail, child]} />)}</div>)}
     </div>;
