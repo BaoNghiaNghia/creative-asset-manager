@@ -72,9 +72,10 @@ class VideoDeliveryRuntimeService:
     def _status(self, row: VideoDeliveryRuntimeSettingModel) -> VideoDeliveryRuntimeStatus:
         cache_enabled = bool(self.settings.R2_VIDEO_CACHE_ENABLED)
         delivery_configured = bool(self.settings.video_delivery_configured)
-        can_enable = cache_enabled and delivery_configured
-        runtime_enabled = bool(row.enabled)
         rollout_mode = self.settings.video_delivery_rollout_mode
+        rollout_configured = rollout_mode != "disabled"
+        can_enable = cache_enabled and delivery_configured and rollout_configured
+        runtime_enabled = bool(row.enabled)
         canary_tenant_count = len(self.settings.video_delivery_canary_tenant_ids)
         blockers: list[str] = []
         if not runtime_enabled:
@@ -93,6 +94,7 @@ class VideoDeliveryRuntimeService:
             prerequisites={
                 "r2_video_cache_enabled": cache_enabled,
                 "delivery_configured": delivery_configured,
+                "rollout_scope_configured": rollout_configured,
             },
             blockers=tuple(blockers),
             rollout_mode=rollout_mode,
