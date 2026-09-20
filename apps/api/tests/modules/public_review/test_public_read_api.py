@@ -221,3 +221,33 @@ def test_public_video_cdn_miss_falls_back_to_provider(monkeypatch):
   response=await public_router.media("share-a","asset-video",SimpleNamespace(headers={"range":"bytes=4-"}),"video-child")
   return [chunk async for chunk in response.body_iterator]
  assert asyncio.run(consume())==[b"provider-video"]
+
+
+def test_public_preview_redirect_requires_real_exact_share_scope(ctx):
+ from app.core.config import Settings
+ from app.modules.video_cache.model import VIDEO_CDN_DELIVERY_SETTING_KEY, VideoCacheObjectModel, VideoDeliveryRuntimeSettingModel
+ from app.modules.video_cache.service import video_cache_key
+ secret="phase-4b-public-test-signing-secret-with-entropy-2026"
+ with ctx[1]() as s:
+  video=AssetModel(id="asset-cdn",tenant_id="tenant-a",content_hash="e"*64,mime_type="video/mp4",size_bytes=20)
+  allowed_source=SourceAssetModel(id="cdn-allowed",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="cdn-allowed",filename="allowed.mp4",mime_type="video/mp4",source_metadata={"parents":["root"]})
+  denied_source=SourceAssetModel(id="cdn-denied",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="cdn-denied",filename="denied.mp4",mime_type="video/mp4",source_metadata={"parents":["other"]})
+  s.add_all([video,allowed_source,denied_source]);s.flush()
+  s.add_all([
+   AssetSourceLinkModel(id="cdn-link-a",tenant_id="tenant-a",asset_id=video.id,source_asset_id=allowed_source.id),
+   AssetSourceLinkModel(id="cdn-link-b",tenant_id="tenant-a",asset_id=video.id,source_asset_id=denied_source.id),
+   VideoCacheObjectModel(tenant_id="tenant-a",asset_id=video.id,source_asset_id=allowed_source.id,content_hash=video.content_hash,r2_key=video_cache_key("tenant-a",video.content_hash),mime_type="video/mp4",status="ready",size_bytes=20),
+   VideoDeliveryRuntimeSettingModel(setting_key=VIDEO_CDN_DELIVERY_SETTING_KEY,enabled=True),
+  ])
+  s.commit()
+ viewer_folder_hierarchy_cache.invalidate(tenant_id="tenant-a",external_source_id="source-a")
+ assert exchange(ctx).status_code==201
+ configured=Settings(_env_file=None,R2_VIDEO_CACHE_ENABLED=True,R2_ACCOUNT_ID="test-account",R2_BUCKET_NAME="test-bucket",R2_ACCESS_KEY_ID="fake-id",R2_SECRET_ACCESS_KEY="fake-key",R2_VIDEO_MEDIA_BASE_URL="https://media.example.test",R2_VIDEO_MEDIA_SIGNING_SECRET=secret)
+ with patch("app.modules.public_review.public_router.get_settings",lambda:configured):
+  allowed=request(ctx,"GET","/api/public/review/share-a/assets/asset-cdn/preview?source_asset_id=cdn-allowed",follow_redirects=False)
+  denied=request(ctx,"GET","/api/public/review/share-a/assets/asset-cdn/preview?source_asset_id=cdn-denied",follow_redirects=False)
+ assert allowed.status_code==307
+ assert allowed.headers["location"].startswith("https://media.example.test/video-cache/tenant-a/"+"e"*64+"/original?")
+ assert "sig=" in allowed.headers["location"] and secret not in allowed.headers["location"]
+ assert denied.status_code==404
+ assert denied.json()=={"detail":{"code":"public_review_unavailable"}}
