@@ -1,7 +1,8 @@
-"""Persisted Phase 4A runtime gate for original-video CDN delivery.
+"""Persisted master runtime gate for original-video CDN delivery.
 
-The gate records rollout intent only. Phase 4A deliberately does not call this
-service from Public Review playback, media ticket issuance, or the Worker.
+The database row records operator rollout intent. Effective delivery additionally
+requires cache, signed-delivery, rollout-scope and Phase 4E guard prerequisites.
+Disabling the gate remains the application-level emergency rollback.
 """
 from __future__ import annotations
 
