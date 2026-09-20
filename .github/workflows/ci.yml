@@ -55,6 +55,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+
+  r2-video-worker:
+    name: R2 video Worker checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infrastructure/cloudflare/r2-video-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: infrastructure/cloudflare/r2-video-worker/package-lock.json
+      - name: Install locked Worker dependencies
+        run: npm ci
+      - name: Worker unit tests
+        run: npm test
+      - name: Worker typecheck
+        run: npm run typecheck
+
   api-unit:
     name: API, worker and provider unit tests
     runs-on: ubuntu-latest
