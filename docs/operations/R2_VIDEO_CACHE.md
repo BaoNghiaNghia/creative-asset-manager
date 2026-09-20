@@ -1,10 +1,10 @@
-# R2 original-video cache — Phase 2, 3A and 3B operations
+# R2 original-video cache — Phase 2 through Phase 4C operations
 
-Status: Phases 1–3B implemented locally; no production deployment has been run. Phase 4 Public Review playback is not implemented.
+Status: Phases 1–4C are implemented in code. Public Review Phase 4B is authorization-preserving and falls back to the source provider. The persisted delivery gate remains OFF by default. No production R2/Worker rollout is implied by this document.
 
 ## Boundaries
 
-Google Drive/OneDrive remain authoritative. The fill worker reads an exact tenant-qualified SourceAsset stream and never writes to a source provider, invokes FFmpeg, or transcodes. Only `video/*` with a valid SHA-256 identity and known positive size at most `R2_VIDEO_CACHE_MAX_OBJECT_BYTES` is eligible. The object key is generated server-side as `video-cache/{tenant_id}/{sha256}/original`. Public Review still streams through its existing path. R2 remains private.
+Google Drive/OneDrive remain authoritative. The fill worker reads an exact tenant-qualified SourceAsset stream and never writes to a source provider, invokes FFmpeg, or transcodes. Only `video/*` with a valid SHA-256 identity and known positive size at most `R2_VIDEO_CACHE_MAX_OBJECT_BYTES` is eligible. The object key is generated server-side as `video-cache/{tenant_id}/{sha256}/original`. Public Review keeps its existing preview route. When the Phase 4A runtime gate is effective, an already-authorized exact video asset/source pair may receive a short Phase 4B redirect to private R2 delivery; every miss or safe delivery failure falls back to the existing provider stream. R2 remains private.
 
 `R2_VIDEO_CACHE_ENABLED=false` disables enqueue, fill and periodic cleanup. Do not turn it on until migration 0083 is present, private bucket credentials are scoped, and the worker role includes `video_cache_fill`.
 
@@ -16,7 +16,7 @@ A bucket-global PostgreSQL advisory transaction lock serializes every reservatio
 
 Effective tracked bytes = READY `size_bytes` + DELETING `size_bytes` + PREPARING `reserved_bytes`. Admission never exceeds the 9,000,000,000-byte hard threshold. If a new reservation would cross it, READY objects are chosen by `last_accessed_at NULLS FIRST, cached_at, id` and physically deleted until projected usage including the incoming reservation is at most 8,000,000,000 bytes. If enough READY bytes cannot be reclaimed, the fill is bypassed. DELETING and PREPARING are never ordinary LRU candidates. A failed or uncertain remote delete remains counted.
 
-Access-touch is a tenant-qualified repository primitive with a default 300-second debounce. It is not connected to Public Review yet.
+Access-touch is a tenant-qualified repository primitive with a default 300-second debounce. Phase 4B touches LRU only after a signed delivery ticket is successfully minted.
 
 ## Fill and recovery
 
@@ -36,7 +36,7 @@ Fill started/completed/failed, eviction and bypass counters are emitted as safe 
 
 Migration `0083_r2_video_cache_fill` adds fill ownership, multipart and cleanup lease fields/indexes and removes asset/source cascade FKs so the physical-byte ledger survives source deletion. The tenant FK remains. No R2 network activity occurs in Alembic. Downgrade to 0082 requires a preflight for any cache rows whose asset/source has been deleted, because 0082 restores the cascade FKs. Do not downgrade while fills or cleanup are running; first disable the feature, drain workers, and retain/export the ledger for any remaining R2 objects. A DB downgrade never deletes R2 bytes. A safe rollback keeps the feature disabled and retains 0083 metadata until all known remote objects are confirmed deleted, then downgrades. Production migration and deployment need separate authorization.
 
-Known limits: cleanup is DB-driven and cannot discover remote objects whose ledger row was lost before 0083; tenant deletion can still cascade ledger rows and needs a separate tenant-offboarding policy. READY HEAD reconciliation is bounded/manual rather than a full periodic bucket scan. The optional smoke uses a dedicated prefix, not user media. No Public Review R2 playback exists yet.
+Known limits: cleanup is DB-driven and cannot discover remote objects whose ledger row was lost before 0083; tenant deletion can still cascade ledger rows and needs a separate tenant-offboarding policy. READY HEAD reconciliation is bounded/manual rather than a full periodic bucket scan. The optional smoke uses a dedicated prefix, not user media. Public Review CDN delivery remains disabled until the persisted runtime gate is explicitly enabled after rollout preflight.
 
 ## Phase 3A delivery foundation — not deployed
 
@@ -49,8 +49,8 @@ the same secret and a private `VIDEO_CACHE_BUCKET` binding. Its optional
 TOML, logs, browser bundles or the repository.
 
 Only a READY video row with the exact server-generated key can be signed.
-The future Phase 4 caller must authorize tenant/share/asset/source access
-before issuing a URL. No endpoint does so in Phase 3A. The Worker validates
+Phase 4B authorizes the public session/share and exact tenant/asset/source
+pair before signing. The signer itself still grants no application authority. The Worker validates
 method, exact path, version, expiry and HMAC before R2 access. GET streams
 the complete original; HEAD returns metadata only. Invalid tickets return
 
@@ -70,3 +70,49 @@ private; do not enable r2.dev. A future Worker rollout must bind
 VIDEO_CACHE_BUCKET, set R2_VIDEO_MEDIA_SIGNING_SECRET as a Worker secret, and
 configure an approved HTTPS media.<domain>/* route separately. No route, DNS,
 secret, deployment, or production setting was changed here.
+
+
+## Phase 4A–4C rollout gate — not deployed automatically
+
+Phase 4A stores `VIDEO_CDN_DELIVERY_ENABLED` in PostgreSQL. Migration 0084
+seeds it OFF. It is not an environment variable and must remain OFF while the
+API, Worker route, DNS/custom domain and secrets are being staged.
+
+Phase 4B preserves the existing Public Review preview URL. After share/session
+and exact `(asset_id, source_asset_id)` authorization, an eligible READY cache
+row must match tenant, content hash, canonical asset ID and exact source-asset
+ID before a short signed Worker redirect is returned. Any runtime/config/cache/
+signing miss uses the source provider path.
+
+Phase 4C adds a read-only preflight and CI coverage for the Worker package.
+Before a production canary:
+
+1. deploy the API/worker code and run Alembic to the single current head;
+2. keep `VIDEO_CDN_DELIVERY_ENABLED=false`;
+3. configure a private R2 bucket and scoped credentials;
+4. deploy the R2 video Worker with `VIDEO_CACHE_BUCKET` bound to that private
+   bucket; keep `r2.dev` and `workers.dev` disabled for the production media
+   origin;
+5. set the same signing secret in backend protected configuration and Worker
+   secret storage; do not place it in Git/TOML/browser output;
+6. enable cache fill and obtain at least one verified READY video while quota is
+   at or below the configured soft limit;
+7. run the fail-closed preflight:
+
+```bash
+cd apps/api
+python -m app.operations.video_delivery_preflight \
+  --require-production \
+  --probe-worker
+```
+
+The optional Worker probe creates no R2 object. It signs one HEAD request for a
+random `video-cache/cam-preflight/<sha256>/original` key. A correct route,
+Worker secret and private R2 binding authenticate the ticket and return 404 for
+the absent key. 403, network failure, an unexpected success response, stale DB
+schema, runtime already enabled, unapproved public Cloudflare origin, quota
+pressure, active deletion, or no READY canary object fail the preflight.
+
+Only after the preflight is green should a platform administrator enable the
+persisted delivery toggle with an audited reason. Rollback is to disable that
+toggle. Disabling delivery does not delete R2 objects or mutate source assets.
