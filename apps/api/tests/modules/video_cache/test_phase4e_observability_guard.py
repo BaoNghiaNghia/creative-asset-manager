@@ -188,3 +188,34 @@ def test_admin_observability_requires_platform_admin_and_is_safe():
     assert "tenant-a" not in serialized
     assert SECRET not in serialized
     assert "media.example.test" not in serialized
+
+
+def test_guard_settings_reject_unsafe_thresholds():
+    import pytest
+
+    for updates in (
+        {"VIDEO_CDN_DELIVERY_GUARD_FAILURE_THRESHOLD": 0},
+        {"VIDEO_CDN_DELIVERY_GUARD_PROBE_INTERVAL_SECONDS": 4},
+        {"VIDEO_CDN_DELIVERY_GUARD_COOLDOWN_SECONDS": 9},
+        {"VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS": 0.0},
+    ):
+        with pytest.raises(ValueError):
+            configured_settings(**updates)
+
+
+def test_probe_exception_falls_back_without_leaving_guard_stuck():
+    engine, factory = setup()
+    guard = VideoDeliveryCircuitBreaker(clock=lambda: 100.0)
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("synthetic probe failure")
+
+    resolver = PublicVideoDeliveryResolver(
+        factory,
+        configured_settings(),
+        guard=guard,
+        probe=explode,
+    )
+    assert resolver.resolve(principal=principal(), asset=asset(), source=source()) is None
+    assert guard.snapshot(configured_settings())["state"] == "degraded"
+    engine.dispose()
