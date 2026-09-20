@@ -55,6 +55,7 @@ def video_delivery_preflight(
     require_production: bool = False,
     require_runtime_off: bool = True,
     require_ready: bool = True,
+    require_canary_scope: bool = True,
 ) -> list[PreflightCheck]:
     """Return safe, credential-free rollout checks using only local config/DB state."""
     checks: list[PreflightCheck] = []
@@ -92,6 +93,13 @@ def video_delivery_preflight(
         "media origin is an approved private Worker/custom-domain origin",
         "media origin must not use r2.dev, workers.dev, or the raw R2 endpoint",
     ))
+    if require_canary_scope:
+        checks.append(_check(
+            "canary_rollout_scope",
+            settings.video_delivery_rollout_mode == "canary",
+            "video delivery is limited to an explicit canary tenant set",
+            "video delivery must use a non-empty canary tenant set before rollout",
+        ))
 
     try:
         runtime = VideoDeliveryRuntimeService(session, settings).get_status()
@@ -233,6 +241,86 @@ def probe_worker_ticket(
         )
 
 
+
+def probe_ready_video_ticket(
+    session: Session,
+    settings: Settings,
+    *,
+    opener=urlopen,
+    timeout_seconds: float = 5.0,
+) -> PreflightCheck:
+    """HEAD one existing READY object through the signed Worker path.
+
+    No body is downloaded and no tenant, asset, key, URL, ETag, or secret is
+    returned in the operator result.
+    """
+    row = session.scalar(
+        select(VideoCacheObjectModel)
+        .where(VideoCacheObjectModel.status == "ready")
+        .order_by(VideoCacheObjectModel.cached_at.desc(), VideoCacheObjectModel.id)
+        .limit(1)
+    )
+    if row is None:
+        return PreflightCheck(
+            code="worker_ready_head_probe",
+            ok=False,
+            detail="no READY video is available for the Worker canary probe",
+        )
+    try:
+        ticket = VideoCacheDeliveryService(settings).create_signed_url(row)
+        request = Request(
+            ticket.url,
+            method="HEAD",
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+        try:
+            response = opener(request, timeout=timeout_seconds)
+        except HTTPError:
+            return PreflightCheck(
+                code="worker_ready_head_probe",
+                ok=False,
+                detail="Worker could not serve the READY canary object",
+            )
+        except (URLError, TimeoutError, OSError):
+            return PreflightCheck(
+                code="worker_ready_head_probe",
+                ok=False,
+                detail="Worker READY canary probe could not reach the configured media origin",
+            )
+        try:
+            status = getattr(response, "status", None)
+            headers = getattr(response, "headers", {})
+            content_length = headers.get("Content-Length") if headers is not None else None
+            content_type = headers.get("Content-Type") if headers is not None else None
+            accept_ranges = headers.get("Accept-Ranges") if headers is not None else None
+            ok = (
+                status == 200
+                and content_length == str(row.size_bytes)
+                and isinstance(content_type, str)
+                and content_type.startswith("video/")
+                and accept_ranges == "bytes"
+            )
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
+        return PreflightCheck(
+            code="worker_ready_head_probe",
+            ok=ok,
+            detail=(
+                "Worker served matching metadata for a READY canary object"
+                if ok
+                else "Worker READY canary metadata did not match the durable ledger"
+            ),
+        )
+    except VideoDeliveryError:
+        return PreflightCheck(
+            code="worker_ready_head_probe",
+            ok=False,
+            detail="READY canary ticket could not be created safely",
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Read-only Phase 4C R2 video delivery rollout preflight"
@@ -256,6 +344,16 @@ def main(argv: list[str] | None = None) -> int:
         "--probe-worker",
         action="store_true",
         help="send one signed HEAD to a random missing Worker key; performs no write",
+    )
+    parser.add_argument(
+        "--probe-ready-object",
+        action="store_true",
+        help="HEAD one existing READY cache object through the Worker; downloads no body",
+    )
+    parser.add_argument(
+        "--allow-global-rollout",
+        action="store_true",
+        help="allow explicit global rollout config instead of requiring tenant canary scope",
     )
     args = parser.parse_args(argv)
 
@@ -285,7 +383,10 @@ def main(argv: list[str] | None = None) -> int:
             require_production=args.require_production,
             require_runtime_off=not args.allow_runtime_enabled,
             require_ready=not args.allow_empty_cache,
+            require_canary_scope=not args.allow_global_rollout,
         ))
+        if args.probe_ready_object:
+            checks.append(probe_ready_video_ticket(session, settings))
 
     if args.probe_worker:
         checks.append(probe_worker_ticket(settings))
