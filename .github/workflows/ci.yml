@@ -51,7 +51,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-failure
-          path: artifacts/frontend
+          path: |
+            artifacts/frontend
+            apps/client/dist
           if-no-files-found: ignore
           retention-days: 7
 
