@@ -154,12 +154,14 @@ export function VideoCdnDeliverySettings() {
     setLoading(true);
     setError("");
     try {
-      const [nextStatus, nextObservability] = await Promise.all([
-        fetchVideoCdnDeliveryRuntimeStatus(),
-        fetchVideoCdnDeliveryObservability(),
-      ]);
+      const nextStatus = await fetchVideoCdnDeliveryRuntimeStatus();
       setStatus(nextStatus);
-      setObservability(nextObservability);
+      try {
+        setObservability(await fetchVideoCdnDeliveryObservability());
+      } catch {
+        setObservability(null);
+        setError("Process-local observability is unavailable. Runtime rollback remains available.");
+      }
     } catch (failure) {
       setStatus(null);
       setObservability(null);
