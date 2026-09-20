@@ -2628,7 +2628,7 @@ npm run typecheck -- --pretty false (passed).
 
 - Public Review keeps the existing preview URL. No new unauthenticated ticket endpoint or ticket-bearing JSON response was added.
 - The preview route resolves and revalidates the public session/share and authorizes the exact asset/source pair before any CDN lookup or signing attempt.
-- Only video assets can enter the CDN resolver. The READY cache lookup is tenant/hash scoped and must match the already-authorized canonical asset ID; foreign-tenant, wrong-asset and non-video inputs fail closed to the existing source path.
+- Only video assets can enter the CDN resolver. The READY cache lookup is tenant/hash scoped and must match both the already-authorized canonical asset ID and exact source-asset ID; foreign-tenant, wrong-asset, wrong-source and non-video inputs fail closed to the existing source path.
 - The Phase 4A persisted runtime gate remains authoritative. OFF, missing runtime state, missing READY cache metadata, or safe signing failures all fall back to SourceAssetContentResolver instead of breaking playback.
 - Signed ticket expiry is capped by the current public-review session expiry and optional share expiry in addition to the configured media TTL. Revocation blocks new ticket issuance immediately; already-issued tickets expire within the bounded ticket lifetime.
 - CDN handoff uses a temporary 307 with no-store/private, no-referrer and nosniff response policy so browser byte-range GET semantics can continue against the Phase 3B Worker.
