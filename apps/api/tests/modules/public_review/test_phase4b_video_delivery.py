@@ -31,6 +31,7 @@ def settings(**updates):
         "R2_VIDEO_MEDIA_SIGNING_SECRET": SECRET,
         "R2_VIDEO_MEDIA_TICKET_TTL_SECONDS": 600,
         "VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS": "tenant-a",
+        "VIDEO_CDN_DELIVERY_GUARD_ENABLED": False,
     }
     values.update(updates)
     return Settings(_env_file=None, **values)
