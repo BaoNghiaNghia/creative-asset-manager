@@ -173,7 +173,7 @@ describe("AI Operations provider and configuration tabs", () => {
     const elevated = { ...configuration, permissions: { can_manage_tenant: true, can_manage_global: true, platform_admin: true } };
     const markup = renderToStaticMarkup(<ConfigurationForm configuration={elevated} onChanged={noop} onReload={noop} />);
     expect(markup).toContain("Emergency stop all AI");
-    expect(markup).toContain("Loading video CDN delivery settings");
+    expect(markup).toContain("Loading runtime, rollout, and circuit-breaker status");
   });
 
   it("separates provider configuration from emergency pause permission", () => {
