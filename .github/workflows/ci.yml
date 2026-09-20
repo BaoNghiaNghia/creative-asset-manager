@@ -132,10 +132,11 @@ jobs:
         run: |
           set -o pipefail
           python -m pytest tests/modules/public_review tests/modules/authorization tests/test_app_smoke.py -q
-      - name: Dola deployment-template tests
+      - name: Deployment-template tests
         run: |
           bash -n deploy/tools/prepare_dola_runtime.sh
           python -m unittest deploy.tests.test_dola_gateway_deployment -v
+          python -m unittest deploy.tests.test_r2_video_worker_deployment -v
       - name: Application import smoke test
         working-directory: apps/api
         run: python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
