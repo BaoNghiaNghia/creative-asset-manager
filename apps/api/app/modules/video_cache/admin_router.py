@@ -31,6 +31,8 @@ class VideoDeliveryRuntimeResponse(BaseModel):
     can_enable: bool
     prerequisites: VideoDeliveryPrerequisitesResponse
     blockers: list[str]
+    rollout_mode: str
+    canary_tenant_count: int
     updated_at: str | None
 
 
