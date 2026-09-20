@@ -261,7 +261,7 @@ def probe_ready_video_ticket(
     session: Session,
     settings: Settings,
     *,
-    opener=urlopen,
+    opener=_open_no_redirect,
     timeout_seconds: float = 5.0,
 ) -> PreflightCheck:
     """HEAD one existing READY object through the signed Worker path.
