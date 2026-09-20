@@ -48,8 +48,8 @@ def _worker_name(value: str) -> str:
 
 
 def _bucket_name(value: str) -> str:
-    name = value.strip().casefold()
-    if not _BUCKET.fullmatch(name):
+    name = value.strip()
+    if name != name.casefold() or not _BUCKET.fullmatch(name):
         raise RolloutConfigError("R2 bucket name is invalid")
     return name
 
