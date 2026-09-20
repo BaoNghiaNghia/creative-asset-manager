@@ -2635,3 +2635,14 @@ npm run typecheck -- --pretty false (passed).
 - Cache LRU access is touched only after a ticket is successfully minted. R2 remains disposable cache; provider sources remain authoritative and untouched.
 - Phase 4B adds no migration, no new frontend API contract, no production flag change, no Worker change and no production deployment.
 - Rollback: disable VIDEO_CDN_DELIVERY_ENABLED. Provider streaming remains the fallback and no R2 object deletion/database downgrade is required.
+
+
+## R2 original-video cache Phase 4C review
+
+- Added a read-only rollout preflight that checks the current Alembic head, R2 cache enablement, signed-delivery configuration, approved private media origin, persisted runtime gate presence, runtime still OFF, quota headroom, no in-progress DELETING rows, and a READY canary video.
+- Added an optional signed HEAD Worker probe against a random absent preflight key. The expected 404 proves ticket verification and the private R2 lookup path agree without PUT/DELETE/list operations or user-media access. 403/network/unexpected-success responses fail closed.
+- The preflight output contains only bounded check codes and safe status text; it does not print credentials, signing secrets, signed URLs, R2 keys, tenant IDs or asset IDs.
+- Main CI now installs the locked R2 video Worker dependencies and runs its unit tests plus TypeScript typecheck independently from the API suite.
+- Updated the stale R2 operations/Worker documentation to reflect Phase 4A/4B behavior and the staged enablement sequence.
+- Phase 4C adds no migration, frontend change, R2 mutation, Cloudflare deployment, DNS change, production secret change or runtime-toggle mutation. Production delivery remains OFF until an explicitly approved operator rollout.
+- Rollback for this phase is code-only; no data rollback is required. During a later rollout, the immediate application rollback remains setting `VIDEO_CDN_DELIVERY_ENABLED=false`.

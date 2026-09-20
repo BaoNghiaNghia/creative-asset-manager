@@ -1,8 +1,9 @@
-# Private R2 original-video delivery Worker — Phase 3A
+# Private R2 original-video delivery Worker — Phase 3A/3B with Phase 4 rollout
 
 This Worker accepts a short-lived read ticket and streams the original object
-from a private R2 binding. It does not authorize CAM users or shares; Phase 4
-must check application scope before issuing a ticket. No CAM route uses it yet.
+from a private R2 binding. It does not authorize CAM users or shares; Phase 4B
+performs application authorization before issuing a ticket. Public Review uses
+the Worker only when the persisted runtime delivery gate is effective.
 
 ## Ticket contract
 
@@ -63,7 +64,7 @@ GET streams the R2 body directly; HEAD reads metadata only. Responses use
 write/delete/list routes and no redirect to public R2 or S3 URLs.
 
 Phase 3B now provides Range/206 and authenticated edge caching locally.
-Phase 4 still owns Public Review integration, runtime CDN toggle and fallback.
+Phase 4A provides the persisted runtime CDN toggle, Phase 4B provides Public Review authorization plus provider fallback, and Phase 4C adds a fail-closed rollout preflight. None of those phases deploy this Worker automatically.
 
 ## Phase 3B: Range and authenticated edge caching
 
@@ -79,3 +80,16 @@ does not populate Cache API. HEAD has no body and reports full metadata. The
 bucket remains private; no r2.dev, Worker route, custom domain, DNS, secret, or
 deployment was configured. A future approved route would be media.<domain>/*
 with the private VIDEO_CACHE_BUCKET binding and a Worker secret.
+
+
+## Phase 4C production preflight contract
+
+The repository CI runs `npm test` and `npm run typecheck` for this Worker on
+every pull request and push to main.
+
+For an approved production rollout, keep the application runtime delivery
+toggle OFF while configuring the Worker. The API-side Phase 4C preflight can
+optionally send one signed HEAD request for a random, absent preflight key. The
+expected result is 404: this proves the route accepted the HMAC ticket and then
+looked up the private R2 binding. The probe performs no PUT/DELETE/list and does
+not use a user asset. A 403 or other response fails rollout readiness.

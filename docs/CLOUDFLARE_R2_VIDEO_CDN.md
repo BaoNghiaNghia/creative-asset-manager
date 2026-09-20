@@ -1272,3 +1272,33 @@ Rollback is immediate at the application level: set
 `VIDEO_CDN_DELIVERY_ENABLED` to OFF. Public Review then uses the existing
 provider stream without requiring a database downgrade or deleting R2 cache
 objects.
+
+
+---
+
+## Phase 4C - Rollout readiness gate
+
+Phase 4C does not deploy Cloudflare resources or enable delivery. It adds a
+read-only operator preflight and makes the R2 video Worker package part of the
+main CI matrix.
+
+The preflight requires, unless explicitly relaxed for non-production dry runs:
+
+- the database at the single expected Alembic head;
+- R2 video cache enabled with validated private-bucket configuration;
+- signed delivery configuration present;
+- a production media origin that is not `r2.dev`, `workers.dev`, or the raw
+  `r2.cloudflarestorage.com` endpoint;
+- the persisted Phase 4A runtime row present and still OFF before rollout;
+- runtime prerequisites ready;
+- effective cache usage at or below the soft quota threshold;
+- no cache object currently in DELETING;
+- at least one READY video available for canary validation.
+
+With `--probe-worker`, the command signs a HEAD request for a random missing
+preflight key. Expected result is 404. This proves the backend signing secret,
+Worker verification path, route and private R2 binding agree without uploading
+or reading user media. URLs, secrets, object keys and tenant IDs are not printed.
+
+Phase 4C intentionally does not change the persisted runtime value, mutate R2,
+deploy the Worker, configure DNS, or modify source-provider assets.
