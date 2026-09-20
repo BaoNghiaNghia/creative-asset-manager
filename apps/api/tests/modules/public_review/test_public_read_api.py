@@ -163,3 +163,61 @@ def test_public_thumbnail_uses_bounded_thumbnail_resolver_not_original_media(mon
  assert response.body == b"thumbnail"
  assert response.media_type == "image/webp"
  assert response.headers["cache-control"] == "no-store, private"
+
+
+def test_public_video_cdn_redirect_releases_slot_and_skips_provider(monkeypatch):
+ before=public_router._public_media_slots._value
+ principal=SimpleNamespace(
+  tenant_id="tenant-a",
+  expires_at=None,
+  session_expires_at=datetime.now(timezone.utc)+timedelta(minutes=5),
+ )
+ asset=SimpleNamespace(id="asset-video",tenant_id="tenant-a",content_hash="d"*64,mime_type="video/mp4")
+ source=SimpleNamespace(id="video-child",tenant_id="tenant-a",filename="clip.mp4",mime_type="video/mp4")
+ class DeliveryResolver:
+  def __init__(self,*_): pass
+  def resolve(self,**kwargs):
+   assert kwargs == {"principal":principal,"asset":asset,"source":source}
+   return SimpleNamespace(url="https://media.example.test/video-cache/tenant-a/"+"d"*64+"/original?v=1&exp=2000000000&sig=safe")
+ class ProviderResolver:
+  def __init__(self,*_):
+   raise AssertionError("provider fallback must not be created for CDN redirect")
+ monkeypatch.setattr(public_router,"user",lambda *_: principal)
+ monkeypatch.setattr(public_router,"asset_pair",lambda *_: (asset,source))
+ monkeypatch.setattr(public_router,"PublicVideoDeliveryResolver",DeliveryResolver)
+ monkeypatch.setattr(public_router,"SourceAssetContentResolver",ProviderResolver)
+ async def consume():
+  return await public_router.media("share-a","asset-video",SimpleNamespace(headers={"range":"bytes=0-3"}),"video-child")
+ response=asyncio.run(consume())
+ assert response.status_code==307
+ assert response.headers["location"].startswith("https://media.example.test/video-cache/tenant-a/")
+ assert response.headers["cache-control"]=="no-store, private"
+ assert response.headers["referrer-policy"]=="no-referrer"
+ assert public_router._public_media_slots._value==before
+
+
+def test_public_video_cdn_miss_falls_back_to_provider(monkeypatch):
+ principal=SimpleNamespace(tenant_id="tenant-a")
+ asset=SimpleNamespace(id="asset-video",tenant_id="tenant-a",content_hash="d"*64,mime_type="video/mp4")
+ source=SimpleNamespace(id="video-child",tenant_id="tenant-a",filename="clip.mp4",mime_type="video/mp4")
+ class DeliveryResolver:
+  def __init__(self,*_): pass
+  def resolve(self,**_): return None
+ class ProviderResolver:
+  def __init__(self,*_): pass
+  @asynccontextmanager
+  async def open(self,**kwargs):
+   assert kwargs["tenant_id"]=="tenant-a"
+   assert kwargs["source_asset_id"]=="video-child"
+   assert kwargs["range_header"]=="bytes=4-"
+   async def chunks():
+    yield b"provider-video"
+   yield SimpleNamespace(body=chunks())
+ monkeypatch.setattr(public_router,"user",lambda *_: principal)
+ monkeypatch.setattr(public_router,"asset_pair",lambda *_: (asset,source))
+ monkeypatch.setattr(public_router,"PublicVideoDeliveryResolver",DeliveryResolver)
+ monkeypatch.setattr(public_router,"SourceAssetContentResolver",ProviderResolver)
+ async def consume():
+  response=await public_router.media("share-a","asset-video",SimpleNamespace(headers={"range":"bytes=4-"}),"video-child")
+  return [chunk async for chunk in response.body_iterator]
+ assert asyncio.run(consume())==[b"provider-video"]

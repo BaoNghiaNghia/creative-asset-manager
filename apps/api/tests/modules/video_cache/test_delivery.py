@@ -123,3 +123,13 @@ def test_fixed_vector_and_path_expiry_binding():
                 VECTOR["pathname"].replace("test-tenant", "..")):
         with pytest.raises(VideoDeliveryUnavailable):
             sign_read_path(SECRET, bad, VECTOR["expires_at"])
+
+
+def test_ticket_expiry_can_be_capped_by_authorized_session():
+    current = VECTOR["expires_at"] - 600
+    service = VideoCacheDeliveryService(delivery_config(), clock=lambda: current)
+    ticket = service.create_signed_url(row(), expires_at_cap=current + 120)
+    assert ticket.expires_at == current + 120
+    assert parse_qs(urlsplit(ticket.url).query)["exp"] == [str(current + 120)]
+    with pytest.raises(VideoDeliveryUnavailable):
+        service.create_signed_url(row(), expires_at_cap=current)
