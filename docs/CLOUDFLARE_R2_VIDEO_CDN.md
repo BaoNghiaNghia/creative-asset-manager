@@ -2,7 +2,7 @@
 
 Status: **Phased local implementation; not deployed**
 
-Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, Phase 4A persisted admin runtime gating, Phase 4B authorization-preserving Public Review video playback handoff, Phase 4C rollout preflight, and Phase 4D tenant-canary rollout controls/tooling and Phase 4E process-local delivery observability/circuit breaking are implemented. The runtime gate remains disabled by default. No production deployment is implied.
+Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, Phase 4A persisted admin runtime gating, Phase 4B authorization-preserving Public Review video playback handoff, Phase 4C rollout preflight, and Phase 4D tenant-canary rollout controls/tooling, Phase 4E process-local delivery observability/circuit breaking, and Phase 5A activation hardening are implemented. The runtime gate remains disabled by default. No production deployment is implied.
 
 The cache is disabled by default. Migration 0082 adds the storage foundation; additive 0083 adds durable fill/cleanup ownership. Phase 3A adds no migration, route, Public Review behavior, Worker deployment, Range support or CDN caching. A READY original-video row can be signed by an internal service; a standalone un-deployed Worker verifies that ticket before private R2 GET/HEAD. See docs/operations/R2_VIDEO_CACHE.md for the exact ticket and safe rollout boundaries.
 
@@ -1369,3 +1369,32 @@ R2 object identity or credentials.
 
 Phase 4E adds no migration, frontend change, Cloudflare deployment, DNS change,
 R2 mutation or source-provider mutation.
+
+
+---
+
+## Phase 5A - Production activation hardening
+
+Phase 5A starts only after the Phase 4 implementation set is complete. It does
+not enable production traffic.
+
+The persisted runtime master gate now treats the Phase 4E guard as a required
+server prerequisite in addition to R2 cache enablement, signed-delivery
+configuration and rollout scope. This closes the gap where an operator could
+enable the database gate while the automatic provider-fallback guard was
+disabled.
+
+The production activation command is read-only and combines the existing
+preflight checks with both signed Worker HEAD probes. It requires
+`APP_ENV=production` by default, tenant canary scope by default, runtime OFF,
+a READY object, quota headroom, and the current Alembic head.
+
+The READY-object probe uses the same no-redirect opener as the missing-key
+probe. A redirect is never followed with a signed capability URL.
+
+Phase 5A deliberately separates verification from mutation. A successful
+activation result tells the operator that the audited runtime toggle may be
+enabled; the command itself cannot perform that change.
+
+No migration, frontend bundle change, Cloudflare mutation, DNS change, secret
+write, R2 mutation or source-provider mutation is introduced by Phase 5A.
