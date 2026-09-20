@@ -131,11 +131,14 @@ class PublicVideoDeliveryResolver:
                     self._finish(started, "video_cdn_fallback_guard_total")
                     return None
                 if decision.action == "probe":
-                    success = self.probe(
-                        ticket,
-                        expected_size=cache_object.size_bytes,
-                        timeout_seconds=self.settings.VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS,
-                    )
+                    try:
+                        success = bool(self.probe(
+                            ticket,
+                            expected_size=cache_object.size_bytes,
+                            timeout_seconds=self.settings.VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS,
+                        ))
+                    except Exception:
+                        success = False
                     opened = self.guard.complete_probe(self.settings, success=success)
                     emit_counter(
                         "video_cdn_probe_success_total"
