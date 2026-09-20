@@ -25,6 +25,7 @@ class VideoDeliveryPrerequisitesResponse(BaseModel):
     r2_video_cache_enabled: bool
     delivery_configured: bool
     rollout_scope_configured: bool
+    delivery_guard_enabled: bool
 
 
 class VideoDeliveryRuntimeResponse(BaseModel):
