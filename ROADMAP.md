@@ -156,3 +156,4 @@
 - [x] Phase 4B Public Review playback integration with exact asset/source authorization, short signed-ticket redirect, session-expiry cap, and provider source fallback (code complete; runtime remains default OFF).
 - [x] Phase 4C fail-closed rollout-readiness preflight, signed missing-key Worker probe, and Worker test/typecheck CI coverage (no production deployment; runtime remains OFF).
 - [x] Phase 4D tenant-scoped CDN canary gate, HEAD-only READY-object probe, secret-free Wrangler production config renderer, and non-executing Worker rollout planner (no production deployment; runtime remains OFF).
+- [x] Phase 4E process-local delivery observability and circuit breaker: decision/fallback/probe metrics, bounded latency samples, admin-safe snapshot, debounced signed HEAD health sampling, and automatic provider fallback without mutating the persisted master toggle.
