@@ -44,6 +44,7 @@ from app.modules.visual_search.admin_router import router as visual_search_admin
 from app.modules.creative_pipeline.router import router as creative_pipeline_router
 from app.modules.visual_search.encoder_client import HttpVisualEncoderClient
 from app.modules.video_search.router import router as video_search_router
+from app.modules.video_cache.admin_router import router as video_delivery_admin_router
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.tag.router import router as tag_router
@@ -140,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(visual_search_admin_router)
     api.include_router(creative_pipeline_router)
     api.include_router(video_search_router)
+    api.include_router(video_delivery_admin_router)
     api.include_router(search_governance_router)
     # Inventory runtime execution remains default-off, but its authenticated
     # tenant configuration and status routes must stay reachable so an

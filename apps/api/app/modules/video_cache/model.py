@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -55,3 +55,29 @@ class VideoCacheObjectModel(Base):
     cleanup_lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+VIDEO_CDN_DELIVERY_SETTING_KEY = "VIDEO_CDN_DELIVERY_ENABLED"
+
+
+class VideoDeliveryRuntimeSettingModel(Base):
+    """Singleton global runtime intent for Phase 4A CDN delivery rollout."""
+
+    __tablename__ = "video_delivery_runtime_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "setting_key = 'VIDEO_CDN_DELIVERY_ENABLED'",
+            name="ck_video_delivery_runtime_setting_key",
+        ),
+    )
+
+    setting_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+    update_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )

@@ -171,7 +171,9 @@ describe("AI Operations provider and configuration tabs", () => {
 
   it("shows platform-only global emergency action to platform administrators", () => {
     const elevated = { ...configuration, permissions: { can_manage_tenant: true, can_manage_global: true, platform_admin: true } };
-    expect(renderToStaticMarkup(<ConfigurationForm configuration={elevated} onChanged={noop} onReload={noop} />)).toContain("Emergency stop all AI");
+    const markup = renderToStaticMarkup(<ConfigurationForm configuration={elevated} onChanged={noop} onReload={noop} />);
+    expect(markup).toContain("Emergency stop all AI");
+    expect(markup).toContain("Loading video CDN delivery settings");
   });
 
   it("separates provider configuration from emergency pause permission", () => {
