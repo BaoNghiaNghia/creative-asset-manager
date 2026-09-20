@@ -30,6 +30,7 @@ def settings(**updates):
         "R2_VIDEO_MEDIA_BASE_URL": "https://media.example.test",
         "R2_VIDEO_MEDIA_SIGNING_SECRET": SECRET,
         "R2_VIDEO_MEDIA_TICKET_TTL_SECONDS": 600,
+        "VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS": "tenant-a",
     }
     values.update(updates)
     return Settings(_env_file=None, **values)
@@ -157,6 +158,27 @@ def test_cache_identity_and_tenant_mismatch_fail_closed():
         asset=video_asset(),
         source=video_source(),
     ) is None
+    engine.dispose()
+
+
+def test_rollout_scope_defaults_deny_and_global_override_is_explicit():
+    engine, factory = setup()
+    deny_all = settings(VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="")
+    assert PublicVideoDeliveryResolver(factory, deny_all).resolve(
+        principal=principal(),
+        asset=video_asset(),
+        source=video_source(),
+    ) is None
+
+    global_settings = settings(
+        VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="",
+        VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED=True,
+    )
+    assert PublicVideoDeliveryResolver(factory, global_settings).resolve(
+        principal=principal(),
+        asset=video_asset(),
+        source=video_source(),
+    ) is not None
     engine.dispose()
 
 
