@@ -2,7 +2,7 @@
 
 Status: **Phased local implementation; not deployed**
 
-Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, Phase 4A persisted admin runtime gating, Phase 4B authorization-preserving Public Review video playback handoff, Phase 4C rollout preflight, and Phase 4D tenant-canary rollout controls/tooling are implemented. The runtime gate remains disabled by default. No production deployment is implied.
+Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, Phase 4A persisted admin runtime gating, Phase 4B authorization-preserving Public Review video playback handoff, Phase 4C rollout preflight, and Phase 4D tenant-canary rollout controls/tooling and Phase 4E process-local delivery observability/circuit breaking are implemented. The runtime gate remains disabled by default. No production deployment is implied.
 
 The cache is disabled by default. Migration 0082 adds the storage foundation; additive 0083 adds durable fill/cleanup ownership. Phase 3A adds no migration, route, Public Review behavior, Worker deployment, Range support or CDN caching. A READY original-video row can be signed by an internal service; a standalone un-deployed Worker verifies that ticket before private R2 GET/HEAD. See docs/operations/R2_VIDEO_CACHE.md for the exact ticket and safe rollout boundaries.
 
@@ -1336,3 +1336,36 @@ required-secret declaration for `R2_VIDEO_MEDIA_SIGNING_SECRET`.
 Phase 4D does not deploy Cloudflare resources, change DNS, write production
 secrets, enable the persisted runtime toggle, mutate R2 objects, or modify
 source-provider assets.
+
+
+---
+
+## Phase 4E - Delivery observability and process-local circuit breaker
+
+Phase 4E observes the application decision boundary without adding a new
+durable authority. The existing video-cache metrics module now records bounded
+delivery counters and a rolling in-process latency sample.
+
+The Public Review resolver records mutually useful outcomes such as signed CDN
+redirect, runtime/scope fallback, cache miss, cache identity mismatch, guard
+fallback, signing/delivery error and internal failure. No metric label contains
+tenant, share, asset, source, object key or URL identity.
+
+When `VIDEO_CDN_DELIVERY_GUARD_ENABLED=true`, eligible signed delivery is
+sampled with HEAD. Sampling is debounced after a healthy result; a failure is
+rechecked on the next eligible request until the failure threshold is reached.
+At threshold the local circuit opens for the configured cooldown. While open,
+the resolver withholds CDN redirects and the unchanged provider path serves the
+preview. After cooldown, one eligible request probes for recovery.
+
+This is deliberately not an automatic mutation of
+`VIDEO_CDN_DELIVERY_ENABLED`. A process-local transport observation is not
+allowed to rewrite the global rollout intent in PostgreSQL. Operator rollback
+continues to use the persisted master toggle.
+
+The admin-only observability endpoint returns aggregate process-local evidence
+and guard state. It does not expose canary tenant IDs, origin URL, signed URL,
+R2 object identity or credentials.
+
+Phase 4E adds no migration, frontend change, Cloudflare deployment, DNS change,
+R2 mutation or source-provider mutation.
