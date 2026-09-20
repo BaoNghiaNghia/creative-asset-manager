@@ -56,11 +56,13 @@ class PublicVideoDeliveryResolver:
         source_tenant = getattr(source, "tenant_id", None)
         content_hash = getattr(asset, "content_hash", None)
         asset_id = getattr(asset, "id", None)
+        source_asset_id = getattr(source, "id", None)
         if (
             not isinstance(tenant_id, str)
             or tenant_id != asset_tenant
             or tenant_id != source_tenant
             or not isinstance(asset_id, str)
+            or not isinstance(source_asset_id, str)
             or not isinstance(content_hash, str)
             or not infer_media_type(
                 getattr(source, "filename", None),
@@ -85,7 +87,11 @@ class PublicVideoDeliveryResolver:
                     return None
                 repository = VideoCacheRepository(session)
                 cache_object = repository.get_by_tenant_and_hash(tenant_id, content_hash)
-                if cache_object is None or cache_object.asset_id != asset_id:
+                if (
+                    cache_object is None
+                    or cache_object.asset_id != asset_id
+                    or cache_object.source_asset_id != source_asset_id
+                ):
                     return None
                 ticket = VideoCacheDeliveryService(self.settings).create_signed_url(
                     cache_object,
