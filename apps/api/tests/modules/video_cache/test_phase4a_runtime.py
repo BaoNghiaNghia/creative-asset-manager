@@ -84,7 +84,12 @@ def test_runtime_default_is_off_even_when_prerequisites_are_ready():
     assert status["runtime_enabled"] is False
     assert status["effective_enabled"] is False
     assert status["can_enable"] is True
-    assert status["blockers"] == ["runtime_toggle_disabled"]
+    assert status["blockers"] == [
+        "runtime_toggle_disabled",
+        "video_delivery_rollout_scope_empty",
+    ]
+    assert status["rollout_mode"] == "disabled"
+    assert status["canary_tenant_count"] == 0
     engine.dispose()
 
 
