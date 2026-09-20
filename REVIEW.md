@@ -2684,3 +2684,13 @@ npm run typecheck -- --pretty false (passed).
 - Output is intentionally identity-free: no signing secret, media origin, signed URL, tenant ID, asset/source ID or R2 key is emitted.
 - Global rollout and non-production dry runs both require explicit command-line overrides; tenant canary + production is the default activation contract.
 - No migration or frontend bundle change is part of Phase 5A.
+
+
+## R2 original-video cache Phase 5B review
+
+- Aligned the frontend Video CDN runtime schema with the Phase 4D/4E backend fields already returned by the platform-admin API: rollout mode, canary tenant count, rollout-scope prerequisite and delivery-guard prerequisite.
+- Converted the stale Phase 4A settings card into a Platform Admin activation console showing runtime/effective state, rollout mode, safe prerequisite state, aggregate redirects/provider fallbacks/probe failures, decision p95 and process-local circuit state.
+- Added client support for the existing admin-only `/api/v1/admin/video-delivery/observability` endpoint. The console never displays canary tenant IDs, media origin, signed tickets, R2 keys or secret material.
+- Runtime status and observability are deliberately loaded independently. If process-local observability is unavailable, the persisted runtime state remains visible and the global Disable action remains available for rollback.
+- Phase 5B does not deploy the Worker, change DNS, write production secrets, enable the persisted runtime gate, mutate R2, or change source-provider data.
+- No migration or external dependency is added.
