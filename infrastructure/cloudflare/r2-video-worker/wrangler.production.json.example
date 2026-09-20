@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cam-r2-original-video",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-20",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "media.example.com",
+      "custom_domain": true
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "VIDEO_CACHE_BUCKET",
+      "bucket_name": "YOUR_PRIVATE_R2_BUCKET"
+    }
+  ],
+  "vars": {
+    "R2_VIDEO_MEDIA_MAX_TTL_SECONDS": "600"
+  },
+  "secrets": {
+    "required": [
+      "R2_VIDEO_MEDIA_SIGNING_SECRET"
+    ]
+  }
+}
