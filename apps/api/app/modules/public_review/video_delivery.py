@@ -2,11 +2,12 @@
 
 This module never grants Public Review access. Its caller must first authorize
 the exact asset/source pair with SharePrincipal scope. Any rollout/config/cache
-problem falls back to the existing provider stream.
+or health-guard problem falls back to the existing provider stream.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Callable
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -21,6 +22,12 @@ from app.modules.video_cache.delivery import (
     VideoCacheDeliveryService,
     VideoDeliveryError,
 )
+from app.modules.video_cache.guard import (
+    VIDEO_DELIVERY_GUARD,
+    VideoDeliveryCircuitBreaker,
+    probe_signed_video_head,
+)
+from app.modules.video_cache.metrics import emit_counter, observe_delivery_decision_ms
 from app.modules.video_cache.repository import VideoCacheRepository
 from app.modules.video_cache.runtime import (
     VideoDeliveryRuntimeService,
@@ -40,9 +47,19 @@ class PublicVideoDeliveryResolver:
         self,
         session_factory: Callable[[], Session],
         settings: Settings,
+        *,
+        guard: VideoDeliveryCircuitBreaker | None = None,
+        probe: Callable[..., bool] | None = None,
     ):
         self.session_factory = session_factory
         self.settings = settings
+        self.guard = guard or VIDEO_DELIVERY_GUARD
+        self.probe = probe or probe_signed_video_head
+
+    @staticmethod
+    def _finish(started: float, counter: str) -> None:
+        emit_counter(counter)
+        observe_delivery_decision_ms((perf_counter() - started) * 1000.0)
 
     def resolve(
         self,
@@ -72,8 +89,10 @@ class PublicVideoDeliveryResolver:
         ):
             return None
 
+        started = perf_counter()
         session_expiry = getattr(principal, "session_expires_at", None)
         if not isinstance(session_expiry, datetime):
+            self._finish(started, "video_cdn_fallback_delivery_error_total")
             return None
         expiry_cap = _epoch(session_expiry)
         share_expiry = getattr(principal, "expires_at", None)
@@ -83,35 +102,69 @@ class PublicVideoDeliveryResolver:
         with self.session_factory() as session:
             try:
                 runtime = VideoDeliveryRuntimeService(session, self.settings).get_status()
-                if (
-                    not runtime["effective_enabled"]
-                    or not self.settings.video_delivery_tenant_allowed(tenant_id)
-                ):
+                if not runtime["effective_enabled"]:
+                    self._finish(started, "video_cdn_fallback_runtime_total")
                     return None
+                if not self.settings.video_delivery_tenant_allowed(tenant_id):
+                    self._finish(started, "video_cdn_fallback_rollout_scope_total")
+                    return None
+
                 repository = VideoCacheRepository(session)
                 cache_object = repository.get_by_tenant_and_hash(tenant_id, content_hash)
+                if cache_object is None:
+                    self._finish(started, "video_cdn_fallback_cache_miss_total")
+                    return None
                 if (
-                    cache_object is None
-                    or cache_object.asset_id != asset_id
+                    cache_object.asset_id != asset_id
                     or cache_object.source_asset_id != source_asset_id
                 ):
+                    self._finish(started, "video_cdn_fallback_cache_identity_total")
                     return None
+
                 ticket = VideoCacheDeliveryService(self.settings).create_signed_url(
                     cache_object,
                     expires_at_cap=expiry_cap,
                 )
+
+                decision = self.guard.before_candidate(self.settings)
+                if decision.action == "fallback":
+                    self._finish(started, "video_cdn_fallback_guard_total")
+                    return None
+                if decision.action == "probe":
+                    success = self.probe(
+                        ticket,
+                        expected_size=cache_object.size_bytes,
+                        timeout_seconds=self.settings.VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS,
+                    )
+                    opened = self.guard.complete_probe(self.settings, success=success)
+                    emit_counter(
+                        "video_cdn_probe_success_total"
+                        if success
+                        else "video_cdn_probe_failure_total"
+                    )
+                    if opened:
+                        emit_counter("video_cdn_guard_open_total")
+                    if not success:
+                        self._finish(started, "video_cdn_fallback_guard_total")
+                        return None
+
                 repository.touch_access(
                     tenant_id,
                     cache_object.id,
                     debounce_seconds=self.settings.R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS,
                 )
                 session.commit()
+                self._finish(started, "video_cdn_redirect_total")
                 return ticket
+            except VideoDeliveryError:
+                session.rollback()
+                self._finish(started, "video_cdn_fallback_delivery_error_total")
+                return None
             except (
                 SQLAlchemyError,
-                VideoDeliveryError,
                 VideoDeliveryRuntimeUnavailable,
                 ValueError,
             ):
                 session.rollback()
+                self._finish(started, "video_cdn_fallback_internal_total")
                 return None
