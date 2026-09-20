@@ -14,8 +14,6 @@ env:
 jobs:
   frontend:
     name: Frontend checks
-    permissions:
-      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -23,8 +21,6 @@ jobs:
         working-directory: apps/client
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22.14.0"
@@ -40,9 +36,6 @@ jobs:
           mkdir -p ../../artifacts/frontend
           npm test 2>&1 | tee ../../artifacts/frontend/tests.log
       - name: Production build matches committed dist
-        env:
-          AUTO_SYNC_PHASE4A_DIST: ${{ github.event_name == 'pull_request' && github.head_ref == 'codex/phase-4a-video-cdn-toggle' && github.actor != 'github-actions[bot]' }}
-          PHASE4A_HEAD_REF: ${{ github.head_ref }}
         run: |
           set -o pipefail
           test -f dist/build-info.json
@@ -51,15 +44,6 @@ jobs:
           npm run build 2>&1 | tee ../../artifacts/frontend/build.log
           git diff -- dist > ../../artifacts/frontend/dist.diff
           git status --porcelain --untracked-files=all -- dist > ../../artifacts/frontend/dist-status.txt
-          if [ "$AUTO_SYNC_PHASE4A_DIST" = "true" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add dist
-            if ! git diff --cached --quiet; then
-              git commit -m "build(client): sync Phase 4A dist"
-              git push origin "HEAD:$PHASE4A_HEAD_REF"
-            fi
-          fi
           git diff --exit-code -- dist
           test -z "$(git status --porcelain --untracked-files=all -- dist)"
       - name: Upload frontend failure diagnostics
@@ -67,9 +51,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-failure
-          path: |
-            artifacts/frontend
-            apps/client/dist
+          path: artifacts/frontend
           if-no-files-found: ignore
           retention-days: 7
 
