@@ -110,7 +110,7 @@ describe("Video CDN Phase 5A activation console", () => {
     />);
     expect(markup).toContain("Activation is blocked");
     expect(markup).toContain("video delivery guard disabled");
-    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*disabled=/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-pressed="false"|<button[^>]*aria-pressed="false"[^>]*disabled=""/);
   });
 
   it("has an accessible loading state before activation status resolves", () => {
@@ -183,5 +183,25 @@ describe("Video CDN Phase 5A activation console", () => {
       "approved rollout",
       fetcher,
     )).rejects.toThrow("prerequisites are ready");
+  });
+});
+
+
+describe("Video CDN activation rollback resilience", () => {
+  it("keeps runtime API independent from observability API failures", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/observability")) {
+        return new Response("unavailable", { status: 503 });
+      }
+      return new Response(JSON.stringify(status), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(fetchVideoCdnDeliveryRuntimeStatus(fetcher)).resolves.toMatchObject({
+      runtime_enabled: false,
+    });
+    await expect(fetchVideoCdnDeliveryObservability(fetcher)).rejects.toThrow();
   });
 });
