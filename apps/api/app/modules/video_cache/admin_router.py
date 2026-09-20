@@ -7,6 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_platform_admin
+from app.modules.video_cache.guard import VIDEO_DELIVERY_GUARD
+from app.modules.video_cache.metrics import delivery_observability_snapshot
 from app.modules.video_cache.runtime import (
     VideoDeliveryPrerequisiteError,
     VideoDeliveryRuntimeService,
@@ -105,3 +107,15 @@ def update_video_delivery_runtime(
         except (VideoDeliveryRuntimeUnavailable, SQLAlchemyError) as exc:
             session.rollback()
             raise _unavailable() from exc
+
+
+@router.get("/observability")
+def get_video_delivery_observability(
+    request: Request,
+    _principal: CurrentPrincipal = Depends(require_platform_admin),
+):
+    settings = _settings(request)
+    return {
+        "metrics": delivery_observability_snapshot(),
+        "guard": VIDEO_DELIVERY_GUARD.snapshot(settings),
+    }

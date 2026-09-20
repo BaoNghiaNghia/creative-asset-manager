@@ -2659,3 +2659,15 @@ npm run typecheck -- --pretty false (passed).
 - CI now covers the rollout planner/template validation in addition to the R2 Worker unit/typecheck job added in Phase 4C.
 - Phase 4D adds no migration, frontend bundle change, Cloudflare deployment, DNS change, production secret update, R2 mutation or source-provider mutation. The persisted runtime toggle remains OFF unless an operator separately enables it after preflight.
 - Rollback order for a future canary is application-first: disable VIDEO_CDN_DELIVERY_ENABLED, confirm provider fallback, then roll back the Worker version if required.
+
+
+## R2 original-video cache Phase 4E review
+
+- Added process-local, identity-free CDN decision counters and a bounded 512-sample latency window using the existing structured video-cache metric convention.
+- Added a process-local circuit breaker that never mutates the persisted Phase 4A runtime gate. A guard failure withholds the CDN redirect and preserves the existing provider stream fallback.
+- Guard health samples use HEAD against the exact signed Worker ticket, do not download the media body, do not follow redirects, ignore proxy environment variables, and require status 200 plus durable byte size, video content type and byte-range support.
+- Consecutive failures are confirmed immediately. At the configured threshold the local circuit opens for a bounded cooldown; the next eligible request after cooldown is the recovery probe.
+- Added an admin-only observability endpoint exposing aggregate counters, bounded latency percentiles and safe circuit state/thresholds. It returns no tenant IDs, asset/source IDs, R2 keys, media origins, signed URLs or secrets.
+- Production canary preflight now requires the Phase 4E guard to be explicitly enabled. The guard itself defaults OFF so merging code does not create unexpected outbound probes before the Worker/custom domain is staged.
+- The breaker is process-local by design. Multi-process deployments may have independent breaker states; the persisted runtime toggle remains the global operator rollback control.
+- Phase 4E adds no migration, frontend bundle change, Cloudflare mutation, DNS change, R2 write/delete/list action or source-provider mutation.

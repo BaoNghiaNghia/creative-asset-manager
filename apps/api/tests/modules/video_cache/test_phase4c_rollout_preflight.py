@@ -38,6 +38,7 @@ def configured_settings(**updates) -> Settings:
         "R2_VIDEO_CACHE_HARD_LIMIT_BYTES": 2000,
         "R2_VIDEO_CACHE_MAX_OBJECT_BYTES": 1000,
         "VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS": "tenant-a",
+        "VIDEO_CDN_DELIVERY_GUARD_ENABLED": True,
     }
     values.update(updates)
     return Settings(_env_file=None, **values)

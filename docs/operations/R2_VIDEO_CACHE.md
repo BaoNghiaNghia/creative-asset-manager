@@ -1,6 +1,6 @@
-# R2 original-video cache — Phase 2 through Phase 4D operations
+# R2 original-video cache — Phase 2 through Phase 4E operations
 
-Status: Phases 1–4D are implemented in code. Public Review Phase 4B is authorization-preserving and falls back to the source provider. The persisted delivery gate remains OFF by default. No production R2/Worker rollout is implied by this document.
+Status: Phases 1–4E are implemented in code. Public Review Phase 4B is authorization-preserving and falls back to the source provider. The persisted delivery gate remains OFF by default. No production R2/Worker rollout is implied by this document.
 
 ## Boundaries
 
@@ -181,3 +181,63 @@ Only after those checks are green should the platform-admin runtime toggle be
 enabled. Rollback order is: disable the application runtime toggle first, then
 roll back the Worker version if needed. Provider source streaming remains
 available throughout.
+
+
+## Phase 4E observability and automatic provider fallback guard
+
+Phase 4E adds process-local rollout evidence and a circuit breaker around the
+signed Worker handoff. It does not replace the persisted Phase 4A master toggle
+and does not write rollback state to PostgreSQL.
+
+The guard is explicitly enabled with:
+
+```env
+VIDEO_CDN_DELIVERY_GUARD_ENABLED=true
+VIDEO_CDN_DELIVERY_GUARD_FAILURE_THRESHOLD=3
+VIDEO_CDN_DELIVERY_GUARD_PROBE_INTERVAL_SECONDS=30
+VIDEO_CDN_DELIVERY_GUARD_COOLDOWN_SECONDS=120
+VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS=2.0
+```
+
+Production canary preflight fails while the guard remains disabled.
+
+For an eligible Public Review video, the API continues to authorize the exact
+share/asset/source pair and create the short signed ticket. When the guard needs
+a health sample, it performs a HEAD request against that exact signed Worker
+URL with redirects and proxy-environment inheritance disabled. A healthy sample
+requires status 200, the durable Content-Length, a video Content-Type and
+Accept-Ranges: bytes. No media body is downloaded.
+
+A failed health sample falls back to the existing provider stream for that
+request. Consecutive failures are confirmed immediately; after the configured
+threshold, the process-local circuit opens and subsequent eligible requests
+fall back without probing until the cooldown expires. The next eligible request
+after cooldown acts as the recovery probe. A successful probe closes the
+circuit.
+
+The breaker is intentionally process-local. In a multi-process or multi-host
+deployment each API process protects itself independently. This avoids an
+automatic database mutation or distributed kill switch based on a transient
+network observation. The persisted runtime toggle remains the operator-owned
+global rollback control.
+
+Platform administrators can inspect only aggregate safe data at:
+
+```
+GET /api/v1/admin/video-delivery/observability
+```
+
+The response contains process-local counters, a bounded 512-sample decision
+latency summary, and circuit state/thresholds. It never contains tenant IDs,
+asset/source IDs, R2 keys, media URLs, signed tickets, secrets or signing
+material.
+
+Counters include redirect, runtime/scope/cache/identity/guard/internal fallback,
+probe success/failure and circuit-open events. Structured logs use the same
+bounded metric names. PostgreSQL remains authoritative for durable cache state;
+these process-local counters are rollout evidence only.
+
+For canary rollout, inspect this endpoint per API process/instance where
+possible. If the circuit opens or provider fallback rises unexpectedly, keep or
+set the persisted runtime toggle OFF before investigating Worker/R2. Do not
+increase thresholds to mask a failing canary.

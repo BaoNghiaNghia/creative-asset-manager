@@ -65,6 +65,7 @@ FEATURE_FLAG_NAMES = (
     "VIDEO_GENERATION_ENABLED",
     "DOLA_RENDER_GATEWAY_ENABLED",
     "VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED",
+    "VIDEO_CDN_DELIVERY_GUARD_ENABLED",
 )
 
 
@@ -172,6 +173,11 @@ class Settings(BaseSettings):
     R2_VIDEO_MEDIA_TICKET_TTL_SECONDS: int = 600
     VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS: str = ""
     VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED: bool = False
+    VIDEO_CDN_DELIVERY_GUARD_ENABLED: bool = False
+    VIDEO_CDN_DELIVERY_GUARD_FAILURE_THRESHOLD: int = 3
+    VIDEO_CDN_DELIVERY_GUARD_PROBE_INTERVAL_SECONDS: int = 30
+    VIDEO_CDN_DELIVERY_GUARD_COOLDOWN_SECONDS: int = 120
+    VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS: float = 2.0
     # Image generation is deny-by-default. Provider selection is explicit and
     # Firefly/Gemini never fall back to one another.
     IMAGE_GENERATION_ENABLED: bool = False
@@ -863,6 +869,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Global video CDN rollout and canary tenant IDs cannot be configured together"
             )
+        if not 1 <= self.VIDEO_CDN_DELIVERY_GUARD_FAILURE_THRESHOLD <= 20:
+            raise ValueError("VIDEO_CDN_DELIVERY_GUARD_FAILURE_THRESHOLD is invalid")
+        if not 5 <= self.VIDEO_CDN_DELIVERY_GUARD_PROBE_INTERVAL_SECONDS <= 300:
+            raise ValueError("VIDEO_CDN_DELIVERY_GUARD_PROBE_INTERVAL_SECONDS is invalid")
+        if not 10 <= self.VIDEO_CDN_DELIVERY_GUARD_COOLDOWN_SECONDS <= 3600:
+            raise ValueError("VIDEO_CDN_DELIVERY_GUARD_COOLDOWN_SECONDS is invalid")
+        if not 0.1 <= self.VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS <= 10.0:
+            raise ValueError("VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS is invalid")
         base = self.R2_VIDEO_MEDIA_BASE_URL
         if base:
             parsed = urlsplit(base)

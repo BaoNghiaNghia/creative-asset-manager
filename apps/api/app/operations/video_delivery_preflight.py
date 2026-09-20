@@ -86,6 +86,12 @@ def video_delivery_preflight(
         "signed video delivery is configured",
         "signed video delivery configuration is incomplete",
     ))
+    checks.append(_check(
+        "delivery_guard_enabled",
+        bool(settings.VIDEO_CDN_DELIVERY_GUARD_ENABLED),
+        "process-local video delivery guard is enabled",
+        "video delivery guard must be enabled before canary rollout",
+    ))
 
     hostname = (urlsplit(settings.video_media_base_url).hostname or "").casefold()
     approved_origin = bool(
