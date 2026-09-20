@@ -17,6 +17,7 @@ from app.modules.video_cache.model import (
 )
 from app.modules.video_cache.service import video_cache_key
 from app.operations.video_delivery_preflight import (
+    probe_ready_video_ticket,
     probe_worker_ticket,
     video_delivery_preflight,
 )
@@ -36,6 +37,7 @@ def configured_settings(**updates) -> Settings:
         "R2_VIDEO_CACHE_SOFT_LIMIT_BYTES": 1000,
         "R2_VIDEO_CACHE_HARD_LIMIT_BYTES": 2000,
         "R2_VIDEO_CACHE_MAX_OBJECT_BYTES": 1000,
+        "VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS": "tenant-a",
     }
     values.update(updates)
     return Settings(_env_file=None, **values)
@@ -156,3 +158,70 @@ def test_require_production_is_explicit_and_fail_closed():
         ))
     assert not checks["environment"].ok
     engine.dispose()
+
+
+def test_preflight_canary_scope_is_fail_closed_and_global_requires_explicit_override():
+    engine, factory = context()
+    global_settings = configured_settings(
+        VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="",
+        VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED=True,
+    )
+    with factory() as session:
+        strict = by_code(video_delivery_preflight(session, global_settings))
+        relaxed = by_code(video_delivery_preflight(
+            session,
+            global_settings,
+            require_canary_scope=False,
+        ))
+    assert not strict["canary_rollout_scope"].ok
+    assert "canary_rollout_scope" not in relaxed
+    engine.dispose()
+
+
+def test_ready_object_probe_uses_head_metadata_only_and_never_exposes_identity():
+    engine, factory = context()
+
+    class Response:
+        status = 200
+        headers = {
+            "Content-Length": "100",
+            "Content-Type": "video/mp4",
+            "Accept-Ranges": "bytes",
+        }
+        def close(self):
+            pass
+
+    def ok(request, timeout):
+        assert request.get_method() == "HEAD"
+        assert timeout == 5.0
+        return Response()
+
+    with factory() as session:
+        result = probe_ready_video_ticket(
+            session,
+            configured_settings(),
+            opener=ok,
+        )
+    assert result.ok
+    serialized = json.dumps(result.__dict__)
+    assert "tenant-a" not in serialized
+    assert "asset-video" not in serialized
+    assert SECRET not in serialized
+    engine.dispose()
+
+
+def test_video_delivery_canary_settings_reject_ambiguous_or_invalid_scope():
+    import pytest
+
+    with pytest.raises(ValueError):
+        configured_settings(
+            VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="tenant-a,tenant-a",
+        )
+    with pytest.raises(ValueError):
+        configured_settings(
+            VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="../tenant",
+        )
+    with pytest.raises(ValueError):
+        configured_settings(
+            VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED=True,
+        )

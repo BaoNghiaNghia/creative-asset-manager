@@ -35,6 +35,8 @@ class VideoDeliveryRuntimeStatus:
     can_enable: bool
     prerequisites: dict[str, bool]
     blockers: tuple[str, ...]
+    rollout_mode: str
+    canary_tenant_count: int
     updated_at: datetime | None
 
     def as_dict(self) -> dict:
@@ -45,6 +47,8 @@ class VideoDeliveryRuntimeStatus:
             "can_enable": self.can_enable,
             "prerequisites": dict(self.prerequisites),
             "blockers": list(self.blockers),
+            "rollout_mode": self.rollout_mode,
+            "canary_tenant_count": self.canary_tenant_count,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
@@ -68,8 +72,11 @@ class VideoDeliveryRuntimeService:
     def _status(self, row: VideoDeliveryRuntimeSettingModel) -> VideoDeliveryRuntimeStatus:
         cache_enabled = bool(self.settings.R2_VIDEO_CACHE_ENABLED)
         delivery_configured = bool(self.settings.video_delivery_configured)
-        can_enable = cache_enabled and delivery_configured
+        rollout_mode = self.settings.video_delivery_rollout_mode
+        rollout_configured = rollout_mode != "disabled"
+        can_enable = cache_enabled and delivery_configured and rollout_configured
         runtime_enabled = bool(row.enabled)
+        canary_tenant_count = len(self.settings.video_delivery_canary_tenant_ids)
         blockers: list[str] = []
         if not runtime_enabled:
             blockers.append("runtime_toggle_disabled")
@@ -77,6 +84,8 @@ class VideoDeliveryRuntimeService:
             blockers.append("r2_video_cache_disabled")
         if not delivery_configured:
             blockers.append("video_delivery_config_missing")
+        if rollout_mode == "disabled":
+            blockers.append("video_delivery_rollout_scope_empty")
         return VideoDeliveryRuntimeStatus(
             setting=VIDEO_CDN_DELIVERY_SETTING_KEY,
             runtime_enabled=runtime_enabled,
@@ -85,8 +94,11 @@ class VideoDeliveryRuntimeService:
             prerequisites={
                 "r2_video_cache_enabled": cache_enabled,
                 "delivery_configured": delivery_configured,
+                "rollout_scope_configured": rollout_configured,
             },
             blockers=tuple(blockers),
+            rollout_mode=rollout_mode,
+            canary_tenant_count=canary_tenant_count,
             updated_at=row.updated_at,
         )
 

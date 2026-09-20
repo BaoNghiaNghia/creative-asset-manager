@@ -64,6 +64,7 @@ FEATURE_FLAG_NAMES = (
     "DESKTOP_OAUTH_ENABLED",
     "VIDEO_GENERATION_ENABLED",
     "DOLA_RENDER_GATEWAY_ENABLED",
+    "VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED",
 )
 
 
@@ -169,6 +170,8 @@ class Settings(BaseSettings):
     R2_VIDEO_MEDIA_BASE_URL: str = ""
     R2_VIDEO_MEDIA_SIGNING_SECRET: SecretStr = SecretStr("")
     R2_VIDEO_MEDIA_TICKET_TTL_SECONDS: int = 600
+    VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS: str = ""
+    VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED: bool = False
     # Image generation is deny-by-default. Provider selection is explicit and
     # Firefly/Gemini never fall back to one another.
     IMAGE_GENERATION_ENABLED: bool = False
@@ -798,6 +801,45 @@ class Settings(BaseSettings):
     def video_media_base_url(self) -> str:
         return self.R2_VIDEO_MEDIA_BASE_URL.strip().rstrip("/")
 
+    @property
+    def video_delivery_canary_tenant_ids(self) -> frozenset[str]:
+        return frozenset(
+            item.strip()
+            for item in self.VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS.split(",")
+            if item.strip()
+        )
+
+    @property
+    def video_delivery_rollout_mode(self) -> str:
+        if self.VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED:
+            return "global"
+        if self.video_delivery_canary_tenant_ids:
+            return "canary"
+        return "disabled"
+
+    def video_delivery_tenant_allowed(self, tenant_id: str) -> bool:
+        return bool(
+            isinstance(tenant_id, str)
+            and tenant_id
+            and (
+                self.VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED
+                or tenant_id in self.video_delivery_canary_tenant_ids
+            )
+        )
+
+    @field_validator("VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS")
+    @classmethod
+    def validate_video_delivery_canary_tenant_ids(cls, value: str) -> str:
+        items = [item.strip() for item in value.split(",") if item.strip()]
+        if len(items) > 100 or len(items) != len(set(items)):
+            raise ValueError("VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS is invalid")
+        if any(
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,254}", item)
+            for item in items
+        ):
+            raise ValueError("VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS is invalid")
+        return ",".join(items)
+
     @model_validator(mode="after")
     def validate_worker_runtime(self) -> "Settings":
         if not 0 < self.R2_VIDEO_CACHE_SOFT_LIMIT_BYTES < self.R2_VIDEO_CACHE_HARD_LIMIT_BYTES < 10_000_000_000:
@@ -814,6 +856,13 @@ class Settings(BaseSettings):
             raise ValueError("R2 video cache cleanup batch limits are invalid")
         if not 0 < self.R2_VIDEO_MEDIA_TICKET_TTL_SECONDS <= 3600:
             raise ValueError("R2_VIDEO_MEDIA_TICKET_TTL_SECONDS must be between 1 and 3600")
+        if (
+            self.VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED
+            and self.video_delivery_canary_tenant_ids
+        ):
+            raise ValueError(
+                "Global video CDN rollout and canary tenant IDs cannot be configured together"
+            )
         base = self.R2_VIDEO_MEDIA_BASE_URL
         if base:
             parsed = urlsplit(base)

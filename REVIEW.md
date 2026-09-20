@@ -2646,3 +2646,16 @@ npm run typecheck -- --pretty false (passed).
 - Updated the stale R2 operations/Worker documentation to reflect Phase 4A/4B behavior and the staged enablement sequence.
 - Phase 4C adds no migration, frontend change, R2 mutation, Cloudflare deployment, DNS change, production secret change or runtime-toggle mutation. Production delivery remains OFF until an explicitly approved operator rollout.
 - Rollback for this phase is code-only; no data rollback is required. During a later rollout, the immediate application rollback remains setting `VIDEO_CDN_DELIVERY_ENABLED=false`.
+
+
+## R2 original-video cache Phase 4D review
+
+- Added deployment-scoped tenant canary control. `VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS` defaults empty and `VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED` defaults false, so CDN delivery is deny-all even if the persisted runtime master toggle is accidentally enabled.
+- The Public Review resolver checks the authorized tenant against the rollout scope before READY-cache lookup or ticket signing. Non-canary tenants continue through the existing provider-backed fallback.
+- Global rollout is a separate explicit deployment state and cannot be configured at the same time as a non-empty canary tenant list.
+- Platform-admin runtime status exposes only rollout mode and canary-tenant count; tenant IDs are never returned by the runtime API.
+- Extended the rollout preflight with an optional HEAD-only probe of one existing READY cache row. The probe validates Worker/R2 metadata against durable size, video content type and byte-range support without downloading media or printing tenant/asset/object identity.
+- Added a secret-free production Wrangler config renderer and non-executing rollout planner. Generated config disables workers.dev, uses a Custom Domain, binds one private VIDEO_CACHE_BUCKET and declares only the required signing-secret name. The tool never accepts or writes a secret value.
+- CI now covers the rollout planner/template validation in addition to the R2 Worker unit/typecheck job added in Phase 4C.
+- Phase 4D adds no migration, frontend bundle change, Cloudflare deployment, DNS change, production secret update, R2 mutation or source-provider mutation. The persisted runtime toggle remains OFF unless an operator separately enables it after preflight.
+- Rollback order for a future canary is application-first: disable VIDEO_CDN_DELIVERY_ENABLED, confirm provider fallback, then roll back the Worker version if required.

@@ -1,6 +1,6 @@
-# R2 original-video cache — Phase 2 through Phase 4C operations
+# R2 original-video cache — Phase 2 through Phase 4D operations
 
-Status: Phases 1–4C are implemented in code. Public Review Phase 4B is authorization-preserving and falls back to the source provider. The persisted delivery gate remains OFF by default. No production R2/Worker rollout is implied by this document.
+Status: Phases 1–4D are implemented in code. Public Review Phase 4B is authorization-preserving and falls back to the source provider. The persisted delivery gate remains OFF by default. No production R2/Worker rollout is implied by this document.
 
 ## Boundaries
 
@@ -116,3 +116,68 @@ pressure, active deletion, or no READY canary object fail the preflight.
 Only after the preflight is green should a platform administrator enable the
 persisted delivery toggle with an audited reason. Rollback is to disable that
 toggle. Disabling delivery does not delete R2 objects or mutate source assets.
+
+
+## Phase 4D tenant canary and Worker rollout plan
+
+Phase 4D adds a second rollout boundary beneath the persisted master toggle.
+`VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS` is a comma-separated deployment setting
+with a maximum of 100 explicit tenant IDs. With the default empty value and
+`VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED=false`, CDN delivery is deny-all
+even if the persisted runtime toggle is accidentally enabled.
+
+For a canary, set only the approved tenant IDs and keep global rollout false.
+The Public Review resolver checks this tenant scope after share/session/exact
+asset-source authorization but before cache lookup or signing. Non-canary
+tenants continue through the existing provider stream.
+
+Global rollout is a separate explicit state:
+`VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED=true` and the canary list must be
+empty. The application rejects ambiguous configuration where both are set.
+
+The production Worker config can be rendered without accepting any secret value:
+
+```bash
+python -m deploy.tools.r2_video_worker_rollout render \
+  --worker-name cam-r2-original-video \
+  --bucket-name YOUR_PRIVATE_R2_BUCKET \
+  --media-host media.example.com \
+  --max-ttl-seconds 600 \
+  --output infrastructure/cloudflare/r2-video-worker/wrangler.production.json
+```
+
+The rendered config disables workers.dev, uses one Custom Domain, binds only
+`VIDEO_CACHE_BUCKET`, and declares
+`R2_VIDEO_MEDIA_SIGNING_SECRET` as a required secret name. The renderer never
+reads or writes the secret value. The rollout plan first inspects the expected
+remote Worker project and stops if it does not exist; first-time Worker account
+bootstrap remains a separately approved operator action.
+
+Inspect the non-executing remote rollout plan with:
+
+```bash
+python -m deploy.tools.r2_video_worker_rollout plan \
+  --config infrastructure/cloudflare/r2-video-worker/wrangler.production.json \
+  --release-tag phase4d-RELEASE
+```
+
+Keep the application runtime toggle OFF while Worker routing/secrets are staged.
+Before enabling the tenant canary, run both signed probes:
+
+```bash
+cd apps/api
+python -m app.operations.video_delivery_preflight \
+  --require-production \
+  --probe-worker \
+  --probe-ready-object
+```
+
+The missing-key probe expects 404. The READY-object probe issues HEAD only and
+requires 200 with the durable byte size, video content type and byte-range
+support. Neither probe downloads a video body or prints tenant/asset/object
+identity. Redirects are not followed; any 3xx response fails the probe.
+
+Only after those checks are green should the platform-admin runtime toggle be
+enabled. Rollback order is: disable the application runtime toggle first, then
+roll back the Worker version if needed. Provider source streaming remains
+available throughout.

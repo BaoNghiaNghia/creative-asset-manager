@@ -2,7 +2,7 @@
 
 Status: **Phased local implementation; not deployed**
 
-Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, Phase 4A persisted admin runtime gating, and Phase 4B authorization-preserving Public Review video playback handoff are implemented. The runtime gate remains disabled by default. No production deployment is implied.
+Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, Phase 4A persisted admin runtime gating, Phase 4B authorization-preserving Public Review video playback handoff, Phase 4C rollout preflight, and Phase 4D tenant-canary rollout controls/tooling are implemented. The runtime gate remains disabled by default. No production deployment is implied.
 
 The cache is disabled by default. Migration 0082 adds the storage foundation; additive 0083 adds durable fill/cleanup ownership. Phase 3A adds no migration, route, Public Review behavior, Worker deployment, Range support or CDN caching. A READY original-video row can be signed by an internal service; a standalone un-deployed Worker verifies that ticket before private R2 GET/HEAD. See docs/operations/R2_VIDEO_CACHE.md for the exact ticket and safe rollout boundaries.
 
@@ -1302,3 +1302,37 @@ or reading user media. URLs, secrets, object keys and tenant IDs are not printed
 
 Phase 4C intentionally does not change the persisted runtime value, mutate R2,
 deploy the Worker, configure DNS, or modify source-provider assets.
+
+
+---
+
+## Phase 4D - Tenant canary and controlled Worker rollout
+
+Phase 4D closes the gap between a global master toggle and a real canary.
+
+Delivery eligibility now requires all previous Phase 4 checks plus one of:
+
+- the authorized tenant is listed in
+  `VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS`; or
+- `VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED=true`.
+
+Both rollout settings default to deny-all. The application rejects simultaneous
+global rollout plus a non-empty canary list. The persisted Phase 4A database
+toggle remains the emergency master switch and does not contain tenant IDs.
+
+The platform-admin runtime status exposes only safe rollout metadata:
+`rollout_mode` (`disabled`, `canary`, or `global`) and the count of canary
+tenant IDs. It never returns the IDs themselves.
+
+Phase 4D extends the preflight with a HEAD-only READY-object probe. A successful
+probe requires the Worker to return the durable object size, video content type
+and `Accept-Ranges: bytes`. No media body is downloaded.
+
+The repository also contains a secret-free Wrangler production config renderer
+and non-executing rollout planner. Generated config uses a Custom Domain,
+`workers_dev=false`, one private `VIDEO_CACHE_BUCKET` binding and Wrangler's
+required-secret declaration for `R2_VIDEO_MEDIA_SIGNING_SECRET`.
+
+Phase 4D does not deploy Cloudflare resources, change DNS, write production
+secrets, enable the persisted runtime toggle, mutate R2 objects, or modify
+source-provider assets.
