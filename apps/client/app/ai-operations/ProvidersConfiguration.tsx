@@ -10,6 +10,7 @@ import { InventoryGeminiCredentialSettings } from "../inventory/InventoryGeminiC
 import { CreativeGeminiCredentialSettings } from "./CreativeGeminiCredentialSettings";
 import { GeminiBackupPoolSettings } from "./GeminiBackupPoolSettings";
 import { ManagedStorageCredentialSettings } from "./ManagedStorageCredentialSettings";
+import { VideoCdnDeliverySettings } from "./VideoCdnDeliverySettings";
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
 import openAiLogo from "../../assets/openai-logo.svg";
 
@@ -409,6 +410,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
         {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục.</small>}
         <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
       </section>
+      {configuration.permissions.platform_admin && <VideoCdnDeliverySettings />}
     </ConfigurationMasonryGrid>
     {confirmAction && <div className="ops-confirm ops-confirm-wide" role="dialog" aria-label="Confirm configuration change"><h3>Confirm {confirmAction === "budget" ? "budget override" : "emergency action"}</h3><p>This action is audited. Enter a reason before continuing.</p><label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label><div><button type="button" onClick={() => setConfirmAction(null)}>Cancel</button><button className="danger" type="button" disabled={!reason.trim() || saving} onClick={confirmAction === "budget" ? saveBudget : confirmAction === "global-stop" ? toggleGlobal : toggleTenant}>Confirm</button></div></div>}
   </section>;
