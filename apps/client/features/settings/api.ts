@@ -1,4 +1,7 @@
-import type { VideoCdnDeliveryRuntimeStatus } from "./types";
+import type {
+  VideoCdnDeliveryObservability,
+  VideoCdnDeliveryRuntimeStatus,
+} from "./types";
 
 type Fetcher = typeof fetch;
 
@@ -58,6 +61,17 @@ export function updateVideoCdnDeliveryRuntime(
       method: "PUT",
       body: JSON.stringify({ enabled, reason }),
     },
+    fetcher,
+  );
+}
+
+
+export function fetchVideoCdnDeliveryObservability(
+  fetcher: Fetcher = fetch,
+): Promise<VideoCdnDeliveryObservability> {
+  return request(
+    "/api/v1/admin/video-delivery/observability",
+    { method: "GET" },
     fetcher,
   );
 }
