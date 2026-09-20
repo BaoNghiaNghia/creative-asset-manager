@@ -5,7 +5,7 @@ from secrets import token_urlsafe
 from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy import select
 from app.core.config import get_settings
@@ -15,6 +15,7 @@ from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAss
 from app.modules.public_review.authorization import PublicShareAccessDenied, PublicShareScopeService
 from app.modules.public_review.model import PublicShareModel
 from app.modules.public_review.public_thumbnail import PublicThumbnailResolver, PublicThumbnailUnavailable
+from app.modules.public_review.video_delivery import PublicVideoDeliveryResolver
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.public_review.rate_limit import PublicRateLimitExceeded, consume
 from app.modules.public_review.repository import PublicReviewRepository
@@ -120,7 +121,14 @@ async def media(public_share_id,asset_id,request,source_id):
    released=True
    _public_media_slots.release()
  try:
-  p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_id);resolver=SourceAssetContentResolver(SessionLocal)
+  p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_id)
+  ticket=PublicVideoDeliveryResolver(SessionLocal,get_settings()).resolve(principal=p,asset=a,source=src)
+  if ticket is not None:
+   await release()
+   r=RedirectResponse(ticket.url,status_code=307)
+   r.headers.update({"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"})
+   return r
+  resolver=SourceAssetContentResolver(SessionLocal)
  except BaseException:
   await release()
   raise

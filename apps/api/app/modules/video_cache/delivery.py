@@ -61,7 +61,12 @@ class VideoCacheDeliveryService:
         self.settings = settings
         self._clock = clock or (lambda: int(time.time()))
 
-    def create_signed_url(self, cache_object: VideoCacheObjectModel) -> SignedVideoDelivery:
+    def create_signed_url(
+        self,
+        cache_object: VideoCacheObjectModel,
+        *,
+        expires_at_cap: int | None = None,
+    ) -> SignedVideoDelivery:
         if not self.settings.video_delivery_configured:
             raise VideoDeliveryNotConfigured("Video delivery is not configured")
         try:
@@ -81,6 +86,14 @@ class VideoCacheDeliveryService:
         if isinstance(current, bool) or not isinstance(current, int) or current < 0:
             raise VideoDeliveryUnavailable("Video delivery is unavailable")
         expires_at = current + self.settings.R2_VIDEO_MEDIA_TICKET_TTL_SECONDS
+        if expires_at_cap is not None:
+            if (
+                isinstance(expires_at_cap, bool)
+                or not isinstance(expires_at_cap, int)
+                or expires_at_cap <= current
+            ):
+                raise VideoDeliveryUnavailable("Video delivery is unavailable")
+            expires_at = min(expires_at, expires_at_cap)
         pathname = "/" + expected_key
         signature = sign_read_path(
             self.settings.R2_VIDEO_MEDIA_SIGNING_SECRET.get_secret_value(),
