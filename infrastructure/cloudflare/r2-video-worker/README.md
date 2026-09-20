@@ -93,3 +93,26 @@ optionally send one signed HEAD request for a random, absent preflight key. The
 expected result is 404: this proves the route accepted the HMAC ticket and then
 looked up the private R2 binding. The probe performs no PUT/DELETE/list and does
 not use a user asset. A 403 or other response fails rollout readiness.
+
+
+## Phase 4D production configuration and canary scope
+
+Use `deploy.tools.r2_video_worker_rollout` from the repository root to render
+`wrangler.production.json`. The generated file is ignored by Git and contains
+no secret value. It uses a Custom Domain, keeps `workers_dev=false`, binds the
+private R2 bucket as `VIDEO_CACHE_BUCKET`, and declares the signing secret as
+required.
+
+The rollout helper's `plan` subcommand does not execute Wrangler. It labels
+which suggested commands mutate Cloudflare and keeps the application runtime
+gate OFF as a rollout invariant.
+
+Application traffic is additionally scoped by
+`VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS`. Empty canary scope with global rollout
+false is deny-all. Promotion to all tenants requires the separate
+`VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED=true` setting and an empty canary
+list.
+
+For the production canary, use the application Phase 4D preflight with both
+`--probe-worker` and `--probe-ready-object` before enabling the persisted
+runtime gate.
