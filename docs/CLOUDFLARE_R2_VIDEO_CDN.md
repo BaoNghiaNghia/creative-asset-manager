@@ -1235,7 +1235,8 @@ For a Public Review preview request the server performs this order:
 5. read the persisted Phase 4A runtime gate;
 6. require effective R2/signed-delivery readiness;
 7. find a READY cache object for the same tenant + canonical content hash and
-   require that the cache row belongs to the same canonical asset;
+   require that the cache row matches both the already-authorized `asset_id`
+   and `source_asset_id`;
 8. issue a short signed delivery URL;
 9. return a temporary `307` redirect with `Cache-Control: no-store` and
    `Referrer-Policy: no-referrer`.

@@ -53,7 +53,7 @@ def setup():
         session.add(VideoCacheObjectModel(
             tenant_id="tenant-a",
             asset_id="asset-video",
-            source_asset_id="source-cache",
+            source_asset_id="source-authorized",
             content_hash="d" * 64,
             r2_key=video_cache_key("tenant-a", "d" * 64),
             mime_type="video/mp4",
@@ -142,6 +142,11 @@ def test_cache_identity_and_tenant_mismatch_fail_closed():
         principal=principal(),
         asset=video_asset(id="different-asset"),
         source=video_source(),
+    ) is None
+    assert resolver.resolve(
+        principal=principal(),
+        asset=video_asset(),
+        source=video_source(id="different-source"),
     ) is None
     assert resolver.resolve(
         principal=SimpleNamespace(
