@@ -38,6 +38,7 @@ def configured_settings(**updates) -> Settings:
         "R2_VIDEO_MEDIA_SIGNING_SECRET": SIGNING_SECRET,
         "VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS": "tenant-a",
         "VIDEO_CDN_DELIVERY_GUARD_ENABLED": True,
+        "VIDEO_CDN_DELIVERY_GUARD_ENABLED": True,
     }
     values.update(updates)
     return Settings(_env_file=None, **values)
@@ -91,6 +92,7 @@ def test_runtime_default_is_off_even_when_prerequisites_are_ready():
     assert status["canary_tenant_count"] == 1
     assert status["prerequisites"]["rollout_scope_configured"] is True
     assert status["prerequisites"]["delivery_guard_enabled"] is True
+    assert status["prerequisites"]["delivery_guard_enabled"] is True
     engine.dispose()
 
 
@@ -131,6 +133,7 @@ def test_enable_fails_closed_when_any_prerequisite_is_missing():
         configured_settings(R2_VIDEO_MEDIA_BASE_URL=""),
         configured_settings(R2_VIDEO_MEDIA_SIGNING_SECRET=""),
         configured_settings(VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS=""),
+        configured_settings(VIDEO_CDN_DELIVERY_GUARD_ENABLED=False),
         configured_settings(VIDEO_CDN_DELIVERY_GUARD_ENABLED=False),
     ):
         with factory() as session:
