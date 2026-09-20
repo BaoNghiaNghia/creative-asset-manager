@@ -83,7 +83,10 @@ class PublicVideoDeliveryResolver:
         with self.session_factory() as session:
             try:
                 runtime = VideoDeliveryRuntimeService(session, self.settings).get_status()
-                if not runtime["effective_enabled"]:
+                if (
+                    not runtime["effective_enabled"]
+                    or not self.settings.video_delivery_tenant_allowed(tenant_id)
+                ):
                     return None
                 repository = VideoCacheRepository(session)
                 cache_object = repository.get_by_tenant_and_hash(tenant_id, content_hash)
