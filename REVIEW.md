@@ -2594,3 +2594,21 @@ npm run typecheck -- --pretty false (passed).
 - It reuses the existing safe `RichAnnotation` renderer. No public bearer endpoint, browser-supplied actor/tenant, raw HTML renderer, provider URL, or provider credential was added.
 - Authenticated media preview has no existing exact-source-safe Board contract, so this phase shows a bounded preview-unavailable state rather than reusing public media or guessing provider paths. No Explorer authorization is broadened.
 - Phase 9C adds no backend changes, migration, public resolve/reopen, new workflow status, deployment, or production migration. Phase 9D remains the production-readiness gate.
+
+## R2 original-video cache Phase 1 review
+
+- Added disabled-by-default, validated R2 settings. Both SDK credential fields use redacted SecretStr; no real credential or production setting was changed.
+- R2 SDK calls are isolated behind a private adapter and dispatched from async code with asyncio.to_thread. Not-found and retryable/permanent failures are normalized without echoing SDK messages or URLs. No bucket listing or public URL path exists.
+- The video-only service generates tenant/hash keys, streams in 16 MiB parts, verifies SHA-256 and authoritative size before multipart completion, HEAD-checks the completed object size, and attempts abort/delete on failures or cancellation. Source assets remain authoritative and untouched by cache deletion.
+- Tenant-qualified repository admission checks canonical asset hash, exact asset/source link, and both video MIME types. The separate table stores no credentials; READY size and PREPARING reservations are counted independently.
+- Migration 0082 creates only metadata, with no backfill or R2 calls. Local PostgreSQL 12 and 16 upgrade → downgrade → upgrade passed. No production migration/deployment occurred.
+- Phase 2 fill scheduling, retry orchestration, concurrent quota enforcement, remote-orphan reconciliation and LRU cleanup are deliberately pending. An existing deep SQLite downgrade test fails on a historical 0079 constraint operation; the new 0082 step round-trip passes.
+- Rollback: keep R2_VIDEO_CACHE_ENABLED=false, downgrade 0082 to 0081 only after deciding whether to retain cache metadata. DB downgrade does not delete remote R2 objects; remove only known CAM-owned cache keys through an authorized cleanup procedure.
+
+## R2 original-video cache Phase 3A review
+
+- Phase 3A adds optional delivery config separate from cache-fill capability. Absent delivery values do not block Phase 2; present base URL/TTL/secret values are validated and the signing secret is redacted.
+- The internal signer accepts only READY video rows with an exact Phase 1 server-generated tenant/hash key. It does not implement CAM authorization or expose a route; a future Phase 4 caller must authorize before signing.
+- The standalone Worker validates exact path, v1/read HMAC-SHA256, expiry and method before private R2 access. Unauthorized requests have generic 403; signed missing keys return 404. GET streams the original and HEAD returns metadata. Both languages use one fixed test vector.
+- Phase 3A intentionally has no Range/206, edge Cache API, custom domain, Public Review integration, runtime toggle, migration, production secret change or deployment. Its 200 full-body Range behavior is only a temporary secure-delivery foundation; Phase 3B is required before playback rollout.
+- Rollback: do not attach a public route or configure delivery until approved. If later activated, disable ticket issuance/remove the Worker route and rotate the shared signing secret if compromise is suspected; Phase 2 cache data and authoritative Drive/OneDrive sources remain unchanged.

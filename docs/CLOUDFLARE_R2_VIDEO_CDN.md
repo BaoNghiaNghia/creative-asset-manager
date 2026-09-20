@@ -1,9 +1,21 @@
 # Cloudflare R2 Video CDN / Hot Cache Design
 
-Status: **Proposed**  
+Status: **Phased local implementation; not deployed**
+
+Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, and Phase 3B Range/206 plus authenticated Worker edge caching are implemented locally. Phase 4 Public Review integration remains pending. No production deployment is implied.
+
+The cache is disabled by default. Migration 0082 adds the storage foundation; additive 0083 adds durable fill/cleanup ownership. Phase 3A adds no migration, route, Public Review behavior, Worker deployment, Range support or CDN caching. A READY original-video row can be signed by an internal service; a standalone un-deployed Worker verifies that ticket before private R2 GET/HEAD. See docs/operations/R2_VIDEO_CACHE.md for the exact ticket and safe rollout boundaries.
+
 Scope: **Video playback only**  
 Branch target: **main**  
 Repository: `BaoNghiaNghia/creative-asset-manager`
+
+Phase 3A ticket bytes are `v1\nread\n/{server_generated_r2_key}\n{unix_exp}`
+(no trailing newline), signed with HMAC-SHA256 and base64url without padding.
+The only path is `/video-cache/{tenant_id}/{lowercase_sha256}/original`.
+The media URL carries exactly `v=1&exp=<seconds>&sig=<signature>`. The
+Worker uses a private R2 binding, returns `private, no-store`, and has no
+write/list/delete route. GET streams the full object; HEAD returns metadata.
 
 ## 1. Purpose
 
@@ -1141,3 +1153,20 @@ no R2
 The most important invariant is:
 
 > **R2 is an optional, disposable acceleration layer. It must never become the only copy of an asset, and it must never be required for the source asset to remain usable.**
+
+## Phase 3B delivery behavior - implemented locally, not deployed
+
+After method, exact signed query, expiry, path and HMAC validation, a full GET
+uses one internal Cache API identity: `https://cam-r2-video-cache.internal{pathname}`.
+The fixed trusted origin prevents Host-header cache namespaces; the ticket query
+is never in the key. Only successful full immutable originals are cached. Client
+responses remain `private, no-store`; the internal representation is immutable.
+
+The Worker supports one `bytes=start-end`, `bytes=start-`, or
+`bytes=-suffix` range. Valid requests return 206 with `Content-Range`,
+`Content-Length`, and `Accept-Ranges: bytes`; malformed, multiple, or
+unsatisfiable ranges return 416 with `Content-Range: bytes */size`. A cold
+Range intentionally bypasses Cache API and performs R2 HEAD plus native ranged
+GET, streaming only the requested bytes. HEAD always returns full metadata and
+no body. No unauthenticated request can read or populate edge cache. Phase 4
+still owns Public Review integration and runtime delivery selection.

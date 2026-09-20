@@ -40,3 +40,7 @@ Thumbs.db
 
 # Test output
 /artifacts/
+
+
+# Local Pi / SoL-Pi workspace
+.pi/

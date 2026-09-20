@@ -8,7 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import urlsplit
 
-from pydantic import field_validator, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.test_bootstrap import activate_test_environment
@@ -70,7 +70,7 @@ FEATURE_FLAG_NAMES = (
 class Settings(BaseSettings):
     """Validated application settings for architecture rollout flags."""
 
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
     PUBLIC_APP_URL: str = "http://localhost:5173"
     CORS_ALLOWED_ORIGINS: str = "http://localhost:5173"
@@ -151,6 +151,24 @@ class Settings(BaseSettings):
     VISUAL_ENCODER_TIMEOUT_SECONDS: float = 30.0
     VISUAL_ENCODER_INTERNAL_KEY: str = ''
     VIDEO_SEARCH_ENABLED: bool = False
+    R2_VIDEO_CACHE_ENABLED: bool = False
+    R2_ACCOUNT_ID: str = ""
+    R2_BUCKET_NAME: str = ""
+    R2_ACCESS_KEY_ID: SecretStr = SecretStr("")
+    R2_SECRET_ACCESS_KEY: SecretStr = SecretStr("")
+    R2_ENDPOINT: str = ""
+    R2_VIDEO_CACHE_SOFT_LIMIT_BYTES: int = 8_000_000_000
+    R2_VIDEO_CACHE_HARD_LIMIT_BYTES: int = 9_000_000_000
+    R2_VIDEO_CACHE_MAX_OBJECT_BYTES: int = 1_800_000_000
+    R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS: int = 300
+    R2_VIDEO_CACHE_PREPARING_STALE_SECONDS: int = 3600
+    R2_VIDEO_CACHE_CLEANUP_INTERVAL_SECONDS: int = 600
+    R2_VIDEO_CACHE_CLEANUP_BATCH_SIZE: int = 25
+    R2_VIDEO_CACHE_CLEANUP_MAX_ITEMS_PER_RUN: int = 100
+    R2_VIDEO_CACHE_REAL_SMOKE: bool = False
+    R2_VIDEO_MEDIA_BASE_URL: str = ""
+    R2_VIDEO_MEDIA_SIGNING_SECRET: SecretStr = SecretStr("")
+    R2_VIDEO_MEDIA_TICKET_TTL_SECONDS: int = 600
     # Image generation is deny-by-default. Provider selection is explicit and
     # Firefly/Gemini never fall back to one another.
     IMAGE_GENERATION_ENABLED: bool = False
@@ -769,8 +787,83 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_LOG_LEVEL is invalid")
         return normalized
 
+    @property
+    def r2_endpoint_url(self) -> str:
+        return self.R2_ENDPOINT.strip() or f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+    @property
+    def video_delivery_configured(self) -> bool:
+        return bool(self.R2_VIDEO_MEDIA_BASE_URL.strip() and self.R2_VIDEO_MEDIA_SIGNING_SECRET.get_secret_value())
+
+    @property
+    def video_media_base_url(self) -> str:
+        return self.R2_VIDEO_MEDIA_BASE_URL.strip().rstrip("/")
+
     @model_validator(mode="after")
     def validate_worker_runtime(self) -> "Settings":
+        if not 0 < self.R2_VIDEO_CACHE_SOFT_LIMIT_BYTES < self.R2_VIDEO_CACHE_HARD_LIMIT_BYTES < 10_000_000_000:
+            raise ValueError("R2 video cache limits are invalid")
+        if not 0 < self.R2_VIDEO_CACHE_MAX_OBJECT_BYTES <= self.R2_VIDEO_CACHE_HARD_LIMIT_BYTES:
+            raise ValueError("R2_VIDEO_CACHE_MAX_OBJECT_BYTES is invalid")
+        if self.R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS <= 0:
+            raise ValueError("R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS must be positive")
+        if not 300 <= self.R2_VIDEO_CACHE_PREPARING_STALE_SECONDS <= 7 * 24 * 3600:
+            raise ValueError("R2_VIDEO_CACHE_PREPARING_STALE_SECONDS is invalid")
+        if not 60 <= self.R2_VIDEO_CACHE_CLEANUP_INTERVAL_SECONDS <= 24 * 3600:
+            raise ValueError("R2_VIDEO_CACHE_CLEANUP_INTERVAL_SECONDS is invalid")
+        if not 1 <= self.R2_VIDEO_CACHE_CLEANUP_BATCH_SIZE <= self.R2_VIDEO_CACHE_CLEANUP_MAX_ITEMS_PER_RUN <= 1000:
+            raise ValueError("R2 video cache cleanup batch limits are invalid")
+        if not 0 < self.R2_VIDEO_MEDIA_TICKET_TTL_SECONDS <= 3600:
+            raise ValueError("R2_VIDEO_MEDIA_TICKET_TTL_SECONDS must be between 1 and 3600")
+        base = self.R2_VIDEO_MEDIA_BASE_URL
+        if base:
+            parsed = urlsplit(base)
+            try:
+                port = parsed.port
+            except ValueError as exc:
+                raise ValueError("R2_VIDEO_MEDIA_BASE_URL must be an HTTP(S) origin") from exc
+            if (
+                any(ord(char) <= 32 or ord(char) == 127 for char in base)
+                or any(char in base for char in ("\\", "%"))
+                or parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or not re.fullmatch(
+                    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|::1",
+                    parsed.hostname,
+                )
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.path not in ("", "/")
+                or parsed.query or parsed.fragment
+                or (port is not None and not 1 <= port <= 65535)
+                or (parsed.scheme == "http" and (
+                    self.is_production or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+                ))
+            ):
+                raise ValueError("R2_VIDEO_MEDIA_BASE_URL must be a safe HTTP(S) origin")
+        secret = self.R2_VIDEO_MEDIA_SIGNING_SECRET.get_secret_value()
+        if secret and (
+            len(secret.encode("utf-8")) < 32
+            or len(set(secret)) < 8
+            or any(ord(char) <= 32 or ord(char) == 127 for char in secret)
+        ):
+            raise ValueError("R2_VIDEO_MEDIA_SIGNING_SECRET is invalid")
+        if self.R2_VIDEO_CACHE_ENABLED:
+            if not all((self.R2_ACCOUNT_ID, self.R2_BUCKET_NAME, self.R2_ACCESS_KEY_ID.get_secret_value(), self.R2_SECRET_ACCESS_KEY.get_secret_value())):
+                raise ValueError("R2 video cache configuration is incomplete")
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", self.R2_ACCOUNT_ID):
+                raise ValueError("R2_ACCOUNT_ID is invalid")
+            if not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", self.R2_BUCKET_NAME):
+                raise ValueError("R2_BUCKET_NAME is invalid")
+            endpoint = urlsplit(self.r2_endpoint_url)
+            if (
+                endpoint.scheme != "https"
+                or endpoint.hostname != f"{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+                or endpoint.port not in (None, 443)
+                or endpoint.username or endpoint.password
+                or endpoint.path not in ("", "/") or endpoint.query or endpoint.fragment
+            ):
+                raise ValueError("R2_ENDPOINT must be the account R2 HTTPS origin")
         public_url = urlsplit(self.PUBLIC_APP_URL)
         if (
             public_url.scheme not in {"http", "https"}

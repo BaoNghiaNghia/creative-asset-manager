@@ -1,0 +1,7 @@
+{
+  "secret": "phase-3a-test-only-secret-with-entropy-2026",
+  "pathname": "/video-cache/test-tenant/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/original",
+  "expires_at": 2000000000,
+  "canonical": "v1\nread\n/video-cache/test-tenant/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/original\n2000000000",
+  "signature": "69e5aklIRKyr2T-xC9Ly90l9pTSTSnNHqpETF-okz9Q"
+}
