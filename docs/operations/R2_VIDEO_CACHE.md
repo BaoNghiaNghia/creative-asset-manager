@@ -149,7 +149,9 @@ python -m deploy.tools.r2_video_worker_rollout render \
 The rendered config disables workers.dev, uses one Custom Domain, binds only
 `VIDEO_CACHE_BUCKET`, and declares
 `R2_VIDEO_MEDIA_SIGNING_SECRET` as a required secret name. The renderer never
-reads or writes the secret value.
+reads or writes the secret value. The rollout plan first inspects the expected
+remote Worker project and stops if it does not exist; first-time Worker account
+bootstrap remains a separately approved operator action.
 
 Inspect the non-executing remote rollout plan with:
 
@@ -173,7 +175,7 @@ python -m app.operations.video_delivery_preflight \
 The missing-key probe expects 404. The READY-object probe issues HEAD only and
 requires 200 with the durable byte size, video content type and byte-range
 support. Neither probe downloads a video body or prints tenant/asset/object
-identity.
+identity. Redirects are not followed; any 3xx response fails the probe.
 
 Only after those checks are green should the platform-admin runtime toggle be
 enabled. Rollback order is: disable the application runtime toggle first, then
