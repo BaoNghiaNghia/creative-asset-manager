@@ -11,7 +11,7 @@ import json
 from dataclasses import asdict, dataclass
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -46,6 +46,15 @@ class PreflightCheck:
 
 def _check(code: str, ok: bool, passed: str, failed: str) -> PreflightCheck:
     return PreflightCheck(code=code, ok=ok, detail=passed if ok else failed)
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _open_no_redirect(request: Request, *, timeout: float):
+    return build_opener(_NoRedirect).open(request, timeout=timeout)
 
 
 def video_delivery_preflight(
@@ -164,7 +173,7 @@ def video_delivery_preflight(
 def probe_worker_ticket(
     settings: Settings,
     *,
-    opener=urlopen,
+    opener=_open_no_redirect,
     timeout_seconds: float = 5.0,
 ) -> PreflightCheck:
     """Verify route + HMAC agreement with a signed HEAD for a random missing key.
