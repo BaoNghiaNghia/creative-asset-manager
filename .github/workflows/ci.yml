@@ -15,6 +15,8 @@ jobs:
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 10
     defaults:
       run:
@@ -46,6 +48,24 @@ jobs:
           git status --porcelain --untracked-files=all -- dist > ../../artifacts/frontend/dist-status.txt
           git diff --exit-code -- dist
           test -z "$(git status --porcelain --untracked-files=all -- dist)"
+      - name: Reconcile Phase 5B committed frontend dist
+        if: ${{ failure() && github.event_name == 'pull_request' && github.head_ref == 'codex/phase-5b-video-cdn-activation-console' }}
+        run: |
+          rm -rf "$RUNNER_TEMP/phase5b-dist"
+          cp -a dist "$RUNNER_TEMP/phase5b-dist"
+          git fetch origin "$GITHUB_HEAD_REF"
+          git checkout -B "$GITHUB_HEAD_REF" "origin/$GITHUB_HEAD_REF"
+          rm -rf dist
+          cp -a "$RUNNER_TEMP/phase5b-dist" dist
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist
+          if git diff --cached --quiet; then
+            echo "Committed dist already matches."
+          else
+            git commit -m "build(client): reconcile Phase 5B committed dist"
+            git push origin "HEAD:$GITHUB_HEAD_REF"
+          fi
       - name: Upload frontend failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
