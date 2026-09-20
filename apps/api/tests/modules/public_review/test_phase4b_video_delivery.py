@@ -139,7 +139,7 @@ def test_runtime_off_missing_cache_and_non_video_use_source_fallback():
         session.delete(cache)
         session.commit()
     assert delivery.resolve(principal=principal(), asset=video_asset(), source=video_source()) is None
-    assert resolver.resolve(
+    assert delivery.resolve(
         principal=principal(),
         asset=video_asset(mime_type="image/jpeg"),
         source=video_source(filename="image.jpg", mime_type="image/jpeg"),
@@ -149,18 +149,18 @@ def test_runtime_off_missing_cache_and_non_video_use_source_fallback():
 
 def test_cache_identity_and_tenant_mismatch_fail_closed():
     engine, factory = setup()
-    resolver = PublicVideoDeliveryResolver(factory, settings())
-    assert resolver.resolve(
+    delivery = resolver(factory)
+    assert delivery.resolve(
         principal=principal(),
         asset=video_asset(id="different-asset"),
         source=video_source(),
     ) is None
-    assert resolver.resolve(
+    assert delivery.resolve(
         principal=principal(),
         asset=video_asset(),
         source=video_source(id="different-source"),
     ) is None
-    assert resolver.resolve(
+    assert delivery.resolve(
         principal=SimpleNamespace(
             tenant_id="tenant-b",
             expires_at=None,
