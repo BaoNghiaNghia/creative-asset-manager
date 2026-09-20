@@ -153,6 +153,14 @@ def rollout_plan(config_path: Path, *, release_tag: str) -> dict[str, Any]:
                 ],
             },
             {
+                "stage": "remote_inspect",
+                "mutates_remote": False,
+                "commands": [
+                    f"npx wrangler deployments list --config {config_arg}"
+                ],
+                "note": "Stop if the expected Worker project does not already exist; bootstrap it only under separate operator approval.",
+            },
+            {
                 "stage": "operator_secret_setup",
                 "mutates_remote": True,
                 "commands": [
