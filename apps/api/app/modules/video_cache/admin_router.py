@@ -22,6 +22,7 @@ router = APIRouter(
 class VideoDeliveryPrerequisitesResponse(BaseModel):
     r2_video_cache_enabled: bool
     delivery_configured: bool
+    rollout_scope_configured: bool
 
 
 class VideoDeliveryRuntimeResponse(BaseModel):
