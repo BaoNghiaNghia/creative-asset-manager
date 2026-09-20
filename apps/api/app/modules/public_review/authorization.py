@@ -33,6 +33,7 @@ class SharePrincipal:
     allow_comments: bool
     allow_download: bool
     expires_at: datetime | None
+    session_expires_at: datetime
 
 
 class PublicShareScopeService:
@@ -81,6 +82,7 @@ class PublicShareScopeService:
             allow_comments=share.allow_comments,
             allow_download=share.allow_download,
             expires_at=share.expires_at,
+            session_expires_at=row.expires_at,
         )
 
     @staticmethod

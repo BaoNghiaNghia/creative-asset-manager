@@ -83,6 +83,7 @@ def test_public_scope_allows_selected_descendants_and_exact_source_pairs(review_
 
     assert principal.share_id == share.id
     assert principal.session_id == session.id
+    assert principal.session_expires_at == session.expires_at
     assert service.allowed_asset_source_pairs(principal=principal) == {
         ("asset-allowed", "source-allowed"),
     }

@@ -2622,3 +2622,16 @@ npm run typecheck -- --pretty false (passed).
 - The API/UI expose only safe readiness booleans, blocker codes, and update time. No R2 credential, signing secret, media origin, object key, actor identifier, or stored reason is returned.
 - Phase 4A deliberately does not alter Review/Public Review playback, issue signed tickets from a public route, change Worker behavior, modify cache-fill jobs, delete cache data, or touch source assets. Phase 4B remains pending.
 - Rollback: keep/restore the runtime toggle to OFF. If the schema change itself must be reverted, downgrade 0084 to 0083 after confirming the global runtime-setting/audit history can be discarded. R2 cache objects and Drive/OneDrive source assets are independent of this table.
+
+
+## R2 original-video cache Phase 4B review
+
+- Public Review keeps the existing preview URL. No new unauthenticated ticket endpoint or ticket-bearing JSON response was added.
+- The preview route resolves and revalidates the public session/share and authorizes the exact asset/source pair before any CDN lookup or signing attempt.
+- Only video assets can enter the CDN resolver. The READY cache lookup is tenant/hash scoped and must match the already-authorized canonical asset ID; foreign-tenant, wrong-asset and non-video inputs fail closed to the existing source path.
+- The Phase 4A persisted runtime gate remains authoritative. OFF, missing runtime state, missing READY cache metadata, or safe signing failures all fall back to SourceAssetContentResolver instead of breaking playback.
+- Signed ticket expiry is capped by the current public-review session expiry and optional share expiry in addition to the configured media TTL. Revocation blocks new ticket issuance immediately; already-issued tickets expire within the bounded ticket lifetime.
+- CDN handoff uses a temporary 307 with no-store/private, no-referrer and nosniff response policy so browser byte-range GET semantics can continue against the Phase 3B Worker.
+- Cache LRU access is touched only after a ticket is successfully minted. R2 remains disposable cache; provider sources remain authoritative and untouched.
+- Phase 4B adds no migration, no new frontend API contract, no production flag change, no Worker change and no production deployment.
+- Rollback: disable VIDEO_CDN_DELIVERY_ENABLED. Provider streaming remains the fallback and no R2 object deletion/database downgrade is required.

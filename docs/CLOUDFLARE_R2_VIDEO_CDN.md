@@ -2,7 +2,7 @@
 
 Status: **Phased local implementation; not deployed**
 
-Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, and Phase 4A persisted admin runtime gating are implemented locally. The Phase 4A gate remains disabled by default and is not wired into playback. Phase 4B Public Review playback integration remains pending. No production deployment is implied.
+Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, Phase 4A persisted admin runtime gating, and Phase 4B authorization-preserving Public Review video playback handoff are implemented. The runtime gate remains disabled by default. No production deployment is implied.
 
 The cache is disabled by default. Migration 0082 adds the storage foundation; additive 0083 adds durable fill/cleanup ownership. Phase 3A adds no migration, route, Public Review behavior, Worker deployment, Range support or CDN caching. A READY original-video row can be signed by an internal service; a standalone un-deployed Worker verifies that ticket before private R2 GET/HEAD. See docs/operations/R2_VIDEO_CACHE.md for the exact ticket and safe rollout boundaries.
 
@@ -1217,3 +1217,57 @@ Phase 4A intentionally does not change:
 
 Phase 4B must perform the authorization-preserving playback integration and
 retain the existing provider-backed source path as the safe fallback.
+
+
+---
+
+## Phase 4B - Authorization-preserving Public Review playback handoff
+
+Phase 4B keeps the existing Public Review `preview_url` contract. The browser
+does not receive a new ticket endpoint or a ticket in JSON.
+
+For a Public Review preview request the server performs this order:
+
+1. resolve the opaque public-review session cookie;
+2. revalidate the active share/session;
+3. authorize the exact `(asset_id, source_asset_id)` pair;
+4. detect that the authorized asset is video;
+5. read the persisted Phase 4A runtime gate;
+6. require effective R2/signed-delivery readiness;
+7. find a READY cache object for the same tenant + canonical content hash and
+   require that the cache row belongs to the same canonical asset;
+8. issue a short signed delivery URL;
+9. return a temporary `307` redirect with `Cache-Control: no-store` and
+   `Referrer-Policy: no-referrer`.
+
+If any delivery prerequisite, runtime row, READY cache object, or safe signing
+operation is unavailable, Public Review falls back to the existing
+`SourceAssetContentResolver` provider stream. The CDN path is therefore an
+optimization, not an availability dependency.
+
+The ticket expiry is capped by both the configured media ticket TTL and the
+current public-review session expiry (and by share expiry when configured).
+Revoking a share/session prevents any new ticket issuance immediately. A ticket
+already issued before revocation remains usable only until its short signed
+expiry; this bounded revocation window is inherent to the capability URL.
+
+Range requests continue to use the same public `preview_url`; a `307`
+preserves the GET semantics so the browser can repeat its byte-range request
+against the Worker. The Worker remains responsible for signed-path validation,
+single-range handling, private R2 reads and authenticated edge caching.
+
+Phase 4B intentionally does not:
+
+- expose provider credentials or provider download URLs;
+- expose the signing secret;
+- add a public ticket-minting JSON endpoint;
+- change image thumbnail delivery;
+- make R2 a source of truth;
+- delete or modify provider source assets;
+- enable the runtime gate automatically;
+- deploy Worker/API/frontend changes to production.
+
+Rollback is immediate at the application level: set
+`VIDEO_CDN_DELIVERY_ENABLED` to OFF. Public Review then uses the existing
+provider stream without requiring a database downgrade or deleting R2 cache
+objects.
