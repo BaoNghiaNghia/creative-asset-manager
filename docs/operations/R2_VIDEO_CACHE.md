@@ -241,3 +241,62 @@ For canary rollout, inspect this endpoint per API process/instance where
 possible. If the circuit opens or provider fallback rises unexpectedly, keep or
 set the persisted runtime toggle OFF before investigating Worker/R2. Do not
 increase thresholds to mask a failing canary.
+
+
+## Phase 5A activation gate
+
+Phase 4A–4E are code-complete. Phase 5A does not deploy or enable production;
+it hardens the boundary immediately before operator activation.
+
+The persisted master runtime toggle can now be enabled only when all server
+prerequisites are true:
+
+- R2 video cache enabled;
+- signed delivery configured;
+- canary/global rollout scope configured;
+- Phase 4E delivery guard enabled.
+
+If any prerequisite disappears while the persisted row is ON,
+`effective_enabled` becomes false and Public Review falls back to the source
+provider path. Disabling the persisted toggle remains allowed regardless of
+prerequisite health.
+
+Before production activation, use the single read-only gate:
+
+```bash
+cd apps/api
+python -m app.operations.video_delivery_activation
+```
+
+The command requires production by default and performs the full static
+preflight plus both signed HEAD checks:
+
+1. current single Alembic head;
+2. production environment;
+3. R2 cache and signed delivery configuration;
+4. approved private Worker/custom-domain origin;
+5. explicit tenant canary scope by default;
+6. persisted runtime row present and still OFF;
+7. guard enabled;
+8. cache quota below the soft limit and no active deletion;
+9. at least one READY video;
+10. authenticated missing-key Worker probe returning 404;
+11. READY-object Worker probe returning matching HEAD metadata.
+
+The command is read-only. It does not enable the runtime gate, update the
+database, upload/delete/list R2 objects, deploy Cloudflare, change DNS, or print
+signed URLs, credentials, tenant IDs, asset/source IDs or object keys.
+
+A staging dry run must be explicit:
+
+```bash
+python -m app.operations.video_delivery_activation --allow-non-production
+```
+
+A future global rollout also requires an explicit
+`--allow-global-rollout`; the default production path requires tenant canary
+scope.
+
+Only when the JSON result reports `"ready_to_enable": true` should a platform
+administrator use the audited runtime endpoint/UI to enable delivery. This
+command intentionally cannot perform that mutation.
