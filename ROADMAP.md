@@ -152,4 +152,5 @@
 - [x] Phase 2 durable video-only cache-fill jobs, serialized global reservations/quota, LRU eviction, retry, cleanup and reconciliation (local only; disabled by default).
 - [x] Phase 3A short-lived signed video URLs and private Worker GET/HEAD foundation (local only).
 - [x] Phase 3B Range/206 and Cloudflare edge caching (implemented locally; not deployed).
-- [ ] Phase 4 Public Review playback integration.
+- [x] Phase 4A persisted global `VIDEO_CDN_DELIVERY_ENABLED` runtime gate and platform-admin UI (local only; default OFF; no playback change).
+- [ ] Phase 4B Public Review playback integration with authorized signed-ticket delivery and source fallback.

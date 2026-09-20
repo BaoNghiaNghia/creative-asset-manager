@@ -2612,3 +2612,13 @@ npm run typecheck -- --pretty false (passed).
 - The standalone Worker validates exact path, v1/read HMAC-SHA256, expiry and method before private R2 access. Unauthorized requests have generic 403; signed missing keys return 404. GET streams the original and HEAD returns metadata. Both languages use one fixed test vector.
 - Phase 3A intentionally has no Range/206, edge Cache API, custom domain, Public Review integration, runtime toggle, migration, production secret change or deployment. Its 200 full-body Range behavior is only a temporary secure-delivery foundation; Phase 3B is required before playback rollout.
 - Rollback: do not attach a public route or configure delivery until approved. If later activated, disable ticket issuance/remove the Worker route and rotate the shared signing secret if compromise is suspected; Phase 2 cache data and authoritative Drive/OneDrive sources remain unchanged.
+
+
+## R2 original-video cache Phase 4A review
+
+- Added a persisted singleton global `VIDEO_CDN_DELIVERY_ENABLED` setting. Migration 0084 seeds it OFF; no deployment or R2 operation is performed by the migration.
+- Added platform-administrator-only status/update APIs and an Admin Configuration card. Mutations require a bounded reason and write an audit event; tenant administrators and ordinary users do not receive this control.
+- Effective readiness is fail-closed: runtime intent must be enabled, `R2_VIDEO_CACHE_ENABLED` must be active, and the signed media delivery configuration must validate. Enabling is rejected when a prerequisite is missing; disabling remains available for rollback.
+- The API/UI expose only safe readiness booleans, blocker codes, and update time. No R2 credential, signing secret, media origin, object key, actor identifier, or stored reason is returned.
+- Phase 4A deliberately does not alter Review/Public Review playback, issue signed tickets from a public route, change Worker behavior, modify cache-fill jobs, delete cache data, or touch source assets. Phase 4B remains pending.
+- Rollback: keep/restore the runtime toggle to OFF. If the schema change itself must be reverted, downgrade 0084 to 0083 after confirming the global runtime-setting/audit history can be discarded. R2 cache objects and Drive/OneDrive source assets are independent of this table.

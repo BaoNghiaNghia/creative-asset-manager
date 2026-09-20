@@ -2,7 +2,7 @@
 
 Status: **Phased local implementation; not deployed**
 
-Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, and Phase 3B Range/206 plus authenticated Worker edge caching are implemented locally. Phase 4 Public Review integration remains pending. No production deployment is implied.
+Implementation status: Phase 1 storage foundation, Phase 2 durable fill/quota/LRU/cleanup, Phase 3A signed GET/HEAD delivery foundation, Phase 3B Range/206 plus authenticated Worker edge caching, and Phase 4A persisted admin runtime gating are implemented locally. The Phase 4A gate remains disabled by default and is not wired into playback. Phase 4B Public Review playback integration remains pending. No production deployment is implied.
 
 The cache is disabled by default. Migration 0082 adds the storage foundation; additive 0083 adds durable fill/cleanup ownership. Phase 3A adds no migration, route, Public Review behavior, Worker deployment, Range support or CDN caching. A READY original-video row can be signed by an internal service; a standalone un-deployed Worker verifies that ticket before private R2 GET/HEAD. See docs/operations/R2_VIDEO_CACHE.md for the exact ticket and safe rollout boundaries.
 
@@ -1170,3 +1170,50 @@ Range intentionally bypasses Cache API and performs R2 HEAD plus native ranged
 GET, streaming only the requested bytes. HEAD always returns full metadata and
 no body. No unauthenticated request can read or populate edge cache. Phase 4
 still owns Public Review integration and runtime delivery selection.
+
+
+---
+
+## Phase 4A - Persisted runtime delivery control
+
+Phase 4A adds rollout control only. It does not route Review or Public Review
+video playback through the signed Worker.
+
+The global setting is persisted as:
+
+```text
+VIDEO_CDN_DELIVERY_ENABLED
+```
+
+The migration seeds the setting to `false`. Only an authenticated platform
+administrator may read or mutate it through the admin API/UI, and every
+mutation requires a bounded reason and creates an audit event.
+
+Effective delivery readiness is computed server-side as:
+
+```text
+effective =
+    VIDEO_CDN_DELIVERY_ENABLED
+    AND R2_VIDEO_CACHE_ENABLED
+    AND signed delivery configuration is valid
+```
+
+Enabling fails closed when the R2 cache or signed-delivery configuration is not
+ready. Disabling remains available as a rollback action even if those
+prerequisites later become unavailable.
+
+The status API exposes only booleans, blocker codes, and the last update time.
+It does not expose the media origin, access keys, signing secret, R2 object
+keys, actor identifiers, or change reason.
+
+Phase 4A intentionally does not change:
+
+- Review/Public Review media routes;
+- provider fallback behavior;
+- cache-fill ownership or quota/LRU behavior;
+- Cloudflare Worker request handling;
+- R2 objects or source assets;
+- production deployment state.
+
+Phase 4B must perform the authorization-preserving playback integration and
+retain the existing provider-backed source path as the safe fallback.
