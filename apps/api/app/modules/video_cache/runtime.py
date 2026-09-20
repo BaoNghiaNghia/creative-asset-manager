@@ -1,7 +1,8 @@
-"""Persisted Phase 4A runtime gate for original-video CDN delivery.
+"""Persisted master runtime gate for original-video CDN delivery.
 
-The gate records rollout intent only. Phase 4A deliberately does not call this
-service from Public Review playback, media ticket issuance, or the Worker.
+The database row records operator rollout intent. Effective delivery additionally
+requires cache, signed-delivery, rollout-scope and Phase 4E guard prerequisites.
+Disabling the gate remains the application-level emergency rollback.
 """
 from __future__ import annotations
 
@@ -74,7 +75,13 @@ class VideoDeliveryRuntimeService:
         delivery_configured = bool(self.settings.video_delivery_configured)
         rollout_mode = self.settings.video_delivery_rollout_mode
         rollout_configured = rollout_mode != "disabled"
-        can_enable = cache_enabled and delivery_configured and rollout_configured
+        guard_enabled = bool(self.settings.VIDEO_CDN_DELIVERY_GUARD_ENABLED)
+        can_enable = (
+            cache_enabled
+            and delivery_configured
+            and rollout_configured
+            and guard_enabled
+        )
         runtime_enabled = bool(row.enabled)
         canary_tenant_count = len(self.settings.video_delivery_canary_tenant_ids)
         blockers: list[str] = []
@@ -86,6 +93,8 @@ class VideoDeliveryRuntimeService:
             blockers.append("video_delivery_config_missing")
         if rollout_mode == "disabled":
             blockers.append("video_delivery_rollout_scope_empty")
+        if not guard_enabled:
+            blockers.append("video_delivery_guard_disabled")
         return VideoDeliveryRuntimeStatus(
             setting=VIDEO_CDN_DELIVERY_SETTING_KEY,
             runtime_enabled=runtime_enabled,
@@ -95,6 +104,7 @@ class VideoDeliveryRuntimeService:
                 "r2_video_cache_enabled": cache_enabled,
                 "delivery_configured": delivery_configured,
                 "rollout_scope_configured": rollout_configured,
+                "delivery_guard_enabled": guard_enabled,
             },
             blockers=tuple(blockers),
             rollout_mode=rollout_mode,

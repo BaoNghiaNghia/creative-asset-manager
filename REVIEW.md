@@ -2671,3 +2671,16 @@ npm run typecheck -- --pretty false (passed).
 - Production canary preflight now requires the Phase 4E guard to be explicitly enabled. The guard itself defaults OFF so merging code does not create unexpected outbound probes before the Worker/custom domain is staged.
 - The breaker is process-local by design. Multi-process deployments may have independent breaker states; the persisted runtime toggle remains the global operator rollback control.
 - Phase 4E adds no migration, frontend bundle change, Cloudflare mutation, DNS change, R2 write/delete/list action or source-provider mutation.
+
+
+## R2 original-video cache Phase 5A review
+
+- Phase 4A–4E are complete; Phase 5A is the read-only boundary before any production traffic activation.
+- Added `delivery_guard_enabled` to the master runtime prerequisites. Enabling the persisted runtime row now fails closed if the Phase 4E guard is disabled.
+- If prerequisite configuration disappears while the persisted row remains ON, effective delivery becomes inactive and Public Review continues through provider fallback; disabling the row is always allowed.
+- Fixed the READY-object preflight probe to use the same no-redirect opener as the missing-key signed probe.
+- Added `python -m app.operations.video_delivery_activation`, which requires production by default and combines Alembic/config/runtime/quota/canary checks with missing-key and READY-object Worker HEAD probes.
+- The activation command is read-only. It does not update the runtime row, database data, Cloudflare, DNS, secrets, R2 objects or source-provider assets.
+- Output is intentionally identity-free: no signing secret, media origin, signed URL, tenant ID, asset/source ID or R2 key is emitted.
+- Global rollout and non-production dry runs both require explicit command-line overrides; tenant canary + production is the default activation contract.
+- No migration or frontend bundle change is part of Phase 5A.

@@ -242,8 +242,9 @@ def test_public_preview_redirect_requires_real_exact_share_scope(ctx):
   s.commit()
  viewer_folder_hierarchy_cache.invalidate(tenant_id="tenant-a",external_source_id="source-a")
  assert exchange(ctx).status_code==201
- configured=Settings(_env_file=None,R2_VIDEO_CACHE_ENABLED=True,R2_ACCOUNT_ID="test-account",R2_BUCKET_NAME="test-bucket",R2_ACCESS_KEY_ID="fake-id",R2_SECRET_ACCESS_KEY="fake-key",R2_VIDEO_MEDIA_BASE_URL="https://media.example.test",R2_VIDEO_MEDIA_SIGNING_SECRET=secret,VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="tenant-a")
- with patch("app.modules.public_review.public_router.get_settings",lambda:configured):
+ configured=Settings(_env_file=None,R2_VIDEO_CACHE_ENABLED=True,R2_ACCOUNT_ID="test-account",R2_BUCKET_NAME="test-bucket",R2_ACCESS_KEY_ID="fake-id",R2_SECRET_ACCESS_KEY="fake-key",R2_VIDEO_MEDIA_BASE_URL="https://media.example.test",R2_VIDEO_MEDIA_SIGNING_SECRET=secret,VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="tenant-a",VIDEO_CDN_DELIVERY_GUARD_ENABLED=True)
+ from app.modules.video_cache.guard import VideoDeliveryCircuitBreaker
+ with patch("app.modules.public_review.public_router.get_settings",lambda:configured), patch("app.modules.public_review.video_delivery.VIDEO_DELIVERY_GUARD",VideoDeliveryCircuitBreaker(clock=lambda:100.0)), patch("app.modules.public_review.video_delivery.probe_signed_video_head",lambda *_args,**_kwargs: True):
   allowed=request(ctx,"GET","/api/public/review/share-a/assets/asset-cdn/preview?source_asset_id=cdn-allowed",follow_redirects=False)
   denied=request(ctx,"GET","/api/public/review/share-a/assets/asset-cdn/preview?source_asset_id=cdn-denied",follow_redirects=False)
  assert allowed.status_code==307

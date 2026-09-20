@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.public_review.video_delivery import PublicVideoDeliveryResolver
+from app.modules.video_cache.guard import VideoDeliveryCircuitBreaker
 from app.modules.video_cache.model import (
     VIDEO_CDN_DELIVERY_SETTING_KEY,
     VideoCacheObjectModel,
@@ -31,7 +32,7 @@ def settings(**updates):
         "R2_VIDEO_MEDIA_SIGNING_SECRET": SECRET,
         "R2_VIDEO_MEDIA_TICKET_TTL_SECONDS": 600,
         "VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS": "tenant-a",
-        "VIDEO_CDN_DELIVERY_GUARD_ENABLED": False,
+        "VIDEO_CDN_DELIVERY_GUARD_ENABLED": True,
     }
     values.update(updates)
     return Settings(_env_file=None, **values)
@@ -64,6 +65,15 @@ def setup():
         ))
         session.commit()
     return engine, factory
+
+
+def resolver(factory, configured=None):
+    return PublicVideoDeliveryResolver(
+        factory,
+        configured or settings(),
+        guard=VideoDeliveryCircuitBreaker(clock=lambda: 100.0),
+        probe=lambda *_args, **_kwargs: True,
+    )
 
 
 def principal():
@@ -100,7 +110,7 @@ def video_source(**updates):
 def test_ready_authorized_video_gets_short_ticket_capped_to_session():
     engine, factory = setup()
     p = principal()
-    ticket = PublicVideoDeliveryResolver(factory, settings()).resolve(
+    ticket = resolver(factory).resolve(
         principal=p,
         asset=video_asset(),
         source=video_source(),
@@ -119,8 +129,8 @@ def test_runtime_off_missing_cache_and_non_video_use_source_fallback():
         row = session.get(VideoDeliveryRuntimeSettingModel, VIDEO_CDN_DELIVERY_SETTING_KEY)
         row.enabled = False
         session.commit()
-    resolver = PublicVideoDeliveryResolver(factory, settings())
-    assert resolver.resolve(principal=principal(), asset=video_asset(), source=video_source()) is None
+    delivery = resolver(factory)
+    assert delivery.resolve(principal=principal(), asset=video_asset(), source=video_source()) is None
 
     with factory() as session:
         row = session.get(VideoDeliveryRuntimeSettingModel, VIDEO_CDN_DELIVERY_SETTING_KEY)
@@ -128,8 +138,8 @@ def test_runtime_off_missing_cache_and_non_video_use_source_fallback():
         cache = session.query(VideoCacheObjectModel).one()
         session.delete(cache)
         session.commit()
-    assert resolver.resolve(principal=principal(), asset=video_asset(), source=video_source()) is None
-    assert resolver.resolve(
+    assert delivery.resolve(principal=principal(), asset=video_asset(), source=video_source()) is None
+    assert delivery.resolve(
         principal=principal(),
         asset=video_asset(mime_type="image/jpeg"),
         source=video_source(filename="image.jpg", mime_type="image/jpeg"),
@@ -139,18 +149,18 @@ def test_runtime_off_missing_cache_and_non_video_use_source_fallback():
 
 def test_cache_identity_and_tenant_mismatch_fail_closed():
     engine, factory = setup()
-    resolver = PublicVideoDeliveryResolver(factory, settings())
-    assert resolver.resolve(
+    delivery = resolver(factory)
+    assert delivery.resolve(
         principal=principal(),
         asset=video_asset(id="different-asset"),
         source=video_source(),
     ) is None
-    assert resolver.resolve(
+    assert delivery.resolve(
         principal=principal(),
         asset=video_asset(),
         source=video_source(id="different-source"),
     ) is None
-    assert resolver.resolve(
+    assert delivery.resolve(
         principal=SimpleNamespace(
             tenant_id="tenant-b",
             expires_at=None,
@@ -165,7 +175,7 @@ def test_cache_identity_and_tenant_mismatch_fail_closed():
 def test_rollout_scope_defaults_deny_and_global_override_is_explicit():
     engine, factory = setup()
     deny_all = settings(VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="")
-    assert PublicVideoDeliveryResolver(factory, deny_all).resolve(
+    assert resolver(factory, deny_all).resolve(
         principal=principal(),
         asset=video_asset(),
         source=video_source(),
@@ -175,7 +185,7 @@ def test_rollout_scope_defaults_deny_and_global_override_is_explicit():
         VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS="",
         VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED=True,
     )
-    assert PublicVideoDeliveryResolver(factory, global_settings).resolve(
+    assert resolver(factory, global_settings).resolve(
         principal=principal(),
         asset=video_asset(),
         source=video_source(),
@@ -188,7 +198,7 @@ def test_missing_runtime_row_falls_back_instead_of_breaking_playback():
     with factory() as session:
         session.query(VideoDeliveryRuntimeSettingModel).delete()
         session.commit()
-    assert PublicVideoDeliveryResolver(factory, settings()).resolve(
+    assert resolver(factory).resolve(
         principal=principal(),
         asset=video_asset(),
         source=video_source(),
