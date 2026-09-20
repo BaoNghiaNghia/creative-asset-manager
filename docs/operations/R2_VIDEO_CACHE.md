@@ -300,3 +300,23 @@ scope.
 Only when the JSON result reports `"ready_to_enable": true` should a platform
 administrator use the audited runtime endpoint/UI to enable delivery. This
 command intentionally cannot perform that mutation.
+
+
+## Phase 5B Platform Admin activation console
+
+The Configuration tab now reflects the full Phase 4D/4E/5A activation state
+instead of the old Phase 4A-only card. Platform administrators can inspect the
+persisted runtime gate, effective delivery, rollout mode, prerequisite readiness,
+process-local redirect/fallback/probe counters, decision p95 and circuit state.
+
+The console intentionally does not expose canary tenant IDs, Worker origin,
+signed capability URLs, R2 object keys or credentials.
+
+Observability is advisory and process-local. Its request is independent from
+the persisted runtime-status request so an observability outage cannot hide the
+global Disable control. Operator rollback remains
+`VIDEO_CDN_DELIVERY_ENABLED=false`.
+
+Phase 5B is an operator UI only. It does not perform Worker deployment, DNS or
+secret configuration, preflight probes, R2 mutation, or automatic production
+activation.
