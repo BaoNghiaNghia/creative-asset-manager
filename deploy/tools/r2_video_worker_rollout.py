@@ -155,11 +155,20 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def rollout_plan(config_path: Path, *, release_tag: str) -> dict[str, Any]:
+def rollout_plan(
+    config_path: Path,
+    *,
+    release_tag: str,
+    allow_workers_dev: bool = False,
+) -> dict[str, Any]:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", release_tag):
         raise RolloutConfigError("release tag is invalid")
     config = json.loads(config_path.read_text(encoding="utf-8"))
     summary = validate_config(config)
+    if summary["workers_dev"] and not allow_workers_dev:
+        raise RolloutConfigError(
+            "workers.dev rollout requires explicit --allow-workers-dev operator opt-in"
+        )
     config_arg = str(config_path)
     steps: list[dict[str, Any]] = [
         {
@@ -275,6 +284,11 @@ def main(argv: list[str] | None = None) -> int:
     plan = sub.add_parser("plan", help="print a non-executing rollout plan")
     plan.add_argument("--config", type=Path, required=True)
     plan.add_argument("--release-tag", required=True)
+    plan.add_argument(
+        "--allow-workers-dev",
+        action="store_true",
+        help="explicitly approve a workers.dev delivery rollout for this plan",
+    )
 
     args = parser.parse_args(argv)
     try:
@@ -293,7 +307,11 @@ def main(argv: list[str] | None = None) -> int:
                 "config": validate_config(config),
             }, sort_keys=True))
             return 0
-        result = rollout_plan(args.config, release_tag=args.release_tag)
+        result = rollout_plan(
+            args.config,
+            release_tag=args.release_tag,
+            allow_workers_dev=args.allow_workers_dev,
+        )
         print(json.dumps(result, sort_keys=True))
         return 0
     except (RolloutConfigError, OSError, json.JSONDecodeError) as exc:
