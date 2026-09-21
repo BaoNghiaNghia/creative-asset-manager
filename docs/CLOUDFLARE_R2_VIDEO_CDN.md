@@ -1287,8 +1287,10 @@ The preflight requires, unless explicitly relaxed for non-production dry runs:
 - the database at the single expected Alembic head;
 - R2 video cache enabled with validated private-bucket configuration;
 - signed delivery configuration present;
-- a production media origin that is not `r2.dev`, `workers.dev`, or the raw
-  `r2.cloudflarestorage.com` endpoint;
+- a production media origin that is either an approved HTTPS Custom Domain or
+  an explicit `*.workers.dev` Worker with
+  `R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=true`; `r2.dev` and raw
+  `r2.cloudflarestorage.com` endpoints are always rejected;
 - the persisted Phase 4A runtime row present and still OFF before rollout;
 - runtime prerequisites ready;
 - effective cache usage at or below the soft quota threshold;
@@ -1329,9 +1331,18 @@ probe requires the Worker to return the durable object size, video content type
 and `Accept-Ranges: bytes`. No media body is downloaded.
 
 The repository also contains a secret-free Wrangler production config renderer
-and non-executing rollout planner. Generated config uses a Custom Domain,
-`workers_dev=false`, one private `VIDEO_CACHE_BUCKET` binding and Wrangler's
+and non-executing rollout planner. Custom Domain remains the preferred mode and
+renders `workers_dev=false` with one Custom Domain route. An explicit
+`--workers-dev` mode renders `workers_dev=true` with no Custom Domain route.
+Both modes keep one private `VIDEO_CACHE_BUCKET` binding and Wrangler's
 required-secret declaration for `R2_VIDEO_MEDIA_SIGNING_SECRET`.
+
+The workers.dev exception is deliberately double-gated: the Worker config must
+be rendered in `--workers-dev` mode and the application must set
+`R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=true`. The flag defaults to false. It never
+permits `r2.dev`, public bucket URLs, or raw R2 endpoints, and it does not
+change HMAC verification, Range handling, tenant canary scope, provider
+fallback, the circuit breaker, or the persisted runtime gate.
 
 Phase 4D does not deploy Cloudflare resources, change DNS, write production
 secrets, enable the persisted runtime toggle, mutate R2 objects, or modify
