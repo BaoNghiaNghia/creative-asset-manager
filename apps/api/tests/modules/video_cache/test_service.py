@@ -105,6 +105,30 @@ def test_key_is_deterministic_and_cannot_escape_prefix():
         video_cache_key("tenant", "../hash")
 
 
+def test_upload_reports_safe_operation_phases():
+    data = b"video bytes"
+    phases: list[str] = []
+    fake = FakeR2()
+    result = asyncio.run(
+        VideoCacheService(fake, max_object_bytes=100).upload_original(
+            chunks(data),
+            tenant_id="tenant",
+            content_hash_expected=digest(data),
+            expected_size_bytes=len(data),
+            mime_type="video/mp4",
+            on_phase=phases.append,
+        )
+    )
+    assert result.size_bytes == len(data)
+    assert phases == [
+        "validate",
+        "r2_upload_init",
+        "r2_upload_part",
+        "r2_upload_complete",
+        "r2_verify",
+    ]
+
+
 def test_upload_is_bounded_byte_exact_and_video_only():
     data = bytes(range(256)) * (11 * 1024 * 1024 // 256)
     fake = FakeR2()
