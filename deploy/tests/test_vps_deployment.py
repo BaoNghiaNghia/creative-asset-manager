@@ -17,6 +17,7 @@ TERTIARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-imag
 QUATERNARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-4.service"
 QUINARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-5.service"
 VIDEO_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
+NGINX_CONFIG = ROOT / "infrastructure" / "nginx" / "creative-asset-manager.conf"
 
 
 class SimplifiedProductionDeploymentTest(unittest.TestCase):
@@ -88,6 +89,15 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
     def test_alembic_configuration_includes_the_api_module_path(self) -> None:
         config = (ROOT / "apps" / "api" / "alembic.ini").read_text()
         self.assertIn("prepend_sys_path = %(here)s", config)
+
+    def test_nginx_csp_allows_only_the_approved_video_cdn_origin(self) -> None:
+        config = NGINX_CONFIG.read_text()
+        self.assertIn(
+            "media-src 'self' blob: https://cam-r2-original-video.baonghia-kht.workers.dev;",
+            config,
+        )
+        self.assertNotIn("media-src *", config)
+        self.assertNotIn("https://*.workers.dev", config)
 
     def test_production_compose_is_elasticsearch_only(self) -> None:
         config = yaml.safe_load(COMPOSE.read_text())
