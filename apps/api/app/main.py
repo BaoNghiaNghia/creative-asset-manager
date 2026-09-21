@@ -51,6 +51,7 @@ from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.tag.router import router as tag_router
 from app.providers.google.drive import create_stream_client
+from app.providers.microsoft.onedrive import create_stream_client as create_onedrive_stream_client
 
 
 _operations_logger = logging.getLogger("app.operations_timing")
@@ -73,7 +74,9 @@ _timed_operations_paths = frozenset({
 async def lifespan(_app: FastAPI):
     settings = _app.state.settings
     google_drive_stream_client = create_stream_client()
+    onedrive_stream_client = create_onedrive_stream_client()
     _app.state.google_drive_stream_client = google_drive_stream_client
+    _app.state.onedrive_stream_client = onedrive_stream_client
     shadow_started = False
     try:
         init_database(settings)
@@ -89,10 +92,12 @@ async def lifespan(_app: FastAPI):
         finally:
             try:
                 await google_drive_stream_client.aclose()
+                await onedrive_stream_client.aclose()
                 await API_SEARCH_INDEX_POOL.aclose_current_loop()
                 SEARCH_SUGGESTION_CACHE.clear()
             finally:
                 _app.state.google_drive_stream_client = None
+                _app.state.onedrive_stream_client = None
                 dispose_database()
 
 

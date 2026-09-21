@@ -4,11 +4,22 @@ from app.providers.microsoft.source_adapter import SharePointSourceAdapter
 from app.providers.microsoft.onedrive_source_adapter import OneDriveSourceAdapter
 
 
-def create_source_provider(provider: str, access_token: str) -> ExplorerSourceProvider:
+def create_source_provider(
+    provider: str,
+    access_token: str,
+    *,
+    media_http_client=None,
+) -> ExplorerSourceProvider:
     if provider == "google-drive":
-        return GoogleDriveSourceAdapter(access_token)
+        return GoogleDriveSourceAdapter(
+            access_token,
+            media_http_client=media_http_client,
+        )
     if provider == "onedrive":
-        return OneDriveSourceAdapter(access_token)
+        return OneDriveSourceAdapter(
+            access_token,
+            media_http_client=media_http_client,
+        )
     if provider == "sharepoint":
         return SharePointSourceAdapter(access_token)
     raise ValueError(f"Unsupported source provider: {provider}")

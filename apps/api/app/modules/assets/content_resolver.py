@@ -19,7 +19,7 @@ from app.providers.source_factory import create_source_provider
 
 
 TokenResolver = Callable[[str], Awaitable[str]]
-SourceProviderFactory = Callable[[str, str], Any]
+SourceProviderFactory = Callable[..., Any]
 
 
 class SourceAssetContentUnavailable(ValueError):
@@ -39,10 +39,14 @@ class SourceAssetContentResolver:
         *,
         token_resolver: TokenResolver | None = None,
         source_provider_factory: SourceProviderFactory = create_source_provider,
+        google_http_client=None,
+        onedrive_http_client=None,
     ):
         self.session_factory = session_factory
         self.token_resolver = token_resolver
         self.source_provider_factory = source_provider_factory
+        self.google_http_client = google_http_client
+        self.onedrive_http_client = onedrive_http_client
 
     @asynccontextmanager
     async def open(
@@ -94,9 +98,22 @@ class SourceAssetContentResolver:
         except Exception as exc:
             raise SourceAssetContentUnavailable("source OAuth connection is unavailable") from exc
 
-        provider = self.source_provider_factory(contract.adapter_key, access_token)
-        async with provider:
-            if source_asset_deleted:
+        media_http_client = None
+        if contract.adapter_key == "google-drive":
+            media_http_client = self.google_http_client
+        elif contract.adapter_key == "onedrive":
+            media_http_client = self.onedrive_http_client
+        if media_http_client is None:
+            provider = self.source_provider_factory(contract.adapter_key, access_token)
+        else:
+            provider = self.source_provider_factory(
+                contract.adapter_key,
+                access_token,
+                media_http_client=media_http_client,
+            )
+
+        if source_asset_deleted:
+            async with provider:
                 try:
                     candidate = await provider.get_asset(GetSourceAssetInput(
                         source_id=source_id,
@@ -107,71 +124,71 @@ class SourceAssetContentResolver:
                 if candidate.external_asset_id != external_asset_id:
                     raise SourceAssetContentUnavailable("source asset identity changed")
 
-                refreshed_metadata = dict(candidate.source_metadata or {})
-                parent_id = refreshed_metadata.get("parent_id")
-                if isinstance(parent_id, str) and parent_id:
-                    refreshed_metadata["parents"] = [parent_id]
-                with self.session_factory() as session:
-                    refreshed = session.scalar(select(SourceAssetModel).where(
-                        SourceAssetModel.tenant_id == tenant_id,
-                        SourceAssetModel.id == source_asset_id,
-                        SourceAssetModel.external_source_id == source_id,
-                        SourceAssetModel.external_asset_id == external_asset_id,
-                    ))
-                    if refreshed is None:
-                        raise SourceAssetContentUnavailable("source asset is unavailable")
-                    refreshed.filename = candidate.filename
-                    refreshed.mime_type = candidate.mime_type
-                    refreshed.size_bytes = candidate.size_bytes
-                    refreshed.source_metadata = {
-                        **dict(refreshed.source_metadata or {}),
-                        **refreshed_metadata,
-                    }
-                    refreshed.deleted_at = None
-                    session.commit()
-
-            try:
-                stream = await provider.open_download_stream(OpenSourceAssetInput(
-                    source_id=source_id,
-                    external_asset_id=external_asset_id,
-                    range_header=range_header,
+            refreshed_metadata = dict(candidate.source_metadata or {})
+            parent_id = refreshed_metadata.get("parent_id")
+            if isinstance(parent_id, str) and parent_id:
+                refreshed_metadata["parents"] = [parent_id]
+            with self.session_factory() as session:
+                refreshed = session.scalar(select(SourceAssetModel).where(
+                    SourceAssetModel.tenant_id == tenant_id,
+                    SourceAssetModel.id == source_asset_id,
+                    SourceAssetModel.external_source_id == source_id,
+                    SourceAssetModel.external_asset_id == external_asset_id,
                 ))
+                if refreshed is None:
+                    raise SourceAssetContentUnavailable("source asset is unavailable")
+                refreshed.filename = candidate.filename
+                refreshed.mime_type = candidate.mime_type
+                refreshed.size_bytes = candidate.size_bytes
+                refreshed.source_metadata = {
+                    **dict(refreshed.source_metadata or {}),
+                    **refreshed_metadata,
+                }
+                refreshed.deleted_at = None
+                session.commit()
+
+        try:
+            stream = await provider.open_download_stream(OpenSourceAssetInput(
+                source_id=source_id,
+                external_asset_id=external_asset_id,
+                range_header=range_header,
+            ))
+        except Exception as exc:
+            if self._is_transient_provider_error(exc):
+                raise SourceAssetContentTransient(
+                    "source provider is temporarily unavailable"
+                ) from exc
+            raise SourceAssetContentUnavailable(
+                "source provider rejected the download request"
+            ) from exc
+        closed = False
+
+        async def close() -> None:
+            nonlocal closed
+            if not closed:
+                closed = True
+                await stream.close()
+
+        async def body():
+            try:
+                async for block in stream.body:
+                    yield block
             except Exception as exc:
                 if self._is_transient_provider_error(exc):
                     raise SourceAssetContentTransient(
-                        "source provider is temporarily unavailable"
+                        "source provider stream was interrupted"
                     ) from exc
                 raise SourceAssetContentUnavailable(
-                    "source provider rejected the download request"
+                    "source provider stream could not be read"
                 ) from exc
-            closed = False
 
-            async def close() -> None:
-                nonlocal closed
-                if not closed:
-                    closed = True
-                    await stream.close()
-
-            async def body():
-                try:
-                    async for block in stream.body:
-                        yield block
-                except Exception as exc:
-                    if self._is_transient_provider_error(exc):
-                        raise SourceAssetContentTransient(
-                            "source provider stream was interrupted"
-                        ) from exc
-                    raise SourceAssetContentUnavailable(
-                        "source provider stream could not be read"
-                    ) from exc
-
-            try:
-                yield AssetDownloadStream(
-                    body=body(), close=close, status_code=stream.status_code,
-                    content_type=stream.content_type, headers=stream.headers,
-                )
-            finally:
-                await close()
+        try:
+            yield AssetDownloadStream(
+                body=body(), close=close, status_code=stream.status_code,
+                content_type=stream.content_type, headers=stream.headers,
+            )
+        finally:
+            await close()
 
     @staticmethod
     def _is_transient_provider_error(exc: Exception) -> bool:

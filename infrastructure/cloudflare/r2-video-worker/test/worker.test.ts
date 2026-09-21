@@ -276,15 +276,27 @@ test("cache is never looked up before ticket validation and failures are not cac
   assert.equal(bucket.getCalls + bucket.headCalls, 0);
 });
 
-test("cold range bypasses edge population and does not create range cache variants", async () => {
+test("bounded overlapping ranges reuse one fixed edge segment", async () => {
   const { bucket, env, url } = fixture();
   const cache = new FakeCache();
-  const response = await send(url, env, "GET", NOW, { Range: "bytes=1-3" }, cache);
-  assert.equal(response.status, 206);
-  assert.equal(response.headers.get("X-Video-Cache"), "BYPASS");
-  assert.equal(cache.matches.length, 0);
-  assert.equal(cache.puts.length, 0);
-  assert.deepEqual(bucket.lastRange, { offset: 1, length: 3 });
+  const first = await send(url, env, "GET", NOW, { Range: "bytes=1-3" }, cache);
+  assert.equal(first.status, 206);
+  assert.equal(first.headers.get("X-Video-Cache"), "MISS");
+  assert.deepEqual(new Uint8Array(await first.arrayBuffer()), BYTES.slice(1, 4));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(cache.puts.length, 1);
+  assert.equal(
+    cache.puts[0],
+    "https://cam-r2-video-cache.internal" + vector.pathname + "?segment=0-" + (BYTES.byteLength - 1),
+  );
+  assert.deepEqual(bucket.lastRange, { offset: 0, length: BYTES.byteLength });
+
+  const second = await send(url, env, "GET", NOW, { Range: "bytes=2-5" }, cache);
+  assert.equal(second.status, 206);
+  assert.equal(second.headers.get("X-Video-Cache"), "HIT");
+  assert.deepEqual(new Uint8Array(await second.arrayBuffer()), BYTES.slice(2, 6));
+  assert.equal(bucket.getCalls, 1);
+  assert.equal(cache.matches.length, 2);
 });
 
 

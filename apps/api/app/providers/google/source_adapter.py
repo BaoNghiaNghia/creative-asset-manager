@@ -23,10 +23,12 @@ class GoogleDriveSourceAdapter(BaseSourceAdapter):
         media_opener=open_media_stream,
         changes_lister=list_drive_changes,
         media_closer=close_media_stream,
+        media_http_client=None,
     ):
         super().__init__(access_token, client_factory)
         self._media_opener = media_opener
         self._media_closer = media_closer
+        self._media_http_client = media_http_client
         self._changes_lister = changes_lister
 
 
@@ -58,14 +60,25 @@ class GoogleDriveSourceAdapter(BaseSourceAdapter):
     async def open_download_stream(
         self, input: OpenSourceAssetInput
     ) -> AssetDownloadStream:
-        client, response = await self._media_opener(
-            self._access_token,
-            input.external_asset_id,
-            input.range_header,
-        )
+        if self._media_http_client is None:
+            client, response = await self._media_opener(
+                self._access_token,
+                input.external_asset_id,
+                input.range_header,
+            )
+        else:
+            client, response = await self._media_opener(
+                self._access_token,
+                input.external_asset_id,
+                input.range_header,
+                http_client=self._media_http_client,
+            )
 
         async def close() -> None:
-            await self._media_closer(client, response)
+            if self._media_http_client is None:
+                await self._media_closer(client, response)
+            else:
+                await self._media_closer(client, response, False)
 
         return AssetDownloadStream(
             # Drive may apply transparent HTTP content encoding (for example,

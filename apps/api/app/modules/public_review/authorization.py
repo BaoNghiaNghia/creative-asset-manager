@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
 from app.modules.authorization.folder_scope import FolderScopeAccess, FolderScopeResolver
 from app.modules.public_review.model import (
     PublicShareModel,
@@ -43,6 +44,7 @@ class PublicShareScopeService:
         self.session = session
         self._now = now
         self._resolver = FolderScopeResolver(session)
+        self._scoped_access_cache: dict[tuple[str, str, str], dict[str, FolderScopeAccess]] = {}
 
     def resolve_principal(
         self,
@@ -117,6 +119,10 @@ class PublicShareScopeService:
             raise PublicShareAccessDenied()
 
     def scoped_accesses(self, *, principal: SharePrincipal) -> dict[str, FolderScopeAccess]:
+        cache_key = (str(principal.tenant_id), str(principal.share_id), str(principal.session_id))
+        cached = self._scoped_access_cache.get(cache_key)
+        if cached is not None:
+            return cached
         self._require_active_principal(principal)
         rows = self.session.execute(
             select(PublicShareScopeModel.external_source_id, PublicShareScopeModel.folder_external_id)
@@ -131,10 +137,12 @@ class PublicShareScopeService:
             folder = str(folder_id or "").strip()
             if source and folder:
                 grouped.setdefault(source, set()).add(folder)
-        return {
+        resolved = {
             source_id: FolderScopeAccess(True, source_id, frozenset(folder_ids))
             for source_id, folder_ids in grouped.items()
         }
+        self._scoped_access_cache[cache_key] = resolved
+        return resolved
 
     def allowed_asset_source_pairs(self, *, principal: SharePrincipal) -> set[tuple[str, str]]:
         allowed: set[tuple[str, str]] = set()
@@ -147,6 +155,29 @@ class PublicShareScopeService:
             )
         return allowed
 
+    def authorize_linked_source_asset(
+        self,
+        *,
+        principal: SharePrincipal,
+        source_asset: SourceAssetModel,
+    ) -> None:
+        if str(source_asset.tenant_id) != str(principal.tenant_id) or source_asset.deleted_at is not None:
+            raise PublicShareAccessDenied()
+        access = self.scoped_accesses(principal=principal).get(str(source_asset.external_source_id))
+        if access is None:
+            raise PublicShareAccessDenied()
+        if str(source_asset.external_asset_id) in access.folder_ids:
+            return
+        parent_external_id = getattr(source_asset, "parent_external_id", None)
+        if isinstance(parent_external_id, str) and parent_external_id in access.folder_ids:
+            return
+        if not self._resolver.allows_external_asset(
+            tenant_id=principal.tenant_id,
+            access=access,
+            external_asset_id=str(source_asset.external_asset_id),
+        ):
+            raise PublicShareAccessDenied()
+
     def authorize_asset_source_pair(
         self,
         *,
@@ -154,10 +185,28 @@ class PublicShareScopeService:
         asset_id: str,
         source_asset_id: str,
     ) -> None:
-        if (str(asset_id), str(source_asset_id)) not in self.allowed_asset_source_pairs(
-            principal=principal,
-        ):
+        source_asset = self.session.scalar(
+            select(SourceAssetModel)
+            .join(
+                AssetSourceLinkModel,
+                (AssetSourceLinkModel.tenant_id == SourceAssetModel.tenant_id)
+                & (AssetSourceLinkModel.source_asset_id == SourceAssetModel.id),
+            )
+            .where(
+                AssetSourceLinkModel.tenant_id == principal.tenant_id,
+                AssetSourceLinkModel.asset_id == str(asset_id),
+                AssetSourceLinkModel.source_asset_id == str(source_asset_id),
+                SourceAssetModel.tenant_id == principal.tenant_id,
+                SourceAssetModel.id == str(source_asset_id),
+                SourceAssetModel.deleted_at.is_(None),
+            )
+        )
+        if source_asset is None:
             raise PublicShareAccessDenied()
+        self.authorize_linked_source_asset(
+            principal=principal,
+            source_asset=source_asset,
+        )
 
     def allows_external_asset(
         self,

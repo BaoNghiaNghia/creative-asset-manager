@@ -163,12 +163,38 @@ class FolderScopeResolver:
         item_id = str(external_asset_id)
         if item_id in access.folder_ids:
             return True
-        parent_map = self.parent_map(
-            tenant_id=tenant_id, external_source_id=access.source_id,
-        )
-        if parent_map is None or item_id not in parent_map:
-            return False
-        return self._has_selected_ancestor(parent_map, item_id, access.folder_ids)
+
+        # Single-item authorization should not materialize the full source
+        # hierarchy. Walk the synchronized parent pointer using indexed source
+        # identity lookups and keep the legacy metadata fallback for old rows.
+        current = item_id
+        visited: set[str] = set()
+        for _depth in range(64):
+            if current in visited:
+                return False
+            visited.add(current)
+            row = self.session.execute(
+                select(SourceAssetModel.parent_external_id, SourceAssetModel.source_metadata).where(
+                    SourceAssetModel.tenant_id == tenant_id,
+                    SourceAssetModel.external_source_id == access.source_id,
+                    SourceAssetModel.external_asset_id == current,
+                    SourceAssetModel.deleted_at.is_(None),
+                )
+            ).one_or_none()
+            if row is None:
+                return False
+            parent_external_id, metadata = row
+            parents = (
+                (str(parent_external_id),)
+                if isinstance(parent_external_id, str) and parent_external_id
+                else self._parents_from_metadata(metadata)
+            )
+            if any(parent in access.folder_ids for parent in parents):
+                return True
+            if not parents:
+                return False
+            current = parents[0]
+        return False
 
     @staticmethod
     def _has_selected_ancestor(

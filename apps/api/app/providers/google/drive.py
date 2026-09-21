@@ -1,8 +1,10 @@
 import asyncio
+import re
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from threading import Lock
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from app.modules.explorer.media_types import infer_media_type
@@ -377,34 +379,69 @@ async def close_media_stream(
         await client.aclose()
 
 
+def _google_thumbnail_url(
+    value: str | None,
+    size_pixels: int | None = None,
+    *,
+    require_google_host: bool = False,
+) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return None
+    hostname = (parsed.hostname or "").lower()
+    google_host = hostname == "googleusercontent.com" or hostname.endswith(".googleusercontent.com")
+    if parsed.scheme != "https" or (require_google_host and not google_host):
+        return None
+    path = parsed.path
+    if size_pixels is not None and google_host:
+        size = min(max(int(size_pixels), 128), 4096)
+        path = re.sub(r"=s\d+(?:-c)?$", f"=s{size}", path)
+    return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, ""))
+
+
 async def open_thumbnail_stream(
     access_token: str,
     item_id: str,
     *,
     cache_key: tuple[str, str, str] | None = None,
     http_client: httpx.AsyncClient | None = None,
+    thumbnail_url_hint: str | None = None,
+    size_pixels: int | None = None,
 ):
     """Resolve and stream a Drive thumbnail without repeatedly fetching metadata."""
     client = http_client or create_stream_client()
     owns_client = http_client is None
     response = None
     try:
-        thumbnail_url = thumbnail_link_cache.get(cache_key) if cache_key else None
-        used_cached_url = thumbnail_url is not None
+        thumbnail_link = thumbnail_link_cache.get(cache_key) if cache_key else None
+        if thumbnail_link is None:
+            thumbnail_link = _google_thumbnail_url(thumbnail_url_hint, require_google_host=True)
+            if thumbnail_link is not None and cache_key:
+                thumbnail_link_cache.put(cache_key, thumbnail_link)
+        used_cached_url = thumbnail_link is not None
         for attempt in range(2):
-            if thumbnail_url is None:
+            if thumbnail_link is None:
                 metadata = await client.get(
                     f"https://www.googleapis.com/drive/v3/files/{item_id}",
                     params={"fields": "thumbnailLink", "supportsAllDrives": "true"},
                     headers={"Authorization": f"Bearer {access_token}"},
                 )
                 metadata.raise_for_status()
-                thumbnail_url = str(metadata.json().get("thumbnailLink") or "").strip()
-                if not thumbnail_url:
+                thumbnail_link = _google_thumbnail_url(
+                    str(metadata.json().get("thumbnailLink") or "")
+                )
+                if not thumbnail_link:
                     raise GoogleDriveThumbnailUnavailable(item_id)
                 if cache_key:
-                    thumbnail_link_cache.put(cache_key, thumbnail_url)
+                    thumbnail_link_cache.put(cache_key, thumbnail_link)
 
+            thumbnail_url = _google_thumbnail_url(thumbnail_link, size_pixels)
+            if thumbnail_url is None:
+                raise GoogleDriveThumbnailUnavailable(item_id)
             request = client.build_request(
                 "GET",
                 thumbnail_url,
@@ -420,7 +457,7 @@ async def open_thumbnail_stream(
                 response = None
                 if cache_key:
                     thumbnail_link_cache.invalidate(cache_key)
-                thumbnail_url = None
+                thumbnail_link = None
                 used_cached_url = False
                 continue
             response.raise_for_status()

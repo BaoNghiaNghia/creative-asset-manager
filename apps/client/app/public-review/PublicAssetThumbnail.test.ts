@@ -25,6 +25,22 @@ describe("public thumbnail queue", () => {
     expect(queue.activeCount()).toBe(0);
   });
 
+  it("prioritizes visible work ahead of prefetched work", () => {
+    const queue = createPublicThumbnailQueue(1);
+    const started: string[] = [];
+    const active = queue.acquire(() => started.push("active"));
+    const prefetched = queue.acquire(() => started.push("prefetched"));
+    const visible = queue.acquire(() => started.push("visible"));
+
+    visible.setPriority(1);
+    active.release();
+
+    expect(started).toEqual(["active", "visible"]);
+    visible.release();
+    expect(started).toEqual(["active", "visible", "prefetched"]);
+    prefetched.release();
+  });
+
   it("removes a queued load when its card unmounts", () => {
     const queue = createPublicThumbnailQueue(1);
     const first = queue.acquire(() => {});

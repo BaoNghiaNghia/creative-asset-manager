@@ -220,6 +220,38 @@ class GoogleDriveMediaStreamTest(unittest.IsolatedAsyncioTestCase):
         thumbnail.aclose.assert_awaited_once()
         client.aclose.assert_awaited_once()
 
+    async def test_persisted_google_thumbnail_hint_skips_metadata_lookup(self):
+        thumbnail_link_cache.clear()
+        thumbnail = MagicMock(status_code=200, headers={"content-type": "image/jpeg"})
+        thumbnail.raise_for_status = MagicMock()
+        thumbnail.aclose = AsyncMock()
+        request = MagicMock()
+        client = MagicMock()
+        client.get = AsyncMock()
+        client.build_request.return_value = request
+        client.send = AsyncMock(return_value=thumbnail)
+        client.aclose = AsyncMock()
+
+        returned_client, returned_response = await open_thumbnail_stream(
+            "secret-token",
+            "file-id",
+            cache_key=("tenant-a", "source-a", "file-id"),
+            http_client=client,
+            thumbnail_url_hint="https://lh3.googleusercontent.com/example=s220",
+            size_pixels=640,
+        )
+
+        self.assertIs(returned_client, client)
+        self.assertIs(returned_response, thumbnail)
+        client.get.assert_not_awaited()
+        client.build_request.assert_called_once_with(
+            "GET",
+            "https://lh3.googleusercontent.com/example=s640",
+            headers={"Authorization": "Bearer secret-token"},
+        )
+        await close_thumbnail_stream(client, thumbnail, close_client=False)
+
+
     async def test_shared_thumbnail_client_stays_open_after_stream_close(self):
         metadata = MagicMock(status_code=200, headers={})
         metadata.raise_for_status = MagicMock()

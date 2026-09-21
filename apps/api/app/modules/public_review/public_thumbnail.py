@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache, thumbnail_negative_cache
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.explorer.tenant_source import TenantSourceResolver
@@ -38,47 +36,55 @@ class PublicThumbnail:
 class PublicThumbnailResolver:
     """Fetch a bounded provider thumbnail after the public route authorizes scope."""
 
-    def __init__(self, session_factory: type[Session] | object):
+    def __init__(
+        self,
+        session_factory: type[Session] | object,
+        *,
+        google_http_client: httpx.AsyncClient | None = None,
+        onedrive_http_client: httpx.AsyncClient | None = None,
+    ):
         self.session_factory = session_factory
+        self.google_http_client = google_http_client
+        self.onedrive_http_client = onedrive_http_client
 
-    async def load(self, *, tenant_id: str, source_asset_id: str) -> PublicThumbnail:
+    async def load(
+        self,
+        *,
+        tenant_id: str,
+        external_source_id: str,
+        external_asset_id: str,
+        filename: str | None,
+        mime_type: str | None,
+        thumbnail_url_hint: str | None = None,
+        variant: str = "grid",
+    ) -> PublicThumbnail:
         with self.session_factory() as session:
-            row = session.execute(
-                select(SourceAssetModel, ExternalSourceModel)
-                .join(
-                    ExternalSourceModel,
-                    (ExternalSourceModel.id == SourceAssetModel.external_source_id)
-                    & (ExternalSourceModel.tenant_id == SourceAssetModel.tenant_id),
-                )
-                .where(
-                    SourceAssetModel.tenant_id == tenant_id,
-                    SourceAssetModel.id == source_asset_id,
-                    SourceAssetModel.deleted_at.is_(None),
-                    ExternalSourceModel.tenant_id == tenant_id,
-                )
-            ).one_or_none()
-            if row is None:
-                raise PublicThumbnailUnavailable("source asset is unavailable")
-            source_asset, source = row
-            source_type = source.source_type
-            source_id = source.id
-            external_asset_id = source_asset.external_asset_id
-            mime_type = infer_media_type(source_asset.filename, source_asset.mime_type)
             try:
                 resolved = await TenantSourceResolver(session).resolve(
                     tenant_id=tenant_id,
-                    external_source_id=source_id,
+                    external_source_id=external_source_id,
                 )
             except Exception as exc:
                 raise PublicThumbnailUnavailable("source connection is unavailable") from exc
 
+        source_type = resolved.source_type
+        source_id = resolved.external_source_id
+        effective_mime_type = infer_media_type(filename, mime_type)
+
         if source_type not in {"google_drive", "onedrive"}:
             raise PublicThumbnailUnavailable("source provider is unsupported")
 
-        cache_key = (str(tenant_id), str(source_id), str(external_asset_id), "")
+        if variant not in {"grid", "preview"}:
+            raise PublicThumbnailUnavailable("thumbnail variant is unsupported")
+        cache_version = (
+            "public-preview-v1"
+            if variant == "preview"
+            else ("public-medium-v1" if source_type == "onedrive" else "public-grid-v2")
+        )
+        cache_key = (str(tenant_id), str(source_id), str(external_asset_id), cache_version)
 
         if thumbnail_negative_cache.get(cache_key):
-            return self._video_fallback(mime_type)
+            return self._video_fallback(effective_mime_type)
 
         async def load_thumbnail() -> CachedThumbnail:
             client = upstream = None
@@ -88,11 +94,16 @@ class PublicThumbnailResolver:
                         resolved.access_token,
                         external_asset_id,
                         cache_key=(str(tenant_id), str(source_id), str(external_asset_id)),
+                        http_client=self.google_http_client,
+                        thumbnail_url_hint=thumbnail_url_hint,
+                        size_pixels=2048 if variant == "preview" else 640,
                     )
                 else:
                     client, upstream = await open_onedrive_thumbnail(
                         resolved.access_token,
                         external_asset_id,
+                        http_client=self.onedrive_http_client,
+                        size="large" if variant == "preview" else "medium",
                     )
                 content = bytearray()
                 async for chunk in upstream.aiter_raw():
@@ -107,16 +118,24 @@ class PublicThumbnailResolver:
             finally:
                 if client is not None and upstream is not None:
                     if source_type == "google_drive":
-                        await close_google_thumbnail(client, upstream)
+                        await close_google_thumbnail(
+                            client,
+                            upstream,
+                            client is not self.google_http_client,
+                        )
                     else:
-                        await close_onedrive_thumbnail(client, upstream)
+                        await close_onedrive_thumbnail(
+                            client,
+                            upstream,
+                            client is not self.onedrive_http_client,
+                        )
 
         try:
             value = await thumbnail_cache.get_or_load(cache_key, load_thumbnail)
             return PublicThumbnail(content=value.content, content_type=value.content_type)
         except (GoogleDriveThumbnailUnavailable, OneDriveThumbnailUnavailable):
             thumbnail_negative_cache.put(cache_key, True)
-            return self._video_fallback(mime_type)
+            return self._video_fallback(effective_mime_type)
         except (httpx.HTTPError, PermissionError, PublicThumbnailUnavailable, ValueError) as exc:
             raise PublicThumbnailUnavailable("thumbnail is unavailable") from exc
 

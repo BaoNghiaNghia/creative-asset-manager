@@ -64,8 +64,17 @@ class OneDriveClient:
         while True:
             page,token=await self.children_page(parent_id,folders_only=folders_only,page_token=token,page_size=200);nodes.extend(page)
             if not token:return nodes
-async def open_media_stream(access_token:str,item_id:str,range_header:str|None):
-    _,graph_id=parse_item_id(item_id);client=httpx.AsyncClient(timeout=httpx.Timeout(25,read=None),follow_redirects=True);headers={"Authorization":f"Bearer {access_token}"}
+async def open_media_stream(
+    access_token:str,
+    item_id:str,
+    range_header:str|None,
+    *,
+    http_client:httpx.AsyncClient|None=None,
+):
+    _,graph_id=parse_item_id(item_id)
+    client=http_client or create_stream_client()
+    owns_client=http_client is None
+    headers={"Authorization":f"Bearer {access_token}"}
     if range_header:headers["Range"]=range_header
     # Sources are enumerated from the connected account's own drive.  The
     # /me path is required for some OneDrive Personal drive identifiers, while
@@ -93,14 +102,15 @@ async def open_media_stream(access_token:str,item_id:str,range_header:str|None):
             fallback_headers = {"Range": range_header} if range_header else {}
             response = await client.send(client.build_request("GET", download_url, headers=fallback_headers), stream=True)
         except Exception:
-            await client.aclose()
+            if owns_client: await client.aclose()
             raise
     try:response.raise_for_status()
     except httpx.HTTPStatusError:
         try:
             await _raise_download_error(response)
         finally:
-            await response.aclose();await client.aclose()
+            await response.aclose()
+            if owns_client: await client.aclose()
     return client,response
 
 
@@ -118,11 +128,29 @@ async def _raise_download_error(response: httpx.Response) -> None:
         graph_code=graph_code,
         message=f"OneDrive download failed ({graph_code or f'HTTP {response.status_code}'}): {detail or 'Microsoft Graph rejected the request.'}",
     )
-async def close_media_stream(client:httpx.AsyncClient,response:httpx.Response):await response.aclose();await client.aclose()
+async def close_media_stream(client:httpx.AsyncClient,response:httpx.Response,close_client:bool=True):
+    await response.aclose()
+    if close_client: await client.aclose()
 
-async def open_thumbnail_stream(access_token:str,item_id:str):
+def create_stream_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(25, read=None),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        follow_redirects=True,
+    )
+
+async def open_thumbnail_stream(
+    access_token:str,
+    item_id:str,
+    *,
+    http_client:httpx.AsyncClient|None=None,
+    size:str="large",
+):
+    if size not in {"small","medium","large"}:
+        raise ValueError("Unsupported OneDrive thumbnail size")
     _,graph_id=parse_item_id(item_id)
-    client=httpx.AsyncClient(timeout=httpx.Timeout(25,read=None),follow_redirects=True)
+    client=http_client or create_stream_client()
+    owns_client=http_client is None
     # OneDrive Personal can reject a valid personal drive identifier at the
     # /drives/{drive-id} endpoint. The item was enumerated from the connected
     # account's own drive, so use its delegated /me/drive route instead.
@@ -130,14 +158,24 @@ async def open_thumbnail_stream(access_token:str,item_id:str):
     # proxy downloads above.
     response=await client.send(client.build_request(
         "GET",
-        f"https://graph.microsoft.com/v1.0/me/drive/items/{graph_id}/thumbnails/0/large/content",
+        f"https://graph.microsoft.com/v1.0/me/drive/items/{graph_id}/thumbnails/0/{size}/content",
         headers={"Authorization":f"Bearer {access_token}"},
     ),stream=True)
     if response.status_code in {400,404}:
-        await response.aclose();await client.aclose()
+        await response.aclose()
+        if owns_client: await client.aclose()
         raise OneDriveThumbnailUnavailable(item_id)
     try:response.raise_for_status()
-    except Exception:await response.aclose();await client.aclose();raise
+    except Exception:
+        await response.aclose()
+        if owns_client: await client.aclose()
+        raise
     return client,response
 
-async def close_thumbnail_stream(client:httpx.AsyncClient,response:httpx.Response):await response.aclose();await client.aclose()
+async def close_thumbnail_stream(
+    client:httpx.AsyncClient,
+    response:httpx.Response,
+    close_client:bool=True,
+):
+    await response.aclose()
+    if close_client: await client.aclose()

@@ -46,14 +46,21 @@ class TenantSourceResolver:
         external_source_id: str,
         require_drive_write_scope: bool = False,
     ) -> ResolvedSourceAccess:
-        source = self.session.scalar(
-            select(ExternalSourceModel).where(
+        row = self.session.execute(
+            select(ExternalSourceModel, OAuthConnectionModel)
+            .outerjoin(
+                OAuthConnectionModel,
+                (OAuthConnectionModel.id == ExternalSourceModel.oauth_connection_id)
+                & (OAuthConnectionModel.tenant_id == ExternalSourceModel.tenant_id),
+            )
+            .where(
                 ExternalSourceModel.tenant_id == tenant_id,
                 ExternalSourceModel.id == external_source_id,
             )
-        )
-        if source is None:
+        ).one_or_none()
+        if row is None:
             raise HTTPException(404, "The selected source is unavailable.")
+        source, connection = row
         if source.status != "active":
             raise HTTPException(409, "The selected source requires reconnection.")
         try:
@@ -64,16 +71,12 @@ class TenantSourceResolver:
             raise HTTPException(409, "The selected source requires reconnection.")
 
         provider, purpose = contract.provider, contract.connection_purpose
-        connection = self.session.scalar(
-            select(OAuthConnectionModel).where(
-                OAuthConnectionModel.id == source.oauth_connection_id,
-                OAuthConnectionModel.tenant_id == tenant_id,
-                OAuthConnectionModel.provider == provider,
-                OAuthConnectionModel.connection_purpose == purpose,
-                OAuthConnectionModel.status.in_(("active", "refresh_error")),
-            )
-        )
-        if connection is None:
+        if (
+            connection is None
+            or connection.provider != provider
+            or connection.connection_purpose != purpose
+            or connection.status not in {"active", "refresh_error"}
+        ):
             raise HTTPException(409, "The selected source credential is unavailable.")
 
         connection_id = connection.id

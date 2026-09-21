@@ -98,6 +98,22 @@ def test_public_scope_allows_selected_descendants_and_exact_source_pairs(review_
     )
 
 
+def test_public_scope_direct_pair_authorization_does_not_materialize_full_allowed_set(review_context, monkeypatch):
+    db, _, _ = review_context
+    service = PublicShareScopeService(db, now=lambda: NOW)
+    principal = service.resolve_principal(raw_session_token="session-a")
+
+    def fail_full_scan(**_kwargs):
+        raise AssertionError("direct pair authorization must not materialize every allowed pair")
+
+    monkeypatch.setattr(service, "allowed_asset_source_pairs", fail_full_scan)
+    service.authorize_asset_source_pair(
+        principal=principal,
+        asset_id="asset-allowed",
+        source_asset_id="source-allowed",
+    )
+
+
 @pytest.mark.parametrize(
     ("asset_id", "source_asset_id"),
     [

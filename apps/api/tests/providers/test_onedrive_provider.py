@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import httpx
 from app.providers.source_factory import create_source_provider
-from app.providers.microsoft.onedrive import OneDriveClient,OneDriveDownloadError,OneDriveThumbnailUnavailable,close_thumbnail_stream,open_media_stream,open_thumbnail_stream,validate_graph_url
+from app.providers.microsoft.onedrive import OneDriveClient,OneDriveDownloadError,OneDriveThumbnailUnavailable,close_media_stream,close_thumbnail_stream,open_media_stream,open_thumbnail_stream,validate_graph_url
 from app.providers.microsoft.onedrive_mapper import ONEDRIVE_ROOT_ID,make_item_id,map_item,parse_item_id,root_node
 from app.providers.microsoft.onedrive_delta import _candidate
 
@@ -50,6 +50,27 @@ def test_thumbnail_stream_uses_connected_account_drive_and_closes():
     response.aclose.assert_awaited_once()
     client.aclose.assert_awaited_once()
 
+def test_thumbnail_stream_reuses_shared_client_and_can_request_medium():
+    client=MagicMock()
+    client.build_request.return_value=object()
+    response=MagicMock(status_code=200)
+    response.raise_for_status=MagicMock()
+    response.aclose=AsyncMock()
+    client.send=AsyncMock(return_value=response)
+    client.aclose=AsyncMock()
+    item_id=make_item_id("drive-id","item-id")
+
+    returned_client,returned_response=asyncio.run(
+        open_thumbnail_stream("secret",item_id,http_client=client,size="medium")
+    )
+
+    assert returned_client is client and returned_response is response
+    assert client.build_request.call_args.args[1]=="https://graph.microsoft.com/v1.0/me/drive/items/item-id/thumbnails/0/medium/content"
+    asyncio.run(close_thumbnail_stream(client,response,False))
+    response.aclose.assert_awaited_once()
+    client.aclose.assert_not_awaited()
+
+
 def test_missing_thumbnail_closes_graph_response_and_client():
     client=MagicMock()
     client.build_request.return_value=object()
@@ -62,6 +83,32 @@ def test_missing_thumbnail_closes_graph_response_and_client():
             asyncio.run(open_thumbnail_stream("secret",make_item_id("drive-id","item-id")))
     response.aclose.assert_awaited_once()
     client.aclose.assert_awaited_once()
+
+def test_media_stream_reuses_shared_client_for_range_requests():
+    client=MagicMock()
+    client.build_request.return_value=object()
+    response=MagicMock(status_code=206)
+    response.raise_for_status=MagicMock()
+    response.aclose=AsyncMock()
+    client.send=AsyncMock(return_value=response)
+    client.aclose=AsyncMock()
+    item_id=make_item_id("drive-id","item-id")
+
+    returned_client,returned_response=asyncio.run(
+        open_media_stream(
+            "secret",
+            item_id,
+            "bytes=0-1023",
+            http_client=client,
+        )
+    )
+
+    assert returned_client is client and returned_response is response
+    assert client.build_request.call_args.kwargs["headers"]["Range"]=="bytes=0-1023"
+    asyncio.run(close_media_stream(client,response,False))
+    response.aclose.assert_awaited_once()
+    client.aclose.assert_not_awaited()
+
 
 def test_media_stream_uses_graph_download_url_when_consumer_content_endpoint_returns_400():
     client=MagicMock()

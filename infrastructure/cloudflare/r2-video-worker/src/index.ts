@@ -33,6 +33,7 @@ export interface Env {
 
 const TRUSTED_CACHE_ORIGIN = "https://cam-r2-video-cache.internal";
 const INTERNAL_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const RANGE_CACHE_SEGMENT_BYTES = 2 * 1024 * 1024;
 
 function protectedHeaders(): Headers {
   return new Headers({
@@ -100,6 +101,19 @@ function cacheRequest(pathname: string): Request {
   // A fixed trusted origin prevents Host from creating cache namespaces. The
   // strict, authenticated immutable pathname is the complete cache identity.
   return new Request(TRUSTED_CACHE_ORIGIN + pathname);
+}
+
+function rangeCacheRequest(pathname: string, start: number, end: number): Request {
+  return new Request(TRUSTED_CACHE_ORIGIN + pathname + "?segment=" + start + "-" + end);
+}
+
+function cacheSegmentForRange(
+  start: number, end: number, objectSize: number,
+): { start: number; end: number; length: number } | null {
+  const segmentStart = Math.floor(start / RANGE_CACHE_SEGMENT_BYTES) * RANGE_CACHE_SEGMENT_BYTES;
+  const segmentEnd = Math.min(segmentStart + RANGE_CACHE_SEGMENT_BYTES - 1, objectSize - 1);
+  if (end > segmentEnd) return null;
+  return { start: segmentStart, end: segmentEnd, length: segmentEnd - segmentStart + 1 };
 }
 
 function cacheRepresentation(body: ReadableStream<Uint8Array>, object: R2ReadObject): Response {
@@ -202,10 +216,51 @@ export async function handleRequest(
       headers.set("Accept-Ranges", "bytes");
       return new Response("Range not satisfiable", { status: 416, headers });
     }
-    const object = await env.VIDEO_CACHE_BUCKET.get(authenticated.key, {
-      range: { offset: parsed.start, length: parsed.length },
-    });
+
+    const segment = edgeCache
+      ? cacheSegmentForRange(parsed.start, parsed.end, metadata.size)
+      : null;
+    const canonicalRange = segment
+      ? rangeCacheRequest(authenticated.pathname, segment.start, segment.end)
+      : undefined;
+    const rangeHit = canonicalRange && edgeCache
+      ? await edgeCache.match(canonicalRange)
+      : undefined;
+    if (rangeHit && segment) {
+      const segmentBytes = new Uint8Array(await rangeHit.arrayBuffer());
+      if (segmentBytes.byteLength !== segment.length) return unavailable();
+      const relativeStart = parsed.start - segment.start;
+      const payload = segmentBytes.slice(relativeStart, relativeStart + parsed.length);
+      const headers = objectHeaders({ ...metadata, size: parsed.length }, "HIT");
+      headers.set("Content-Range", "bytes " + parsed.start + "-" + parsed.end + "/" + metadata.size);
+      return new Response(payload, { status: 206, headers });
+    }
+
+    const fetchRange = segment
+      ? { offset: segment.start, length: segment.length }
+      : { offset: parsed.start, length: parsed.length };
+    const object = await env.VIDEO_CACHE_BUCKET.get(authenticated.key, { range: fetchRange });
     if (object === null || object.body === undefined) return unavailable();
+
+    if (segment && canonicalRange && edgeCache) {
+      const segmentBytes = new Uint8Array(await new Response(object.body).arrayBuffer());
+      if (segmentBytes.byteLength !== segment.length) return unavailable();
+      const internalHeaders = objectHeaders({ ...metadata, size: segment.length }, "MISS");
+      internalHeaders.set("Cache-Control", INTERNAL_CACHE_CONTROL);
+      internalHeaders.delete("X-Video-Cache");
+      scheduleCachePut(
+        edgeCache,
+        canonicalRange,
+        new Response(segmentBytes, { status: 200, headers: internalHeaders }),
+        context,
+      );
+      const relativeStart = parsed.start - segment.start;
+      const payload = segmentBytes.slice(relativeStart, relativeStart + parsed.length);
+      const headers = objectHeaders({ ...metadata, size: parsed.length }, "MISS");
+      headers.set("Content-Range", "bytes " + parsed.start + "-" + parsed.end + "/" + metadata.size);
+      return new Response(payload, { status: 206, headers });
+    }
+
     const headers = objectHeaders({ ...metadata, size: parsed.length }, "BYPASS");
     headers.set("Content-Range", "bytes " + parsed.start + "-" + parsed.end + "/" + metadata.size);
     return new Response(object.body, { status: 206, headers });

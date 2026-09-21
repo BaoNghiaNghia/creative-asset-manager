@@ -115,7 +115,7 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
             session.commit()
             return pipeline
 
-    def test_google_stream_and_provider_are_closed(self):
+    def test_google_stream_closes_without_opening_metadata_provider(self):
         pipeline = self.pipeline()
         provider = FakeProvider()
         token_calls = []
@@ -148,9 +148,9 @@ class SourceAssetPipelineContentResolverTest(unittest.TestCase):
         asyncio.run(consume())
         self.assertEqual(token_calls, ["connection-a"])
         self.assertEqual(provider.input.external_asset_id, "drive-file-a")
-        self.assertTrue(provider.entered)
+        self.assertFalse(provider.entered)
         self.assertTrue(provider.stream_closed)
-        self.assertTrue(provider.exited)
+        self.assertFalse(provider.exited)
 
     def test_resolver_enforces_tenant_ownership(self):
         pipeline = self.pipeline()

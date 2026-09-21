@@ -7,7 +7,8 @@ or health-guard problem falls back to the existing provider stream.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from time import perf_counter
+from threading import Lock
+from time import monotonic, perf_counter
 from typing import Callable
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -35,6 +36,24 @@ from app.modules.video_cache.runtime import (
     VideoDeliveryRuntimeUnavailable,
 )
 from app.providers.cloudflare.r2 import R2Adapter
+
+
+_access_touch_lock = Lock()
+_access_touch_deadline: dict[tuple[str, str], float] = {}
+
+def _should_touch_access(tenant_id: str, record_id: str, debounce_seconds: int) -> bool:
+    now = monotonic()
+    key = (tenant_id, record_id)
+    with _access_touch_lock:
+        deadline = _access_touch_deadline.get(key, 0.0)
+        if deadline > now:
+            return False
+        if len(_access_touch_deadline) >= 4096:
+            expired = [item for item, value in _access_touch_deadline.items() if value <= now]
+            for item in expired[:2048]:
+                _access_touch_deadline.pop(item, None)
+        _access_touch_deadline[key] = now + max(1, debounce_seconds)
+        return True
 
 
 def _epoch(value: datetime) -> int:
@@ -177,12 +196,17 @@ class PublicVideoDeliveryResolver:
                         self._finish(started, "video_cdn_fallback_guard_total")
                         return None
 
-                repository.touch_access(
+                if _should_touch_access(
                     tenant_id,
                     cache_object.id,
-                    debounce_seconds=self.settings.R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS,
-                )
-                session.commit()
+                    self.settings.R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS,
+                ):
+                    repository.touch_access(
+                        tenant_id,
+                        cache_object.id,
+                        debounce_seconds=self.settings.R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS,
+                    )
+                    session.commit()
                 self._finish(started, "video_cdn_redirect_total")
                 return ticket
             except VideoDeliveryError:

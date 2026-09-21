@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -125,22 +126,32 @@ def test_scoped_folder_pagination_keeps_image_and_video_visible(ctx):
  assert {item["asset_id"] for item in items} == {"asset-good","asset-video"}
 
 
-def test_public_media_guard_releases_the_limited_slot(monkeypatch):
+def test_public_media_guard_releases_the_limited_slot_and_forwards_range(monkeypatch):
  before=public_router._public_media_slots._value
  principal=SimpleNamespace(tenant_id="tenant-a")
- source=SimpleNamespace(id="child",mime_type="image/jpeg")
+ source=SimpleNamespace(id="child",filename="image.jpg",mime_type="image/jpeg")
  class Resolver:
   def __init__(self,*_): pass
   @asynccontextmanager
-  async def open(self,**_):
-   yield SimpleNamespace(body=chunks())
+  async def open(self,**kwargs):
+   assert kwargs["range_header"]=="bytes=0-4"
+   yield SimpleNamespace(
+    body=chunks(),
+    status_code=206,
+    content_type="image/jpeg",
+    headers={"accept-ranges":"bytes","content-range":"bytes 0-4/5","content-length":"5"},
+   )
  async def chunks():
   yield b"image"
  monkeypatch.setattr(public_router,"user",lambda *_: principal)
  monkeypatch.setattr(public_router,"asset_pair",lambda *_: (SimpleNamespace(),source))
  monkeypatch.setattr(public_router,"SourceAssetContentResolver",Resolver)
  async def consume():
-  response=await public_router.media("share-a","asset-good",SimpleNamespace(headers={}),"child")
+  response=await public_router.media("share-a","asset-good",SimpleNamespace(headers={"range":"bytes=0-4"}),"child")
+  assert response.status_code==206
+  assert response.headers["accept-ranges"]=="bytes"
+  assert response.headers["content-range"]=="bytes 0-4/5"
+  assert response.headers["content-length"]=="5"
   return [chunk async for chunk in response.body_iterator]
  assert asyncio.run(consume())==[b"image"]
  assert public_router._public_media_slots._value==before
@@ -148,25 +159,101 @@ def test_public_media_guard_releases_the_limited_slot(monkeypatch):
 
 def test_public_thumbnail_uses_bounded_thumbnail_resolver_not_original_media(monkeypatch):
  principal=SimpleNamespace(tenant_id="tenant-a")
- source=SimpleNamespace(id="child")
+ source=SimpleNamespace(id="child",external_source_id="source-a",external_asset_id="file-a",filename="image.jpg",mime_type="image/jpeg",source_metadata={"thumbnail_url":"https://lh3.googleusercontent.com/example=s220"})
+ google_client=object()
+ onedrive_client=object()
  class Resolver:
-  def __init__(self,*_): pass
+  def __init__(self,*_,google_http_client=None,onedrive_http_client=None):
+   assert google_http_client is google_client
+   assert onedrive_http_client is onedrive_client
   async def load(self,**kwargs):
-   assert kwargs == {"tenant_id":"tenant-a","source_asset_id":"child"}
+   assert kwargs == {"tenant_id":"tenant-a","external_source_id":"source-a","external_asset_id":"file-a","filename":"image.jpg","mime_type":"image/jpeg","thumbnail_url_hint":"https://lh3.googleusercontent.com/example=s220","variant":"grid"}
    return SimpleNamespace(content=b"thumbnail",content_type="image/webp")
  monkeypatch.setattr(public_router,"user",lambda *_: principal)
  monkeypatch.setattr(public_router,"asset_pair",lambda *_: (SimpleNamespace(),source))
  monkeypatch.setattr(public_router,"PublicThumbnailResolver",Resolver)
- async def request_thumbnail():
-  return await public_router.thumbnail("share-a","asset-good",SimpleNamespace(),"child")
+ async def request_thumbnail(headers=None):
+  state=SimpleNamespace(google_drive_stream_client=google_client,onedrive_stream_client=onedrive_client)
+  request=SimpleNamespace(app=SimpleNamespace(state=state),headers=headers or {})
+  return await public_router.thumbnail("share-a","asset-good",request,"child")
  response=asyncio.run(request_thumbnail())
  assert response.body == b"thumbnail"
  assert response.media_type == "image/webp"
- assert response.headers["cache-control"] == "no-store, private"
+ assert response.headers["cache-control"] == "private, no-cache, max-age=0, must-revalidate"
+ assert response.headers["etag"]
+ revalidated=asyncio.run(request_thumbnail({"if-none-match":response.headers["etag"]}))
+ assert revalidated.status_code == 304
+ assert revalidated.body == b""
 
 
-def test_public_video_cdn_redirect_releases_slot_and_skips_provider(monkeypatch):
- before=public_router._public_media_slots._value
+def test_public_image_preview_uses_large_provider_thumbnail(monkeypatch):
+ principal=SimpleNamespace(tenant_id="tenant-a")
+ source=SimpleNamespace(id="child",external_source_id="source-a",external_asset_id="file-a",filename="image.jpg",mime_type="image/jpeg",source_metadata={"thumbnail_url":"https://lh3.googleusercontent.com/example=s220"})
+ google_client=object()
+ onedrive_client=object()
+ class Resolver:
+  def __init__(self,*_,google_http_client=None,onedrive_http_client=None):
+   assert google_http_client is google_client
+   assert onedrive_http_client is onedrive_client
+  async def load(self,**kwargs):
+   assert kwargs["variant"]=="preview"
+   assert kwargs["thumbnail_url_hint"]=="https://lh3.googleusercontent.com/example=s220"
+   return SimpleNamespace(content=b"preview",content_type="image/jpeg")
+ monkeypatch.setattr(public_router,"user",lambda *_: principal)
+ monkeypatch.setattr(public_router,"asset_pair",lambda *_: (SimpleNamespace(mime_type="image/jpeg"),source))
+ monkeypatch.setattr(public_router,"PublicThumbnailResolver",Resolver)
+ state=SimpleNamespace(google_drive_stream_client=google_client,onedrive_stream_client=onedrive_client)
+ request=SimpleNamespace(app=SimpleNamespace(state=state),headers={})
+ response=asyncio.run(public_router.image_preview("share-a","asset-good",request,"child"))
+ assert response.body==b"preview"
+ assert response.headers["cache-control"]=="private, no-cache, max-age=0, must-revalidate"
+
+
+def test_public_playback_ticket_returns_direct_cdn_url(monkeypatch):
+ principal=SimpleNamespace(tenant_id="tenant-a")
+ asset=SimpleNamespace(id="asset-video",mime_type="video/mp4")
+ source=SimpleNamespace(id="video-child",filename="clip.mp4",mime_type="video/mp4")
+ class DeliveryResolver:
+  def __init__(self,*_): pass
+  async def resolve(self,**kwargs):
+   assert kwargs=={"principal":principal,"asset":asset,"source":source}
+   return SimpleNamespace(url="https://media.example.test/video?v=1&exp=2000000000&sig=safe",expires_at=2000000000)
+ monkeypatch.setattr(public_router,"user",lambda *_: principal)
+ monkeypatch.setattr(public_router,"asset_pair",lambda *_: (asset,source))
+ monkeypatch.setattr(public_router,"PublicVideoDeliveryResolver",DeliveryResolver)
+ response=asyncio.run(public_router.playback_ticket("share-a","asset-video",SimpleNamespace(),"video-child"))
+ body=json.loads(response.body)
+ assert body["cdn"] is True
+ assert body["url"].startswith("https://media.example.test/")
+ assert body["expires_at"]==2000000000
+
+
+def test_public_prewarm_authorizes_and_resolves_without_returning_ticket(monkeypatch):
+ principal=SimpleNamespace(tenant_id="tenant-a")
+ asset=SimpleNamespace(id="asset-video",mime_type="video/mp4")
+ source=SimpleNamespace(id="video-child",filename="clip.mp4",mime_type="video/mp4")
+ calls=[]
+ class DeliveryResolver:
+  def __init__(self,*_): pass
+  async def resolve(self,**kwargs):
+   calls.append(kwargs)
+   return None
+ class DummySession:
+  def __enter__(self): return self
+  def __exit__(self,*_): return None
+  def commit(self): pass
+ monkeypatch.setattr(public_router,"origin_required",lambda *_: None)
+ monkeypatch.setattr(public_router,"user",lambda *_: principal)
+ monkeypatch.setattr(public_router,"asset_pair",lambda *_: (asset,source))
+ monkeypatch.setattr(public_router,"PublicVideoDeliveryResolver",DeliveryResolver)
+ monkeypatch.setattr(public_router,"SessionLocal",lambda:DummySession())
+ monkeypatch.setattr(public_router,"limit",lambda *_args,**_kwargs: None)
+ response=asyncio.run(public_router.prewarm("share-a","asset-video",SimpleNamespace(),"video-child"))
+ assert response.status_code==202
+ assert calls==[{"principal":principal,"asset":asset,"source":source}]
+
+
+def test_public_video_cdn_redirect_skips_provider_slot_and_provider(monkeypatch):
  principal=SimpleNamespace(
   tenant_id="tenant-a",
   expires_at=None,
@@ -182,10 +269,16 @@ def test_public_video_cdn_redirect_releases_slot_and_skips_provider(monkeypatch)
  class ProviderResolver:
   def __init__(self,*_):
    raise AssertionError("provider fallback must not be created for CDN redirect")
+ class NoProviderSlot:
+  async def acquire(self):
+   raise AssertionError("CDN redirect must not consume a provider stream slot")
+  def release(self):
+   raise AssertionError("CDN redirect must not release a provider stream slot")
  monkeypatch.setattr(public_router,"user",lambda *_: principal)
  monkeypatch.setattr(public_router,"asset_pair",lambda *_: (asset,source))
  monkeypatch.setattr(public_router,"PublicVideoDeliveryResolver",DeliveryResolver)
  monkeypatch.setattr(public_router,"SourceAssetContentResolver",ProviderResolver)
+ monkeypatch.setattr(public_router,"_public_media_slots",NoProviderSlot())
  async def consume():
   return await public_router.media("share-a","asset-video",SimpleNamespace(headers={"range":"bytes=0-3"}),"video-child")
  response=asyncio.run(consume())
@@ -193,18 +286,21 @@ def test_public_video_cdn_redirect_releases_slot_and_skips_provider(monkeypatch)
  assert response.headers["location"].startswith("https://media.example.test/video-cache/tenant-a/")
  assert response.headers["cache-control"]=="no-store, private"
  assert response.headers["referrer-policy"]=="no-referrer"
- assert public_router._public_media_slots._value==before
 
 
-def test_public_video_cdn_miss_falls_back_to_provider(monkeypatch):
+def test_public_video_cdn_miss_falls_back_to_provider_with_shared_clients(monkeypatch):
  principal=SimpleNamespace(tenant_id="tenant-a")
  asset=SimpleNamespace(id="asset-video",tenant_id="tenant-a",content_hash="d"*64,mime_type="video/mp4")
  source=SimpleNamespace(id="video-child",tenant_id="tenant-a",filename="clip.mp4",mime_type="video/mp4")
+ google_client=object()
+ onedrive_client=object()
  class DeliveryResolver:
   def __init__(self,*_): pass
   async def resolve(self,**_): return None
  class ProviderResolver:
-  def __init__(self,*_): pass
+  def __init__(self,*_,google_http_client=None,onedrive_http_client=None):
+   assert google_http_client is google_client
+   assert onedrive_http_client is onedrive_client
   @asynccontextmanager
   async def open(self,**kwargs):
    assert kwargs["tenant_id"]=="tenant-a"
@@ -212,13 +308,22 @@ def test_public_video_cdn_miss_falls_back_to_provider(monkeypatch):
    assert kwargs["range_header"]=="bytes=4-"
    async def chunks():
     yield b"provider-video"
-   yield SimpleNamespace(body=chunks())
+   yield SimpleNamespace(
+    body=chunks(),
+    status_code=206,
+    content_type="video/mp4",
+    headers={"accept-ranges":"bytes","content-range":"bytes 4-17/18"},
+   )
  monkeypatch.setattr(public_router,"user",lambda *_: principal)
  monkeypatch.setattr(public_router,"asset_pair",lambda *_: (asset,source))
  monkeypatch.setattr(public_router,"PublicVideoDeliveryResolver",DeliveryResolver)
  monkeypatch.setattr(public_router,"SourceAssetContentResolver",ProviderResolver)
  async def consume():
-  response=await public_router.media("share-a","asset-video",SimpleNamespace(headers={"range":"bytes=4-"}),"video-child")
+  state=SimpleNamespace(google_drive_stream_client=google_client,onedrive_stream_client=onedrive_client)
+  request=SimpleNamespace(headers={"range":"bytes=4-"},app=SimpleNamespace(state=state))
+  response=await public_router.media("share-a","asset-video",request,"video-child")
+  assert response.status_code==206
+  assert response.headers["content-range"]=="bytes 4-17/18"
   return [chunk async for chunk in response.body_iterator]
  assert asyncio.run(consume())==[b"provider-video"]
 

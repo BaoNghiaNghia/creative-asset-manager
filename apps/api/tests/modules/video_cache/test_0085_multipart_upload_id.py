@@ -9,20 +9,24 @@ from sqlalchemy import Text, create_engine, inspect, text
 from app.modules.video_cache.model import VideoCacheObjectModel
 
 
+API_ROOT = Path(__file__).resolve().parents[3]
+ALEMBIC_CONFIG = API_ROOT / "alembic.ini"
+
+
 def test_model_uses_unbounded_text_for_multipart_upload_id():
     column_type = VideoCacheObjectModel.__table__.c.multipart_upload_id.type
     assert isinstance(column_type, Text)
 
 
-def test_0085_is_the_single_alembic_head():
-    assert ScriptDirectory.from_config(Config("alembic.ini")).get_heads() == [
-        "0085_r2_multipart_upload_id_text"
+def test_0086_is_the_single_alembic_head():
+    assert ScriptDirectory.from_config(Config(str(ALEMBIC_CONFIG))).get_heads() == [
+        "0086_source_asset_parent_listing"
     ]
 
 
 def test_0085_sqlite_upgrade_downgrade_upgrade_round_trip(tmp_path: Path):
     url = f"sqlite:///{tmp_path / 'multipart-id.sqlite'}"
-    config = Config("alembic.ini")
+    config = Config(str(ALEMBIC_CONFIG))
     config.set_main_option("sqlalchemy.url", url)
 
     command.upgrade(config, "0084_video_cdn_delivery_runtime")
@@ -43,7 +47,7 @@ def test_0085_sqlite_upgrade_downgrade_upgrade_round_trip(tmp_path: Path):
 
 def test_0085_downgrade_rejects_long_existing_upload_id(tmp_path: Path):
     url = f"sqlite:///{tmp_path / 'long-multipart-id.sqlite'}"
-    config = Config("alembic.ini")
+    config = Config(str(ALEMBIC_CONFIG))
     config.set_main_option("sqlalchemy.url", url)
     command.upgrade(config, "0085_r2_multipart_upload_id_text")
 

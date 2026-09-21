@@ -5,6 +5,7 @@ from sqlalchemy import (
     CheckConstraint,
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -12,7 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.core.database import Base
 
@@ -23,6 +24,13 @@ def new_id() -> str:
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+_SOURCE_FOLDER_MIME_TYPES = {
+    "application/vnd.google-apps.folder",
+    "application/vnd.microsoft.folder",
+    "application/vnd.microsoft.sharepoint.folder",
+}
 
 
 class ExternalSourceModel(Base):
@@ -76,6 +84,10 @@ class SourceAssetModel(Base):
         UniqueConstraint("tenant_id", "id", name="uq_source_assets_tenant_id"),
         Index("ix_source_assets_tenant_deleted", "tenant_id", "deleted_at"),
         Index(
+            "ix_source_assets_parent_listing",
+            "tenant_id", "external_source_id", "parent_external_id", "deleted_at", "is_folder",
+        ),
+        Index(
             "ix_source_assets_reconciliation_generation",
             "tenant_id", "external_source_id", "last_seen_generation", "deleted_at",
         ),
@@ -95,6 +107,8 @@ class SourceAssetModel(Base):
     hashed_provider_checksum: Mapped[str | None] = mapped_column(String(255))
     hashed_provider_version: Mapped[str | None] = mapped_column(String(255))
     source_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    parent_external_id: Mapped[str | None] = mapped_column(String(2048))
+    is_folder: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_seen_generation: Mapped[int | None] = mapped_column(BigInteger)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -102,6 +116,30 @@ class SourceAssetModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
+
+    @validates("source_metadata")
+    def _sync_listing_fields_from_metadata(self, _key: str, value: dict | None) -> dict:
+        metadata = dict(value or {})
+        parent = metadata.get("parent_id")
+        parents = metadata.get("parents")
+        if (not isinstance(parent, str) or not parent) and isinstance(parents, list) and parents:
+            first_parent = parents[0]
+            parent = first_parent if isinstance(first_parent, str) else None
+        self.parent_external_id = parent if isinstance(parent, str) and parent else None
+        explicit_folder = metadata.get("is_folder")
+        if isinstance(explicit_folder, bool):
+            self.is_folder = explicit_folder
+        else:
+            self.is_folder = getattr(self, "mime_type", None) in _SOURCE_FOLDER_MIME_TYPES
+        return metadata
+
+    @validates("mime_type")
+    def _sync_listing_folder_from_mime(self, _key: str, value: str | None) -> str | None:
+        metadata = getattr(self, "source_metadata", None)
+        explicit_folder = metadata.get("is_folder") if isinstance(metadata, dict) else None
+        if not isinstance(explicit_folder, bool):
+            self.is_folder = value in _SOURCE_FOLDER_MIME_TYPES
+        return value
 
 
 class AssetModel(Base):
