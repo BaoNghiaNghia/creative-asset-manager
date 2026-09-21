@@ -34,9 +34,12 @@ def _media_host(value: str) -> str:
         or host == "workers.dev"
         or host.endswith(".r2.dev")
         or host.endswith(".workers.dev")
+        or host == "r2.cloudflarestorage.com"
         or host.endswith(".r2.cloudflarestorage.com")
     ):
-        raise RolloutConfigError("public Cloudflare development/raw R2 host is not allowed")
+        raise RolloutConfigError(
+            "custom-domain mode does not allow workers.dev, r2.dev, or raw R2 hosts"
+        )
     return host
 
 
@@ -58,23 +61,23 @@ def build_config(
     *,
     worker_name: str,
     bucket_name: str,
-    media_host: str,
+    media_host: str | None = None,
+    workers_dev: bool = False,
     max_ttl_seconds: int = 3600,
 ) -> dict[str, Any]:
     if isinstance(max_ttl_seconds, bool) or not 1 <= max_ttl_seconds <= 3600:
         raise RolloutConfigError("max TTL must be between 1 and 3600 seconds")
-    return {
+    if workers_dev and media_host:
+        raise RolloutConfigError("--workers-dev and --media-host are mutually exclusive")
+    if not workers_dev and not media_host:
+        raise RolloutConfigError("either --media-host or --workers-dev is required")
+
+    config: dict[str, Any] = {
         "$schema": "./node_modules/wrangler/config-schema.json",
         "name": _worker_name(worker_name),
         "main": "src/index.ts",
         "compatibility_date": "2026-09-20",
-        "workers_dev": False,
-        "routes": [
-            {
-                "pattern": _media_host(media_host),
-                "custom_domain": True,
-            }
-        ],
+        "workers_dev": bool(workers_dev),
         "r2_buckets": [
             {
                 "binding": BINDING_NAME,
@@ -88,20 +91,42 @@ def build_config(
             "required": [SECRET_NAME],
         },
     }
+    if not workers_dev:
+        config["routes"] = [
+            {
+                "pattern": _media_host(str(media_host)),
+                "custom_domain": True,
+            }
+        ]
+    return config
 
 
 def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     try:
         worker_name = _worker_name(str(config["name"]))
-        if config.get("main") != "src/index.ts" or config.get("workers_dev") is not False:
-            raise RolloutConfigError("Worker main/workers_dev configuration is unsafe")
-        routes = config["routes"]
-        if not isinstance(routes, list) or len(routes) != 1:
-            raise RolloutConfigError("exactly one custom domain is required")
-        route = routes[0]
-        if route.get("custom_domain") is not True:
-            raise RolloutConfigError("Worker route must be a Custom Domain")
-        media_host = _media_host(str(route["pattern"]))
+        if config.get("main") != "src/index.ts":
+            raise RolloutConfigError("Worker main configuration is unsafe")
+
+        workers_dev = config.get("workers_dev")
+        if not isinstance(workers_dev, bool):
+            raise RolloutConfigError("workers_dev must be explicitly true or false")
+
+        media_host: str | None = None
+        if workers_dev:
+            routes = config.get("routes")
+            if routes not in (None, []):
+                raise RolloutConfigError("workers.dev mode must not declare a custom-domain route")
+            endpoint_mode = "workers_dev"
+        else:
+            routes = config.get("routes")
+            if not isinstance(routes, list) or len(routes) != 1:
+                raise RolloutConfigError("exactly one custom domain is required")
+            route = routes[0]
+            if route.get("custom_domain") is not True:
+                raise RolloutConfigError("Worker route must be a Custom Domain")
+            media_host = _media_host(str(route["pattern"]))
+            endpoint_mode = "custom_domain"
+
         buckets = config["r2_buckets"]
         if not isinstance(buckets, list) or len(buckets) != 1:
             raise RolloutConfigError("exactly one R2 binding is required")
@@ -121,10 +146,11 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         raise RolloutConfigError("Worker production config is incomplete") from exc
     return {
         "worker_name": worker_name,
+        "endpoint_mode": endpoint_mode,
         "media_host": media_host,
         "bucket_name": bucket_name,
         "max_ttl_seconds": ttl,
-        "workers_dev": False,
+        "workers_dev": workers_dev,
         "required_secret_names": [SECRET_NAME],
     }
 
@@ -135,61 +161,72 @@ def rollout_plan(config_path: Path, *, release_tag: str) -> dict[str, Any]:
     config = json.loads(config_path.read_text(encoding="utf-8"))
     summary = validate_config(config)
     config_arg = str(config_path)
-    return {
-        "config": summary,
-        "secret_values_in_plan": False,
-        "application_runtime_must_remain_off": True,
-        "steps": [
-            {
-                "stage": "local_verify",
-                "mutates_remote": False,
-                "commands": ["npm ci", "npm test", "npm run typecheck"],
-            },
-            {
-                "stage": "wrangler_dry_run",
-                "mutates_remote": False,
-                "commands": [
-                    f"npx wrangler deploy --dry-run --config {config_arg}"
-                ],
-            },
-            {
-                "stage": "remote_inspect",
-                "mutates_remote": False,
-                "commands": [
-                    f"npx wrangler deployments list --config {config_arg}"
-                ],
-                "note": "Stop if the expected Worker project does not already exist; bootstrap it only under separate operator approval.",
-            },
-            {
-                "stage": "operator_secret_setup",
-                "mutates_remote": True,
-                "commands": [
-                    f"npx wrangler versions secret put {SECRET_NAME} --config {config_arg}"
-                ],
-                "note": "Enter the value only through Wrangler's protected prompt; never pass it as a CLI argument.",
-            },
-            {
-                "stage": "upload_version",
-                "mutates_remote": True,
-                "commands": [
-                    f"npx wrangler versions upload --config {config_arg} --tag {release_tag}"
-                ],
-                "note": "Uploads a version without routing application traffic to it.",
-            },
+    steps: list[dict[str, Any]] = [
+        {
+            "stage": "local_verify",
+            "mutates_remote": False,
+            "commands": ["npm ci", "npm test", "npm run typecheck"],
+        },
+        {
+            "stage": "wrangler_dry_run",
+            "mutates_remote": False,
+            "commands": [
+                f"npx wrangler deploy --dry-run --config {config_arg}"
+            ],
+        },
+        {
+            "stage": "remote_inspect",
+            "mutates_remote": False,
+            "commands": [
+                f"npx wrangler deployments list --config {config_arg}"
+            ],
+            "note": (
+                "Stop if the expected Worker project does not already exist; "
+                "bootstrap it only under separate operator approval."
+            ),
+        },
+        {
+            "stage": "operator_secret_setup",
+            "mutates_remote": True,
+            "commands": [
+                f"npx wrangler versions secret put {SECRET_NAME} --config {config_arg}"
+            ],
+            "note": (
+                "Enter the value only through Wrangler's protected prompt; "
+                "never pass it as a CLI argument."
+            ),
+        },
+        {
+            "stage": "upload_version",
+            "mutates_remote": True,
+            "commands": [
+                f"npx wrangler versions upload --config {config_arg} --tag {release_tag}"
+            ],
+            "note": "Uploads a version without enabling application CDN delivery.",
+        },
+    ]
+    if not summary["workers_dev"]:
+        steps.append(
             {
                 "stage": "route_review",
                 "mutates_remote": False,
                 "commands": [
                     f"npx wrangler triggers deploy --dry-run --config {config_arg}"
                 ],
-            },
+            }
+        )
+    steps.extend(
+        [
             {
                 "stage": "deployment",
                 "mutates_remote": True,
                 "commands": [
                     f"npx wrangler versions deploy --config {config_arg}"
                 ],
-                "note": "Use the interactive deployment only after the application preflight is green.",
+                "note": (
+                    "Keep the persisted application runtime toggle OFF until "
+                    "the signed Worker probes and activation gate are green."
+                ),
             },
             {
                 "stage": "rollback",
@@ -198,7 +235,13 @@ def rollout_plan(config_path: Path, *, release_tag: str) -> dict[str, Any]:
                     f"npx wrangler rollback --config {config_arg}"
                 ],
             },
-        ],
+        ]
+    )
+    return {
+        "config": summary,
+        "secret_values_in_plan": False,
+        "application_runtime_must_remain_off": True,
+        "steps": steps,
     }
 
 
@@ -218,7 +261,13 @@ def main(argv: list[str] | None = None) -> int:
     render = sub.add_parser("render", help="render a validated secret-free Wrangler config")
     render.add_argument("--worker-name", required=True)
     render.add_argument("--bucket-name", required=True)
-    render.add_argument("--media-host", required=True)
+    endpoint = render.add_mutually_exclusive_group(required=True)
+    endpoint.add_argument("--media-host")
+    endpoint.add_argument(
+        "--workers-dev",
+        action="store_true",
+        help="publish through the account workers.dev subdomain instead of a Custom Domain",
+    )
     render.add_argument("--max-ttl-seconds", type=int, default=3600)
     render.add_argument("--output", type=Path, required=True)
     render.add_argument("--force", action="store_true")
@@ -234,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
                 worker_name=args.worker_name,
                 bucket_name=args.bucket_name,
                 media_host=args.media_host,
+                workers_dev=args.workers_dev,
                 max_ttl_seconds=args.max_ttl_seconds,
             )
             _write_config(args.output, config, force=args.force)
