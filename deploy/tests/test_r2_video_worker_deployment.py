@@ -42,6 +42,39 @@ class R2VideoWorkerRolloutTest(unittest.TestCase):
         serialized = json.dumps(config)
         self.assertNotIn("secret-value", serialized)
         self.assertEqual(summary["max_ttl_seconds"], 600)
+        self.assertEqual(summary["endpoint_mode"], "custom_domain")
+
+    def test_rendered_workers_dev_config_has_no_custom_domain_route(self):
+        config = build_config(
+            worker_name="cam-r2-original-video",
+            bucket_name="cam-private-video",
+            workers_dev=True,
+            max_ttl_seconds=600,
+        )
+        summary = validate_config(config)
+        self.assertTrue(config["workers_dev"])
+        self.assertNotIn("routes", config)
+        self.assertEqual(summary["endpoint_mode"], "workers_dev")
+        self.assertTrue(summary["workers_dev"])
+        self.assertIsNone(summary["media_host"])
+        self.assertEqual(
+            config["r2_buckets"],
+            [{"binding": BINDING_NAME, "bucket_name": "cam-private-video"}],
+        )
+
+    def test_workers_dev_and_custom_domain_modes_are_mutually_exclusive(self):
+        with self.assertRaises(RolloutConfigError):
+            build_config(
+                worker_name="cam-r2-original-video",
+                bucket_name="cam-private-video",
+                media_host="media.example.com",
+                workers_dev=True,
+            )
+        with self.assertRaises(RolloutConfigError):
+            build_config(
+                worker_name="cam-r2-original-video",
+                bucket_name="cam-private-video",
+            )
 
     def test_public_cloudflare_and_raw_r2_hosts_are_rejected(self):
         for host in (
@@ -84,6 +117,25 @@ class R2VideoWorkerRolloutTest(unittest.TestCase):
         remote = [step for step in plan["steps"] if step["mutates_remote"]]
         self.assertTrue(remote)
         self.assertTrue(all("commands" in step for step in remote))
+
+
+    def test_workers_dev_rollout_plan_skips_custom_domain_trigger_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "wrangler.production.json"
+            path.write_text(
+                json.dumps(build_config(
+                    worker_name="cam-r2-original-video",
+                    bucket_name="cam-private-video",
+                    workers_dev=True,
+                    max_ttl_seconds=600,
+                )),
+                encoding="utf-8",
+            )
+            plan = rollout_plan(path, release_tag="workers-dev-test")
+        self.assertTrue(plan["config"]["workers_dev"])
+        stages = [step["stage"] for step in plan["steps"]]
+        self.assertNotIn("route_review", stages)
+        self.assertIn("deployment", stages)
 
 
 if __name__ == "__main__":
