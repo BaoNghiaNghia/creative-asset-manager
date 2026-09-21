@@ -24,6 +24,11 @@ SECRET = "phase-5a-test-signing-secret-with-strong-entropy-2026"
 def settings(**updates) -> Settings:
     values = {
         "APP_ENV": "production",
+        "PUBLIC_APP_URL": "https://app.example.test",
+        "CORS_ALLOWED_ORIGINS": "https://app.example.test",
+        "TRUSTED_HOSTS": "app.example.test",
+        "API_DOCS_ENABLED": False,
+        "DATABASE_URL": "postgresql+psycopg://test:test@db.example.test/test",
         "R2_VIDEO_CACHE_ENABLED": True,
         "R2_ACCOUNT_ID": "test-account",
         "R2_BUCKET_NAME": "test-bucket",

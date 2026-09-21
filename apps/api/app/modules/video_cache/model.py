@@ -50,7 +50,10 @@ class VideoCacheObjectModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     fill_job_id: Mapped[str | None] = mapped_column(String(36))
     fill_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    multipart_upload_id: Mapped[str | None] = mapped_column(String(255))
+    # S3-compatible providers treat multipart upload IDs as opaque values and
+    # do not guarantee that they fit in a short varchar (R2 currently emits
+    # values longer than 255 characters).
+    multipart_upload_id: Mapped[str | None] = mapped_column(Text)
     cleanup_claimed_by: Mapped[str | None] = mapped_column(String(255))
     cleanup_lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
