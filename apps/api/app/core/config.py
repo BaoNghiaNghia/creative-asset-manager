@@ -169,6 +169,9 @@ class Settings(BaseSettings):
     R2_VIDEO_CACHE_CLEANUP_MAX_ITEMS_PER_RUN: int = 100
     R2_VIDEO_CACHE_REAL_SMOKE: bool = False
     R2_VIDEO_MEDIA_BASE_URL: str = ""
+    # Exceptional zero-custom-domain mode. Keep false unless the operator
+    # intentionally accepts a workers.dev delivery hostname for this deployment.
+    R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV: bool = False
     R2_VIDEO_MEDIA_SIGNING_SECRET: SecretStr = SecretStr("")
     R2_VIDEO_MEDIA_TICKET_TTL_SECONDS: int = 600
     VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS: str = ""
@@ -800,12 +803,41 @@ class Settings(BaseSettings):
     def r2_endpoint_url(self) -> str:
         return self.R2_ENDPOINT.strip() or f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
     @property
-    def video_delivery_configured(self) -> bool:
-        return bool(self.R2_VIDEO_MEDIA_BASE_URL.strip() and self.R2_VIDEO_MEDIA_SIGNING_SECRET.get_secret_value())
-
-    @property
     def video_media_base_url(self) -> str:
         return self.R2_VIDEO_MEDIA_BASE_URL.strip().rstrip("/")
+
+    @property
+    def video_media_origin_kind(self) -> str:
+        hostname = (urlsplit(self.video_media_base_url).hostname or "").casefold()
+        if (
+            hostname == "r2.dev"
+            or hostname.endswith(".r2.dev")
+            or hostname == "r2.cloudflarestorage.com"
+            or hostname.endswith(".r2.cloudflarestorage.com")
+        ):
+            return "raw_r2"
+        if hostname == "workers.dev":
+            return "workers_dev_root"
+        if hostname.endswith(".workers.dev"):
+            return "workers_dev"
+        return "custom"
+
+    @property
+    def video_media_origin_approved(self) -> bool:
+        kind = self.video_media_origin_kind
+        if kind in {"raw_r2", "workers_dev_root"}:
+            return False
+        if kind == "workers_dev":
+            return bool(self.R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV)
+        return bool(self.video_media_base_url)
+
+    @property
+    def video_delivery_configured(self) -> bool:
+        return bool(
+            self.video_media_base_url
+            and self.R2_VIDEO_MEDIA_SIGNING_SECRET.get_secret_value()
+            and self.video_media_origin_approved
+        )
 
     @property
     def video_delivery_canary_tenant_ids(self) -> frozenset[str]:

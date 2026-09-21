@@ -114,20 +114,62 @@ def test_preflight_fails_without_ready_video_or_quota_headroom():
     engine.dispose()
 
 
-def test_preflight_rejects_public_cloudflare_origins():
+def test_preflight_rejects_public_r2_origins_even_with_workers_dev_opt_in():
     for origin in (
         "https://cache.example.r2.dev",
-        "https://cam-r2.workers.dev",
         "https://test-account.r2.cloudflarestorage.com",
     ):
         engine, factory = context()
         with factory() as session:
             checks = by_code(video_delivery_preflight(
                 session,
-                configured_settings(R2_VIDEO_MEDIA_BASE_URL=origin),
+                configured_settings(
+                    R2_VIDEO_MEDIA_BASE_URL=origin,
+                    R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=True,
+                ),
             ))
         assert not checks["approved_media_origin"].ok
+        assert not checks["delivery_configured"].ok
         engine.dispose()
+
+
+def test_preflight_workers_dev_requires_explicit_operator_opt_in():
+    origin = "https://cam-r2-original-video.baonghia-kht.workers.dev"
+
+    engine, factory = context()
+    with factory() as session:
+        denied = by_code(video_delivery_preflight(
+            session,
+            configured_settings(R2_VIDEO_MEDIA_BASE_URL=origin),
+        ))
+        allowed = by_code(video_delivery_preflight(
+            session,
+            configured_settings(
+                R2_VIDEO_MEDIA_BASE_URL=origin,
+                R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=True,
+            ),
+        ))
+    assert not denied["approved_media_origin"].ok
+    assert not denied["delivery_configured"].ok
+    assert not denied["workers_dev_operator_opt_in"].ok
+    assert allowed["approved_media_origin"].ok
+    assert allowed["delivery_configured"].ok
+    assert allowed["workers_dev_operator_opt_in"].ok
+    assert "explicit operator opt-in" in allowed["workers_dev_operator_opt_in"].detail
+    engine.dispose()
+
+
+def test_preflight_custom_domain_behavior_is_unchanged():
+    engine, factory = context()
+    with factory() as session:
+        checks = by_code(video_delivery_preflight(
+            session,
+            configured_settings(R2_VIDEO_MEDIA_BASE_URL="https://media.example.test"),
+        ))
+    assert checks["approved_media_origin"].ok
+    assert checks["delivery_configured"].ok
+    assert "workers_dev_operator_opt_in" not in checks
+    engine.dispose()
 
 
 def test_worker_probe_accepts_only_authenticated_missing_key_404():

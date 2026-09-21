@@ -50,7 +50,7 @@ Cloudflare account or credentials.
 ## Separately approved rollout (documentation only)
 
 1. Keep the bucket private; do not enable a public URL or `r2.dev`.
-2. Review the actual `VIDEO_CACHE_BUCKET` binding and Worker route/domain.
+2. Review the actual `VIDEO_CACHE_BUCKET` binding and selected Worker endpoint mode.
 3. Set the same high-entropy, at-least-32-byte secret on backend and Worker
    through protected configuration. The Worker command is
    `wrangler secret put R2_VIDEO_MEDIA_SIGNING_SECRET`; do not commit it.
@@ -58,6 +58,31 @@ Cloudflare account or credentials.
    align its 1–3600-second TTL with the Worker maximum.
 5. Review and test in staging; authorize any Worker deployment, DNS, secret
    or bucket-setting change separately.
+
+### Zero-custom-domain workers.dev mode
+
+Custom Domain remains the preferred production topology. An operator that
+intentionally does not use a custom domain may instead render the Worker with
+`workers_dev=true`:
+
+```sh
+python -m deploy.tools.r2_video_worker_rollout render \
+  --worker-name cam-r2-original-video \
+  --bucket-name creative-asset-video-cache \
+  --workers-dev \
+  --max-ttl-seconds 600 \
+  --output infrastructure/cloudflare/r2-video-worker/wrangler.production.json
+```
+
+The backend must separately opt in with
+`R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=true` and set
+`R2_VIDEO_MEDIA_BASE_URL` to the exact HTTPS Worker URL, for example
+`https://cam-r2-original-video.<account-subdomain>.workers.dev`.
+Without that flag, production preflight and runtime readiness remain fail-closed.
+
+This exception does **not** make R2 public. The bucket remains private behind
+the `VIDEO_CACHE_BUCKET` binding; `r2.dev` and raw
+`r2.cloudflarestorage.com` delivery remain forbidden.
 
 GET streams the R2 body directly; HEAD reads metadata only. Responses use
 `private, no-store`, `nosniff`, and `no-referrer`. There are no
@@ -77,9 +102,10 @@ Supported Range forms are bytes=start-end, bytes=start-, and bytes=-suffix.
 Valid ranges return 206; malformed, multi-range, and unsatisfiable requests
 return 416. A cold Range makes R2 HEAD then native ranged GET and deliberately
 does not populate Cache API. HEAD has no body and reports full metadata. The
-bucket remains private; no r2.dev, Worker route, custom domain, DNS, secret, or
-deployment was configured. A future approved route would be media.<domain>/*
-with the private VIDEO_CACHE_BUCKET binding and a Worker secret.
+bucket remains private; no r2.dev, Worker endpoint, DNS, secret, or deployment
+was configured by this phase. A later approved rollout may use either a Custom
+Domain or the explicit workers.dev opt-in mode, always with the private
+VIDEO_CACHE_BUCKET binding and a Worker secret.
 
 
 ## Phase 4C production preflight contract
@@ -99,9 +125,10 @@ not use a user asset. A 403 or other response fails rollout readiness.
 
 Use `deploy.tools.r2_video_worker_rollout` from the repository root to render
 `wrangler.production.json`. The generated file is ignored by Git and contains
-no secret value. It uses a Custom Domain, keeps `workers_dev=false`, binds the
-private R2 bucket as `VIDEO_CACHE_BUCKET`, and declares the signing secret as
-required.
+no secret value. The default mode uses a Custom Domain with
+`workers_dev=false`; the explicit `--workers-dev` mode instead emits
+`workers_dev=true` with no custom-domain route. Both modes bind the private R2
+bucket as `VIDEO_CACHE_BUCKET` and declare the signing secret as required.
 
 The rollout helper's `plan` subcommand does not execute Wrangler. It labels
 which suggested commands mutate Cloudflare and keeps the application runtime

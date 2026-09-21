@@ -10,7 +10,6 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
 
@@ -93,21 +92,24 @@ def video_delivery_preflight(
         "video delivery guard must be enabled before canary rollout",
     ))
 
-    hostname = (urlsplit(settings.video_media_base_url).hostname or "").casefold()
-    approved_origin = bool(
-        hostname
-        and not hostname.endswith(".r2.dev")
-        and not hostname.endswith(".workers.dev")
-        and not hostname.endswith(".r2.cloudflarestorage.com")
-        and hostname != "r2.dev"
-        and hostname != "workers.dev"
-    )
+    origin_kind = settings.video_media_origin_kind
+    approved_origin = bool(settings.video_media_origin_approved)
     checks.append(_check(
         "approved_media_origin",
         approved_origin,
-        "media origin is an approved private Worker/custom-domain origin",
-        "media origin must not use r2.dev, workers.dev, or the raw R2 endpoint",
+        "media origin passed the signed-delivery origin policy",
+        (
+            "media origin must be a custom HTTPS origin, or an explicitly opted-in "
+            "workers.dev Worker; r2.dev and raw R2 endpoints are never allowed"
+        ),
     ))
+    if origin_kind == "workers_dev":
+        checks.append(_check(
+            "workers_dev_operator_opt_in",
+            bool(settings.R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV),
+            "workers.dev media delivery is enabled under explicit operator opt-in",
+            "workers.dev media delivery requires R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=true",
+        ))
     if require_canary_scope:
         checks.append(_check(
             "canary_rollout_scope",

@@ -108,6 +108,33 @@ def test_activation_gate_is_ready_only_after_all_read_only_checks_pass():
     engine.dispose()
 
 
+
+def test_activation_workers_dev_requires_explicit_opt_in():
+    engine, factory = context()
+    origin = "https://cam-r2-original-video.baonghia-kht.workers.dev"
+    with factory() as session:
+        denied = activation_readiness(
+            session,
+            settings(R2_VIDEO_MEDIA_BASE_URL=origin),
+            worker_probe=ok_worker,
+            ready_probe=ok_ready,
+        )
+        allowed = activation_readiness(
+            session,
+            settings(
+                R2_VIDEO_MEDIA_BASE_URL=origin,
+                R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=True,
+            ),
+            worker_probe=ok_worker,
+            ready_probe=ok_ready,
+        )
+    assert denied["ready_to_enable"] is False
+    assert denied["runtime"]["can_enable"] is False
+    assert allowed["ready_to_enable"] is True
+    assert allowed["runtime"]["can_enable"] is True
+    engine.dispose()
+
+
 def test_activation_gate_fails_if_runtime_is_already_enabled():
     engine, factory = context(runtime_enabled=True)
     with factory() as session:
