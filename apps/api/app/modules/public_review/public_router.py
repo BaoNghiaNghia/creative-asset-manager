@@ -122,7 +122,7 @@ async def media(public_share_id,asset_id,request,source_id):
    _public_media_slots.release()
  try:
   p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_id)
-  ticket=PublicVideoDeliveryResolver(SessionLocal,get_settings()).resolve(principal=p,asset=a,source=src)
+  ticket=await PublicVideoDeliveryResolver(SessionLocal,get_settings()).resolve(principal=p,asset=a,source=src)
   if ticket is not None:
    await release()
    r=RedirectResponse(ticket.url,status_code=307)

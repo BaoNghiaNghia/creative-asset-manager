@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -130,7 +131,7 @@ def test_resolver_probe_failure_falls_back_and_metrics_are_identity_free():
         guard=guard,
         probe=lambda *_args, **_kwargs: False,
     )
-    assert resolver.resolve(principal=principal(), asset=asset(), source=source()) is None
+    assert asyncio.run(resolver.resolve(principal=principal(), asset=asset(), source=source())) is None
     snapshot = delivery_observability_snapshot()
     assert snapshot["counters"]["video_cdn_probe_failure_total"] == 1
     assert snapshot["counters"]["video_cdn_fallback_guard_total"] == 1
@@ -151,7 +152,7 @@ def test_resolver_healthy_probe_redirects_and_records_latency():
         guard=guard,
         probe=lambda *_args, **_kwargs: True,
     )
-    ticket = resolver.resolve(principal=principal(), asset=asset(), source=source())
+    ticket = asyncio.run(resolver.resolve(principal=principal(), asset=asset(), source=source()))
     assert ticket is not None
     snapshot = delivery_observability_snapshot()
     assert snapshot["counters"]["video_cdn_probe_success_total"] == 1
@@ -216,6 +217,6 @@ def test_probe_exception_falls_back_without_leaving_guard_stuck():
         guard=guard,
         probe=explode,
     )
-    assert resolver.resolve(principal=principal(), asset=asset(), source=source()) is None
+    assert asyncio.run(resolver.resolve(principal=principal(), asset=asset(), source=source())) is None
     assert guard.snapshot(configured_settings())["state"] == "degraded"
     engine.dispose()

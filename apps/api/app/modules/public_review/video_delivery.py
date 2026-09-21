@@ -22,6 +22,7 @@ from app.modules.video_cache.delivery import (
     VideoCacheDeliveryService,
     VideoDeliveryError,
 )
+from app.modules.video_cache.fill import VideoCacheFillService
 from app.modules.video_cache.guard import (
     VIDEO_DELIVERY_GUARD,
     VideoDeliveryCircuitBreaker,
@@ -33,6 +34,7 @@ from app.modules.video_cache.runtime import (
     VideoDeliveryRuntimeService,
     VideoDeliveryRuntimeUnavailable,
 )
+from app.providers.cloudflare.r2 import R2Adapter
 
 
 def _epoch(value: datetime) -> int:
@@ -50,18 +52,26 @@ class PublicVideoDeliveryResolver:
         *,
         guard: VideoDeliveryCircuitBreaker | None = None,
         probe: Callable[..., bool] | None = None,
+        fill_service_factory: Callable[[], VideoCacheFillService] | None = None,
     ):
         self.session_factory = session_factory
         self.settings = settings
         self.guard = guard or VIDEO_DELIVERY_GUARD
         self.probe = probe or probe_signed_video_head
+        self.fill_service_factory = fill_service_factory or (
+            lambda: VideoCacheFillService(
+                self.session_factory,
+                self.settings,
+                R2Adapter(self.settings),
+            )
+        )
 
     @staticmethod
     def _finish(started: float, counter: str) -> None:
         emit_counter(counter)
         observe_delivery_decision_ms((perf_counter() - started) * 1000.0)
 
-    def resolve(
+    async def resolve(
         self,
         *,
         principal: SharePrincipal,
@@ -112,6 +122,22 @@ class PublicVideoDeliveryResolver:
                 repository = VideoCacheRepository(session)
                 cache_object = repository.get_by_tenant_and_hash(tenant_id, content_hash)
                 if cache_object is None:
+                    # Authorization and rollout scope have already succeeded. Admission
+                    # revalidates the exact tenant/asset/source pair in its own
+                    # transaction and only enqueues the durable worker job; playback
+                    # remains on the provider path for this first request.
+                    try:
+                        await self.fill_service_factory().ensure_video_cache_fill(
+                            tenant_id=tenant_id,
+                            asset_id=asset_id,
+                            source_asset_id=source_asset_id,
+                            content_hash=content_hash,
+                        )
+                    except Exception:
+                        # R2 is an optional acceleration layer. Admission failures must
+                        # not make an authorized source video unavailable, and provider
+                        # exception details must not enter the public response or logs.
+                        session.rollback()
                     self._finish(started, "video_cdn_fallback_cache_miss_total")
                     return None
                 if (

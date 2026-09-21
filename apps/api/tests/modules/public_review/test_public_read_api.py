@@ -176,7 +176,7 @@ def test_public_video_cdn_redirect_releases_slot_and_skips_provider(monkeypatch)
  source=SimpleNamespace(id="video-child",tenant_id="tenant-a",filename="clip.mp4",mime_type="video/mp4")
  class DeliveryResolver:
   def __init__(self,*_): pass
-  def resolve(self,**kwargs):
+  async def resolve(self,**kwargs):
    assert kwargs == {"principal":principal,"asset":asset,"source":source}
    return SimpleNamespace(url="https://media.example.test/video-cache/tenant-a/"+"d"*64+"/original?v=1&exp=2000000000&sig=safe")
  class ProviderResolver:
@@ -202,7 +202,7 @@ def test_public_video_cdn_miss_falls_back_to_provider(monkeypatch):
  source=SimpleNamespace(id="video-child",tenant_id="tenant-a",filename="clip.mp4",mime_type="video/mp4")
  class DeliveryResolver:
   def __init__(self,*_): pass
-  def resolve(self,**_): return None
+  async def resolve(self,**_): return None
  class ProviderResolver:
   def __init__(self,*_): pass
   @asynccontextmanager

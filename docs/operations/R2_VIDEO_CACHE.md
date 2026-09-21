@@ -12,6 +12,14 @@ Google Drive/OneDrive remain authoritative. The fill worker reads an exact tenan
 
 `ensure_video_cache_fill` creates a `video_cache_fill` processing job with only tenant, asset, source-asset and content-hash IDs. A tenant/hash row is unique. Existing READY or active PREPARING/RETRY work is reused. A FAILED fill needs an explicit `retry_failed=True` request. Jobs have five attempts and existing worker lease/backoff semantics.
 
+An authorized Public Review video cache miss invokes this admission service only
+after the active share/session, exact asset/source pair, effective runtime gate,
+and tenant rollout scope have passed. The API waits only for durable idempotent
+job admission, never for the upload. The current request continues through the
+provider-backed stream, while a later request may use R2 after the worker marks
+the object READY. Admission errors are swallowed at this optional cache boundary
+without logging provider details or changing the public response.
+
 A bucket-global PostgreSQL advisory transaction lock serializes every reservation and physical-delete accounting update. SQLite uses a process-local re-entrant lock only for deterministic local tests; multi-process SQLite is not a production quota authority.
 
 Effective tracked bytes = READY `size_bytes` + DELETING `size_bytes` + PREPARING `reserved_bytes`. Admission never exceeds the 9,000,000,000-byte hard threshold. If a new reservation would cross it, READY objects are chosen by `last_accessed_at NULLS FIRST, cached_at, id` and physically deleted until projected usage including the incoming reservation is at most 8,000,000,000 bytes. If enough READY bytes cannot be reclaimed, the fill is bypassed. DELETING and PREPARING are never ordinary LRU candidates. A failed or uncertain remote delete remains counted.
