@@ -118,7 +118,10 @@ toggle OFF while configuring the Worker. The API-side Phase 4C preflight can
 optionally send one signed HEAD request for a random, absent preflight key. The
 expected result is 404: this proves the route accepted the HMAC ticket and then
 looked up the private R2 binding. The probe performs no PUT/DELETE/list and does
-not use a user asset. A 403 or other response fails rollout readiness.
+not use a user asset. A 403 or other response fails rollout readiness. For
+temporary production troubleshooting, `R2_VIDEO_MEDIA_AUTH_DIAGNOSTICS=true`
+enables Worker-side structured rejection reasons without logging the pathname,
+ticket, signature, secret, or exception message; keep it false normally.
 
 
 ## Phase 4D production configuration and canary scope
@@ -132,7 +135,9 @@ bucket as `VIDEO_CACHE_BUCKET` and declare the signing secret as required.
 
 The rollout helper's `plan` subcommand does not execute Wrangler. It labels
 which suggested commands mutate Cloudflare and keeps the application runtime
-gate OFF as a rollout invariant.
+gate OFF as a rollout invariant. A workers.dev plan additionally requires the
+explicit `--allow-workers-dev` operator flag; this is separate from the
+backend's `R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=true` runtime opt-in.
 
 Application traffic is additionally scoped by
 `VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS`. Empty canary scope with global rollout
