@@ -110,6 +110,82 @@ export type DashboardResult = {
   unauthorized: boolean;
 };
 
+export type DashboardField = Exclude<keyof AiOpsDashboardData, "coverage">;
+export type DashboardScopeResult = {
+  data: Partial<AiOpsDashboardData>;
+  errors: string[];
+  unauthorized: boolean;
+};
+
+// A tab asks only for the aggregates it renders. In particular, independent
+// tabs (Visual Search, Creative Pipeline, Inventory, Configuration) never
+// trigger the expensive AI Operations dashboard fan-out.
+export async function fetchAiOperationsScope(
+  filters: AiOpsFilters,
+  fields: readonly DashboardField[],
+  fetcher: Fetcher = fetch,
+  now = new Date(),
+  signal?: AbortSignal,
+): Promise<DashboardScopeResult> {
+  if (!fields.length) return { data: {}, errors: [], unauthorized: false };
+  const range = isoRange(filters.range, now);
+  const current = filteredParams(filters, range);
+  const todayStart = new Date(now);
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const today = filteredParams(filters, { from: todayStart.toISOString(), to: now.toISOString() });
+  const month = filteredParams(filters, { from: monthStart.toISOString(), to: now.toISOString() });
+  const jobs = new URLSearchParams(current);
+  jobs.set("page", String(filters.page));
+  jobs.set("page_size", String(filters.pageSize || 25));
+  const usage = new URLSearchParams(current);
+  usage.set("page", String(filters.usagePage || 1));
+  usage.set("page_size", String(filters.usagePageSize || 25));
+  const media = new URLSearchParams(current);
+  media.set("video_page", String(filters.videoPage || 1));
+  media.set("video_page_size", String(filters.videoPageSize || 25));
+  const base = "/api/v1/admin/ai-operations";
+  const urls: Record<DashboardField, string> = {
+    summary: `${base}/summary?${current}`,
+    today: `${base}/summary?${today}`,
+    month: `${base}/summary?${month}`,
+    daily: `${base}/daily?${current}`,
+    providers: `${base}/providers?${current}`,
+    todayProviders: `${base}/providers?${today}`,
+    failures: `${base}/failures?${current}`,
+    jobs: `${base}/jobs?${jobs}`,
+    usage: `${base}/usage?${usage}`,
+    pipeline: `${base}/pipeline?recent_page=${filters.pipelinePage || 1}&recent_page_size=${filters.pipelinePageSize || 25}`,
+    media: `${base}/media-dashboard?${media}`,
+  };
+  const selected = [...new Set(fields)];
+  const settled = await settleDashboardCalls(selected.map(field => () =>
+    read<unknown>(urls[field], fetcher, signal)));
+  const result: DashboardScopeResult = { data: {}, errors: [], unauthorized: false };
+  selected.forEach((field, index) => {
+    const item = settled[index];
+    if (item.status === "rejected") {
+      if (item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status)) {
+        result.unauthorized = true;
+      }
+      // Pipeline may be absent during a rolling deploy. Keep the older
+      // dashboard behavior without swallowing denials or other failures.
+      if (!(field === "pipeline" && item.reason instanceof AiOperationsApiError && item.reason.status === 404)) {
+        result.errors.push(String(item.reason?.message || "Request failed"));
+      }
+      return;
+    }
+    const value = item.value;
+    if (field === "pipeline") result.data.pipeline = normalizePipelineSnapshot(value as PipelineSnapshot);
+    else if (field === "media") result.data.media = normalizeMediaDashboard(value as AiOpsMediaDashboard);
+    else if (["daily", "providers", "todayProviders", "failures"].includes(field)) {
+      Object.assign(result.data, { [field]: (value as { items: unknown[] }).items });
+    } else Object.assign(result.data, { [field]: value });
+  });
+  result.errors = [...new Set(result.errors)];
+  return result;
+}
+
 export type JobQueueResult = {
   jobs: Page<AiOpsJob>;
   summary: AiOpsSummary | null;

@@ -70,7 +70,23 @@ def diagnostics(session: Session = Depends(get_db), principal: CurrentPrincipal 
 def groups(session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(READ)):
     service = svc(session)
     rows = session.scalars(select(SourceGroupModel).where(SourceGroupModel.tenant_id == principal.active_tenant_id).order_by(SourceGroupModel.name, SourceGroupModel.id)).all()
-    return {"items": [service.group_summary(row) for row in rows if service._scope_allows(principal, row)], "total": sum(service._scope_allows(principal, row) for row in rows)}
+    visible = [row for row in rows if service._scope_allows(principal, row)]
+    if not visible:
+        return {"items": [], "total": 0}
+    # Keep the existing group-level authorization/count semantics, but load
+    # listings and their latest runs in batches instead of once per group.
+    listings = []
+    visible_ids = [row.id for row in visible]
+    for start in range(0, len(visible_ids), 500):
+        listings.extend(session.scalars(select(ListingTaskModel).where(
+            ListingTaskModel.tenant_id == principal.active_tenant_id,
+            ListingTaskModel.source_group_id.in_(visible_ids[start:start + 500]),
+        )).all())
+    by_group = {row.id: [] for row in visible}
+    for listing in listings:
+        by_group[listing.source_group_id].append(listing)
+    latest = service.latest_runs(principal.active_tenant_id, [row.id for row in listings])
+    return {"items": [service.group_summary(row, by_group[row.id], latest) for row in visible], "total": len(visible)}
 
 @router.get("/listings")
 def listings(
@@ -86,19 +102,23 @@ def listings(
     if platform in {"etsy", "amazon"}: statement = statement.where(ListingTaskModel.platform == platform)
     if source_status in {"active", "missing_source", "archived"}: statement = statement.where(ListingTaskModel.status == source_status)
     rows = session.scalars(statement.order_by(ListingTaskModel.folder_name, ListingTaskModel.id)).all()
-    result = []
+    groups_by_id = {row.id: row for row in session.scalars(select(SourceGroupModel).where(
+        SourceGroupModel.tenant_id == principal.active_tenant_id,
+    ))}
+    visible = []
     for row in rows:
-        group = service._group(principal.active_tenant_id, row.source_group_id)
+        group = groups_by_id.get(row.source_group_id)
         if not service._scope_allows(principal, group, row): continue
-        current = service._current_run(principal.active_tenant_id, row.id)
-        if run_status:
-            allowed = {"running": {"running"}, "failed": {"failed"}, "waiting": {"queued", "retrying", "blocked"}, "completed": {"completed"}, "cancelled": {"cancelled"}}.get(run_status)
-            if allowed is not None and (current is None or current.status not in allowed): continue
         if q and q.lower() not in f"{row.listing_key} {row.folder_name}".lower(): continue
-        result.append(service.listing_summary(row, group))
-    total = len(result)
+        visible.append(row)
+    latest = service.latest_runs(principal.active_tenant_id, [row.id for row in visible])
+    allowed = {"running": {"running"}, "failed": {"failed"}, "waiting": {"queued", "retrying", "blocked"}, "completed": {"completed"}, "cancelled": {"cancelled"}}.get(run_status) if run_status else None
+    if allowed is not None:
+        visible = [row for row in visible if row.id in latest and latest[row.id].status in allowed]
+    total = len(visible)
     start = (page - 1) * limit
-    return {"items": result[start:start+limit], "page": page, "limit": limit, "total": total, "has_more": start + limit < total}
+    items = service.listing_page_summaries(visible[start:start + limit], groups_by_id, latest)
+    return {"items": items, "page": page, "limit": limit, "total": total, "has_more": start + limit < total}
 
 @router.get("/listings/{listing_id}")
 def listing_detail(listing_id: str, session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(READ)):

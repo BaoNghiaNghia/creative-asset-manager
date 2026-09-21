@@ -10,11 +10,13 @@ from app.modules.ai_operations.schema import AiOperationsFilters
 V = TypeVar("V")
 
 AI_OPERATIONS_TTLS = {
-    "summary": 5,
-    "daily": 10,
-    "providers": 5,
-    "failures": 5,
-    "usage": 5,
+    # A 20-second fallback TTL spans one 15-second auto-refresh while tenant
+    # mutations continue to invalidate immediately. Jobs stay near-live.
+    "summary": 20,
+    "daily": 20,
+    "providers": 20,
+    "failures": 20,
+    "usage": 20,
     "jobs": 3,
     # These snapshots aggregate a large historical data set. They are refreshed
     # by the UI often, while operational mutations invalidate this cache, so a
@@ -31,11 +33,18 @@ ai_operations_caches = {
 }
 
 
+def _time_bucket(value, seconds: int = 30) -> str:
+    # Browser requests include a fresh `to` timestamp on each refresh. Cache
+    # identity may be slightly coarser than the requested operational window,
+    # while the first request's exact window remains the one executed.
+    return value.replace(second=(value.second // seconds) * seconds, microsecond=0).isoformat()
+
+
 def filters_cache_key(filters: AiOperationsFilters) -> tuple[object, ...]:
     return (
         filters.tenant_id,
-        filters.from_at.isoformat(),
-        filters.to_at.isoformat(),
+        _time_bucket(filters.from_at),
+        _time_bucket(filters.to_at),
         filters.provider or "",
         filters.model or "",
         filters.processing_mode or "",

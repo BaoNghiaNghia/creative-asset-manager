@@ -104,58 +104,72 @@ class PipelineOperationsRepository:
         return select(ranked).where(ranked.c.rn == 1).subquery()
 
     def _stage_rows(self, tenant_id: str, logical, now: datetime) -> list[dict[str, Any]]:
-        # Read the pipeline state once. A completed pipeline stage does not need
-        # a latest-job lookup, so the expensive window query below is limited to
-        # assets that have not reached that stage.
+        # Read pipeline state once, and rank pending-stage jobs in one query.
+        # Previously each of the five stages rescanned the logical-assets CTE
+        # with its own window query and attempt-count query.
         base_rows = self.session.execute(select(
             logical.c.logical_id,
             logical.c.pipeline_state,
             logical.c.pipeline_error_code,
             logical.c.pipeline_error_message,
         )).all()
+        job = ProcessingJobModel
+        pending_stage = or_(*[
+            and_(
+                job.job_type == key,
+                or_(
+                    logical.c.pipeline_state.is_(None),
+                    logical.c.pipeline_state.not_in([
+                        state for state, ordinal in _STATE_POSITION.items()
+                        if ordinal >= _STAGE_POSITION[key]
+                    ]),
+                ),
+            )
+            for key, _, _ in PIPELINE_STAGES
+        ])
+        job_target = or_(
+            and_(job.job_type == "source_asset_download", job.entity_type == "source_asset", job.entity_id == logical.c.logical_id),
+            and_(job.job_type != "source_asset_download", job.entity_type == "asset_pipeline", job.entity_id == logical.c.pipeline_id),
+        )
+        ranked = select(
+            logical.c.logical_id.label("logical_id"), job.job_type.label("job_type"),
+            job.status.label("job_status"), job.next_attempt_at.label("next_attempt_at"),
+            job.last_error_code.label("error_code"), job.last_error_message.label("error_message"),
+            func.row_number().over(
+                partition_by=(logical.c.logical_id, job.job_type),
+                order_by=(job.created_at.desc(), job.updated_at.desc(), job.id.desc()),
+            ).label("rn"),
+        ).select_from(logical.join(job, and_(
+            job.tenant_id == tenant_id, pending_stage, job_target,
+        ))).subquery()
+        latest_by_stage = {
+            (row.logical_id, row.job_type): (
+                row.job_status, row.next_attempt_at, row.error_code, row.error_message,
+            )
+            for row in self.session.execute(select(ranked).where(ranked.c.rn == 1))
+        }
+        attempt_counts = {
+            row.job_type: (row.total, row.completed, row.failed)
+            for row in self.session.execute(select(
+                job.job_type.label("job_type"), func.count(job.id).label("total"),
+                func.coalesce(func.sum(case((job.status == JobStatus.COMPLETED.value, 1), else_=0)), 0).label("completed"),
+                func.coalesce(func.sum(case((job.status == JobStatus.FAILED.value, 1), else_=0)), 0).label("failed"),
+            ).where(
+                job.tenant_id == tenant_id,
+                job.job_type.in_([key for key, _, _ in PIPELINE_STAGES]),
+            ).group_by(job.job_type))
+        }
         results: list[dict[str, Any]] = []
         for key, label, subtitle in PIPELINE_STAGES:
             position = _STAGE_POSITION[key]
-            completed_states = [
-                state for state, ordinal in _STATE_POSITION.items()
-                if ordinal >= position
-            ]
-            candidates = select(
-                logical.c.logical_id,
-                logical.c.pipeline_id,
-                logical.c.pipeline_state,
-                logical.c.pipeline_error_code,
-                logical.c.pipeline_error_message,
-            ).where(
-                or_(
-                    logical.c.pipeline_state.is_(None),
-                    logical.c.pipeline_state.not_in(completed_states),
-                )
-            ).cte(f"pipeline_{key}_candidates")
-            latest = self._latest_stage_job(candidates, tenant_id, key)
-            latest_by_id = {
-                row.logical_id: (
-                    row.job_status,
-                    row.next_attempt_at,
-                    row.error_code,
-                    row.error_message,
-                )
-                for row in self.session.execute(select(
-                    latest.c.logical_id,
-                    latest.c.job_status,
-                    latest.c.next_attempt_at,
-                    latest.c.error_code,
-                    latest.c.error_message,
-                ))
-            }
             counts = {name: 0 for name in (
                 "total_logical_assets", "completed_assets", "queued_assets",
                 "eligible_now_assets", "waiting_assets", "processing_assets",
                 "needs_attention_assets", "skipped_assets", "not_started_assets",
             )}
             for logical_id, state, pcode, pmessage in base_rows:
-                status, next_at, jcode, jmessage = latest_by_id.get(
-                    logical_id, (None, None, None, None)
+                status, next_at, jcode, jmessage = latest_by_stage.get(
+                    (logical_id, key), (None, None, None, None)
                 )
                 counts["total_logical_assets"] += 1
                 state_position = _STATE_POSITION.get(state or "discovered", 0)
@@ -191,18 +205,7 @@ class PipelineOperationsRepository:
                     "error_message": message,
                     "pipeline_state": state,
                 })
-            raw = self.session.execute(select(
-                func.count(ProcessingJobModel.id),
-                func.coalesce(func.sum(case((
-                    ProcessingJobModel.status == JobStatus.COMPLETED.value, 1
-                ), else_=0)), 0),
-                func.coalesce(func.sum(case((
-                    ProcessingJobModel.status == JobStatus.FAILED.value, 1
-                ), else_=0)), 0),
-            ).where(
-                ProcessingJobModel.tenant_id == tenant_id,
-                ProcessingJobModel.job_type == key,
-            )).one()
+            raw = attempt_counts.get(key, (0, 0, 0))
             denominator = counts["total_logical_assets"]
             results.append({"stage_summary": {
                 "key": key, "label": label, "subtitle": subtitle, **counts,

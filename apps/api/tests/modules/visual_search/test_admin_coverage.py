@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from app.common.cache import BoundedTTLCache
 
 from app.main import app
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
@@ -125,9 +126,30 @@ def test_es_unavailable_serializes_es_metrics_and_ratios_as_null(monkeypatch):
 
 
 def test_dashboard_returns_coverage_and_sources_from_one_collection(monkeypatch):
+    admin_router.dashboard_cache.clear()
     service = CoverageService()
     monkeypatch.setattr(admin_router, "service", lambda: service)
     body = admin_router.coverage_dashboard(principal())
     assert body["totals"]["discovered_images"] == 2
     assert body["sources"][0]["display_name"] == "Drive A"
     assert service.tenants == ["tenant-a"]
+    assert admin_router.coverage_dashboard(principal()) == body
+    assert service.tenants == ["tenant-a"]
+    admin_router.coverage_dashboard(principal(tenant_id="tenant-b"))
+    assert service.tenants == ["tenant-a", "tenant-b"]
+
+
+def test_dashboard_cache_expires_after_short_tenant_scoped_window(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(admin_router, "dashboard_cache", BoundedTTLCache(
+        max_entries=8, ttl_seconds=45, clock=lambda: clock[0],
+    ))
+    service = CoverageService()
+    monkeypatch.setattr(admin_router, "service", lambda: service)
+    admin_router.coverage_dashboard(principal())
+    clock[0] = 30.0
+    admin_router.coverage_dashboard(principal())
+    assert service.tenants == ["tenant-a"]
+    clock[0] = 46.0
+    admin_router.coverage_dashboard(principal())
+    assert service.tenants == ["tenant-a", "tenant-a"]

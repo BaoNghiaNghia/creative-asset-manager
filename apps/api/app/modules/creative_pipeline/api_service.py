@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from datetime import datetime
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.authorization.principal import CurrentPrincipal, is_pure_viewer
@@ -29,6 +29,7 @@ SAFE_METADATA = frozenset({
 })
 NODE_TYPE_INDEX = {node_type: index for index, node_type in enumerate(NODE_TYPES)}
 STATUS_KEYS = ("queued", "running", "retrying", "blocked", "failed", "completed", "cancelled")
+_MISSING = object()
 
 def _safe_text(value, limit=1000):
     if value is None: return None
@@ -41,6 +42,8 @@ def _metadata(value):
 class CreativePipelineApiService:
     def __init__(self, session):
         self.session = session
+        self._folder_scope = ViewerFolderScopeService(session)
+        self._access_by_source = {}
 
     def _group(self, tenant, group_id):
         return self.session.scalar(select(SourceGroupModel).where(SourceGroupModel.tenant_id == tenant, SourceGroupModel.id == group_id))
@@ -53,16 +56,67 @@ class CreativePipelineApiService:
 
     def _scope_allows(self, principal, group, listing=None):
         if group is None: return False
-        access = ViewerFolderScopeService(self.session).access(
-            tenant_id=principal.active_tenant_id, membership_id=principal.membership_id,
-            roles=principal.effective_roles, external_source_id=group.external_source_id,
-        )
+        access_key = (principal.active_tenant_id, principal.membership_id, principal.effective_roles, group.external_source_id)
+        if access_key not in self._access_by_source:
+            self._access_by_source[access_key] = self._folder_scope.access(
+                tenant_id=principal.active_tenant_id, membership_id=principal.membership_id,
+                roles=principal.effective_roles, external_source_id=group.external_source_id,
+            )
+        access = self._access_by_source[access_key]
         if not access.restricted: return True
         target = listing.external_folder_id if listing is not None else group.external_folder_id
         if not target: return False
-        return ViewerFolderScopeService(self.session).allows_external_asset(
+        return self._folder_scope.allows_external_asset(
             tenant_id=principal.active_tenant_id, access=access, external_asset_id=target,
         )
+
+    def latest_runs(self, tenant, listing_ids):
+        """One latest-run lookup per bounded batch, not one per listing."""
+        result = {}
+        ids = list(dict.fromkeys(listing_ids))
+        for start in range(0, len(ids), 500):
+            batch = ids[start:start + 500]
+            latest = select(
+                PipelineRunModel.listing_task_id.label("listing_id"),
+                func.max(PipelineRunModel.run_number).label("run_number"),
+            ).where(
+                PipelineRunModel.tenant_id == tenant,
+                PipelineRunModel.listing_task_id.in_(batch),
+            ).group_by(PipelineRunModel.listing_task_id).subquery()
+            rows = self.session.scalars(select(PipelineRunModel).join(latest, and_(
+                PipelineRunModel.tenant_id == tenant,
+                PipelineRunModel.listing_task_id == latest.c.listing_id,
+                PipelineRunModel.run_number == latest.c.run_number,
+            )).where(PipelineRunModel.tenant_id == tenant)).all()
+            result.update((row.listing_task_id, row) for row in rows)
+        return result
+
+    def listing_page_summaries(self, listings, groups, current_runs):
+        """Load child records for the selected page in three tenant-scoped queries."""
+        runs = [current_runs[row.id] for row in listings if row.id in current_runs]
+        children = {run.id: {"nodes": [], "generations": [], "artifacts": []} for run in runs}
+        if runs:
+            tenant = runs[0].tenant_id
+            ids = [run.id for run in runs]
+            for key, model, ordering in (
+                ("nodes", NodeRunModel, (NodeRunModel.node_type,)),
+                ("generations", GenerationRunModel, (GenerationRunModel.aspect_ratio, GenerationRunModel.provider, GenerationRunModel.generation_number, GenerationRunModel.id)),
+                ("artifacts", ArtifactModel, (ArtifactModel.artifact_type, ArtifactModel.aspect_ratio, ArtifactModel.version, ArtifactModel.variant_key, ArtifactModel.id)),
+            ):
+                rows = self.session.scalars(select(model).where(
+                    model.tenant_id == tenant, model.pipeline_run_id.in_(ids),
+                ).order_by(model.pipeline_run_id, *ordering)).all()
+                for row in rows:
+                    children[row.pipeline_run_id][key].append(row)
+        result = []
+        for listing in listings:
+            run = current_runs.get(listing.id)
+            summary = self.run_summary(run, listing, preloaded=children[run.id]) if run else None
+            result.append(self.listing_summary(
+                listing, groups[listing.source_group_id], current_run=run,
+                current_run_summary=summary,
+            ))
+        return result
 
     def require_group(self, principal, group_id):
         group = self._group(principal.active_tenant_id, group_id)
@@ -84,9 +138,9 @@ class CreativePipelineApiService:
             PipelineRunModel.tenant_id == tenant, PipelineRunModel.listing_task_id == listing_id
         ).order_by(PipelineRunModel.run_number.desc()))
 
-    def node_summary(self, run):
-        rows = {row.node_type: row for row in self.session.scalars(select(NodeRunModel).where(
-            NodeRunModel.tenant_id == run.tenant_id, NodeRunModel.pipeline_run_id == run.id))}
+    def node_summary(self, run, rows=None):
+        rows = {row.node_type: row for row in (rows if rows is not None else self.session.scalars(select(NodeRunModel).where(
+            NodeRunModel.tenant_id == run.tenant_id, NodeRunModel.pipeline_run_id == run.id)))}
         result = []
         for node_type in NODE_TYPES:
             row = rows.get(node_type)
@@ -98,10 +152,10 @@ class CreativePipelineApiService:
                 "last_error_message": _safe_text(row.last_error_message) if row else None})
         return result
 
-    def run_summary(self, run, listing=None, include_children=True):
-        nodes = self.node_summary(run)
-        generations = self.generation_summaries(run) if include_children else []
-        artifacts = self.artifact_summaries(run) if include_children else []
+    def run_summary(self, run, listing=None, include_children=True, preloaded=None):
+        nodes = self.node_summary(run, preloaded["nodes"] if preloaded is not None else None)
+        generations = self.generation_summaries(run, preloaded["generations"] if preloaded is not None else None) if include_children else []
+        artifacts = self.artifact_summaries(run, preloaded["artifacts"] if preloaded is not None else None) if include_children else []
         return {"id": run.id, "run_number": run.run_number, "parent_run_id": run.parent_run_id,
             "branch_start_node": run.branch_start_node, "trigger_type": run.trigger_type,
             "triggered_by": _safe_text(run.triggered_by,255), "status": run.status,
@@ -109,8 +163,8 @@ class CreativePipelineApiService:
             "completed_at": run.completed_at, "created_at": run.created_at, "updated_at": run.updated_at,
             "listing_id": run.listing_task_id, "nodes": nodes, "generations": generations, "artifacts": artifacts}
 
-    def generation_summaries(self, run):
-        rows = self.session.scalars(select(GenerationRunModel).where(
+    def generation_summaries(self, run, rows=None):
+        rows = rows if rows is not None else self.session.scalars(select(GenerationRunModel).where(
             GenerationRunModel.tenant_id == run.tenant_id, GenerationRunModel.pipeline_run_id == run.id
         ).order_by(GenerationRunModel.aspect_ratio, GenerationRunModel.provider, GenerationRunModel.generation_number, GenerationRunModel.id))
         return [{"id": row.id, "provider": row.provider, "model": row.model, "aspect_ratio": row.aspect_ratio,
@@ -119,8 +173,8 @@ class CreativePipelineApiService:
             "completed_at": row.completed_at, "last_error_code": _safe_text(row.last_error_code,100),
             "last_error_message": _safe_text(row.last_error_message)} for row in rows]
 
-    def artifact_summaries(self, run):
-        rows = self.session.scalars(select(ArtifactModel).where(
+    def artifact_summaries(self, run, rows=None):
+        rows = rows if rows is not None else self.session.scalars(select(ArtifactModel).where(
             ArtifactModel.tenant_id == run.tenant_id, ArtifactModel.pipeline_run_id == run.id
         ).order_by(ArtifactModel.artifact_type, ArtifactModel.aspect_ratio, ArtifactModel.version, ArtifactModel.variant_key, ArtifactModel.id))
         return [self.artifact_summary(row) for row in rows]
@@ -134,12 +188,12 @@ class CreativePipelineApiService:
             "node_run_id": row.node_run_id, "created_at": row.created_at, "available_at": row.available_at,
             "metadata": _metadata(row.metadata_json)}
 
-    def group_summary(self, group):
-        listings = list(self.session.scalars(select(ListingTaskModel).where(ListingTaskModel.tenant_id == group.tenant_id, ListingTaskModel.source_group_id == group.id)))
-        runs = self.session.scalars(select(PipelineRunModel).where(PipelineRunModel.tenant_id == group.tenant_id, PipelineRunModel.listing_task_id.in_([x.id for x in listings])).order_by(PipelineRunModel.listing_task_id, PipelineRunModel.run_number.desc())).all() if listings else []
-        latest = {}
-        for row in runs: latest.setdefault(row.listing_task_id, row)
-        counts = Counter(row.status for row in latest.values())
+    def group_summary(self, group, listings=None, latest=None):
+        if listings is None:
+            listings = list(self.session.scalars(select(ListingTaskModel).where(ListingTaskModel.tenant_id == group.tenant_id, ListingTaskModel.source_group_id == group.id)))
+        if latest is None:
+            latest = self.latest_runs(group.tenant_id, [row.id for row in listings])
+        counts = Counter(latest[row.id].status for row in listings if row.id in latest)
         return {"id": group.id, "platform": group.platform, "name": group.name, "active": group.active,
             "scan_enabled": group.scan_enabled, "last_scan_at": group.last_scan_at,
             "last_successful_scan_at": group.last_successful_scan_at, "listing_count": len(listings),
@@ -147,14 +201,14 @@ class CreativePipelineApiService:
             "missing_source_count": sum(x.status == "missing_source" for x in listings),
             "current_runs": {key: counts.get(key,0) for key in STATUS_KEYS}}
 
-    def listing_summary(self, listing, group, include_detail=False):
-        run = self._current_run(listing.tenant_id, listing.id)
+    def listing_summary(self, listing, group, include_detail=False, *, current_run=_MISSING, current_run_summary=_MISSING):
+        run = self._current_run(listing.tenant_id, listing.id) if current_run is _MISSING else current_run
         payload = {"id": listing.id, "listing_key": listing.listing_key, "folder_name": listing.folder_name,
             "folder_path": listing.folder_path, "platform": listing.platform, "source_group_id": group.id,
             "source_group": {"id": group.id, "name": group.name, "platform": group.platform},
             "source_status": listing.status, "pipeline_status": run.status if run else None,
             "required_aspect_ratios": list(platform_profile(listing.platform).required_aspect_ratios),
-            "current_run": self.run_summary(run, listing) if run else None}
+            "current_run": (self.run_summary(run, listing) if current_run_summary is _MISSING else current_run_summary) if run else None}
         if include_detail:
             payload["capabilities"] = self.listing_capabilities(listing)
             payload["artifact_count"] = self.session.scalar(select(func.count()).select_from(ArtifactModel).where(ArtifactModel.tenant_id == listing.tenant_id, ArtifactModel.pipeline_run_id == run.id)) if run else 0

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -13,6 +13,7 @@ from app.core.database import Base
 from app.main import app
 from app.modules.ai_batch.model import AiBatchJobModel
 from app.modules.ai_operations.cache import ai_operations_caches
+from app.modules.ai_operations.pipeline import PipelineOperationsRepository
 from app.modules.ai_governance.model import AiBudgetReservationModel, AiUsageRecordModel
 from app.modules.ai_operations.credential_model import CreativeAiCredentialModel
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
@@ -756,6 +757,32 @@ class AiOperationsApiTest(unittest.TestCase):
         download = next(item for item in value["stages"] if item["key"] == "source_asset_download")
         self.assertLessEqual(download["total_logical_assets"], value["overall"]["eligible_assets"])
         self.assertEqual(download["needs_attention_assets"], 0)
+
+    def test_pipeline_snapshot_does_not_repeat_window_query_per_stage(self):
+        with self.factory() as session:
+            source_asset = session.scalar(select(SourceAssetModel).where(SourceAssetModel.tenant_id == "tenant-a"))
+            source_asset.mime_type = "image/jpeg"
+            session.flush()
+            statements = []
+
+            def capture(_connection, _cursor, statement, _parameters, _context, _many):
+                statements.append(statement)
+
+            event.listen(self.engine, "before_cursor_execute", capture)
+            try:
+                document = PipelineOperationsRepository(session).snapshot("tenant-a")
+            finally:
+                event.remove(self.engine, "before_cursor_execute", capture)
+            self.assertEqual(document["overall"]["supported_assets"], 1)
+            self.assertEqual(len(statements), 10)
+
+    def test_operations_timing_logs_fixed_path_without_filter_values(self):
+        with self.assertLogs("app.operations_timing", level="INFO") as records:
+            response = self.get("/api/v1/admin/ai-operations/summary?provider=private-marker")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("endpoint=/api/v1/admin/ai-operations/summary", records.output[0])
+        self.assertIn("duration_ms=", records.output[0])
+        self.assertNotIn("private-marker", records.output[0])
 
     def test_summary_costs_percentiles_and_empty_period(self):
         response = self.get("/api/v1/admin/ai-operations/summary")

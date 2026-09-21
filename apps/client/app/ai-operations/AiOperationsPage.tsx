@@ -9,13 +9,13 @@ import providersIcon from "../../assets/navigation/providers.svg";
 import configurationIcon from "../../assets/navigation/configuration.svg";
 import oneDrivePlatformLogo from "../../assets/logos/onedrive-platform.png";
 import googleDrivePlatformLogo from "../../assets/logos/google-drive-platform.png";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsDashboard, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
+  aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsScope, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
   retryAiOperationsJob, retryAiOperationsJobsByError, searchFromFilters, fetchAiOperationsVideoDetail,
   fetchVisualSearchCoverageDashboard,
-  type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage, type PipelineSnapshot,
+  type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage, type PipelineSnapshot, type DashboardField,
   type VisualSearchCoverage, type VisualSearchSourceCoverageResponse,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
@@ -75,6 +75,21 @@ export const emptyDashboard = (page = 1): AiOpsDashboardData => ({
   jobs: emptyPage<AiOpsJob>(page), usage: emptyPage<AiOpsUsage>(), coverage: null, pipeline: null, media: null,
 });
 
+export function dashboardPlan(tab: AiOpsTab, media: "image" | "video"): {
+  primary: DashboardField[]; secondary: DashboardField[];
+} {
+  if (tab === "pipeline") return { primary: ["pipeline"], secondary: media === "image" ? ["media", "today"] : ["media"] };
+  if (tab === "overview") return media === "video"
+    ? { primary: ["media"], secondary: [] }
+    : { primary: ["summary"], secondary: ["today", "month", "daily", "providers", "failures"] };
+  if (tab === "processing") return media === "video"
+    ? { primary: ["media"], secondary: [] }
+    : { primary: ["jobs"], secondary: ["failures", "usage"] };
+  if (tab === "cost") return { primary: ["usage"], secondary: ["summary"] };
+  if (tab === "providers") return { primary: ["todayProviders"], secondary: [] };
+  return { primary: [], secondary: [] };
+}
+
 export function AiOperationsPage() {
   const [filters, setFilters] = useState(() => filtersFromSearch(window.location.search));
   const initialTab = new URLSearchParams(window.location.search).get("tab") as AiOpsTab | null;
@@ -84,7 +99,8 @@ export function AiOperationsPage() {
   const [data, setData] = useState<AiOpsDashboardData>(() => emptyDashboard(filters.page));
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
-  const [unauthorized, setUnauthorized] = useState(false);
+  const [identityUnauthorized, setIdentityUnauthorized] = useState(false);
+  const [scopeUnauthorized, setScopeUnauthorized] = useState(false);
   const [identity, setIdentity] = useState<AccessIdentity | null>(null);
   const [authorizationReason, setAuthorizationReason] = useState("Sign in is required.");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -93,9 +109,11 @@ export function AiOperationsPage() {
   const [visualSources, setVisualSources] = useState<VisualSearchSourceCoverageResponse | null>(null);
   const [visualLoading, setVisualLoading] = useState(false);
   const [visualError, setVisualError] = useState<string | null>(null);
+  const visualLoadedReload = useRef<number | null>(null);
   const [detailsAssetId, setDetailsAssetId] = useState<string | null>(null);
   const [detailsVideo, setDetailsVideo] = useState<{ item: Asset; analysis: VideoSearchItem } | null>(null);
   const requests = useRef(new DashboardRequestCoordinator());
+  const scopeCache = useRef(new Map<string, { reload: number; data: AiOpsDashboardData; errors: string[] }>());
 
   useEffect(() => {
     let alive = true;
@@ -103,48 +121,85 @@ export function AiOperationsPage() {
       if (!alive) return;
       setIdentity(value);
       if (!value.permissions.includes("ai_operations.read")) {
-        setUnauthorized(true);
+        setIdentityUnauthorized(true);
         setAuthorizationReason("Missing permission: ai_operations.read");
       }
     }).catch(error => {
       if (!alive) return;
       const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 0;
       if (status === 401) {
-        setUnauthorized(true);
+        setIdentityUnauthorized(true);
         setAuthorizationReason("Sign in is required.");
       } else if (status === 403) {
-        setUnauthorized(true);
+        setIdentityUnauthorized(true);
         setAuthorizationReason("Missing permission: ai_operations.read");
       }
     });
     return () => { alive = false; };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let subscribed = true;
-    setLoading(true);
-    requests.current.run(signal => fetchAiOperationsDashboard(
-      filters, fetch, undefined, signal,
-    )).then(result => {
-      if (!subscribed || !result.current) return;
-      if ("value" in result) {
-        setData(result.value.data);
-        setErrors(result.value.errors);
-        setUnauthorized(result.value.unauthorized);
-        setLastUpdated(new Date());
-      } else {
-        setErrors(["Dashboard request failed. Try again."]);
-      }
+    const plan = dashboardPlan(tab, media);
+    const key = JSON.stringify([tab, media, filters]);
+    const cached = scopeCache.current.get(key);
+    if (cached?.reload === reload) {
+      setData(cached.data);
+      setErrors(cached.errors);
+      setScopeUnauthorized(false);
       setLoading(false);
+      return () => { subscribed = false; };
+    }
+    setData(emptyDashboard(filters.page));
+    setErrors([]);
+    setScopeUnauthorized(false);
+    if (!plan.primary.length) {
+      setLoading(false);
+      return () => { subscribed = false; };
+    }
+    setLoading(true);
+    requests.current.run(async signal => {
+      const primary = await fetchAiOperationsScope(filters, plan.primary, fetch, undefined, signal);
+      if (signal.aborted || !subscribed) return null;
+      const firstData = { ...emptyDashboard(filters.page), ...primary.data };
+      setData(firstData);
+      setErrors(primary.errors);
+      setScopeUnauthorized(primary.unauthorized);
+      setLoading(false);
+      setLastUpdated(new Date());
+      if (primary.unauthorized || !plan.secondary.length) {
+        if (!primary.unauthorized) scopeCache.current.set(key, { reload, data: firstData, errors: primary.errors });
+        return primary;
+      }
+      const secondary = await fetchAiOperationsScope(filters, plan.secondary, fetch, undefined, signal);
+      if (signal.aborted || !subscribed) return null;
+      const combinedData = { ...firstData, ...secondary.data };
+      const combinedErrors = [...new Set([...primary.errors, ...secondary.errors])];
+      setData(combinedData);
+      setErrors(combinedErrors);
+      setScopeUnauthorized(secondary.unauthorized);
+      setLastUpdated(new Date());
+      if (!secondary.unauthorized) scopeCache.current.set(key, { reload, data: combinedData, errors: combinedErrors });
+      return secondary;
+    }).then(result => {
+      if (!subscribed || !result.current) return;
+      if ("error" in result) {
+        setErrors(["Dashboard request failed. Try again."]);
+        setLoading(false);
+      }
     });
     return () => {
       subscribed = false;
       requests.current.abort();
     };
-  }, [filters, reload]);
+  }, [filters, tab, media, reload]);
 
   useEffect(() => {
     if (tab !== "visual-search") return;
+    if (visualCoverage && visualLoadedReload.current === reload) {
+      setVisualLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setVisualLoading(true);
     setVisualError(null);
@@ -152,6 +207,7 @@ export function AiOperationsPage() {
       if (controller.signal.aborted) return;
       setVisualCoverage(coverage);
       setVisualSources({ index_state: coverage.index_state, sources: coverage.sources });
+      visualLoadedReload.current = reload;
     }).catch(error => {
       if (!controller.signal.aborted) setVisualError(error instanceof Error ? error.message : "Không thể tải dữ liệu Visual Search.");
     }).finally(() => {
@@ -213,7 +269,7 @@ export function AiOperationsPage() {
   }
   return <AiOperationsShell subtitle={identity?.email || "Operations console"}>
     <AiOperationsContent
-      data={data} loading={loading} errors={errors} unauthorized={unauthorized}
+      data={data} loading={loading} errors={errors} unauthorized={identityUnauthorized || scopeUnauthorized}
       visualCoverage={visualCoverage} visualSources={visualSources} visualLoading={visualLoading} visualError={visualError}
       filters={filters} tab={tab} onTab={changeTab} onFilters={changeFilters}
       refreshSeconds={refreshSeconds} onRefreshSeconds={changeRefresh}
@@ -278,6 +334,11 @@ export function AiOperationsContent({
   onOpenAsset = () => undefined, onOpenVideo = () => undefined,
   visualCoverage = null, visualSources = null, visualLoading = false, visualError = null,
 }: ContentProps) {
+  const independentTabs = ["inventory", "creative-pipeline", "visual-search", "providers", "configuration"] as const;
+  const [visitedTabs, setVisitedTabs] = useState<AiOpsTab[]>([tab]);
+  useEffect(() => {
+    if (!visitedTabs.includes(tab)) setVisitedTabs(current => [...current, tab]);
+  }, [tab, visitedTabs]);
   const models = useMemo(() => [...new Set([
     ...data.providers.map(item => item.model || ""), ...data.usage.items.map(item => item.model || ""),
   ].filter(Boolean))].sort(), [data]);
@@ -316,14 +377,19 @@ export function AiOperationsContent({
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}>Retry</button>
     </div>}
-    <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {tab === "inventory" ? <InventoryDailyTab /> : tab === "creative-pipeline" ? <CreativePipelineTab canManage={permissions.includes("assets.generate")} /> : tab === "visual-search" ? <VisualSearchOperationsTab coverage={visualCoverage} sources={visualSources} loading={visualLoading} error={visualError} onRetry={onRetry} /> : loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
+    {!independentTabs.some(value => value === tab) && <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
+      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
-        : tab === "cost" ? <CostUsage data={data} filters={filters} onFilters={onFilters} />
-        : tab === "providers" ? <ProvidersTab metrics={data.todayProviders} inventoryPermissions={permissions} />
+        : <CostUsage data={data} filters={filters} onFilters={onFilters} />}
+    </section>}
+    {independentTabs.map(value => visitedTabs.includes(value) ? <section key={value} id={`ops-panel-${value}`} role="tabpanel" aria-labelledby={`ops-tab-${value}`} tabIndex={tab === value ? 0 : -1} hidden={tab !== value}>
+      {value === "inventory" ? <InventoryDailyTab />
+        : value === "creative-pipeline" ? <CreativePipelineTab canManage={permissions.includes("assets.generate")} />
+        : value === "visual-search" ? <VisualSearchOperationsTab coverage={visualCoverage} sources={visualSources} loading={visualLoading} error={visualError} onRetry={onRetry} />
+        : value === "providers" ? <ProvidersTab metrics={data.todayProviders} inventoryPermissions={permissions} />
         : <ConfigurationTab />}
-    </section>
+    </section> : null)}
   </>;
 }
 

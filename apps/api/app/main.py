@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
+import logging
+from time import perf_counter
 
 from app.core.environment import load_development_environment
 
 load_development_environment()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -51,6 +53,22 @@ from app.modules.tag.router import router as tag_router
 from app.providers.google.drive import create_stream_client
 
 
+_operations_logger = logging.getLogger("app.operations_timing")
+_timed_operations_paths = frozenset({
+    "/api/v1/admin/ai-operations/summary",
+    "/api/v1/admin/ai-operations/daily",
+    "/api/v1/admin/ai-operations/providers",
+    "/api/v1/admin/ai-operations/failures",
+    "/api/v1/admin/ai-operations/jobs",
+    "/api/v1/admin/ai-operations/usage",
+    "/api/v1/admin/ai-operations/pipeline",
+    "/api/v1/admin/ai-operations/media-dashboard",
+    "/api/v1/admin/visual-search/coverage/dashboard",
+    "/api/v1/creative-pipeline/groups",
+    "/api/v1/creative-pipeline/listings",
+})
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = _app.state.settings
@@ -90,6 +108,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/openapi.json" if settings.API_DOCS_ENABLED else None,
     )
     api.state.settings = settings
+    @api.middleware("http")
+    async def operations_timing(request: Request, call_next):
+        path = request.url.path
+        if request.method != "GET" or path not in _timed_operations_paths:
+            return await call_next(request)
+        started = perf_counter()
+        status = "error"
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            # Fixed path label only: no query strings, bearer tokens, tenant
+            # IDs, source IDs, request bodies, or response data enter logs.
+            _operations_logger.info(
+                "operations_endpoint_timing endpoint=%s status=%s duration_ms=%.1f",
+                path, status, (perf_counter() - started) * 1000,
+            )
     if settings.VISUAL_SEARCH_ENABLED:
         api.state.visual_encoder_client = HttpVisualEncoderClient(settings.VISUAL_ENCODER_URL, settings.VISUAL_ENCODER_TIMEOUT_SECONDS, settings.VISUAL_ENCODER_INTERNAL_KEY)
     api.add_middleware(

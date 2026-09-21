@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   cancelAiOperationsJob,
   fetchAiOperationsDashboard,
+  fetchAiOperationsScope,
   fetchAiOperationsJobQueue,
   filtersFromSearch,
   normalizeMediaDashboard,
@@ -22,6 +23,7 @@ import { mayViewAiOperations } from "../components/Sidebar";
 import { routeForPath } from "../AppRoute";
 import {
   AiOperationsContent,
+  dashboardPlan,
   AiOperationsFilters,
   AiOperationsShell,
   aiWorkerIsPaused,
@@ -210,6 +212,41 @@ describe("AI Operations date range", () => {
     expect(markup).toContain("Last 3 months");
     expect(markup).toContain("Last 6 months");
     expect(markup).toContain("All time");
+  });
+});
+
+describe("AI Operations tab-scoped loading", () => {
+  it("does not request dashboard aggregates for independently loaded tabs", () => {
+    for (const tab of ["visual-search", "creative-pipeline", "inventory", "configuration"] as const) {
+      expect(dashboardPlan(tab, "image")).toEqual({ primary: [], secondary: [] });
+    }
+    expect(dashboardPlan("processing", "image")).toEqual({ primary: ["jobs"], secondary: ["failures", "usage"] });
+    expect(dashboardPlan("processing", "video")).toEqual({ primary: ["media"], secondary: [] });
+    expect(dashboardPlan("cost", "image")).toEqual({ primary: ["usage"], secondary: ["summary"] });
+  });
+
+  it("fetches only selected endpoints and keeps partial success", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/failures?")) return new Response(JSON.stringify({ detail: "Unavailable" }), { status: 503 });
+      return new Response(JSON.stringify(url.includes("/jobs?") ? data.jobs : data.usage), { status: 200 });
+    }) as unknown as typeof fetch;
+    const result = await fetchAiOperationsScope(filters, ["jobs", "failures", "usage"], fetcher, new Date("2026-07-22T00:00:00Z"));
+    const urls = vi.mocked(fetcher).mock.calls.map(call => String(call[0]));
+    expect(urls).toHaveLength(3);
+    expect(urls.some(url => url.includes("/summary?"))).toBe(false);
+    expect(result.data.jobs).toEqual(data.jobs);
+    expect(result.data.usage).toEqual(data.usage);
+    expect(result.errors).toEqual(["Unavailable"]);
+    expect(result.unauthorized).toBe(false);
+  });
+
+  it("propagates denial without requesting unrelated tab data", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ detail: "Forbidden" }), { status: 403 })) as unknown as typeof fetch;
+    const result = await fetchAiOperationsScope(filters, ["jobs"], fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(result.unauthorized).toBe(true);
+    expect(result.errors).toEqual(["Forbidden"]);
   });
 });
 

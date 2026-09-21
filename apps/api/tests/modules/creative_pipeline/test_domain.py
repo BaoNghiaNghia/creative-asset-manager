@@ -16,7 +16,9 @@ from app.modules.creative_pipeline.repository import CreativePipelineRepository
 from app.modules.creative_pipeline.artifacts import ArtifactService
 from app.modules.creative_pipeline.lineage import CreativePipelineLineageError, CreativePipelineLineageResolver
 from app.modules.creative_pipeline.api_service import CreativePipelineApiService
+from app.modules.creative_pipeline.router import groups as list_groups, listings as list_listings
 from app.modules.authorization.principal import CurrentPrincipal
+from app.modules.authorization.folder_scope import FolderScopeAccess
 
 
 def _session():
@@ -247,6 +249,101 @@ def test_group_summary_uses_only_latest_run_and_marks_inherited_nodes():
         assert next(row for row in nodes if row["node_type"] == NodeType.INPUT_DATA.value)["inherited"] is True
         assert next(row for row in nodes if row["node_type"] == NodeType.PROMPT.value)["inherited"] is False
         session.commit()
+    finally:
+        engine.dispose()
+
+
+def test_group_and_listing_reads_are_batched_and_tenant_scoped():
+    engine, sessions = _session()
+    try:
+        session = sessions()
+        principal = CurrentPrincipal(
+            user_id="user-a", active_tenant_id="tenant-a", membership_id="member-a",
+            external_identity=None, effective_roles=frozenset({"tenant_admin"}),
+            effective_permissions=frozenset({"assets.read"}), platform_admin=False,
+            session_id="session-a", authorization_source="test",
+        )
+        for group_index in range(3):
+            group = _group(session, folder=f"group-{group_index}")
+            for listing_index in range(10):
+                listing = _listing(
+                    session, group, folder=f"folder-{group_index}-{listing_index}",
+                    listing_key=f"key-{group_index}-{listing_index}",
+                )
+                session.add_all([
+                    PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id,
+                                     run_number=1, status="completed", trigger_type="manual"),
+                    PipelineRunModel(id=str(uuid4()), tenant_id="tenant-a", listing_task_id=listing.id,
+                                     run_number=2, status="failed", trigger_type="manual"),
+                ])
+        foreign_group = _group(session, tenant="tenant-b", source="source-b", folder="foreign-group")
+        _listing(session, foreign_group, folder="foreign-listing", listing_key="foreign")
+        session.flush()
+        sql = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                sql.append(statement)
+
+        event.listen(engine, "before_cursor_execute", capture)
+        try:
+            group_result = list_groups(session=session, principal=principal)
+            group_queries = len(sql)
+            sql.clear()
+            listing_result = list_listings(
+                q=None, source_group_id=None, platform=None, source_status=None,
+                run_status=None, page=1, limit=5, session=session, principal=principal,
+            )
+            listing_queries = len(sql)
+        finally:
+            event.remove(engine, "before_cursor_execute", capture)
+        assert group_result["total"] == 3
+        assert all(item["listing_count"] == 10 for item in group_result["items"])
+        assert all(item["current_runs"]["failed"] == 10 for item in group_result["items"])
+        assert listing_result["total"] == 30
+        assert len(listing_result["items"]) == 5
+        assert all(item["pipeline_status"] == "failed" for item in listing_result["items"])
+        assert all(item["current_run"]["nodes"] for item in listing_result["items"])
+        assert (group_queries, listing_queries) == (3, 6)
+        filtered = list_listings(
+            q=None, source_group_id=None, platform=None, source_status=None,
+            run_status="failed", page=2, limit=5, session=session, principal=principal,
+        )
+        assert filtered["total"] == 30 and len(filtered["items"]) == 5
+        hidden = list_listings(
+            q=None, source_group_id=foreign_group.id, platform=None, source_status=None,
+            run_status=None, page=1, limit=5, session=session, principal=principal,
+        )
+        assert hidden["total"] == 0 and hidden["items"] == []
+    finally:
+        engine.dispose()
+
+
+def test_cached_viewer_scope_access_still_checks_each_listing_folder(monkeypatch):
+    engine, sessions = _session()
+    try:
+        session = sessions()
+        group = _group(session)
+        allowed = _listing(session, group, folder="allowed", listing_key="allowed")
+        denied = _listing(session, group, folder="denied", listing_key="denied")
+        principal = CurrentPrincipal(
+            user_id="viewer-a", active_tenant_id="tenant-a", membership_id="member-a",
+            external_identity=None, effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset({"assets.read"}), platform_admin=False,
+            session_id="session-a", authorization_source="test",
+        )
+        service = CreativePipelineApiService(session)
+        accesses = []
+
+        def access(**kwargs):
+            accesses.append(kwargs)
+            return FolderScopeAccess(True, "source-a", frozenset({"allowed"}))
+
+        monkeypatch.setattr(service._folder_scope, "access", access)
+        monkeypatch.setattr(service._folder_scope, "allows_external_asset", lambda **kwargs: kwargs["external_asset_id"] == "allowed")
+        assert service._scope_allows(principal, group, allowed)
+        assert not service._scope_allows(principal, group, denied)
+        assert len(accesses) == 1
     finally:
         engine.dispose()
 

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 
 from app.common.cache import BoundedTTLCache
 from app.modules.ai_operations.cache import (
@@ -71,3 +72,27 @@ def test_ai_operations_ttl_expiry_refreshes():
         assert cached_ai_operations_read("summary", key, load)["value"] == 2
     finally:
         ai_operations_caches["summary"] = original
+
+
+def test_operational_cache_key_buckets_live_timestamps_but_retains_scope():
+    ai_operations_caches["summary"].clear()
+    first = _filters()
+    shifted = replace(
+        first,
+        from_at=first.from_at + timedelta(seconds=7),
+        to_at=first.to_at + timedelta(seconds=7),
+    )
+    assert filters_cache_key(first) == filters_cache_key(shifted)
+    assert filters_cache_key(first) != filters_cache_key(replace(first, to_at=first.to_at + timedelta(seconds=30)))
+    assert filters_cache_key(first) != filters_cache_key(replace(first, tenant_id="tenant-b"))
+    assert filters_cache_key(first) != filters_cache_key(replace(first, job_type="video_analyze"))
+    assert filters_cache_key(first) != filters_cache_key(replace(first, provider="other"))
+    calls = []
+
+    def load():
+        calls.append(True)
+        return {"count": len(calls)}
+
+    assert cached_ai_operations_read("summary", filters_cache_key(first), load) == {"count": 1}
+    assert cached_ai_operations_read("summary", filters_cache_key(shifted), load) == {"count": 1}
+    assert len(calls) == 1

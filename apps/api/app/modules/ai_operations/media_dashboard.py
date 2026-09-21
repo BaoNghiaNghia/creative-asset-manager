@@ -6,7 +6,7 @@ from math import ceil
 from urllib.parse import quote, urlencode
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.redaction import redact_url_queries
@@ -658,14 +658,19 @@ class MediaDashboardService:
         }
         latest_video_runs: dict[str, VideoAnalysisRunModel] = {}
         if video_source_ids:
-            runs = self.session.scalars(
-                select(VideoAnalysisRunModel)
-                .where(
-                    VideoAnalysisRunModel.tenant_id == tenant_id,
-                    VideoAnalysisRunModel.source_asset_id.in_(video_source_ids),
-                )
-                .order_by(VideoAnalysisRunModel.updated_at.desc(), VideoAnalysisRunModel.id.desc())
-            )
+            ranked = select(
+                VideoAnalysisRunModel.id.label("run_id"),
+                func.row_number().over(
+                    partition_by=VideoAnalysisRunModel.source_asset_id,
+                    order_by=(VideoAnalysisRunModel.updated_at.desc(), VideoAnalysisRunModel.id.desc()),
+                ).label("rn"),
+            ).where(
+                VideoAnalysisRunModel.tenant_id == tenant_id,
+                VideoAnalysisRunModel.source_asset_id.in_(video_source_ids),
+            ).subquery()
+            runs = self.session.scalars(select(VideoAnalysisRunModel).join(
+                ranked, VideoAnalysisRunModel.id == ranked.c.run_id,
+            ).where(VideoAnalysisRunModel.tenant_id == tenant_id, ranked.c.rn == 1))
             for run in runs:
                 latest_video_runs.setdefault(run.source_asset_id, run)
         filtered_video = [
@@ -753,10 +758,26 @@ class MediaDashboardService:
             )
             for source_asset_id, asset_id in links:
                 logical_asset_ids.setdefault(source_asset_id, asset_id)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        analytics_from = min(from_at, today_start)
+        analytics_to = max(to_at, now)
         analytics_runs = list(self.session.scalars(select(VideoAnalysisRunModel).where(
             VideoAnalysisRunModel.tenant_id == tenant_id,
+            VideoAnalysisRunModel.status.in_(_TERMINAL),
+            func.coalesce(VideoAnalysisRunModel.completed_at, VideoAnalysisRunModel.updated_at) >= analytics_from,
+            func.coalesce(VideoAnalysisRunModel.completed_at, VideoAnalysisRunModel.updated_at) < analytics_to,
         )))
-        source_asset_ids = video_source_ids | {run.source_asset_id for run in analytics_runs}
+        index_run_ids = {
+            job.entity_id for job in by_type[VIDEO_INDEX_JOB_TYPE]
+            if job.entity_type == "video_analysis_run"
+        }
+        indexed_run_sources = dict(self.session.execute(select(
+            VideoAnalysisRunModel.id, VideoAnalysisRunModel.source_asset_id,
+        ).where(
+            VideoAnalysisRunModel.tenant_id == tenant_id,
+            VideoAnalysisRunModel.id.in_(index_run_ids),
+        )).all()) if index_run_ids else {}
+        source_asset_ids = video_source_ids | {run.source_asset_id for run in analytics_runs} | set(indexed_run_sources.values())
         source_types_by_source_asset: dict[str, str] = {}
         if source_asset_ids:
             source_rows = self.session.execute(
@@ -771,8 +792,9 @@ class MediaDashboardService:
                 source_asset_id: source_type for source_asset_id, source_type in source_rows
             }
         source_types_by_run = {
-            run.id: source_types_by_source_asset[run.source_asset_id]
-            for run in analytics_runs if run.source_asset_id in source_types_by_source_asset
+            run_id: source_types_by_source_asset[source_id]
+            for run_id, source_id in indexed_run_sources.items()
+            if source_id in source_types_by_source_asset
         }
         video["source_breakdown"] = _source_breakdown(
             video_jobs,
@@ -782,11 +804,15 @@ class MediaDashboardService:
             by_type[VIDEO_INDEX_JOB_TYPE],
             {job.id: source_types_by_run[job.entity_id] for job in by_type[VIDEO_INDEX_JOB_TYPE] if job.entity_id in source_types_by_run},
         )
-        analytics_chunks = list(self.session.scalars(select(VideoAnalysisChunkModel).where(
-            VideoAnalysisChunkModel.tenant_id == tenant_id,
-        )))
+        analytics_chunks = []
+        analytics_run_ids = [run.id for run in analytics_runs]
+        for start in range(0, len(analytics_run_ids), 500):
+            analytics_chunks.extend(self.session.scalars(select(VideoAnalysisChunkModel).where(
+                VideoAnalysisChunkModel.tenant_id == tenant_id,
+                VideoAnalysisChunkModel.run_id.in_(analytics_run_ids[start:start + 500]),
+                VideoAnalysisChunkModel.status == "completed",
+            )))
         cost_rates = list(self.session.scalars(select(AiCostRateModel)))
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         today_analytics = _video_analytics(
             analytics_runs, analytics_chunks, cost_rates, video_jobs,
             from_at=today_start,
