@@ -213,12 +213,18 @@ def probe_worker_ticket(
         request = Request(
             ticket.url,
             method="HEAD",
-            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+                "User-Agent": "creative-asset-manager-preflight",
+                "Accept": "*/*",
+            },
         )
         try:
             response = opener(request, timeout=timeout_seconds)
         except HTTPError as exc:
-            if exc.code == 404:
+            status = exc.code if isinstance(exc.code, int) else "unknown"
+            if status == 404:
                 return PreflightCheck(
                     code="worker_signed_head_probe",
                     ok=True,
@@ -227,7 +233,7 @@ def probe_worker_ticket(
             return PreflightCheck(
                 code="worker_signed_head_probe",
                 ok=False,
-                detail="Worker rejected the signed probe or returned an unexpected status",
+                detail=f"Worker returned HTTP {status} for the signed HEAD probe",
             )
         except (URLError, TimeoutError, OSError):
             return PreflightCheck(
@@ -245,8 +251,8 @@ def probe_worker_ticket(
             code="worker_signed_head_probe",
             ok=False,
             detail=(
-                "Worker returned an unexpected success status for the random preflight key"
-                if status is not None
+                f"Worker returned HTTP {status} for the random preflight key"
+                if isinstance(status, int)
                 else "Worker returned an unexpected probe response"
             ),
         )
@@ -288,7 +294,12 @@ def probe_ready_video_ticket(
         request = Request(
             ticket.url,
             method="HEAD",
-            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+                "User-Agent": "creative-asset-manager-preflight",
+                "Accept": "*/*",
+            },
         )
         try:
             response = opener(request, timeout=timeout_seconds)
