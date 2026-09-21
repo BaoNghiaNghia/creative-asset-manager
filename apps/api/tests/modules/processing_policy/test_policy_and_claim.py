@@ -211,6 +211,25 @@ class ProcessingPolicyTest(unittest.TestCase):
             self.assertEqual((policy.total_active_jobs, policy.ai_active_jobs), (0, 0))
             self.assertEqual((provider.active_jobs, provider.single_active_jobs), (0, 0))
 
+    def test_video_cache_fill_is_claimable_by_video_worker_when_pipeline_enabled(self):
+        self.policy("tenant")
+        cache_fill = self.job(
+            "tenant",
+            "video-cache-fill",
+            kind="video_cache_fill",
+            provider=None,
+            scope=None,
+        )
+
+        claimed = self.claim(
+            "video-worker",
+            ("video_cache_fill",),
+            worker_role="video",
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, cache_fill)
+
     def test_video_generate_defer_and_stale_terminal_release_are_idempotent(self):
         self.policy("tenant", total=1, ai=1)
         with self.sessions.begin() as session:
