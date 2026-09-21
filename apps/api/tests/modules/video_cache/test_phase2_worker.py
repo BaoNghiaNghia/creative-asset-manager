@@ -83,7 +83,7 @@ def context(factory, result, provider, resolver, config, *, cancelled=False):
             resources={"video_cache_r2_provider": provider, "video_cache_content_resolver": resolver},
         ),
         shutdown_requested=Event(), cancellation_requested=cancel,
-        logger=logging.LoggerAdapter(logging.getLogger("test"), {}),
+        logger=logging.LoggerAdapter(logging.getLogger("test"), {"worker_id": "safe-test-worker"}),
     )
 
 
@@ -174,6 +174,7 @@ def test_non_retryable_r2_failure_logs_safe_phase_and_type(tmp_path, caplog):
     assert record.phase == "r2_upload_init"
     assert record.exception_type == "R2ProviderError"
     assert record.retryable is False
+    assert record.worker_id == "safe-test-worker"
     assert "secret.example.invalid" not in caplog.text
     engine.dispose()
 

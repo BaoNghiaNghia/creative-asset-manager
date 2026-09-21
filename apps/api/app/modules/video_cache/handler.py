@@ -28,13 +28,19 @@ class VideoCacheFillJobHandler:
     ) -> None:
         """Emit safe cache-fill diagnostics without exception details."""
         try:
-            context.logger.error(
+            # Python 3.12 LoggerAdapter replaces call-site ``extra`` with the
+            # adapter context instead of merging it.  Merge explicitly so the
+            # worker/job fields and the bounded diagnostic fields both reach
+            # the structured formatter.
+            log_fields = dict(context.logger.extra)
+            log_fields.update({
+                "phase": phase,
+                "exception_type": type(exc).__name__,
+                "retryable": retryable,
+            })
+            context.logger.logger.error(
                 "video_cache_fill_exception",
-                extra={
-                    "phase": phase,
-                    "exception_type": type(exc).__name__,
-                    "retryable": retryable,
-                },
+                extra=log_fields,
             )
         except Exception:
             # Diagnostic logging must never alter job semantics.
