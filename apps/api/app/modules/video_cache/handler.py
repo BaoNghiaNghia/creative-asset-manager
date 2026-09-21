@@ -18,13 +18,41 @@ class VideoCacheFillJobHandler:
     def __init__(self, settings):
         self.settings = settings
 
+    @staticmethod
+    def _log_exception(
+        context: JobHandlerContext,
+        *,
+        phase: str,
+        exc: Exception,
+        retryable: bool,
+    ) -> None:
+        """Emit safe cache-fill diagnostics without exception details."""
+        try:
+            context.logger.error(
+                "video_cache_fill_exception",
+                extra={
+                    "phase": phase,
+                    "exception_type": type(exc).__name__,
+                    "retryable": retryable,
+                },
+            )
+        except Exception:
+            # Diagnostic logging must never alter job semantics.
+            return
+
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
         if not self.settings.R2_VIDEO_CACHE_ENABLED:
             return JobHandlerResult.non_retryable("cache_disabled", "Video cache is disabled")
         emit_counter("video_cache_fill_started_total")
         try:
             result = asyncio.run(self._run(context))
-        except Exception:
+        except Exception as exc:
+            self._log_exception(
+                context,
+                phase="handler",
+                exc=exc,
+                retryable=True,
+            )
             result = JobHandlerResult.retryable("cache_internal_error", "Video cache fill failed")
         if result.outcome is JobOutcome.COMPLETED:
             emit_counter("video_cache_fill_completed_total")
@@ -102,8 +130,15 @@ class VideoCacheFillJobHandler:
 
     async def _run(self, context):
         job = context.job
+        phase = "validate"
+
+        def set_phase(name: str) -> None:
+            nonlocal phase
+            phase = name
+
         provider = context.dependencies.resources.get("video_cache_r2_provider") or R2Adapter(self.settings)
         quota = VideoCacheQuota(context.dependencies.session_factory, self.settings, provider)
+        set_phase("validate")
         with quota.transaction() as session:
             identity = self._valid(session, job)
             row = self._row(session, job)
@@ -112,13 +147,16 @@ class VideoCacheFillJobHandler:
             upload_id = row.multipart_upload_id
             key = row.r2_key
         if identity is None:
+            set_phase("cleanup")
             if not await self._cleanup(quota, provider, job, key, upload_id):
                 return JobHandlerResult.non_retryable("cleanup_pending", "Video cache cleanup pending")
             self._fail(quota, job, "source_changed")
             return JobHandlerResult.non_retryable("source_changed", "Video source changed")
         key, source_id, digest, size, mime = identity
-        if upload_id and not await self._cleanup(quota, provider, job, key, upload_id):
-            return JobHandlerResult.non_retryable("cleanup_pending", "Video cache cleanup pending")
+        if upload_id:
+            set_phase("cleanup")
+            if not await self._cleanup(quota, provider, job, key, upload_id):
+                return JobHandlerResult.non_retryable("cleanup_pending", "Video cache cleanup pending")
         async def remember(upload):
             with quota.transaction() as session:
                 row = self._row(session, job)
@@ -127,6 +165,7 @@ class VideoCacheFillJobHandler:
                 row.multipart_upload_id = upload
                 row.updated_at = utcnow()
         async def checked(body):
+            set_phase("source_read")
             async for block in body:
                 if context.is_cancelled or context.shutdown_requested.is_set():
                     raise VideoCacheIntegrityError("Cache fill interrupted")
@@ -134,12 +173,14 @@ class VideoCacheFillJobHandler:
         resolver = (context.dependencies.resources.get("video_cache_content_resolver")
                     or SourceAssetContentResolver(context.dependencies.session_factory))
         try:
+            set_phase("source_provider_setup")
             async with resolver.open(tenant_id=job.tenant_id, source_asset_id=source_id) as stream:
                 result = await VideoCacheService(
                     provider, max_object_bytes=self.settings.R2_VIDEO_CACHE_MAX_OBJECT_BYTES
                 ).upload_original(checked(stream.body), tenant_id=job.tenant_id,
                     content_hash_expected=digest, expected_size_bytes=size,
-                    mime_type=mime, on_upload_started=remember)
+                    mime_type=mime, on_upload_started=remember, on_phase=set_phase)
+            set_phase("db_finalize")
             with quota.transaction() as session:
                 if self._valid(session, job) != identity:
                     raise VideoCacheIntegrityError("Source changed during fill")
@@ -147,13 +188,20 @@ class VideoCacheFillJobHandler:
                     job.tenant_id, job.entity_id, size_bytes=result.size_bytes, etag=result.etag)
             return JobHandlerResult.completed()
         except Exception as exc:
+            retryable = (isinstance(exc, SourceAssetContentTransient)
+                         or isinstance(exc, R2ProviderError) and exc.retryable)
+            self._log_exception(
+                context,
+                phase=phase,
+                exc=exc,
+                retryable=retryable,
+            )
+            set_phase("cleanup")
             with quota.transaction() as session:
                 row = self._row(session, job)
                 upload_id = row.multipart_upload_id if row is not None else None
             if not await self._cleanup(quota, provider, job, key, upload_id):
                 return JobHandlerResult.non_retryable("cleanup_pending", "Video cache cleanup pending")
-            retryable = (isinstance(exc, SourceAssetContentTransient)
-                         or isinstance(exc, R2ProviderError) and exc.retryable)
             if not retryable or job.attempt_count >= 5:
                 self._fail(quota, job, "cache_fill_failed")
                 return JobHandlerResult.non_retryable("cache_fill_failed", "Video cache fill failed")
