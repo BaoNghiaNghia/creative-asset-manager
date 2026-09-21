@@ -55,7 +55,18 @@ class VideoCacheService:
         mime_type: str,
         target_key: str | None = None,
         on_upload_started: Callable[[str], Awaitable[None]] | None = None,
+        on_phase: Callable[[str], None] | None = None,
     ) -> VideoUploadResult:
+        def update_phase(name: str) -> None:
+            if on_phase is None:
+                return
+            try:
+                on_phase(name)
+            except Exception:
+                # Diagnostics must never change upload semantics.
+                return
+
+        update_phase("validate")
         key = video_cache_key(tenant_id, content_hash_expected)
         if target_key is not None and target_key != key:
             raise ValueError("Video cache key must be server generated")
@@ -65,6 +76,7 @@ class VideoCacheService:
         ):
             raise ValueError("Expected video size is outside cache limits")
 
+        update_phase("r2_upload_init")
         upload_id = await self.provider.create_multipart_upload(key, mime_type)
         parts: list[dict] = []
         part_number = 1
@@ -88,6 +100,7 @@ class VideoCacheService:
                     buffer.extend(memoryview(chunk)[offset:offset + take])
                     offset += take
                     if len(buffer) == self.part_size:
+                        update_phase("r2_upload_part")
                         etag = await self.provider.upload_part(key, upload_id, part_number, bytes(buffer))
                         parts.append({"ETag": etag, "PartNumber": part_number})
                         part_number += 1
@@ -99,10 +112,13 @@ class VideoCacheService:
             if expected_size_bytes is not None and actual_size != expected_size_bytes:
                 raise VideoCacheIntegrityError("Original video byte count mismatch")
             if buffer:
+                update_phase("r2_upload_part")
                 etag = await self.provider.upload_part(key, upload_id, part_number, bytes(buffer))
                 parts.append({"ETag": etag, "PartNumber": part_number})
+            update_phase("r2_upload_complete")
             etag = await self.provider.complete_multipart_upload(key, upload_id, parts)
             completed = True
+            update_phase("r2_verify")
             head = await self.provider.head_object(key)
             if head.size_bytes != actual_size:
                 raise VideoCacheIntegrityError("R2 object byte count mismatch")
