@@ -17,7 +17,8 @@
     }
   ],
   "vars": {
-    "R2_VIDEO_MEDIA_MAX_TTL_SECONDS": "600"
+    "R2_VIDEO_MEDIA_MAX_TTL_SECONDS": "600",
+    "R2_VIDEO_MEDIA_AUTH_DIAGNOSTICS": "false"
   },
   "secrets": {
     "required": [

@@ -28,6 +28,7 @@ export interface Env {
   VIDEO_CACHE_BUCKET: ReadOnlyR2Bucket;
   R2_VIDEO_MEDIA_SIGNING_SECRET: string;
   R2_VIDEO_MEDIA_MAX_TTL_SECONDS?: string;
+  R2_VIDEO_MEDIA_AUTH_DIAGNOSTICS?: string;
 }
 
 const TRUSTED_CACHE_ORIGIN = "https://cam-r2-video-cache.internal";
@@ -63,6 +64,22 @@ function validSecret(secret: unknown): secret is string {
 
 function encoderLength(value: string): number {
   return new TextEncoder().encode(value).length;
+}
+
+type AuthRejectReason =
+  | "invalid_request"
+  | "invalid_expiry"
+  | "invalid_secret"
+  | "invalid_signature";
+
+function authRejected(env: Env, reason: AuthRejectReason): null {
+  if (env.R2_VIDEO_MEDIA_AUTH_DIAGNOSTICS === "true") {
+    console.error(JSON.stringify({
+      event: "video_cache_auth_rejected",
+      reason,
+    }));
+  }
+  return null;
 }
 
 function objectHeaders(object: R2ReadObject, cacheStatus: "HIT" | "MISS" | "BYPASS"): Headers {
@@ -110,16 +127,26 @@ async function authenticatedKey(request: Request, env: Env, nowSeconds: number):
   const parameters = url.searchParams;
   if (key === null || url.hash || parameters.size !== 3 ||
       parameters.getAll("v").length !== 1 || parameters.getAll("exp").length !== 1 ||
-      parameters.getAll("sig").length !== 1 || parameters.get("v") !== "1") return null;
+      parameters.getAll("sig").length !== 1 || parameters.get("v") !== "1") {
+    return authRejected(env, "invalid_request");
+  }
   const rawExpiry = parameters.get("exp");
   const signature = parameters.get("sig");
-  if (rawExpiry === null || signature === null || !/^[1-9][0-9]{0,11}$/.test(rawExpiry)) return null;
+  if (rawExpiry === null || signature === null || !/^[1-9][0-9]{0,11}$/.test(rawExpiry)) {
+    return authRejected(env, "invalid_expiry");
+  }
   const expiresAt = Number(rawExpiry);
   const limit = maxTtl(env.R2_VIDEO_MEDIA_MAX_TTL_SECONDS);
   if (limit === null || !Number.isSafeInteger(nowSeconds) || !Number.isSafeInteger(expiresAt) ||
-      expiresAt <= nowSeconds || expiresAt > nowSeconds + limit ||
-      !validSecret(env.R2_VIDEO_MEDIA_SIGNING_SECRET)) return null;
-  if (!await verifyReadPath(env.R2_VIDEO_MEDIA_SIGNING_SECRET, url.pathname, expiresAt, signature)) return null;
+      expiresAt <= nowSeconds || expiresAt > nowSeconds + limit) {
+    return authRejected(env, "invalid_expiry");
+  }
+  if (!validSecret(env.R2_VIDEO_MEDIA_SIGNING_SECRET)) {
+    return authRejected(env, "invalid_secret");
+  }
+  if (!await verifyReadPath(env.R2_VIDEO_MEDIA_SIGNING_SECRET, url.pathname, expiresAt, signature)) {
+    return authRejected(env, "invalid_signature");
+  }
   return { key, pathname: url.pathname };
 }
 

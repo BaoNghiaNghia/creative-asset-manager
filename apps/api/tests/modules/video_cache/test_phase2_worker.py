@@ -148,6 +148,66 @@ def test_transient_failure_keeps_bounded_reservation_for_durable_retry(tmp_path,
     engine.dispose()
 
 
+def test_non_retryable_r2_failure_logs_safe_phase_and_type(tmp_path, caplog):
+    engine, factory = setup(tmp_path)
+    data = b"video original bytes"
+    asset, source, digest = seed(factory, data=data)
+
+    class FailingInitR2(StreamR2):
+        async def create_multipart_upload(self, key, mime):
+            raise R2ProviderError("https://secret.example.invalid/should-not-log", retryable=False)
+
+    config = settings()
+    provider = FailingInitR2()
+    admitted = ensure(factory, config, provider, asset, source, digest)
+
+    with caplog.at_level(logging.ERROR, logger="test"):
+        outcome = VideoCacheFillJobHandler(config)(
+            context(factory, admitted, provider, Resolver(data), config)
+        )
+
+    assert outcome.outcome == JobOutcome.NON_RETRYABLE_FAILURE
+    record = next(
+        item for item in caplog.records
+        if item.getMessage() == "video_cache_fill_exception"
+    )
+    assert record.phase == "r2_upload_init"
+    assert record.exception_type == "R2ProviderError"
+    assert record.retryable is False
+    assert "secret.example.invalid" not in caplog.text
+    engine.dispose()
+
+
+def test_transient_source_failure_logs_source_phase_without_message(tmp_path, caplog):
+    engine, factory = setup(tmp_path)
+    data = b"video original bytes"
+    asset, source, digest = seed(factory, data=data)
+    config, provider = settings(), StreamR2()
+    admitted = ensure(factory, config, provider, asset, source, digest)
+
+    with caplog.at_level(logging.ERROR, logger="test"):
+        outcome = VideoCacheFillJobHandler(config)(
+            context(
+                factory,
+                admitted,
+                provider,
+                Resolver(data, transient=True),
+                config,
+            )
+        )
+
+    assert outcome.outcome == JobOutcome.RETRYABLE_FAILURE
+    record = next(
+        item for item in caplog.records
+        if item.getMessage() == "video_cache_fill_exception"
+    )
+    assert record.phase == "source_provider_setup"
+    assert record.exception_type == "SourceAssetContentTransient"
+    assert record.retryable is True
+    assert "temporary source failure" not in caplog.text
+    engine.dispose()
+
+
 def test_cancelled_fill_does_not_leak_reservation(tmp_path):
     engine, factory = setup(tmp_path)
     data = b"video original bytes"

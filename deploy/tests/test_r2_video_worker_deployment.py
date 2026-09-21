@@ -131,7 +131,14 @@ class R2VideoWorkerRolloutTest(unittest.TestCase):
                 )),
                 encoding="utf-8",
             )
-            plan = rollout_plan(path, release_tag="workers-dev-test")
+            with self.assertRaises(RolloutConfigError):
+                rollout_plan(path, release_tag="workers-dev-test")
+
+            plan = rollout_plan(
+                path,
+                release_tag="workers-dev-test",
+                allow_workers_dev=True,
+            )
         self.assertTrue(plan["config"]["workers_dev"])
         stages = [step["stage"] for step in plan["steps"]]
         self.assertNotIn("route_review", stages)

@@ -184,11 +184,13 @@ def test_worker_probe_accepts_only_authenticated_missing_key_404():
     assert result.code == "worker_signed_head_probe"
     assert SECRET not in result.detail
 
-    def forbidden(_request, timeout):
+    def forbidden(request, timeout):
+        assert request.get_header("User-agent") == "creative-asset-manager-preflight"
         raise HTTPError("https://redacted.invalid", 403, "forbidden", {}, None)
 
     result = probe_worker_ticket(settings, opener=forbidden)
     assert not result.ok
+    assert "HTTP 403" in result.detail
 
 
 def test_require_production_is_explicit_and_fail_closed():
