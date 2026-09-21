@@ -158,6 +158,31 @@ test("malformed secret and TTL fail closed", async () => {
   assert.equal(bucket.getCalls, 0);
 });
 
+test("auth diagnostics can identify signature rejection without exposing ticket material", async () => {
+  const { env, url } = fixture();
+  const candidate = url.replace(vector.signature, "A".repeat(43));
+  const originalError = console.error;
+  const logs: unknown[] = [];
+  console.error = (...args: unknown[]) => logs.push(args);
+  try {
+    const response = await send(
+      candidate,
+      { ...env, R2_VIDEO_MEDIA_AUTH_DIAGNOSTICS: "true" },
+    );
+    assert.equal(response.status, 403);
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(logs.length, 1);
+  const line = JSON.stringify(logs[0]);
+  assert.match(line, /video_cache_auth_rejected/);
+  assert.match(line, /invalid_signature/);
+  assert.doesNotMatch(line, new RegExp(vector.secret));
+  assert.doesNotMatch(line, /video-cache/);
+  assert.doesNotMatch(line, /sig=/);
+});
+
+
 test("R2 failure is generic and never reflects provider error or secret", async () => {
   const { bucket, env, url } = fixture();
   bucket.get = async () => { throw new Error("provider-secret-must-not-leak"); };
