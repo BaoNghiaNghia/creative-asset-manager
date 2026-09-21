@@ -59,6 +59,31 @@ Cloudflare account or credentials.
 5. Review and test in staging; authorize any Worker deployment, DNS, secret
    or bucket-setting change separately.
 
+### Zero-custom-domain workers.dev mode
+
+Custom Domain remains the preferred production topology. An operator that
+intentionally does not use a custom domain may instead render the Worker with
+`workers_dev=true`:
+
+```sh
+python -m deploy.tools.r2_video_worker_rollout render \
+  --worker-name cam-r2-original-video \
+  --bucket-name creative-asset-video-cache \
+  --workers-dev \
+  --max-ttl-seconds 600 \
+  --output infrastructure/cloudflare/r2-video-worker/wrangler.production.json
+```
+
+The backend must separately opt in with
+`R2_VIDEO_MEDIA_ALLOW_WORKERS_DEV=true` and set
+`R2_VIDEO_MEDIA_BASE_URL` to the exact HTTPS Worker URL, for example
+`https://cam-r2-original-video.<account-subdomain>.workers.dev`.
+Without that flag, production preflight and runtime readiness remain fail-closed.
+
+This exception does **not** make R2 public. The bucket remains private behind
+the `VIDEO_CACHE_BUCKET` binding; `r2.dev` and raw
+`r2.cloudflarestorage.com` delivery remain forbidden.
+
 GET streams the R2 body directly; HEAD reads metadata only. Responses use
 `private, no-store`, `nosniff`, and `no-referrer`. There are no
 write/delete/list routes and no redirect to public R2 or S3 URLs.
