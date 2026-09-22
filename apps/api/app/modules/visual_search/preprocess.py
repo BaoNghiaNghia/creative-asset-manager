@@ -49,7 +49,7 @@ class PreparedVisualImage:
 
 
 _ALLOWED_FORMATS = frozenset(
-    {"JPEG", "PNG", "WEBP", "BMP", "GIF", "TIFF", "AVIF", "HEIF", "HEIC"}
+    {"JPEG", "MPO", "PNG", "WEBP", "BMP", "GIF", "TIFF", "AVIF", "HEIF", "HEIC"}
 )
 
 

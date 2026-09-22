@@ -27,6 +27,14 @@ def jpeg_bytes(
     return output.getvalue()
 
 
+def mpo_bytes(*, size: tuple[int, int] = (80, 40)) -> bytes:
+    first = Image.new("RGB", size, "red")
+    second = Image.new("RGB", size, "blue")
+    output = io.BytesIO()
+    first.save(output, format="MPO", save_all=True, append_images=[second])
+    return output.getvalue()
+
+
 def test_decode_normalizes_exif_orientation_before_crop() -> None:
     decoded = decode_visual_image(
         jpeg_bytes(size=(80, 40), orientation=6),
@@ -34,6 +42,16 @@ def test_decode_normalizes_exif_orientation_before_crop() -> None:
     )
     assert (decoded.width, decoded.height) == (30, 60)
     assert decoded.image.mode == "RGB"
+
+
+def test_decode_accepts_mpo_as_safe_multi_picture_jpeg() -> None:
+    decoded = decode_visual_image(mpo_bytes())
+
+    assert decoded.source_format == "MPO"
+    assert (decoded.width, decoded.height) == (80, 40)
+    assert decoded.image.mode == "RGB"
+    red, _green, blue = decoded.image.getpixel((0, 0))
+    assert red > blue
 
 
 def test_decode_rejects_byte_and_crop_limits() -> None:
