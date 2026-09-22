@@ -6,6 +6,8 @@ import {
   AssetGridSkeleton,
   assetIdsInSelectionRectangle,
   originalAssetDragPayload,
+  nativeOriginalDragItems,
+  nativeOriginalPrewarmItems,
   isAdditiveSelectionClick,
   createThumbnailLoadQueue,
   INITIAL_HIGH_PRIORITY_THUMBNAILS,
@@ -139,6 +141,49 @@ describe("AssetGrid marquee selection and drag-out", () => {
     expect(payload.sourceIds).toBe('["asset-1","asset-2"]');
   });
 
+  it("maps desktop native drag to original asset identity, never thumbnail bytes", () => {
+    const items = nativeOriginalDragItems([
+      {
+        provider: "google-drive",
+        id: "asset-1",
+        name: "photo.CR3",
+        kind: "image",
+        mime_type: "image/x-canon-cr3",
+        external_source_id: "source-1",
+        modified_at: "2026-09-22T08:00:00Z",
+        size: 123456,
+        thumbnail_url: "/api/explorer/thumbnail/asset-1",
+      },
+    ]);
+    expect(items).toEqual([{
+      id: "asset-1",
+      name: "photo.CR3",
+      mimeType: "image/x-canon-cr3",
+      provider: "google-drive",
+      externalSourceId: "source-1",
+      modifiedAt: "2026-09-22T08:00:00Z",
+      size: 123456,
+    }]);
+    expect(JSON.stringify(items)).not.toContain("thumbnail");
+  });
+
+  it("bounds speculative native prewarm to small originals and prioritizes the dragged item", () => {
+    const mib = 1024 * 1024;
+    const items = [
+      { provider: "google-drive", id: "a", name: "a.jpg", kind: "image", mime_type: "image/jpeg", size: 120 * mib },
+      { provider: "google-drive", id: "b", name: "b.jpg", kind: "image", mime_type: "image/jpeg", size: 40 * mib },
+      { provider: "google-drive", id: "c", name: "c.jpg", kind: "image", mime_type: "image/jpeg", size: 40 * mib },
+      { provider: "google-drive", id: "d", name: "d.jpg", kind: "image", mime_type: "image/jpeg", size: 40 * mib },
+      { provider: "google-drive", id: "huge", name: "huge.mov", kind: "video", mime_type: "video/quicktime", size: 800 * mib },
+      { provider: "google-drive", id: "unknown", name: "unknown.jpg", kind: "image", mime_type: "image/jpeg" },
+    ] as const;
+    const prewarm = nativeOriginalPrewarmItems([...items], "c");
+    expect(prewarm.map(item => item.id)).toEqual(["c", "a", "b"]);
+    expect(prewarm.reduce((sum, item) => sum + (item.size || 0), 0)).toBe(200 * mib);
+    expect(prewarm.some(item => item.id === "huge")).toBe(false);
+    expect(prewarm.some(item => item.id === "unknown")).toBe(false);
+  });
+
   it("marks files, but not folders, as draggable originals", () => {
     const noop = () => undefined;
     const markup = renderToStaticMarkup(createElement(AssetGrid, {
@@ -147,7 +192,7 @@ describe("AssetGrid marquee selection and drag-out", () => {
         { provider: "google-drive", id: "folder-1", name: "Folder", kind: "folder", mime_type: "application/vnd.google-apps.folder" },
       ],
       path: [],
-      selected: new Set<string>(["file-1"]),
+      selected: new Set<string>(),
       metadataByItem: {},
       onOpen: noop,
       onToggle: noop,

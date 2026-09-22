@@ -1,4 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage } from "electron";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createMainWindow } from "./window";
 import {
   beginDesktopOAuth,
@@ -9,10 +11,13 @@ import {
 import { findOAuthDeepLink } from "./protocol";
 import { IngestionService, type Destination } from "./ingestion";
 import { createUploadTransport } from "./uploadTransport";
+import { NativeDragService, type NativeDragAssetRequest } from "./nativeDrag";
 
 let mainWindow: BrowserWindow | undefined;
 let ingestion: IngestionService | undefined;
+let nativeDrag: NativeDragService | undefined;
 const desktopInstanceNonce = createDesktopInstanceNonce();
+const FALLBACK_DRAG_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAE0lEQVR42mNkYGD4z0AEYBxVSFUAANWfAf8nqQzRAAAAAElFTkSuQmCC";
 
 function focusWindow(): void {
   if (!mainWindow) return;
@@ -35,6 +40,77 @@ function service(): IngestionService {
     );
   }
   return ingestion;
+}
+
+function nativeDragService(): NativeDragService {
+  if (!mainWindow) throw new Error("Desktop native drag is unavailable.");
+  if (!nativeDrag) {
+    nativeDrag = new NativeDragService(
+      mainWindow.webContents.session,
+      () => mainWindow?.webContents.getURL() || "",
+      join(app.getPath("temp"), "creative-asset-manager", "drag-cache"),
+    );
+  }
+  return nativeDrag;
+}
+
+function nativeDragItems(value: unknown): NativeDragAssetRequest[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) {
+    throw new Error("Unsupported native drag request.");
+  }
+  return value as NativeDragAssetRequest[];
+}
+
+async function dragIcon(iconPath?: string) {
+  if (iconPath) {
+    try {
+      const image = nativeImage.createFromBuffer(await readFile(iconPath));
+      if (!image.isEmpty()) return image.resize({ width: 64, height: 64, quality: "good" });
+    } catch {
+      // Fall back to a tiny embedded image if provider thumbnails are unavailable.
+    }
+  }
+  return nativeImage.createFromDataURL(FALLBACK_DRAG_ICON);
+}
+
+function registerNativeDragIpc(): void {
+  ipcMain.handle("desktop:native-drag:prepare", async (event, value: unknown) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error("Unsupported native drag request.");
+    }
+    const prepared = await nativeDragService().prepare(
+      nativeDragItems(value),
+      { revalidateBeforeUse: false },
+    );
+    return {
+      ready: true,
+      count: prepared.files.length,
+      cacheHits: prepared.cacheHits,
+      cacheMisses: prepared.cacheMisses,
+      totalBytes: prepared.totalBytes,
+      downloadedBytes: prepared.downloadedBytes,
+    };
+  });
+  ipcMain.handle("desktop:native-drag:start", async (event, value: unknown) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error("Unsupported native drag request.");
+    }
+    const prepared = await nativeDragService().prepare(nativeDragItems(value));
+    if (!prepared.files.length) throw new Error("No original files are available for drag.");
+    event.sender.startDrag({
+      file: prepared.files[0],
+      files: prepared.files,
+      icon: await dragIcon(prepared.iconPath),
+    });
+    return {
+      started: true,
+      count: prepared.files.length,
+      cacheHits: prepared.cacheHits,
+      cacheMisses: prepared.cacheMisses,
+      totalBytes: prepared.totalBytes,
+      downloadedBytes: prepared.downloadedBytes,
+    };
+  });
 }
 async function processDeepLink(argumentsList: readonly string[]): Promise<void> {
   const handoff = findOAuthDeepLink(argumentsList);
@@ -80,6 +156,7 @@ else {
     else app.setAsDefaultProtocolClient("cam");
     mainWindow = createMainWindow();
     registerIngestionIpc();
+    registerNativeDragIpc();
     ipcMain.handle("desktop:oauth:begin", async (_event, request: unknown) => {
       if (!mainWindow || !request || typeof request !== "object") throw new Error("Desktop sign-in is unavailable.");
       const oauthRequest = request as { provider?: "google" | "microsoft"; intent?: "google_drive_connect" | "onedrive_connect" | "onedrive_personal_connect" | "onedrive_work_connect"; externalSourceId?: string };

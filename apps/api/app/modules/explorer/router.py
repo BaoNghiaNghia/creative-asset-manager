@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import re
@@ -347,6 +348,64 @@ async def _authorized_file_context(
             },
         )
     return token, tenant_id, resolved_source_id
+
+
+def _asset_version_fingerprint(
+    *,
+    provider_checksum: str | None,
+    provider_version: str | None,
+    hashed_provider_checksum: str | None,
+    hashed_provider_version: str | None,
+    source_modified_at,
+    size_bytes: int | None,
+) -> str | None:
+    parts = (
+        provider_checksum or "",
+        provider_version or "",
+        hashed_provider_checksum or "",
+        hashed_provider_version or "",
+        source_modified_at.isoformat() if source_modified_at else "",
+        str(size_bytes if size_bytes is not None else ""),
+    )
+    if not any(parts):
+        return None
+    return hashlib.sha256("\u0000".join(parts).encode("utf-8")).hexdigest()
+
+
+def _source_asset_version(
+    session: Session,
+    *,
+    tenant_id: str,
+    external_source_id: str | None,
+    item_id: str,
+) -> str | None:
+    if not external_source_id:
+        return None
+    row = session.execute(
+        select(
+            SourceAssetModel.provider_checksum,
+            SourceAssetModel.provider_version,
+            SourceAssetModel.hashed_provider_checksum,
+            SourceAssetModel.hashed_provider_version,
+            SourceAssetModel.source_modified_at,
+            SourceAssetModel.size_bytes,
+        ).where(
+            SourceAssetModel.tenant_id == tenant_id,
+            SourceAssetModel.external_source_id == external_source_id,
+            SourceAssetModel.external_asset_id == item_id,
+            SourceAssetModel.deleted_at.is_(None),
+        )
+    ).first()
+    if row is None:
+        return None
+    return _asset_version_fingerprint(
+        provider_checksum=row[0],
+        provider_version=row[1],
+        hashed_provider_checksum=row[2],
+        hashed_provider_version=row[3],
+        source_modified_at=row[4],
+        size_bytes=row[5],
+    )
 
 
 def _provider_error(exc: Exception, detail: str) -> HTTPException:
@@ -1347,6 +1406,39 @@ async def preview(
                 await close_google_media(client, upstream, close_client)
 
 
+@router.get("/media/{item_id}/access")
+async def media_access(
+    request: Request,
+    item_id: str,
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
+):
+    """Revalidate current-session access before a desktop client reuses local media."""
+    _token, tenant_id, resolved_source_id = await _authorized_file_context(
+        request,
+        item_id,
+        provider,
+        session,
+        principal,
+        external_source_id,
+    )
+    headers = {
+        "cache-control": "no-store, private",
+        "x-content-type-options": "nosniff",
+    }
+    version = _source_asset_version(
+        session,
+        tenant_id=tenant_id,
+        external_source_id=resolved_source_id,
+        item_id=item_id,
+    )
+    if version:
+        headers["x-cam-asset-version"] = version
+    return Response(status_code=204, headers=headers)
+
+
 @router.get("/media/{item_id}")
 async def media(
     request: Request,
@@ -1381,14 +1473,23 @@ async def media(
                 client is not shared_client,
             )
         source_row = session.execute(
-            select(SourceAssetModel.filename, SourceAssetModel.mime_type).where(
+            select(
+                SourceAssetModel.filename,
+                SourceAssetModel.mime_type,
+                SourceAssetModel.provider_checksum,
+                SourceAssetModel.provider_version,
+                SourceAssetModel.hashed_provider_checksum,
+                SourceAssetModel.hashed_provider_version,
+                SourceAssetModel.source_modified_at,
+                SourceAssetModel.size_bytes,
+            ).where(
                 SourceAssetModel.tenant_id == tenant_id,
                 SourceAssetModel.external_source_id == resolved_source_id,
                 SourceAssetModel.external_asset_id == item_id,
                 SourceAssetModel.deleted_at.is_(None),
             )
         ).first()
-        filename, declared_mime = source_row if source_row else (None, None)
+        filename, declared_mime = source_row[:2] if source_row else (None, None)
         media_type = infer_media_type(filename, declared_mime, upstream.headers.get("content-type"))
         passthrough_headers = {
             name: value
@@ -1397,6 +1498,17 @@ async def media(
         }
         passthrough_headers["cache-control"] = "private, max-age=300"
         passthrough_headers["content-disposition"] = "inline"
+        if source_row:
+            version = _asset_version_fingerprint(
+                provider_checksum=source_row[2],
+                provider_version=source_row[3],
+                hashed_provider_checksum=source_row[4],
+                hashed_provider_version=source_row[5],
+                source_modified_at=source_row[6],
+                size_bytes=source_row[7],
+            )
+            if version:
+                passthrough_headers["x-cam-asset-version"] = version
 
         return StreamingResponse(
             upstream.aiter_raw(),

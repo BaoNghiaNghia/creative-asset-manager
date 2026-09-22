@@ -224,6 +224,39 @@ export function originalAssetDragPayload(items: Asset[], origin: string) {
   };
 }
 
+export function nativeOriginalDragItems(items: Asset[]): DesktopNativeDragAsset[] {
+  return items.map(item => ({
+    id: item.id,
+    name: item.name,
+    mimeType: item.mime_type || "application/octet-stream",
+    provider: item.provider,
+    externalSourceId: item.external_source_id,
+    modifiedAt: item.modified_at,
+    size: item.size,
+  }));
+}
+
+const MAX_NATIVE_PREWARM_FILES = 3;
+const MAX_NATIVE_PREWARM_BYTES = 256 * 1024 * 1024;
+
+export function nativeOriginalPrewarmItems(items: Asset[], preferredId: string): Asset[] {
+  const ordered = [
+    ...items.filter(item => item.id === preferredId),
+    ...items.filter(item => item.id !== preferredId),
+  ];
+  const selected: Asset[] = [];
+  let totalBytes = 0;
+  for (const item of ordered) {
+    if (selected.length >= MAX_NATIVE_PREWARM_FILES) break;
+    if (item.kind === "folder" || !item.size || item.size <= 0) continue;
+    if (item.size > MAX_NATIVE_PREWARM_BYTES) continue;
+    if (totalBytes + item.size > MAX_NATIVE_PREWARM_BYTES) continue;
+    selected.push(item);
+    totalBytes += item.size;
+  }
+  return selected;
+}
+
 function dragTypesIncludeAssetPayload(types: Iterable<string>): boolean {
   return [...types].includes(ASSET_DRAG_OUT_MIME);
 }
@@ -307,6 +340,7 @@ export function AssetGrid({
 
   const gridRef = useRef<HTMLDivElement>(null);
   const marqueeRef = useRef<{ pointerId: number; baseline: Set<string>; selection: SelectionRectangle; moved: boolean } | null>(null);
+  const nativeDragPrewarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [marquee, setMarquee] = useState<SelectionRectangle | null>(null);
 
   useEffect(() => {
@@ -321,6 +355,10 @@ export function AssetGrid({
     return () => {
       document.removeEventListener("dragover", rejectInternalDrop, true);
       document.removeEventListener("drop", rejectInternalDrop, true);
+      if (nativeDragPrewarmTimer.current !== null) {
+        clearTimeout(nativeDragPrewarmTimer.current);
+        nativeDragPrewarmTimer.current = null;
+      }
     };
   }, []);
 
@@ -359,16 +397,46 @@ export function AssetGrid({
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
+  function dragItemsFor(item: Asset): Asset[] {
+    if (item.kind === "folder") return [];
+    return selected.has(item.id)
+      ? items.filter(candidate => selected.has(candidate.id) && candidate.kind !== "folder")
+      : [item];
+  }
+
+  function cancelNativeOriginalPrewarm() {
+    if (nativeDragPrewarmTimer.current === null) return;
+    clearTimeout(nativeDragPrewarmTimer.current);
+    nativeDragPrewarmTimer.current = null;
+  }
+
+  function scheduleNativeOriginalPrewarm(item: Asset) {
+    cancelNativeOriginalPrewarm();
+    if (!window.camDesktop?.nativeDrag) return;
+    const dragItems = nativeOriginalPrewarmItems(dragItemsFor(item), item.id);
+    if (!dragItems.length) return;
+    nativeDragPrewarmTimer.current = setTimeout(() => {
+      nativeDragPrewarmTimer.current = null;
+      void window.camDesktop?.nativeDrag
+        .prepare(nativeOriginalDragItems(dragItems))
+        .catch(() => undefined);
+    }, 140);
+  }
+
   function dragOriginalFiles(event: DragEvent<HTMLElement>, item: Asset) {
+    cancelNativeOriginalPrewarm();
     marqueeRef.current = null;
     setMarquee(null);
-    if (item.kind === "folder") {
+    const dragItems = dragItemsFor(item);
+    if (!dragItems.length) {
       event.preventDefault();
       return;
     }
-    const dragItems = selected.has(item.id)
-      ? items.filter(candidate => selected.has(candidate.id) && candidate.kind !== "folder")
-      : [item];
+    if (window.camDesktop?.nativeDrag) {
+      event.preventDefault();
+      void window.camDesktop.nativeDrag.start(nativeOriginalDragItems(dragItems)).catch(() => undefined);
+      return;
+    }
     const payload = originalAssetDragPayload(dragItems, window.location.origin);
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(ASSET_DRAG_OUT_MIME, payload.sourceIds);
@@ -406,8 +474,11 @@ export function AssetGrid({
       className={(selected.has(item.id) ? "selected" : "") + ((item.kind === "image" || item.kind === "video") ? " media-card" : "")}
       key={item.id}
       data-asset-id={item.id}
-      draggable={item.kind !== "folder" && selected.has(item.id)}
+      draggable={item.kind !== "folder"}
       title={item.kind === "folder" ? undefined : "Drag the original file to another application"}
+      onPointerDown={() => scheduleNativeOriginalPrewarm(item)}
+      onPointerUp={cancelNativeOriginalPrewarm}
+      onPointerCancel={cancelNativeOriginalPrewarm}
       onDragStart={event => dragOriginalFiles(event, item)}
       onClick={event => {
         if (isAdditiveSelectionClick(event)) {
