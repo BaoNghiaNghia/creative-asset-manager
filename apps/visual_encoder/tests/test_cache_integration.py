@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from base64 import b64encode
+from io import BytesIO
 import sys
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 from PIL import Image
 
 
@@ -44,10 +47,11 @@ class FakeEncoder:
 class FakeQueue:
     def __init__(self) -> None:
         self.submissions = 0
+        self.priorities = []
 
     async def submit(self, operation, *, priority):
-        assert priority == "interactive"
         self.submissions += 1
+        self.priorities.append(priority)
         return operation()
 
 
@@ -75,5 +79,86 @@ def test_repeated_text_request_bypasses_inference_queue_after_cache_fill(
         assert first == second
         assert encoder.text_calls == 1
         assert queue.submissions == 1
+        assert queue.priorities == ["interactive"]
 
     asyncio.run(verify())
+
+
+def test_repeated_image_request_bypasses_queue_without_full_rgb_hashing(
+    monkeypatch,
+) -> None:
+    async def verify() -> None:
+        encoder = FakeEncoder()
+        queue = FakeQueue()
+        monkeypatch.setenv("VISUAL_ENCODER_INTERNAL_KEY", "secret")
+        main.encoder = encoder
+        main.inference_queue = queue
+        main.image_cache = BoundedEmbeddingCache(4)
+        main.text_cache = BoundedEmbeddingCache(4)
+
+        stream = BytesIO()
+        Image.new("RGB", (512, 384), "navy").save(
+            stream,
+            format="JPEG",
+            quality=95,
+        )
+        body = main.EncodeRequest(
+            image_base64=b64encode(stream.getvalue()).decode("ascii")
+        )
+        try:
+            first = await main.encode(body, authorization="Bearer secret")
+            second = await main.encode(body, authorization="Bearer secret")
+        finally:
+            main.encoder = None
+            main.inference_queue = None
+            main.image_cache = None
+            main.text_cache = None
+
+        assert first == second
+        assert encoder.image_calls == 1
+        assert queue.submissions == 1
+        assert queue.priorities == ["interactive"]
+        assert main.image_cache is None
+
+    asyncio.run(verify())
+
+
+def test_binary_image_endpoint_preserves_priority_and_cache_contract(
+    monkeypatch,
+) -> None:
+    encoder = FakeEncoder()
+    queue = FakeQueue()
+    monkeypatch.setenv("VISUAL_ENCODER_INTERNAL_KEY", "secret")
+    main.encoder = encoder
+    main.inference_queue = queue
+    main.image_cache = BoundedEmbeddingCache(4)
+    main.text_cache = BoundedEmbeddingCache(4)
+
+    stream = BytesIO()
+    Image.new("RGB", (64, 48), "navy").save(
+        stream,
+        format="JPEG",
+        quality=95,
+    )
+    client = TestClient(main.app)
+    try:
+        response = client.post(
+            "/v1/encode-image-bytes",
+            params={"priority": "background"},
+            content=stream.getvalue(),
+            headers={
+                "Authorization": "Bearer secret",
+                "Content-Type": "image/jpeg",
+            },
+        )
+    finally:
+        client.close()
+        main.encoder = None
+        main.inference_queue = None
+        main.image_cache = None
+        main.text_cache = None
+
+    assert response.status_code == 200
+    assert encoder.image_calls == 1
+    assert queue.submissions == 1
+    assert queue.priorities == ["background"]

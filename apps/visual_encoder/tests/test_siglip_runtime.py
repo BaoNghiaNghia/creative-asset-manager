@@ -78,8 +78,24 @@ def test_siglip2_image_and_text_embeddings_use_v2_contract(
     def inference_mode():
         yield
 
+    thread_settings: dict[str, int] = {}
+    thread_init_calls = 0
+
+    def set_num_threads(value: int) -> None:
+        thread_settings["inference"] = value
+
+    def set_num_interop_threads(value: int) -> None:
+        thread_settings["interop"] = value
+
+    def init_num_threads() -> None:
+        nonlocal thread_init_calls
+        thread_init_calls += 1
+
     fake_torch = SimpleNamespace(
         inference_mode=inference_mode,
+        set_num_threads=set_num_threads,
+        set_num_interop_threads=set_num_interop_threads,
+        init_num_threads=init_num_threads,
         nn=SimpleNamespace(
             functional=SimpleNamespace(normalize=lambda tensor, dim: tensor)
         ),
@@ -93,11 +109,23 @@ def test_siglip2_image_and_text_embeddings_use_v2_contract(
 
     snapshot = tmp_path / SIGLIP2_REVISION
     snapshot.mkdir()
-    encoder = SiglipVisualEncoder(snapshot)
+    encoder = SiglipVisualEncoder(
+        snapshot,
+        inference_threads=2,
+        interop_threads=1,
+    )
+
+    assert thread_settings == {"inference": 2, "interop": 1}
+    assert encoder.runtime_info() == {
+        "runtime": "transformers",
+        "transformers_inference_threads": 2,
+        "transformers_interop_threads": 1,
+    }
 
     image_embedding = encoder.encode_image(Image.new("RGB", (224, 224)))
     text_embedding = encoder.encode_text("embroidered baby bodysuit")
 
+    assert thread_init_calls == 1
     for embedding in (image_embedding, text_embedding):
         assert embedding.descriptor == VISUAL_SEARCH_ACTIVE_DESCRIPTOR
         assert embedding.descriptor.embedding_schema_version == "visual_embedding_v2"

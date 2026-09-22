@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -90,6 +91,63 @@ class PipelineBootstrapTest(unittest.TestCase):
             self.assertNotIn(
                 "pipeline_storage_stage",
                 runtime.dependencies.resources,
+            )
+        finally:
+            runtime.close()
+
+    def test_visual_encoder_default_client_is_closed_with_worker(self):
+        class FakeVisualEncoderClient:
+            instances = []
+
+            def __init__(self, *_args, **_kwargs):
+                self.closed = False
+                self.__class__.instances.append(self)
+
+            def close(self):
+                self.closed = True
+
+        settings = Settings(
+            PROCESSING_JOBS_ENABLED=False,
+            VISUAL_SEARCH_ENABLED=True,
+            ELASTICSEARCH_URL="http://elasticsearch.test",
+            VISUAL_ENCODER_INTERNAL_KEY="secret",
+        )
+        with patch(
+            "app.modules.processing.bootstrap.HttpVisualEncoderClient",
+            FakeVisualEncoderClient,
+        ):
+            runtime = build_worker_runtime(
+                settings,
+                session_factory=self.sessions,
+            )
+        client = runtime.dependencies.resources["visual_encoder_client"]
+        self.assertFalse(client.closed)
+
+        runtime.close()
+
+        self.assertTrue(client.closed)
+
+    def test_explicit_visual_encoder_client_avoids_unused_default_pool(self):
+        explicit_client = object()
+        settings = Settings(
+            PROCESSING_JOBS_ENABLED=False,
+            VISUAL_SEARCH_ENABLED=True,
+            ELASTICSEARCH_URL="http://elasticsearch.test",
+            VISUAL_ENCODER_INTERNAL_KEY="secret",
+        )
+        with patch(
+            "app.modules.processing.bootstrap.HttpVisualEncoderClient"
+        ) as client_factory:
+            runtime = build_worker_runtime(
+                settings,
+                session_factory=self.sessions,
+                resources={"visual_encoder_client": explicit_client},
+            )
+        try:
+            client_factory.assert_not_called()
+            self.assertIs(
+                runtime.dependencies.resources["visual_encoder_client"],
+                explicit_client,
             )
         finally:
             runtime.close()

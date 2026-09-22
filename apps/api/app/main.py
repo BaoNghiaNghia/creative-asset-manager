@@ -95,9 +95,23 @@ async def lifespan(_app: FastAPI):
                 await onedrive_stream_client.aclose()
                 await API_SEARCH_INDEX_POOL.aclose_current_loop()
                 SEARCH_SUGGESTION_CACHE.clear()
+                visual_encoder_client = getattr(
+                    _app.state,
+                    "visual_encoder_client",
+                    None,
+                )
+                close_visual_encoder = getattr(
+                    visual_encoder_client,
+                    "close",
+                    None,
+                )
+                if callable(close_visual_encoder):
+                    close_visual_encoder()
             finally:
                 _app.state.google_drive_stream_client = None
                 _app.state.onedrive_stream_client = None
+                if hasattr(_app.state, "visual_encoder_client"):
+                    _app.state.visual_encoder_client = None
                 dispose_database()
 
 

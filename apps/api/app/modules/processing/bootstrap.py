@@ -202,6 +202,8 @@ def build_worker_runtime(
     borrowed_job_types = borrowable_job_types_for_role(worker_role, enabled_job_types)
     ai_provider_registry = build_ai_provider_registry(settings, session_factory=session_factory)
     resolver = SourceAssetPipelineContentResolver(session_factory)
+    worker_dependency_closers = list(dependency_closers)
+    explicit_resources = resources or {}
     default_resources: dict[str, Any] = {
         "pipeline_content_resolver": resolver,
         "pipeline_download_stage": ProviderDownloadStage(
@@ -237,17 +239,24 @@ def build_worker_runtime(
             VISUAL_SEARCH_ACTIVE_DESCRIPTOR,
         )
         default_resources["visual_content_resolver"] = SourceAssetContentResolver(session_factory)
-        default_resources["visual_encoder_client"] = HttpVisualEncoderClient(settings.VISUAL_ENCODER_URL, settings.VISUAL_ENCODER_TIMEOUT_SECONDS, settings.VISUAL_ENCODER_INTERNAL_KEY)
+        if "visual_encoder_client" not in explicit_resources:
+            visual_encoder_client = HttpVisualEncoderClient(
+                settings.VISUAL_ENCODER_URL,
+                settings.VISUAL_ENCODER_TIMEOUT_SECONDS,
+                settings.VISUAL_ENCODER_INTERNAL_KEY,
+            )
+            default_resources["visual_encoder_client"] = visual_encoder_client
+            worker_dependency_closers.append(visual_encoder_client.close)
 
     # Explicit resources are deliberate test/operational overrides.
-    default_resources.update(resources or {})
+    default_resources.update(explicit_resources)
     dependencies = WorkerDependencies(
         session_factory=session_factory,
         settings=settings,
         source_provider_factory=create_source_provider,
         storage_provider=storage_provider,
         ai_provider_registry=ai_provider_registry,
-        closers=dependency_closers,
+        closers=tuple(worker_dependency_closers),
         resources=default_resources,
     )
     return WorkerRuntime(

@@ -23,7 +23,12 @@ def test_bearer_auth_fails_closed_and_accepts_exact_key(monkeypatch):
 
 def test_jpeg_only_decode_and_size_controls():
     out=io.BytesIO(); Image.new('RGB',(2,2)).save(out,format='JPEG')
-    assert main._decode(__import__('base64').b64encode(out.getvalue()).decode()).size==(2,2)
+    raw = out.getvalue()
+    encoded = __import__('base64').b64encode(raw).decode()
+    image, request_sha256 = main._decode_request(encoded)
+    assert image.size == (2, 2)
+    assert request_sha256 == __import__('hashlib').sha256(raw).hexdigest()
+    assert main._decode(encoded).size==(2,2)
     with pytest.raises(HTTPException) as exc: main._decode('not base64')
     assert exc.value.status_code==422
     out=io.BytesIO(); Image.new('RGB',(2,2)).save(out,format='PNG')

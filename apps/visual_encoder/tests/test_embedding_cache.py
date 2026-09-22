@@ -3,8 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PIL import Image
-
 
 API_ROOT = Path(__file__).resolve().parents[2] / "api"
 ENCODER_ROOT = Path(__file__).resolve().parents[1]
@@ -50,12 +48,12 @@ def test_bounded_embedding_cache_is_lru_and_observable() -> None:
 
 
 def test_cache_keys_bind_content_and_embedding_contract() -> None:
-    image_a = Image.new("RGB", (4, 4), (255, 0, 0))
-    image_b = Image.new("RGB", (4, 4), (0, 0, 255))
+    request_a = "a" * 64
+    request_b = "b" * 64
 
-    first = image_cache_key(image_a, VISUAL_SEARCH_ACTIVE_DESCRIPTOR)
-    same = image_cache_key(image_a.copy(), VISUAL_SEARCH_ACTIVE_DESCRIPTOR)
-    different = image_cache_key(image_b, VISUAL_SEARCH_ACTIVE_DESCRIPTOR)
+    first = image_cache_key(request_a, VISUAL_SEARCH_ACTIVE_DESCRIPTOR)
+    same = image_cache_key(request_a.upper(), VISUAL_SEARCH_ACTIVE_DESCRIPTOR)
+    different = image_cache_key(request_b, VISUAL_SEARCH_ACTIVE_DESCRIPTOR)
 
     assert first == same
     assert first != different
@@ -76,3 +74,10 @@ def test_cache_keys_bind_content_and_embedding_contract() -> None:
     )
     assert text_a == text_b
     assert text_a != text_c
+
+
+def test_image_cache_key_rejects_non_sha256_identity() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="SHA-256"):
+        image_cache_key("not-a-digest", VISUAL_SEARCH_ACTIVE_DESCRIPTOR)

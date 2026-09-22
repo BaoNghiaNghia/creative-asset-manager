@@ -527,10 +527,15 @@ Operator sequence:
 - the dual-tower encoder is exported as separate image/text IR graphs. These towers contain non-overlapping SigLIP2 weights, run in one encoder process, and avoid executing the unused modality for every request;
 - the artifact manifest binds encoder name/revision, `visual_embedding_v2`, dimension, preprocess version, similarity, precision, OpenVINO version, and SHA-256 hashes of all XML/BIN files;
 - normal service startup remains local-only and refuses missing, tampered, mismatched, or wrong-version artifacts;
-- initial OpenVINO CPU configuration is `INFERENCE_NUM_THREADS=2`, `NUM_STREAMS=1`, and latency performance mode;
+- OpenVINO CPU execution is explicitly bounded to `INFERENCE_NUM_THREADS=2` and `NUM_STREAMS=1`; the runtime does not also set a high-level `PERFORMANCE_HINT`, avoiding overlapping stream-tuning controls;
+- each image/text tower owns one dedicated reusable `InferRequest`; this matches the service's one-active-inference capacity model and avoids per-call temporary request overhead;
 - the systemd encoder CPU quota is 200%, allowing the two-thread baseline while still avoiding multi-process model replication;
 - `apps/visual_encoder/validate_openvino.py` performs a bounded synthetic image/text correctness comparison against the pinned PyTorch reference and records latency; promotion requires the configured cosine gate to pass;
 - no automatic runtime fallback is performed after an OpenVINO load failure. Rollback is explicit by setting `VISUAL_ENCODER_RUNTIME=transformers`, which avoids silently changing embedding behavior;
+- the Transformers/PyTorch rollback runtime is itself CPU-bounded (default intra-op threads=2, inter-op threads=1), reports those limits through `/ready`, and initializes PyTorch thread settings once per actual inference thread so `asyncio.to_thread` execution inherits the intended CPU limits;
+- API and worker callers reuse a process-local `httpx.Client` for localhost encoder traffic, disable ambient proxy inheritance for that loopback-only hop, and close the pooled client during API/worker shutdown;
+- image requests use a raw `image/jpeg` body on the primary localhost endpoint, eliminating JSON/base64 expansion while sending the exact same JPEG bytes into the encoder decode path; the legacy base64 endpoint remains available and the new client falls back to it on `404` for mixed-version deploy/rollback compatibility;
+- JPEG transport no longer requests expensive Huffman-table optimization for the localhost-only payload; quality/preprocess semantics remain unchanged;
 - no bounded queue, INT8, ANN tuning, alias mutation, or full-corpus backfill is included in this phase.
 
 Operator sequence before any canary activation:
@@ -656,7 +661,7 @@ Operator sequence:
 
 - the isolated encoder process owns separate thread-safe in-process LRUs for image and text embeddings, so API and background workers share one cache without introducing Redis or another resident service;
 - cache entries store only derived `VisualEmbedding` values and contract-bound keys; raw upload bytes, images, signed URLs, credentials, and raw cache payloads are not retained;
-- image keys hash deterministic RGB pixel bytes plus dimensions after the encoder service has safely decoded the request, then bind encoder name/revision, embedding schema, and preprocess version;
+- the hot-path image cache key hashes the validated JPEG request bytes before inference and binds encoder name/revision, embedding schema, and preprocess version; this avoids materializing and hashing full-resolution RGB buffers solely for cache identity while keeping exact repeated internal requests deterministic;
 - text keys hash the exact stripped UTF-8 query text and bind the same embedding contract fields; case is intentionally preserved because changing text normalization could change model semantics;
 - defaults are 128 image entries and 256 text entries, both configurable to zero for a disabled cache;
 - LRU eviction is count-bounded and exposes entries/max/hits/misses/evictions through the encoder `/ready` payload;

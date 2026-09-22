@@ -34,10 +34,16 @@ class HttpVisualEncoder:
         if not internal_key.strip():
             raise ValueError("visual encoder internal authentication is not configured")
         base_url = base_url.rstrip("/")
-        self._url = base_url + "/v1/encode-image"
+        self._url = base_url + "/v1/encode-image-bytes"
+        self._legacy_image_url = base_url + "/v1/encode-image"
         self._text_url = base_url + "/v1/encode-text"
         self._timeout = timeout_seconds
         self._headers = {"Authorization": f"Bearer {internal_key}"}
+        self._client = httpx.Client(
+            headers=self._headers,
+            timeout=self._timeout,
+            trust_env=False,
+        )
 
     @staticmethod
     def _service_error(response: httpx.Response) -> VisualEncoderUnavailableError:
@@ -56,6 +62,18 @@ class HttpVisualEncoder:
             )
         return VisualEncoderUnavailableError("isolated visual encoder is unavailable")
 
+    def _embedding_from_response(
+        self,
+        response: httpx.Response,
+    ) -> VisualEmbedding:
+        if response.status_code == 503:
+            raise self._service_error(response)
+        response.raise_for_status()
+        body = response.json()
+        descriptor = EmbeddingDescriptor(**body["descriptor"])
+        values = tuple(float(value) for value in body["values"])
+        return VisualEmbedding(descriptor, values)
+
     def _request_embedding(
         self,
         url: str,
@@ -64,19 +82,40 @@ class HttpVisualEncoder:
         priority: EncoderPriority,
     ) -> VisualEmbedding:
         try:
-            response = httpx.post(
+            response = self._client.post(
                 url,
                 json={**payload, "priority": priority},
-                headers=self._headers,
-                timeout=self._timeout,
             )
-            if response.status_code == 503:
-                raise self._service_error(response)
-            response.raise_for_status()
-            body = response.json()
-            descriptor = EmbeddingDescriptor(**body["descriptor"])
-            values = tuple(float(value) for value in body["values"])
-            return VisualEmbedding(descriptor, values)
+            return self._embedding_from_response(response)
+        except VisualEncoderUnavailableError:
+            raise
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+            raise VisualEncoderUnavailableError(
+                "isolated visual encoder is unavailable"
+            ) from exc
+
+    def _request_image_embedding(
+        self,
+        payload: bytes,
+        *,
+        priority: EncoderPriority,
+    ) -> VisualEmbedding:
+        try:
+            response = self._client.post(
+                self._url,
+                params={"priority": priority},
+                content=payload,
+                headers={"Content-Type": "image/jpeg"},
+            )
+            if response.status_code == 404:
+                response = self._client.post(
+                    self._legacy_image_url,
+                    json={
+                        "image_base64": b64encode(payload).decode("ascii"),
+                        "priority": priority,
+                    },
+                )
+            return self._embedding_from_response(response)
         except VisualEncoderUnavailableError:
             raise
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
@@ -95,11 +134,9 @@ class HttpVisualEncoder:
             stream,
             format="JPEG",
             quality=95,
-            optimize=True,
         )
-        embedding = self._request_embedding(
-            self._url,
-            {"image_base64": b64encode(stream.getvalue()).decode("ascii")},
+        embedding = self._request_image_embedding(
+            stream.getvalue(),
             priority=priority,
         )
         if embedding.descriptor != self.descriptor:
@@ -107,6 +144,9 @@ class HttpVisualEncoder:
                 "isolated visual encoder descriptor mismatch"
             )
         return embedding
+
+    def close(self) -> None:
+        self._client.close()
 
     def encode_text(
         self,
@@ -137,3 +177,6 @@ class HttpVisualEncoderClient:
 
     def get_encoder(self) -> HttpVisualEncoder:
         return self._encoder
+
+    def close(self) -> None:
+        self._encoder.close()

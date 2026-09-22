@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import hmac
 import os
 import warnings
@@ -9,7 +10,7 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import Any, Literal
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 
@@ -64,15 +65,7 @@ def _require(authorization: str | None) -> None:
         raise HTTPException(401, "unauthorized")
 
 
-def _decode(value: str) -> Image.Image:
-    if not value:
-        raise HTTPException(422, "invalid image payload")
-    if len(value) > _MAX_BASE64:
-        raise HTTPException(413, "image payload exceeds limit")
-    try:
-        raw = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise HTTPException(422, "invalid image payload") from exc
+def _decode_raw_request(raw: bytes) -> tuple[Image.Image, str]:
     if not raw:
         raise HTTPException(422, "invalid image payload")
     if len(raw) > _MAX_BYTES:
@@ -93,13 +86,31 @@ def _decode(value: str) -> Image.Image:
                 probe.verify()
             with Image.open(BytesIO(raw)) as opened:
                 opened.load()
-                return opened.convert("RGB").copy()
+                image = opened.convert("RGB").copy()
+        return image, hashlib.sha256(raw).hexdigest()
     except HTTPException:
         raise
     except (Image.DecompressionBombError, Image.DecompressionBombWarning):
         raise HTTPException(413, "image payload exceeds limit")
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
         raise HTTPException(422, "invalid image payload") from exc
+
+
+def _decode_request(value: str) -> tuple[Image.Image, str]:
+    if not value:
+        raise HTTPException(422, "invalid image payload")
+    if len(value) > _MAX_BASE64:
+        raise HTTPException(413, "image payload exceeds limit")
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(422, "invalid image payload") from exc
+    return _decode_raw_request(raw)
+
+
+def _decode(value: str) -> Image.Image:
+    image, _request_sha256 = _decode_request(value)
+    return image
 
 
 def _response(result: Any) -> dict[str, object]:
@@ -164,6 +175,14 @@ def _build_encoder() -> Any:
         ),
         streams=_positive_int_env(
             "VISUAL_ENCODER_OPENVINO_STREAMS",
+            1,
+        ),
+        transformers_inference_threads=_positive_int_env(
+            "VISUAL_ENCODER_TRANSFORMERS_INFERENCE_THREADS",
+            2,
+        ),
+        transformers_interop_threads=_positive_int_env(
+            "VISUAL_ENCODER_TRANSFORMERS_INTEROP_THREADS",
             1,
         ),
     )
@@ -301,16 +320,15 @@ async def _submit(operation, *, priority: Literal["interactive", "background"]):
         raise _queue_error(exc) from exc
 
 
-@app.post("/v1/encode-image", response_model=EncodeResponse)
-async def encode(
-    body: EncodeRequest,
-    authorization: str | None = Header(default=None),
-):
-    _require(authorization)
+async def _encode_image_decoded(
+    image: Image.Image,
+    request_sha256: str,
+    *,
+    priority: Literal["interactive", "background"],
+) -> dict[str, object]:
     if encoder is None or image_cache is None:
         raise HTTPException(503, "encoder unavailable")
-    image = _decode(body.image_base64)
-    key = image_cache_key(image, encoder.descriptor)
+    key = image_cache_key(request_sha256, encoder.descriptor)
     cached = image_cache.get(key)
     if cached is not None:
         return _response(cached)
@@ -325,8 +343,51 @@ async def encode(
         image_cache.put(key, result)
         return result
 
-    result = await _submit(encode_miss, priority=body.priority)
+    result = await _submit(encode_miss, priority=priority)
     return _response(result)
+
+
+async def _read_raw_image_body(request: Request) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > _MAX_BYTES:
+            raise HTTPException(413, "image payload exceeds limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@app.post("/v1/encode-image", response_model=EncodeResponse)
+async def encode(
+    body: EncodeRequest,
+    authorization: str | None = Header(default=None),
+):
+    _require(authorization)
+    image, request_sha256 = _decode_request(body.image_base64)
+    return await _encode_image_decoded(
+        image,
+        request_sha256,
+        priority=body.priority,
+    )
+
+
+@app.post("/v1/encode-image-bytes", response_model=EncodeResponse)
+async def encode_image_bytes(
+    request: Request,
+    priority: Literal["interactive", "background"] = "interactive",
+    authorization: str | None = Header(default=None),
+):
+    _require(authorization)
+    raw = await _read_raw_image_body(request)
+    image, request_sha256 = _decode_raw_request(raw)
+    return await _encode_image_decoded(
+        image,
+        request_sha256,
+        priority=priority,
+    )
 
 
 @app.post("/v1/encode-text", response_model=EncodeResponse)

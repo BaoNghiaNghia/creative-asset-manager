@@ -41,16 +41,27 @@ class FakeProcessor:
         }
 
 
-class FakeCompiled:
+class FakeInferRequest:
     def __init__(self, kind: str):
         self.kind = kind
+        self.calls = 0
 
-    def __call__(self, inputs):
+    def infer(self, inputs):
+        self.calls += 1
         assert isinstance(inputs, dict)
         dimension = VISUAL_SEARCH_ACTIVE_DESCRIPTOR.dimension
         if self.kind == "image":
             return {"embedding": [[1.0, *([0.0] * (dimension - 1))]]}
         return {"embedding": [[0.0, 1.0, *([0.0] * (dimension - 2))]]}
+
+
+class FakeCompiled:
+    def __init__(self, kind: str):
+        self.kind = kind
+        self.request = FakeInferRequest(kind)
+
+    def create_infer_request(self):
+        return self.request
 
 
 class FakeCore:
@@ -143,12 +154,13 @@ def test_openvino_runtime_loads_pinned_artifact_and_encodes_both_towers(
         "openvino_streams": 1,
     }
     assert len(FakeCore.instances) == 1
+    assert encoder._image_request.calls == 1
+    assert encoder._text_request.calls == 1
     assert FakeCore.instances[0].compiles == [
         (
             "image_encoder.xml",
             "CPU",
             {
-                "PERFORMANCE_HINT": "LATENCY",
                 "INFERENCE_NUM_THREADS": 2,
                 "NUM_STREAMS": 1,
             },
@@ -157,7 +169,6 @@ def test_openvino_runtime_loads_pinned_artifact_and_encodes_both_towers(
             "text_encoder.xml",
             "CPU",
             {
-                "PERFORMANCE_HINT": "LATENCY",
                 "INFERENCE_NUM_THREADS": 2,
                 "NUM_STREAMS": 1,
             },

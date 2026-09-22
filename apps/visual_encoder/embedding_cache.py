@@ -6,8 +6,6 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from PIL import Image
-
 from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding
 
 
@@ -25,16 +23,18 @@ class EmbeddingCacheKey:
 
 
 def image_cache_key(
-    image: Image.Image,
+    request_sha256: str,
     descriptor: EmbeddingDescriptor,
 ) -> EmbeddingCacheKey:
-    rgb = image.convert("RGB")
-    digest = hashlib.sha256()
-    digest.update(f"RGB:{rgb.width}x{rgb.height}:".encode("ascii"))
-    digest.update(rgb.tobytes())
+    digest = request_sha256.strip().casefold()
+    if (
+        len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        raise ValueError("request_sha256 must be a lowercase-compatible SHA-256 hex digest")
     return EmbeddingCacheKey(
         "image",
-        digest.hexdigest(),
+        digest,
         descriptor.encoder_name,
         descriptor.encoder_revision,
         descriptor.embedding_schema_version,

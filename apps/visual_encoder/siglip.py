@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from math import sqrt
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +88,21 @@ class SiglipVisualEncoder:
 
     descriptor = VISUAL_SEARCH_ACTIVE_DESCRIPTOR
 
-    def __init__(self, model_path: str | Path):
+    def __init__(
+        self,
+        model_path: str | Path,
+        *,
+        inference_threads: int = 2,
+        interop_threads: int = 1,
+    ):
+        if inference_threads <= 0:
+            raise SiglipEncoderLoadError(
+                "Transformers inference threads must be positive."
+            )
+        if interop_threads <= 0:
+            raise SiglipEncoderLoadError(
+                "Transformers interop threads must be positive."
+            )
         resolved_path = _validate_model_path(model_path)
 
         try:
@@ -100,6 +115,9 @@ class SiglipVisualEncoder:
 
         try:
             self._torch: Any = torch
+            torch.set_num_threads(inference_threads)
+            torch.set_num_interop_threads(interop_threads)
+            self._inference_thread_state = threading.local()
             self._model = AutoModel.from_pretrained(
                 resolved_path,
                 local_files_only=True,
@@ -119,11 +137,26 @@ class SiglipVisualEncoder:
             raise SiglipEncoderLoadError(
                 "Pinned SigLIP2 snapshot could not be loaded."
             ) from exc
+        self._inference_threads = inference_threads
+        self._interop_threads = interop_threads
 
     def runtime_info(self) -> dict[str, object]:
-        return {"runtime": "transformers"}
+        return {
+            "runtime": "transformers",
+            "transformers_inference_threads": self._inference_threads,
+            "transformers_interop_threads": self._interop_threads,
+        }
+
+    def _prepare_inference_thread(self) -> None:
+        if getattr(self._inference_thread_state, "initialized", False):
+            return
+        init_num_threads = getattr(self._torch, "init_num_threads", None)
+        if callable(init_num_threads):
+            init_num_threads()
+        self._inference_thread_state.initialized = True
 
     def encode_image(self, image: Image.Image) -> VisualEmbedding:
+        self._prepare_inference_thread()
         with self._torch.inference_mode():
             inputs = self._processor(images=image.convert("RGB"), return_tensors="pt")
             vector = self._torch.nn.functional.normalize(
@@ -134,6 +167,7 @@ class SiglipVisualEncoder:
         return VisualEmbedding(self.descriptor, values)
 
     def encode_text(self, text: str) -> VisualEmbedding:
+        self._prepare_inference_thread()
         value = text.strip()
         if not value:
             raise ValueError("text must be non-empty")
@@ -225,7 +259,6 @@ class OpenVinoSiglip2Encoder:
             _validate_processor_contract(self._processor)
             self._core = ov.Core()
             compile_config = {
-                "PERFORMANCE_HINT": "LATENCY",
                 "INFERENCE_NUM_THREADS": inference_threads,
                 "NUM_STREAMS": streams,
             }
@@ -241,6 +274,8 @@ class OpenVinoSiglip2Encoder:
                 "CPU",
                 compile_config,
             )
+            self._image_request = self._image_compiled.create_infer_request()
+            self._text_request = self._text_compiled.create_infer_request()
         except (ImportError, OSError, TypeError, ValueError, RuntimeError) as exc:
             raise SiglipEncoderLoadError(
                 "Pinned SigLIP2 OpenVINO artifact could not be loaded."
@@ -271,7 +306,9 @@ class OpenVinoSiglip2Encoder:
             return_tensors="np",
         )
         try:
-            result = self._image_compiled({"pixel_values": inputs["pixel_values"]})
+            result = self._image_request.infer(
+                {"pixel_values": inputs["pixel_values"]}
+            )
         except (KeyError, TypeError, ValueError, RuntimeError) as exc:
             raise SiglipEncoderLoadError("SigLIP2 OpenVINO image inference failed.") from exc
         return _normalized_embedding(self._first_output(result))
@@ -287,7 +324,7 @@ class OpenVinoSiglip2Encoder:
             return_tensors="np",
         )
         try:
-            result = self._text_compiled(
+            result = self._text_request.infer(
                 {
                     "input_ids": inputs["input_ids"],
                     "attention_mask": inputs["attention_mask"],
@@ -305,10 +342,16 @@ def build_visual_encoder(
     openvino_artifact_path: str | Path = "",
     inference_threads: int = 2,
     streams: int = 1,
+    transformers_inference_threads: int = 2,
+    transformers_interop_threads: int = 1,
 ) -> SiglipVisualEncoder | OpenVinoSiglip2Encoder:
     normalized_runtime = runtime.strip().casefold()
     if normalized_runtime in {"transformers", "pytorch"}:
-        return SiglipVisualEncoder(model_path)
+        return SiglipVisualEncoder(
+            model_path,
+            inference_threads=transformers_inference_threads,
+            interop_threads=transformers_interop_threads,
+        )
     if normalized_runtime == "openvino":
         return OpenVinoSiglip2Encoder(
             model_path,
