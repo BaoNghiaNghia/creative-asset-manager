@@ -324,9 +324,86 @@ export function AiOperationsContent({
   const profiles = useMemo(() => [...new Set(data.usage.items.map(item => item.metadata_profile || "").filter(Boolean))].sort(), [data]);
   const hasMediaTabs = tab === "pipeline" || tab === "overview" || tab === "processing";
   const tabsRef = useRef<HTMLElement | null>(null);
+  const tabDragRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean } | null>(null);
+  const suppressTabClickRef = useRef(false);
+  const [tabDragging, setTabDragging] = useState(false);
+  const [tabScrollState, setTabScrollState] = useState({ left: false, right: false });
+
+  function updateTabScrollState() {
+    const element = tabsRef.current;
+    if (!element) return;
+    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
+    setTabScrollState({
+      left: element.scrollLeft > 2,
+      right: element.scrollLeft < maxScrollLeft - 2,
+    });
+  }
+
+  function scrollOperationsTabs(direction: -1 | 1) {
+    const element = tabsRef.current;
+    if (!element) return;
+    const distance = Math.max(260, Math.round(element.clientWidth * 0.68));
+    element.scrollBy({ left: direction * distance, behavior: "smooth" });
+  }
+
+  function startTabDrag(event: React.PointerEvent<HTMLElement>) {
+    if (event.button !== 0) return;
+    tabDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: event.currentTarget.scrollLeft,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setTabDragging(true);
+  }
+
+  function moveTabDrag(event: React.PointerEvent<HTMLElement>) {
+    const active = tabDragRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const delta = event.clientX - active.startX;
+    if (!active.moved && Math.abs(delta) < 4) return;
+    active.moved = true;
+    suppressTabClickRef.current = true;
+    event.currentTarget.scrollLeft = active.startScrollLeft - delta;
+    updateTabScrollState();
+  }
+
+  function finishTabDrag(event: React.PointerEvent<HTMLElement>) {
+    const active = tabDragRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    tabDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setTabDragging(false);
+    if (active.moved) window.setTimeout(() => { suppressTabClickRef.current = false; }, 0);
+  }
+
+  function selectOperationsTab(nextTab: AiOpsTab) {
+    if (suppressTabClickRef.current) return;
+    onTab(nextTab);
+  }
+
+  useEffect(() => {
+    const element = tabsRef.current;
+    if (!element) return;
+    updateTabScrollState();
+    const onScroll = () => updateTabScrollState();
+    const onResize = () => updateTabScrollState();
+    element.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onResize);
+    observer?.observe(element);
+    return () => {
+      element.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+      observer?.disconnect();
+    };
+  }, []);
+
   useEffect(() => {
     const activeTab = tabsRef.current?.querySelector<HTMLElement>('[data-ops-tab="' + tab + '"]');
     activeTab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    window.requestAnimationFrame?.(() => updateTabScrollState());
   }, [tab]);
   if (unauthorized) return <DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} />;
   return <>
@@ -344,9 +421,39 @@ export function AiOperationsContent({
         <a className="ops-back-link" href="/">← Back to assets</a>
       </div>
     </header>
-    <nav ref={tabsRef} className="ops-tabs" aria-label="Processing Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
-      {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} data-ops-tab={item.id} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}><TabIcon src={item.iconSrc} /><span>{item.label}</span></button>)}
-    </nav>
+    <div className="ops-tabs-carousel">
+      <button
+        type="button"
+        className="ops-tabs-arrow"
+        aria-label="Scroll AI Operations tabs left"
+        disabled={!tabScrollState.left}
+        onClick={() => scrollOperationsTabs(-1)}
+      >
+        <span aria-hidden="true">&lt;</span>
+      </button>
+      <nav
+        ref={tabsRef}
+        className={"ops-tabs" + (tabDragging ? " dragging" : "")}
+        aria-label="Processing Operations sections"
+        role="tablist"
+        onKeyDown={event => handleTabKeyDown(event, tab, onTab)}
+        onPointerDown={startTabDrag}
+        onPointerMove={moveTabDrag}
+        onPointerUp={finishTabDrag}
+        onPointerCancel={finishTabDrag}
+      >
+        {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} data-ops-tab={item.id} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => selectOperationsTab(item.id)}><TabIcon src={item.iconSrc} /><span>{item.label}</span></button>)}
+      </nav>
+      <button
+        type="button"
+        className="ops-tabs-arrow"
+        aria-label="Scroll AI Operations tabs right"
+        disabled={!tabScrollState.right}
+        onClick={() => scrollOperationsTabs(1)}
+      >
+        <span aria-hidden="true">&gt;</span>
+      </button>
+    </div>
     {tab !== "inventory" && tab !== "visual-search" && tab !== "creative-pipeline" && <div className="ops-query-bar">
       {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : tab === "processing" ? "Processing media type" : "AI analysis media type"} />}
       <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />

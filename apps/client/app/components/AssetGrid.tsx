@@ -236,6 +236,16 @@ export function nativeOriginalDragItems(items: Asset[]): DesktopNativeDragAsset[
   }));
 }
 
+export function nativeOriginalDragKey(items: DesktopNativeDragAsset[]): string {
+  return JSON.stringify(items.map(item => [
+    item.provider,
+    item.externalSourceId || "",
+    item.id,
+    item.modifiedAt || "",
+    item.size ?? "",
+  ]));
+}
+
 const MAX_NATIVE_PREWARM_FILES = 3;
 const MAX_NATIVE_PREWARM_BYTES = 256 * 1024 * 1024;
 
@@ -341,6 +351,8 @@ export function AssetGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   const marqueeRef = useRef<{ pointerId: number; baseline: Set<string>; selection: SelectionRectangle; moved: boolean } | null>(null);
   const nativeDragPrewarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeDragTickets = useRef(new Map<string, { ticket: string; expiresAt: number }>());
+  const nativeDragPreparing = useRef(new Map<string, Promise<void>>());
   const [marquee, setMarquee] = useState<SelectionRectangle | null>(null);
 
   useEffect(() => {
@@ -410,17 +422,47 @@ export function AssetGrid({
     nativeDragPrewarmTimer.current = null;
   }
 
+  function pruneNativeDragTickets() {
+    const now = Date.now();
+    for (const [key, value] of nativeDragTickets.current) {
+      if (value.expiresAt <= now) nativeDragTickets.current.delete(key);
+    }
+  }
+
+  function prepareNativeOriginalDrag(dragItems: Asset[]): Promise<void> {
+    const desktop = window.camDesktop?.nativeDrag;
+    if (!desktop || !dragItems.length) return Promise.resolve();
+    const descriptors = nativeOriginalDragItems(dragItems);
+    const key = nativeOriginalDragKey(descriptors);
+    pruneNativeDragTickets();
+    const ready = nativeDragTickets.current.get(key);
+    if (ready && ready.expiresAt > Date.now() + 250) return Promise.resolve();
+    if (ready) nativeDragTickets.current.delete(key);
+    const inflight = nativeDragPreparing.current.get(key);
+    if (inflight) return inflight;
+    const task = desktop.prepare(descriptors)
+      .then(result => {
+        nativeDragTickets.current.set(key, {
+          ticket: result.ticket,
+          expiresAt: result.expiresAt,
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => nativeDragPreparing.current.delete(key));
+    nativeDragPreparing.current.set(key, task);
+    return task;
+  }
+
   function scheduleNativeOriginalPrewarm(item: Asset) {
     cancelNativeOriginalPrewarm();
     if (!window.camDesktop?.nativeDrag) return;
-    const dragItems = nativeOriginalPrewarmItems(dragItemsFor(item), item.id);
-    if (!dragItems.length) return;
+    const allDragItems = dragItemsFor(item);
+    const prewarmItems = nativeOriginalPrewarmItems(allDragItems, item.id);
+    if (!prewarmItems.length || prewarmItems.length !== allDragItems.length) return;
     nativeDragPrewarmTimer.current = setTimeout(() => {
       nativeDragPrewarmTimer.current = null;
-      void window.camDesktop?.nativeDrag
-        .prepare(nativeOriginalDragItems(dragItems))
-        .catch(() => undefined);
-    }, 140);
+      void prepareNativeOriginalDrag(prewarmItems);
+    }, 100);
   }
 
   function dragOriginalFiles(event: DragEvent<HTMLElement>, item: Asset) {
@@ -432,11 +474,22 @@ export function AssetGrid({
       event.preventDefault();
       return;
     }
-    if (window.camDesktop?.nativeDrag) {
-      event.preventDefault();
-      void window.camDesktop.nativeDrag.start(nativeOriginalDragItems(dragItems)).catch(() => undefined);
-      return;
+
+    const desktop = window.camDesktop?.nativeDrag;
+    if (desktop) {
+      const descriptors = nativeOriginalDragItems(dragItems);
+      const key = nativeOriginalDragKey(descriptors);
+      pruneNativeDragTickets();
+      const ready = nativeDragTickets.current.get(key);
+      if (ready && ready.expiresAt > Date.now()) {
+        event.preventDefault();
+        nativeDragTickets.current.delete(key);
+        desktop.start(ready.ticket);
+        return;
+      }
+      void prepareNativeOriginalDrag(dragItems);
     }
+
     const payload = originalAssetDragPayload(dragItems, window.location.origin);
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(ASSET_DRAG_OUT_MIME, payload.sourceIds);
@@ -476,7 +529,10 @@ export function AssetGrid({
       data-asset-id={item.id}
       draggable={item.kind !== "folder"}
       title={item.kind === "folder" ? undefined : "Drag the original file to another application"}
-      onPointerDown={() => scheduleNativeOriginalPrewarm(item)}
+      onPointerDown={() => {
+        cancelNativeOriginalPrewarm();
+        if (item.kind !== "folder") void prepareNativeOriginalDrag(dragItemsFor(item));
+      }}
       onPointerUp={cancelNativeOriginalPrewarm}
       onPointerCancel={cancelNativeOriginalPrewarm}
       onDragStart={event => dragOriginalFiles(event, item)}
@@ -488,8 +544,14 @@ export function AssetGrid({
         onFocus(item);
       }}
       onContextMenu={event => onContextMenu(item, event)}
-      onPointerEnter={() => item.kind === "folder" && onPrefetch(item.id)}
-      onPointerLeave={onCancelPrefetch}
+      onPointerEnter={() => {
+        if (item.kind === "folder") onPrefetch(item.id);
+        else scheduleNativeOriginalPrewarm(item);
+      }}
+      onPointerLeave={() => {
+        cancelNativeOriginalPrewarm();
+        onCancelPrefetch();
+      }}
     >
       {onFindSimilar && item.kind === "image" && item.internal_asset_id && <button type="button" className="asset-find-similar" onClick={event => { event.stopPropagation(); onFindSimilar(item); }} aria-label={"Find similar images to " + item.name} title="Find similar images"><VisualSearchIcon /></button>}
       <button className="asset-info" onClick={event => { event.stopPropagation(); onDetails(item); }} aria-label={"View details for " + item.name}>i</button>

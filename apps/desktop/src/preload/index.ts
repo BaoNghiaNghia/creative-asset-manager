@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld("camDesktop", Object.freeze({
   onAuthComplete: (callback: () => void) => { const listener = () => callback(); ipcRenderer.on("desktop-auth-complete", listener); return () => ipcRenderer.removeListener("desktop-auth-complete", listener); },
   nativeDrag: Object.freeze({
     prepare: (items: DesktopNativeDragAsset[]) => ipcRenderer.invoke("desktop:native-drag:prepare", items),
-    start: (items: DesktopNativeDragAsset[]) => ipcRenderer.invoke("desktop:native-drag:start", items),
+    start: (ticket: string) => ipcRenderer.send("desktop:native-drag:start-prepared", ticket),
   }),
   ingestion: Object.freeze({
     acceptDrop: (files: FileList, destination: Destination) => ipcRenderer.invoke("desktop:ingestion:drop", acceptedPaths(files), destination),

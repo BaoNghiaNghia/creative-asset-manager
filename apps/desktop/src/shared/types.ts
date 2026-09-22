@@ -72,10 +72,10 @@ export interface CamDesktopApi {
   nativeDrag: {
     prepare(items: DesktopNativeDragAsset[]): Promise<DesktopNativeDragStats & {
       ready: true;
+      ticket: string;
+      expiresAt: number;
     }>;
-    start(items: DesktopNativeDragAsset[]): Promise<DesktopNativeDragStats & {
-      started: true;
-    }>;
+    start(ticket: string): void;
   };
   ingestion: {
     acceptDrop(

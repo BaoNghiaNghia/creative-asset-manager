@@ -321,33 +321,73 @@
 @media (prefers-reduced-motion:reduce){.scan-status-icon.running,.scan-status-icon.waiting{animation:none}}
 
 
-/* Keep Operations tabs at their natural width and scroll horizontally instead of compressing labels. */
+/* Operations tabs behave like a draggable horizontal carousel instead of exposing a scrollbar. */
+.ops-tabs-carousel{
+  display:grid;
+  grid-template-columns:36px minmax(0,1fr) 36px;
+  align-items:stretch;
+  width:100%;
+  min-width:0;
+  border-top:1px solid #edf0f4;
+  border-bottom:1px solid #dfe5ed;
+  background:#fff;
+}
 .ops-tabs{
+  display:flex;
+  width:100%;
+  min-width:0;
   max-width:100%;
+  padding:0;
+  border:0;
   overflow-x:auto;
   overflow-y:hidden;
+  justify-content:flex-start;
   overscroll-behavior-inline:contain;
-  scrollbar-width:thin;
-  scrollbar-color:#bdc9dc transparent;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
   -webkit-overflow-scrolling:touch;
+  cursor:grab;
+  user-select:none;
+  touch-action:pan-y;
 }
-.ops-tabs::-webkit-scrollbar{height:6px}
-.ops-tabs::-webkit-scrollbar-track{background:transparent}
-.ops-tabs::-webkit-scrollbar-thumb{border-radius:999px;background:#bdc9dc}
+.ops-tabs::-webkit-scrollbar{display:none;width:0;height:0}
+.ops-tabs.dragging{cursor:grabbing}
 .ops-tabs button{
   flex:0 0 auto;
   min-width:max-content;
+  padding-inline:24px;
   scroll-snap-align:start;
 }
+.ops-tabs-arrow{
+  display:grid;
+  width:36px;
+  min-width:36px;
+  padding:0;
+  place-items:center;
+  border:0;
+  border-radius:0;
+  background:#fff;
+  color:#4e6282;
+  font-size:20px;
+  font-weight:800;
+  line-height:1;
+  cursor:pointer;
+  z-index:2;
+}
+.ops-tabs-arrow:hover:not(:disabled),.ops-tabs-arrow:focus-visible{
+  background:#f0f4fb;
+  color:#234fb5;
+  outline:none;
+}
+.ops-tabs-arrow:disabled{
+  color:#c7d0de;
+  cursor:default;
+  opacity:.55;
+}
 @media (min-width: 901px) {
-  .ops-tabs {
-    display:flex;
-    width:100%;
-    justify-content:flex-start;
-  }
   .ops-tabs button {
     justify-content:center;
-    padding-inline:16px;
+    padding-inline:28px;
   }
 }
 .ops-tabs button .ops-tab-icon{

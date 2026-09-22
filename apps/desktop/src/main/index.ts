@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage } from "electron";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createMainWindow } from "./window";
@@ -12,12 +13,14 @@ import { findOAuthDeepLink } from "./protocol";
 import { IngestionService, type Destination } from "./ingestion";
 import { createUploadTransport } from "./uploadTransport";
 import { NativeDragService, type NativeDragAssetRequest } from "./nativeDrag";
+import { createNativeDragTicketStore } from "./nativeDragTickets";
 
 let mainWindow: BrowserWindow | undefined;
 let ingestion: IngestionService | undefined;
 let nativeDrag: NativeDragService | undefined;
 const desktopInstanceNonce = createDesktopInstanceNonce();
 const FALLBACK_DRAG_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAE0lEQVR42mNkYGD4z0AEYBxVSFUAANWfAf8nqQzRAAAAAElFTkSuQmCC";
+const nativeDragTickets = createNativeDragTicketStore<ReturnType<typeof nativeImage.createFromDataURL>>(5000);
 
 function focusWindow(): void {
   if (!mainWindow) return;
@@ -78,12 +81,17 @@ function registerNativeDragIpc(): void {
     if (!mainWindow || event.sender !== mainWindow.webContents) {
       throw new Error("Unsupported native drag request.");
     }
-    const prepared = await nativeDragService().prepare(
-      nativeDragItems(value),
-      { revalidateBeforeUse: false },
-    );
+    const prepared = await nativeDragService().prepare(nativeDragItems(value));
+    if (!prepared.files.length) throw new Error("No original files are available for drag.");
+    const issued = nativeDragTickets.issue({
+      senderId: event.sender.id,
+      files: prepared.files,
+      icon: await dragIcon(prepared.iconPath),
+    });
     return {
       ready: true,
+      ticket: issued.ticket,
+      expiresAt: issued.expiresAt,
       count: prepared.files.length,
       cacheHits: prepared.cacheHits,
       cacheMisses: prepared.cacheMisses,
@@ -91,25 +99,15 @@ function registerNativeDragIpc(): void {
       downloadedBytes: prepared.downloadedBytes,
     };
   });
-  ipcMain.handle("desktop:native-drag:start", async (event, value: unknown) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents) {
-      throw new Error("Unsupported native drag request.");
-    }
-    const prepared = await nativeDragService().prepare(nativeDragItems(value));
-    if (!prepared.files.length) throw new Error("No original files are available for drag.");
+  ipcMain.on("desktop:native-drag:start-prepared", (event, value: unknown) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || typeof value !== "string") return;
+    const prepared = nativeDragTickets.take(value, event.sender.id);
+    if (!prepared || !prepared.files.length || prepared.files.some(path => !existsSync(path))) return;
     event.sender.startDrag({
       file: prepared.files[0],
       files: prepared.files,
-      icon: await dragIcon(prepared.iconPath),
+      icon: prepared.icon,
     });
-    return {
-      started: true,
-      count: prepared.files.length,
-      cacheHits: prepared.cacheHits,
-      cacheMisses: prepared.cacheMisses,
-      totalBytes: prepared.totalBytes,
-      downloadedBytes: prepared.downloadedBytes,
-    };
   });
 }
 async function processDeepLink(argumentsList: readonly string[]): Promise<void> {

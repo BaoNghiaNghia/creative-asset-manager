@@ -549,6 +549,15 @@ describe("AI Operations dashboard", () => {
     expect(markup).not.toContain('target="_blank"');
   });
 
+  it("renders carousel arrows around the AI Operations tab list", () => {
+    const markup = render("overview");
+    expect(markup).toContain('class="ops-tabs-carousel"');
+    expect(markup).toContain('aria-label="Scroll AI Operations tabs left"');
+    expect(markup).toContain('aria-label="Scroll AI Operations tabs right"');
+    expect(markup).toContain("&lt;");
+    expect(markup).toContain("&gt;");
+  });
+
   it("preserves all filters and active tab in URL state", () => {
     const query = searchFromFilters(filters, "processing");
     expect(filtersFromSearch(query)).toEqual(filters);
@@ -643,9 +652,16 @@ describe("AI Operations dashboard", () => {
     expect(styles).toContain(".workspace-navigation{width:100%;align-self:stretch;align-items:stretch;justify-content:flex-start;box-sizing:border-box;margin:16px 0 2px;padding:0;border:0");
     expect(styles).toContain(".ops-table-scroll{max-width:100%;overflow:auto");
     expect(styles).toContain(".ops-header-actions .ops-refresh-control{width:152px!important;max-width:152px!important");
+    expect(styles).toContain(".ops-tabs-carousel");
+    expect(styles).toContain("grid-template-columns:36px minmax(0,1fr) 36px");
     expect(styles).toContain("overflow-x:auto");
+    expect(styles).toContain("scrollbar-width:none");
+    expect(styles).toContain(".ops-tabs::-webkit-scrollbar{display:none");
+    expect(styles).toContain("cursor:grab");
+    expect(styles).toContain(".ops-tabs.dragging{cursor:grabbing}");
     expect(styles).toContain("flex:0 0 auto");
     expect(styles).toContain("min-width:max-content");
+    expect(styles).toContain("padding-inline:28px");
     expect(styles).not.toContain("grid-template-columns:repeat(9,minmax(0,1fr))");
     expect(styles).toContain(".workspace-navigation .workspace-nav-submenu");
     const markup = render("processing").toLowerCase();

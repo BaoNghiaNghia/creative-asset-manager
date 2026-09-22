@@ -7,6 +7,7 @@ import {
   assetIdsInSelectionRectangle,
   originalAssetDragPayload,
   nativeOriginalDragItems,
+  nativeOriginalDragKey,
   nativeOriginalPrewarmItems,
   isAdditiveSelectionClick,
   createThumbnailLoadQueue,
@@ -165,6 +166,28 @@ describe("AssetGrid marquee selection and drag-out", () => {
       size: 123456,
     }]);
     expect(JSON.stringify(items)).not.toContain("thumbnail");
+  });
+
+  it("keys prepared native drag tickets by original identity and version hints", () => {
+    const base = nativeOriginalDragKey([{
+      id: "asset-1",
+      name: "photo.jpg",
+      mimeType: "image/jpeg",
+      provider: "google-drive",
+      externalSourceId: "source-1",
+      modifiedAt: "2026-09-22T08:00:00Z",
+      size: 5,
+    }]);
+    const changed = nativeOriginalDragKey([{
+      id: "asset-1",
+      name: "photo.jpg",
+      mimeType: "image/jpeg",
+      provider: "google-drive",
+      externalSourceId: "source-1",
+      modifiedAt: "2026-09-22T09:00:00Z",
+      size: 5,
+    }]);
+    expect(changed).not.toBe(base);
   });
 
   it("bounds speculative native prewarm to small originals and prioritizes the dragged item", () => {
