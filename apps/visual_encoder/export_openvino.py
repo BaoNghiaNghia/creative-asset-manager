@@ -20,6 +20,7 @@ from siglip import (
     OPENVINO_ARTIFACT_FILES,
     OPENVINO_ARTIFACT_FORMAT,
     OPENVINO_BASELINE_VERSION,
+    SIGLIP2_TEXT_MAX_LENGTH,
 )
 
 
@@ -97,10 +98,12 @@ def export_openvino(model_path: Path, output_path: Path, *, force: bool = False)
         images=Image.new("RGB", (224, 224), (127, 127, 127)),
         return_tensors="pt",
     )
-    text_inputs = processor(
-        text=["visual search"],
+    text_inputs = processor.tokenizer(
+        ["visual search"],
         padding="max_length",
         truncation=True,
+        max_length=SIGLIP2_TEXT_MAX_LENGTH,
+        return_attention_mask=True,
         return_tensors="pt",
     )
 

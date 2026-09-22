@@ -52,7 +52,14 @@ class FakeModel:
 
 
 class FakeProcessor:
-    def __call__(self, **kwargs):
+    def __init__(self):
+        self.tokenizer = self
+
+    def __call__(self, *args, **kwargs):
+        if args:
+            assert args == (["visual search"],)
+            assert kwargs["max_length"] == 64
+            assert kwargs["return_attention_mask"] is True
         if "images" in kwargs:
             return {"pixel_values": "pixels"}
         return {"input_ids": "ids", "attention_mask": "mask"}

@@ -32,7 +32,14 @@ from siglip import (
 class FakeProcessor:
     image_processor = SimpleNamespace(size={"height": 224, "width": 224})
 
-    def __call__(self, **kwargs):
+    def __init__(self):
+        self.tokenizer = self
+
+    def __call__(self, *args, **kwargs):
+        if args:
+            assert args == (["blue embroidery"],)
+            assert kwargs["max_length"] == 64
+            assert kwargs["return_attention_mask"] is True
         if "images" in kwargs:
             return {"pixel_values": [[1.0]]}
         return {

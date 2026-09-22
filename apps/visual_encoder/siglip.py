@@ -20,6 +20,7 @@ from app.modules.visual_search.model_spec import (
 
 OPENVINO_ARTIFACT_FORMAT = "cam-siglip2-openvino-v1"
 OPENVINO_BASELINE_VERSION = "2026.4.0"
+SIGLIP2_TEXT_MAX_LENGTH = 64
 OPENVINO_ARTIFACT_FILES = (
     "image_encoder.xml",
     "image_encoder.bin",
@@ -172,10 +173,12 @@ class SiglipVisualEncoder:
         if not value:
             raise ValueError("text must be non-empty")
         with self._torch.inference_mode():
-            inputs = self._processor(
-                text=[value],
+            inputs = self._processor.tokenizer(
+                [value],
                 padding="max_length",
                 truncation=True,
+                max_length=SIGLIP2_TEXT_MAX_LENGTH,
+                return_attention_mask=True,
                 return_tensors="pt",
             )
             vector = self._torch.nn.functional.normalize(
@@ -317,10 +320,12 @@ class OpenVinoSiglip2Encoder:
         value = text.strip()
         if not value:
             raise ValueError("text must be non-empty")
-        inputs = self._processor(
-            text=[value],
+        inputs = self._processor.tokenizer(
+            [value],
             padding="max_length",
             truncation=True,
+            max_length=SIGLIP2_TEXT_MAX_LENGTH,
+            return_attention_mask=True,
             return_tensors="np",
         )
         try:

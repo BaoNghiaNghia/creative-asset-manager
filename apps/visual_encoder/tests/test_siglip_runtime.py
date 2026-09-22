@@ -59,8 +59,18 @@ def test_siglip2_image_and_text_embeddings_use_v2_contract(
     class FakeProcessor:
         image_processor = SimpleNamespace(size={"height": 224, "width": 224})
 
+        def __init__(self):
+            self.tokenizer = self._tokenize
+
         def __call__(self, **_kwargs):
             return {}
+
+        @staticmethod
+        def _tokenize(values, **kwargs):
+            assert values == ["embroidered baby bodysuit"]
+            assert kwargs["max_length"] == 64
+            assert kwargs["return_attention_mask"] is True
+            return {"input_ids": [[1]], "attention_mask": [[1]]}
 
     class FakeAutoModel:
         @staticmethod
