@@ -19,6 +19,34 @@ from app.modules.visual_search.model_spec import VISUAL_SEARCH_ACTIVE_DESCRIPTOR
 
 EncoderPriority = Literal["interactive", "background"]
 
+_MAX_ENCODER_JPEG_BYTES = 7_500_000
+
+
+def _bounded_jpeg_payload(image: Image.Image) -> bytes:
+    """Keep localhost transport below the encoder's bounded 8 MB body limit."""
+
+    rgb = image.convert("RGB")
+    for quality in (95, 85, 75):
+        stream = BytesIO()
+        rgb.save(stream, format="JPEG", quality=quality, optimize=True)
+        payload = stream.getvalue()
+        if len(payload) <= _MAX_ENCODER_JPEG_BYTES:
+            return payload
+
+    for max_edge in (4096, 3072, 2048, 1536):
+        resized = rgb.copy()
+        resized.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+        for quality in (85, 75):
+            stream = BytesIO()
+            resized.save(stream, format="JPEG", quality=quality, optimize=True)
+            payload = stream.getvalue()
+            if len(payload) <= _MAX_ENCODER_JPEG_BYTES:
+                return payload
+
+    raise VisualEncoderUnavailableError(
+        "image cannot be bounded for isolated visual encoder transport"
+    )
+
 
 class HttpVisualEncoder:
     """Synchronous client for the localhost-only isolated SigLIP2 process."""
@@ -129,14 +157,8 @@ class HttpVisualEncoder:
         *,
         priority: EncoderPriority = "interactive",
     ) -> VisualEmbedding:
-        stream = BytesIO()
-        image.convert("RGB").save(
-            stream,
-            format="JPEG",
-            quality=95,
-        )
         embedding = self._request_image_embedding(
-            stream.getvalue(),
+            _bounded_jpeg_payload(image),
             priority=priority,
         )
         if embedding.descriptor != self.descriptor:

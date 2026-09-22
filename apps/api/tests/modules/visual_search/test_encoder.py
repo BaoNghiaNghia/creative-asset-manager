@@ -62,7 +62,10 @@ from unittest.mock import patch
 
 import httpx
 
-from app.modules.visual_search.encoder_client import HttpVisualEncoder
+from app.modules.visual_search.encoder_client import (
+    HttpVisualEncoder,
+    _MAX_ENCODER_JPEG_BYTES,
+)
 from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 
 
@@ -136,6 +139,28 @@ def test_http_encoder_sends_raw_jpeg_without_base64_json() -> None:
     with Image.open(BytesIO(payload)) as decoded:
         assert decoded.format == "JPEG"
         assert decoded.size == (32, 24)
+
+
+def test_http_encoder_bounds_large_detailed_image_payload() -> None:
+    encoder = HttpVisualEncoder("http://encoder.local", internal_key="secret")
+    request = httpx.Request(
+        "POST",
+        "http://encoder.local/v1/encode-image-bytes",
+    )
+    response = httpx.Response(200, json=_encoder_payload(), request=request)
+    image = Image.effect_noise((5000, 4000), 100).convert("RGB")
+
+    with patch.object(encoder._client, "post", return_value=response) as post:
+        result = encoder.encode_image(image, priority="background")
+    encoder.close()
+
+    assert result.descriptor == VISUAL_SEARCH_BASELINE_DESCRIPTOR
+    payload = post.call_args.kwargs["content"]
+    assert len(payload) <= _MAX_ENCODER_JPEG_BYTES
+    with Image.open(BytesIO(payload)) as decoded:
+        assert decoded.format == "JPEG"
+        assert decoded.width <= image.width
+        assert decoded.height <= image.height
 
 
 def test_http_encoder_falls_back_to_legacy_base64_endpoint_on_404() -> None:
