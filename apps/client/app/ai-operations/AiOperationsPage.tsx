@@ -1,12 +1,5 @@
-import pipelineOverviewIcon from "../../assets/navigation/pipeline-overview.svg";
-import aiAnalysisIcon from "../../assets/navigation/ai-analysis.svg";
-import processingIcon from "../../assets/navigation/processing.svg";
-import visualSearchIcon from "../../assets/navigation/visual-search.svg";
-import creativePipelineIcon from "../../assets/navigation/creative-pipeline.svg";
-import inventoryDailyIcon from "../../assets/navigation/inventory-daily.svg";
-import costUsageIcon from "../../assets/navigation/cost-usage.svg";
-import providersIcon from "../../assets/navigation/providers.svg";
-import configurationIcon from "../../assets/navigation/configuration.svg";
+import { AI_OPERATIONS_TABS, isAiOpsTab, type AiOpsTab } from "./navigation";
+export type { AiOpsTab } from "./navigation";
 import oneDrivePlatformLogo from "../../assets/logos/onedrive-platform.png";
 import googleDrivePlatformLogo from "../../assets/logos/google-drive-platform.png";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -39,34 +32,10 @@ import {
   shouldAutoRefresh, type AutoRefreshSeconds,
 } from "./requestCoordinator";
 
-export type AiOpsTab = "pipeline" | "overview" | "processing" | "visual-search" | "creative-pipeline" | "inventory" | "cost" | "providers" | "configuration";
-const tabs: Array<{ id: AiOpsTab; label: string; icon: TabIconName }> = [
-  { id: "pipeline", label: "Pipeline overview", icon: "pipeline" },
-  { id: "overview", label: "AI analysis", icon: "spark" },
-  { id: "processing", label: "Processing", icon: "processing" },
-  { id: "visual-search", label: "Visual Search", icon: "visual" },
-  { id: "creative-pipeline", label: "Creative Pipeline", icon: "creative" },
-  { id: "inventory", label: "Inventory Daily", icon: "inventory" },
-  { id: "cost", label: "Cost & Usage", icon: "cost" },
-  { id: "providers", label: "Providers", icon: "providers" },
-  { id: "configuration", label: "Configuration", icon: "configuration" },
-];
-type TabIconName = "pipeline" | "spark" | "processing" | "visual" | "creative" | "inventory" | "cost" | "providers" | "configuration";
+const tabs = AI_OPERATIONS_TABS;
 
-const tabIconSources: Record<TabIconName, string> = {
-  pipeline: pipelineOverviewIcon,
-  spark: aiAnalysisIcon,
-  processing: processingIcon,
-  visual: visualSearchIcon,
-  creative: creativePipelineIcon,
-  inventory: inventoryDailyIcon,
-  cost: costUsageIcon,
-  providers: providersIcon,
-  configuration: configurationIcon,
-};
-
-function TabIcon({ name }: { name: TabIconName }) {
-  return <img className="ops-tab-icon" src={tabIconSources[name]} alt="" aria-hidden="true" />;
+function TabIcon({ src }: { src: string }) {
+  return <img className="ops-tab-icon" src={src} alt="" aria-hidden="true" />;
 }
 
 const emptyPage = <T,>(page = 1) => ({ page, page_size: 25, total: 0, items: [] as T[] });
@@ -92,8 +61,8 @@ export function dashboardPlan(tab: AiOpsTab, media: "image" | "video"): {
 
 export function AiOperationsPage() {
   const [filters, setFilters] = useState(() => filtersFromSearch(window.location.search));
-  const initialTab = new URLSearchParams(window.location.search).get("tab") as AiOpsTab | null;
-  const [tab, setTab] = useState<AiOpsTab>(tabs.some(item => item.id === initialTab) ? initialTab! : "overview");
+  const initialTab = new URLSearchParams(window.location.search).get("tab");
+  const [tab, setTab] = useState<AiOpsTab>(isAiOpsTab(initialTab) ? initialTab : "overview");
   const [media, setMedia] = useState<"image" | "video">(() => new URLSearchParams(window.location.search).get("media") === "video" ? "video" : "image");
   const [refreshSeconds, setRefreshSeconds] = useState<AutoRefreshSeconds>(() => autoRefreshFromSearch(window.location.search));
   const [data, setData] = useState<AiOpsDashboardData>(() => emptyDashboard(filters.page));
@@ -267,7 +236,7 @@ export function AiOperationsPage() {
       setErrors(current => [...current, error instanceof Error ? error.message : "Unable to load video details."]);
     }
   }
-  return <AiOperationsShell subtitle={identity?.email || "Operations console"}>
+  return <AiOperationsShell subtitle={identity?.email || "Operations console"} tab={tab} onTab={changeTab}>
     <AiOperationsContent
       data={data} loading={loading} errors={errors} unauthorized={identityUnauthorized || scopeUnauthorized}
       visualCoverage={visualCoverage} visualSources={visualSources} visualLoading={visualLoading} visualError={visualError}
@@ -291,11 +260,21 @@ function updateUrl(filters: AiOpsFilters, tab: AiOpsTab, refreshSeconds: AutoRef
   window.history.replaceState({}, "", `/ai-operations${query ? `?${query}` : ""}`);
 }
 
-export function AiOperationsShell({ children, subtitle = "Operations console" }: { children: React.ReactNode; subtitle?: string }) {
+export function AiOperationsShell({
+  children,
+  subtitle = "Operations console",
+  tab = "overview",
+  onTab,
+}: {
+  children: React.ReactNode;
+  subtitle?: string;
+  tab?: AiOpsTab;
+  onTab?: (tab: AiOpsTab) => void;
+}) {
   return <main className="ops-shell">
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>{subtitle}</small></span></div>
-      <WorkspaceNavigation active="operations" />
+      <WorkspaceNavigation active="operations" aiOperationsTab={tab} onAiOperationsTab={onTab} />
       <small className="ops-sidebar-note">Tenant-scoped metrics. Provider secrets are never shown.</small>
     </aside>
     <section className="ops-main">{children}</section>
@@ -344,6 +323,11 @@ export function AiOperationsContent({
   ].filter(Boolean))].sort(), [data]);
   const profiles = useMemo(() => [...new Set(data.usage.items.map(item => item.metadata_profile || "").filter(Boolean))].sort(), [data]);
   const hasMediaTabs = tab === "pipeline" || tab === "overview" || tab === "processing";
+  const tabsRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const activeTab = tabsRef.current?.querySelector<HTMLElement>('[data-ops-tab="' + tab + '"]');
+    activeTab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [tab]);
   if (unauthorized) return <DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} />;
   return <>
     <header className="ops-header">
@@ -360,8 +344,8 @@ export function AiOperationsContent({
         <a className="ops-back-link" href="/">← Back to assets</a>
       </div>
     </header>
-    <nav className="ops-tabs" aria-label="Processing Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
-      {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}><TabIcon name={item.icon} /><span>{item.label}</span></button>)}
+    <nav ref={tabsRef} className="ops-tabs" aria-label="Processing Operations sections" role="tablist" onKeyDown={event => handleTabKeyDown(event, tab, onTab)}>
+      {tabs.map(item => <button key={item.id} id={`ops-tab-${item.id}`} data-ops-tab={item.id} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`ops-panel-${item.id}`} tabIndex={tab === item.id ? 0 : -1} className={tab === item.id ? "active" : ""} onClick={() => onTab(item.id)}><TabIcon src={item.iconSrc} /><span>{item.label}</span></button>)}
     </nav>
     {tab !== "inventory" && tab !== "visual-search" && tab !== "creative-pipeline" && <div className="ops-query-bar">
       {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : tab === "processing" ? "Processing media type" : "AI analysis media type"} />}

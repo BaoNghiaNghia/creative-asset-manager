@@ -542,6 +542,10 @@ describe("AI Operations dashboard", () => {
     const markup = renderToStaticMarkup(<AiOperationsShell><p>Dashboard</p></AiOperationsShell>);
     expect(markup).toContain('href="/ai-operations"');
     expect(markup).toContain("AI Operations");
+    expect(markup).toContain('id="workspace-ai-operations-submenu"');
+    expect(markup).toContain('data-ai-operations-tab="overview"');
+    expect(markup).toContain('href="/ai-operations?tab=visual-search"');
+    expect(markup).toContain('aria-current="location"');
     expect(markup).not.toContain('target="_blank"');
   });
 
@@ -639,7 +643,11 @@ describe("AI Operations dashboard", () => {
     expect(styles).toContain(".workspace-navigation{width:100%;align-self:stretch;align-items:stretch;justify-content:flex-start;box-sizing:border-box;margin:16px 0 2px;padding:0;border:0");
     expect(styles).toContain(".ops-table-scroll{max-width:100%;overflow:auto");
     expect(styles).toContain(".ops-header-actions .ops-refresh-control{width:152px!important;max-width:152px!important");
-    expect(styles).toContain("grid-template-columns:repeat(9,minmax(0,1fr))");
+    expect(styles).toContain("overflow-x:auto");
+    expect(styles).toContain("flex:0 0 auto");
+    expect(styles).toContain("min-width:max-content");
+    expect(styles).not.toContain("grid-template-columns:repeat(9,minmax(0,1fr))");
+    expect(styles).toContain(".workspace-navigation .workspace-nav-submenu");
     const markup = render("processing").toLowerCase();
     for (const secret of ["api_key", "signed_url", "provider_request_id", "sk-"]) expect(markup).not.toContain(secret);
   });

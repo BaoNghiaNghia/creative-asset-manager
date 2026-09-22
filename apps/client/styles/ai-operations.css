@@ -321,19 +321,33 @@
 @media (prefers-reduced-motion:reduce){.scan-status-icon.running,.scan-status-icon.waiting{animation:none}}
 
 
-/* Fill the Operations navigation width on desktop while preserving horizontal scroll on small screens. */
+/* Keep Operations tabs at their natural width and scroll horizontally instead of compressing labels. */
+.ops-tabs{
+  max-width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  overscroll-behavior-inline:contain;
+  scrollbar-width:thin;
+  scrollbar-color:#bdc9dc transparent;
+  -webkit-overflow-scrolling:touch;
+}
+.ops-tabs::-webkit-scrollbar{height:6px}
+.ops-tabs::-webkit-scrollbar-track{background:transparent}
+.ops-tabs::-webkit-scrollbar-thumb{border-radius:999px;background:#bdc9dc}
+.ops-tabs button{
+  flex:0 0 auto;
+  min-width:max-content;
+  scroll-snap-align:start;
+}
 @media (min-width: 901px) {
   .ops-tabs {
-    display:grid;
-    grid-template-columns:repeat(9,minmax(0,1fr));
+    display:flex;
     width:100%;
-    overflow-x:auto;
-    overflow-y:hidden;
+    justify-content:flex-start;
   }
   .ops-tabs button {
     justify-content:center;
-    min-width:0;
-    padding-inline:12px;
+    padding-inline:16px;
   }
 }
 .ops-tabs button .ops-tab-icon{
@@ -1018,7 +1032,19 @@
 .job-queue-page{min-height:100vh;padding:32px;background:#f4f7fb}.job-queue-page header{display:flex;justify-content:space-between}.job-queue-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}.job-queue-kpis article,.job-queue-table{padding:16px;border:1px solid #dfe7f0;border-radius:12px;background:#fff}.job-queue-kpis small,.job-queue-table small{display:block;color:#718096}.job-queue-kpis strong{font-size:26px}.job-queue-table table{width:100%;border-collapse:collapse}.job-queue-table th,.job-queue-table td{padding:12px;text-align:left;border-bottom:1px solid #edf1f5}.job-status{padding:4px 8px;border-radius:999px;background:#eef2f7;font-size:12px}.job-status.completed{background:#e8f7ed;color:#207346}.job-status.failed{background:#fff0ef;color:#b5473e}@media(max-width:700px){.job-queue-page{padding:18px}.job-queue-kpis{grid-template-columns:1fr 1fr}.job-queue-table{overflow:auto}}.ops-sidebar .workspace-navigation{width:100%;align-self:stretch}.ops-sidebar .workspace-navigation a{width:100%;box-sizing:border-box;min-width:0}.ops-sidebar .workspace-navigation a>span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Shared workspace sidebar navigation. */
-.workspace-navigation{width:100%;align-self:stretch;align-items:stretch;justify-content:flex-start;box-sizing:border-box;margin:16px 0 2px;padding:0;border:0;gap:7px}.workspace-navigation a{width:100%;min-width:0;min-height:42px;box-sizing:border-box;padding:9px 11px;gap:11px;white-space:nowrap}.workspace-navigation a>span:last-child{min-width:0;overflow:visible;text-overflow:clip;white-space:nowrap}.workspace-navigation .workspace-nav-icon{width:26px;height:26px;flex:0 0 26px}.ops-sidebar{width:260px;box-sizing:border-box}.ops-shell{grid-template-columns:260px minmax(0,1fr)}
+.workspace-navigation{width:100%;align-self:stretch;align-items:stretch;justify-content:flex-start;box-sizing:border-box;margin:16px 0 2px;padding:0;border:0;gap:7px}.workspace-navigation a{width:100%;min-width:0;min-height:42px;box-sizing:border-box;padding:9px 11px;gap:11px;white-space:nowrap}.workspace-navigation a>span:last-child{min-width:0;overflow:visible;text-overflow:clip;white-space:nowrap}.workspace-navigation .workspace-nav-icon{width:26px;height:26px;flex:0 0 26px}
+.workspace-navigation .workspace-nav-group{display:flex;min-width:0;flex-direction:column;gap:4px}
+.workspace-navigation .workspace-nav-group-row{display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:center;gap:4px}
+.workspace-navigation .workspace-nav-group-row>a{min-width:0}
+.workspace-navigation .workspace-nav-expander{display:grid;width:34px;height:34px;padding:0;place-items:center;border:0;border-radius:8px;background:transparent;color:#66758a;cursor:pointer}
+.workspace-navigation .workspace-nav-expander:hover,.workspace-navigation .workspace-nav-expander:focus-visible{background:#eaf0fb;color:#2455b5;outline:none}
+.workspace-navigation .workspace-nav-expander span{display:block;font-size:18px;line-height:1;transition:transform .16s ease}
+.workspace-navigation .workspace-nav-expander[aria-expanded=true] span{transform:rotate(180deg)}
+.workspace-navigation .workspace-nav-submenu{display:flex;max-height:min(330px,42vh);margin:0 0 3px 18px;padding:3px 0 3px 15px;flex-direction:column;gap:2px;border-left:1px solid #d9e1ee;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.workspace-navigation .workspace-nav-submenu a{min-height:32px;padding:6px 8px;gap:8px;border-radius:7px;color:#657286;font-size:12px;font-weight:650}
+.workspace-navigation .workspace-nav-submenu a[aria-current=location]{background:#eef3ff;color:#234fb5;font-weight:750}
+.workspace-navigation .workspace-nav-submenu-icon{width:18px;height:18px;flex:0 0 18px;object-fit:contain}
+.ops-sidebar{width:260px;box-sizing:border-box;overflow-y:auto}.ops-shell{grid-template-columns:260px minmax(0,1fr)}
 
 /* Job Queue workspace: Access Management visual hierarchy. */
 .job-queue-main{min-width:0;background:#f4f7fb}
