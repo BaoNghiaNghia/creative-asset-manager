@@ -35,6 +35,14 @@ def mpo_bytes(*, size: tuple[int, int] = (80, 40)) -> bytes:
     return output.getvalue()
 
 
+def heic_bytes(*, size: tuple[int, int] = (80, 40)) -> bytes:
+    pillow_heif = pytest.importorskip("pillow_heif")
+
+    output = io.BytesIO()
+    pillow_heif.from_pillow(Image.new("RGB", size, "green")).save(output)
+    return output.getvalue()
+
+
 def test_decode_normalizes_exif_orientation_before_crop() -> None:
     decoded = decode_visual_image(
         jpeg_bytes(size=(80, 40), orientation=6),
@@ -52,6 +60,14 @@ def test_decode_accepts_mpo_as_safe_multi_picture_jpeg() -> None:
     assert decoded.image.mode == "RGB"
     red, _green, blue = decoded.image.getpixel((0, 0))
     assert red > blue
+
+
+def test_decode_registers_heif_decoder_before_image_probe() -> None:
+    decoded = decode_visual_image(heic_bytes())
+
+    assert decoded.source_format in {"HEIF", "HEIC"}
+    assert (decoded.width, decoded.height) == (80, 40)
+    assert decoded.image.mode == "RGB"
 
 
 def test_decode_rejects_byte_and_crop_limits() -> None:

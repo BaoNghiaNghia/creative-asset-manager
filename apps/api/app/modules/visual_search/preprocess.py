@@ -69,6 +69,9 @@ def decode_visual_image(
             "visual_image_too_large", "Visual-search image exceeds the byte limit."
         )
 
+    # Pillow must know about the optional HEIF opener before it probes the bytes.
+    register_heif_decoder()
+
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
