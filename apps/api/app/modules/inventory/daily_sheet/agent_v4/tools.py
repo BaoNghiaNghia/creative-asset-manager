@@ -8,14 +8,15 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.modules.inventory.persistence_model import InventoryItemModel
+from app.modules.inventory.persistence_model import InventoryItemAliasModel, InventoryItemModel
 
 from .contracts import (
     CellEvidence,
     EvidenceReference,
+    KnowledgeProposal,
     StagedEdits,
     WorkbookAssessment,
 )
@@ -142,11 +143,13 @@ class V4WorkbookToolHost:
         self.max_edit_operations = max_edit_operations
         self.allow_auto_transforms = allow_auto_transforms
         self.read_calls = 0
-        self.read_cells = 0
+        self.read_cell_count = 0
         self.ledger: dict[tuple[str, str], CellEvidence] = {}
         self.assessment: WorkbookAssessment | None = None
         self.assessment_references: list[EvidenceReference] = []
         self.staged: StagedEdits | None = None
+        self.knowledge_proposals: list[KnowledgeProposal] = []
+        self.last_execution: dict[str, Any] = {}
         self.tool_trace: list[dict[str, Any]] = []
         self._metadata: dict[str, Any] | None = None
         self._modified_time: str | None = None
@@ -198,8 +201,8 @@ class V4WorkbookToolHost:
 
     def _consume_read(self, cells: int) -> None:
         self.read_calls += 1
-        self.read_cells += cells
-        if self.read_calls > self.max_read_calls or self.read_cells > self.max_read_cells:
+        self.read_cell_count += cells
+        if self.read_calls > self.max_read_calls or self.read_cell_count > self.max_read_cells:
             raise V4AgentLimitExceeded("workbook_read_limit_exceeded")
 
     def read_range(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -261,31 +264,113 @@ class V4WorkbookToolHost:
             "cells": [item.model_dump(mode="json") for item in cells],
         }
 
+    def _read_exact_cells_batched(
+        self,
+        sheet: str,
+        cells: list[str],
+        *,
+        consume_limits: bool = True,
+    ) -> list[CellEvidence]:
+        self._authorize_sheet(sheet)
+        canonical_cells = [_canonical_cell(str(cell)) for cell in cells]
+        if consume_limits:
+            for _ in canonical_cells:
+                self._consume_read(1)
+        escaped_sheet = sheet.replace("'", "''")
+        ranges = [f"'{escaped_sheet}'!{cell}" for cell in canonical_cells]
+        raw_blocks = self.google.batch_get_values(
+            self.spreadsheet_file_id,
+            ranges,
+            value_render_option="UNFORMATTED_VALUE",
+        )
+        formula_blocks = self.google.batch_get_values(
+            self.spreadsheet_file_id,
+            ranges,
+            value_render_option="FORMULA",
+        )
+        evidence: list[CellEvidence] = []
+        for index, cell in enumerate(canonical_cells):
+            raw_rows = (
+                list(raw_blocks[index].get("values") or [])
+                if index < len(raw_blocks)
+                else []
+            )
+            formula_rows = (
+                list(formula_blocks[index].get("values") or [])
+                if index < len(formula_blocks)
+                else []
+            )
+            raw_value = raw_rows[0][0] if raw_rows and raw_rows[0] else None
+            formula_value = (
+                formula_rows[0][0] if formula_rows and formula_rows[0] else None
+            )
+            formula = (
+                formula_value
+                if isinstance(formula_value, str) and formula_value.startswith("=")
+                else None
+            )
+            item = CellEvidence(
+                sheet=sheet,
+                cell=cell,
+                raw_value=raw_value,
+                formula=formula,
+                evidence_hash=_evidence_hash(sheet, cell, raw_value, formula),
+            )
+            self.ledger[(sheet, cell)] = item
+            evidence.append(item)
+        return evidence
+
     def read_cells(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
         sheet = str(arguments.get("sheet") or "")
-        cells = list(arguments.get("cells") or [])
+        cells = [str(cell) for cell in list(arguments.get("cells") or [])]
         if not cells:
             raise V4AgentSafetyError("cells_required")
-        evidence = []
-        for cell in cells:
-            result = self.read_range(
-                {"sheet": sheet, "a1_range": str(cell), "include_formulas": True}
-            )
-            evidence.extend(result["cells"])
-        return {"sheet": sheet, "cells": evidence}
+        evidence = self._read_exact_cells_batched(sheet, cells)
+        return {
+            "sheet": sheet,
+            "cells": [item.model_dump(mode="json") for item in evidence],
+        }
 
-    def get_material_catalog(self, _arguments: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    def search_material_catalog(self, arguments: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        arguments = arguments or {}
+        query_text = str(arguments.get("query") or "").strip()
+        category = str(arguments.get("category") or "").strip()
+        try:
+            requested_limit = int(arguments.get("limit") or 25)
+        except (TypeError, ValueError):
+            requested_limit = 25
+        limit = min(max(requested_limit, 1), 50)
         with self.session_factory() as session:
+            query = select(InventoryItemModel).where(
+                InventoryItemModel.tenant_id == self.tenant_id,
+                InventoryItemModel.active.is_(True),
+            )
+            if category:
+                query = query.where(
+                    func.lower(func.coalesce(InventoryItemModel.category, ""))
+                    == category.casefold()
+                )
+            if query_text:
+                needle = f"%{query_text.casefold()}%"
+                alias_ids = select(InventoryItemAliasModel.item_id).where(
+                    InventoryItemAliasModel.tenant_id == self.tenant_id,
+                    func.lower(InventoryItemAliasModel.normalized_alias).like(needle),
+                )
+                query = query.where(
+                    or_(
+                        func.lower(InventoryItemModel.sku).like(needle),
+                        func.lower(InventoryItemModel.name).like(needle),
+                        func.lower(func.coalesce(InventoryItemModel.category, "")).like(needle),
+                        InventoryItemModel.id.in_(alias_ids),
+                    )
+                )
             rows = list(
                 session.scalars(
-                    select(InventoryItemModel)
-                    .where(
-                        InventoryItemModel.tenant_id == self.tenant_id,
-                        InventoryItemModel.active.is_(True),
-                    )
-                    .order_by(InventoryItemModel.id)
+                    query.order_by(InventoryItemModel.name, InventoryItemModel.id).limit(limit + 1)
                 )
             )
+            truncated = len(rows) > limit
+            rows = rows[:limit]
             materials = [
                 {
                     "material_id": row.id,
@@ -297,7 +382,18 @@ class V4WorkbookToolHost:
                 }
                 for row in rows
             ]
-        return {"materials": materials}
+        return {
+            "materials": materials,
+            "query": query_text or None,
+            "category": category or None,
+            "limit": limit,
+            "truncated": truncated,
+        }
+
+    def get_material_catalog(self, arguments: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        # Backward-compatible server handler for old in-flight tool calls. New
+        # declarations expose only bounded search to avoid returning the entire catalog.
+        return self.search_material_catalog(arguments)
 
     def _reference_evidence(self, reference: EvidenceReference) -> CellEvidence:
         evidence = self.ledger.get((reference.sheet, reference.cell))
@@ -324,6 +420,48 @@ class V4WorkbookToolHost:
             "uncertainties": len(assessment.uncertainties),
             "additional_reads_needed": assessment.additional_reads_needed,
         }
+
+    def propose_knowledge(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
+        proposal = KnowledgeProposal.model_validate(dict(arguments))
+        for reference in proposal.evidence:
+            self._reference_evidence(reference)
+        canonical = proposal.model_dump(mode="json")
+        if any(item.model_dump(mode="json") == canonical for item in self.knowledge_proposals):
+            return {"accepted": True, "duplicate": True, "proposal_count": len(self.knowledge_proposals)}
+        self.knowledge_proposals.append(proposal)
+        return {
+            "accepted": True,
+            "duplicate": False,
+            "proposal_count": len(self.knowledge_proposals),
+            "instruction": "Proposal recorded for human review only. It is not active knowledge.",
+        }
+
+    def build_change_audit(self, verification_status: str) -> list[dict[str, Any]]:
+        if self.staged is None:
+            return []
+        rows: list[dict[str, Any]] = []
+        for operation in self.staged.operations:
+            before = self.ledger.get((operation.sheet, operation.cell))
+            source = self._reference_evidence(operation.copy_from) if operation.copy_from else None
+            rows.append(
+                {
+                    "sheet": operation.sheet,
+                    "cell": operation.cell,
+                    "row_number": _cell_parts(operation.cell)[1],
+                    "before": before.raw_value if before is not None else None,
+                    "after": operation.value if operation.type == "set_cell" else None,
+                    "source_sheet": source.sheet if source is not None else None,
+                    "source_cell": source.cell if source is not None else None,
+                    "material_id": (operation.semantic_context or {}).get("material_id"),
+                    "warehouse_id": (operation.semantic_context or {}).get("warehouse_id"),
+                    "operation_type": operation.type,
+                    "reason": operation.reason,
+                    "provenance": operation.provenance,
+                    "evidence": [item.model_dump(mode="json") for item in operation.evidence],
+                    "verification_status": verification_status,
+                }
+            )
+        return rows
 
     def _target_within_grid(self, sheet: str, cell: str) -> bool:
         if self._metadata is None:
@@ -387,18 +525,22 @@ class V4WorkbookToolHost:
 
     def _assert_evidence_fresh(self, references: list[EvidenceReference]) -> None:
         unique = {(item.sheet, item.cell): item for item in references}
+        by_sheet: dict[str, list[EvidenceReference]] = {}
         for reference in unique.values():
-            expected = self._reference_evidence(reference)
-            result = self.read_range(
-                {
-                    "sheet": reference.sheet,
-                    "a1_range": reference.cell,
-                    "include_formulas": True,
-                }
+            by_sheet.setdefault(reference.sheet, []).append(reference)
+        for sheet, sheet_references in by_sheet.items():
+            expected_by_cell = {
+                reference.cell: self._reference_evidence(reference)
+                for reference in sheet_references
+            }
+            current_items = self._read_exact_cells_batched(
+                sheet,
+                [reference.cell for reference in sheet_references],
             )
-            current = CellEvidence.model_validate(result["cells"][0])
-            if current.evidence_hash != expected.evidence_hash:
-                raise V4AgentSafetyError("stale_evidence")
+            for current in current_items:
+                expected = expected_by_cell[current.cell]
+                if current.evidence_hash != expected.evidence_hash:
+                    raise V4AgentSafetyError("stale_evidence")
 
     def _validate_generic_transform(self, operation) -> bool:
         """Mechanically verify a declared transform, never its business meaning.
@@ -520,7 +662,14 @@ class V4WorkbookToolHost:
         if self.staged is None:
             raise V4AgentSafetyError("staged_edits_required")
         if self.staged.status != "ready" or self.staged.requires_review:
-            return {"status": self.staged.status, "writes": 0, "set_count": 0, "clear_count": 0, "verification_status": "not_executed"}
+            self.last_execution = {
+                "status": self.staged.status,
+                "writes": 0,
+                "set_count": 0,
+                "clear_count": 0,
+                "verification_status": "not_executed",
+            }
+            return self.last_execution
         references = list(self.assessment_references)
         for operation in self.staged.operations:
             references.extend(operation.evidence)
@@ -553,13 +702,14 @@ class V4WorkbookToolHost:
             observed = self.google.batch_get_values(self.spreadsheet_file_id, clear_ranges)
             if any((block.get("values") or []) for block in observed):
                 raise V4AgentSafetyError("clear_readback_verification_failed")
-        return {
+        self.last_execution = {
             "status": "completed",
             "writes": len(set_operations) + len(clear_operations),
             "set_count": len(set_operations),
             "clear_count": len(clear_operations),
             "verification_status": "verified",
         }
+        return self.last_execution
 
     def execute(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         handlers = {
@@ -567,7 +717,9 @@ class V4WorkbookToolHost:
             "read_range": self.read_range,
             "read_cells": self.read_cells,
             "get_material_catalog": self.get_material_catalog,
+            "search_material_catalog": self.search_material_catalog,
             "submit_workbook_assessment": self.submit_workbook_assessment,
+            "propose_knowledge": self.propose_knowledge,
             "stage_edits": self.stage_edits,
         }
         handler = handlers.get(name)
@@ -614,7 +766,7 @@ class V4WorkbookToolHost:
                     "cells": len(result["cells"]),
                 }
             )
-        elif name == "get_material_catalog":
+        elif name in {"get_material_catalog", "search_material_catalog"}:
             trace["count"] = len(result["materials"])
         elif name == "submit_workbook_assessment":
             trace.update(
@@ -624,6 +776,8 @@ class V4WorkbookToolHost:
                     "additional_reads_needed": result["additional_reads_needed"],
                 }
             )
+        elif name == "propose_knowledge":
+            trace["proposal_count"] = result["proposal_count"]
         elif name == "stage_edits":
             trace["operation_count"] = result["operation_count"]
         self.tool_trace.append(trace)
@@ -664,14 +818,26 @@ def function_declarations() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "get_material_catalog",
-            "description": "Return the raw active material catalog for the current tenant.",
-            "parameters": {"type": "object", "properties": {}},
+            "name": "search_material_catalog",
+            "description": "Search the active tenant material catalog by SKU, name, alias, or category. Results are bounded; prefer a specific query or category.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "category": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                },
+            },
         },
         {
             "name": "submit_workbook_assessment",
             "description": "Submit a grounded workbook assessment before staging. Cite only evidence returned by read tools.",
             "parametersJsonSchema": WorkbookAssessment.model_json_schema(),
+        },
+        {
+            "name": "propose_knowledge",
+            "description": "Propose a reusable workbook rule for human review. The proposal must cite already-read evidence and is never activated automatically.",
+            "parametersJsonSchema": KnowledgeProposal.model_json_schema(),
         },
         {
             "name": "stage_edits",

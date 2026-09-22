@@ -240,3 +240,66 @@ def test_morning_reset_rerun_requires_control_permission_and_calls_scheduler():
         response = allowed.post("/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/rerun")
     assert response.status_code == 200
     scheduler.retry_v4_morning_reset.assert_called_once_with("tenant-a", date(2030, 8, 10))
+
+
+def test_stage_detail_requires_read_permission_and_forwards_stage():
+    denied = client_for(principal(set()))
+    assert denied.get(
+        "/api/inventory/daily-sheet/lifecycle-history/2030-08-10/stages/evening_reconcile/detail"
+    ).status_code == 403
+    audit = Mock()
+    audit.stage_detail.return_value = {
+        "id": "audit-1",
+        "business_date": "2030-08-10",
+        "stage": "evening_reconcile",
+        "changes": [],
+    }
+    allowed = client_for(principal({"inventory.read"}))
+    with patch("app.modules.inventory.daily_sheet.router._audit", return_value=audit):
+        response = allowed.get(
+            "/api/inventory/daily-sheet/lifecycle-history/2030-08-10/stages/evening_reconcile/detail"
+        )
+    assert response.status_code == 200
+    audit.stage_detail.assert_called_once_with(
+        "tenant-a", date(2030, 8, 10), "evening_reconcile"
+    )
+
+
+def test_knowledge_routes_separate_read_from_control_permission():
+    denied = client_for(principal({"inventory.read"}))
+    assert denied.post(
+        "/api/inventory/daily-sheet/knowledge",
+        json={
+            "kind": "RULE",
+            "title": "Rule",
+            "content": "Content",
+            "scope_type": "workbook",
+            "scope_key": "*",
+        },
+    ).status_code == 403
+
+    knowledge = Mock()
+    knowledge.list.return_value = [{"id": "k1", "status": "active"}]
+    knowledge.create.return_value = {"id": "k2", "status": "draft"}
+    reader = client_for(principal({"inventory.read"}))
+    with patch("app.modules.inventory.daily_sheet.router._knowledge", return_value=knowledge):
+        response = reader.get("/api/inventory/daily-sheet/knowledge?status=active,proposed")
+    assert response.status_code == 200
+    knowledge.list.assert_called_once_with(
+        "tenant-a", statuses=("active", "proposed")
+    )
+
+    controller = client_for(principal({"inventory.control"}))
+    with patch("app.modules.inventory.daily_sheet.router._knowledge", return_value=knowledge):
+        response = controller.post(
+            "/api/inventory/daily-sheet/knowledge",
+            json={
+                "kind": "RULE",
+                "title": "Rule",
+                "content": "Content",
+                "scope_type": "workbook",
+                "scope_key": "*",
+            },
+        )
+    assert response.status_code == 200
+    knowledge.create.assert_called_once()

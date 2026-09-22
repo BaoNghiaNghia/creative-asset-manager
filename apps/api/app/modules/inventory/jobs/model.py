@@ -37,6 +37,12 @@ class InventoryJobModel(Base):
         ),
         Index("ix_inventory_jobs_lease", "status", "lease_expires_at"),
         Index("ix_inventory_jobs_tenant_status", "tenant_id", "status"),
+        Index(
+            "ix_inventory_jobs_tenant_type_entity",
+            "tenant_id",
+            "job_type",
+            "entity_id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)

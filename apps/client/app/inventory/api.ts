@@ -139,4 +139,92 @@ export type InventoryLifecycleStageStatus = "pending"|"scheduled"|"running"|"com
 export type InventoryLifecycleStage = { key:"morning_reset"|"afternoon_snapshot"|"evening_reconcile"|"verified"; label:string; status:InventoryLifecycleStageStatus; scheduled_time?:string; started_at?:string|null; completed_at?:string|null; error_code?:string|null; error_message?:string|null; run_id?:string|null; plan_hash?:string|null; prompt_version?:string|null; prompt_hash?:string|null };
 export type InventoryLifecycleHistoryItem = { business_date:string; overall_status:InventoryLifecycleStageStatus; current_stage:string; stages:InventoryLifecycleStage[]; files:{shared_url:string|null;snapshot_url:string|null;gemini_url:string|null}; updated_at:string|null; action_required:{code:string;stage:string;label:string}|null };
 export type InventoryLifecycleHistoryResponse = {items:InventoryLifecycleHistoryItem[];page:number;page_size:number;total:number;pages:number};
-export const inventoryLifecycleApi = { getHistory:(page=1,pageSize=25)=>request<InventoryLifecycleHistoryResponse>(`/daily-sheet/lifecycle-history?page=${page}&page_size=${pageSize}`), rerunMorningReset:(businessDate:string)=>request<{status:string;stage:string}>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/morning-reset/rerun`,{method:"POST"}) };
+
+export type InventoryOperationChange = {
+  sequence:number;
+  sheet:string;
+  row_number:number|null;
+  cell:string;
+  before:unknown;
+  after:unknown;
+  source_sheet:string|null;
+  source_cell:string|null;
+  material_id:string|null;
+  warehouse_id:string|null;
+  operation_type:string;
+  reason:string;
+  provenance:string|null;
+  evidence:Array<Record<string,unknown>>;
+  verification_status:string;
+};
+export type InventoryStageDetail = {
+  id:string;
+  business_date:string;
+  stage:string;
+  stage_label:string;
+  run_id:string|null;
+  status:string;
+  summary:Record<string,unknown>;
+  assessment:Record<string,unknown>;
+  tool_trace:Array<Record<string,unknown>>;
+  read_ranges:Array<string|Record<string,unknown>>;
+  prompt:{source:string|null;version:string|null;hash:string|null};
+  knowledge:{hash:string|null;version:number|null};
+  model:string|null;
+  writes:number;
+  error_code:string|null;
+  error_message:string|null;
+  started_at:string|null;
+  completed_at:string|null;
+  changes:InventoryOperationChange[];
+  issues?:Array<Record<string,unknown>>;
+  source:string;
+};
+export type InventoryKnowledgeKind = "RULE"|"EXCEPTION"|"COLUMN_MEANING"|"ROW_TYPE"|"FORMULA"|"MATERIAL_MAPPING"|"WAREHOUSE_MAPPING"|"UNIT_CONVERSION"|"NAMING_PATTERN"|"DO_NOT_EDIT"|"BUSINESS_NOTE";
+export type InventoryKnowledgeStatus = "proposed"|"draft"|"active"|"archived"|"rejected";
+export type InventoryKnowledgeEntry = {
+  id:string;
+  knowledge_key:string;
+  version:number;
+  kind:InventoryKnowledgeKind;
+  scope_type:string;
+  scope_key:string;
+  title:string;
+  content:string;
+  structured_rule:Record<string,unknown>;
+  status:InventoryKnowledgeStatus;
+  confidence:number|null;
+  source:string;
+  source_run_id:string|null;
+  source_content_hash:string|null;
+  evidence:Array<Record<string,unknown>>;
+  supersedes_id:string|null;
+  created_by:string|null;
+  activated_by:string|null;
+  created_at:string|null;
+  updated_at:string|null;
+  activated_at:string|null;
+};
+export type InventoryKnowledgeDraft = {
+  kind:InventoryKnowledgeKind;
+  title:string;
+  content:string;
+  scope_type:string;
+  scope_key:string;
+  structured_rule:Record<string,unknown>;
+  evidence?:Array<Record<string,unknown>>;
+  confidence?:number|null;
+};
+
+export const inventoryLifecycleApi = {
+  getHistory:(page=1,pageSize=25)=>request<InventoryLifecycleHistoryResponse>(`/daily-sheet/lifecycle-history?page=${page}&page_size=${pageSize}`),
+  getStageDetail:(businessDate:string,stage:string)=>request<InventoryStageDetail>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/stages/${encodeURIComponent(stage)}/detail`),
+  rerunMorningReset:(businessDate:string)=>request<{status:string;stage:string}>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/morning-reset/rerun`,{method:"POST"}),
+};
+export const inventoryKnowledgeApi = {
+  list:(status?:string)=>request<{items:InventoryKnowledgeEntry[]}>(`/daily-sheet/knowledge${status?`?status=${encodeURIComponent(status)}`:""}`),
+  create:(body:InventoryKnowledgeDraft)=>request<InventoryKnowledgeEntry>("/daily-sheet/knowledge",{method:"POST",body:JSON.stringify(body)}),
+  revise:(id:string,body:Partial<InventoryKnowledgeDraft>)=>request<InventoryKnowledgeEntry>(`/daily-sheet/knowledge/${encodeURIComponent(id)}/revisions`,{method:"POST",body:JSON.stringify(body)}),
+  activate:(id:string)=>request<InventoryKnowledgeEntry>(`/daily-sheet/knowledge/${encodeURIComponent(id)}/activate`,{method:"POST"}),
+  reject:(id:string)=>request<InventoryKnowledgeEntry>(`/daily-sheet/knowledge/${encodeURIComponent(id)}/reject`,{method:"POST"}),
+};

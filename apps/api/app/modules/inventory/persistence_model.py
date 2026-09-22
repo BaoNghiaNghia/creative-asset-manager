@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -1003,6 +1004,8 @@ class InventoryDailyCarryForwardModel(Base):
     prompt_version: Mapped[str | None] = mapped_column(String(64))
     prompt_hash: Mapped[str | None] = mapped_column(String(64))
     prompt_content: Mapped[str | None] = mapped_column(Text)
+    knowledge_hash: Mapped[str | None] = mapped_column(String(64))
+    knowledge_version: Mapped[int | None] = mapped_column(Integer)
     material_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     warehouse_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     issue_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -1083,3 +1086,112 @@ class InventoryDailySheetReconciliationModel(Base):
     summary_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
+
+
+class InventoryOperationAuditModel(Base):
+    __tablename__ = "inventory_operation_audits"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_date", "stage", "run_id", name="uq_inventory_operation_audit_run"),
+        CheckConstraint("stage IN ('morning_reset','afternoon_snapshot','evening_reconcile','manual_prompt_test')", name="ck_inventory_operation_audits_stage"),
+        CheckConstraint("status IN ('pending','running','shadow','completed','review_required','blocked','failed')", name="ck_inventory_operation_audits_status"),
+        Index("ix_inventory_operation_audits_tenant_date", "tenant_id", "business_date", "stage", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    run_id: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    summary_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    assessment_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    tool_trace_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    read_ranges_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    prompt_source: Mapped[str | None] = mapped_column(String(32))
+    prompt_version: Mapped[str | None] = mapped_column(String(64))
+    prompt_hash: Mapped[str | None] = mapped_column(String(64))
+    knowledge_hash: Mapped[str | None] = mapped_column(String(64))
+    knowledge_version: Mapped[int | None] = mapped_column(Integer)
+    model: Mapped[str | None] = mapped_column(String(128))
+    writes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
+
+
+class InventoryOperationChangeModel(Base):
+    __tablename__ = "inventory_operation_changes"
+    __table_args__ = (
+        UniqueConstraint("audit_id", "sequence", name="uq_inventory_operation_change_sequence"),
+        CheckConstraint("operation_type IN ('set_cell','clear_cell')", name="ck_inventory_operation_changes_type"),
+        CheckConstraint("verification_status IN ('verified','not_executed','failed','unknown')", name="ck_inventory_operation_changes_verification"),
+        Index("ix_inventory_operation_changes_audit", "audit_id", "sequence"),
+        Index("ix_inventory_operation_changes_tenant_row", "tenant_id", "sheet", "row_number"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    audit_id: Mapped[str] = mapped_column(ENTITY_ID, ForeignKey("inventory_operation_audits.id", ondelete="CASCADE"), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    sheet: Mapped[str] = mapped_column(String(255), nullable=False)
+    row_number: Mapped[int | None] = mapped_column(Integer)
+    cell: Mapped[str] = mapped_column(String(32), nullable=False)
+    before_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    after_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    source_sheet: Mapped[str | None] = mapped_column(String(255))
+    source_cell: Mapped[str | None] = mapped_column(String(32))
+    material_id: Mapped[str | None] = mapped_column(String(255))
+    warehouse_id: Mapped[str | None] = mapped_column(String(255))
+    operation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    provenance: Mapped[str | None] = mapped_column(String(32))
+    evidence_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    verification_status: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
+class InventoryKnowledgeEntryModel(Base):
+    __tablename__ = "inventory_knowledge_entries"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "knowledge_key", "version", name="uq_inventory_knowledge_version"),
+        UniqueConstraint("tenant_id", "source_run_id", "source_content_hash", name="uq_inventory_knowledge_proposal_source"),
+        CheckConstraint("version > 0", name="ck_inventory_knowledge_version_positive"),
+        CheckConstraint("status IN ('proposed','draft','active','archived','rejected')", name="ck_inventory_knowledge_status"),
+        CheckConstraint("kind IN ('RULE','EXCEPTION','COLUMN_MEANING','ROW_TYPE','FORMULA','MATERIAL_MAPPING','WAREHOUSE_MAPPING','UNIT_CONVERSION','NAMING_PATTERN','DO_NOT_EDIT','BUSINESS_NOTE')", name="ck_inventory_knowledge_kind"),
+        Index("ix_inventory_knowledge_tenant_status", "tenant_id", "status", "kind", "updated_at"),
+        Index("ix_inventory_knowledge_source_run", "tenant_id", "source_run_id", "source_content_hash"),
+        Index(
+            "uq_inventory_knowledge_active_key",
+            "tenant_id",
+            "knowledge_key",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    knowledge_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False, default="workbook")
+    scope_key: Mapped[str] = mapped_column(String(255), nullable=False, default="*")
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    structured_rule_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    confidence: Mapped[Decimal | None] = mapped_column(CONFIDENCE)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    source_run_id: Mapped[str | None] = mapped_column(String(128))
+    source_content_hash: Mapped[str | None] = mapped_column(String(64))
+    evidence_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    supersedes_id: Mapped[str | None] = mapped_column(
+        ENTITY_ID,
+        ForeignKey("inventory_knowledge_entries.id", ondelete="SET NULL"),
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    activated_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

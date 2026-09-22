@@ -37,6 +37,7 @@ class FakeGoogle:
     def __init__(self):
         self.closed = False
         self.mutation_calls = []
+        self.batch_get_calls = []
         self.modified_time = "2030-08-09T00:00:00Z"
         self.values = {
             "'Arbitrary'!C7:D8": [["alpha", "10"], ["", "=D7"]],
@@ -111,6 +112,7 @@ class FakeGoogle:
         }
 
     def batch_get_values(self, _file_id, ranges, *, value_render_option="UNFORMATTED_VALUE"):
+        self.batch_get_calls.append((tuple(ranges), value_render_option))
         source = self.formulas if value_render_option == "FORMULA" else self.values
         return [{"range": value, "values": deepcopy(source.get(value, []))} for value in ranges]
 
@@ -304,6 +306,37 @@ def test_arbitrary_range_returns_cell_addressed_values_formulas_and_hashes():
     assert result["cells"][0]["raw_value"] == "alpha"
     assert result["cells"][3]["formula"] == "=D7"
     assert all(len(item["evidence_hash"]) == 64 for item in result["cells"])
+
+def test_read_cells_batches_provider_calls_but_preserves_logical_read_limits():
+    tools = host()
+    result = tools.read_cells(
+        {"sheet": "Arbitrary", "cells": ["C7", "D7", "D8"]}
+    )
+    assert [item["cell"] for item in result["cells"]] == ["C7", "D7", "D8"]
+    assert tools.read_calls == 3
+    assert tools.read_cell_count == 3
+    assert len(tools.google.batch_get_calls) == 2
+    assert tools.google.batch_get_calls[0][0] == (
+        "'Arbitrary'!C7",
+        "'Arbitrary'!D7",
+        "'Arbitrary'!D8",
+    )
+    assert tools.google.batch_get_calls[0][1] == "UNFORMATTED_VALUE"
+    assert tools.google.batch_get_calls[1][1] == "FORMULA"
+
+
+def test_evidence_freshness_revalidation_batches_cells_per_sheet():
+    tools = host()
+    cells = tools.read_cells(
+        {"sheet": "Arbitrary", "cells": ["C7", "D7"]}
+    )["cells"]
+    references = [EvidenceReference.model_validate(reference(item)) for item in cells]
+    before_provider_calls = len(tools.google.batch_get_calls)
+    before_logical_calls = tools.read_calls
+    tools._assert_evidence_fresh(references)
+    assert len(tools.google.batch_get_calls) - before_provider_calls == 2
+    assert tools.read_calls - before_logical_calls == 2
+
 
 def test_range_normalizes_lowercase_absolute_references_and_whitespace():
     result = host().read_range(
@@ -1028,7 +1061,7 @@ def test_v41_material_catalog_is_only_read_when_model_requests_it():
             "material_actions": [],
         },
     )
-    assert "get_material_catalog" not in [item["tool"] for item in tools.tool_trace]
+    assert "search_material_catalog" not in [item["tool"] for item in tools.tool_trace]
 
 
 def test_v41_tool_trace_contains_only_safe_structural_diagnostics():
@@ -1114,7 +1147,7 @@ class ProductionShapedGateway(ScriptedGateway):
         if self.calls == 3:
             response = kwargs["contents"][-1]["parts"][0]["functionResponse"]["response"]
             self.cells = {item["cell"]: item for item in response["cells"]}
-            return self._turn("get_material_catalog", {})
+            return self._turn("search_material_catalog", {})
         if self.calls == 4:
             return self._turn(
                 "submit_workbook_assessment",
@@ -1260,7 +1293,7 @@ def test_v41_production_shaped_semantic_sequence_is_grounded_shadow_review():
     assert result.tools_called == [
         "get_workbook_metadata",
         "read_range",
-        "get_material_catalog",
+        "search_material_catalog",
         "submit_workbook_assessment",
         "stage_edits",
     ]

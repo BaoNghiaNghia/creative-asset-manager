@@ -6,12 +6,14 @@ from decimal import Decimal
 import re
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
-from sqlalchemy import select, text
+from sqlalchemy import String, cast, func, literal, select, text, union
 from sqlalchemy.orm import Session, sessionmaker
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel
 from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetConfig, DailySheetAnyConfig, DailySheetConfig, GeminiSheetAgentConfig, GeminiToolSheetAgentConfig, normalize_identifier, normalize_sku, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient, require_sheets_scope
+from app.modules.inventory.daily_sheet.audit import InventoryOperationAuditService
+from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
 from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailyCountSheetValidationError, DailySheetValidationError, StockRecord, build_daily_count_variances, build_variances, canonical_hash, _normalized_header, classify_daily_count_row, parse_daily_count_records, parse_stock_records, value_blocks
 from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.persistence_model import InventoryDailyCarryForwardModel, InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel, inventory_utcnow
@@ -653,12 +655,61 @@ class InventoryDailySheetService:
         if slot_kind == "evening_reconcile":
             self._assert_v4_snapshot_fresh(tenant_id, business_date, context)
             self._mark_v4_reconcile_started(tenant_id, business_date)
-        runtime = self._v4_runtime_context(tenant_id, business_date, context)
+        audit_stage = (
+            slot_kind
+            if slot_kind in {"morning_reset", "evening_reconcile"}
+            else "manual_prompt_test"
+        )
+        audit_started_at = inventory_utcnow()
         try:
+            runtime = self._v4_runtime_context(tenant_id, business_date, context)
             result = self._agent_v4().run(
                 tenant_id, business_date, slot_kind=slot_kind, context=runtime,
             )
+            try:
+                InventoryOperationAuditService(self.session_factory).persist_v4_result(
+                    tenant_id,
+                    business_date,
+                    stage=audit_stage,
+                    result=result,
+                    started_at=audit_started_at,
+                )
+                if getattr(result, "run_id", None) and getattr(result, "knowledge_proposals", None):
+                    InventoryKnowledgeService(self.session_factory).persist_proposals(
+                        tenant_id,
+                        run_id=str(result.run_id),
+                        proposals=[
+                            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+                            for item in result.knowledge_proposals
+                        ],
+                    )
+            except Exception:
+                logger.exception(
+                    "inventory_operation_audit_persist_failed",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "business_date": business_date.isoformat(),
+                        "stage": audit_stage,
+                    },
+                )
         except Exception as exc:
+            try:
+                InventoryOperationAuditService(self.session_factory).persist_failure(
+                    tenant_id,
+                    business_date,
+                    stage=audit_stage,
+                    error=exc,
+                    started_at=audit_started_at,
+                )
+            except Exception:
+                logger.exception(
+                    "inventory_operation_failure_audit_persist_failed",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "business_date": business_date.isoformat(),
+                        "stage": audit_stage,
+                    },
+                )
             if slot_kind == "evening_reconcile":
                 self._mark_v4_reconcile_failure(tenant_id, business_date, exc)
             raise
@@ -754,11 +805,34 @@ class InventoryDailySheetService:
                 payload_json={"slot_kind": "manual_prompt_test", "gemini_file_id": runtime.runtime_target_file_id, "prompt_source": resolved.source, "prompt_version": resolved.version, "prompt_hash": resolved.content_hash, "prompt_content": resolved.content},
             )
             session.add(job); session.commit()
+        audit_started_at = inventory_utcnow()
         try:
             result = self._agent_v4().run(
                 tenant_id, business_date, slot_kind="manual_prompt_test", context=runtime,
                 prompt_mode="active_test", prompt_override=resolved, run_id=run_id,
             )
+            try:
+                InventoryOperationAuditService(self.session_factory).persist_v4_result(
+                    tenant_id,
+                    business_date,
+                    stage="manual_prompt_test",
+                    result=result,
+                    started_at=audit_started_at,
+                )
+                if getattr(result, "knowledge_proposals", None):
+                    InventoryKnowledgeService(self.session_factory).persist_proposals(
+                        tenant_id,
+                        run_id=run_id,
+                        proposals=[
+                            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+                            for item in result.knowledge_proposals
+                        ],
+                    )
+            except Exception:
+                logger.exception(
+                    "inventory_manual_operation_audit_persist_failed",
+                    extra={"tenant_id": tenant_id, "business_date": business_date.isoformat(), "run_id": run_id},
+                )
             with self.session_factory() as session:
                 job = session.get(InventoryJobModel, run_id)
                 job.status, job.completed_at = "completed", inventory_utcnow()
@@ -766,6 +840,20 @@ class InventoryDailySheetService:
                 session.commit()
             return result
         except Exception as exc:
+            try:
+                InventoryOperationAuditService(self.session_factory).persist_failure(
+                    tenant_id,
+                    business_date,
+                    stage="manual_prompt_test",
+                    error=exc,
+                    run_id=run_id,
+                    started_at=audit_started_at,
+                )
+            except Exception:
+                logger.exception(
+                    "inventory_manual_failure_audit_persist_failed",
+                    extra={"tenant_id": tenant_id, "business_date": business_date.isoformat(), "run_id": run_id},
+                )
             with self.session_factory() as session:
                 job = session.get(InventoryJobModel, run_id)
                 if job:
@@ -1589,27 +1677,118 @@ class InventoryDailySheetService:
         if page < 1 or page_size not in {25, 50, 100}:
             raise ValueError("invalid_lifecycle_history_pagination")
         with self.session_factory() as session:
-            settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id))
+            settings = session.scalar(
+                select(InventorySettingsModel).where(
+                    InventorySettingsModel.tenant_id == tenant_id
+                )
+            )
             timezone_name = settings.timezone if settings else "Asia/Ho_Chi_Minh"
             today = self.clock().astimezone(ZoneInfo(timezone_name)).date()
-            carries = list(session.scalars(select(InventoryDailyCarryForwardModel).where(InventoryDailyCarryForwardModel.tenant_id == tenant_id)))
-            snapshots = list(session.scalars(select(InventoryDailySheetSnapshotModel).where(InventoryDailySheetSnapshotModel.tenant_id == tenant_id)))
-            jobs = list(session.scalars(select(InventoryJobModel).where(InventoryJobModel.tenant_id == tenant_id, InventoryJobModel.job_type.in_(("inventory_v5_morning_reset_slot", "inventory_v5_afternoon_snapshot_slot", "inventory_v5_evening_reconcile_slot")))))
+            job_types = (
+                "inventory_v5_morning_reset_slot",
+                "inventory_v5_afternoon_snapshot_slot",
+                "inventory_v5_evening_reconcile_slot",
+            )
+            date_queries = [
+                select(
+                    cast(
+                        InventoryDailyCarryForwardModel.target_business_date,
+                        String,
+                    ).label("business_date")
+                ).where(InventoryDailyCarryForwardModel.tenant_id == tenant_id),
+                select(
+                    cast(
+                        InventoryDailySheetSnapshotModel.business_date,
+                        String,
+                    ).label("business_date")
+                ).where(InventoryDailySheetSnapshotModel.tenant_id == tenant_id),
+                select(
+                    func.substr(InventoryJobModel.entity_id, 1, 10).label("business_date")
+                ).where(
+                    InventoryJobModel.tenant_id == tenant_id,
+                    InventoryJobModel.job_type.in_(job_types),
+                ),
+            ]
+            if settings and settings.daily_sheet_automation_enabled:
+                date_queries.append(select(literal(today.isoformat()).label("business_date")))
+            date_union = union(*date_queries).subquery()
+            total = int(
+                session.scalar(select(func.count()).select_from(date_union)) or 0
+            )
+            offset = (page - 1) * page_size
+            date_values = list(
+                session.scalars(
+                    select(date_union.c.business_date)
+                    .order_by(date_union.c.business_date.desc())
+                    .offset(offset)
+                    .limit(page_size)
+                )
+            )
+            page_dates = [
+                date.fromisoformat(str(value))
+                for value in date_values
+                if value
+            ]
+            carries = (
+                list(
+                    session.scalars(
+                        select(InventoryDailyCarryForwardModel).where(
+                            InventoryDailyCarryForwardModel.tenant_id == tenant_id,
+                            InventoryDailyCarryForwardModel.target_business_date.in_(page_dates),
+                        )
+                    )
+                )
+                if page_dates
+                else []
+            )
+            snapshots = (
+                list(
+                    session.scalars(
+                        select(InventoryDailySheetSnapshotModel).where(
+                            InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                            InventoryDailySheetSnapshotModel.business_date.in_(page_dates),
+                        )
+                    )
+                )
+                if page_dates
+                else []
+            )
+            job_entity_ids = [
+                f"{day.isoformat()}:{slot}"
+                for day in page_dates
+                for slot in ("morning_reset", "afternoon_snapshot", "evening_reconcile")
+            ]
+            jobs = (
+                list(
+                    session.scalars(
+                        select(InventoryJobModel).where(
+                            InventoryJobModel.tenant_id == tenant_id,
+                            InventoryJobModel.job_type.in_(job_types),
+                            InventoryJobModel.entity_id.in_(job_entity_ids),
+                        )
+                    )
+                )
+                if job_entity_ids
+                else []
+            )
             carries_by_day = {row.target_business_date: row for row in carries}
             snapshots_by_day = {row.business_date: row for row in snapshots}
-            job_names = {"inventory_v5_morning_reset_slot": "morning_reset", "inventory_v5_afternoon_snapshot_slot": "afternoon_snapshot", "inventory_v5_evening_reconcile_slot": "evening_reconcile"}
+            job_names = {
+                "inventory_v5_morning_reset_slot": "morning_reset",
+                "inventory_v5_afternoon_snapshot_slot": "afternoon_snapshot",
+                "inventory_v5_evening_reconcile_slot": "evening_reconcile",
+            }
             jobs_by_day: dict[date, dict[str, InventoryJobModel]] = {}
             for job in jobs:
                 try:
-                    business_date = date.fromisoformat(str((job.payload_json or {}).get("business_date") or job.entity_id))
+                    business_date = date.fromisoformat(job.entity_id[:10])
                 except ValueError:
                     continue
-                prior = jobs_by_day.setdefault(business_date, {}).get(job_names[job.job_type])
+                prior = jobs_by_day.setdefault(business_date, {}).get(
+                    job_names[job.job_type]
+                )
                 if prior is None or prior.created_at < job.created_at:
                     jobs_by_day[business_date][job_names[job.job_type]] = job
-            dates = set(carries_by_day) | set(snapshots_by_day) | set(jobs_by_day)
-            if settings and settings.daily_sheet_automation_enabled:
-                dates.add(today)
 
             def normalize(value: str | None) -> str:
                 if value == "completed": return "completed"
@@ -1637,5 +1816,10 @@ class InventoryDailySheetService:
                 attention = failed or blocked
                 return {"business_date": day.isoformat(), "overall_status": overall, "current_stage": "completed" if overall == "completed" else current["key"], "stages": stages, "files": {"shared_url": f"https://docs.google.com/spreadsheets/d/{shared_file_id}/edit" if shared_file_id else None, "snapshot_url": f"https://docs.google.com/spreadsheets/d/{snapshot.snapshot_file_id}/edit" if snapshot and snapshot.snapshot_file_id else None, "gemini_url": f"https://docs.google.com/spreadsheets/d/{snapshot.gemini_file_id}/edit" if snapshot and snapshot.gemini_file_id else None}, "updated_at": max(timestamps).isoformat() if timestamps else None, "action_required": {"code": attention.get("error_code") or ("review_required" if attention["status"] != "failed" else "lifecycle_failed"), "stage": attention["key"], "label": "Xem lỗi"} if attention else None}
 
-            ordered = sorted(dates, reverse=True); offset = (page - 1) * page_size
-            return {"items": [build(day) for day in ordered[offset:offset + page_size]], "page": page, "page_size": page_size, "total": len(ordered), "pages": max(1, (len(ordered) + page_size - 1) // page_size)}
+            return {
+                "items": [build(day) for day in page_dates],
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "pages": max(1, (total + page_size - 1) // page_size),
+            }

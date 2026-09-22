@@ -10,7 +10,7 @@ import json
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings, get_settings
@@ -20,7 +20,7 @@ from app.modules.inventory.daily.carry_forward import CarryForwardPlan, CarryFor
 from app.modules.inventory.daily_sheet.parser import canonical_hash
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient
 from app.modules.inventory.model import InventoryAiControlModel
-from app.modules.inventory.persistence_model import InventoryItemModel, InventoryLocationModel
+from app.modules.inventory.persistence_model import InventoryItemAliasModel, InventoryItemModel, InventoryLocationModel
 from app.providers.google.auth import get_connection_access_token
 
 
@@ -36,6 +36,7 @@ class CarryForwardToolHost:
         self.ledger: dict[tuple[str, str, str], dict[str, Any]] = {}
         self.plan: CarryForwardPlan | None = None
         self.submitted = False
+        self.tool_trace: list[dict[str, Any]] = []
 
     def _metadata(self, role: str) -> dict[str, Any]:
         file_id = self.source_id if role == "previous_gemini" else self.target_id if role == "shared_current" else None
@@ -45,16 +46,34 @@ class CarryForwardToolHost:
 
     def _read(self, role: str, args: Mapping[str, Any]) -> dict[str, Any]:
         file_id = self.source_id if role == "previous_gemini" else self.target_id if role == "shared_current" else None
-        if not file_id: raise CarryForwardReviewRequired("invalid_workbook_role")
-        sheet, cells = str(args.get("sheet") or ""), list(args.get("cells") or [])
-        if not sheet or not cells: raise CarryForwardReviewRequired("cells_required")
+        if not file_id:
+            raise CarryForwardReviewRequired("invalid_workbook_role")
+        sheet = str(args.get("sheet") or "")
+        cells = [str(cell).upper() for cell in list(args.get("cells") or [])]
+        if not sheet or not cells:
+            raise CarryForwardReviewRequired("cells_required")
+        if len(cells) > 100:
+            raise CarryForwardReviewRequired("too_many_cells")
+        ranges = [f"'{sheet}'!{cell}" for cell in cells]
+        blocks = self.google.batch_get_values(
+            file_id,
+            ranges,
+            value_render_option="UNFORMATTED_VALUE",
+        )
         evidence = []
-        for cell in cells:
-            cell = str(cell).upper()
-            value = self.google.batch_get_values(file_id, [f"'{sheet}'!{cell}"], value_render_option="UNFORMATTED_VALUE")
-            values = (value[0].get("values") or [[]])[0] if value else []
+        for index, cell in enumerate(cells):
+            values = (
+                (blocks[index].get("values") or [[]])[0]
+                if index < len(blocks)
+                else []
+            )
             raw = values[0] if values else None
-            item = {"sheet": sheet, "cell": cell, "raw_value": raw, "evidence_hash": _hash(sheet, cell, raw)}
+            item = {
+                "sheet": sheet,
+                "cell": cell,
+                "raw_value": raw,
+                "evidence_hash": _hash(sheet, cell, raw),
+            }
             self.ledger[(role, sheet, cell)] = item
             evidence.append(item)
         return {"role": role, "cells": evidence}
@@ -99,13 +118,93 @@ class CarryForwardToolHost:
         try: return Decimal(str(value).replace(",", "."))
         except (InvalidOperation, ValueError) as exc: raise CarryForwardReviewRequired("non_numeric_closing_evidence") from exc
 
-    def _catalog(self, warehouse: bool) -> dict[str, Any]:
+    def _catalog(self, warehouse: bool, args: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        args = args or {}
+        query_text = str(args.get("query") or "").strip()
+        category = str(args.get("category") or "").strip()
+        try:
+            requested_limit = int(args.get("limit") or 25)
+        except (TypeError, ValueError):
+            requested_limit = 25
+        limit = min(max(requested_limit, 1), 50)
+        needle = f"%{query_text.casefold()}%" if query_text else None
         with self.sessions() as session:
             if warehouse:
-                rows = session.scalars(select(InventoryLocationModel).where(InventoryLocationModel.tenant_id == self.tenant_id, InventoryLocationModel.active.is_(True))).all()
-                return {"warehouses": [{"warehouse_id": r.id, "code": r.code, "name": r.name} for r in rows]}
-            rows = session.scalars(select(InventoryItemModel).where(InventoryItemModel.tenant_id == self.tenant_id, InventoryItemModel.active.is_(True))).all()
-            return {"materials": [{"material_id": r.id, "sku": r.sku, "name": r.name, "category": r.category, "base_unit": r.base_unit, "preferred_unit": r.preferred_unit} for r in rows]}
+                query = select(InventoryLocationModel).where(
+                    InventoryLocationModel.tenant_id == self.tenant_id,
+                    InventoryLocationModel.active.is_(True),
+                )
+                if needle:
+                    query = query.where(
+                        or_(
+                            func.lower(InventoryLocationModel.code).like(needle),
+                            func.lower(InventoryLocationModel.name).like(needle),
+                        )
+                    )
+                rows = list(
+                    session.scalars(
+                        query.order_by(InventoryLocationModel.name, InventoryLocationModel.id)
+                        .limit(limit + 1)
+                    )
+                )
+                truncated = len(rows) > limit
+                rows = rows[:limit]
+                return {
+                    "warehouses": [
+                        {"warehouse_id": r.id, "code": r.code, "name": r.name}
+                        for r in rows
+                    ],
+                    "query": query_text or None,
+                    "limit": limit,
+                    "truncated": truncated,
+                }
+            query = select(InventoryItemModel).where(
+                InventoryItemModel.tenant_id == self.tenant_id,
+                InventoryItemModel.active.is_(True),
+            )
+            if category:
+                query = query.where(
+                    func.lower(func.coalesce(InventoryItemModel.category, ""))
+                    == category.casefold()
+                )
+            if needle:
+                alias_ids = select(InventoryItemAliasModel.item_id).where(
+                    InventoryItemAliasModel.tenant_id == self.tenant_id,
+                    func.lower(InventoryItemAliasModel.normalized_alias).like(needle),
+                )
+                query = query.where(
+                    or_(
+                        func.lower(InventoryItemModel.sku).like(needle),
+                        func.lower(InventoryItemModel.name).like(needle),
+                        func.lower(func.coalesce(InventoryItemModel.category, "")).like(needle),
+                        InventoryItemModel.id.in_(alias_ids),
+                    )
+                )
+            rows = list(
+                session.scalars(
+                    query.order_by(InventoryItemModel.name, InventoryItemModel.id)
+                    .limit(limit + 1)
+                )
+            )
+            truncated = len(rows) > limit
+            rows = rows[:limit]
+            return {
+                "materials": [
+                    {
+                        "material_id": r.id,
+                        "sku": r.sku,
+                        "name": r.name,
+                        "category": r.category,
+                        "base_unit": r.base_unit,
+                        "preferred_unit": r.preferred_unit,
+                    }
+                    for r in rows
+                ],
+                "query": query_text or None,
+                "category": category or None,
+                "limit": limit,
+                "truncated": truncated,
+            }
 
     def submit_carry_forward_plan(self, args: Mapping[str, Any]) -> dict[str, Any]:
         if self.submitted: raise CarryForwardReviewRequired("carry_forward_plan_already_submitted")
@@ -142,15 +241,128 @@ class CarryForwardToolHost:
         return {"accepted": True, "operations": len(accepted), "issues": len(issues)}
 
     def execute(self, name: str, args: Mapping[str, Any]) -> dict[str, Any]:
-        handlers = {"get_source_workbook_metadata": lambda _: self._metadata("previous_gemini"), "get_target_workbook_metadata": lambda _: self._metadata("shared_current"), "read_source_cells": lambda a: self._read("previous_gemini", a), "read_target_cells": lambda a: self._read("shared_current", a), "read_source_range": lambda a: self._read_range("previous_gemini", a), "read_target_range": lambda a: self._read_range("shared_current", a), "get_material_catalog": lambda _: self._catalog(False), "get_warehouse_catalog": lambda _: self._catalog(True), "submit_carry_forward_plan": self.submit_carry_forward_plan}
-        if name not in handlers: raise CarryForwardReviewRequired("unknown_carry_forward_tool")
-        return handlers[name](args)
+        handlers = {
+            "get_source_workbook_metadata": lambda _: self._metadata("previous_gemini"),
+            "get_target_workbook_metadata": lambda _: self._metadata("shared_current"),
+            "read_source_cells": lambda a: self._read("previous_gemini", a),
+            "read_target_cells": lambda a: self._read("shared_current", a),
+            "read_source_range": lambda a: self._read_range("previous_gemini", a),
+            "read_target_range": lambda a: self._read_range("shared_current", a),
+            "get_material_catalog": lambda a: self._catalog(False, a),
+            "get_warehouse_catalog": lambda a: self._catalog(True, a),
+            "search_material_catalog": lambda a: self._catalog(False, a),
+            "search_warehouse_catalog": lambda a: self._catalog(True, a),
+            "submit_carry_forward_plan": self.submit_carry_forward_plan,
+        }
+        if name not in handlers:
+            raise CarryForwardReviewRequired("unknown_carry_forward_tool")
+        result = handlers[name](args)
+        trace: dict[str, Any] = {"tool": name}
+        if name.startswith("get_source_"):
+            trace["role"] = "previous_gemini"
+        elif name.startswith("get_target_"):
+            trace["role"] = "shared_current"
+        if name in {"get_source_workbook_metadata", "get_target_workbook_metadata"}:
+            trace["sheet_count"] = len(result.get("sheets") or [])
+        elif name in {"read_source_cells", "read_target_cells"}:
+            trace["sheet"] = str(args.get("sheet") or "")
+            trace["cells"] = [str(value).upper() for value in list(args.get("cells") or [])[:100]]
+            trace["cell_count"] = len(result.get("cells") or [])
+        elif name in {"read_source_range", "read_target_range"}:
+            trace["sheet"] = str(args.get("sheet") or "")
+            trace["range"] = str(args.get("a1_range") or "")
+            trace["cell_count"] = len(result.get("cells") or [])
+        elif name in {"get_material_catalog", "search_material_catalog"}:
+            trace["count"] = len(result.get("materials") or [])
+        elif name in {"get_warehouse_catalog", "search_warehouse_catalog"}:
+            trace["count"] = len(result.get("warehouses") or [])
+        elif name == "submit_carry_forward_plan":
+            trace["operation_count"] = int(result.get("operations") or 0)
+            trace["issue_count"] = int(result.get("issues") or 0)
+        self.tool_trace.append(trace)
+        return result
+
+    def audit_snapshot(self, *, model: str | None = None, rounds: int = 0) -> dict[str, Any]:
+        return {
+            "tool_rounds": rounds,
+            "tool_trace": list(self.tool_trace),
+            "read_ranges": [
+                {
+                    "role": item.get("role"),
+                    "sheet": item.get("sheet"),
+                    "range": item.get("range"),
+                }
+                for item in self.tool_trace
+                if item.get("range")
+            ],
+            "evidence_cell_count": len(self.ledger),
+            "operation_count": len(self.plan.rows) if self.plan is not None else 0,
+            "issue_count": len(self.plan.issues) if self.plan is not None else 0,
+            "model": model,
+        }
 
 
 def function_declarations() -> list[dict[str, Any]]:
-    cells = {"type": "object", "properties": {"sheet": {"type": "string"}, "cells": {"type": "array", "items": {"type": "string"}}}, "required": ["sheet", "cells"]}
-    range_read = {"type": "object", "properties": {"sheet": {"type": "string"}, "a1_range": {"type": "string"}}, "required": ["sheet", "a1_range"]}
-    return [{"name": n, "parameters": cells if "cells" in n else range_read if "range" in n else {"type": "object", "properties": {}}} for n in ("get_source_workbook_metadata", "get_target_workbook_metadata", "read_source_cells", "read_target_cells", "read_source_range", "read_target_range", "get_material_catalog", "get_warehouse_catalog")] + [{"name": "submit_carry_forward_plan", "parameters": {"type": "object", "properties": {"operations": {"type": "array"}, "issues": {"type": "array"}}, "required": ["operations", "issues"]}}]
+    cells = {
+        "type": "object",
+        "properties": {
+            "sheet": {"type": "string"},
+            "cells": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 100,
+            },
+        },
+        "required": ["sheet", "cells"],
+    }
+    range_read = {
+        "type": "object",
+        "properties": {
+            "sheet": {"type": "string"},
+            "a1_range": {"type": "string"},
+        },
+        "required": ["sheet", "a1_range"],
+    }
+    catalog_search = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "category": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        },
+    }
+    warehouse_search = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        },
+    }
+    declarations = [
+        {"name": "get_source_workbook_metadata", "parameters": {"type": "object", "properties": {}}},
+        {"name": "get_target_workbook_metadata", "parameters": {"type": "object", "properties": {}}},
+        {"name": "read_source_cells", "parameters": cells},
+        {"name": "read_target_cells", "parameters": cells},
+        {"name": "read_source_range", "parameters": range_read},
+        {"name": "read_target_range", "parameters": range_read},
+        {"name": "search_material_catalog", "parameters": catalog_search},
+        {"name": "search_warehouse_catalog", "parameters": warehouse_search},
+    ]
+    declarations.append(
+        {
+            "name": "submit_carry_forward_plan",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operations": {"type": "array"},
+                    "issues": {"type": "array"},
+                },
+                "required": ["operations", "issues"],
+            },
+        }
+    )
+    return declarations
 
 
 class GeminiCarryForwardPlanner:
@@ -166,28 +378,87 @@ class GeminiCarryForwardPlanner:
         return control.provider, models
     def plan(self, *, tenant_id: str, previous_gemini_file_id: str, shared_workbook_id: str, prompt: str, connection_id: str = "") -> CarryForwardPlan:
         provider, models = self._runtime(tenant_id)
-        if not connection_id: raise CarryForwardReviewRequired("carry_forward_google_connection_missing")
+        if not connection_id:
+            raise CarryForwardReviewRequired("carry_forward_google_connection_missing")
         value = self.token_resolver(connection_id)
         access_token = asyncio.run(value) if hasattr(value, "__await__") else str(value)
-        contents: list[dict[str, Any]] = [{"role": "user", "parts": [{"text": prompt + "\nThe server has bound roles previous_gemini and shared_current. Use the read-only tools. Call submit_carry_forward_plan exactly once."}]}]
+        contents: list[dict[str, Any]] = [{
+            "role": "user",
+            "parts": [{
+                "text": (
+                    prompt
+                    + "\nThe server has bound roles previous_gemini and shared_current. "
+                    "Use the read-only tools. Search material and warehouse catalogs with "
+                    "specific queries instead of requesting broad catalogs. "
+                    "Call submit_carry_forward_plan exactly once."
+                )
+            }],
+        }]
         with self.client_factory(access_token) as google:
-            host = CarryForwardToolHost(tenant_id=tenant_id, source_id=previous_gemini_file_id, target_id=shared_workbook_id, google=google, sessions=self.sessions)
-            for model in models:
+            host = CarryForwardToolHost(
+                tenant_id=tenant_id,
+                source_id=previous_gemini_file_id,
+                target_id=shared_workbook_id,
+                google=google,
+                sessions=self.sessions,
+            )
+            active_model: str | None = None
+            rounds = 0
+
+            def attach_context(error: Exception) -> Exception:
                 try:
-                    for _round in range(12):
-                        turn = self.gateway.generate_tool_turn(tenant_id=tenant_id, contents=contents, function_declarations=function_declarations(), provider=provider, model=model)
-                        contents.append(dict(turn.content))
-                        if not turn.calls: break
-                        responses = []
-                        for call in turn.calls:
-                            result = host.execute(call.name, call.arguments)
-                            responses.append({"functionResponse": {"name": call.name, "response": result}})
-                        contents.append({"role": "user", "parts": responses})
-                        if host.plan is not None: return host.plan
-                except InventoryAiGatewayError as exc:
-                    if exc.code == "inventory_gemini_rate_limited": continue
-                    raise CarryForwardReviewRequired(exc.code) from exc
-        raise CarryForwardReviewRequired("carry_forward_plan_not_submitted")
+                    setattr(
+                        error,
+                        "inventory_carry_forward_audit_context",
+                        host.audit_snapshot(model=active_model, rounds=rounds),
+                    )
+                except Exception:
+                    pass
+                return error
+
+            try:
+                for model in models:
+                    active_model = model
+                    try:
+                        for _round in range(1, 13):
+                            rounds += 1
+                            turn = self.gateway.generate_tool_turn(
+                                tenant_id=tenant_id,
+                                contents=contents,
+                                function_declarations=function_declarations(),
+                                provider=provider,
+                                model=model,
+                            )
+                            contents.append(dict(turn.content))
+                            if not turn.calls:
+                                break
+                            responses = []
+                            for call in turn.calls:
+                                result = host.execute(call.name, call.arguments)
+                                responses.append(
+                                    {"functionResponse": {"name": call.name, "response": result}}
+                                )
+                            contents.append({"role": "user", "parts": responses})
+                            if host.plan is not None:
+                                return CarryForwardPlan(
+                                    host.plan.rows,
+                                    host.plan.issues,
+                                    host.plan.legacy_metadata,
+                                    host.plan.contract_version,
+                                    host.audit_snapshot(model=active_model, rounds=rounds),
+                                )
+                    except InventoryAiGatewayError as exc:
+                        if exc.code == "inventory_gemini_rate_limited":
+                            continue
+                        wrapped = CarryForwardReviewRequired(exc.code)
+                        attach_context(wrapped)
+                        raise wrapped from exc
+            except Exception as exc:
+                attach_context(exc)
+                raise
+            error = CarryForwardReviewRequired("carry_forward_plan_not_submitted")
+            attach_context(error)
+            raise error
 
 
 def build_carry_forward_planner(*, session_factory: sessionmaker[Session], settings: Settings | None = None, client_factory=GoogleSheetsInventoryClient, token_resolver=get_connection_access_token) -> GeminiCarryForwardPlanner:

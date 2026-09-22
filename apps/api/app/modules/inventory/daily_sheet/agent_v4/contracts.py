@@ -92,12 +92,27 @@ class StagedEdits(V4Contract):
     material_actions: list[StagedMaterialAction] = Field(default_factory=list)
 
 
+class KnowledgeProposal(V4Contract):
+    kind: Literal[
+        "RULE", "EXCEPTION", "COLUMN_MEANING", "ROW_TYPE", "FORMULA",
+        "MATERIAL_MAPPING", "WAREHOUSE_MAPPING", "UNIT_CONVERSION",
+        "NAMING_PATTERN", "DO_NOT_EDIT", "BUSINESS_NOTE",
+    ]
+    title: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1, max_length=4000)
+    scope_type: str = Field(default="workbook", min_length=1, max_length=32)
+    scope_key: str = Field(default="*", min_length=1, max_length=255)
+    structured_rule: dict[str, Any] = Field(default_factory=dict)
+    evidence: list[EvidenceReference] = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class V4AgentRunResult(V4Contract):
     version: Literal[4] = 4
     mode: Literal["gemini_tool_sheet_agent"] = "gemini_tool_sheet_agent"
     apply_mode: Literal["shadow", "review", "auto"] = "shadow"
     status: Literal["shadow", "completed", "review_required", "blocked"]
-    run_id: str | None = Field(default=None, min_length=64, max_length=64)
+    run_id: str | None = Field(default=None, min_length=36, max_length=128)
     tenant_id: str
     spreadsheet_file_id: str
     business_date: str
@@ -116,3 +131,10 @@ class V4AgentRunResult(V4Contract):
     business_prompt_source: str | None = None
     business_prompt_version: str | None = None
     business_prompt_hash: str | None = None
+    assessment: WorkbookAssessment | None = None
+    execution: dict[str, Any] = Field(default_factory=dict)
+    change_audit: list[dict[str, Any]] = Field(default_factory=list)
+    knowledge_hash: str | None = None
+    knowledge_version: int = 0
+    knowledge_proposals: list[KnowledgeProposal] = Field(default_factory=list)
+    model: str | None = None

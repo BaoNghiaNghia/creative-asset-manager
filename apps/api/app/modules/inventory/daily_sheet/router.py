@@ -7,6 +7,8 @@ from sqlalchemy import select
 from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.inventory.daily_sheet.config import GeminiToolSheetAgentConfig, parse_daily_sheet_config
+from app.modules.inventory.daily_sheet.audit import InventoryOperationAuditService
+from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeError, InventoryKnowledgeService
 from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.permissions import INVENTORY_CONTROL_PERMISSION, INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
@@ -45,11 +47,33 @@ class BaselineRequest(BaseModel):
 class PromptDraftRequest(BaseModel):
     content: str = Field(max_length=20_000)
 
+class KnowledgeDraftRequest(BaseModel):
+    kind: str = Field(min_length=1, max_length=32)
+    title: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1, max_length=20_000)
+    scope_type: str = Field(default="workbook", min_length=1, max_length=32)
+    scope_key: str = Field(default="*", min_length=1, max_length=255)
+    structured_rule: dict = Field(default_factory=dict)
+    evidence: list[dict] = Field(default_factory=list)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+class KnowledgeRevisionRequest(BaseModel):
+    kind: str | None = Field(default=None, min_length=1, max_length=32)
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    content: str | None = Field(default=None, min_length=1, max_length=20_000)
+    scope_type: str | None = Field(default=None, min_length=1, max_length=32)
+    scope_key: str | None = Field(default=None, min_length=1, max_length=255)
+    structured_rule: dict | None = None
+    evidence: list[dict] | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
 def _service() -> InventoryDailySheetService:
     return InventoryDailySheetService(
         SessionLocal, semantic_analyzer=build_daily_sheet_semantic_analyzer(session_factory=SessionLocal)
     )
 def _prompts() -> InventoryPromptResolver: return InventoryPromptResolver(SessionLocal)
+def _knowledge() -> InventoryKnowledgeService: return InventoryKnowledgeService(SessionLocal)
+def _audit() -> InventoryOperationAuditService: return InventoryOperationAuditService(SessionLocal)
 def _prompt_type(value: str) -> str:
     if value not in PROMPT_TYPES: raise HTTPException(422, detail={"code":"invalid_inventory_prompt_type"})
     return value
@@ -163,6 +187,100 @@ def get_lifecycle_history(page: int = 1, page_size: int = 25, principal: Current
         return _service().lifecycle_history(principal.active_tenant_id, page=page, page_size=page_size)
     except ValueError as exc:
         raise HTTPException(422, detail={"code": str(exc)}) from exc
+
+@router.get("/lifecycle-history/{business_date}/stages/{stage}/detail")
+def get_lifecycle_stage_detail(
+    business_date: date,
+    stage: str,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    try:
+        return _audit().stage_detail(principal.active_tenant_id, business_date, stage)
+    except LookupError as exc:
+        raise HTTPException(404, detail={"code": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": str(exc)}) from exc
+
+@router.get("/knowledge")
+def get_inventory_knowledge(
+    status: str | None = None,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    statuses = tuple(value.strip() for value in status.split(",") if value.strip()) if status else None
+    try:
+        return {"items": _knowledge().list(principal.active_tenant_id, statuses=statuses)}
+    except InventoryKnowledgeError as exc:
+        raise HTTPException(422, detail={"code": str(exc)}) from exc
+
+@router.post("/knowledge")
+def create_inventory_knowledge(
+    body: KnowledgeDraftRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    try:
+        return _knowledge().create(
+            principal.active_tenant_id,
+            kind=body.kind,
+            title=body.title,
+            content=body.content,
+            scope_type=body.scope_type,
+            scope_key=body.scope_key,
+            structured_rule=body.structured_rule,
+            evidence=body.evidence,
+            confidence=body.confidence,
+            actor_id=principal.user_id,
+        )
+    except InventoryKnowledgeError as exc:
+        raise HTTPException(422, detail={"code": str(exc)}) from exc
+
+@router.post("/knowledge/{entry_id}/revisions")
+def revise_inventory_knowledge(
+    entry_id: str,
+    body: KnowledgeRevisionRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    try:
+        return _knowledge().revise(
+            principal.active_tenant_id,
+            entry_id,
+            kind=body.kind,
+            title=body.title,
+            content=body.content,
+            scope_type=body.scope_type,
+            scope_key=body.scope_key,
+            structured_rule=body.structured_rule,
+            evidence=body.evidence,
+            confidence=body.confidence,
+            actor_id=principal.user_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(404, detail={"code": str(exc)}) from exc
+    except InventoryKnowledgeError as exc:
+        raise HTTPException(422, detail={"code": str(exc)}) from exc
+
+@router.post("/knowledge/{entry_id}/activate")
+def activate_inventory_knowledge(
+    entry_id: str,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    try:
+        return _knowledge().activate(principal.active_tenant_id, entry_id, principal.user_id)
+    except LookupError as exc:
+        raise HTTPException(404, detail={"code": str(exc)}) from exc
+    except InventoryKnowledgeError as exc:
+        raise HTTPException(409, detail={"code": str(exc)}) from exc
+
+@router.post("/knowledge/{entry_id}/reject")
+def reject_inventory_knowledge(
+    entry_id: str,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    try:
+        return _knowledge().reject(principal.active_tenant_id, entry_id, principal.user_id)
+    except LookupError as exc:
+        raise HTTPException(404, detail={"code": str(exc)}) from exc
+    except InventoryKnowledgeError as exc:
+        raise HTTPException(409, detail={"code": str(exc)}) from exc
 
 @router.post("/lifecycle-history/{business_date}/morning-reset/rerun")
 def rerun_morning_reset(business_date: date, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION))):

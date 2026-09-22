@@ -30,6 +30,7 @@ from app.modules.inventory.persistence_model import (
 from app.providers.google.auth import get_connection_access_token
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
+from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
 
 
 CARRY_FORWARD_PROMPT = """You are planning a narrow previous-terminal-state to current-starting-state carry-forward. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Understand workbook roles, layouts, dimensions, and quantity representations from metadata and exact cell evidence; do not assume sheet positions, columns, rows, or labels have fixed meanings. Resolve canonical material and location identities through the tenant catalogs. Preserve every workbook-defined dimension independently and never total, redistribute, or invent conversions unless evidence and explicit business instructions justify it. Blank is not zero. Do not change formulas, labels, dates, units, notes, or unrelated fields. Every row must cite exact source and target evidence and structured semantic context. Report ambiguity as an issue. Finish by calling submit_carry_forward_plan exactly once. The backend controls authorization and write safety; you control workbook interpretation."""
@@ -41,6 +42,11 @@ class CarryForwardError(RuntimeError):
 
 class CarryForwardReviewRequired(CarryForwardError):
     code = "review_required"
+
+    def __init__(self, code: str | None = None):
+        resolved = str(code or self.code)
+        super().__init__(resolved)
+        self.code = resolved
 
 
 class CarryForwardStaleEvidence(CarryForwardError):
@@ -55,6 +61,7 @@ class CarryForwardPlan:
     # persisted nor interpreted as a sheet-role decision.
     legacy_metadata: dict[str, Any] | None = None
     contract_version: int = 3
+    audit: dict[str, Any] | None = None
 
 
 class CarryForwardPlanner(Protocol):
@@ -278,6 +285,7 @@ class InventorySharedCarryForwardService:
         operation = self._operation(tenant_id, target_business_date, previous_date)
         if operation.status == "completed":
             return operation
+        failure_audit: dict[str, Any] = {}
         try:
             with self.client_factory(self._token(connection_id)) as google:
                 google.validate_native_spreadsheet(source_id)
@@ -290,21 +298,68 @@ class InventorySharedCarryForwardService:
                 if persisted and operation.status in {"applying", "verifying", "retryable_failure"}:
                     if persisted.get("contract_version") != 3:
                         raise CarryForwardReviewRequired("carry_forward_plan_contract_outdated")
-                    plan = CarryForwardPlan(list(persisted.get("operations") or []), list(persisted.get("issues") or []), None, 3)
+                    plan = CarryForwardPlan(
+                        list(persisted.get("operations") or []),
+                        list(persisted.get("issues") or []),
+                        None,
+                        3,
+                        dict(persisted.get("audit") or {}),
+                    )
                 else:
+                    sheet_keys = tuple(
+                        str((item.get("properties") or {}).get("title") or "")
+                        for item in (target_meta.get("sheets") or [])
+                        if str((item.get("properties") or {}).get("title") or "")
+                    )
+                    knowledge = InventoryKnowledgeService(self.session_factory).active_snapshot(
+                        tenant_id,
+                        workbook_keys=(shared_id, source_id),
+                        sheet_keys=sheet_keys,
+                    )
+                    knowledge_text = json.dumps(
+                        knowledge["entries"],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
                     with self.session_factory() as session:
                         row = session.get(InventoryDailyCarryForwardModel, operation.id)
-                        resolved = InventoryPromptResolver(self.session_factory).freeze(row, tenant_id, "carry_forward_0900", prefix="prompt")
+                        resolved = InventoryPromptResolver(self.session_factory).freeze(
+                            row, tenant_id, "carry_forward_0900", prefix="prompt"
+                        )
+                        row.knowledge_hash = knowledge["hash"]
+                        row.knowledge_version = knowledge["version"]
                         session.commit()
                     plan = self.planner.plan(
-                        tenant_id=tenant_id, previous_gemini_file_id=source_id,
+                        tenant_id=tenant_id,
+                        previous_gemini_file_id=source_id,
                         shared_workbook_id=shared_id,
-                        prompt=f"{CARRY_FORWARD_PROMPT}\n\n=== TENANT BUSINESS INSTRUCTIONS ===\n{resolved.content}\n=== END TENANT BUSINESS INSTRUCTIONS ===\n\nThe server binds the two workbook roles; never request identifiers.",
+                        prompt=(
+                            f"{CARRY_FORWARD_PROMPT}\n\n"
+                            f"=== TENANT BUSINESS INSTRUCTIONS ===\n{resolved.content}\n"
+                            "=== END TENANT BUSINESS INSTRUCTIONS ===\n\n"
+                            "=== ACTIVE INVENTORY KNOWLEDGE (HUMAN-APPROVED) ===\n"
+                            f"{knowledge_text}\n"
+                            "=== END ACTIVE INVENTORY KNOWLEDGE ===\n\n"
+                            "The server binds the two workbook roles; never request identifiers."
+                        ),
                         connection_id=connection_id,
                     )
                 rows = self._validate_plan(tenant_id, plan, source_id=source_id, target_id=shared_id, source_meta=source_meta, target_meta=target_meta)
-                plan_json = {"contract_version": 3, "operations": rows, "issues": plan.issues}
-                plan_hash = hashlib.sha256(json.dumps(plan_json, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
+                plan_core = {
+                    "contract_version": 3,
+                    "operations": rows,
+                    "issues": plan.issues,
+                }
+                plan_hash = hashlib.sha256(
+                    json.dumps(
+                        plan_core,
+                        sort_keys=True,
+                        default=str,
+                        separators=(",", ":"),
+                    ).encode()
+                ).hexdigest()
+                plan_json = {**plan_core, "audit": dict(plan.audit or {})}
                 set_updates: list[dict[str, Any]] = []
                 clear_ranges: list[str] = []
                 # Validate every operation and its freshly-read evidence before
@@ -371,11 +426,22 @@ class InventorySharedCarryForwardService:
         except CarryForwardReviewRequired as exc:
             status, code = "review_required", getattr(exc, "code", "review_required")
             error_message = str(exc)
+            context = getattr(exc, "inventory_carry_forward_audit_context", None)
+            failure_audit = dict(context) if isinstance(context, dict) else {}
         except Exception as exc:
             status, code = "retryable_failure", getattr(exc, "code", type(exc).__name__)
             error_message = str(exc)
+            context = getattr(exc, "inventory_carry_forward_audit_context", None)
+            failure_audit = dict(context) if isinstance(context, dict) else {}
         with self.session_factory() as session:
             row = session.get(InventoryDailyCarryForwardModel, operation.id)
             row.status, row.error_code, row.error_message = status, str(code)[:100], error_message[:1000]
+            if failure_audit:
+                persisted = dict(row.plan_json or {})
+                persisted.setdefault("contract_version", 3)
+                persisted.setdefault("operations", [])
+                persisted.setdefault("issues", [])
+                persisted["audit"] = failure_audit
+                row.plan_json = persisted
             session.commit(); session.refresh(row); session.expunge(row)
             return row

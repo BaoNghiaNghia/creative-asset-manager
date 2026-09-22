@@ -10,13 +10,15 @@ from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.inventory.daily.carry_forward import (
     CarryForwardPlan,
+    CarryForwardReviewRequired,
     InventorySharedCarryForwardService,
 )
-from app.modules.inventory.daily.carry_forward_planner import CarryForwardToolHost
+from app.modules.inventory.daily.carry_forward_planner import CarryForwardToolHost, function_declarations
 from app.modules.inventory.daily_sheet.parser import canonical_hash
 from app.modules.inventory.persistence_model import (
     InventoryDailyCarryForwardModel,
     InventoryDailySheetSnapshotModel,
+    InventoryItemAliasModel,
     InventoryItemModel,
     InventoryLocationModel,
     InventorySettingsModel,
@@ -29,6 +31,7 @@ class Google:
         self.target_values = target_values or {"B14": 1, "B15": 1, "B16": 1}
         self.writes = []
         self.clears = []
+        self.batch_get_calls = []
         self.protected = protected
 
     def __enter__(self): return self
@@ -44,6 +47,7 @@ class Google:
             sheets.append(item)
         return {"sheets": sheets}
     def batch_get_values(self, file_id, ranges, *, value_render_option="UNFORMATTED_VALUE"):
+        self.batch_get_calls.append((file_id, tuple(ranges), value_render_option))
         result = []
         for value in ranges:
             cell = value.rsplit("!", 1)[-1]
@@ -81,7 +85,7 @@ def make_db():
     temp = tempfile.TemporaryDirectory()
     engine = create_engine(f"sqlite:///{Path(temp.name) / 'carry.db'}")
     event.listen(engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
-    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards", "inventory_prompt_versions", "inventory_items", "inventory_locations"):
+    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards", "inventory_prompt_versions", "inventory_items", "inventory_item_aliases", "inventory_locations"):
         Base.metadata.tables[name].create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     with sessions.begin() as session:
@@ -162,6 +166,73 @@ def test_read_back_mismatch_is_not_completed():
     engine.dispose(); temp.cleanup()
 
 
+def test_carry_forward_declares_bounded_catalog_search_tools_only():
+    names = {item["name"] for item in function_declarations()}
+    assert "search_material_catalog" in names
+    assert "search_warehouse_catalog" in names
+    assert "get_material_catalog" not in names
+    assert "get_warehouse_catalog" not in names
+
+
+def test_carry_forward_tool_host_batches_cell_reads():
+    temp, engine, sessions = make_db()
+    google = Google()
+    host = CarryForwardToolHost(
+        tenant_id="tenant-a",
+        source_id="gemini",
+        target_id="shared",
+        google=google,
+        sessions=sessions,
+    )
+    result = host.execute(
+        "read_source_cells",
+        {"sheet": "Warehouses", "cells": ["H14", "H15", "H16"]},
+    )
+    assert [item["cell"] for item in result["cells"]] == ["H14", "H15", "H16"]
+    assert len(google.batch_get_calls) == 1
+    assert google.batch_get_calls[0][1] == (
+        "'Warehouses'!H14",
+        "'Warehouses'!H15",
+        "'Warehouses'!H16",
+    )
+    engine.dispose(); temp.cleanup()
+
+
+def test_carry_forward_catalog_search_is_bounded_and_alias_aware():
+    temp, engine, sessions = make_db()
+    with sessions.begin() as session:
+        session.add(
+            InventoryItemAliasModel(
+                id="alias-a",
+                tenant_id="tenant-a",
+                item_id="material-a",
+                alias="Cotton old",
+                normalized_alias="cotton old",
+            )
+        )
+    host = CarryForwardToolHost(
+        tenant_id="tenant-a",
+        source_id="gemini",
+        target_id="shared",
+        google=Google(),
+        sessions=sessions,
+    )
+    materials = host.execute(
+        "search_material_catalog",
+        {"query": "cotton", "limit": 10},
+    )
+    assert [item["material_id"] for item in materials["materials"]] == ["material-a"]
+    assert materials["truncated"] is False
+
+    warehouses = host.execute(
+        "search_warehouse_catalog",
+        {"query": "b", "limit": 1},
+    )
+    assert len(warehouses["warehouses"]) == 1
+    assert warehouses["limit"] == 1
+    engine.dispose(); temp.cleanup()
+
+
 def test_tool_host_requires_grounded_evidence_and_rejects_conflicting_target():
     temp, engine, sessions = make_db()
     google = Google()
@@ -171,6 +242,16 @@ def test_tool_host_requires_grounded_evidence_and_rejects_conflicting_target():
     payload = {"warehouse_sheet": {"sheetId": 4, "title": "Warehouses", "index": 3}, "issues": [], "rows": [{"material_id": "material-a", "warehouse_id": "warehouse-a", "source": {**source, "closing_value": 50}, "target": {**target, "opening_value": 50}}]}
     assert host.execute("submit_carry_forward_plan", payload)["accepted"] is True
     assert host.plan is not None and host.plan.rows[0]["source"]["spreadsheet_file_id"] == "gemini"
+    assert [item["tool"] for item in host.tool_trace] == [
+        "read_source_cells",
+        "read_target_cells",
+        "submit_carry_forward_plan",
+    ]
+    snapshot = host.audit_snapshot(model="gemini-test", rounds=3)
+    assert snapshot["evidence_cell_count"] == 2
+    assert snapshot["operation_count"] == 1
+    assert snapshot["model"] == "gemini-test"
+    assert "raw_value" not in str(snapshot["tool_trace"])
     engine.dispose(); temp.cleanup()
 
 
@@ -205,6 +286,44 @@ def test_clear_formula_or_stale_target_is_blocked_without_clear():
     operations = [{"type": "clear_cell", "semantic_context": {}, "target": {"spreadsheet_file_id": "shared", "sheet": "Warehouses", "cell": "D14", "current_value": 3, "evidence_hash": canonical_hash([999])}}]
     result = InventorySharedCarryForwardService(sessions, client_factory=lambda _token: google, token_resolver=lambda _id: "token", planner=Planner(operations)).run("tenant-a", date(2030, 8, 10))
     assert result.status == "retryable_failure" and google.clears == []
+    engine.dispose(); temp.cleanup()
+
+
+def test_reset_failure_preserves_specific_gemini_code_and_partial_audit():
+    temp, engine, sessions = make_db()
+    google = Google()
+
+    class FailingPlanner:
+        def plan(self, **_kwargs):
+            error = CarryForwardReviewRequired("inventory_gemini_invalid_request")
+            error.inventory_carry_forward_audit_context = {
+                "tool_rounds": 2,
+                "tool_trace": [
+                    {"tool": "get_source_workbook_metadata", "role": "previous_gemini", "sheet_count": 4},
+                    {"tool": "read_source_range", "role": "previous_gemini", "sheet": "Warehouses", "range": "A1:H20", "cell_count": 160},
+                ],
+                "read_ranges": [
+                    {"role": "previous_gemini", "sheet": "Warehouses", "range": "A1:H20"}
+                ],
+                "evidence_cell_count": 160,
+                "operation_count": 0,
+                "issue_count": 0,
+                "model": "gemini-test",
+            }
+            raise error
+
+    result = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=FailingPlanner(),
+    ).run("tenant-a", date(2030, 8, 10))
+
+    assert result.status == "review_required"
+    assert result.error_code == "inventory_gemini_invalid_request"
+    assert result.plan_json["audit"]["read_ranges"][0]["range"] == "A1:H20"
+    assert result.plan_json["audit"]["evidence_cell_count"] == 160
+    assert "raw_value" not in str(result.plan_json["audit"]["tool_trace"])
     engine.dispose(); temp.cleanup()
 
 

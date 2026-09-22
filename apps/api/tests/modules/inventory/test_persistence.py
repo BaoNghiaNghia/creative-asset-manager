@@ -34,6 +34,8 @@ PHASE2_RUNTIME_TABLES = {
     "inventory_daily_sheet_reconciliations", "inventory_daily_carry_forwards",
     "inventory_prompt_versions", "inventory_material_external_identities",
     "inventory_material_package_conversions", "inventory_material_candidates",
+    "inventory_operation_audits", "inventory_operation_changes",
+    "inventory_knowledge_entries",
 }
 
 

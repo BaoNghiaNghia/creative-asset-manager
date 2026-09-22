@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
-import { inventoryLifecycleApi, type InventoryLifecycleHistoryItem, type InventoryLifecycleStage, type InventoryLifecycleStageStatus } from "./api";
+import { inventoryLifecycleApi, type InventoryLifecycleHistoryItem, type InventoryLifecycleStage, type InventoryLifecycleStageStatus, type InventoryStageDetail } from "./api";
 
 const labels: Record<string, string> = { morning_reset: "Reset đầu ngày", afternoon_snapshot: "Đang snapshot", evening_reconcile: "Đang đối soát", verified: "Cần xác minh", completed: "Hoàn tất" };
 const symbols: Record<InventoryLifecycleStageStatus, string> = { pending: "○", scheduled: "◌", running: "●", completed: "✓", blocked: "!", review_required: "!", failed: "×", stale: "×" };
@@ -13,8 +13,82 @@ const errorHints: Record<string, string> = {
   previous_day_gemini_not_verified: "Reset bị chặn vì Gemini của snapshot ngày trước chưa hoàn tất và chưa được xác minh.",
   inventory_gemini_transport_error: "Không kết nối được Gemini trong lần xử lý này. Hãy kiểm tra credential và trạng thái provider trước khi chạy lại.",
 };
+const auditSummaryLabels: Record<string, string> = {
+  operation_count: "Cell dự kiến thay đổi",
+  issue_count: "Vấn đề phát hiện",
+  material_count: "Vật tư liên quan",
+  warehouse_count: "Kho liên quan",
+  tool_rounds: "Vòng tool",
+  read_calls: "Lần đọc",
+  read_cells: "Cell đã đọc",
+  evidence_cell_count: "Cell evidence",
+  writes: "Cell đã ghi",
+  knowledge_proposal_count: "Kiến thức đề xuất",
+  verification_status: "Xác minh",
+  plan_hash: "Plan hash",
+  staged_summary: "Tóm tắt plan",
+};
+function auditValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+function AuditDisclosure({ businessDate, stage }: { businessDate: string; stage: "morning_reset"|"evening_reconcile" }) {
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<InventoryStageDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const load = async () => {
+    if (detail || loading) return;
+    setLoading(true); setError("");
+    try { setDetail(await inventoryLifecycleApi.getStageDetail(businessDate, stage)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Chưa có audit chi tiết cho run này."); }
+    finally { setLoading(false); }
+  };
+  const toggle = () => { const next = !open; setOpen(next); if (next) void load(); };
+  const assessment = detail?.assessment || {};
+  const observations = Array.isArray(assessment.observations) ? assessment.observations as Array<Record<string,unknown>> : [];
+  const uncertainties = Array.isArray(assessment.uncertainties) ? assessment.uncertainties as Array<Record<string,unknown>> : [];
+  const summaryEntries = detail ? Object.entries(detail.summary).filter(([,value]) => value !== null && value !== undefined && value !== "") : [];
+  return <div className="inventory-audit-disclosure">
+    <button type="button" className="inventory-audit-toggle" aria-expanded={open} onClick={toggle}>
+      <span>{open ? "Ẩn dữ liệu đã xử lý" : "Xem dữ liệu đã xử lý"}</span><b aria-hidden="true">{open ? "−" : "+"}</b>
+    </button>
+    {open ? <div className="inventory-audit-panel">
+      {loading ? <p className="inventory-audit-empty">Đang tải audit…</p> : null}
+      {error ? <p className="inventory-audit-empty">{error}</p> : null}
+      {detail ? <>
+        <div className="inventory-audit-summary">
+          {summaryEntries.slice(0, 10).map(([key,value]) => <article key={key}><span>{auditSummaryLabels[key] || key.replaceAll("_"," ")}</span><strong>{auditValue(value)}</strong></article>)}
+        </div>
+        <div className="inventory-audit-provenance">
+          <span>Prompt <b>{detail.prompt.version || detail.prompt.source || "—"}</b></span>
+          <span>Knowledge <b>{detail.knowledge.version ?? "—"}</b></span>
+          {detail.knowledge.hash ? <code title={detail.knowledge.hash}>{detail.knowledge.hash.slice(0,12)}…</code> : null}
+          {detail.model ? <span>Model <b>{detail.model}</b></span> : null}
+          <span>Source <b>{detail.source}</b></span>
+        </div>
+        {detail.read_ranges.length ? <section className="inventory-audit-section"><h4>Gemini đã đọc</h4><div className="inventory-audit-ranges">{detail.read_ranges.map((range,index)=><code key={index}>{auditValue(range)}</code>)}</div></section> : null}
+        {assessment.summary || observations.length || uncertainties.length ? <section className="inventory-audit-section">
+          <h4>Đánh giá Gemini</h4>
+          {assessment.summary ? <p>{auditValue(assessment.summary)}</p> : null}
+          {observations.map((observation,index)=><article className="inventory-audit-observation" key={"observation-"+index}><b>{auditValue(observation.code)}</b><p>{auditValue(observation.conclusion)}</p><small>{"Confidence: "+auditValue(observation.confidence)}</small></article>)}
+          {uncertainties.map((uncertainty,index)=><article className="inventory-audit-observation warning" key={"uncertainty-"+index}><b>{auditValue(uncertainty.code)}</b><p>{auditValue(uncertainty.message)}</p></article>)}
+        </section> : null}
+        <section className="inventory-audit-section">
+          <h4>{"Thay đổi ("+detail.changes.length+")"}</h4>
+          {detail.changes.length ? <div className="inventory-audit-table-wrap"><table className="inventory-audit-table"><thead><tr><th>Sheet / Row</th><th>Cell</th><th>Trước</th><th>Sau</th><th>Nguồn</th><th>Lý do</th><th>Xác minh</th></tr></thead><tbody>
+            {detail.changes.map((change)=><tr key={change.sequence}><td><b>{change.sheet}</b><small>{change.row_number ? "Row "+change.row_number : "—"}</small>{change.material_id ? <small>{"Material "+change.material_id}</small> : null}{change.warehouse_id ? <small>{"Kho "+change.warehouse_id}</small> : null}</td><td><code>{change.cell}</code></td><td><code>{auditValue(change.before)}</code></td><td><code>{auditValue(change.after)}</code></td><td>{change.source_cell ? <><b>{change.source_sheet || change.sheet}</b><code>{change.source_cell}</code></> : "—"}</td><td><span>{change.reason || change.operation_type}</span>{change.provenance ? <small>{change.provenance}</small> : null}{change.evidence.length ? <details className="inventory-audit-evidence"><summary>Evidence ({change.evidence.length})</summary><pre>{JSON.stringify(change.evidence,null,2)}</pre></details> : null}</td><td><span className={"inventory-audit-verification "+change.verification_status}>{change.verification_status}</span></td></tr>)}
+          </tbody></table></div> : <p className="inventory-audit-empty">Run này không có cell nào cần thay đổi.</p>}
+        </section>
+        {detail.tool_trace.length ? <section className="inventory-audit-section"><h4>Tool log</h4><ol className="inventory-audit-tools">{detail.tool_trace.map((trace,index)=><li key={index}><b>{auditValue(trace.tool)}</b><code>{JSON.stringify(trace)}</code></li>)}</ol></section> : null}
+        {detail.issues?.length ? <section className="inventory-audit-section"><h4>Issues</h4><pre>{JSON.stringify(detail.issues,null,2)}</pre></section> : null}
+      </> : null}
+    </div> : null}
+  </div>;
+}
 function Details({ item, onClose }: { item: InventoryLifecycleHistoryItem; onClose: () => void }) {
-  return <aside className="inventory-pipeline-details" role="dialog" aria-label="Chi tiết và nhật ký tiến trình">
+  return <aside className="inventory-pipeline-details inventory-pipeline-details--wide" role="dialog" aria-label="Chi tiết và nhật ký tiến trình">
     <header><div><span>NHẬT KÝ VẬN HÀNH</span><h3>{item.business_date}</h3><p>Giai đoạn hiện tại: <b>{labels[item.current_stage] || item.current_stage}</b></p></div><button onClick={onClose} aria-label="Đóng">×</button></header>
     <div className="inventory-pipeline-detail-list">{item.stages.map((stage) => {
       const message = stage.error_message || (stage.error_code ? errorHints[stage.error_code] : null);
@@ -27,6 +101,7 @@ function Details({ item, onClose }: { item: InventoryLifecycleHistoryItem; onClo
         </ol>
         {stage.error_code ? <div className="inventory-pipeline-log-error"><b>Chi tiết lỗi</b><code>{stage.error_code}</code>{message ? <p>{message}</p> : null}</div> : null}
         {stage.run_id ? <p className="inventory-pipeline-run-id">Run: <code>{stage.run_id}</code></p> : null}
+        {stage.key === "morning_reset" || stage.key === "evening_reconcile" ? <AuditDisclosure businessDate={item.business_date} stage={stage.key} /> : null}
       </section>;
     })}</div>
   </aside>;

@@ -16,6 +16,7 @@ from app.modules.inventory.ai.gateway import InventoryAiGatewayError, RuntimeInv
 from app.modules.inventory.credentials import InventoryGeminiCredentialResolver
 from app.modules.inventory.model import InventoryAiControlModel
 from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver, ResolvedInventoryPrompt
+from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
 from app.modules.inventory.persistence_model import InventoryDailySheetSnapshotModel
 
 from .contracts import V4AgentRunResult
@@ -31,6 +32,7 @@ Inspect row-local anomalies and relationships. Distinguish blank from zero, cohe
 Use exact_copy provenance whenever a value is copied without transformation. Cite the exact evidence hash returned by a read tool for every assessment observation, edit, issue and material action.
 Before stage_edits, call submit_workbook_assessment. If more evidence is needed, read it and submit an updated complete assessment before staging.
 Perform a silent completeness check, then call stage_edits exactly once. A ready no-op plan requires a grounded assessment explaining why no action or review is needed.
+If material identity is relevant, use search_material_catalog with a specific query or category instead of requesting the full catalog. If you discover a reusable rule, mapping, exception, formula meaning or do-not-edit convention that is grounded in current workbook evidence, you may call propose_knowledge before stage_edits. Proposals are suggestions for human review only; never assume a proposal becomes active.
 Preserve formulas, protected or merged structure, workbook labels and exact raw quantity representations.
 The host enforces evidence revalidation and mechanical safeguards before any configured live write.
 Do not expose hidden chain-of-thought, credentials, API requests or full sensitive provider responses."""
@@ -127,6 +129,24 @@ class InventoryDailySheetV4Service:
             resolved_prompt = prompt_override
         if resolved_prompt is None:
             resolved_prompt = resolver.resolve(tenant_id, "daily_gemini_processing", legacy_goals=list(config.agent.business_goal or []))
+        knowledge_snapshot = InventoryKnowledgeService(self.session_factory).active_snapshot(
+            tenant_id,
+            workbook_keys=tuple(
+                value
+                for value in (
+                    context.configured_source_file_id,
+                    context.runtime_target_file_id,
+                )
+                if value
+            ),
+            sheet_keys=tuple(config.source.allowed_sheets or ()),
+        )
+        knowledge_text = json.dumps(
+            knowledge_snapshot["entries"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         contents: list[dict[str, Any]] = [
             {
                 "role": "user",
@@ -134,7 +154,10 @@ class InventoryDailySheetV4Service:
                     {
                         "text": V4_HIGH_LEVEL_GOAL + "\n" + V4_TARGET_AUTHORITY
                         + "\n=== TENANT BUSINESS INSTRUCTIONS ===\n" + resolved_prompt.content
-                        + "\n=== END TENANT BUSINESS INSTRUCTIONS ===\nLOCKED RUNTIME CONTEXT\n"
+                        + "\n=== END TENANT BUSINESS INSTRUCTIONS ===\n"
+                        + "=== ACTIVE INVENTORY KNOWLEDGE (HUMAN-APPROVED) ===\n"
+                        + knowledge_text
+                        + "\n=== END ACTIVE INVENTORY KNOWLEDGE ===\nLOCKED RUNTIME CONTEXT\n"
                         + json.dumps(
                             {
                                 "prompt_version": V4_PROMPT_VERSION,
@@ -146,6 +169,9 @@ class InventoryDailySheetV4Service:
                                 "business_prompt_source": resolved_prompt.source,
                                 "business_prompt_version": resolved_prompt.version,
                                 "business_prompt_hash": resolved_prompt.content_hash,
+                                "knowledge_hash": knowledge_snapshot["hash"],
+                                "knowledge_version": knowledge_snapshot["version"],
+                                "knowledge_entry_count": knowledge_snapshot["count"],
                                 "allow_auto_evidence_backed_transforms": config.agent.allow_auto_evidence_backed_transforms,
                                 "rate_limit_strategy": {
                                     "models": list(models),
@@ -182,6 +208,7 @@ class InventoryDailySheetV4Service:
         )
         rounds = 0
         selected_model_index = 0
+        active_model = models[0] if models else None
         try:
             for rounds in range(1, config.agent.max_tool_rounds + 1):
                 if rounds > 1 and config.agent.tool_call_min_interval_seconds:
@@ -194,6 +221,7 @@ class InventoryDailySheetV4Service:
                     )
                     for model_index in model_indexes:
                         model = models[model_index]
+                        active_model = model
                         try:
                             turn = self.gateway.generate_tool_turn(
                                 tenant_id=tenant_id,
@@ -283,13 +311,13 @@ class InventoryDailySheetV4Service:
                 business_date=business_date.isoformat(),
                 tool_rounds=rounds,
                 read_calls=host.read_calls,
-                read_cells=host.read_cells,
+                read_cells=host.read_cell_count,
                 plan_hash=digest,
                 staged=host.staged,
                 tools_called=[item["tool"] for item in host.tool_trace],
                 assessment_present=host.assessment is not None,
                 catalog_read=any(
-                    item["tool"] == "get_material_catalog"
+                    item["tool"] in {"get_material_catalog", "search_material_catalog"}
                     for item in host.tool_trace
                 ),
                 ranges_read=[
@@ -303,6 +331,15 @@ class InventoryDailySheetV4Service:
                 business_prompt_source=resolved_prompt.source,
                 business_prompt_version=resolved_prompt.version,
                 business_prompt_hash=resolved_prompt.content_hash,
+                assessment=host.assessment,
+                execution=execution,
+                change_audit=host.build_change_audit(
+                    str(execution.get("verification_status") or "unknown")
+                ),
+                knowledge_hash=knowledge_snapshot["hash"],
+                knowledge_version=knowledge_snapshot["version"],
+                knowledge_proposals=host.knowledge_proposals,
+                model=active_model,
             )
             logger.info(
                 "inventory_sheet_agent_v4_completed",
@@ -313,12 +350,12 @@ class InventoryDailySheetV4Service:
                     "business_date": business_date.isoformat(),
                     "tool_rounds": rounds,
                     "read_calls": host.read_calls,
-                    "read_cells": host.read_cells,
+                    "read_cells": host.read_cell_count,
                     "operation_count": len(host.staged.operations),
                     "tools_called": [item["tool"] for item in host.tool_trace],
                     "assessment_present": host.assessment is not None,
                     "catalog_read": any(
-                        item["tool"] == "get_material_catalog"
+                        item["tool"] in {"get_material_catalog", "search_material_catalog"}
                         for item in host.tool_trace
                     ),
                     "plan_hash": digest,
@@ -328,6 +365,44 @@ class InventoryDailySheetV4Service:
                 },
             )
             return result
+        except Exception as exc:
+            assessment_json = (
+                host.assessment.model_dump(mode="json")
+                if host.assessment is not None
+                else {}
+            )
+            failure_context = {
+                "tool_rounds": rounds,
+                "read_calls": host.read_calls,
+                "read_cells": host.read_cell_count,
+                "tool_trace": list(host.tool_trace),
+                "ranges_read": [
+                    item["range"]
+                    for item in host.tool_trace
+                    if item.get("tool") == "read_range" and item.get("range")
+                ],
+                "assessment": assessment_json,
+                "operation_count": len(host.staged.operations) if host.staged is not None else 0,
+                "issue_count": len(host.staged.issues) if host.staged is not None else 0,
+                "staged_summary": host.staged.summary if host.staged is not None else "",
+                "change_audit": (
+                    host.build_change_audit("failed")
+                    if host.staged is not None
+                    else []
+                ),
+                "prompt_source": resolved_prompt.source,
+                "prompt_version": resolved_prompt.version,
+                "prompt_hash": resolved_prompt.content_hash,
+                "knowledge_hash": knowledge_snapshot["hash"],
+                "knowledge_version": knowledge_snapshot["version"],
+                "knowledge_proposal_count": len(host.knowledge_proposals),
+                "model": active_model,
+            }
+            try:
+                setattr(exc, "inventory_audit_context", failure_context)
+            except Exception:
+                pass
+            raise
         finally:
             google.close()
 
