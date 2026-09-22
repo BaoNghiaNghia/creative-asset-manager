@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import type { Asset, AssetMetadata, AssetMetadataMap } from "../types";
 import { AssetStatusBadge } from "./AssetStatusBadge";
 import { VisualSearchIcon } from "./VisualSearchIcon";
 import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
+import sharedLinkIcon from "../../assets/icons/shared-link.svg";
 
 
 export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
@@ -306,6 +308,16 @@ type Props = {
   onFocus: (item: Asset) => void;
   onContextMenu: (item: Asset, event: MouseEvent<HTMLElement>) => void;
   onFindSimilar?: (item: Asset) => void;
+  reviewLinkShareIds?: ReadonlyMap<string, string>;
+  onCopyReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
+  onRefreshReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
+};
+
+type FolderShareMenuState = {
+  shareId: string;
+  item: Asset;
+  left: number;
+  top: number;
 };
 
 export function AssetGrid({
@@ -324,6 +336,9 @@ export function AssetGrid({
   onFocus,
   onContextMenu,
   onFindSimilar,
+  reviewLinkShareIds,
+  onCopyReviewLink,
+  onRefreshReviewLink,
 }: Props) {
   function resultAncestors(item: Asset) {
     if (
@@ -354,6 +369,30 @@ export function AssetGrid({
   const nativeDragTickets = useRef(new Map<string, { ticket: string; expiresAt: number }>());
   const nativeDragPreparing = useRef(new Map<string, Promise<void>>());
   const [marquee, setMarquee] = useState<SelectionRectangle | null>(null);
+  const [shareMenu, setShareMenu] = useState<FolderShareMenuState | null>(null);
+
+  useEffect(() => {
+    if (!shareMenu) return;
+    const closeOnOutsidePointer = (event: globalThis.MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".folder-share-menu, .folder-share-trigger")) return;
+      setShareMenu(null);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setShareMenu(null);
+    };
+    const closeOnViewportChange = () => setShareMenu(null);
+    document.addEventListener("mousedown", closeOnOutsidePointer);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeOnViewportChange);
+    window.addEventListener("scroll", closeOnViewportChange, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsidePointer);
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeOnViewportChange);
+      window.removeEventListener("scroll", closeOnViewportChange, true);
+    };
+  }, [shareMenu]);
 
   useEffect(() => {
     const rejectInternalDrop = (event: globalThis.DragEvent) => {
@@ -373,6 +412,49 @@ export function AssetGrid({
       }
     };
   }, []);
+
+  function folderShareTrigger(item: Asset) {
+    if (
+      item.kind !== "folder"
+      || !item.external_source_id
+      || !reviewLinkShareIds
+      || !onCopyReviewLink
+      || !onRefreshReviewLink
+    ) return null;
+    const shareId = reviewLinkShareIds.get(
+      item.external_source_id + ":" + item.id,
+    );
+    if (!shareId) return null;
+    const open = shareMenu?.shareId === shareId && shareMenu.item.id === item.id;
+    return <button
+      type="button"
+      className="folder-share-trigger"
+      aria-label={"Shared link actions for " + item.name}
+      title="Shared link actions"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      onDoubleClick={event => event.stopPropagation()}
+      onClick={event => {
+        event.stopPropagation();
+        if (open) {
+          setShareMenu(null);
+          return;
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        const menuWidth = 260;
+        const menuHeight = 90;
+        const left = Math.max(
+          8,
+          Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8),
+        );
+        const below = rect.bottom + 6;
+        const top = below + menuHeight <= window.innerHeight - 8
+          ? below
+          : Math.max(8, rect.top - menuHeight - 6);
+        setShareMenu({ shareId, item, left, top });
+      }}
+    ><img src={sharedLinkIcon} alt="" aria-hidden="true" /></button>;
+  }
 
   function updateMarquee(event: PointerEvent<HTMLDivElement>) {
     const active = marqueeRef.current;
@@ -561,10 +643,38 @@ export function AssetGrid({
         {item.kind === "video" && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
       </button>
       <div>
-        <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>
+        <div className="asset-name-row">
+          <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>
+          {folderShareTrigger(item)}
+        </div>
         <small>{fileTypeLabel(getFileType(item.mime_type, item.kind, item.name))}{item.modified_at && item.kind !== "folder" ? " - " + new Date(item.modified_at).toLocaleDateString() : ""}</small>
         <AssetMetadataBar item={item} metadata={metadataByItem[item.id]} onRate={onRate} />
       </div>
     </article>)}
+    {shareMenu && createPortal(<div
+      className="folder-share-menu"
+      role="menu"
+      aria-label={"Shared link actions for " + shareMenu.item.name}
+      style={{ left: shareMenu.left, top: shareMenu.top }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          const current = shareMenu;
+          setShareMenu(null);
+          void onCopyReviewLink?.(current.shareId, current.item);
+        }}
+      >Sao chép đường dẫn chia sẻ</button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          const current = shareMenu;
+          setShareMenu(null);
+          void onRefreshReviewLink?.(current.shareId, current.item);
+        }}
+      >Cập nhật đường dẫn chia sẻ</button>
+    </div>, document.body)}
   </div>;
 }

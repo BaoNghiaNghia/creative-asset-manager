@@ -141,6 +141,12 @@ class PublicVideoDeliveryResolver:
                 repository = VideoCacheRepository(session)
                 cache_object = repository.get_by_tenant_and_hash(tenant_id, content_hash)
                 if cache_object is None:
+                    # Admission owns its own transaction and may await quota cleanup.
+                    # Release this read-only resolver session first so we do not hold a
+                    # pooled DB connection across that async boundary (and so SQLite
+                    # StaticPool tests do not nest independent sessions on one handle).
+                    session.rollback()
+                    session.close()
                     # Authorization and rollout scope have already succeeded. Admission
                     # revalidates the exact tenant/asset/source pair in its own
                     # transaction and only enqueues the durable worker job; playback

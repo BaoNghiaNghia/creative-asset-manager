@@ -20,6 +20,12 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 class PublicShareModel(Base):
     __tablename__ = "public_shares"
     __table_args__ = (
@@ -36,6 +42,8 @@ class PublicShareModel(Base):
     tenant_id: Mapped[str] = mapped_column(String(255), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     secret_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    secret_ciphertext: Mapped[str | None] = mapped_column(Text)
+    secret_key_version: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     allow_comments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     allow_download: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -46,8 +54,9 @@ class PublicShareModel(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     def is_active_at(self, now: datetime | None = None) -> bool:
-        instant = now or utcnow()
-        return self.status == "active" and self.revoked_at is None and (self.expires_at is None or self.expires_at > instant)
+        instant = aware_utc(now or utcnow())
+        expires_at = aware_utc(self.expires_at) if self.expires_at is not None else None
+        return self.status == "active" and self.revoked_at is None and (expires_at is None or expires_at > instant)
 
 
 class PublicShareScopeModel(Base):
@@ -107,8 +116,8 @@ class PublicShareSessionModel(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     def is_active_at(self, now: datetime | None = None) -> bool:
-        instant = now or utcnow()
-        return self.revoked_at is None and self.expires_at > instant
+        instant = aware_utc(now or utcnow())
+        return self.revoked_at is None and aware_utc(self.expires_at) > instant
 
 
 class AssetAnnotationModel(Base):

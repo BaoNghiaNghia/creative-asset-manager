@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.auth_persistence.encryption import TokenCipher
 from app.modules.auth_persistence.model import AuthAuditEventModel, OAuthConnectionModel, TenantModel
 from app.modules.authorization.principal import CurrentPrincipal
 from app.modules.public_review.repository import PublicReviewRepository
@@ -42,9 +43,18 @@ def context():
     engine.dispose()
 
 
+TEST_CIPHER = TokenCipher({"v1": b"p" * 32}, "v1")
+
+
 def request(context, method, path, **kwargs):
     client, factory, _ = context
-    with patch("app.modules.public_review.router.SessionLocal", factory):
+    with patch(
+        "app.modules.public_review.router.SessionLocal",
+        factory,
+    ), patch(
+        "app.modules.public_review.router._share_secret_cipher",
+        return_value=TEST_CIPHER,
+    ):
         return client.request(method, path, **kwargs)
 
 
@@ -59,12 +69,24 @@ def test_management_create_read_rotate_revoke_and_secret_safety(context):
     assert created.status_code == 201
     item = created.json(); share_id = item["id"]; first_url = item["share_url"]
     assert "#key=" in first_url and "secret_digest" not in created.text
+    created_expiry = datetime.fromisoformat(item["expires_at"])
+    assert timedelta(days=6, hours=23) < created_expiry - datetime.now(timezone.utc) <= timedelta(days=7, minutes=1)
+
     listed = request(context, "GET", "/api/v1/public-review/shares")
     fetched = request(context, "GET", f"/api/v1/public-review/shares/{share_id}")
     assert "share_url" not in listed.text + fetched.text
     assert "secret_digest" not in listed.text + fetched.text
+
+    current = request(context, "GET", f"/api/v1/public-review/shares/{share_id}/current-link")
+    assert current.status_code == 200
+    assert current.json()["share_url"] == first_url
+
     rotated = request(context, "POST", f"/api/v1/public-review/shares/{share_id}/rotate-secret")
     assert rotated.status_code == 200 and rotated.json()["share_url"] != first_url
+    rotated_expiry = datetime.fromisoformat(rotated.json()["expires_at"])
+    assert timedelta(days=6, hours=23) < rotated_expiry - datetime.now(timezone.utc) <= timedelta(days=7, minutes=1)
+    current_after_rotate = request(context, "GET", f"/api/v1/public-review/shares/{share_id}/current-link")
+    assert current_after_rotate.json()["share_url"] == rotated.json()["share_url"]
     revoked = request(context, "DELETE", f"/api/v1/public-review/shares/{share_id}")
     repeated = request(context, "DELETE", f"/api/v1/public-review/shares/{share_id}")
     assert revoked.json()["status"] == repeated.json()["status"] == "revoked"
@@ -72,10 +94,55 @@ def test_management_create_read_rotate_revoke_and_secret_safety(context):
     with factory() as db:
         share = PublicReviewRepository(db).get_share("tenant-a", share_id)
         assert share.secret_digest not in {first_url, rotated.json()["share_url"]}
+        assert share.secret_ciphertext
+        assert share.secret_key_version == "v1"
+        assert "#key=" not in share.secret_ciphertext
+        assert first_url not in share.secret_ciphertext
+        assert rotated.json()["share_url"] not in share.secret_ciphertext
         actions = list(db.scalars(select(AuthAuditEventModel.action).where(AuthAuditEventModel.tenant_id == "tenant-a")))
         audit = str(list(db.scalars(select(AuthAuditEventModel.detail_json).where(AuthAuditEventModel.tenant_id == "tenant-a"))))
-    assert {"public_review_share_created", "public_review_share_secret_rotated", "public_review_share_revoked"} <= set(actions)
+    assert {
+        "public_review_share_created",
+        "public_review_share_link_retrieved",
+        "public_review_share_secret_rotated",
+        "public_review_share_revoked",
+    } <= set(actions)
     assert "#key=" not in audit and share.secret_digest not in audit
+
+
+def test_legacy_share_requires_one_rotation_before_current_link_can_be_recovered(context):
+    _, factory, _ = context
+    with factory() as db:
+        share, _ = PublicReviewService(PublicReviewRepository(db)).create_managed_share(
+            tenant_id="tenant-a",
+            actor_id="user-a",
+            name="Legacy",
+            scopes=[{"external_source_id": "source-a", "folder_external_id": "folder-a"}],
+        )
+        share_id = share.id
+        db.commit()
+
+    missing = request(
+        context,
+        "GET",
+        f"/api/v1/public-review/shares/{share_id}/current-link",
+    )
+    assert missing.status_code == 409
+    assert missing.json()["detail"]["code"] == "current_share_link_unavailable"
+
+    rotated = request(
+        context,
+        "POST",
+        f"/api/v1/public-review/shares/{share_id}/rotate-secret",
+    )
+    assert rotated.status_code == 200
+    current = request(
+        context,
+        "GET",
+        f"/api/v1/public-review/shares/{share_id}/current-link",
+    )
+    assert current.status_code == 200
+    assert current.json()["share_url"] == rotated.json()["share_url"]
 
 
 def test_management_rejects_foreign_scope_expiry_and_foreign_share(context):

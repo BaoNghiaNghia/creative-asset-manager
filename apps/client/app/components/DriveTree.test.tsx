@@ -12,8 +12,8 @@ const folder = (id: string, name: string): Asset => ({
   is_folder: true,
 } as Asset);
 
-describe("DriveTreeNode review-link actions", () => {
-  it("renders the copy action only for the exact shared folder, not its children", () => {
+describe("DriveTreeNode", () => {
+  it("renders folder navigation without shared-link actions", () => {
     const root = folder("shared-root", "Shared root");
     const child = folder("child-folder", "Child folder");
     const markup = renderToStaticMarkup(<DriveTreeNode
@@ -27,11 +27,11 @@ describe("DriveTreeNode review-link actions", () => {
       onToggle={() => undefined}
       onPrefetch={() => undefined}
       onCancelPrefetch={() => undefined}
-      reviewLinkShareIds={new Map([[root.id, "share-root"]])}
-      onCopyReviewLink={() => undefined}
     />);
 
-    expect(markup).toContain('aria-label="Copy a new secure review link for Shared root"');
-    expect(markup).not.toContain('aria-label="Copy a new secure review link for Child folder"');
+    expect(markup).toContain("Shared root");
+    expect(markup).toContain("Child folder");
+    expect(markup).not.toContain("tree-review-link");
+    expect(markup).not.toContain("Shared link actions");
   });
 });

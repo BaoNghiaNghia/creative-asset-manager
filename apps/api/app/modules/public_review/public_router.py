@@ -14,7 +14,7 @@ from app.core.database import SessionLocal
 from app.modules.assets.content_resolver import SourceAssetContentResolver
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.public_review.authorization import PublicShareAccessDenied, PublicShareScopeService
-from app.modules.public_review.model import PublicShareModel
+from app.modules.public_review.model import PublicShareModel, aware_utc
 from app.modules.public_review.public_thumbnail import PublicThumbnailResolver, PublicThumbnailUnavailable
 from app.modules.public_review.video_delivery import PublicVideoDeliveryResolver
 from app.modules.explorer.media_types import infer_media_type
@@ -22,7 +22,7 @@ from app.modules.public_review.rate_limit import PublicRateLimitExceeded, consum
 from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.service import PublicReviewService, utcnow
 router=APIRouter(prefix="/api/public/review",tags=["public-review"])
-COOKIE="cam_public_review_session"; TTL=timedelta(hours=12)
+COOKIE="cam_public_review_session"; TTL=timedelta(days=7)
 # Public media streams must not exhaust the small production database/provider pool.
 PUBLIC_MEDIA_CONCURRENCY=3
 PUBLIC_THUMBNAIL_CONCURRENCY=6
@@ -76,7 +76,7 @@ def session(public_share_id:str,request:Request,body:dict):
  with SessionLocal() as s:
   limit(s,request,"session",20); service=PublicReviewService(PublicReviewRepository(s))
   try:
-   share=service.verify_share_secret(public_share_id,secret); expiry=min(utcnow()+TTL,share.expires_at) if share.expires_at else utcnow()+TTL; token=token_urlsafe(32); service.create_session(tenant_id=share.tenant_id,share_id=share.id,raw_session_token=token,expires_at=expiry);s.commit()
+   share=service.verify_share_secret(public_share_id,secret); share_expiry=aware_utc(share.expires_at) if share.expires_at else None; expiry=min(utcnow()+TTL,share_expiry) if share_expiry else utcnow()+TTL; token=token_urlsafe(32); service.create_session(tenant_id=share.tenant_id,share_id=share.id,raw_session_token=token,expires_at=expiry);s.commit()
   except (LookupError,ValueError): s.rollback();raise denied()
  r=safe({"public_id":public_share_id,"expires_at":expiry},201);r.set_cookie(COOKIE,token,httponly=True,secure=get_settings().is_production,samesite="lax",path=f"/api/public/review/{public_share_id}",max_age=max(1,int((expiry-utcnow()).total_seconds())));return r
 @router.get("/{public_share_id}/bootstrap")

@@ -18,6 +18,7 @@ from app.modules.assets.model import (
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.public_review.video_delivery import PublicVideoDeliveryResolver
+from app.modules.video_cache.fill import VideoCacheFillService
 from app.modules.video_cache.guard import VideoDeliveryCircuitBreaker
 from app.modules.video_cache.model import (
     VIDEO_CDN_DELIVERY_SETTING_KEY,
@@ -166,11 +167,28 @@ def test_ready_authorized_video_gets_short_ticket_capped_to_session():
 
 def test_runtime_off_missing_cache_and_non_video_use_source_fallback():
     engine, factory = setup()
+
+    class FakeR2:
+        async def delete_object(self, _key):
+            return None
+
+        async def abort_multipart_upload(self, _key, _upload_id):
+            return None
+
+    configured = settings()
+    delivery = resolver(
+        factory,
+        configured,
+        fill_service_factory=lambda: VideoCacheFillService(
+            factory,
+            configured,
+            FakeR2(),
+        ),
+    )
     with factory() as session:
         row = session.get(VideoDeliveryRuntimeSettingModel, VIDEO_CDN_DELIVERY_SETTING_KEY)
         row.enabled = False
         session.commit()
-    delivery = resolver(factory)
     assert resolve(delivery) is None
     with factory() as session:
         assert session.query(ProcessingJobModel).filter_by(

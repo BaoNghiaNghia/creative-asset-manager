@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from secrets import token_urlsafe
 from uuid import uuid4
@@ -8,6 +8,9 @@ from uuid import uuid4
 from app.modules.public_review.model import PublicShareModel, PublicShareSessionModel, utcnow
 from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.schema import extract_plain_text
+
+
+DEFAULT_SHARE_TTL = timedelta(days=7)
 
 
 def sha256_digest(raw_value: str) -> str:
@@ -99,6 +102,7 @@ class PublicReviewService:
 
     def create_managed_share(self, *, tenant_id: str, actor_id: str, name: str, scopes: list[dict], allow_comments: bool = True, allow_download: bool = False, expires_at: datetime | None = None):
         now = self._now()
+        expires_at = expires_at or (now + DEFAULT_SHARE_TTL)
         self._validate_expiry(expires_at, now)
         if not scopes:
             raise ValueError("at least one share scope is required")
@@ -134,9 +138,15 @@ class PublicReviewService:
         share = self.repository.get_share(tenant_id, share_id)
         if share is None or not share.is_active_at(self._now()):
             raise LookupError("public share is unavailable")
+        now = self._now()
         raw_secret = self._new_secret()
-        share = self.repository.update_share(tenant_id, share_id, secret_digest=sha256_digest(raw_secret))
-        self.repository.revoke_sessions(tenant_id, share_id, self._now())
+        share = self.repository.update_share(
+            tenant_id,
+            share_id,
+            secret_digest=sha256_digest(raw_secret),
+            expires_at=now + DEFAULT_SHARE_TTL,
+        )
+        self.repository.revoke_sessions(tenant_id, share_id, now)
         self.repository.audit_share_event(tenant_id=tenant_id, actor_id=actor_id, action="public_review_share_secret_rotated", share_id=share_id)
         return share, raw_secret
 

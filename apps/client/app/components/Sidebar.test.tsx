@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ConnectedSource, ProviderSessions } from "../types";
-import { activeShareFolderIds, Sidebar } from "./Sidebar";
-import type { Share } from "../public-review-management/api";
+import { Sidebar } from "./Sidebar";
+import { activeShareFolderIds, type Share } from "../public-review-management/api";
 
 const sessions: ProviderSessions = {
   "google-drive": { authenticated: false, user: null, checking: false },
@@ -82,16 +82,18 @@ describe("Sidebar multi-source accounts", () => {
   });
 
 
-  it("identifies only active, non-revoked share scopes for source-tree link actions", () => {
+  it("identifies only active, non-revoked share scopes for asset-grid link actions", () => {
     const folders = activeShareFolderIds([
       { id: "active-share", status: "active", revoked_at: null, scopes: [{ external_source_id: "google-one", folder_external_id: "folder-1" }] },
       { id: "revoked-share", status: "active", revoked_at: "2026-09-18T00:00:00Z", scopes: [{ external_source_id: "google-one", folder_external_id: "folder-2" }] },
       { id: "inactive-share", status: "revoked", revoked_at: null, scopes: [{ external_source_id: "google-one", folder_external_id: "folder-3" }] },
-    ] as Share[]);
+      { id: "expired-share", status: "active", revoked_at: null, expires_at: "2026-09-21T00:00:00Z", scopes: [{ external_source_id: "google-one", folder_external_id: "folder-4" }] },
+    ] as Share[], Date.parse("2026-09-22T00:00:00Z"));
 
     expect(folders.get("google-one:folder-1")).toBe("active-share");
     expect(folders.has("google-one:folder-2")).toBe(false);
     expect(folders.has("google-one:folder-3")).toBe(false);
+    expect(folders.has("google-one:folder-4")).toBe(false);
   });
 
 });

@@ -37,7 +37,15 @@ class PublicReviewRepository:
 
     def update_share(self, tenant_id: str, share_id: str, **values) -> PublicShareModel:
         row = self._required_share(tenant_id, share_id)
-        for field in {"name", "allow_comments", "allow_download", "expires_at", "secret_digest"} & values.keys():
+        for field in {
+            "name",
+            "allow_comments",
+            "allow_download",
+            "expires_at",
+            "secret_digest",
+            "secret_ciphertext",
+            "secret_key_version",
+        } & values.keys():
             setattr(row, field, values[field])
         self.session.flush()
         return row

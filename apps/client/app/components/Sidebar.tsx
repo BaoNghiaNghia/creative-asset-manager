@@ -5,7 +5,6 @@ import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, Tag
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
-import { managementApi, type Share } from "../public-review-management/api";
 import googleDrivePlatformLogo from "../../assets/logos/google-drive-platform.png";
 import oneDrivePlatformLogo from "../../assets/logos/onedrive-platform.png";
 
@@ -30,7 +29,6 @@ type Props = {
   onToggle: (node: Asset) => void;
   onPrefetch: (id: string) => void;
   onCancelPrefetch: () => void;
-  canManageReviewLinks?: boolean;
   onCollapse: () => void;
   onResizeStart: PointerEventHandler<HTMLDivElement>;
   applicationAuthenticated?: boolean;
@@ -39,16 +37,6 @@ type Props = {
 export function mayViewAiOperations(permissions: readonly string[]): boolean {
   return permissions.includes("ai_operations.read");
 }
-
-export function activeShareFolderIds(shares: readonly Share[]): Map<string, string> {
-  const result = new Map<string, string>();
-  for (const share of shares) {
-    if (share.status !== "active" || share.revoked_at) continue;
-    for (const scope of share.scopes) result.set(scope.external_source_id + ":" + scope.folder_external_id, share.id);
-  }
-  return result;
-}
-
 
 const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "google-drive", label: "Google Drive", login: "/api/auth/google/connect-drive" },
@@ -103,7 +91,7 @@ function beginSourceOAuth(provider: Provider, sourceId?: string, accountType?: O
 export function Sidebar({
   provider, auth, authByProvider, sources: connectedSources, activeExternalSourceId, tags, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onSelectSource, onDisconnectSource, onSyncSource, onOpen,
-  onToggle, onPrefetch, onCancelPrefetch, canManageReviewLinks = false, onCollapse, onResizeStart,
+  onToggle, onPrefetch, onCancelPrefetch, onCollapse, onResizeStart,
   applicationAuthenticated = false,
 }: Props) {
   const currentRoot = provider === "sharepoint" ? "sharepoint-root" : provider === "onedrive" ? "onedrive-root" : "root";
@@ -112,9 +100,6 @@ export function Sidebar({
   const [canViewAiOperations, setCanViewAiOperations] = useState(false);
   const [busySourceId, setBusySourceId] = useState<string | null>(null);
   const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenu | null>(null);
-  const [sharedFolderIds, setSharedFolderIds] = useState<Map<string, string>>(() => new Map());
-  const [copyingShareId, setCopyingShareId] = useState<string | null>(null);
-  const [reviewLinkNotice, setReviewLinkNotice] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -124,40 +109,6 @@ export function Sidebar({
     }).catch(() => { if (alive) setCanViewAiOperations(false); });
     return () => { alive = false; };
   }, []);
-
-  useEffect(() => {
-    if (!canManageReviewLinks) {
-      setSharedFolderIds(new Map());
-      return;
-    }
-    let alive = true;
-    managementApi.list().then(value => {
-      if (alive) setSharedFolderIds(activeShareFolderIds(value.items));
-    }).catch(() => {
-      if (alive) setSharedFolderIds(new Map());
-    });
-    return () => { alive = false; };
-  }, [canManageReviewLinks]);
-
-  const copyReviewLink = async (shareId: string) => {
-    if (!navigator.clipboard?.writeText) {
-      setReviewLinkNotice("Clipboard access is unavailable. Use Share for review to rotate the link.");
-      return;
-    }
-    if (!window.confirm("Create and copy a new review link? The current link and its public sessions will stop working.")) return;
-    setCopyingShareId(shareId);
-    setReviewLinkNotice("");
-    try {
-      const share = await managementApi.rotate(shareId);
-      if (!share.share_url) throw new Error("Missing one-time review link.");
-      await navigator.clipboard.writeText(share.share_url);
-      setReviewLinkNotice("A new secure review link was copied. The old link is no longer valid.");
-    } catch {
-      setReviewLinkNotice("Unable to copy a new review link. No link was shown.");
-    } finally {
-      setCopyingShareId(null);
-    }
-  };
 
   useEffect(() => {
     if (!sourceContextMenu) return;
@@ -195,11 +146,6 @@ export function Sidebar({
             const selected = connected.status === "active" && activeExternalSourceId === connected.id;
             const account = connected.account.email || connected.display_name || "Connected account";
             const reconnectRequired = connected.status === "reconnect_required";
-            const reviewLinkShareIds = new Map(
-              [...sharedFolderIds].flatMap(([scopeKey, shareId]) => scopeKey.startsWith(connected.id + ":")
-                ? [[scopeKey.slice(connected.id.length + 1), shareId] as const]
-                : []),
-            );
             return <div className="source-entry" key={connected.id}>
               <button className={"source " + (selected ? "active" : "")} title={reconnectRequired ? "Reconnect Google Drive" : "Right-click for source actions"} onClick={() => {
                 if (connected.status === "active") {
@@ -238,9 +184,6 @@ export function Sidebar({
                   activePathIds={activePathIds} childrenByParent={childrenByParent}
                   expanded={expanded} loadingNodes={loadingNodes} onOpen={onOpen}
                   onToggle={onToggle} onPrefetch={onPrefetch} onCancelPrefetch={onCancelPrefetch}
-                  reviewLinkShareIds={reviewLinkShareIds}
-                  onCopyReviewLink={copyReviewLink}
-                  copyingReviewLinkShareId={copyingShareId}
                 />)}
               </div>}
             </div>;
@@ -260,7 +203,6 @@ export function Sidebar({
           }}>+ Add work/school OneDrive</button>}
         </Fragment>;
       })}
-    {reviewLinkNotice && <p className="review-link-notice" role="status">{reviewLinkNotice}</p>}
     {sourceContextMenu && createPortal(<div className="source-context-menu-backdrop" onMouseDown={() => setSourceContextMenu(null)}>
       <div
         className="source-context-menu"

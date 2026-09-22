@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
 import { managementApi, type Scope, type Share } from "./api";
 export function canManagePublicReview(permissions: string[]) { return permissions.includes("public_review.manage"); }
+export function defaultShareExpiryLocal(now = new Date()) {
+ const value = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+ const local = new Date(value.getTime() - value.getTimezoneOffset() * 60 * 1000);
+ return local.toISOString().slice(0, 16);
+}
 function future(value: string) { return !value || new Date(value).getTime() > Date.now(); }
 function LinkResult({ url, onDismiss }: { url: string; onDismiss: () => void }) { const [copied, setCopied] = useState(false); return <div className="public-review-link-result"><strong>Anyone with this link can access this review.</strong><code>{url}</code><button onClick={async()=>{await navigator.clipboard?.writeText(url);setCopied(true);}}>{copied ? "Copied" : "Copy link"}</button><button onClick={onDismiss}>Dismiss</button></div>; }
 export function PublicReviewManagementDialog({ initialScope, availableScopes, onClose }: { initialScope: Scope; availableScopes: Scope[]; onClose: () => void }) {
- const [shares,setShares]=useState<Share[]>([]),[name,setName]=useState("Review"),[scopes,setScopes]=useState<Scope[]>([initialScope]),[comments,setComments]=useState(true),[download,setDownload]=useState(false),[expires,setExpires]=useState(""),[oneTime,setOneTime]=useState<string>(),[editing,setEditing]=useState<Share>(),[error,setError]=useState("");
+ const [shares,setShares]=useState<Share[]>([]),[name,setName]=useState("Review"),[scopes,setScopes]=useState<Scope[]>([initialScope]),[comments,setComments]=useState(true),[download,setDownload]=useState(false),[expires,setExpires]=useState(()=>defaultShareExpiryLocal()),[oneTime,setOneTime]=useState<string>(),[editing,setEditing]=useState<Share>(),[error,setError]=useState("");
  const load=()=>managementApi.list().then(value=>setShares(value.items)).catch(()=>setError("Unable to load review shares.")); useEffect(()=>{load();},[]);
  const save=async()=>{if(!name.trim()||!scopes.length||!future(expires)){setError("Enter a review name, at least one folder, and a future expiration.");return;} if(new Set(scopes.map(x=>x.external_source_id+":"+x.folder_external_id)).size!==scopes.length){setError("Folder scopes must be unique.");return;} try { const value={name:name.trim(),scopes,allow_comments:comments,allow_download:download,expires_at:expires?new Date(expires).toISOString():null}; const share=editing?await managementApi.update(editing.id,value):await managementApi.create(value); setOneTime(share.share_url); setEditing(undefined);load(); }catch{setError("Unable to save this review share.");}};
  const edit=(share:Share)=>{setEditing(share);setName(share.name);setScopes(share.scopes);setComments(share.allow_comments);setDownload(share.allow_download);setExpires(share.expires_at?share.expires_at.slice(0,16):"");};

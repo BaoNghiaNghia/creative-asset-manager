@@ -9,6 +9,7 @@ import { useVideoSearch } from "./hooks/useVideoSearch";
 import { useVisualSearch } from "./hooks/useVisualSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { PublicReviewManagementDialog } from "./public-review-management/PublicReviewManagementDialog";
+import { activeShareFolderIds, managementApi } from "./public-review-management/api";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { SquareImageGenerationDialog } from "./components/SquareImageGenerationDialog";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
@@ -232,6 +233,7 @@ export default function App() {
   const imageSearchEnabled = searchIncludesImages(searchMediaMode);
   const videoSearchEnabled = searchIncludesVideos(searchMediaMode);
   const explorer = useDriveExplorer(imageSearchEnabled);
+  const canManageReviewLinks = explorer.applicationPermissions.includes("public_review.manage");
   const canSearchAllResources = explorer.pureViewer === null ? null : !explorer.pureViewer;
   const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId, explorer.currentFolderId, canSearchAllResources);
   const [visualSearchOpen, setVisualSearchOpen] = useState(false);
@@ -262,6 +264,7 @@ export default function App() {
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextState | null>(null);
   const [reviewFolder, setReviewFolder] = useState<Asset | null>(null);
+  const [reviewLinkShareIds, setReviewLinkShareIds] = useState<Map<string, string>>(() => new Map());
   const [generationItem, setGenerationItem] = useState<Asset | null>(null);
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
@@ -271,6 +274,20 @@ export default function App() {
   const [folderNoteSummary, setFolderNoteSummary] = useState("");
   const [folderNoteAvailable, setFolderNoteAvailable] = useState(false);
   useEffect(() => window.camDesktop?.ingestion.onProgress(setDesktopIngestion), []);
+
+  useEffect(() => {
+    if (!canManageReviewLinks) {
+      setReviewLinkShareIds(new Map());
+      return;
+    }
+    let alive = true;
+    managementApi.list().then(value => {
+      if (alive) setReviewLinkShareIds(activeShareFolderIds(value.items));
+    }).catch(() => {
+      if (alive) setReviewLinkShareIds(new Map());
+    });
+    return () => { alive = false; };
+  }, [canManageReviewLinks]);
 
   const dragDepthRef = useRef(0);
   const newMenuRef = useRef<HTMLDivElement | null>(null);
@@ -584,6 +601,61 @@ export default function App() {
   }
 
 
+  function reloadReviewLinkShares() {
+    if (!canManageReviewLinks) {
+      setReviewLinkShareIds(new Map());
+      return;
+    }
+    void managementApi.list().then(value => {
+      setReviewLinkShareIds(activeShareFolderIds(value.items));
+    }).catch(() => {
+      setReviewLinkShareIds(new Map());
+    });
+  }
+
+  async function copyCurrentReviewLink(shareId: string, item: Asset) {
+    if (!navigator.clipboard?.writeText) {
+      setShortcutNotice({ tone: "error", message: "Trình duyệt không cho phép sao chép vào clipboard." });
+      return;
+    }
+    try {
+      const value = await managementApi.current(shareId);
+      await navigator.clipboard.writeText(value.share_url);
+      setShortcutNotice({ tone: "success", message: "Đã sao chép đường dẫn chia sẻ của “" + item.name + "”." });
+    } catch {
+      setShortcutNotice({
+        tone: "error",
+        message: "Không thể lấy đường dẫn hiện tại. Hãy chọn “Cập nhật đường dẫn chia sẻ” một lần rồi thử lại.",
+      });
+    }
+  }
+
+  async function refreshReviewLink(shareId: string, item: Asset) {
+    if (!navigator.clipboard?.writeText) {
+      setShortcutNotice({ tone: "error", message: "Trình duyệt không cho phép sao chép vào clipboard." });
+      return;
+    }
+    let rotated = false;
+    try {
+      const value = await managementApi.rotate(shareId);
+      rotated = true;
+      if (!value.share_url) throw new Error("Missing refreshed share URL");
+      await navigator.clipboard.writeText(value.share_url);
+      setShortcutNotice({
+        tone: "success",
+        message: "Đã cập nhật và sao chép đường dẫn chia sẻ mới của “" + item.name + "”. Link cũ đã hết hiệu lực.",
+      });
+      reloadReviewLinkShares();
+    } catch {
+      setShortcutNotice({
+        tone: "error",
+        message: rotated
+          ? "Đường dẫn đã được cập nhật nhưng chưa sao chép được. Chọn “Sao chép đường dẫn chia sẻ” để lấy link mới."
+          : "Không thể cập nhật đường dẫn chia sẻ.",
+      });
+    }
+  }
+
   function contextAncestors(item: Asset): Asset[] {
     if (!item.ancestor_ids?.length || item.ancestor_ids.length !== item.ancestor_names?.length) {
       return explorer.path;
@@ -704,7 +776,6 @@ export default function App() {
       onToggle={explorer.toggleTree}
       onPrefetch={explorer.scheduleFolderPrefetch}
       onCancelPrefetch={explorer.cancelFolderPrefetch}
-      canManageReviewLinks={explorer.applicationPermissions.includes("public_review.manage")}
       onCollapse={sidebar.collapse}
       onResizeStart={sidebar.startResize}
       applicationAuthenticated={explorer.applicationAuthenticated === true}
@@ -1042,6 +1113,9 @@ export default function App() {
             onFocus={item => detailsOpen && openDetails(item)}
             onContextMenu={(item, event) => { event.preventDefault(); setAssetContextMenu({ item, position: { x: event.clientX, y: event.clientY } }); }}
             onFindSimilar={item => { setVisualSearchOpen(true); visualSearch.chooseAsset(item); }}
+            reviewLinkShareIds={canManageReviewLinks ? reviewLinkShareIds : undefined}
+            onCopyReviewLink={copyCurrentReviewLink}
+            onRefreshReviewLink={refreshReviewLink}
           />}
 
           {!visualSearchOpen && explorer.searchV3.active && <LoadMoreSentinel
@@ -1141,7 +1215,7 @@ export default function App() {
       onDelete={() => deleteContextItem(assetContextMenu.item)}
       onClose={() => setAssetContextMenu(null)}
     />}
-    {reviewFolder?.external_source_id && <PublicReviewManagementDialog initialScope={{ external_source_id: reviewFolder.external_source_id, folder_external_id: reviewFolder.id, folder_name: reviewFolder.name }} availableScopes={[{ external_source_id: reviewFolder.external_source_id, folder_external_id: reviewFolder.id, folder_name: reviewFolder.name }, ...(reviewFolder.location_breadcrumb || []).map(folder => ({ external_source_id: reviewFolder.external_source_id!, folder_external_id: folder.id, folder_name: folder.name }))]} onClose={() => setReviewFolder(null)} />}
+    {reviewFolder?.external_source_id && <PublicReviewManagementDialog initialScope={{ external_source_id: reviewFolder.external_source_id, folder_external_id: reviewFolder.id, folder_name: reviewFolder.name }} availableScopes={[{ external_source_id: reviewFolder.external_source_id, folder_external_id: reviewFolder.id, folder_name: reviewFolder.name }, ...(reviewFolder.location_breadcrumb || []).map(folder => ({ external_source_id: reviewFolder.external_source_id!, folder_external_id: folder.id, folder_name: folder.name }))]} onClose={() => { setReviewFolder(null); reloadReviewLinkShares(); }} />}
     {generationItem?.internal_asset_id && <SquareImageGenerationDialog
       open
       assetId={generationItem.internal_asset_id}

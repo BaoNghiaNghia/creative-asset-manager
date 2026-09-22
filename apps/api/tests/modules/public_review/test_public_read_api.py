@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -39,6 +40,7 @@ def exchange(ctx,secret="fake-public-secret"):
 def test_session_exchange_headers_and_generic_denial(ctx):
  good=exchange(ctx);assert good.status_code==201 and "fake-public-secret" not in good.text
  cookie=good.headers["set-cookie"].lower();assert "httponly" in cookie and "samesite=lax" in cookie
+ max_age=re.search(r"max-age=(\d+)",cookie);assert max_age and 604700 <= int(max_age.group(1)) <= 604800
  missing=request(ctx,"POST","/api/public/review/share-a/session",json={"key":"fake-public-secret"});wrong=request(ctx,"POST","/api/public/review/missing/session",json={"key":"bad"},headers={"Origin":"http://localhost:5173"});assert missing.status_code==wrong.status_code==404 and missing.json()==wrong.json()
  with ctx[1]() as s:
   assert s.scalar(select(PublicReviewRateLimitModel)) is not None
