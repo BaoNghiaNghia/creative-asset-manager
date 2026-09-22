@@ -257,6 +257,8 @@ Visual Search dùng contract embedding v2 riêng, tách biệt với Search V3 m
 - Image cache key dùng SHA-256 của JPEG request đã validate và tiếp tục bind model/revision/schema/preprocess; không giữ raw image trong cache.
 - Elasticsearch ANN candidate, benchmark profile, rollback proof, baseline audit, load evidence, regression evidence và acceptance-gate evaluator đều nằm trong workflow release.
 - INT8 tooling tồn tại dưới dạng candidate/validation path; INT8 không được coi là active chỉ vì artifact/code đã tồn tại.
+- Rollout có hai profile disk rõ ràng: `encoder_only` yêu cầu tối thiểu 6 GiB free ở baseline trước rollout và còn ít nhất 4 GiB sau khi provision/validate encoder; `full_migration` vẫn yêu cầu 12 GiB free trước backfill/ANN/alias activation.
+- `encoder_only` chỉ cho phép provision/validate SigLIP2/OpenVINO và review encoder runtime trên VPS ít disk; profile này không cho phép suy ra rằng full-corpus backfill, ANN candidate hoặc Elasticsearch alias activation đã được duyệt.
 
 Trạng thái source hiện tại: phần coding VS-CPU-00 → VS-CPU-07 và các tối ưu runtime đã hoàn tất trên `main`. Việc provision model trên VPS, export/benchmark OpenVINO trên target CPU, representative ANN/relevance benchmark, full-corpus backfill, alias activation và INT8 promotion vẫn là các bước rollout có kiểm soát; không được suy ra là đã hoàn tất chỉ từ trạng thái Git.
 

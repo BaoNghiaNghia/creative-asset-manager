@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import pytest
+
 from app.modules.visual_search.acceptance_gates import (
     evaluate_acceptance_gates,
 )
+from app.modules.visual_search.rollout_policy import (
+    ROLLOUT_MODE_ENCODER_ONLY,
+    ROLLOUT_MODE_FULL_MIGRATION,
+)
 
 
-def _release_bundle() -> dict:
+def _release_bundle(
+    *,
+    rollout_mode: str = ROLLOUT_MODE_FULL_MIGRATION,
+    baseline_free_gib: float = 20,
+    current_free_gib: float = 20,
+) -> dict:
     checks = [
         {"name": "visual_encoder", "passed": True},
         {"name": "search_v3", "passed": True},
@@ -16,9 +27,10 @@ def _release_bundle() -> dict:
         {"name": "alias_lifecycle", "passed": True},
     ]
     return {
+        "rollout_mode": rollout_mode,
         "host": {
             "root_disk_bytes": {
-                "free": 20 * 1024**3,
+                "free": int(current_free_gib * 1024**3),
             }
         },
         "encoder": {
@@ -35,10 +47,18 @@ def _release_bundle() -> dict:
             }
         },
         "gates": {
+            "rollout_mode": rollout_mode,
             "release_evidence_complete": True,
         },
         "reports": {
-            "baseline": {"complete": True},
+            "baseline": {
+                "complete": True,
+                "host": {
+                    "root_disk_bytes": {
+                        "free": int(baseline_free_gib * 1024**3),
+                    }
+                },
+            },
             "regression": {
                 "passed": True,
                 "checks": checks,
@@ -65,9 +85,11 @@ def _release_bundle() -> dict:
     }
 
 
-def test_acceptance_gates_complete_only_with_all_required_evidence() -> None:
+def test_full_migration_acceptance_requires_all_evidence() -> None:
     result = evaluate_acceptance_gates(_release_bundle())
 
+    assert result["rollout_mode"] == ROLLOUT_MODE_FULL_MIGRATION
+    assert result["permits_full_migration"] is True
     assert result["prerequisites_complete"] is True
     assert result["prerequisites"] == {
         "baseline_complete": True,
@@ -83,9 +105,86 @@ def test_acceptance_gates_complete_only_with_all_required_evidence() -> None:
     }
 
 
-def test_acceptance_gates_fail_closed_for_disk_and_unknown_swap() -> None:
+def test_full_migration_still_fails_at_8_3_gib() -> None:
+    release = _release_bundle(
+        baseline_free_gib=8.3,
+        current_free_gib=8.3,
+    )
+
+    result = evaluate_acceptance_gates(release)
+    disk = {row["id"]: row for row in result["gates"]}[
+        "disk_migration_headroom"
+    ]
+
+    assert result["acceptance_complete"] is False
+    assert disk["status"] == "fail"
+    assert disk["evidence"]["minimum_after_bytes"] == 12 * 1024**3
+    assert disk["evidence"]["permits_full_migration"] is True
+
+
+def test_encoder_only_accepts_low_disk_profile_without_ann_or_alias_activation() -> None:
+    release = _release_bundle(
+        rollout_mode=ROLLOUT_MODE_ENCODER_ONLY,
+        baseline_free_gib=8.3,
+        current_free_gib=5.0,
+    )
+    release["reports"]["ann"] = None
+
+    result = evaluate_acceptance_gates(release)
+    by_id = {row["id"]: row for row in result["gates"]}
+
+    assert result["rollout_mode"] == ROLLOUT_MODE_ENCODER_ONLY
+    assert result["permits_full_migration"] is False
+    assert result["acceptance_complete"] is True
+    assert result["decision"] == "eligible_for_encoder_only_rollout_review"
+    assert result["counts"] == {
+        "pass": 9,
+        "fail": 0,
+        "unknown": 0,
+        "not_applicable": 3,
+    }
+    assert by_id["disk_migration_headroom"]["status"] == "pass"
+    assert by_id["disk_migration_headroom"]["evidence"] == {
+        "rollout_mode": ROLLOUT_MODE_ENCODER_ONLY,
+        "baseline_free_bytes": int(8.3 * 1024**3),
+        "current_free_bytes": 5 * 1024**3,
+        "minimum_before_bytes": 6 * 1024**3,
+        "minimum_after_bytes": 4 * 1024**3,
+        "permits_full_migration": False,
+    }
+    assert by_id["knn_relevance_evidence"]["status"] == "not_applicable"
+    assert by_id["elasticsearch_alias_rollback"]["status"] == "not_applicable"
+
+
+@pytest.mark.parametrize(
+    ("baseline_free_gib", "current_free_gib"),
+    [
+        (5.9, 5.0),
+        (8.3, 3.9),
+    ],
+)
+def test_encoder_only_fails_closed_below_either_disk_threshold(
+    baseline_free_gib: float,
+    current_free_gib: float,
+) -> None:
+    release = _release_bundle(
+        rollout_mode=ROLLOUT_MODE_ENCODER_ONLY,
+        baseline_free_gib=baseline_free_gib,
+        current_free_gib=current_free_gib,
+    )
+    release["reports"]["ann"] = None
+
+    result = evaluate_acceptance_gates(release)
+    disk = {row["id"]: row for row in result["gates"]}[
+        "disk_migration_headroom"
+    ]
+
+    assert result["acceptance_complete"] is False
+    assert disk["status"] == "fail"
+
+
+def test_acceptance_gates_fail_closed_for_unknown_swap() -> None:
     release = _release_bundle()
-    release["host"]["root_disk_bytes"]["free"] = 8 * 1024**3
     release["reports"]["load"]["swap_pressure"]["passed"] = None
 
     result = evaluate_acceptance_gates(release)
@@ -93,8 +192,17 @@ def test_acceptance_gates_fail_closed_for_disk_and_unknown_swap() -> None:
 
     assert result["acceptance_complete"] is False
     assert result["decision"] == "blocked_pending_evidence_or_failure"
-    assert by_id["disk_migration_headroom"]["status"] == "fail"
     assert by_id["ram_no_sustained_swap_pressure"]["status"] == "unknown"
+
+
+def test_acceptance_rejects_rollout_mode_mismatch() -> None:
+    release = _release_bundle(rollout_mode=ROLLOUT_MODE_ENCODER_ONLY)
+
+    with pytest.raises(ValueError, match="does not match"):
+        evaluate_acceptance_gates(
+            release,
+            rollout_mode=ROLLOUT_MODE_FULL_MIGRATION,
+        )
 
 
 def test_int8_gate_requires_fifty_passing_cases_when_candidate_is_present() -> None:

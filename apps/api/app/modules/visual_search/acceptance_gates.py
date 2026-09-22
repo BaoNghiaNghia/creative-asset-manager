@@ -5,8 +5,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-
-_DISK_MIN_FREE_BYTES = 12 * 1024**3
+from app.modules.visual_search.rollout_policy import (
+    ROLLOUT_MODE_ENCODER_ONLY,
+    ROLLOUT_MODES,
+    disk_rollout_policy,
+    normalize_rollout_mode,
+)
 
 
 def _regression_check(
@@ -44,7 +48,23 @@ def _gate(
 
 def evaluate_acceptance_gates(
     release: dict[str, Any],
+    *,
+    rollout_mode: str | None = None,
 ) -> dict[str, Any]:
+    bundle_mode = release.get("rollout_mode")
+    if (
+        rollout_mode is not None
+        and isinstance(bundle_mode, str)
+        and normalize_rollout_mode(rollout_mode)
+        != normalize_rollout_mode(bundle_mode)
+    ):
+        raise ValueError(
+            "rollout_mode does not match the release-evidence bundle"
+        )
+    mode = normalize_rollout_mode(
+        rollout_mode if rollout_mode is not None else bundle_mode
+    )
+    disk_policy = disk_rollout_policy(mode)
     reports = release.get("reports")
     reports = reports if isinstance(reports, dict) else {}
     regression = reports.get("regression")
@@ -57,6 +77,8 @@ def evaluate_acceptance_gates(
     int8 = int8 if isinstance(int8, dict) else None
     load = reports.get("load")
     load = load if isinstance(load, dict) else {}
+    baseline = reports.get("baseline")
+    baseline = baseline if isinstance(baseline, dict) else {}
 
     encoder = release.get("encoder")
     encoder = encoder if isinstance(encoder, dict) else {}
@@ -227,22 +249,35 @@ def evaluate_acceptance_gates(
             for row in profiles
         )
     )
-    gates.append(
-        _gate(
-            "knn_relevance_evidence",
-            "pass" if measured_relevance else "unknown",
-            (
-                "ANN report includes measured expected recall and baseline overlap."
-                if measured_relevance
-                else "Representative ANN relevance evidence has not been attached."
-            ),
-            {
-                "profile_count": len(profiles)
-                if isinstance(profiles, list)
-                else 0
-            },
+    if mode == ROLLOUT_MODE_ENCODER_ONLY:
+        gates.append(
+            _gate(
+                "knn_relevance_evidence",
+                "not_applicable",
+                (
+                    "ANN relevance is not required for encoder_only because this "
+                    "profile does not authorize backfill or alias activation."
+                ),
+                {"profile_count": 0},
+            )
         )
-    )
+    else:
+        gates.append(
+            _gate(
+                "knn_relevance_evidence",
+                "pass" if measured_relevance else "unknown",
+                (
+                    "ANN report includes measured expected recall and baseline overlap."
+                    if measured_relevance
+                    else "Representative ANN relevance evidence has not been attached."
+                ),
+                {
+                    "profile_count": len(profiles)
+                    if isinstance(profiles, list)
+                    else 0
+                },
+            )
+        )
 
     if int8 is None:
         gates.append(
@@ -305,56 +340,105 @@ def evaluate_acceptance_gates(
     disk = host.get("root_disk_bytes")
     disk = disk if isinstance(disk, dict) else {}
     disk_free = disk.get("free")
-    if isinstance(disk_free, int):
-        disk_status = (
-            "pass"
-            if disk_free >= _DISK_MIN_FREE_BYTES
-            else "fail"
+    baseline_host = baseline.get("host")
+    baseline_host = baseline_host if isinstance(baseline_host, dict) else {}
+    baseline_disk = baseline_host.get("root_disk_bytes")
+    baseline_disk = baseline_disk if isinstance(baseline_disk, dict) else {}
+    baseline_disk_free = baseline_disk.get("free")
+
+    if mode == ROLLOUT_MODE_ENCODER_ONLY:
+        if isinstance(baseline_disk_free, int) and isinstance(disk_free, int):
+            disk_status = (
+                "pass"
+                if (
+                    baseline_disk_free >= disk_policy.minimum_before_bytes
+                    and disk_free >= disk_policy.minimum_after_bytes
+                )
+                else "fail"
+            )
+        else:
+            disk_status = "unknown"
+        disk_reason = (
+            "Encoder-only disk headroom meets the 6 GiB pre-rollout and 4 GiB post-provision targets."
+            if disk_status == "pass"
+            else "Encoder-only disk headroom is below the 6 GiB pre-rollout or 4 GiB post-provision target."
+            if disk_status == "fail"
+            else "Encoder-only disk evidence needs both baseline and current free-space measurements."
         )
     else:
-        disk_status = "unknown"
+        if isinstance(disk_free, int):
+            disk_status = (
+                "pass"
+                if disk_free >= disk_policy.minimum_after_bytes
+                else "fail"
+            )
+        else:
+            disk_status = "unknown"
+        disk_reason = (
+            "Root disk meets the 12 GiB full-migration headroom target."
+            if disk_status == "pass"
+            else "Root disk is below the 12 GiB full-migration headroom target."
+            if disk_status == "fail"
+            else "Root disk free-space evidence is missing."
+        )
+
     gates.append(
         _gate(
             "disk_migration_headroom",
             disk_status,
-            (
-                "Root disk meets the 12 GiB minimum migration-headroom target."
-                if disk_status == "pass"
-                else "Root disk is below the 12 GiB minimum migration-headroom target."
-                if disk_status == "fail"
-                else "Root disk free-space evidence is missing."
-            ),
+            disk_reason,
             {
-                "free_bytes": disk_free,
-                "minimum_free_bytes": _DISK_MIN_FREE_BYTES,
+                "rollout_mode": mode,
+                "baseline_free_bytes": baseline_disk_free,
+                "current_free_bytes": disk_free,
+                "minimum_before_bytes": disk_policy.minimum_before_bytes,
+                "minimum_after_bytes": disk_policy.minimum_after_bytes,
+                "permits_full_migration": disk_policy.permits_full_migration,
             },
         )
     )
 
     alias_lifecycle = _regression_check(regression, "alias_lifecycle")
-    if rollback_verified is False or alias_lifecycle is False:
-        alias_status = "fail"
-    elif rollback_verified is True and alias_lifecycle is True:
-        alias_status = "pass"
-    else:
-        alias_status = "unknown"
-    gates.append(
-        _gate(
-            "elasticsearch_alias_rollback",
-            alias_status,
-            (
-                "Alias lifecycle regression passed and the previous v1 rollback target is verified."
-                if alias_status == "pass"
-                else "Alias rollback/lifecycle evidence failed."
-                if alias_status == "fail"
-                else "Need both alias-lifecycle regression and verified rollback target."
-            ),
-            {
-                "alias_lifecycle_regression": alias_lifecycle,
-                "rollback_verified": rollback_verified,
-            },
+    if mode == ROLLOUT_MODE_ENCODER_ONLY:
+        gates.append(
+            _gate(
+                "elasticsearch_alias_rollback",
+                "not_applicable",
+                (
+                    "Elasticsearch alias activation is not authorized by "
+                    "encoder_only; the previous v1 rollback target is still "
+                    "required separately."
+                ),
+                {
+                    "alias_lifecycle_regression": alias_lifecycle,
+                    "rollback_verified": rollback_verified,
+                },
+            )
         )
-    )
+    else:
+        if rollback_verified is False or alias_lifecycle is False:
+            alias_status = "fail"
+        elif rollback_verified is True and alias_lifecycle is True:
+            alias_status = "pass"
+        else:
+            alias_status = "unknown"
+        gates.append(
+            _gate(
+                "elasticsearch_alias_rollback",
+                alias_status,
+                (
+                    "Alias lifecycle regression passed and the previous v1 rollback target is verified."
+                    if alias_status == "pass"
+                    else "Alias rollback/lifecycle evidence failed."
+                    if alias_status == "fail"
+                    else "Need both alias-lifecycle regression and verified rollback target."
+                ),
+                {
+                    "alias_lifecycle_regression": alias_lifecycle,
+                    "rollback_verified": rollback_verified,
+                },
+            )
+        )
 
     counts = {
         status: sum(1 for gate in gates if gate["status"] == status)
@@ -366,8 +450,6 @@ def evaluate_acceptance_gates(
         if isinstance(release_gate_summary, dict)
         else {}
     )
-    baseline = reports.get("baseline")
-    baseline = baseline if isinstance(baseline, dict) else {}
     prerequisites = {
         "baseline_complete": baseline.get("complete") is True,
         "release_evidence_complete": (
@@ -380,17 +462,23 @@ def evaluate_acceptance_gates(
         and counts["fail"] == 0
         and counts["unknown"] == 0
     )
+    if complete:
+        decision = (
+            "eligible_for_encoder_only_rollout_review"
+            if mode == ROLLOUT_MODE_ENCODER_ONLY
+            else "eligible_for_release_review"
+        )
+    else:
+        decision = "blocked_pending_evidence_or_failure"
     return {
+        "rollout_mode": mode,
+        "permits_full_migration": disk_policy.permits_full_migration,
         "gates": gates,
         "counts": counts,
         "prerequisites": prerequisites,
         "prerequisites_complete": prerequisites_complete,
         "acceptance_complete": complete,
-        "decision": (
-            "eligible_for_release_review"
-            if complete
-            else "blocked_pending_evidence_or_failure"
-        ),
+        "decision": decision,
     }
 
 
@@ -402,6 +490,14 @@ def main() -> int:
         )
     )
     parser.add_argument("--release-evidence", type=Path, required=True)
+    parser.add_argument(
+        "--rollout-mode",
+        choices=ROLLOUT_MODES,
+        help=(
+            "Optional explicit mode. When the release bundle already declares "
+            "a mode, this value must match it."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -414,7 +510,10 @@ def main() -> int:
     if not isinstance(release, dict):
         raise RuntimeError("release evidence must contain a JSON object")
 
-    result = evaluate_acceptance_gates(release)
+    result = evaluate_acceptance_gates(
+        release,
+        rollout_mode=args.rollout_mode,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n",

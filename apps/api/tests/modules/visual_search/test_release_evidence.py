@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 from app.modules.visual_search.release_evidence import _gate_summary
+from app.modules.visual_search.rollout_policy import (
+    ROLLOUT_MODE_ENCODER_ONLY,
+    ROLLOUT_MODE_FULL_MIGRATION,
+)
 
 
-def _bundle(*, include_all_reports: bool) -> dict:
+def _bundle(*, include_all_reports: bool, rollout_mode: str = ROLLOUT_MODE_FULL_MIGRATION) -> dict:
     reports = {
-        "baseline": {"complete": True},
+        "baseline": {
+            "complete": True,
+            "host": {
+                "root_disk_bytes": {
+                    "free": 20 * 1024**3,
+                }
+            },
+        },
         "openvino": {"passed": True},
         "ann": {"profiles": []},
         "load": {"request_latency_ms": {"p95": 100.0}},
@@ -16,6 +27,7 @@ def _bundle(*, include_all_reports: bool) -> dict:
     if not include_all_reports:
         reports["load"] = None
     return {
+        "rollout_mode": rollout_mode,
         "encoder": {
             "status": "ok",
             "queue": {
@@ -38,17 +50,24 @@ def _bundle(*, include_all_reports: bool) -> dict:
     }
 
 
-def test_release_evidence_requires_validated_reports_and_rollback_proof() -> None:
+def test_full_migration_release_evidence_requires_ann_and_validated_reports() -> None:
     complete = _gate_summary(_bundle(include_all_reports=True))
+    assert complete["rollout_mode"] == ROLLOUT_MODE_FULL_MIGRATION
     assert complete["release_evidence_complete"] is True
     assert complete["required_reports_present"] == {
         "baseline": True,
         "openvino": True,
-        "ann": True,
         "load": True,
         "rollback": True,
         "regression": True,
+        "ann": True,
     }
+
+    missing_ann_bundle = _bundle(include_all_reports=True)
+    missing_ann_bundle["reports"]["ann"] = None
+    missing_ann = _gate_summary(missing_ann_bundle)
+    assert missing_ann["release_evidence_complete"] is False
+    assert missing_ann["required_reports_present"]["ann"] is False
 
     missing_load = _gate_summary(_bundle(include_all_reports=False))
     assert missing_load["release_evidence_complete"] is False
@@ -77,3 +96,24 @@ def test_release_evidence_requires_validated_reports_and_rollback_proof() -> Non
     failed_regression = _gate_summary(failed_regression_bundle)
     assert failed_regression["release_evidence_complete"] is False
     assert failed_regression["required_reports_present"]["regression"] is False
+
+
+def test_encoder_only_release_evidence_does_not_require_ann() -> None:
+    bundle = _bundle(
+        include_all_reports=True,
+        rollout_mode=ROLLOUT_MODE_ENCODER_ONLY,
+    )
+    bundle["reports"]["ann"] = None
+
+    summary = _gate_summary(bundle)
+
+    assert summary["rollout_mode"] == ROLLOUT_MODE_ENCODER_ONLY
+    assert summary["release_evidence_complete"] is True
+    assert summary["required_reports_present"] == {
+        "baseline": True,
+        "openvino": True,
+        "load": True,
+        "rollback": True,
+        "regression": True,
+    }
+    assert summary["optional_reports_present"]["ann"] is False

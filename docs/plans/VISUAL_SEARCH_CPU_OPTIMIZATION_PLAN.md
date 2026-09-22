@@ -690,9 +690,9 @@ VISUAL_ENCODER_TEXT_CACHE_MAX_ENTRIES=256
 - `regression_evidence.py` runs the bounded release regression groups with the current Python environment: isolated encoder tests, the full Visual Search module tests, the full Search V3 module tests, VPS deployment tests, plus dedicated acceptance checks for cross-tenant isolation, queue priority, pinned startup, and alias lifecycle; it emits only command targets/pytest filters, exit status, timing, and bounded stdout/stderr summaries;
 - `rollback_proof.py` verifies the exact previous SigLIP v1 revision directory and hashes its core local model files, then checks the dedicated `visual_embedding_v1` Elasticsearch read alias, vector mapping, and document count without mutating aliases or indices;
 - the evidence bundle can attach the complete VS-CPU-00 baseline, approved OpenVINO validation report, ANN benchmark report, optional INT8 candidate report, bounded load report, regression report, and explicit rollback-proof report;
-- `release_evidence_complete` remains false unless the baseline is complete, encoder readiness and Elasticsearch health are good, the OpenVINO report passed, ANN relevance evidence exists, load evidence exists, the regression report passed, and `rollback.verified=true`;
+- `release_evidence_complete` remains false unless the baseline is complete, encoder readiness and Elasticsearch health are good, the OpenVINO report passed, load evidence exists, the regression report passed, and `rollback.verified=true`; ANN evidence is additionally required only for `full_migration`, while it is optional for `encoder_only`;
 - `acceptance_gates.py` evaluates the twelve gates in section 15 from that immutable release bundle and returns `pass`, `fail`, `unknown`, or `not_applicable`; missing runtime evidence never becomes an implicit pass;
-- the disk gate uses the documented 12 GiB minimum migration-headroom target; the swap gate only passes when the load probe was given a reviewed maximum swap-growth threshold and stayed within it;
+- disk policy is rollout-profile aware: `encoder_only` requires at least 6 GiB free in the pre-rollout baseline and at least 4 GiB free after encoder provision/validation, while `full_migration` retains the 12 GiB free-space requirement before backfill/ANN/alias activation; the swap gate only passes when the load probe was given a reviewed maximum swap-growth threshold and stayed within it;
 - INT8 evidence is optional because the INT8 candidate is not promoted in this track;
 - evidence tooling never changes feature flags, restarts a service, creates/deletes an index, switches aliases, or deletes rollback artifacts.
 
@@ -758,13 +758,24 @@ Minimum release gates:
 
 - code-contract gates use the dedicated regression subsets for Search V3, tenant isolation, queue priority, pinned startup, deployment bounds, and alias lifecycle;
 - v1 rollback requires `rollback_proof.py` to report `verified=true`;
-- KNN tuning passes the evidence-presence gate only when the ANN report contains measured expected-recall and baseline-overlap fields; relevance approval remains a release-review decision;
+- `full_migration` requires KNN/ANN evidence with measured expected-recall and baseline-overlap fields; relevance approval remains a release-review decision;
+- `encoder_only` marks KNN relevance and Elasticsearch alias-activation rollback as `not_applicable` because that profile does not authorize backfill or alias switching; v1 model/index rollback proof is still mandatory;
 - INT8 is `not_applicable` while INT8 is not part of the release candidate; if an INT8 report is attached, at least 50 cases and `passed=true` are required;
 - swap pressure remains `unknown` unless the bounded load probe was run with a reviewed swap-growth threshold; it fails if that threshold is exceeded;
-- disk headroom fails below the documented 12 GiB minimum;
-- the evaluator cannot return `eligible_for_release_review` unless the VS-CPU-00 baseline is complete and the VS-CPU-07 release-evidence bundle itself is complete.
+- `encoder_only` disk headroom fails unless the VS-CPU-00 baseline shows at least 6 GiB free and current release evidence still shows at least 4 GiB free after provision/validation;
+- `full_migration` disk headroom fails below 12 GiB free and remains the only profile that may proceed to full-corpus backfill, ANN candidate activation, or Elasticsearch alias switching;
+- the evaluator cannot return an eligible review decision unless the VS-CPU-00 baseline is complete and the VS-CPU-07 release-evidence bundle itself is complete.
 
-An `unknown` gate is blocking. `not_applicable` is allowed only for an optimization that is not being promoted, currently INT8.
+An `unknown` gate is blocking. `not_applicable` is allowed only when the selected rollout profile explicitly does not promote that capability.
+
+Low-disk encoder-only evidence flow:
+
+```text
+release_evidence.py --rollout-mode encoder_only ...
+acceptance_gates.py --release-evidence <bundle.json> --rollout-mode encoder_only ...
+```
+
+A passing `encoder_only` report returns `eligible_for_encoder_only_rollout_review`. It is not authorization for backfill or alias activation. To proceed to those steps, collect a new `full_migration` evidence bundle and satisfy the 12 GiB disk gate plus ANN/alias requirements.
 
 ---
 

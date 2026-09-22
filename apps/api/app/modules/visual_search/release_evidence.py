@@ -10,6 +10,12 @@ from typing import Any
 
 import httpx
 
+from app.modules.visual_search.rollout_policy import (
+    ROLLOUT_MODE_ENCODER_ONLY,
+    ROLLOUT_MODES,
+    normalize_rollout_mode,
+)
+
 
 def _read_json(path: Path | None) -> dict[str, Any] | None:
     if path is None:
@@ -163,7 +169,16 @@ def _elasticsearch_snapshot(
     }
 
 
-def _gate_summary(bundle: dict[str, Any]) -> dict[str, Any]:
+def _gate_summary(
+    bundle: dict[str, Any],
+    *,
+    rollout_mode: str | None = None,
+) -> dict[str, Any]:
+    mode = normalize_rollout_mode(
+        rollout_mode
+        if rollout_mode is not None
+        else bundle.get("rollout_mode")
+    )
     encoder = bundle.get("encoder")
     host = bundle.get("host")
     elasticsearch = bundle.get("elasticsearch")
@@ -221,15 +236,23 @@ def _gate_summary(bundle: dict[str, Any]) -> dict[str, Any]:
     required_reports = {
         "baseline": bool(baseline_report.get("complete") is True),
         "openvino": bool(openvino_report.get("passed") is True),
-        "ann": bool(isinstance(reports, dict) and reports.get("ann")),
         "load": bool(isinstance(reports, dict) and reports.get("load")),
         "rollback": bool(rollback_report.get("verified") is True),
         "regression": bool(regression_report.get("passed") is True),
     }
+    if mode != ROLLOUT_MODE_ENCODER_ONLY:
+        required_reports["ann"] = bool(
+            isinstance(reports, dict) and reports.get("ann")
+        )
     optional_reports = {
         "int8": bool(isinstance(reports, dict) and reports.get("int8")),
     }
+    if mode == ROLLOUT_MODE_ENCODER_ONLY:
+        optional_reports["ann"] = bool(
+            isinstance(reports, dict) and reports.get("ann")
+        )
     return {
+        "rollout_mode": mode,
         "encoder_ready": bool(
             isinstance(encoder, dict)
             and encoder.get("status") == "ok"
@@ -277,10 +300,12 @@ def collect_release_evidence(
     load_report: Path | None = None,
     rollback_report: Path | None = None,
     regression_report: Path | None = None,
+    rollout_mode: str = "full_migration",
     timeout_seconds: float = 5.0,
 ) -> dict[str, Any]:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
+    mode = normalize_rollout_mode(rollout_mode)
 
     with httpx.Client(timeout=timeout_seconds) as client:
         encoder_response = client.get(encoder_ready_url)
@@ -292,6 +317,7 @@ def collect_release_evidence(
 
     bundle: dict[str, Any] = {
         "captured_at": datetime.now(timezone.utc).isoformat(),
+        "rollout_mode": mode,
         "host": _host_snapshot(),
         "encoder": {
             **encoder,
@@ -308,7 +334,7 @@ def collect_release_evidence(
             "regression": _read_json(regression_report),
         },
     }
-    bundle["gates"] = _gate_summary(bundle)
+    bundle["gates"] = _gate_summary(bundle, rollout_mode=mode)
     return bundle
 
 
@@ -335,6 +361,16 @@ def main() -> int:
     parser.add_argument("--load-report", type=Path)
     parser.add_argument("--rollback-report", type=Path)
     parser.add_argument("--regression-report", type=Path)
+    parser.add_argument(
+        "--rollout-mode",
+        choices=ROLLOUT_MODES,
+        default="full_migration",
+        help=(
+            "encoder_only validates/provisions the encoder without authorizing "
+            "ANN backfill or alias activation; full_migration keeps the full "
+            "migration evidence requirements."
+        ),
+    )
     parser.add_argument("--timeout-seconds", type=float, default=5.0)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -350,6 +386,7 @@ def main() -> int:
         load_report=args.load_report,
         rollback_report=args.rollback_report,
         regression_report=args.regression_report,
+        rollout_mode=args.rollout_mode,
         timeout_seconds=args.timeout_seconds,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
