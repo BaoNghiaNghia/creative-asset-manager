@@ -354,8 +354,6 @@ export function AiOperationsContent({
       startScrollLeft: event.currentTarget.scrollLeft,
       moved: false,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setTabDragging(true);
   }
 
   function moveTabDrag(event: React.PointerEvent<HTMLElement>) {
@@ -363,8 +361,12 @@ export function AiOperationsContent({
     if (!active || active.pointerId !== event.pointerId) return;
     const delta = event.clientX - active.startX;
     if (!active.moved && Math.abs(delta) < 4) return;
-    active.moved = true;
-    suppressTabClickRef.current = true;
+    if (!active.moved) {
+      active.moved = true;
+      suppressTabClickRef.current = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setTabDragging(true);
+    }
     event.currentTarget.scrollLeft = active.startScrollLeft - delta;
     updateTabScrollState();
   }
@@ -373,9 +375,11 @@ export function AiOperationsContent({
     const active = tabDragRef.current;
     if (!active || active.pointerId !== event.pointerId) return;
     tabDragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    setTabDragging(false);
-    if (active.moved) window.setTimeout(() => { suppressTabClickRef.current = false; }, 0);
+    if (active.moved) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      setTabDragging(false);
+      window.setTimeout(() => { suppressTabClickRef.current = false; }, 0);
+    }
   }
 
   function selectOperationsTab(nextTab: AiOpsTab) {

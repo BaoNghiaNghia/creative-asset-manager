@@ -62,6 +62,44 @@ afterEach(async () => {
 });
 
 describe("AI Operations live tab requests", () => {
+
+  it("keeps a pointer click targeted at the tab button until an actual drag starts", async () => {
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
+    const originalReleasePointerCapture = HTMLElement.prototype.releasePointerCapture;
+    const originalHasPointerCapture = HTMLElement.prototype.hasPointerCapture;
+    Object.defineProperties(HTMLElement.prototype, {
+      setPointerCapture: { configurable: true, value: setPointerCapture },
+      releasePointerCapture: { configurable: true, value: releasePointerCapture },
+      hasPointerCapture: { configurable: true, value: vi.fn(() => true) },
+    });
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0, clientX });
+      Object.defineProperty(event, "pointerId", { value: 7 });
+      return event;
+    };
+
+    try {
+      await mount("overview", vi.fn(async input => normalResponse(String(input))) as typeof fetch);
+      const button = document.getElementById("ops-tab-processing") as HTMLButtonElement;
+      await act(async () => {
+        button.dispatchEvent(pointerEvent("pointerdown", 120));
+        button.dispatchEvent(pointerEvent("pointerup", 120));
+        button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(setPointerCapture).not.toHaveBeenCalled();
+      expect(button.getAttribute("aria-selected")).toBe("true");
+      expect(new URLSearchParams(window.location.search).get("tab")).toBe("processing");
+    } finally {
+      if (originalSetPointerCapture) HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).setPointerCapture;
+      if (originalReleasePointerCapture) HTMLElement.prototype.releasePointerCapture = originalReleasePointerCapture;
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).releasePointerCapture;
+      if (originalHasPointerCapture) HTMLElement.prototype.hasPointerCapture = originalHasPointerCapture;
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).hasPointerCapture;
+    }
+  });
   it.each([
     ["pipeline", ["pipeline", "media-dashboard", "summary"]],
     ["overview", ["summary", "daily", "providers", "failures"]],
