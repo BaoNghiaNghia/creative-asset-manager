@@ -76,6 +76,17 @@ test("valid GET streams exact bytes and conservative metadata", async () => {
   assert.deepEqual([bucket.getCalls, bucket.headCalls, bucket.listCalls], [1, 0, 0]);
 });
 
+test("signed playback derivative uses the exact immutable playback key", async () => {
+  const { bucket, env } = fixture();
+  const pathname = vector.pathname.replace(/\/original$/, "/playback.mp4");
+  const signature = await signReadPath(vector.secret, pathname, vector.expires_at);
+  const url = `https://media.example.test${pathname}?v=1&exp=${vector.expires_at}&sig=${signature}`;
+  const response = await send(url, env);
+  assert.equal(response.status, 200);
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), BYTES);
+  assert.equal(bucket.lastKey, pathname.slice(1));
+});
+
 test("same read ticket authorizes HEAD but returns metadata only", async () => {
   const { bucket, env, url } = fixture();
   const response = await send(url, env, "HEAD");

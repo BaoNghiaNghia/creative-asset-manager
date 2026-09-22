@@ -105,6 +105,39 @@ def test_handler_streams_exact_original_and_marks_ready(tmp_path):
     engine.dispose()
 
 
+def test_handler_keeps_ready_original_when_playback_admission_fails(tmp_path, monkeypatch):
+    engine, factory = setup(tmp_path)
+    data = b"durable original bytes"
+    asset, source, digest = seed(factory, data=data)
+    config = settings(
+        PROCESSING_JOBS_ENABLED=True,
+        R2_VIDEO_PLAYBACK_DERIVED_ENABLED=True,
+    )
+    r2 = StreamR2()
+    admitted = ensure(factory, config, r2, asset, source, digest)
+    resolver = Resolver(data)
+
+    def fail_playback_admission(*_args, **_kwargs):
+        raise RuntimeError("derived admission failed")
+
+    monkeypatch.setattr(
+        "app.modules.video_cache.handler.schedule_video_playback_prepare",
+        fail_playback_admission,
+    )
+    outcome = VideoCacheFillJobHandler(config)(
+        context(factory, admitted, r2, resolver, config)
+    )
+
+    assert outcome.outcome == JobOutcome.COMPLETED
+    assert r2.blob == data
+    with factory() as session:
+        row = session.scalar(select(VideoCacheObjectModel))
+        assert row.status == "ready"
+        assert row.size_bytes == len(data)
+        assert row.reserved_bytes == 0
+    engine.dispose()
+
+
 @pytest.mark.parametrize("mutate", ["hash", "size", "mime"])
 def test_handler_rejects_changed_authoritative_source(tmp_path, mutate):
     engine, factory = setup(tmp_path)

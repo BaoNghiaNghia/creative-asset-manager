@@ -105,10 +105,13 @@ def setup():
 
 
 def resolver(factory, configured=None, *, fill_service_factory=None):
+    configured = configured or settings()
+    guard = VideoDeliveryCircuitBreaker(clock=lambda: 100.0)
+    guard.complete_probe(configured, success=True)
     return PublicVideoDeliveryResolver(
         factory,
-        configured or settings(),
-        guard=VideoDeliveryCircuitBreaker(clock=lambda: 100.0),
+        configured,
+        guard=guard,
         probe=lambda *_args, **_kwargs: True,
         fill_service_factory=fill_service_factory,
     )

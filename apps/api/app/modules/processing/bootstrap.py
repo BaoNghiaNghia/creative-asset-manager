@@ -23,6 +23,7 @@ from app.modules.video_generation.handler import VideoGenerateJobHandler
 from app.modules.video_search.handler import VideoAnalyzeJobHandler
 from app.modules.video_search.index_handler import VideoSearchIndexJobHandler
 from app.modules.video_cache.handler import VideoCacheFillJobHandler
+from app.modules.video_cache.playback import VideoPlaybackPrepareJobHandler
 from app.modules.video_cache.cleanup import VideoCacheCleanupRunner
 from app.modules.ai_batch.handlers import (
     AiBatchImportJobHandler, AiBatchPollJobHandler,
@@ -82,6 +83,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "video_analyze": ("PROCESSING_JOBS_ENABLED", "VIDEO_SEARCH_ENABLED", "VIDEO_ANALYSIS_ENABLED", "VIDEO_PROXY_ENABLED"),
     "video_search_index": ("PROCESSING_JOBS_ENABLED", "VIDEO_SEARCH_ENABLED", "SEARCH_V3_ENABLED"),
     "video_cache_fill": ("PROCESSING_JOBS_ENABLED", "R2_VIDEO_CACHE_ENABLED"),
+    "video_playback_prepare": ("PROCESSING_JOBS_ENABLED", "R2_VIDEO_CACHE_ENABLED", "R2_VIDEO_PLAYBACK_DERIVED_ENABLED"),
     "ai_batch_prepare": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
     "ai_batch_submit": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
     "ai_batch_poll": ("PROCESSING_JOBS_ENABLED", "UNIFIED_ASSET_INGESTION_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_BATCH_ANALYSIS_ENABLED"),
@@ -285,6 +287,7 @@ def build_worker_runtime(
                 ("video_analyze", VideoAnalyzeJobHandler(settings)),
                 ("video_search_index", VideoSearchIndexJobHandler(settings)),
                 ("video_cache_fill", VideoCacheFillJobHandler(settings)),
+                ("video_playback_prepare", VideoPlaybackPrepareJobHandler(settings)),
                 ("ai_batch_prepare", AiBatchPrepareJobHandler(settings)),
                 ("ai_batch_submit", AiBatchSubmitJobHandler(settings)),
                 ("ai_batch_poll", AiBatchPollJobHandler(settings)),

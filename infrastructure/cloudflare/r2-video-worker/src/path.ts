@@ -1,5 +1,5 @@
-/** Only the Phase 1 immutable original-video key shape is readable. */
-const VIDEO_PATH = /^\/video-cache\/([A-Za-z0-9][A-Za-z0-9_-]{0,254})\/([0-9a-f]{64})\/original$/;
+/** Only immutable original and derived playback video key shapes are readable. */
+const VIDEO_PATH = /^\/video-cache\/([A-Za-z0-9][A-Za-z0-9_-]{0,254})\/([0-9a-f]{64})\/(?:original|playback\.mp4)$/;
 
 export function cacheKeyFromPath(pathname: string): string | null {
   if (!VIDEO_PATH.test(pathname)) return null;

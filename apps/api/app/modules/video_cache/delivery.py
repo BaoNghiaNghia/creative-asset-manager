@@ -15,10 +15,10 @@ from dataclasses import dataclass, field
 
 from app.core.config import Settings
 from app.modules.video_cache.model import VideoCacheObjectModel
-from app.modules.video_cache.service import video_cache_key
+from app.modules.video_cache.service import video_cache_key, video_playback_key
 
 _VIDEO_PATH = re.compile(
-    r"/video-cache/([A-Za-z0-9][A-Za-z0-9_-]{0,254})/([0-9a-f]{64})/original",
+    r"/video-cache/([A-Za-z0-9][A-Za-z0-9_-]{0,254})/([0-9a-f]{64})/(original|playback\.mp4)",
     re.ASCII,
 )
 
@@ -39,11 +39,20 @@ class VideoDeliveryUnavailable(VideoDeliveryError):
 class SignedVideoDelivery:
     url: str = field(repr=False)
     expires_at: int
+    size_bytes: int
 
 
 def canonical_read_message(pathname: str, expires_at: int) -> bytes:
     match = _VIDEO_PATH.fullmatch(pathname)
-    if match is None or pathname != "/" + video_cache_key(*match.groups()):
+    if match is None:
+        raise VideoDeliveryUnavailable("Video delivery is unavailable")
+    tenant_id, content_hash, variant = match.groups()
+    expected_key = (
+        video_cache_key(tenant_id, content_hash)
+        if variant == "original"
+        else video_playback_key(tenant_id, content_hash)
+    )
+    if pathname != "/" + expected_key:
         raise VideoDeliveryUnavailable("Video delivery is unavailable")
     if isinstance(expires_at, bool) or not isinstance(expires_at, int) or expires_at <= 0:
         raise VideoDeliveryUnavailable("Video delivery is unavailable")
@@ -70,18 +79,29 @@ class VideoCacheDeliveryService:
         if not self.settings.video_delivery_configured:
             raise VideoDeliveryNotConfigured("Video delivery is not configured")
         try:
-            expected_key = video_cache_key(cache_object.tenant_id, cache_object.content_hash)
+            original_key = video_cache_key(cache_object.tenant_id, cache_object.content_hash)
+            playback_key = video_playback_key(cache_object.tenant_id, cache_object.content_hash)
         except (ValueError, AttributeError, TypeError):
             raise VideoDeliveryUnavailable("Video delivery is unavailable") from None
         if (
             cache_object.status != "ready"
             or not isinstance(cache_object.mime_type, str)
             or not cache_object.mime_type.startswith("video/")
-            or cache_object.r2_key != expected_key
+            or cache_object.r2_key != original_key
             or not isinstance(cache_object.size_bytes, int)
             or cache_object.size_bytes <= 0
         ):
             raise VideoDeliveryUnavailable("Video delivery is unavailable")
+        derived_ready = bool(
+            self.settings.R2_VIDEO_PLAYBACK_DERIVED_ENABLED
+            and cache_object.playback_status == "ready"
+            and cache_object.playback_r2_key == playback_key
+            and cache_object.playback_kind in {"faststart", "proxy_1080p"}
+            and isinstance(cache_object.playback_size_bytes, int)
+            and cache_object.playback_size_bytes > 0
+        )
+        expected_key = playback_key if derived_ready else original_key
+        expected_size = cache_object.playback_size_bytes if derived_ready else cache_object.size_bytes
         current = self._clock()
         if isinstance(current, bool) or not isinstance(current, int) or current < 0:
             raise VideoDeliveryUnavailable("Video delivery is unavailable")
@@ -104,4 +124,4 @@ class VideoCacheDeliveryService:
             f"{self.settings.video_media_base_url}{pathname}"
             f"?v=1&exp={expires_at}&sig={signature}"
         )
-        return SignedVideoDelivery(url=url, expires_at=expires_at)
+        return SignedVideoDelivery(url=url, expires_at=expires_at, size_bytes=expected_size)

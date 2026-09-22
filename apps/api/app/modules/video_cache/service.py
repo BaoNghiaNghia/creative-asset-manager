@@ -22,6 +22,12 @@ def video_cache_key(tenant_id: str, content_hash: str) -> str:
     return f"video-cache/{tenant_id}/{content_hash}/original"
 
 
+def video_playback_key(tenant_id: str, content_hash: str) -> str:
+    if not _TENANT_RE.fullmatch(tenant_id) or not _HASH_RE.fullmatch(content_hash):
+        raise ValueError("Invalid video cache identity")
+    return f"video-cache/{tenant_id}/{content_hash}/playback.mp4"
+
+
 def validate_video_mime(mime_type: str) -> None:
     if not isinstance(mime_type, str) or not re.fullmatch(
         r"video/[A-Za-z0-9][A-Za-z0-9.+_-]*", mime_type, re.ASCII

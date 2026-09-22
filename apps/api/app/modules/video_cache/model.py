@@ -23,6 +23,11 @@ class VideoCacheObjectModel(Base):
         CheckConstraint("reserved_bytes >= 0", name="ck_video_cache_reserved"),
         CheckConstraint("attempt_count >= 0", name="ck_video_cache_attempts"),
         CheckConstraint("mime_type LIKE 'video/%'", name="ck_video_cache_video_mime"),
+        CheckConstraint("playback_status IN ('pending','preparing','ready','failed','skipped')", name="ck_video_cache_playback_status"),
+        CheckConstraint("playback_size_bytes >= 0", name="ck_video_cache_playback_size"),
+        CheckConstraint("playback_reserved_bytes >= 0", name="ck_video_cache_playback_reserved"),
+        CheckConstraint("playback_generation >= 0", name="ck_video_cache_playback_generation"),
+        Index("ix_video_cache_playback_status", "playback_status"),
         Index("ix_video_cache_status", "status"),
         Index("ix_video_cache_status_next_attempt", "status", "next_attempt_at"),
         Index("ix_video_cache_last_accessed", "last_accessed_at"),
@@ -58,6 +63,16 @@ class VideoCacheObjectModel(Base):
     cleanup_lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    playback_r2_key: Mapped[str | None] = mapped_column(String(512))
+    playback_kind: Mapped[str | None] = mapped_column(String(32))
+    playback_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    playback_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    playback_reserved_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    playback_etag: Mapped[str | None] = mapped_column(String(255))
+    playback_job_id: Mapped[str | None] = mapped_column(String(36))
+    playback_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    playback_error_code: Mapped[str | None] = mapped_column(String(100))
+    playback_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 VIDEO_CDN_DELIVERY_SETTING_KEY = "VIDEO_CDN_DELIVERY_ENABLED"

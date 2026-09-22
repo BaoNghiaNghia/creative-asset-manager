@@ -117,7 +117,9 @@ class VideoCacheRepository:
         self.session.flush()
 
     def total_ready_bytes(self, tenant_id: str | None = None) -> int:
-        statement = select(func.coalesce(func.sum(VideoCacheObjectModel.size_bytes), 0)).where(
+        statement = select(func.coalesce(func.sum(
+            VideoCacheObjectModel.size_bytes + VideoCacheObjectModel.playback_size_bytes
+        ), 0)).where(
             VideoCacheObjectModel.status == "ready"
         )
         if tenant_id is not None:
@@ -125,8 +127,11 @@ class VideoCacheRepository:
         return int(self.session.scalar(statement) or 0)
 
     def total_reserved_bytes(self, tenant_id: str | None = None) -> int:
-        statement = select(func.coalesce(func.sum(VideoCacheObjectModel.reserved_bytes), 0)).where(
-            VideoCacheObjectModel.status == "preparing"
+        statement = select(func.coalesce(func.sum(
+            VideoCacheObjectModel.reserved_bytes + VideoCacheObjectModel.playback_reserved_bytes
+        ), 0)).where(
+            (VideoCacheObjectModel.status == "preparing")
+            | (VideoCacheObjectModel.playback_status == "preparing")
         )
         if tenant_id is not None:
             statement = statement.where(VideoCacheObjectModel.tenant_id == tenant_id)

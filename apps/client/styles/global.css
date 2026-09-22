@@ -906,7 +906,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .asset-name-row{display:flex;min-width:0;align-items:center;gap:7px}
 .asset-name-row .name{min-width:0;max-width:calc(100% - 30px);flex:0 1 auto}
 .folder-share-trigger{display:grid;place-items:center;flex:0 0 23px;width:23px;height:23px;margin:-3px 0 -3px;padding:0;border:1px solid #c8d1de;border-radius:50%;background:transparent;cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
-.folder-share-trigger img{display:block;width:15px;height:15px;object-fit:contain}
+.folder-share-trigger svg{display:block;width:15px;height:15px;fill:#65758b}
 .folder-share-trigger:hover,.folder-share-trigger:focus{border-color:#8098c5;background:#f2f6ff}
 .folder-share-trigger:focus-visible{outline:2px solid #6f9af0;outline-offset:2px}
 .folder-share-menu{position:fixed;z-index:80;display:flex;width:260px;flex-direction:column;padding:5px;border:1px solid #d8dee8;border-radius:10px;background:#fff;box-shadow:0 12px 32px #18213326}

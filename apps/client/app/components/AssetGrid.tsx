@@ -5,7 +5,6 @@ import { AssetStatusBadge } from "./AssetStatusBadge";
 import { VisualSearchIcon } from "./VisualSearchIcon";
 import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
-import sharedLinkIcon from "../../assets/icons/shared-link.svg";
 
 
 export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
@@ -309,6 +308,7 @@ type Props = {
   onContextMenu: (item: Asset, event: MouseEvent<HTMLElement>) => void;
   onFindSimilar?: (item: Asset) => void;
   reviewLinkShareIds?: ReadonlyMap<string, string>;
+  activeExternalSourceId?: string | null;
   onCopyReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
   onRefreshReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
 };
@@ -337,6 +337,7 @@ export function AssetGrid({
   onContextMenu,
   onFindSimilar,
   reviewLinkShareIds,
+  activeExternalSourceId,
   onCopyReviewLink,
   onRefreshReviewLink,
 }: Props) {
@@ -416,13 +417,16 @@ export function AssetGrid({
   function folderShareTrigger(item: Asset) {
     if (
       item.kind !== "folder"
-      || !item.external_source_id
       || !reviewLinkShareIds
       || !onCopyReviewLink
       || !onRefreshReviewLink
     ) return null;
+    const externalSourceId = item.external_source_id
+      || activeExternalSourceId
+      || path.at(-1)?.external_source_id;
+    if (!externalSourceId) return null;
     const shareId = reviewLinkShareIds.get(
-      item.external_source_id + ":" + item.id,
+      externalSourceId + ":" + item.id,
     );
     if (!shareId) return null;
     const open = shareMenu?.shareId === shareId && shareMenu.item.id === item.id;
@@ -453,7 +457,7 @@ export function AssetGrid({
           : Math.max(8, rect.top - menuHeight - 6);
         setShareMenu({ shareId, item, left, top });
       }}
-    ><img src={sharedLinkIcon} alt="" aria-hidden="true" /></button>;
+    ><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="4" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="16" cy="10" r="1.5" /></svg></button>;
   }
 
   function updateMarquee(event: PointerEvent<HTMLDivElement>) {

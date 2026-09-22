@@ -5,7 +5,7 @@ import pytest
 
 from app.core.config import Settings
 from app.modules.video_cache.service import (
-    VideoCacheIntegrityError, VideoCacheService, video_cache_key,
+    VideoCacheIntegrityError, VideoCacheService, video_cache_key, video_playback_key,
 )
 from app.providers.cloudflare.r2 import R2Adapter, R2NotFound, R2ProviderError
 
@@ -97,6 +97,7 @@ def test_endpoint_cannot_redirect_credentials(endpoint):
 def test_key_is_deterministic_and_cannot_escape_prefix():
     hash_value = digest(b"video")
     assert video_cache_key("tenant-1", hash_value) == f"video-cache/tenant-1/{hash_value}/original"
+    assert video_playback_key("tenant-1", hash_value) == f"video-cache/tenant-1/{hash_value}/playback.mp4"
     for tenant in ("../other", "tenant/a", "", "a%2fb"):
         with pytest.raises(ValueError):
             video_cache_key(tenant, hash_value)

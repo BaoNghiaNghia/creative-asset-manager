@@ -1,10 +1,10 @@
-# R2 original-video cache — Phase 2 through Phase 4E operations
+# R2 video cache and derived playback — operations
 
 Status: Phases 1–4E are implemented in code. Public Review Phase 4B is authorization-preserving and falls back to the source provider. The persisted delivery gate remains OFF by default. No production R2/Worker rollout is implied by this document.
 
 ## Boundaries
 
-Google Drive/OneDrive remain authoritative. The fill worker reads an exact tenant-qualified SourceAsset stream and never writes to a source provider, invokes FFmpeg, or transcodes. Only `video/*` with a valid SHA-256 identity and known positive size at most `R2_VIDEO_CACHE_MAX_OBJECT_BYTES` is eligible. The object key is generated server-side as `video-cache/{tenant_id}/{sha256}/original`. Public Review keeps its existing preview route. When the Phase 4A runtime gate is effective, an already-authorized exact video asset/source pair may receive a short Phase 4B redirect to private R2 delivery; every miss or safe delivery failure falls back to the existing provider stream. R2 remains private.
+Google Drive/OneDrive remain authoritative. The original fill worker reads an exact tenant-qualified SourceAsset stream and never writes to a source provider or mutates source bytes. Only `video/*` with a valid SHA-256 identity and known positive size at most `R2_VIDEO_CACHE_MAX_OBJECT_BYTES` is eligible. The immutable original key is generated server-side as `video-cache/{tenant_id}/{sha256}/original`. When `R2_VIDEO_PLAYBACK_DERIVED_ENABLED=true`, a separate background video-worker job may create `video-cache/{tenant_id}/{sha256}/playback.mp4`; it never replaces the original. Public Review keeps its existing preview route. When the Phase 4A runtime gate is effective, an already-authorized exact video asset/source pair may receive a short redirect to private R2 delivery; every miss or safe delivery failure falls back to the existing provider stream. R2 remains private.
 
 `R2_VIDEO_CACHE_ENABLED=false` disables enqueue, fill and periodic cleanup. Do not turn it on until migration 0083 is present, private bucket credentials are scoped, and the worker role includes `video_cache_fill`.
 
@@ -22,9 +22,19 @@ without logging provider details or changing the public response.
 
 A bucket-global PostgreSQL advisory transaction lock serializes every reservation and physical-delete accounting update. SQLite uses a process-local re-entrant lock only for deterministic local tests; multi-process SQLite is not a production quota authority.
 
-Effective tracked bytes = READY `size_bytes` + DELETING `size_bytes` + PREPARING `reserved_bytes`. Admission never exceeds the 9,000,000,000-byte hard threshold. If a new reservation would cross it, READY objects are chosen by `last_accessed_at NULLS FIRST, cached_at, id` and physically deleted until projected usage including the incoming reservation is at most 8,000,000,000 bytes. If enough READY bytes cannot be reclaimed, the fill is bypassed. DELETING and PREPARING are never ordinary LRU candidates. A failed or uncertain remote delete remains counted.
+Effective tracked bytes include original and derived physical bytes plus both original-fill and derived-playback reservations. Admission never exceeds the configured hard threshold. If a new reservation would cross it, READY objects are chosen by `last_accessed_at NULLS FIRST, cached_at, id` and physically deleted until projected usage including the incoming reservation is at most 8,000,000,000 bytes. If enough READY bytes cannot be reclaimed, the fill is bypassed. DELETING and PREPARING are never ordinary LRU candidates. A failed or uncertain remote delete remains counted.
 
-Access-touch is a tenant-qualified repository primitive with a default 300-second debounce. Phase 4B touches LRU only after a signed delivery ticket is successfully minted.
+Access-touch is a tenant-qualified repository primitive with a default 300-second debounce. Public Review touches LRU only after a signed delivery ticket is successfully minted.
+
+## Derived Public Review playback
+
+Migration `0089_r2_video_playback_derivative` adds a fail-safe derived-playback ledger. The feature defaults OFF. When enabled, a new original fill admits one `video_playback_prepare` job only after the immutable original is durably READY. Existing READY originals are backfilled by the cache cleanup runner in bounded `R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE` batches (default 2), never from the Public Review request path. Admission therefore never blocks the current playback request. Until the derivative is READY, signed delivery continues using the immutable original.
+
+The video worker downloads the private R2 original into the configured video temp directory and runs `ffprobe`. Web-friendly H.264/AAC MP4 up to 1080p and below the configured bitrate threshold is remuxed only with `-c copy -movflags +faststart`. Other eligible heavy/non-web sources are converted to a bounded 1080p H.264/AAC `playback.mp4` with `+faststart`. The original object is never rewritten, transcoded in place, or used as a derived upload target.
+
+Derived preparation is bounded by source size, output size, R2 quota reservation, local free-space preflight and a wall-clock FFmpeg timeout. Any preparation failure leaves the READY original usable. A READY derivative is preferred by the signer only when its exact canonical key, kind and positive size are valid; otherwise delivery falls back to the original. Cache eviction deletes both known canonical objects. The Cloudflare Worker accepts only the exact immutable `original` or `playback.mp4` key shapes and preserves the same signed-ticket and Range rules for both.
+
+Rollout order: deploy migration/API/video-worker code and the updated Cloudflare Worker path rules first; verify FFmpeg/ffprobe exist on the video worker; then explicitly set `R2_VIDEO_PLAYBACK_DERIVED_ENABLED=true`. Do not enable the flag before migration 0089 and Worker support are live. Disabling the flag immediately makes the signer prefer originals again; it does not delete derivatives.
 
 ## Fill and recovery
 
@@ -42,7 +52,7 @@ Fill started/completed/failed, eviction and bypass counters are emitted as safe 
 
 ## Migration and rollback
 
-Migration `0083_r2_video_cache_fill` adds fill ownership, multipart and cleanup lease fields/indexes and removes asset/source cascade FKs so the physical-byte ledger survives source deletion. The tenant FK remains. No R2 network activity occurs in Alembic. Downgrade to 0082 requires a preflight for any cache rows whose asset/source has been deleted, because 0082 restores the cascade FKs. Do not downgrade while fills or cleanup are running; first disable the feature, drain workers, and retain/export the ledger for any remaining R2 objects. A DB downgrade never deletes R2 bytes. A safe rollback keeps the feature disabled and retains 0083 metadata until all known remote objects are confirmed deleted, then downgrades. Production migration and deployment need separate authorization.
+Migration `0083_r2_video_cache_fill` adds fill ownership, multipart and cleanup lease fields/indexes and removes asset/source cascade FKs so the physical-byte ledger survives source deletion. Migration `0089_r2_video_playback_derivative` adds derived playback state, size/reservation accounting and job ownership; it performs no R2 or FFmpeg work. No R2 network activity occurs in Alembic. Before downgrading 0089, disable derived playback and drain `video_playback_prepare` jobs; the DB downgrade does not delete `playback.mp4` objects, so remove known derivatives through normal cache eviction/cleanup before dropping their ledger fields. Downgrade to 0082 still requires a preflight for cache rows whose asset/source has been deleted because 0082 restores cascade FKs. Production migration and deployment need separate authorization.
 
 Known limits: cleanup is DB-driven and cannot discover remote objects whose ledger row was lost before 0083; tenant deletion can still cascade ledger rows and needs a separate tenant-offboarding policy. READY HEAD reconciliation is bounded/manual rather than a full periodic bucket scan. The optional smoke uses a dedicated prefix, not user media. Public Review CDN delivery remains disabled until the persisted runtime gate is explicitly enabled after rollout preflight.
 
@@ -56,11 +66,7 @@ the same secret and a private `VIDEO_CACHE_BUCKET` binding. Its optional
 `R2_VIDEO_MEDIA_MAX_TTL_SECONDS` cannot exceed 3600. Do not place secrets in
 TOML, logs, browser bundles or the repository.
 
-Only a READY video row with the exact server-generated key can be signed.
-Phase 4B authorizes the public session/share and exact tenant/asset/source
-pair before signing. The signer itself still grants no application authority. The Worker validates
-method, exact path, version, expiry and HMAC before R2 access. GET streams
-the complete original; HEAD returns metadata only. Invalid tickets return
+Only a READY video row with an exact server-generated canonical key can be signed. When the derived feature is enabled and its ledger is READY, the signer prefers `playback.mp4`; otherwise it signs the immutable `original`. Phase 4B authorizes the public session/share and exact tenant/asset/source pair before signing. The signer itself still grants no application authority. The Worker validates method, exact path, version, expiry and HMAC before R2 access. GET streams the selected object; HEAD returns metadata only. Invalid tickets return
 
 ## Phase 3B Range and edge-cache operations - not deployed
 
@@ -210,18 +216,22 @@ VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS=2.0
 Production canary preflight fails while the guard remains disabled.
 
 For an eligible Public Review video, the API continues to authorize the exact
-share/asset/source pair and create the short signed ticket. When the guard needs
-a health sample, it performs a HEAD request against that exact signed Worker
-URL with redirects and proxy-environment inheritance disabled. A healthy sample
-requires status 200, the durable Content-Length, a video Content-Type and
-Accept-Ranges: bytes. No media body is downloaded.
+share/asset/source pair and create the short signed ticket. Runtime playback
+decisions use the process-local last-known health sample and never wait for a
+Worker health request. When a sample is due, the resolver schedules one
+background HEAD against that exact signed Worker URL with redirects and
+proxy-environment inheritance disabled. At most one probe is in flight per API
+process. A healthy sample requires status 200, the durable Content-Length, a
+video Content-Type and Accept-Ranges: bytes. No media body is downloaded.
 
-A failed health sample falls back to the existing provider stream for that
-request. Consecutive failures are confirmed immediately; after the configured
-threshold, the process-local circuit opens and subsequent eligible requests
-fall back without probing until the cooldown expires. The next eligible request
-after cooldown acts as the recovery probe. A successful probe closes the
-circuit.
+An unverified, degraded or open guard falls back to the existing provider
+stream immediately while an eligible due probe is scheduled in the background.
+A previously healthy sample may continue to redirect the current request while
+its background refresh is in flight. Failed refreshes affect subsequent
+requests; after the configured consecutive-failure threshold the process-local
+circuit opens and continues provider fallback until cooldown expires. The next
+eligible request after cooldown schedules the recovery probe without blocking
+that request. A successful probe closes the circuit.
 
 The breaker is intentionally process-local. In a multi-process or multi-host
 deployment each API process protects itself independently. This avoids an

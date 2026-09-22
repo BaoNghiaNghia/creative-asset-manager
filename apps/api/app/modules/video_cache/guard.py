@@ -20,6 +20,7 @@ from app.modules.video_cache.delivery import SignedVideoDelivery
 @dataclass(frozen=True)
 class GuardDecision:
     action: str
+    schedule_probe: bool = False
 
 
 class VideoDeliveryCircuitBreaker:
@@ -48,7 +49,10 @@ class VideoDeliveryCircuitBreaker:
             )
             if cooldown_expired or self._consecutive_failures > 0 or due:
                 self._probe_in_flight = True
-                return GuardDecision("probe")
+                return GuardDecision(
+                    "pass" if self._healthy_sample else "fallback",
+                    schedule_probe=True,
+                )
             return GuardDecision("pass")
 
     def complete_probe(self, settings: Settings, *, success: bool) -> bool:

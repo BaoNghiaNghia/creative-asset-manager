@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.modules.video_cache.model import VideoCacheObjectModel
 from app.modules.video_cache.metrics import emit_counter
-from app.modules.video_cache.service import video_cache_key
+from app.modules.video_cache.service import video_cache_key, video_playback_key
 from app.providers.cloudflare.r2 import R2Adapter, R2NotFound, R2ProviderError
 
 _SQLITE_QUOTA_LOCK = threading.RLock()
@@ -28,6 +28,15 @@ def utcnow() -> datetime:
 def is_exact_cache_key(tenant_id: str, content_hash: str, key: str) -> bool:
     try:
         return key == video_cache_key(tenant_id, content_hash)
+    except ValueError:
+        return False
+
+
+def is_exact_playback_key(tenant_id: str, content_hash: str, key: str | None) -> bool:
+    if key is None:
+        return True
+    try:
+        return key == video_playback_key(tenant_id, content_hash)
     except ValueError:
         return False
 
@@ -49,43 +58,62 @@ class VideoCacheQuota:
         self.settings = settings
         self.provider = provider
 
+    @staticmethod
+    @contextmanager
+    def reservation_lock(session: Session) -> Iterator[None]:
+        """Serialize quota reservations inside an existing DB transaction."""
+        dialect = session.get_bind().dialect.name
+        lock = _SQLITE_QUOTA_LOCK if dialect == "sqlite" else None
+        if lock is not None:
+            lock.acquire()
+        try:
+            if dialect == "postgresql":
+                session.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                    {"key": _QUOTA_LOCK_KEY},
+                )
+            yield
+        finally:
+            if lock is not None:
+                lock.release()
+
     @contextmanager
     def transaction(self) -> Iterator[Session]:
         """Hold the bucket-global lock through commit, never only through SUM()."""
         with self.session_factory() as session:
-            sqlite = session.get_bind().dialect.name == "sqlite"
-            lock = _SQLITE_QUOTA_LOCK if sqlite else None
-            if lock is not None:
-                lock.acquire()
             try:
-                if session.get_bind().dialect.name == "postgresql":
-                    session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": _QUOTA_LOCK_KEY})
-                yield session
-                session.commit()
+                with self.reservation_lock(session):
+                    yield session
+                    session.commit()
             except BaseException:
                 session.rollback()
                 raise
-            finally:
-                if lock is not None:
-                    lock.release()
 
     @staticmethod
     def usage(session: Session) -> VideoCacheUsage:
+        physical_bytes = VideoCacheObjectModel.size_bytes + VideoCacheObjectModel.playback_size_bytes
         totals = dict(session.execute(
-            select(VideoCacheObjectModel.status, func.coalesce(func.sum(VideoCacheObjectModel.size_bytes), 0))
+            select(VideoCacheObjectModel.status, func.coalesce(func.sum(physical_bytes), 0))
             .where(VideoCacheObjectModel.status.in_(("ready", "deleting")))
             .group_by(VideoCacheObjectModel.status)
         ).all())
-        reserved = session.scalar(select(func.coalesce(func.sum(VideoCacheObjectModel.reserved_bytes), 0)).where(
+        original_reserved = session.scalar(select(func.coalesce(func.sum(VideoCacheObjectModel.reserved_bytes), 0)).where(
             VideoCacheObjectModel.status == "preparing"
         ))
-        return VideoCacheUsage(int(totals.get("ready", 0)), int(totals.get("deleting", 0)), int(reserved or 0))
+        playback_reserved = session.scalar(select(func.coalesce(func.sum(VideoCacheObjectModel.playback_reserved_bytes), 0)).where(
+            VideoCacheObjectModel.playback_status == "preparing"
+        ))
+        reserved = int(original_reserved or 0) + int(playback_reserved or 0)
+        return VideoCacheUsage(int(totals.get("ready", 0)), int(totals.get("deleting", 0)), reserved)
 
     def can_reserve(self, session: Session, required: int) -> bool:
         return required > 0 and self.usage(session).effective_bytes + required <= self.settings.R2_VIDEO_CACHE_HARD_LIMIT_BYTES
 
     def claim_lru(self, session: Session, *, owner: str | None = None) -> VideoCacheObjectModel | None:
-        statement = select(VideoCacheObjectModel).where(VideoCacheObjectModel.status == "ready").order_by(
+        statement = select(VideoCacheObjectModel).where(
+            VideoCacheObjectModel.status == "ready",
+            VideoCacheObjectModel.playback_status != "preparing",
+        ).order_by(
             case((VideoCacheObjectModel.last_accessed_at.is_(None), 0), else_=1),
             VideoCacheObjectModel.last_accessed_at,
             VideoCacheObjectModel.cached_at,
@@ -112,9 +140,14 @@ class VideoCacheQuota:
                 VideoCacheObjectModel.status == "deleting",
                 VideoCacheObjectModel.cleanup_claimed_by == owner,
             ))
-            if row is None or not is_exact_cache_key(row.tenant_id, row.content_hash, row.r2_key):
+            if (
+                row is None
+                or not is_exact_cache_key(row.tenant_id, row.content_hash, row.r2_key)
+                or not is_exact_playback_key(row.tenant_id, row.content_hash, row.playback_r2_key)
+            ):
                 return False
             key = row.r2_key
+            playback_key = row.playback_r2_key
             upload_id = row.multipart_upload_id
         try:
             if upload_id:
@@ -126,6 +159,11 @@ class VideoCacheQuota:
                 await self.provider.delete_object(key)
             except R2NotFound:
                 pass
+            if playback_key:
+                try:
+                    await self.provider.delete_object(playback_key)
+                except R2NotFound:
+                    pass
         except R2ProviderError:
             with self.transaction() as session:
                 row = session.scalar(select(VideoCacheObjectModel).where(

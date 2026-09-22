@@ -106,19 +106,53 @@ def test_guard_opens_after_consecutive_probe_failures_and_recovers_after_cooldow
     guard = VideoDeliveryCircuitBreaker(clock=lambda: now[0])
     settings = configured_settings()
 
-    assert guard.before_candidate(settings).action == "probe"
+    decision = guard.before_candidate(settings)
+    assert decision.action == "fallback"
+    assert decision.schedule_probe is True
     assert guard.complete_probe(settings, success=False) is False
     assert guard.snapshot(settings)["state"] == "degraded"
 
-    assert guard.before_candidate(settings).action == "probe"
+    decision = guard.before_candidate(settings)
+    assert decision.action == "fallback"
+    assert decision.schedule_probe is True
     assert guard.complete_probe(settings, success=False) is True
     assert guard.snapshot(settings)["state"] == "open"
     assert guard.before_candidate(settings).action == "fallback"
 
     now[0] += 61
-    assert guard.before_candidate(settings).action == "probe"
+    decision = guard.before_candidate(settings)
+    assert decision.action == "fallback"
+    assert decision.schedule_probe is True
     assert guard.complete_probe(settings, success=True) is False
     assert guard.snapshot(settings)["state"] == "closed"
+
+
+def test_resolver_schedules_probe_without_running_it_inline():
+    engine, factory = setup()
+    guard = VideoDeliveryCircuitBreaker(clock=lambda: 100.0)
+    scheduled = []
+    probe_calls = []
+
+    def probe(*_args, **_kwargs):
+        probe_calls.append(True)
+        return True
+
+    resolver = PublicVideoDeliveryResolver(
+        factory,
+        configured_settings(),
+        guard=guard,
+        probe=probe,
+        probe_scheduler=scheduled.append,
+    )
+    assert asyncio.run(resolver.resolve(principal=principal(), asset=asset(), source=source())) is None
+    assert probe_calls == []
+    assert len(scheduled) == 1
+    assert guard.snapshot(configured_settings())["state"] == "probing"
+
+    scheduled[0]()
+    assert probe_calls == [True]
+    assert guard.snapshot(configured_settings())["state"] == "closed"
+    engine.dispose()
 
 
 def test_resolver_probe_failure_falls_back_and_metrics_are_identity_free():
@@ -130,6 +164,7 @@ def test_resolver_probe_failure_falls_back_and_metrics_are_identity_free():
         configured_settings(),
         guard=guard,
         probe=lambda *_args, **_kwargs: False,
+        probe_scheduler=lambda run: run(),
     )
     assert asyncio.run(resolver.resolve(principal=principal(), asset=asset(), source=source())) is None
     snapshot = delivery_observability_snapshot()
@@ -151,13 +186,16 @@ def test_resolver_healthy_probe_redirects_and_records_latency():
         configured_settings(),
         guard=guard,
         probe=lambda *_args, **_kwargs: True,
+        probe_scheduler=lambda run: run(),
     )
+    first = asyncio.run(resolver.resolve(principal=principal(), asset=asset(), source=source()))
+    assert first is None
     ticket = asyncio.run(resolver.resolve(principal=principal(), asset=asset(), source=source()))
     assert ticket is not None
     snapshot = delivery_observability_snapshot()
     assert snapshot["counters"]["video_cdn_probe_success_total"] == 1
     assert snapshot["counters"]["video_cdn_redirect_total"] == 1
-    assert snapshot["decision_latency_ms"]["sample_count"] == 1
+    assert snapshot["decision_latency_ms"]["sample_count"] == 2
     engine.dispose()
 
 
@@ -216,6 +254,7 @@ def test_probe_exception_falls_back_without_leaving_guard_stuck():
         configured_settings(),
         guard=guard,
         probe=explode,
+        probe_scheduler=lambda run: run(),
     )
     assert asyncio.run(resolver.resolve(principal=principal(), asset=asset(), source=source())) is None
     assert guard.snapshot(configured_settings())["state"] == "degraded"

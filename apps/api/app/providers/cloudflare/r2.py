@@ -120,6 +120,19 @@ class R2Adapter:
         except R2NotFound:
             pass
 
+    async def download_file(self, key: str, path: str) -> R2ObjectHead:
+        await self._call("download_file", Key=key, Filename=path)
+        return await self.head_object(key)
+
+    async def upload_file(self, key: str, path: str, mime_type: str) -> R2ObjectHead:
+        await self._call(
+            "upload_file",
+            Filename=path,
+            Key=key,
+            ExtraArgs={"ContentType": mime_type},
+        )
+        return await self.head_object(key)
+
     async def create_multipart_upload(self, key: str, mime_type: str) -> str:
         result = await self._call("create_multipart_upload", Key=key, ContentType=mime_type)
         return str(result["UploadId"])

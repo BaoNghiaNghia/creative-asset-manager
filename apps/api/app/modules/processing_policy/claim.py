@@ -60,6 +60,7 @@ STAGE_POLICY = {
     "image_generate": "pipeline_enabled",
     "video_generate": "pipeline_enabled",
     "video_cache_fill": "pipeline_enabled",
+    "video_playback_prepare": "pipeline_enabled",
     # Creative Pipeline execution and its catalog scan use the same canonical
     # tenant pause/total-cap gate as other pipeline work.
     "creative_pipeline_node": "pipeline_enabled",

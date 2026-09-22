@@ -9,6 +9,7 @@ from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAss
 from app.modules.video_cache.model import VideoCacheObjectModel, utcnow
 from app.modules.video_cache.metrics import emit_counter
 from app.modules.video_cache.quota import VideoCacheQuota
+from app.modules.video_cache.playback import schedule_video_playback_prepare
 from app.modules.video_cache.repository import VideoCacheRepository
 from app.modules.video_cache.service import VideoCacheService, VideoCacheIntegrityError, video_cache_key
 from app.providers.cloudflare.r2 import R2Adapter, R2ProviderError
@@ -192,6 +193,16 @@ class VideoCacheFillJobHandler:
                     raise VideoCacheIntegrityError("Source changed during fill")
                 VideoCacheRepository(session).mark_ready(
                     job.tenant_id, job.entity_id, size_bytes=result.size_bytes, etag=result.etag)
+            # Derived playback is a best-effort acceleration layer. Its admission
+            # runs only after the immutable original is durably READY, so a job/
+            # quota failure can never roll back or delete a valid original.
+            try:
+                with quota.transaction() as session:
+                    row = VideoCacheRepository(session).get_by_id(job.tenant_id, job.entity_id)
+                    if row is not None:
+                        schedule_video_playback_prepare(session, self.settings, row)
+            except Exception:
+                pass
             return JobHandlerResult.completed()
         except Exception as exc:
             retryable = (isinstance(exc, SourceAssetContentTransient)

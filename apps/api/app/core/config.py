@@ -66,6 +66,7 @@ FEATURE_FLAG_NAMES = (
     "DOLA_RENDER_GATEWAY_ENABLED",
     "VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED",
     "VIDEO_CDN_DELIVERY_GUARD_ENABLED",
+    "R2_VIDEO_PLAYBACK_DERIVED_ENABLED",
 )
 
 
@@ -168,6 +169,17 @@ class Settings(BaseSettings):
     R2_VIDEO_CACHE_CLEANUP_BATCH_SIZE: int = 25
     R2_VIDEO_CACHE_CLEANUP_MAX_ITEMS_PER_RUN: int = 100
     R2_VIDEO_CACHE_REAL_SMOKE: bool = False
+    # Derived review playback stays opt-in until the worker/migration is rolled out.
+    R2_VIDEO_PLAYBACK_DERIVED_ENABLED: bool = False
+    R2_VIDEO_PLAYBACK_MAX_SOURCE_BYTES: int = 1_800_000_000
+    R2_VIDEO_PLAYBACK_MAX_OUTPUT_BYTES: int = 1_000_000_000
+    R2_VIDEO_PLAYBACK_PROXY_THRESHOLD_KBPS: int = 12_000
+    R2_VIDEO_PLAYBACK_MAX_WIDTH: int = 1920
+    R2_VIDEO_PLAYBACK_MAX_HEIGHT: int = 1080
+    R2_VIDEO_PLAYBACK_VIDEO_BITRATE_KBPS: int = 6_000
+    R2_VIDEO_PLAYBACK_AUDIO_BITRATE_KBPS: int = 128
+    R2_VIDEO_PLAYBACK_PREPARATION_TIMEOUT_SECONDS: int = 3600
+    R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE: int = 2
     R2_VIDEO_MEDIA_BASE_URL: str = ""
     # Exceptional zero-custom-domain mode. Keep false unless the operator
     # intentionally accepts a workers.dev delivery hostname for this deployment.
@@ -884,6 +896,21 @@ class Settings(BaseSettings):
             raise ValueError("R2 video cache limits are invalid")
         if not 0 < self.R2_VIDEO_CACHE_MAX_OBJECT_BYTES <= self.R2_VIDEO_CACHE_HARD_LIMIT_BYTES:
             raise ValueError("R2_VIDEO_CACHE_MAX_OBJECT_BYTES is invalid")
+        if not 0 < self.R2_VIDEO_PLAYBACK_MAX_SOURCE_BYTES <= self.R2_VIDEO_CACHE_MAX_OBJECT_BYTES:
+            raise ValueError("R2_VIDEO_PLAYBACK_MAX_SOURCE_BYTES is invalid")
+        if not 0 < self.R2_VIDEO_PLAYBACK_MAX_OUTPUT_BYTES <= self.R2_VIDEO_CACHE_HARD_LIMIT_BYTES:
+            raise ValueError("R2_VIDEO_PLAYBACK_MAX_OUTPUT_BYTES is invalid")
+        if min(
+            self.R2_VIDEO_PLAYBACK_PROXY_THRESHOLD_KBPS,
+            self.R2_VIDEO_PLAYBACK_MAX_WIDTH,
+            self.R2_VIDEO_PLAYBACK_MAX_HEIGHT,
+            self.R2_VIDEO_PLAYBACK_VIDEO_BITRATE_KBPS,
+            self.R2_VIDEO_PLAYBACK_AUDIO_BITRATE_KBPS,
+            self.R2_VIDEO_PLAYBACK_PREPARATION_TIMEOUT_SECONDS,
+        ) <= 0:
+            raise ValueError("R2 video playback derivative limits must be positive")
+        if not 1 <= self.R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE <= 25:
+            raise ValueError("R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE is invalid")
         if self.R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS <= 0:
             raise ValueError("R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS must be positive")
         if not 300 <= self.R2_VIDEO_CACHE_PREPARING_STALE_SECONDS <= 7 * 24 * 3600:

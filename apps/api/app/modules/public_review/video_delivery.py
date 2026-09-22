@@ -7,7 +7,7 @@ or health-guard problem falls back to the existing provider stream.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from threading import Lock
+from threading import Lock, Thread
 from time import monotonic, perf_counter
 from typing import Callable
 
@@ -71,12 +71,14 @@ class PublicVideoDeliveryResolver:
         *,
         guard: VideoDeliveryCircuitBreaker | None = None,
         probe: Callable[..., bool] | None = None,
+        probe_scheduler: Callable[[Callable[[], None]], None] | None = None,
         fill_service_factory: Callable[[], VideoCacheFillService] | None = None,
     ):
         self.session_factory = session_factory
         self.settings = settings
         self.guard = guard or VIDEO_DELIVERY_GUARD
         self.probe = probe or probe_signed_video_head
+        self.probe_scheduler = probe_scheduler or self._start_probe_thread
         self.fill_service_factory = fill_service_factory or (
             lambda: VideoCacheFillService(
                 self.session_factory,
@@ -89,6 +91,41 @@ class PublicVideoDeliveryResolver:
     def _finish(started: float, counter: str) -> None:
         emit_counter(counter)
         observe_delivery_decision_ms((perf_counter() - started) * 1000.0)
+
+    @staticmethod
+    def _start_probe_thread(run: Callable[[], None]) -> None:
+        Thread(
+            target=run,
+            name="video-delivery-guard-probe",
+            daemon=True,
+        ).start()
+
+    def _schedule_probe(self, ticket: SignedVideoDelivery, *, expected_size: int) -> None:
+        def run() -> None:
+            try:
+                success = bool(self.probe(
+                    ticket,
+                    expected_size=expected_size,
+                    timeout_seconds=self.settings.VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS,
+                ))
+            except Exception:
+                success = False
+            opened = self.guard.complete_probe(self.settings, success=success)
+            emit_counter(
+                "video_cdn_probe_success_total"
+                if success
+                else "video_cdn_probe_failure_total"
+            )
+            if opened:
+                emit_counter("video_cdn_guard_open_total")
+
+        try:
+            self.probe_scheduler(run)
+        except Exception:
+            opened = self.guard.complete_probe(self.settings, success=False)
+            emit_counter("video_cdn_probe_failure_total")
+            if opened:
+                emit_counter("video_cdn_guard_open_total")
 
     async def resolve(
         self,
@@ -178,29 +215,14 @@ class PublicVideoDeliveryResolver:
                 )
 
                 decision = self.guard.before_candidate(self.settings)
+                if decision.schedule_probe:
+                    self._schedule_probe(
+                        ticket,
+                        expected_size=ticket.size_bytes,
+                    )
                 if decision.action == "fallback":
                     self._finish(started, "video_cdn_fallback_guard_total")
                     return None
-                if decision.action == "probe":
-                    try:
-                        success = bool(self.probe(
-                            ticket,
-                            expected_size=cache_object.size_bytes,
-                            timeout_seconds=self.settings.VIDEO_CDN_DELIVERY_GUARD_TIMEOUT_SECONDS,
-                        ))
-                    except Exception:
-                        success = False
-                    opened = self.guard.complete_probe(self.settings, success=success)
-                    emit_counter(
-                        "video_cdn_probe_success_total"
-                        if success
-                        else "video_cdn_probe_failure_total"
-                    )
-                    if opened:
-                        emit_counter("video_cdn_guard_open_total")
-                    if not success:
-                        self._finish(started, "video_cdn_fallback_guard_total")
-                        return None
 
                 if _should_touch_access(
                     tenant_id,

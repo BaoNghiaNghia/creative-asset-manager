@@ -1,19 +1,14 @@
-# Private R2 original-video delivery Worker — Phase 3A/3B with Phase 4 rollout
+# Private R2 video delivery Worker — original + derived playback
 
-This Worker accepts a short-lived read ticket and streams the original object
-from a private R2 binding. It does not authorize CAM users or shares; Phase 4B
+This Worker accepts a short-lived read ticket and streams an authorized immutable original or derived playback object from a private R2 binding. It does not authorize CAM users or shares; Phase 4B
 performs application authorization before issuing a ticket. Public Review uses
 the Worker only when the persisted runtime delivery gate is effective.
 
 ## Ticket contract
 
-The only accepted key is `video-cache/{tenant_id}/{lowercase_sha256}/original`
-(no extension or filename); the pathname is exactly `/{key}`. The tenant ID
-matches `[A-Za-z0-9][A-Za-z0-9_-]{0,254}`; SHA-256 is 64 lowercase hex
-characters. Percent encoding, traversal, backslashes, controls, duplicate
-separators, foreign prefixes and alternate suffixes are rejected.
+Accepted keys are exactly `video-cache/{tenant_id}/{lowercase_sha256}/original` and `video-cache/{tenant_id}/{lowercase_sha256}/playback.mp4`; the pathname is exactly `/{key}`. The tenant ID matches `[A-Za-z0-9][A-Za-z0-9_-]{0,254}`; SHA-256 is 64 lowercase hex characters. Percent encoding, traversal, backslashes, controls, duplicate separators, foreign prefixes and every other suffix are rejected.
 
-The exact UTF-8 HMAC-SHA256 message has **no trailing newline**:
+The exact UTF-8 HMAC-SHA256 message has **no trailing newline**. The signed pathname is the selected canonical object path, for example:
 
 ```text
 v1
@@ -21,6 +16,8 @@ read
 /video-cache/{tenant_id}/{lowercase_sha256}/original
 {exp}
 ```
+
+or the same message with `/playback.mp4` as the final path segment.
 
 The URL is `{base}{pathname}?v=1&exp={unix_seconds}&sig={base64url_no_padding}`.
 The logical `read` operation permits both GET and HEAD. Range, IP and

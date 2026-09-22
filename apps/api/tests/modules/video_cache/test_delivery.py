@@ -10,7 +10,7 @@ from app.modules.video_cache.delivery import (
     canonical_read_message, sign_read_path,
 )
 from app.modules.video_cache.model import VideoCacheObjectModel
-from app.modules.video_cache.service import video_cache_key
+from app.modules.video_cache.service import video_cache_key, video_playback_key
 
 VECTOR = json.loads((Path(__file__).resolve().parents[5] /
     "infrastructure/cloudflare/r2-video-worker/test/vectors.json").read_text(encoding="utf-8"))
@@ -56,6 +56,7 @@ def test_valid_config_ready_url_expiry_and_redacted_repr(caplog):
     service = VideoCacheDeliveryService(settings, clock=lambda: VECTOR["expires_at"] - 600)
     ticket = service.create_signed_url(row())
     assert ticket.expires_at == VECTOR["expires_at"]
+    assert ticket.size_bytes == 25
     assert SECRET not in str(settings.model_dump(mode="json"))
     assert ticket.url == ("https://media.example.test" + VECTOR["pathname"] +
         f"?v=1&exp={VECTOR['expires_at']}&sig={VECTOR['signature']}")
@@ -111,6 +112,24 @@ def test_only_ready_can_be_signed(status):
 def test_non_video_or_invalid_key_cannot_be_signed(updates):
     with pytest.raises(VideoDeliveryUnavailable):
         VideoCacheDeliveryService(delivery_config()).create_signed_url(row(**updates))
+
+
+def test_ready_derived_playback_is_preferred_but_invalid_metadata_falls_back():
+    settings = delivery_config(R2_VIDEO_PLAYBACK_DERIVED_ENABLED=True)
+    item = row()
+    playback_key = video_playback_key(item.tenant_id, item.content_hash)
+    item.playback_status = "ready"
+    item.playback_r2_key = playback_key
+    item.playback_kind = "faststart"
+    item.playback_size_bytes = 12
+    ticket = VideoCacheDeliveryService(settings, clock=lambda: VECTOR["expires_at"] - 600).create_signed_url(item)
+    assert urlsplit(ticket.url).path == "/" + playback_key
+    assert ticket.size_bytes == 12
+
+    item.playback_r2_key = "outside-video-cache/playback.mp4"
+    fallback = VideoCacheDeliveryService(settings, clock=lambda: VECTOR["expires_at"] - 600).create_signed_url(item)
+    assert urlsplit(fallback.url).path == "/" + video_cache_key(item.tenant_id, item.content_hash)
+    assert fallback.size_bytes == item.size_bytes
 
 
 def test_fixed_vector_and_path_expiry_binding():

@@ -1114,6 +1114,7 @@ export default function App() {
             onContextMenu={(item, event) => { event.preventDefault(); setAssetContextMenu({ item, position: { x: event.clientX, y: event.clientY } }); }}
             onFindSimilar={item => { setVisualSearchOpen(true); visualSearch.chooseAsset(item); }}
             reviewLinkShareIds={canManageReviewLinks ? reviewLinkShareIds : undefined}
+            activeExternalSourceId={explorer.activeExternalSourceId}
             onCopyReviewLink={copyCurrentReviewLink}
             onRefreshReviewLink={refreshReviewLink}
           />}
