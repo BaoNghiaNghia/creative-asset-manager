@@ -58,9 +58,12 @@ def coverage_client(monkeypatch):
     service = CoverageService()
     monkeypatch.setattr(admin_router, "service", lambda: service)
     app.dependency_overrides[require_authenticated_principal] = lambda: principal()
-    with TestClient(app) as client:
+    client = TestClient(app)
+    try:
         yield client, service
-    app.dependency_overrides.clear()
+    finally:
+        client.close()
+        app.dependency_overrides.clear()
 
 
 def test_admin_coverage_routes_are_read_only_get_routes():
@@ -97,13 +100,14 @@ def test_permission_missing_is_rejected_and_service_is_not_called(monkeypatch):
     service = CoverageService()
     monkeypatch.setattr(admin_router, "service", lambda: service)
     app.dependency_overrides[require_authenticated_principal] = lambda: principal(permissions=frozenset({"assets.read"}))
+    client = TestClient(app)
     try:
-        with TestClient(app) as client:
-            response = client.get("/api/v1/admin/visual-search/coverage")
+        response = client.get("/api/v1/admin/visual-search/coverage")
         assert response.status_code == 403
         assert response.json()["detail"]["code"] == "permission_required"
         assert service.tenants == []
     finally:
+        client.close()
         app.dependency_overrides.clear()
 
 
@@ -111,9 +115,9 @@ def test_es_unavailable_serializes_es_metrics_and_ratios_as_null(monkeypatch):
     service = CoverageService("unavailable")
     monkeypatch.setattr(admin_router, "service", lambda: service)
     app.dependency_overrides[require_authenticated_principal] = lambda: principal()
+    client = TestClient(app)
     try:
-        with TestClient(app) as client:
-            response = client.get("/api/v1/admin/visual-search/coverage")
+        response = client.get("/api/v1/admin/visual-search/coverage")
         assert response.status_code == 200
         body = response.json()
         assert body["totals"]["discovered_images"] == 2
@@ -122,6 +126,7 @@ def test_es_unavailable_serializes_es_metrics_and_ratios_as_null(monkeypatch):
         assert body["ratios"]["eligible_visual_coverage"] is None
         assert body["ratios"]["whole_resource_searchable"] is None
     finally:
+        client.close()
         app.dependency_overrides.clear()
 
 

@@ -1,7 +1,8 @@
 --index-url https://download.pytorch.org/whl/cpu
 --extra-index-url https://pypi.org/simple
 torch==2.6.0+cpu
-transformers==4.46.3
+transformers==4.51.3
+openvino==2026.4.0
 Pillow==12.3.0
 sentencepiece==0.2.0
 protobuf==5.29.3

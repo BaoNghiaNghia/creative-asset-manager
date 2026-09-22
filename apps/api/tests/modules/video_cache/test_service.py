@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 
 import pytest
-from botocore.exceptions import ClientError
 
 from app.core.config import Settings
 from app.modules.video_cache.service import (
@@ -202,6 +201,8 @@ class Client:
     def __init__(self, code="404", status=404):
         self.code, self.status = code, status
     def head_object(self, **kwargs):
+        from botocore.exceptions import ClientError
+
         raise ClientError(
             {"Error": {"Code": self.code, "Message": "SECRET signed-url"},
              "ResponseMetadata": {"HTTPStatusCode": self.status}}, "HeadObject"
@@ -211,6 +212,7 @@ class Client:
 
 
 def test_provider_not_found_delete_and_safe_transient_classification():
+    pytest.importorskip("botocore.exceptions")
     settings = Settings(_env_file=None, R2_VIDEO_CACHE_ENABLED=True, R2_ACCOUNT_ID="account",
                         R2_BUCKET_NAME="bucket", R2_ACCESS_KEY_ID="key",
                         R2_SECRET_ACCESS_KEY="secret")

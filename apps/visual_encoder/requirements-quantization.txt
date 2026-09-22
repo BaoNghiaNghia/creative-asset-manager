@@ -1,0 +1,2 @@
+-r requirements.txt
+nncf==3.4.0

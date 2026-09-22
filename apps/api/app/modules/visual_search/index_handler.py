@@ -14,7 +14,11 @@ from app.modules.assets.content_resolver import SourceAssetContentTransient, Sou
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.pipeline.mime_types import is_supported_image_mime_type
 from app.modules.search.source_index import SearchSourceIndexResolver
-from app.modules.visual_search.contracts import VisualEmbedding
+from app.modules.visual_search.contracts import (
+    VisualEmbedding,
+    VisualEncoderQueueFullError,
+    VisualEncoderQueueTimeoutError,
+)
 from app.modules.visual_search.elasticsearch import VisualIndexDocument, VisualSearchElasticsearchIndex
 from app.modules.visual_search.fingerprint import sha256_fingerprint
 from app.modules.visual_search.lifecycle import VISUAL_EMBEDDING_SCHEMA_VERSION, visual_index_job_enabled
@@ -84,6 +88,7 @@ class VisualIndexSyncJobHandler:
             "visual_image_dimensions", "visual_image_decode_pixels",
             "visual_image_invalid", "visual_index_elasticsearch_rejected",
             "visual_index_elasticsearch_unavailable", "visual_index_failed",
+            "visual_encoder_queue_full", "visual_encoder_queue_timeout",
         }
         value = code or "none"
         return value if value in allowed else "visual_index_failed"
@@ -133,7 +138,10 @@ class VisualIndexSyncJobHandler:
                 stages["prepare_image_ms"] = (time.monotonic() - stage_started) * 1000
             stage_started = time.monotonic()
             try:
-                embedding = encoder_client.get_encoder().encode_image(prepared.image)
+                embedding = encoder_client.get_encoder().encode_image(
+                    prepared.image,
+                    priority="background",
+                )
             finally:
                 stages["encode_ms"] = (time.monotonic() - stage_started) * 1000
             if embedding.descriptor.embedding_schema_version != VISUAL_EMBEDDING_SCHEMA_VERSION:
@@ -152,6 +160,10 @@ class VisualIndexSyncJobHandler:
             finally:
                 stages["es_upsert_ms"] = (time.monotonic() - stage_started) * 1000
             return JobHandlerResult.completed()
+        except VisualEncoderQueueFullError as exc:
+            return JobHandlerResult.retryable("visual_encoder_queue_full", str(exc))
+        except VisualEncoderQueueTimeoutError as exc:
+            return JobHandlerResult.retryable("visual_encoder_queue_timeout", str(exc))
         except SourceAssetContentTransient as exc:
             return JobHandlerResult.retryable("visual_index_source_unavailable", str(exc))
         except SourceAssetContentUnavailable as exc:

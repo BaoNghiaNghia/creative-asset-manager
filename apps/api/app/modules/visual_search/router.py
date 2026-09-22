@@ -24,9 +24,14 @@ from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
 from app.modules.search.router import _hydrate_search_hits, _search_scope_filters, _typed_filters
 from app.modules.search.schema import SearchCoreFilters
-from app.modules.visual_search.contracts import VisualEmbedding, VisualEncoderUnavailableError
+from app.modules.visual_search.contracts import (
+    VisualEmbedding,
+    VisualEncoderQueueFullError,
+    VisualEncoderQueueTimeoutError,
+    VisualEncoderUnavailableError,
+)
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex, VisualSearchScope
-from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
+from app.modules.visual_search.model_spec import VISUAL_SEARCH_ACTIVE_DESCRIPTOR
 from app.modules.visual_search.schema import NormalizedCrop, VisualQueryScope, VisualSearchByAssetRequest, VisualSearchResponse
 from app.modules.visual_search.preprocess import VisualImagePreparationError, VisualPreprocessLimits, decode_visual_image
 from app.modules.visual_search.ranking import VisualRankingWeights, diversify_hits, fuse_embeddings
@@ -39,7 +44,6 @@ VISUAL_SEARCH_READ = require_permission("search.read")
 VISUAL_SEARCH_DIAGNOSTICS = require_permission("ai_operations.read")
 _MAX_CANDIDATES = 100
 _UPLOAD_READ_CHUNK_BYTES = 1_048_576
-_ENCODER_CAPACITY = asyncio.Semaphore(1)
 logger = logging.getLogger(__name__)
 
 _QUERY_OBSERVATION: ContextVar[dict[str, Any] | None] = ContextVar(
@@ -58,7 +62,8 @@ _BOUNDED_ERROR_CODES = {
     "visual_crop_too_small",
     "visual_upload_too_large",
     "visual_refinement_invalid",
-    "visual_encoder_capacity",
+    "visual_encoder_queue_full",
+    "visual_encoder_queue_timeout",
     "visual_encoder_unavailable",
     "visual_search_unavailable",
     "visual_source_unavailable",
@@ -99,6 +104,31 @@ def _bounded_error_code(exc: Exception) -> str:
         return "unexpected"
     code = str(exc.detail.get("code") or "unexpected")
     return code if code in _BOUNDED_ERROR_CODES else "unexpected"
+
+
+def _encoder_http_error(
+    exc: VisualEncoderUnavailableError,
+    *,
+    text: bool = False,
+) -> HTTPException:
+    if isinstance(exc, VisualEncoderQueueFullError):
+        code = "visual_encoder_queue_full"
+        message = "Visual search is busy. Please retry shortly."
+    elif isinstance(exc, VisualEncoderQueueTimeoutError):
+        code = "visual_encoder_queue_timeout"
+        message = "Visual search queue wait timed out. Please retry shortly."
+    else:
+        code = "visual_encoder_unavailable"
+        message = (
+            "Visual search text refinement is temporarily unavailable."
+            if text
+            else "Visual search is temporarily unavailable."
+        )
+    return HTTPException(
+        503,
+        detail={"code": code, "message": message, "retryable": True},
+        headers={"Retry-After": "1"},
+    )
 
 
 def _query_outcome(exc: Exception) -> str:
@@ -260,23 +290,45 @@ def _visual_scope_filters(session, principal: CurrentPrincipal, *, scope: Visual
 async def _text_embedding(request: Request, text: str) -> VisualEmbedding:
     value = text.strip()
     if not value:
-        raise HTTPException(422, detail={"code": "visual_refinement_invalid", "message": "Text refinement is required."})
+        raise HTTPException(
+            422,
+            detail={
+                "code": "visual_refinement_invalid",
+                "message": "Text refinement is required.",
+            },
+        )
     stage_started = time.monotonic()
     try:
-        if _ENCODER_CAPACITY.locked():
-            raise HTTPException(503, detail={"code": "visual_encoder_capacity", "message": "Visual search is busy. Please retry shortly.", "retryable": True})
-        await _ENCODER_CAPACITY.acquire()
+        client = getattr(request.app.state, "visual_encoder_client", None)
+        encoder = (
+            client.get_encoder()
+            if client is not None and callable(getattr(client, "get_encoder", None))
+            else None
+        )
+        if encoder is None or not callable(getattr(encoder, "encode_text", None)):
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "visual_encoder_unavailable",
+                    "message": "Visual search text refinement is temporarily unavailable.",
+                    "retryable": True,
+                },
+            )
         try:
-            client = getattr(request.app.state, "visual_encoder_client", None)
-            encoder = client.get_encoder() if client is not None and callable(getattr(client, "get_encoder", None)) else None
-            if encoder is None or not callable(getattr(encoder, "encode_text", None)):
-                raise HTTPException(503, detail={"code": "visual_encoder_unavailable", "message": "Visual search text refinement is temporarily unavailable.", "retryable": True})
-            try:
-                return await asyncio.to_thread(encoder.encode_text, value)
-            except (VisualEncoderUnavailableError, ValueError) as exc:
-                raise HTTPException(503, detail={"code": "visual_encoder_unavailable", "message": "Visual search text refinement is temporarily unavailable.", "retryable": True}) from exc
-        finally:
-            _ENCODER_CAPACITY.release()
+            return await asyncio.to_thread(
+                lambda: encoder.encode_text(value, priority="interactive")
+            )
+        except VisualEncoderUnavailableError as exc:
+            raise _encoder_http_error(exc, text=True) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                503,
+                detail={
+                    "code": "visual_encoder_unavailable",
+                    "message": "Visual search text refinement is temporarily unavailable.",
+                    "retryable": True,
+                },
+            ) from exc
     finally:
         _record_query_stage("encode_text_ms", stage_started)
 
@@ -341,7 +393,7 @@ async def find_similar_by_asset(
                 raise HTTPException(404, detail={"code": "visual_query_asset_not_found", "message": "Asset is unavailable."})
         session.commit()
 
-    descriptor = VISUAL_SEARCH_BASELINE_DESCRIPTOR
+    descriptor = VISUAL_SEARCH_ACTIVE_DESCRIPTOR
     document_id = _document_id(tenant, asset.id, asset.content_hash, descriptor.embedding_schema_version)
     fingerprint = hashlib.sha256(json.dumps({
         "tenant": tenant, "asset": asset.id, "hash": asset.content_hash,
@@ -465,17 +517,8 @@ async def _upload_embedding(
             prepared = await asyncio.to_thread(decode_visual_image, content, crop=crop)
         finally:
             _record_query_stage("prepare_image_ms", prepare_started)
+
         encode_started = time.monotonic()
-        if _ENCODER_CAPACITY.locked():
-            raise HTTPException(
-                503,
-                detail={
-                    "code": "visual_encoder_capacity",
-                    "message": "Visual search is busy. Please retry shortly.",
-                    "retryable": True,
-                },
-            )
-        await _ENCODER_CAPACITY.acquire()
         try:
             client = getattr(request.app.state, "visual_encoder_client", None)
             if client is None or not callable(getattr(client, "get_encoder", None)):
@@ -489,19 +532,18 @@ async def _upload_embedding(
                 )
             try:
                 embedding = await asyncio.to_thread(
-                    lambda: client.get_encoder().encode_image(prepared.image)
+                    lambda: client.get_encoder().encode_image(
+                        prepared.image,
+                        priority="interactive",
+                    )
                 )
             except VisualEncoderUnavailableError as exc:
-                raise HTTPException(
-                    503,
-                    detail={
-                        "code": "visual_encoder_unavailable",
-                        "message": "Visual search is temporarily unavailable.",
-                        "retryable": True,
-                    },
-                ) from exc
+                raise _encoder_http_error(exc) from exc
             except Exception as exc:
-                logger.warning("visual_encoder_request_failed error_type=%s", type(exc).__name__)
+                logger.warning(
+                    "visual_encoder_request_failed error_type=%s",
+                    type(exc).__name__,
+                )
                 raise HTTPException(
                     503,
                     detail={
@@ -510,7 +552,7 @@ async def _upload_embedding(
                         "retryable": True,
                     },
                 ) from exc
-            if embedding.descriptor != VISUAL_SEARCH_BASELINE_DESCRIPTOR:
+            if embedding.descriptor != VISUAL_SEARCH_ACTIVE_DESCRIPTOR:
                 raise HTTPException(
                     503,
                     detail={
@@ -521,7 +563,6 @@ async def _upload_embedding(
                 )
             return embedding
         finally:
-            _ENCODER_CAPACITY.release()
             _record_query_stage("encode_image_ms", encode_started)
     except VisualImagePreparationError as exc:
         status_code = 413 if exc.code in {

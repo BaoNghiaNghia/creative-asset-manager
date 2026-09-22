@@ -7,7 +7,16 @@ from unittest.mock import AsyncMock
 
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config
 from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding
-from app.modules.visual_search.elasticsearch import VisualIndexDocument, VisualMetadataFilters, VisualSearchElasticsearchIndex, VisualSearchIndexError, VisualSearchScope
+from app.modules.visual_search.elasticsearch import (
+    VisualIndexDocument,
+    VisualMetadataFilters,
+    VisualSearchElasticsearchIndex,
+    VisualSearchIndexError,
+    VisualSearchScope,
+    VisualVectorIndexOptions,
+    elasticsearch_supports_int8_hnsw,
+)
+from app.modules.visual_search.model_spec import VISUAL_SEARCH_V1_DESCRIPTOR, VISUAL_SEARCH_V2_DESCRIPTOR
 from app.modules.visual_search.repository import VisualSearchRepository
 
 DESCRIPTOR = EmbeddingDescriptor("siglip", "revision-1", "visual_embedding_v1", 3, "siglip-test-v1")
@@ -27,6 +36,39 @@ class VisualSearchElasticsearchTest(unittest.TestCase):
     def test_aliases_are_isolated_from_search_v3(self) -> None:
         self.assertEqual(self.index.read_alias, "creative-assets-visual-visual_embedding_v1-v3-read")
         self.assertNotEqual(self.index.read_alias, "creative-assets-v3-read")
+
+    def test_int8_hnsw_candidate_mapping_is_explicit_and_baseline_stays_unchanged(self) -> None:
+        baseline = self.index.index_definition()["mappings"]["properties"]["visual_embedding"]
+        candidate = self.index.index_definition(
+            vector_index_options=VisualVectorIndexOptions(
+                "int8_hnsw",
+                m=32,
+                ef_construction=200,
+            )
+        )["mappings"]["properties"]["visual_embedding"]
+        self.assertNotIn("index_options", baseline)
+        self.assertEqual(
+            candidate["index_options"],
+            {
+                "type": "int8_hnsw",
+                "m": 32,
+                "ef_construction": 200,
+            },
+        )
+
+    def test_int8_hnsw_version_gate_is_conservative(self) -> None:
+        self.assertTrue(elasticsearch_supports_int8_hnsw("8.15.3"))
+        self.assertTrue(elasticsearch_supports_int8_hnsw("9.0.0"))
+        self.assertFalse(elasticsearch_supports_int8_hnsw("8.14.9"))
+        self.assertFalse(elasticsearch_supports_int8_hnsw("invalid"))
+
+    def test_siglip_v1_and_siglip2_v2_use_distinct_index_namespaces(self) -> None:
+        config = ElasticsearchV3Config("http://elasticsearch.test", index_prefix="creative-assets", index_generation="v3")
+        v1 = VisualSearchElasticsearchIndex(config, VISUAL_SEARCH_V1_DESCRIPTOR)
+        v2 = VisualSearchElasticsearchIndex(config, VISUAL_SEARCH_V2_DESCRIPTOR)
+        self.assertNotEqual(v1.read_alias, v2.read_alias)
+        self.assertIn("visual_embedding_v1", v1.read_alias)
+        self.assertIn("visual_embedding_v2", v2.read_alias)
 
     def test_document_identity_changes_for_content_or_schema(self) -> None:
         document = VisualIndexDocument("tenant-a", "asset-a", "a" * 64, EMBEDDING)
@@ -81,6 +123,72 @@ class VisualSearchElasticsearchTest(unittest.TestCase):
         asyncio.run(verify())
 
 
+
+    def test_create_int8_hnsw_candidate_probes_version_and_does_not_switch_alias(self) -> None:
+        async def verify() -> None:
+            target = self.index.physical_index_name("20260922-int8-hnsw")
+            self.index._index._request = AsyncMock(
+                side_effect=[
+                    {"version": {"number": "8.15.3"}},
+                    {},
+                ]
+            )
+            created = await self.index.create_int8_hnsw_candidate(
+                "20260922-int8-hnsw",
+                m=24,
+                ef_construction=150,
+            )
+            self.assertEqual(created, target)
+            put = self.index._index._request.await_args_list[1]
+            self.assertEqual(put.args[:2], ("PUT", f"/{target}"))
+            vector = put.kwargs["json_body"]["mappings"]["properties"]["visual_embedding"]
+            self.assertEqual(
+                vector["index_options"],
+                {"type": "int8_hnsw", "m": 24, "ef_construction": 150},
+            )
+            self.assertNotIn("/_aliases", [call.args[1] for call in self.index._index._request.await_args_list])
+        asyncio.run(verify())
+
+    def test_reindex_and_candidate_search_stay_on_physical_index(self) -> None:
+        async def verify() -> None:
+            target = self.index.physical_index_name("20260922-ann")
+            self.index._index._request = AsyncMock(
+                side_effect=[
+                    {},
+                    {"created": 2, "failures": []},
+                    {"hits": {"hits": [
+                        {
+                            "_id": "candidate-hit",
+                            "_score": 1.0,
+                            "_source": {
+                                "tenant_id": "tenant-a",
+                                "asset_id": "asset-a",
+                                "content_sha256": "a" * 64,
+                            },
+                        }
+                    ]}},
+                ]
+            )
+            created = await self.index.reindex_active_to_candidate(target)
+            self.assertEqual(created, 2)
+            reindex = self.index._index._request.await_args_list[1]
+            self.assertEqual(reindex.args[1], "/_reindex?refresh=true&wait_for_completion=true")
+            self.assertEqual(reindex.kwargs["json_body"]["source"]["index"], self.index.read_alias)
+            self.assertEqual(reindex.kwargs["json_body"]["dest"]["index"], target)
+
+            hits = await self.index.search_index(
+                target,
+                EMBEDDING,
+                scope=VisualSearchScope("tenant-a"),
+                limit=1,
+                num_candidates=1,
+            )
+            self.assertEqual([hit.asset_id for hit in hits], ["asset-a"])
+            self.assertEqual(
+                self.index._index._request.await_args_list[2].args[1],
+                f"/{target}/_search",
+            )
+        asyncio.run(verify())
 
     def test_switch_aliases_uses_single_visual_read_alias(self) -> None:
         async def verify() -> None:

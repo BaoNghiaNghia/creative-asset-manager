@@ -1,12 +1,32 @@
 """Private Cloudflare R2 S3-compatible adapter; no bucket listing or public URLs."""
 import asyncio
 from dataclasses import dataclass
-
-import boto3
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
+from typing import Any
 
 from app.core.config import Settings
+
+
+def _load_botocore_types():
+    try:
+        from botocore.config import Config
+        from botocore.exceptions import BotoCoreError, ClientError
+    except ImportError as exc:
+        raise RuntimeError(
+            "botocore is required for R2 error handling"
+        ) from exc
+    return Config, BotoCoreError, ClientError
+
+
+def _load_boto_sdk():
+    """Load the optional-at-import-time R2 SDK only when R2 is actually used."""
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError(
+            "boto3/botocore are required when the R2 video cache is enabled"
+        ) from exc
+    Config, BotoCoreError, ClientError = _load_botocore_types()
+    return boto3, Config, BotoCoreError, ClientError
 
 
 class R2ProviderError(Exception):
@@ -28,11 +48,15 @@ class R2ObjectHead:
 
 
 class R2Adapter:
-    def __init__(self, settings: Settings, *, client=None):
+    def __init__(self, settings: Settings, *, client: Any | None = None):
         if not settings.R2_VIDEO_CACHE_ENABLED:
             raise ValueError("R2 video cache is disabled")
         self.bucket = settings.R2_BUCKET_NAME
-        self._client = client or boto3.client(
+        if client is not None:
+            self._client = client
+            return
+        boto3, Config, _BotoCoreError, _ClientError = _load_boto_sdk()
+        self._client = boto3.client(
             "s3",
             endpoint_url=settings.r2_endpoint_url,
             region_name="auto",
@@ -46,6 +70,10 @@ class R2Adapter:
 
     @staticmethod
     def _raise_safe(exc: Exception) -> None:
+        try:
+            _Config, BotoCoreError, ClientError = _load_botocore_types()
+        except RuntimeError:
+            raise exc
         if isinstance(exc, ClientError):
             response = exc.response
             raw_code = str(response.get("Error", {}).get("Code", ""))
@@ -72,7 +100,7 @@ class R2Adapter:
             except Exception:
                 pass
             raise
-        except (ClientError, BotoCoreError) as exc:
+        except Exception as exc:
             self._raise_safe(exc)
 
     async def head_object(self, key: str) -> R2ObjectHead:

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 from app.modules.visual_search.coverage_repository import VisualCoverageResourceReader
-from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
+from app.modules.visual_search.model_spec import VISUAL_SEARCH_ACTIVE_DESCRIPTOR
 from app.modules.visual_search.lifecycle import enqueue_visual_index_sync
 
 
@@ -22,7 +22,7 @@ class VisualReconciliationResult:
 
 
 def _current(document, resource) -> bool:
-    descriptor=VISUAL_SEARCH_BASELINE_DESCRIPTOR
+    descriptor=VISUAL_SEARCH_ACTIVE_DESCRIPTOR
     return document.get("asset_id")==resource.asset_id and document.get("content_sha256")==resource.content_hash and not document.get("is_deleted") and not document.get("is_hidden") and all(document.get(key)==getattr(descriptor,key) for key in ("embedding_schema_version","encoder_name","encoder_revision","preprocess_version","similarity"))
 
 

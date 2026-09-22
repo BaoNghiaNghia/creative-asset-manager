@@ -22,7 +22,7 @@ from app.modules.authorization.principal import CurrentPrincipal, require_authen
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
 from PIL import Image
 
-from app.modules.visual_search.contracts import VisualEmbedding
+from app.modules.visual_search.contracts import VisualEmbedding, VisualEncoderQueueFullError
 from app.modules.visual_search.model_spec import VISUAL_SEARCH_BASELINE_DESCRIPTOR
 from app.modules.visual_search.elasticsearch import VisualSearchHit
 from app.modules.visual_search.metrics import VisualSearchMetrics
@@ -62,16 +62,28 @@ class _FailingSearchIndex(_Index):
 class _UploadEncoder:
     descriptor = _Index.descriptor
 
-    def encode_image(self, _image):
+    def encode_image(self, _image, *, priority="interactive"):
+        assert priority == "interactive"
         return VisualEmbedding(self.descriptor, (1.0,) + tuple(0.0 for _ in range(self.descriptor.dimension - 1)))
 
-    def encode_text(self, _text):
+    def encode_text(self, _text, *, priority="interactive"):
+        assert priority == "interactive"
         return VisualEmbedding(self.descriptor, (1.0,) + tuple(0.0 for _ in range(self.descriptor.dimension - 1)))
+
+
+class _QueueFullEncoder(_UploadEncoder):
+    def encode_image(self, _image, *, priority="interactive"):
+        raise VisualEncoderQueueFullError("queue full")
 
 
 class _UploadEncoderClient:
     def get_encoder(self):
         return _UploadEncoder()
+
+
+class _QueueFullEncoderClient:
+    def get_encoder(self):
+        return _QueueFullEncoder()
 
 
 class _MemoryResolver:
@@ -258,10 +270,20 @@ class VisualByAssetApiTest(unittest.TestCase):
         self.assertEqual(response.json()["detail"]["code"], "visual_search_operation_disabled")
         response = self._upload(payload={"filters": "not-json"})
         self.assertEqual(response.status_code, 422)
-        with patch("app.modules.visual_search.router._ENCODER_CAPACITY", asyncio.Semaphore(0)):
-            response = self._upload()
+        app.state.visual_encoder_client = _QueueFullEncoderClient()
+        try:
+            with patch("app.modules.visual_search.router.SessionLocal", self.factory), \
+                 patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=True)), \
+                 patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _Index), \
+                 patch("app.modules.visual_search.router._hydrate_search_hits", return_value=[]):
+                response = self.client.post(
+                    "/api/v1/search/visual/upload",
+                    files={"file": ("query.png", _png_bytes(), "image/png")},
+                )
+        finally:
+            app.state.visual_encoder_client = None
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["detail"]["code"], "visual_encoder_capacity")
+        self.assertEqual(response.json()["detail"]["code"], "visual_encoder_queue_full")
         app.state.visual_encoder_client = _UploadEncoderClient()
         try:
             with patch("app.modules.visual_search.router.SessionLocal", self.factory),                  patch("app.modules.visual_search.router.get_settings", return_value=self._settings(VISUAL_SEARCH_UPLOAD_ENABLED=True)),                  patch("app.modules.visual_search.router.VisualSearchElasticsearchIndex", _Index):

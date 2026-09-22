@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 from PIL import Image
 
-from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding
+from app.modules.visual_search.contracts import (
+    EmbeddingDescriptor,
+    VisualEmbedding,
+    VisualEncoderQueueFullError,
+    VisualEncoderQueueTimeoutError,
+)
 from app.modules.visual_search.contracts import (
     EncoderContractViolationError,
     ValidatedVisualEncoder,
@@ -74,16 +79,41 @@ def _encoder_payload() -> dict[str, object]:
     }
 
 
-def test_http_encoder_retries_transient_busy_response() -> None:
+def test_http_encoder_sends_priority_without_client_side_busy_retries() -> None:
     encoder = HttpVisualEncoder("http://encoder.local", internal_key="secret")
     request = httpx.Request("POST", "http://encoder.local/v1/encode-text")
-    responses = [
-        httpx.Response(503, headers={"Retry-After": "0"}, request=request),
-        httpx.Response(200, json=_encoder_payload(), request=request),
-    ]
-    with patch("app.modules.visual_search.encoder_client.httpx.post", side_effect=responses) as post, \
-         patch("app.modules.visual_search.encoder_client.sleep") as wait:
-        result = encoder.encode_text("black dress")
+    response = httpx.Response(200, json=_encoder_payload(), request=request)
+    with patch(
+        "app.modules.visual_search.encoder_client.httpx.post",
+        return_value=response,
+    ) as post:
+        result = encoder.encode_text("black dress", priority="background")
     assert result.descriptor == VISUAL_SEARCH_BASELINE_DESCRIPTOR
-    assert post.call_count == 2
-    wait.assert_called_once_with(0.0)
+    assert post.call_count == 1
+    assert post.call_args.kwargs["json"] == {
+        "text": "black dress",
+        "priority": "background",
+    }
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("visual_encoder_queue_full", VisualEncoderQueueFullError),
+        ("visual_encoder_queue_timeout", VisualEncoderQueueTimeoutError),
+    ],
+)
+def test_http_encoder_preserves_bounded_queue_error(code, expected) -> None:
+    encoder = HttpVisualEncoder("http://encoder.local", internal_key="secret")
+    request = httpx.Request("POST", "http://encoder.local/v1/encode-text")
+    response = httpx.Response(
+        503,
+        json={"detail": {"code": code, "retryable": True}},
+        request=request,
+    )
+    with patch(
+        "app.modules.visual_search.encoder_client.httpx.post",
+        return_value=response,
+    ):
+        with pytest.raises(expected):
+            encoder.encode_text("black dress")

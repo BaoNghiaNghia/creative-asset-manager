@@ -17,6 +17,7 @@ TERTIARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-imag
 QUATERNARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-4.service"
 QUINARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-5.service"
 VIDEO_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
+VISUAL_ENCODER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-visual-encoder.service"
 NGINX_CONFIG = ROOT / "infrastructure" / "nginx" / "creative-asset-manager.conf"
 
 
@@ -85,6 +86,12 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             self.assertIn(required, source)
         for forbidden in ("docker compose build api", "docker compose up api", "docker compose up worker", "alembic downgrade"):
             self.assertNotIn(forbidden, source)
+
+    def test_visual_encoder_reserves_two_cpu_threads_without_process_replication(self) -> None:
+        unit = VISUAL_ENCODER_UNIT.read_text()
+        self.assertIn("CPUQuota=200%", unit)
+        self.assertIn("MemoryMax=1500M", unit)
+        self.assertNotIn("--workers", unit)
 
     def test_alembic_configuration_includes_the_api_module_path(self) -> None:
         config = (ROOT / "apps" / "api" / "alembic.ini").read_text()

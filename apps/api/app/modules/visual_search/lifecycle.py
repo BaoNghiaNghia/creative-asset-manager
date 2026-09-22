@@ -4,11 +4,11 @@ from app.core.config import Settings
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.visual_search.eligibility import visual_search_infrastructure_enabled, visual_search_tenant_eligible
 from app.modules.visual_search.model_spec import (
-    SIGLIP_BASELINE_PREPROCESS_VERSION,
-    VISUAL_SEARCH_BASELINE_DESCRIPTOR,
+    SIGLIP2_PREPROCESS_VERSION,
+    VISUAL_SEARCH_ACTIVE_DESCRIPTOR,
 )
 
-VISUAL_EMBEDDING_SCHEMA_VERSION = VISUAL_SEARCH_BASELINE_DESCRIPTOR.embedding_schema_version
+VISUAL_EMBEDDING_SCHEMA_VERSION = VISUAL_SEARCH_ACTIVE_DESCRIPTOR.embedding_schema_version
 VISUAL_INDEX_SYNC_PRIORITY = 20
 
 
@@ -52,7 +52,7 @@ def enqueue_visual_index_sync(
             "source_asset_id": source_asset_id,
             "content_sha256": content_sha256,
             "embedding_schema_version": VISUAL_EMBEDDING_SCHEMA_VERSION,
-            "preprocess_version": SIGLIP_BASELINE_PREPROCESS_VERSION,
+            "preprocess_version": SIGLIP2_PREPROCESS_VERSION,
         },
         provider_key="visual_encoder",
         provider_scope="visual",

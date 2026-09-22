@@ -1,5 +1,5 @@
 [Unit]
-Description=Creative Asset Manager isolated SigLIP visual encoder
+Description=Creative Asset Manager isolated SigLIP2 visual encoder
 After=network-online.target
 Wants=network-online.target
 
@@ -19,7 +19,7 @@ RestartSec=10s
 TimeoutStartSec=300s
 TimeoutStopSec=30s
 MemoryMax=1500M
-CPUQuota=100%
+CPUQuota=200%
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

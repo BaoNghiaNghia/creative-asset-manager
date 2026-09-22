@@ -486,74 +486,244 @@ Do not log raw images, vectors, tenant identifiers, signed URLs, authorization h
 
 ### VS-CPU-00 — Baseline and compatibility audit
 
-- record deployed commit and Elasticsearch version;
-- record current visual descriptor/index aliases;
-- capture encoder/API/ES RSS and CPU;
-- capture current image/text encode p50/p95;
-- capture KNN and total request p50/p95;
-- verify disk/RAM/swap headroom;
-- no behavior change.
+**Implementation status: read-only baseline capture tooling implemented on 2026-09-22; the actual production baseline must still be captured on the authorized target host before rollout.**
+
+- `baseline_audit.py` records the explicitly supplied deployed commit, encoder `/ready` contract/runtime state, optional encoder RSS, host CPU/load/RAM/swap/root-disk state, and sanitized Elasticsearch version/health/JVM/filesystem/index-store metrics;
+- it enumerates only the dedicated Visual Search alias namespace, target physical indices, document counts, and the bounded `visual_embedding` mapping fields needed for compatibility review;
+- query/index p50/p95/max come from an operator-exported authenticated Visual Search diagnostics JSON rather than requiring this script to receive or persist an API credential;
+- diagnostics are reduced to feature flags plus the bounded metrics payload; unrelated fields are not copied into the baseline report;
+- `baseline.complete=true` requires a deployed commit, ready encoder, Elasticsearch version, at least one visual alias, host-memory evidence, and diagnostics evidence;
+- the command is read-only: it does not restart services, mutate flags, create indices, switch aliases, or download models;
+- VS-CPU-07 release evidence now requires a complete VS-CPU-00 baseline report.
+
+Operator sequence:
+
+```text
+1. Export the authenticated Visual Search diagnostics JSON through the normal authorized API path.
+2. Record the exact deployed commit.
+3. Run baseline_audit.py on the target host before behavior-changing rollout steps.
+4. Archive the JSON unchanged with the release evidence set.
+```
 
 ### VS-CPU-01 — SigLIP2 v2 migration foundation
 
-- pin exact local SigLIP2 Base 224 snapshot;
-- define `visual_embedding_v2` descriptor;
-- preserve v1 index/rollback;
-- verify `encode_image` and `encode_text` contract;
-- no destructive v1 cleanup.
+**Implementation status: code foundation implemented on 2026-09-22; production activation/backfill remains a separate reviewed operation.**
+
+- pinned `google/siglip2-base-patch16-224` at revision `75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2`;
+- defined `visual_embedding_v2` as the active code descriptor while preserving the explicit v1 descriptor for rollback;
+- v1/v2 Elasticsearch namespaces remain distinct because the embedding schema version is part of the visual index prefix;
+- isolated encoder runtime uses Transformers 4.51.3, local-files-only loading, and validates 768-dimension / 224×224 preprocess compatibility at startup;
+- `encode_image` and `encode_text` continue to return normalized vectors coupled to the v2 descriptor;
+- added an operator-run provisioning helper for the exact pinned snapshot; normal service startup still performs no model download;
+- no destructive v1 cleanup, production-wide backfill, alias mutation, OpenVINO conversion, queue redesign, or INT8 work is part of this phase.
 
 ### VS-CPU-02 — OpenVINO baseline
 
-- export/convert the pinned SigLIP2 model using a reproducible build/setup step;
-- run one encoder process and one resident model;
-- start with 2 inference threads and 1 stream;
-- compare correctness and latency against the reference implementation;
-- preserve fallback path until release review.
+**Implementation status: code baseline implemented on 2026-09-22; production activation still requires artifact export plus bounded validation on the target host.**
+
+- the isolated encoder runtime now supports an explicit `VISUAL_ENCODER_RUNTIME=openvino` mode while `transformers` remains the safe fallback/default until release review;
+- OpenVINO is pinned to `2026.4.0`; the runtime rejects an artifact exported under another baseline version;
+- `apps/visual_encoder/export_openvino.py` converts the pinned local SigLIP2 snapshot directly with `openvino.convert_model` and writes FP32 IR only;
+- the dual-tower encoder is exported as separate image/text IR graphs. These towers contain non-overlapping SigLIP2 weights, run in one encoder process, and avoid executing the unused modality for every request;
+- the artifact manifest binds encoder name/revision, `visual_embedding_v2`, dimension, preprocess version, similarity, precision, OpenVINO version, and SHA-256 hashes of all XML/BIN files;
+- normal service startup remains local-only and refuses missing, tampered, mismatched, or wrong-version artifacts;
+- initial OpenVINO CPU configuration is `INFERENCE_NUM_THREADS=2`, `NUM_STREAMS=1`, and latency performance mode;
+- the systemd encoder CPU quota is 200%, allowing the two-thread baseline while still avoiding multi-process model replication;
+- `apps/visual_encoder/validate_openvino.py` performs a bounded synthetic image/text correctness comparison against the pinned PyTorch reference and records latency; promotion requires the configured cosine gate to pass;
+- no automatic runtime fallback is performed after an OpenVINO load failure. Rollback is explicit by setting `VISUAL_ENCODER_RUNTIME=transformers`, which avoids silently changing embedding behavior;
+- no bounded queue, INT8, ANN tuning, alias mutation, or full-corpus backfill is included in this phase.
+
+Operator sequence before any canary activation:
+
+```text
+1. Provision the exact SigLIP2 snapshot with provision_model.py.
+2. Export FP32 IR with export_openvino.py into a revision-specific artifact directory.
+3. Run validate_openvino.py on the target CPU host.
+4. Review correctness and latency evidence.
+5. Only after review, set VISUAL_ENCODER_RUNTIME=openvino and restart the isolated encoder.
+6. Roll back by restoring VISUAL_ENCODER_RUNTIME=transformers.
+```
 
 ### VS-CPU-03 — Bounded inference queue
 
-- replace immediate busy rejection with bounded queueing;
-- add timeout/full error classes;
-- prioritize interactive requests over backfill;
-- add saturation metrics and tests.
+**Implementation status: code baseline implemented on 2026-09-22; production sizing remains subject to target-host load evidence.**
+
+- replaced immediate busy rejection with one bounded single-worker priority queue owned by the isolated encoder process;
+- default queue size is 8 waiting requests with 2 slots reserved for interactive work; background jobs cannot consume those reserved slots;
+- queue wait timeout defaults to 5 seconds and measures time until inference actually begins, not model execution time;
+- interactive work has strict priority over queued background/backfill work while preserving FIFO order inside each priority class;
+- cancelled requests that have not started are removed from the queue; already-started thread inference is allowed to finish under queue ownership because Python cannot safely force-cancel the native inference call;
+- explicit error classes/codes now distinguish `visual_encoder_queue_full`, `visual_encoder_queue_timeout`, and `visual_encoder_unavailable`;
+- the API client no longer performs busy retries, preventing retry amplification on top of server-side queueing;
+- interactive upload/crop/text requests send `priority=interactive`; worker-side visual indexing sends `priority=background`;
+- queue saturation and lifecycle counters are exposed through the encoder `/ready` payload: accepted, started, completed, failed, queue-full, queue-timeout, cancelled, current queued depth, and current active priority;
+- tests cover foreground priority, background reservation, timeout cleanup, cancellation cleanup, client error preservation, and router error mapping;
+- OpenVINO/PyTorch inference capacity remains one operation at a time. The queue does not increase model concurrency or create extra model copies.
+
+Default controls:
+
+```text
+VISUAL_ENCODER_QUEUE_MAX_SIZE=8
+VISUAL_ENCODER_QUEUE_INTERACTIVE_RESERVE=2
+VISUAL_ENCODER_QUEUE_WAIT_TIMEOUT_SECONDS=5
+```
+
+These values are bounded starting points, not production performance claims. Adjust only from measured p50/p95 queue wait, CPU, RSS, and interactive error-rate evidence.
 
 ### VS-CPU-04 — INT8 candidate
 
-- build INT8 artifact appropriate to the approved OpenVINO path;
-- run relevance sanity set plus latency/throughput comparison;
-- promote only after contract and relevance review.
+**Implementation status: candidate build/validation tooling implemented on 2026-09-22; INT8 is intentionally not loadable by the production runtime and is not promoted.**
+
+- NNCF is isolated to `apps/visual_encoder/requirements-quantization.txt` and pinned to `3.4.0`; the production encoder runtime does not depend on NNCF;
+- `apps/visual_encoder/quantize_openvino.py` reads only a hash-verified FP32 OpenVINO artifact and the exact pinned SigLIP2 processor snapshot;
+- image and text towers are calibrated independently from operator-supplied representative datasets using `nncf.Dataset` and `nncf.quantize`;
+- the candidate uses the Transformer quantization mode, CPU target, `MIXED` preset, accurate bias correction, and a bounded calibration subset (default 300 samples per tower);
+- the INT8 manifest has a distinct `cam-siglip2-openvino-int8-candidate-v1` artifact format, explicit NNCF/OpenVINO/Transformers versions, source-FP32 hashes, calibration evidence, output hashes, and `compatibility_status=candidate_unvalidated`;
+- `OpenVinoSiglip2Encoder` still accepts only the FP32 artifact format/precision, so an INT8 candidate cannot be activated accidentally under `visual_embedding_v2`;
+- `apps/visual_encoder/validate_int8.py` compares INT8 against the approved FP32 OpenVINO baseline on representative ranking cases and query latency;
+- the validation set supports `image_triplet` cases (query/positive/negative) and `text_image` cases (text/positive/negative);
+- the default release gate requires at least 50 cases, preserves positive-over-negative ordering for every case, and requires per-input INT8↔FP32 embedding cosine of at least 0.995;
+- validation produces evidence only. It does not rewrite the candidate manifest, mutate the active descriptor, or make INT8 loadable;
+- any future promotion requires an explicit reviewed change deciding whether vectors are sufficiently compatible with `visual_embedding_v2` or require a new embedding schema/version.
+
+Example sanity-set shape:
+
+```json
+{
+  "cases": [
+    {
+      "id": "same-product-001",
+      "kind": "image_triplet",
+      "query": "queries/product-a-crop.jpg",
+      "positive": "positives/product-a-full.jpg",
+      "negative": "negatives/similar-background.jpg"
+    },
+    {
+      "id": "text-refinement-001",
+      "kind": "text_image",
+      "text": "blue floral embroidery",
+      "positive": "positives/blue-floral.jpg",
+      "negative": "negatives/blue-plain.jpg"
+    }
+  ]
+}
+```
+
+Operator sequence:
+
+```text
+1. Create a separate quantization virtualenv from requirements-quantization.txt.
+2. Supply representative image calibration data and text calibration lines.
+3. Run quantize_openvino.py against the validated FP32 artifact.
+4. Prepare 50–100 representative CAM sanity cases covering same-product,
+   same-design/different-photo, crop→full, near-duplicate/compressed derivative,
+   hard negative, and text→image refinement behavior.
+5. Run validate_int8.py and archive the JSON report with latency and relevance evidence.
+6. Do not promote the candidate from this phase; production continues to use FP32.
+```
 
 ### VS-CPU-05 — Elasticsearch ANN tuning
 
-- verify supported vector index options;
-- create new versioned candidate index if using quantized HNSW;
-- benchmark K / `num_candidates` matrix;
-- activate only through the existing alias lifecycle;
-- preserve previous index rollback.
+**Implementation status: candidate index + benchmark tooling implemented on 2026-09-22; no candidate index has been created or activated on production.**
+
+- production compose currently pins Elasticsearch 8.15.3; code still performs an explicit runtime version probe before allowing an `int8_hnsw` candidate build;
+- the active/baseline Visual Search mapping remains unchanged unless explicit `VisualVectorIndexOptions` are supplied for a new physical candidate;
+- `create_int8_hnsw_candidate()` creates only a new versioned physical index with explicit `int8_hnsw`, `m`, and `ef_construction`; it never mutates the active alias;
+- `reindex_active_to_candidate()` copies the current visual projection into an already-created physical candidate with `op_type=create`, bounded optional `max_docs`, and no alias switch;
+- candidate target names must stay inside the active Visual Search schema/index-generation namespace; aliases and cross-namespace indices are rejected;
+- `search_index()` benchmarks a physical candidate directly, retaining tenant/lifecycle/access filters and defensive cross-tenant hit filtering;
+- `switch_aliases()` now validates that its target is a physical index in the same Visual Search namespace before any alias mutation;
+- `ann_benchmark.py` compares the physical candidate against the active alias without activation and reports p50/p95/max KNN latency, expected-positive recall, baseline result overlap, and result counts;
+- the benchmark matrix is A=`K40/candidates160/page20`, B=`K80/candidates240/page20`, C=`K120/candidates320/page40`, D=`K200/candidates500/page40`;
+- benchmark datasets carry already-versioned `visual_embedding_v2` vectors plus tenant scope and expected positive asset IDs; raw images/text do not need to be logged into the benchmark report;
+- no profile is selected automatically from latency alone. Promotion still requires representative CAM relevance evidence and a separately reviewed alias switch.
+
+Operator sequence:
+
+```text
+1. Record the deployed Elasticsearch version/mapping/aliases and host pressure.
+2. Create a new versioned int8_hnsw physical candidate.
+3. Reindex the active visual projection into that candidate; start bounded if needed.
+4. Run ann_benchmark.py against representative CAM query embeddings and expected positives.
+5. Review relevance, hard negatives, latency, CPU, JVM pressure, disk and result counts.
+6. Only after review, use the existing alias lifecycle for activation.
+7. Preserve the previous physical index for rollback.
+```
 
 ### VS-CPU-06 — Cache and duplicate fast paths
 
-- add bounded image/text embedding cache;
-- optionally add pHash near-duplicate support;
-- measure actual hit rate before expanding complexity.
+**Implementation status: bounded embedding cache implemented on 2026-09-22; pHash remains intentionally deferred until measured duplicate-hit evidence justifies it.**
+
+- the isolated encoder process owns separate thread-safe in-process LRUs for image and text embeddings, so API and background workers share one cache without introducing Redis or another resident service;
+- cache entries store only derived `VisualEmbedding` values and contract-bound keys; raw upload bytes, images, signed URLs, credentials, and raw cache payloads are not retained;
+- image keys hash deterministic RGB pixel bytes plus dimensions after the encoder service has safely decoded the request, then bind encoder name/revision, embedding schema, and preprocess version;
+- text keys hash the exact stripped UTF-8 query text and bind the same embedding contract fields; case is intentionally preserved because changing text normalization could change model semantics;
+- defaults are 128 image entries and 256 text entries, both configurable to zero for a disabled cache;
+- LRU eviction is count-bounded and exposes entries/max/hits/misses/evictions through the encoder `/ready` payload;
+- cache lookup occurs before inference queue admission, so true hits bypass queue wait and CPU inference;
+- on a miss, the queue worker rechecks the cache before model execution to suppress duplicate queued work that arrived while an earlier identical request was running;
+- cache state is process-local and cleared naturally on encoder restart; incompatible schema/preprocess/model changes also generate different cache keys;
+- tests cover LRU eviction, contract-bound keys, and repeated-request queue bypass;
+- pHash/near-duplicate indexing is not added in this phase. Add it only after real CAM hit-rate evidence shows enough resized/recompressed derivatives to justify the extra storage and tuning surface.
+
+Default controls:
+
+```text
+VISUAL_ENCODER_IMAGE_CACHE_MAX_ENTRIES=128
+VISUAL_ENCODER_TEXT_CACHE_MAX_ENTRIES=256
+```
 
 ### VS-CPU-07 — Release evidence
 
-Capture:
+**Implementation status: read-only evidence tooling implemented on 2026-09-22; no production rollout is authorized or performed by these tools.**
+
+- the bounded inference queue now keeps a rolling 256-sample queue-wait window and exposes p50/p95/max plus sample count through `/ready`;
+- `apps/visual_encoder/benchmark_load.py` runs a bounded interactive encoder load probe, records request p50/p95/max, queries/sec, status/error counts, maximum observed queue depth/wait p95, and post-run cache/queue state;
+- load probes generate unique text queries or minimally perturbed local image pixels so the benchmark measures model/queue behavior instead of only cache hits; reports never contain the raw image bytes or raw generated query payloads;
+- the encoder internal key is read from `VISUAL_ENCODER_INTERNAL_KEY`; it is never accepted as a CLI argument or written into reports;
+- `release_evidence.py` is read-only and collects encoder readiness/runtime/queue/cache metrics, host CPU/load/RAM/swap/root-disk state, optional encoder RSS by PID, and a sanitized Elasticsearch version/health/JVM/filesystem/index-store snapshot;
+- `regression_evidence.py` runs the bounded release regression groups with the current Python environment: isolated encoder tests, the full Visual Search module tests, the full Search V3 module tests, VPS deployment tests, plus dedicated acceptance checks for cross-tenant isolation, queue priority, pinned startup, and alias lifecycle; it emits only command targets/pytest filters, exit status, timing, and bounded stdout/stderr summaries;
+- `rollback_proof.py` verifies the exact previous SigLIP v1 revision directory and hashes its core local model files, then checks the dedicated `visual_embedding_v1` Elasticsearch read alias, vector mapping, and document count without mutating aliases or indices;
+- the evidence bundle can attach the complete VS-CPU-00 baseline, approved OpenVINO validation report, ANN benchmark report, optional INT8 candidate report, bounded load report, regression report, and explicit rollback-proof report;
+- `release_evidence_complete` remains false unless the baseline is complete, encoder readiness and Elasticsearch health are good, the OpenVINO report passed, ANN relevance evidence exists, load evidence exists, the regression report passed, and `rollback.verified=true`;
+- `acceptance_gates.py` evaluates the twelve gates in section 15 from that immutable release bundle and returns `pass`, `fail`, `unknown`, or `not_applicable`; missing runtime evidence never becomes an implicit pass;
+- the disk gate uses the documented 12 GiB minimum migration-headroom target; the swap gate only passes when the load probe was given a reviewed maximum swap-growth threshold and stayed within it;
+- INT8 evidence is optional because the INT8 candidate is not promoted in this track;
+- evidence tooling never changes feature flags, restarts a service, creates/deletes an index, switches aliases, or deletes rollback artifacts.
+
+Required evidence before a reviewed rollout decision:
 
 ```text
-encoder p50/p95
-queue p50/p95/max
+encoder request p50/p95/max
+queue wait p50/p95/max
 queries/sec
+queue full / timeout behavior
 KNN p50/p95
-request p50/p95
-CPU
-RAM / RSS
+ANN expected-positive recall / hard-negative review
+CPU / system load
+RAM / encoder RSS
 swap
-Elasticsearch memory/disk
-relevance sanity results
+root-disk free space
+Elasticsearch health / JVM / disk / index footprint
+OpenVINO correctness report
+cache hit/miss/eviction evidence
 failure/retry behavior
 rollback proof
+```
+
+Suggested bounded sequence:
+
+```text
+1. Validate the FP32 OpenVINO artifact.
+2. Export/reindex an ANN candidate without switching aliases.
+3. Run the representative ANN benchmark matrix.
+4. Run the bounded encoder load probe on the target host; if swap is a release gate,
+   provide the reviewed --max-swap-growth-mib threshold so the report can pass/fail explicitly.
+5. Capture rollback proof while the previous model/index artifacts still exist.
+6. Run regression_evidence.py with the release Python environment.
+7. Run release_evidence.py to assemble the immutable JSON evidence bundle.
+8. Run acceptance_gates.py against that bundle.
+9. Review the bundle and gate report; collection/evaluation itself is not rollout approval.
 ```
 
 Do not declare the CPU optimization complete from a single successful request.
@@ -578,6 +748,18 @@ Minimum release gates:
 [ ] Disk has safe migration/backfill headroom.
 [ ] Elasticsearch index activation is reversible by alias/lifecycle rollback.
 ```
+
+`acceptance_gates.py` maps these twelve gates to explicit evidence states:
+
+- code-contract gates use the dedicated regression subsets for Search V3, tenant isolation, queue priority, pinned startup, deployment bounds, and alias lifecycle;
+- v1 rollback requires `rollback_proof.py` to report `verified=true`;
+- KNN tuning passes the evidence-presence gate only when the ANN report contains measured expected-recall and baseline-overlap fields; relevance approval remains a release-review decision;
+- INT8 is `not_applicable` while INT8 is not part of the release candidate; if an INT8 report is attached, at least 50 cases and `passed=true` are required;
+- swap pressure remains `unknown` unless the bounded load probe was run with a reviewed swap-growth threshold; it fails if that threshold is exceeded;
+- disk headroom fails below the documented 12 GiB minimum;
+- the evaluator cannot return `eligible_for_release_review` unless the VS-CPU-00 baseline is complete and the VS-CPU-07 release-evidence bundle itself is complete.
+
+An `unknown` gate is blocking. `not_applicable` is allowed only for an optimization that is not being promoted, currently INT8.
 
 ---
 

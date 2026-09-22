@@ -10,8 +10,9 @@ from typing import Any, Mapping
 from app.infrastructure.search.elasticsearch_v2 import AliasSwitchResult, ElasticsearchV3Config, ElasticsearchV3Index, ElasticsearchV3RequestError
 from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding
 
-_MAX_RESULTS = 100
+_MAX_RESULTS = 200
 _MAX_CANDIDATES = 1_000
+_MIN_INT8_HNSW_ELASTICSEARCH = (8, 15)
 
 
 class VisualSearchIndexError(ValueError):
@@ -119,14 +120,64 @@ class VisualSearchHit:
     source_id: str | None = None
 
 
-def visual_index_mapping(descriptor: EmbeddingDescriptor) -> dict[str, Any]:
+@dataclass(frozen=True, slots=True)
+class VisualVectorIndexOptions:
+    """Explicit candidate-only vector index options."""
+
+    type: str
+    m: int = 16
+    ef_construction: int = 100
+
+    def __post_init__(self) -> None:
+        if self.type != "int8_hnsw":
+            raise VisualSearchIndexError("unsupported visual vector index option")
+        if not 1 <= self.m <= 512:
+            raise VisualSearchIndexError("HNSW m must be between 1 and 512")
+        if not 1 <= self.ef_construction <= 10_000:
+            raise VisualSearchIndexError(
+                "HNSW ef_construction must be between 1 and 10000"
+            )
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "m": self.m,
+            "ef_construction": self.ef_construction,
+        }
+
+
+def elasticsearch_supports_int8_hnsw(version: str) -> bool:
+    """Conservative project gate for the pinned Elastic 8.15+ feature set."""
+    parts = version.strip().split(".")
+    if len(parts) < 2:
+        return False
+    try:
+        major, minor = int(parts[0]), int(parts[1])
+    except ValueError:
+        return False
+    return (major, minor) >= _MIN_INT8_HNSW_ELASTICSEARCH
+
+
+def visual_index_mapping(
+    descriptor: EmbeddingDescriptor,
+    *,
+    vector_index_options: VisualVectorIndexOptions | None = None,
+) -> dict[str, Any]:
     """Dedicated strict mapping. Search V3's mapping remains untouched."""
     keyword = {"type": "keyword"}
+    vector: dict[str, Any] = {
+        "type": "dense_vector",
+        "dims": descriptor.dimension,
+        "index": True,
+        "similarity": descriptor.similarity,
+    }
+    if vector_index_options is not None:
+        vector["index_options"] = vector_index_options.to_mapping()
     return {"dynamic": "strict", "properties": {
         "tenant_id": keyword, "asset_id": keyword, "content_sha256": keyword,
         "embedding_schema_version": keyword, "encoder_name": keyword,
         "encoder_revision": keyword, "preprocess_version": keyword, "similarity": keyword,
-        "visual_embedding": {"type": "dense_vector", "dims": descriptor.dimension, "index": True, "similarity": descriptor.similarity},
+        "visual_embedding": vector,
         "source_id": keyword, "source_provider": keyword, "media_kind": keyword,
         "mime_type": keyword, "extension": keyword, "design_type": keyword,
         "ancestor_ids": keyword, "is_deleted": {"type": "boolean"}, "is_hidden": {"type": "boolean"},
@@ -149,17 +200,128 @@ class VisualSearchElasticsearchIndex:
     @property
     def write_alias(self) -> str: return self.read_alias
     def physical_index_name(self, version: str) -> str: return self._index.physical_index_name(version)
-    def index_definition(self) -> dict[str, Any]: return {"settings": {}, "mappings": visual_index_mapping(self.descriptor)}
+    def index_definition(
+        self,
+        *,
+        vector_index_options: VisualVectorIndexOptions | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "settings": {},
+            "mappings": visual_index_mapping(
+                self.descriptor,
+                vector_index_options=vector_index_options,
+            ),
+        }
     async def aclose(self) -> None: await self._index.aclose()
-    async def create_index(self, version: str) -> str:
+    async def create_index(
+        self,
+        version: str,
+        *,
+        vector_index_options: VisualVectorIndexOptions | None = None,
+    ) -> str:
         name = self.physical_index_name(version)
-        await self._index._request("PUT", f"/{name}", json_body=self.index_definition())
+        await self._index._request(
+            "PUT",
+            f"/{name}",
+            json_body=self.index_definition(
+                vector_index_options=vector_index_options,
+            ),
+        )
         return name
+    async def elasticsearch_version(self) -> str:
+        payload = await self._index._request("GET", "/")
+        version = payload.get("version") if isinstance(payload, Mapping) else None
+        number = version.get("number") if isinstance(version, Mapping) else None
+        if not isinstance(number, str) or not number.strip():
+            raise ElasticsearchV3RequestError(
+                "Elasticsearch version response is malformed"
+            )
+        return number.strip()
+    async def supports_int8_hnsw(self) -> bool:
+        return elasticsearch_supports_int8_hnsw(
+            await self.elasticsearch_version()
+        )
+    async def create_int8_hnsw_candidate(
+        self,
+        version: str,
+        *,
+        m: int = 16,
+        ef_construction: int = 100,
+    ) -> str:
+        deployed_version = await self.elasticsearch_version()
+        if not elasticsearch_supports_int8_hnsw(deployed_version):
+            raise VisualSearchIndexError(
+                "deployed Elasticsearch does not meet the int8_hnsw capability gate"
+            )
+        return await self.create_index(
+            version,
+            vector_index_options=VisualVectorIndexOptions(
+                "int8_hnsw",
+                m=m,
+                ef_construction=ef_construction,
+            ),
+        )
     async def ensure_index(self, version: str) -> str:
         name = self.physical_index_name(version)
         if not await self._index._request("GET", f"/{name}/_settings", allow_not_found=True):
             await self.create_index(version)
         return name
+
+    def _validate_physical_candidate_index(self, target_index: str) -> None:
+        value = target_index.strip()
+        prefix = (
+            f"{self._index.config.index_prefix}-"
+            f"{self._index.config.index_generation}-"
+        )
+        if (
+            not value
+            or value in {self.read_alias, self.write_alias}
+            or not value.startswith(prefix)
+            or len(value) > 255
+            or any(
+                char not in "abcdefghijklmnopqrstuvwxyz0123456789._-"
+                for char in value
+            )
+        ):
+            raise VisualSearchIndexError(
+                "candidate target must be a physical visual index in this namespace"
+            )
+
+    async def reindex_active_to_candidate(
+        self,
+        target_index: str,
+        *,
+        max_docs: int | None = None,
+    ) -> int:
+        """Copy the current projection into a physical candidate without alias mutation."""
+        self._validate_physical_candidate_index(target_index)
+        if max_docs is not None and not 1 <= max_docs <= 1_000_000:
+            raise VisualSearchIndexError("max_docs must be between 1 and 1000000")
+        await self._index._request("HEAD", f"/{target_index}")
+        body: dict[str, Any] = {
+            "source": {"index": self.read_alias},
+            "dest": {"index": target_index, "op_type": "create"},
+            "conflicts": "abort",
+        }
+        if max_docs is not None:
+            body["max_docs"] = max_docs
+        response = await self._index._request(
+            "POST",
+            "/_reindex?refresh=true&wait_for_completion=true",
+            json_body=body,
+        )
+        failures = response.get("failures") if isinstance(response, Mapping) else None
+        if failures:
+            raise ElasticsearchV3RequestError(
+                "Elasticsearch candidate reindex returned failures"
+            )
+        created = response.get("created") if isinstance(response, Mapping) else None
+        if not isinstance(created, int) or created < 0:
+            raise ElasticsearchV3RequestError(
+                "Elasticsearch candidate reindex response is malformed"
+            )
+        return created
+
     async def switch_aliases(self, target_index: str) -> AliasSwitchResult:
         """Atomically move the dedicated visual read/write target.
 
@@ -168,6 +330,7 @@ class VisualSearchElasticsearchIndex:
         Search has one active projection, therefore its read alias is also the
         safe single write target until the legacy physical index is retired.
         """
+        self._validate_physical_candidate_index(target_index)
         await self._index._request("HEAD", f"/{target_index}")
         current = await self._index._alias_indices()
         actions = [
@@ -219,6 +382,33 @@ class VisualSearchElasticsearchIndex:
             if len(hits) < page_size: return rows
             after = hits[-1].get("sort")
             if not isinstance(after, list): raise ElasticsearchV3RequestError("Elasticsearch projection scan cursor missing")
+
+    async def search_index(
+        self,
+        target_index: str,
+        embedding: VisualEmbedding,
+        *,
+        scope: VisualSearchScope,
+        metadata_filters: VisualMetadataFilters | None = None,
+        limit: int = 40,
+        num_candidates: int | None = None,
+        exclude_asset_id: str | None = None,
+    ) -> list[VisualSearchHit]:
+        """Search a physical candidate index without changing the active alias."""
+        self._validate_physical_candidate_index(target_index)
+        payload = await self._index._request(
+            "POST",
+            f"/{target_index}/_search",
+            json_body=self.knn_query(
+                embedding,
+                scope=scope,
+                metadata_filters=metadata_filters,
+                limit=limit,
+                num_candidates=num_candidates,
+                exclude_asset_id=exclude_asset_id,
+            ),
+        )
+        return self._hits(payload, tenant_id=scope.tenant_id)
 
     async def search(self, embedding: VisualEmbedding, *, scope: VisualSearchScope, metadata_filters: VisualMetadataFilters | None = None, limit: int = 40, num_candidates: int | None = None, exclude_asset_id: str | None = None) -> list[VisualSearchHit]:
         payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=self.knn_query(embedding, scope=scope, metadata_filters=metadata_filters, limit=limit, num_candidates=num_candidates, exclude_asset_id=exclude_asset_id))

@@ -33,7 +33,7 @@ class EmbeddingDescriptor:
         if self.dimension <= 0:
             raise ValueError("dimension must be positive")
         if self.similarity != "cosine":
-            raise ValueError("only cosine similarity is supported by the V1 contract")
+            raise ValueError("only cosine similarity is supported by the visual embedding contract")
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,9 +68,21 @@ class TextVisualEncoder(VisualEncoder, Protocol):
 
 
 class VisualEncoderUnavailableError(RuntimeError):
-    """Raised when the isolated encoder has no capacity or is unavailable."""
+    """Raised when the isolated visual encoder cannot serve the request."""
 
     code = "visual_encoder_unavailable"
+
+
+class VisualEncoderQueueFullError(VisualEncoderUnavailableError):
+    """Raised when bounded encoder queue capacity is exhausted."""
+
+    code = "visual_encoder_queue_full"
+
+
+class VisualEncoderQueueTimeoutError(VisualEncoderUnavailableError):
+    """Raised when a queued request does not begin inference before its deadline."""
+
+    code = "visual_encoder_queue_timeout"
 
 
 class EncoderContractViolationError(RuntimeError):
