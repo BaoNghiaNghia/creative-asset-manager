@@ -9,7 +9,8 @@ Creative Asset Manager (CAM) là nền tảng đa tenant dùng để quản lý,
 - **Quản lý tài sản**: gắn tag, chấm điểm, đổi tên, sao chép, di chuyển và đưa file hoặc thư mục vào thùng rác.
 - **Pipeline xử lý**: đồng bộ nguồn, tải file, lưu trữ được quản lý, tạo projection/thumbnail, phân tích AI và lập chỉ mục video.
 - **AI Operations**: theo dõi hàng đợi, tiến độ, lỗi, chi phí ước tính và thao tác retry/cancel có kiểm soát.
-- **Tìm kiếm V3**: tìm kiếm tài sản trên Elasticsearch với quy trình rebuild và chuyển alias an toàn.
+- **Tìm kiếm V3**: tìm kiếm metadata/từ khóa trên Elasticsearch với quy trình rebuild và chuyển alias an toàn.
+- **Visual Search SigLIP2**: tìm kiếm ảnh tương đồng và hybrid text-image bằng embedding `visual_embedding_v2`, encoder CPU-only tách process, OpenVINO FP32, hàng đợi bounded và cache embedding có kiểm soát.
 - **Inventory**: tự động tạo snapshot, đối soát dữ liệu Google Sheet và theo dõi daily run theo múi giờ của tenant.
 - **Vận hành production**: release bất biến, health probe, worker ảnh/video tách biệt, audit log, retention và sao lưu cơ sở dữ liệu.
 
@@ -23,7 +24,8 @@ Creative Asset Manager (CAM) là nền tảng đa tenant dùng để quản lý,
 | Inventory scheduler | Bộ lập lịch cho daily inventory | `apps/inventory_scheduler` |
 | Inventory worker | Worker chạy snapshot và reconciliation | `apps/inventory_worker` |
 | Cơ sở dữ liệu | PostgreSQL | cấu hình qua `DATABASE_URL` |
-| Tìm kiếm | Elasticsearch | Search V3 |
+| Tìm kiếm | Elasticsearch | Search V3 + Visual Search |
+| Visual encoder | SigLIP2, OpenVINO/Transformers | `apps/visual_encoder` |
 | Nguồn tài sản | Google Drive, Microsoft SharePoint | provider adapters trong API |
 
 PostgreSQL là nguồn dữ liệu nghiệp vụ chính. File gốc tiếp tục nằm tại provider; pipeline có thể tạo bản sao, projection và thumbnail trong vùng lưu trữ được quản lý tùy theo chính sách cấu hình. Các công việc nền được lưu bền vững để API và worker có thể phối hợp, retry và tiếp tục sau khi tiến trình khởi động lại.
@@ -35,6 +37,7 @@ apps/
   api/                  FastAPI, migration và nghiệp vụ backend
   client/               Ứng dụng React/Vite
   worker/               Worker xử lý ảnh và video
+  visual_encoder/       Encoder SigLIP2 CPU-only tách process
   inventory_scheduler/  Bộ lập lịch Inventory
   inventory_worker/     Worker Inventory
 database/migrations/    Alembic migrations
@@ -49,7 +52,8 @@ scripts/                Script phát triển, kiểm thử và triển khai
 - Python 3.12.
 - Node.js 18 trở lên; CI hiện sử dụng Node.js 22.
 - PostgreSQL cho môi trường dùng dữ liệu bền vững và bắt buộc trên production.
-- Elasticsearch khi bật Search V3.
+- Elasticsearch khi bật Search V3 hoặc Visual Search.
+- Visual Search yêu cầu snapshot SigLIP2 được provision cục bộ; runtime production không tải model từ Internet lúc khởi động.
 - Tài khoản/ứng dụng OAuth Google hoặc Microsoft nếu cần kết nối nguồn thật.
 
 ## Chạy môi trường phát triển
@@ -123,7 +127,8 @@ Các nhóm cấu hình chính gồm:
 - Đồng bộ nguồn, pipeline, worker và retry policy.
 - Managed storage, retention và thumbnail/projection.
 - Nhà cung cấp AI như Gemini hoặc OpenAI.
-- Search V3 và Elasticsearch.
+- Search V3, Visual Search, Elasticsearch và isolated visual encoder.
+- OpenVINO/Transformers runtime, queue/cache limits và đường dẫn model SigLIP2 đã pin revision.
 - Video analysis, video indexing và giới hạn xử lý.
 - Inventory scheduler, Inventory worker và Google Sheet.
 - Sao lưu cơ sở dữ liệu lên Google Drive bằng credential được quản lý.
@@ -188,6 +193,16 @@ Kiểm thử tích hợp từ thư mục gốc:
 make integration-test
 ```
 
+Visual Search / SigLIP2 regression từ thư mục gốc:
+
+```bash
+python apps/api/app/modules/visual_search/regression_evidence.py --repo-root .
+python -m pytest apps/visual_encoder/tests -q
+python -m pytest apps/api/tests/modules/visual_search -q
+python -m pytest apps/api/tests/modules/search -q
+python -m pytest deploy/tests/test_vps_deployment.py -q
+```
+
 Khi thay đổi script shell, chạy thêm `bash -n <đường-dẫn-script>` trước khi commit.
 
 ## Health probe
@@ -216,6 +231,8 @@ sudo scripts/cam-rebuild-backend.sh --rollback
 
 Backend deploy kiểm tra cấu hình, xác nhận chỉ có một Alembic head, chạy migration, khởi động lại API cùng worker ảnh/video và thực hiện dọn dẹp disk trước/sau deploy. Rollback backend không tự downgrade schema.
 
+Visual encoder chạy dưới systemd riêng. Trước khi bật Visual Search SigLIP2 trên production cần provision đúng snapshot model/revision và OpenVINO artifact ở đường dẫn cấu hình, chạy baseline/load/relevance/rollback evidence, xác nhận acceptance gates và chỉ sau đó mới thực hiện backfill hoặc chuyển Elasticsearch alias. Không để service production tự tải model lúc startup.
+
 Xem quy trình đầy đủ tại [`docs/operations/VPS_DEPLOYMENT.md`](docs/operations/VPS_DEPLOYMENT.md).
 
 ## Tìm kiếm, pipeline và AI Operations
@@ -224,6 +241,30 @@ Xem quy trình đầy đủ tại [`docs/operations/VPS_DEPLOYMENT.md`](docs/ope
 - Rebuild search phải đi qua quy trình quản trị và chuyển alias có kiểm soát.
 - AI Operations là nơi theo dõi Image AI, Video AI, trạng thái các step, lỗi ổn định và thao tác retry/cancel.
 - Worker ảnh và video có vai trò tách biệt nhưng dùng chung hàng đợi xử lý trong PostgreSQL.
+
+### Visual Search / SigLIP2
+
+Visual Search dùng contract embedding v2 riêng, tách biệt với Search V3 metadata/text index:
+
+- Model: `google/siglip2-base-patch16-224`.
+- Revision được pin: `75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2`.
+- Schema: `visual_embedding_v2`; dimension `768`; similarity `cosine`.
+- Preprocess contract: `siglip2-224-transformers-4.51.3-v1`.
+- Runtime production ưu tiên OpenVINO FP32; Transformers/PyTorch được giữ làm rollback/reference runtime và cũng bị giới hạn CPU thread.
+- Encoder chạy process riêng với một inference worker, bounded priority queue, reserved capacity cho request interactive và cache LRU riêng cho image/text embedding.
+- API/worker reuse pooled localhost HTTP client. Ảnh ưu tiên gửi raw `image/jpeg` để tránh JSON/base64 overhead; client tự fallback sang endpoint base64 cũ khi gặp `404` để hỗ trợ mixed-version deploy/rollback.
+- OpenVINO dùng dedicated reusable `InferRequest` cho image/text tower, `INFERENCE_NUM_THREADS=2` và `NUM_STREAMS=1`.
+- Image cache key dùng SHA-256 của JPEG request đã validate và tiếp tục bind model/revision/schema/preprocess; không giữ raw image trong cache.
+- Elasticsearch ANN candidate, benchmark profile, rollback proof, baseline audit, load evidence, regression evidence và acceptance-gate evaluator đều nằm trong workflow release.
+- INT8 tooling tồn tại dưới dạng candidate/validation path; INT8 không được coi là active chỉ vì artifact/code đã tồn tại.
+
+Trạng thái source hiện tại: phần coding VS-CPU-00 → VS-CPU-07 và các tối ưu runtime đã hoàn tất trên `main`. Việc provision model trên VPS, export/benchmark OpenVINO trên target CPU, representative ANN/relevance benchmark, full-corpus backfill, alias activation và INT8 promotion vẫn là các bước rollout có kiểm soát; không được suy ra là đã hoàn tất chỉ từ trạng thái Git.
+
+Tài liệu chính:
+
+- [`docs/plans/VISUAL_SEARCH_CPU_OPTIMIZATION_PLAN.md`](docs/plans/VISUAL_SEARCH_CPU_OPTIMIZATION_PLAN.md)
+- [`docs/plans/VISUAL_SEARCH_FULL_CORPUS_OPERATIONS_PLAN.md`](docs/plans/VISUAL_SEARCH_FULL_CORPUS_OPERATIONS_PLAN.md)
+- [`docs/plans/CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md`](docs/plans/CAM_VISUAL_SEARCH_PINTEREST_IMPLEMENTATION_GUIDE.md)
 
 Tài liệu liên quan:
 
