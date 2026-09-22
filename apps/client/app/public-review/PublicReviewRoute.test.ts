@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { autoplayReviewVideo, reviewMediaPosition, reviewShareUrl } from "./PublicReviewRoute";
+import { autoplayReviewVideo, formatReviewDuration, reviewAspectRatio, reviewMediaPosition, reviewShareUrl } from "./PublicReviewRoute";
 import type { Asset } from "./api";
 
 describe("reviewShareUrl", () => {
@@ -45,6 +45,23 @@ describe("reviewMediaPosition", () => {
     });
     expect(reviewMediaPosition(items, items[0]).currentIndex).toBe(0);
     expect(reviewMediaPosition(items, items[3]).currentIndex).toBe(3);
+  });
+});
+
+describe("review media metadata", () => {
+  it("formats common review aspect ratios", () => {
+    expect(reviewAspectRatio(1920, 1080)).toBe("16:9");
+    expect(reviewAspectRatio(1080, 1920)).toBe("9:16");
+    expect(reviewAspectRatio(1080, 1080)).toBe("1:1");
+    expect(reviewAspectRatio(1000, 562)).toBe("16:9");
+    expect(reviewAspectRatio(0, 1080)).toBe("—");
+  });
+
+  it("formats media duration compactly", () => {
+    expect(formatReviewDuration(10.4)).toBe("00:10");
+    expect(formatReviewDuration(65)).toBe("01:05");
+    expect(formatReviewDuration(3661)).toBe("1:01:01");
+    expect(formatReviewDuration(undefined)).toBe("—");
   });
 });
 

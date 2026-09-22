@@ -487,3 +487,190 @@
     max-height:min(450px, max(84px, calc(48dvh - 154px)));
   }
 }
+
+
+/* Public Review media controls and compact media metadata. */
+.public-viewer .public-video-mute{
+  position:absolute;
+  z-index:9;
+  top:16px;
+  right:16px;
+  display:grid;
+  width:42px;
+  height:42px;
+  min-height:42px;
+  place-items:center;
+  padding:0;
+  border:1px solid #ffffff36;
+  border-radius:50%;
+  background:#151922c9;
+  color:#fff;
+  box-shadow:0 3px 14px #0005;
+  backdrop-filter:blur(8px);
+  cursor:pointer;
+}
+.public-viewer .public-video-mute:hover{border-color:#ffffff70;background:#252a34e6;color:#fff}
+.public-viewer .public-video-mute:focus-visible{outline:2px solid #a9c0ff;outline-offset:2px}
+.public-viewer .public-video-mute svg{
+  width:20px;
+  height:20px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.public-review-backdrop .public-review-header{
+  flex:0 0 auto;
+  min-height:98px;
+  align-items:flex-start;
+  padding:13px 16px 12px;
+}
+.public-review-heading{width:100%;min-width:0}
+.public-review-heading h2{line-height:24px}
+.public-review-metadata{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;
+  margin-top:8px;
+}
+.public-review-metadata span{
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  gap:2px;
+  padding:6px 8px;
+  border:1px solid #e6eaf0;
+  border-radius:8px;
+  background:#f7f9fc;
+}
+.public-review-metadata small{
+  overflow:hidden;
+  color:#8b97a8;
+  font-size:9px;
+  font-weight:700;
+  line-height:12px;
+  letter-spacing:.055em;
+  text-overflow:ellipsis;
+  text-transform:uppercase;
+  white-space:nowrap;
+}
+.public-review-metadata b{
+  overflow:hidden;
+  color:#35445a;
+  font-size:11px;
+  font-weight:650;
+  line-height:15px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.public-review-backdrop .public-review-metadata span{
+  border-color:#ffffff12;
+  background:#ffffff08;
+}
+.public-review-backdrop .public-review-metadata small{color:#ffffff73}
+.public-review-backdrop .public-review-metadata b{color:#ffffffe8}
+
+/* Emoji lives immediately before the comment action and opens upward. */
+.public-review-composer .public-editor-emoji{
+  position:relative;
+  display:flex;
+  flex:0 0 auto;
+  align-items:flex-end;
+}
+.public-review-backdrop .public-review-composer .public-editor-emoji{
+  align-self:flex-end;
+  min-height:44px;
+  margin-bottom:7px;
+}
+.public-review-backdrop .public-review-composer .public-editor-emoji-toggle{
+  display:grid;
+  width:40px;
+  height:40px;
+  min-height:40px;
+  place-items:center;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:#ffffffa6;
+  cursor:pointer;
+}
+.public-review-backdrop .public-review-composer .public-editor-emoji-toggle:hover,
+.public-review-backdrop .public-review-composer .public-editor-emoji-toggle[aria-expanded="true"]{
+  border:0;
+  background:#ffffff12;
+  color:#fff;
+}
+.public-review-backdrop .public-review-composer .public-editor-emoji-toggle:focus-visible{
+  outline:2px solid #8eb0ff;
+  outline-offset:1px;
+}
+.public-review-composer .public-editor-emoji-toggle svg{
+  width:21px;
+  height:21px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.7;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.public-emoji-picker{
+  position:absolute;
+  z-index:30;
+  right:0;
+  bottom:calc(100% + 8px);
+  width:280px;
+  max-width:calc(100vw - 34px);
+  padding:10px;
+  border:1px solid #dfe5ed;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 16px 46px #0004;
+}
+.public-emoji-picker-title{
+  padding:0 2px 8px;
+  color:#7a8798;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.public-emoji-grid{
+  display:grid;
+  grid-template-columns:repeat(8,minmax(0,1fr));
+  gap:2px;
+}
+.public-viewer .public-emoji-grid button{
+  display:grid;
+  width:32px;
+  height:32px;
+  min-height:32px;
+  place-items:center;
+  padding:0;
+  border:0;
+  border-radius:7px;
+  background:transparent;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  font-size:20px;
+  line-height:1;
+  cursor:pointer;
+}
+.public-viewer .public-emoji-grid button:hover{border:0;background:#f0f3f7}
+.public-review-backdrop .public-emoji-picker{
+  border-color:#ffffff1f;
+  background:#2a2d33;
+  box-shadow:0 18px 48px #0008;
+}
+.public-review-backdrop .public-emoji-picker-title{color:#ffffff78}
+.public-review-backdrop .public-emoji-grid button{color:#fff}
+.public-review-backdrop .public-emoji-grid button:hover{border:0;background:#ffffff14}
+@media(max-width:560px){
+  .public-viewer .public-video-mute{top:12px;right:12px;width:38px;height:38px;min-height:38px}
+  .public-review-backdrop .public-review-header{min-height:92px;padding:10px 14px}
+  .public-review-metadata{gap:5px}
+  .public-review-metadata span{padding:5px 6px}
+  .public-emoji-picker{right:-48px;width:264px}
+  .public-emoji-grid{grid-template-columns:repeat(8,minmax(0,1fr))}
+  .public-viewer .public-emoji-grid button{width:29px;height:29px;min-height:29px;font-size:18px}
+}
