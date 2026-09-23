@@ -26,11 +26,22 @@ def _secret_aad(share) -> str:
     return f"cam-public-review:{share.tenant_id}:{share.id}:secret"
 
 
-def _share_secret_cipher() -> TokenCipher:
+def _share_secret_cipher(*, required: bool = True) -> TokenCipher | None:
     settings = get_settings()
+    configured = settings.SENSITIVE_URL_ENCRYPTION_KEYS.strip()
+    if not configured:
+        if not required:
+            return None
+        raise HTTPException(
+            503,
+            {
+                "code": "public_share_secret_encryption_unavailable",
+                "message": "Share-link encryption is not configured",
+            },
+        )
     try:
         return TokenCipher.from_config(
-            settings.SENSITIVE_URL_ENCRYPTION_KEYS,
+            configured,
             settings.SENSITIVE_URL_ACTIVE_KEY_VERSION,
         )
     except ValueError as exc:
@@ -48,7 +59,19 @@ def _persist_current_secret(
     share,
     raw_secret: str,
 ):
-    encrypted = _share_secret_cipher().encrypt(
+    cipher = _share_secret_cipher(required=False)
+    if cipher is None:
+        # Creation/rotation must remain usable even when optional current-link
+        # recovery has not been configured. The raw bearer secret is still
+        # returned exactly once to the authenticated manager and is never
+        # persisted in plaintext.
+        return repository.update_share(
+            share.tenant_id,
+            share.id,
+            secret_ciphertext=None,
+            secret_key_version=None,
+        )
+    encrypted = cipher.encrypt(
         raw_secret,
         aad=_secret_aad(share),
     )
@@ -67,7 +90,9 @@ def _recover_current_secret(share) -> str:
         raise CurrentShareLinkUnavailable(
             "Current share link is unavailable; update the share link once."
         )
-    raw_secret = _share_secret_cipher().decrypt(
+    cipher = _share_secret_cipher()
+    assert cipher is not None
+    raw_secret = cipher.decrypt(
         share.secret_ciphertext,
         key_version=share.secret_key_version,
         aad=_secret_aad(share),

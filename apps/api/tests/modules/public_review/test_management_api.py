@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -57,6 +58,23 @@ def request(context, method, path, **kwargs):
     ):
         return client.request(method, path, **kwargs)
 
+
+
+def request_without_share_link_encryption(context, method, path, **kwargs):
+    client, factory, _ = context
+    settings = SimpleNamespace(
+        PUBLIC_APP_URL="https://assets.example.test",
+        SENSITIVE_URL_ENCRYPTION_KEYS="",
+        SENSITIVE_URL_ACTIVE_KEY_VERSION="v1",
+    )
+    with patch(
+        "app.modules.public_review.router.SessionLocal",
+        factory,
+    ), patch(
+        "app.modules.public_review.router.get_settings",
+        return_value=settings,
+    ):
+        return client.request(method, path, **kwargs)
 
 def payload(**overrides):
     value = {"name": "Review", "scopes": [{"external_source_id": "source-a", "folder_external_id": "folder-a"}], "allow_comments": True, "allow_download": False}
@@ -143,6 +161,109 @@ def test_legacy_share_requires_one_rotation_before_current_link_can_be_recovered
     )
     assert current.status_code == 200
     assert current.json()["share_url"] == rotated.json()["share_url"]
+
+
+
+def test_create_and_rotate_return_one_time_link_when_recovery_encryption_is_unconfigured(context):
+    created = request_without_share_link_encryption(
+        context,
+        "POST",
+        "/api/v1/public-review/shares",
+        json=payload(),
+    )
+    assert created.status_code == 201
+    first_url = created.json()["share_url"]
+    share_id = created.json()["id"]
+
+    with context[1]() as db:
+        share = PublicReviewRepository(db).get_share("tenant-a", share_id)
+        assert share is not None
+        assert share.secret_ciphertext is None
+        assert share.secret_key_version is None
+
+    current = request_without_share_link_encryption(
+        context,
+        "GET",
+        f"/api/v1/public-review/shares/{share_id}/current-link",
+    )
+    assert current.status_code == 409
+    assert current.json()["detail"]["code"] == "current_share_link_unavailable"
+
+    rotated = request_without_share_link_encryption(
+        context,
+        "POST",
+        f"/api/v1/public-review/shares/{share_id}/rotate-secret",
+    )
+    assert rotated.status_code == 200
+    assert rotated.json()["share_url"] != first_url
+
+    with context[1]() as db:
+        share = PublicReviewRepository(db).get_share("tenant-a", share_id)
+        assert share is not None
+        assert share.secret_ciphertext is None
+        assert share.secret_key_version is None
+
+
+def test_rotate_clears_stale_recoverable_secret_when_encryption_becomes_unavailable(context):
+    created = request(context, "POST", "/api/v1/public-review/shares", json=payload())
+    assert created.status_code == 201
+    share_id = created.json()["id"]
+
+    with context[1]() as db:
+        share = PublicReviewRepository(db).get_share("tenant-a", share_id)
+        assert share is not None
+        assert share.secret_ciphertext
+        assert share.secret_key_version == "v1"
+
+    rotated = request_without_share_link_encryption(
+        context,
+        "POST",
+        f"/api/v1/public-review/shares/{share_id}/rotate-secret",
+    )
+    assert rotated.status_code == 200
+    assert rotated.json()["share_url"] != created.json()["share_url"]
+
+    with context[1]() as db:
+        share = PublicReviewRepository(db).get_share("tenant-a", share_id)
+        assert share is not None
+        assert share.secret_ciphertext is None
+        assert share.secret_key_version is None
+
+
+
+def test_rotate_with_malformed_encryption_config_rolls_back_without_invalidating_current_link(context):
+    created = request(context, "POST", "/api/v1/public-review/shares", json=payload())
+    assert created.status_code == 201
+    share_id = created.json()["id"]
+    first_url = created.json()["share_url"]
+
+    client, factory, _ = context
+    malformed = SimpleNamespace(
+        PUBLIC_APP_URL="https://assets.example.test",
+        SENSITIVE_URL_ENCRYPTION_KEYS="v1:not-a-valid-32-byte-key",
+        SENSITIVE_URL_ACTIVE_KEY_VERSION="v1",
+    )
+    with patch(
+        "app.modules.public_review.router.SessionLocal",
+        factory,
+    ), patch(
+        "app.modules.public_review.router.get_settings",
+        return_value=malformed,
+    ):
+        failed = client.post(
+            f"/api/v1/public-review/shares/{share_id}/rotate-secret"
+        )
+
+    assert failed.status_code == 503
+    assert failed.json()["detail"]["code"] == "public_share_secret_encryption_unavailable"
+
+    current = request(
+        context,
+        "GET",
+        f"/api/v1/public-review/shares/{share_id}/current-link",
+    )
+    assert current.status_code == 200
+    assert current.json()["share_url"] == first_url
 
 
 def test_management_rejects_foreign_scope_expiry_and_foreign_share(context):

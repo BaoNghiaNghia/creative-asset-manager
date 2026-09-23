@@ -144,6 +144,8 @@ class PublicReviewService:
             tenant_id,
             share_id,
             secret_digest=sha256_digest(raw_secret),
+            secret_ciphertext=None,
+            secret_key_version=None,
             expires_at=now + DEFAULT_SHARE_TTL,
         )
         self.repository.revoke_sessions(tenant_id, share_id, now)
