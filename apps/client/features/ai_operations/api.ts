@@ -521,7 +521,7 @@ export type VisualSearchDiagnostics = {
 };
 
 export const fetchVisualSearchDiagnostics = (fetcher: Fetcher = fetch, signal?: AbortSignal) =>
-  read<VisualSearchDiagnostics>("/api/v1/visual-search/diagnostics", fetcher, signal);
+  read<VisualSearchDiagnostics>("/api/v1/search/visual/diagnostics", fetcher, signal);
 
 export const repairSearchCoverage = (body: { confirmed: true; limit: number; verify_elasticsearch?: boolean; repair_projections: boolean; repair_indexes: boolean }, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-operations/coverage/repair", "POST", body, fetcher);

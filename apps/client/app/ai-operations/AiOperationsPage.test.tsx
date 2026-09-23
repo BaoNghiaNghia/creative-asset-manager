@@ -8,6 +8,7 @@ import {
   fetchAiOperationsDashboard,
   fetchAiOperationsScope,
   fetchAiOperationsJobQueue,
+  fetchVisualSearchDiagnostics,
   filtersFromSearch,
   normalizeMediaDashboard,
   normalizePipelineSnapshot,
@@ -216,6 +217,18 @@ describe("AI Operations date range", () => {
 });
 
 describe("AI Operations tab-scoped loading", () => {
+  it("loads rollout diagnostics from the authenticated visual-search route", async () => {
+    const payload = {
+      enabled: true, upload_enabled: true, crop_enabled: true,
+      hybrid_text_enabled: true, backfill_enabled: false, metrics: {},
+    };
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })) as unknown as typeof fetch;
+
+    await expect(fetchVisualSearchDiagnostics(fetcher)).resolves.toEqual(payload);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(fetcher).mock.calls[0]?.[0])).toBe("/api/v1/search/visual/diagnostics");
+  });
+
   it("does not request dashboard aggregates for independently loaded tabs", () => {
     for (const tab of ["visual-search", "creative-pipeline", "inventory", "configuration"] as const) {
       expect(dashboardPlan(tab, "image")).toEqual({ primary: [], secondary: [] });
