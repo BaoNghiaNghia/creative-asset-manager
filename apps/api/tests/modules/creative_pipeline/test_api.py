@@ -7,6 +7,11 @@ def test_creative_pipeline_routes_are_registered():
     assert "/api/v1/creative-pipeline/runs/{run_id}/cancel" in paths
     assert "/api/v1/creative-pipeline/nodes/{node_id}/retry" in paths
     assert "/api/v1/creative-pipeline/diagnostics" in paths
+    assert "/api/v1/creative-pipeline/skills" in paths
+    assert "/api/v1/creative-pipeline/skills/{skill_id}/versions" in paths
+    assert "/api/v1/creative-pipeline/skill-bindings" in paths
+    assert "/api/v1/creative-pipeline/listings/{listing_id}/skills" in paths
+    assert "/api/v1/creative-pipeline/runs/{run_id}/skill-executions" in paths
 
 def test_unsafe_capabilities_are_disabled():
     from app.modules.creative_pipeline.api_service import CreativePipelineApiService

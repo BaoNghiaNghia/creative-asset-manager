@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -8,15 +9,32 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.creative_pipeline.api_service import CreativePipelineApiService
 from app.modules.creative_pipeline.constants import NodeRunStatus
 from app.modules.creative_pipeline.model import (
-    ArtifactModel, ListingTaskModel, NodeRunModel, PipelineRunModel, SourceGroupModel,
+    ArtifactModel, CreativeSkillExecutionModel, ListingTaskModel, NodeRunModel, PipelineRunModel, SourceGroupModel,
 )
 from app.modules.creative_pipeline.orchestrator import CreativePipelineOrchestrator, CreativePipelineStateError
 from app.modules.creative_pipeline.canary import ENTITY_TYPE
 from app.modules.creative_pipeline.observability import CreativePipelineObservabilityService
 from app.modules.creative_pipeline.rollout import CreativePipelineRolloutPolicy
+from app.modules.creative_pipeline.skill_executor import GPTSkillExecutor
+from app.modules.creative_pipeline.skill_registry import CreativeSkillRegistry, CreativeSkillRegistryError
 from app.modules.processing.model import ProcessingJobModel
 
 router = APIRouter(prefix="/api/v1/creative-pipeline", tags=["creative-pipeline"])
+
+
+class SkillVersionCreateRequest(BaseModel):
+    instructions: str = Field(min_length=1, max_length=50_000)
+    preferred_model: str | None = Field(default=None, max_length=128)
+    knowledge_refs: list[str] | None = None
+    status: str = "published"
+
+
+class SkillBindingRequest(BaseModel):
+    node_type: str
+    skill_version_id: str
+    scope_type: str = "tenant"
+    scope_id: str | None = None
+
 READ = require_permission("assets.read")
 OPERATIONS_READ = require_permission("ai_operations.read")
 MUTATE = require_permission("assets.generate")
@@ -262,3 +280,185 @@ async def scan_group(group_id: str, session: Session = Depends(get_db), principa
     return {"group_id": group.id, "listings_created": result.listings_created, "listings_updated": result.listings_updated,
         "listings_missing": result.listings_missing, "pipeline_runs_created": result.pipeline_runs_created,
         "ignored_folders": result.ignored_folders, "errors": [{"code": error.code, "folder_id": error.folder_id} for error in result.errors]}
+
+@router.get("/skills")
+def list_skills(
+    include_content: bool = Query(True),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MUTATE),
+):
+    registry = CreativeSkillRegistry(session)
+    items = registry.list_skills(
+        principal.active_tenant_id,
+        include_content=include_content,
+    )
+    session.rollback()
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/skills/{skill_id}/versions")
+def create_skill_version(
+    skill_id: str,
+    body: SkillVersionCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MUTATE),
+):
+    registry = CreativeSkillRegistry(session)
+    try:
+        row = registry.create_version(
+            tenant_id=principal.active_tenant_id,
+            skill_id=skill_id,
+            instructions=body.instructions,
+            actor_id=principal.actor_id,
+            preferred_model=body.preferred_model,
+            knowledge_refs=body.knowledge_refs,
+            status=body.status,
+        )
+        session.commit()
+    except CreativeSkillRegistryError as exc:
+        session.rollback()
+        code = str(exc)
+        status_code = 404 if code == "skill_not_found" else 409
+        raise HTTPException(
+            status_code,
+            detail={"code": code, "message": "The requested skill version is unavailable."},
+        ) from exc
+    return registry.version_summary(row)
+
+
+def _require_skill_scope(service, principal, scope_type: str, scope_id: str | None):
+    if scope_type == "tenant":
+        if scope_id is not None:
+            raise HTTPException(
+                400,
+                detail={"code": "tenant_scope_must_not_have_scope_id", "message": "Tenant scope does not accept scope_id."},
+            )
+        return
+    if not scope_id:
+        raise HTTPException(
+            400,
+            detail={"code": "skill_scope_id_required", "message": "scope_id is required."},
+        )
+    if scope_type == "source_group":
+        if service.require_group(principal, scope_id) is None:
+            return not_found()
+        return
+    if scope_type == "listing":
+        listing, _group = service.require_listing(principal, scope_id)
+        if listing is None:
+            return not_found()
+        return
+    raise HTTPException(
+        400,
+        detail={"code": "invalid_skill_scope", "message": "Unsupported skill scope."},
+    )
+
+
+@router.put("/skill-bindings")
+def set_skill_binding(
+    body: SkillBindingRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MUTATE),
+):
+    service = svc(session)
+    _require_skill_scope(service, principal, body.scope_type, body.scope_id)
+    registry = CreativeSkillRegistry(session)
+    try:
+        row = registry.set_binding(
+            tenant_id=principal.active_tenant_id,
+            node_type=body.node_type,
+            skill_version_id=body.skill_version_id,
+            scope_type=body.scope_type,
+            scope_id=body.scope_id,
+            actor_id=principal.actor_id,
+        )
+        session.commit()
+    except CreativeSkillRegistryError as exc:
+        session.rollback()
+        code = str(exc)
+        status_code = 404 if code in {"skill_scope_not_found", "skill_not_found"} else 409
+        raise HTTPException(
+            status_code,
+            detail={"code": code, "message": "The requested skill binding is unavailable."},
+        ) from exc
+    return {
+        "id": row.id,
+        "node_type": row.node_type,
+        "scope_type": row.scope_type,
+        "scope_id": row.scope_id,
+        "scope_key": row.scope_key,
+        "skill_version_id": row.skill_version_id,
+        "active": row.active,
+        "updated_at": row.updated_at,
+    }
+
+
+@router.delete("/skill-bindings/{node_type}")
+def delete_skill_binding(
+    node_type: str,
+    scope_type: str = Query("tenant"),
+    scope_id: str | None = Query(None),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MUTATE),
+):
+    service = svc(session)
+    _require_skill_scope(service, principal, scope_type, scope_id)
+    registry = CreativeSkillRegistry(session)
+    try:
+        removed = registry.remove_binding(
+            tenant_id=principal.active_tenant_id,
+            node_type=node_type,
+            scope_type=scope_type,
+            scope_id=scope_id,
+        )
+        session.commit()
+    except CreativeSkillRegistryError as exc:
+        session.rollback()
+        raise HTTPException(
+            400,
+            detail={"code": str(exc), "message": "The requested skill binding is invalid."},
+        ) from exc
+    return {"removed": removed}
+
+
+@router.get("/listings/{listing_id}/skills")
+def listing_skills(
+    listing_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    service = svc(session)
+    listing, _group = service.require_listing(principal, listing_id)
+    if listing is None:
+        return not_found()
+    registry = CreativeSkillRegistry(session)
+    items = registry.effective_for_listing(
+        tenant_id=principal.active_tenant_id,
+        listing=listing,
+    )
+    session.rollback()
+    return {"items": items}
+
+
+@router.get("/runs/{run_id}/skill-executions")
+def run_skill_executions(
+    run_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    service = svc(session)
+    run, _listing, _group = service.require_run(principal, run_id)
+    if run is None:
+        return not_found()
+    rows = session.scalars(
+        select(CreativeSkillExecutionModel)
+        .where(
+            CreativeSkillExecutionModel.tenant_id == principal.active_tenant_id,
+            CreativeSkillExecutionModel.pipeline_run_id == run.id,
+        )
+        .order_by(
+            CreativeSkillExecutionModel.started_at,
+            CreativeSkillExecutionModel.variant_key,
+        )
+    ).all()
+    return {"items": [GPTSkillExecutor.summary(row) for row in rows]}

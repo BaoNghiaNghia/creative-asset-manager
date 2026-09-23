@@ -228,3 +228,189 @@ class ArtifactModel(Base):
     external_file_id: Mapped[str | None] = mapped_column(String(2048))
     available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+class CreativeSkillModel(Base):
+    __tablename__ = "creative_pipeline_skills"
+    __table_args__ = (
+        CheckConstraint("node_type IN ('idea_story','prompt')", name="ck_cp_skills_node_type"),
+        CheckConstraint("executor_type IN ('gpt_skill')", name="ck_cp_skills_executor_type"),
+        Index("ix_cp_skills_node_active", "node_type", "active"),
+        Index(
+            "uq_cp_skills_system_key",
+            "skill_key",
+            unique=True,
+            postgresql_where=__import__("sqlalchemy").text("owner_tenant_id IS NULL"),
+            sqlite_where=__import__("sqlalchemy").text("owner_tenant_id IS NULL"),
+        ),
+        Index(
+            "uq_cp_skills_tenant_key",
+            "owner_tenant_id",
+            "skill_key",
+            unique=True,
+            postgresql_where=__import__("sqlalchemy").text("owner_tenant_id IS NOT NULL"),
+            sqlite_where=__import__("sqlalchemy").text("owner_tenant_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_tenant_id: Mapped[str | None] = mapped_column(String(255))
+    skill_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    node_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    executor_type: Mapped[str] = mapped_column(String(32), nullable=False, default="gpt_skill")
+    active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class CreativeSkillVersionModel(Base):
+    __tablename__ = "creative_pipeline_skill_versions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["skill_id"],
+            ["creative_pipeline_skills.id"],
+            ondelete="CASCADE",
+            name="fk_cp_skill_versions_skill",
+        ),
+        CheckConstraint("version > 0", name="ck_cp_skill_versions_version"),
+        CheckConstraint("status IN ('draft','published','archived')", name="ck_cp_skill_versions_status"),
+        Index("ix_cp_skill_versions_skill_status", "skill_id", "status", "version"),
+        Index(
+            "uq_cp_skill_versions_system_number",
+            "skill_id",
+            "version",
+            unique=True,
+            postgresql_where=__import__("sqlalchemy").text("owner_tenant_id IS NULL"),
+            sqlite_where=__import__("sqlalchemy").text("owner_tenant_id IS NULL"),
+        ),
+        Index(
+            "uq_cp_skill_versions_tenant_number",
+            "skill_id",
+            "owner_tenant_id",
+            "version",
+            unique=True,
+            postgresql_where=__import__("sqlalchemy").text("owner_tenant_id IS NOT NULL"),
+            sqlite_where=__import__("sqlalchemy").text("owner_tenant_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    skill_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    owner_tenant_id: Mapped[str | None] = mapped_column(String(255))
+    version: Mapped[int] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    instructions: Mapped[str] = mapped_column(Text, nullable=False)
+    input_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    output_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    knowledge_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="openai")
+    preferred_model: Mapped[str | None] = mapped_column(String(128))
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CreativeSkillBindingModel(Base):
+    __tablename__ = "creative_pipeline_skill_bindings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["skill_version_id"],
+            ["creative_pipeline_skill_versions.id"],
+            ondelete="RESTRICT",
+            name="fk_cp_skill_bindings_version",
+        ),
+        UniqueConstraint("tenant_id", "node_type", "scope_key", name="uq_cp_skill_bindings_scope"),
+        CheckConstraint("node_type IN ('idea_story','prompt')", name="ck_cp_skill_bindings_node_type"),
+        CheckConstraint("scope_type IN ('tenant','source_group','listing')", name="ck_cp_skill_bindings_scope_type"),
+        Index("ix_cp_skill_bindings_tenant_active", "tenant_id", "active", "node_type"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    node_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    scope_id: Mapped[str | None] = mapped_column(String(255))
+    scope_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    skill_version_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class CreativeSkillExecutionModel(Base):
+    __tablename__ = "creative_pipeline_skill_executions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "pipeline_run_id"],
+            ["creative_pipeline_runs.tenant_id", "creative_pipeline_runs.id"],
+            ondelete="CASCADE",
+            name="fk_cp_skill_exec_tenant_run",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "node_run_id"],
+            ["creative_pipeline_node_runs.tenant_id", "creative_pipeline_node_runs.id"],
+            ondelete="CASCADE",
+            name="fk_cp_skill_exec_tenant_node",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "listing_task_id"],
+            ["creative_pipeline_listing_tasks.tenant_id", "creative_pipeline_listing_tasks.id"],
+            ondelete="CASCADE",
+            name="fk_cp_skill_exec_tenant_listing",
+        ),
+        ForeignKeyConstraint(
+            ["skill_id"],
+            ["creative_pipeline_skills.id"],
+            ondelete="RESTRICT",
+            name="fk_cp_skill_exec_skill",
+        ),
+        ForeignKeyConstraint(
+            ["skill_version_id"],
+            ["creative_pipeline_skill_versions.id"],
+            ondelete="RESTRICT",
+            name="fk_cp_skill_exec_version",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "node_run_id",
+            "attempt_number",
+            "variant_key",
+            name="uq_cp_skill_exec_attempt_variant",
+        ),
+        CheckConstraint("attempt_number > 0", name="ck_cp_skill_exec_attempt"),
+        CheckConstraint("skill_version > 0", name="ck_cp_skill_exec_version"),
+        CheckConstraint("status IN ('running','completed','failed','cancelled')", name="ck_cp_skill_exec_status"),
+        Index("ix_cp_skill_exec_tenant_run", "tenant_id", "pipeline_run_id", "started_at"),
+        Index("ix_cp_skill_exec_tenant_status", "tenant_id", "status", "started_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    pipeline_run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    node_run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    listing_task_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    skill_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    skill_version_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    skill_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    skill_version: Mapped[int] = mapped_column(nullable=False)
+    binding_scope: Mapped[str] = mapped_column(String(320), nullable=False)
+    variant_key: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
+    attempt_number: Mapped[int] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str | None] = mapped_column(String(128))
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    input_artifact_ids_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    output_artifact_ids_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    knowledge_snapshot_id: Mapped[str | None] = mapped_column(String(255))
+    prompt_sha256: Mapped[str | None] = mapped_column(String(128))
+    provider_request_id: Mapped[str | None] = mapped_column(String(512))
+    usage_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    details_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

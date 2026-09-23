@@ -25,7 +25,9 @@ SAFE_METADATA = frozenset({
     "knowledge_snapshot_id", "idea_story_schema_version", "prompt_template_version",
     "target_provider", "target_model", "generation_number", "raw_artifact_id",
     "raw_content_hash", "enhancement_policy_version", "enhancement_engine",
-    "enhancement_engine_version",
+    "enhancement_engine_version", "executor_type", "skill_id", "skill_version_id",
+    "skill_key", "skill_version", "skill_binding_scope", "skill_execution_id",
+    "skill_instructions_sha256",
 })
 NODE_TYPE_INDEX = {node_type: index for index, node_type in enumerate(NODE_TYPES)}
 STATUS_KEYS = ("queued", "running", "retrying", "blocked", "failed", "completed", "cancelled")
@@ -146,6 +148,7 @@ class CreativePipelineApiService:
             row = rows.get(node_type)
             inherited = bool(run.branch_start_node and NODE_TYPE_INDEX[node_type] < NODE_TYPE_INDEX[run.branch_start_node])
             result.append({"id": row.id if row else None, "node_type": node_type, "inherited": inherited,
+                "executor_type": "gpt_skill" if node_type in {"idea_story", "prompt"} else "system",
                 "status": row.status if row else "not_initialized", "attempt_count": row.attempt_count if row else 0,
                 "max_attempts": row.max_attempts if row else None, "next_retry_at": row.next_retry_at if row else None,
                 "output_version": row.output_version if row else None, "last_error_code": _safe_text(row.last_error_code,100) if row else None,
@@ -221,7 +224,7 @@ class CreativePipelineApiService:
             "start_uninitialized_run": False, "start_new_run": False,
             "terminal_failed_retry": False, "regenerate_idea": False,
             "regenerate_prompt": False, "generate_another_video": False,
-            "retry_failed_enhance": False}
+            "retry_failed_enhance": False, "skill_registry": True, "skill_binding_overrides": True}
 
     def listing_capabilities(self, listing):
         current = self._current_run(listing.tenant_id, listing.id)

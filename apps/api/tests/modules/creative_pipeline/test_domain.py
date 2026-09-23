@@ -24,7 +24,21 @@ from app.modules.authorization.folder_scope import FolderScopeAccess
 def _session():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     event.listen(engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
-    names = ("tenants", "oauth_connections", "external_sources", "creative_pipeline_source_groups", "creative_pipeline_listing_tasks", "creative_pipeline_runs", "creative_pipeline_node_runs", "creative_pipeline_generation_runs", "creative_pipeline_artifacts")
+    names = (
+        "tenants",
+        "oauth_connections",
+        "external_sources",
+        "creative_pipeline_source_groups",
+        "creative_pipeline_listing_tasks",
+        "creative_pipeline_runs",
+        "creative_pipeline_node_runs",
+        "creative_pipeline_generation_runs",
+        "creative_pipeline_artifacts",
+        "creative_pipeline_skills",
+        "creative_pipeline_skill_versions",
+        "creative_pipeline_skill_bindings",
+        "creative_pipeline_skill_executions",
+    )
     for name in names:
         Base.metadata.tables[name].create(engine, checkfirst=True)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
