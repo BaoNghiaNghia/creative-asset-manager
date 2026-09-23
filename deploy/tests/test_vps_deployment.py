@@ -90,7 +90,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
     def test_visual_encoder_reserves_two_cpu_threads_without_process_replication(self) -> None:
         unit = VISUAL_ENCODER_UNIT.read_text()
         self.assertIn("CPUQuota=200%", unit)
-        self.assertIn("MemoryMax=1500M", unit)
+        self.assertIn("MemoryMax=2300M", unit)
         self.assertNotIn("--workers", unit)
 
     def test_alembic_configuration_includes_the_api_module_path(self) -> None:
