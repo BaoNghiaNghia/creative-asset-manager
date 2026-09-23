@@ -116,6 +116,14 @@ class VisualIndexSyncJobHandler:
                 return JobHandlerResult.completed()
             if encoder_client is None or resolver is None:
                 return JobHandlerResult.retryable("visual_index_unconfigured", "Isolated encoder is unavailable.")
+            if (
+                context.job.payload.get("embedding_schema_version")
+                != provider.descriptor.embedding_schema_version
+            ):
+                return JobHandlerResult.non_retryable(
+                    "visual_index_schema_mismatch",
+                    "Visual index job schema does not match the active projection.",
+                )
             document = self._document(context, provider)
             if document is None:
                 stage_started = time.monotonic()

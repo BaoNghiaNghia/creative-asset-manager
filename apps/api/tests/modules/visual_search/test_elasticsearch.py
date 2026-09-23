@@ -5,7 +5,10 @@ import unittest
 from dataclasses import replace
 from unittest.mock import AsyncMock
 
-from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config
+from app.infrastructure.search.elasticsearch_v2 import (
+    ElasticsearchV3Config,
+    ElasticsearchV3RequestError,
+)
 from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding
 from app.modules.visual_search.elasticsearch import (
     VisualIndexDocument,
@@ -109,6 +112,35 @@ class VisualSearchElasticsearchTest(unittest.TestCase):
             self.assertIn({"term":{"tenant_id":"tenant-a"}},body["query"]["bool"]["filter"])
             self.assertNotIn("visual_embedding",body["_source"])
             self.assertEqual(self.index._index._request.await_args_list[1].kwargs["json_body"]["search_after"],["x","2"])
+        asyncio.run(verify())
+
+    def test_projection_metadata_scan_falls_back_for_legacy_dynamic_mapping(self) -> None:
+        async def verify() -> None:
+            self.index._index._request = AsyncMock(side_effect=[
+                ElasticsearchV3RequestError("bad sort mapping", status_code=400),
+                {"hits": {"hits": [{
+                    "_source": {"tenant_id": "tenant-a", "asset_id": "a"},
+                    "sort": ["a", "1", "visual_embedding_v1"],
+                }]}},
+            ])
+
+            rows = await self.index.scan_projection_metadata("tenant-a", page_size=2)
+
+            self.assertEqual([row["asset_id"] for row in rows], ["a"])
+            fallback = self.index._index._request.await_args_list[1].kwargs["json_body"]
+            self.assertIn(
+                {"term": {"tenant_id.keyword": "tenant-a"}},
+                fallback["query"]["bool"]["filter"],
+            )
+            self.assertEqual(
+                fallback["sort"],
+                [
+                    {"asset_id.keyword": "asc"},
+                    {"content_sha256.keyword": "asc"},
+                    {"embedding_schema_version.keyword": "asc"},
+                ],
+            )
+
         asyncio.run(verify())
 
     def test_upsert_and_delete_are_tenant_scoped(self) -> None:

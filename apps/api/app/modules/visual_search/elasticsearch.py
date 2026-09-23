@@ -371,11 +371,23 @@ class VisualSearchElasticsearchIndex:
         """Read-only tenant projection scan; intentionally excludes vectors."""
         if not tenant_id.strip(): raise VisualSearchIndexError("visual search requires a tenant scope")
         if not 1 <= page_size <= 1000: raise VisualSearchIndexError("projection scan page_size must be between 1 and 1000")
-        after = None; rows = []
+        after = None; rows = []; legacy_keyword_fields = False
         while True:
-            body = {"size": page_size, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "encoder_name", "encoder_revision", "preprocess_version", "similarity", "is_deleted", "is_hidden"], "query": {"bool": {"filter": [{"term": {"tenant_id": tenant_id}}]}}, "sort": [{"asset_id": "asc"}, {"content_sha256": "asc"}, {"embedding_schema_version": "asc"}]}
+            suffix = ".keyword" if legacy_keyword_fields else ""
+            body = {"size": page_size, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "encoder_name", "encoder_revision", "preprocess_version", "similarity", "is_deleted", "is_hidden"], "query": {"bool": {"filter": [{"term": {f"tenant_id{suffix}": tenant_id}}]}}, "sort": [{f"asset_id{suffix}": "asc"}, {f"content_sha256{suffix}": "asc"}, {f"embedding_schema_version{suffix}": "asc"}]}
             if after is not None: body["search_after"] = after
-            payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=body)
+            try:
+                payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=body)
+            except ElasticsearchV3RequestError as exc:
+                # The first production canary was allowed to auto-create the
+                # read target, so exact fields received dynamic text+keyword
+                # mappings. Keep the read-only coverage scan operable while a
+                # strict replacement index is prepared. New strict mappings
+                # continue to use the canonical bare keyword fields.
+                if after is not None or legacy_keyword_fields or exc.status_code != 400:
+                    raise
+                legacy_keyword_fields = True
+                continue
             hits = payload.get("hits", {}).get("hits", [])
             if not isinstance(hits, list): raise ElasticsearchV3RequestError("Elasticsearch returned malformed projection scan")
             rows.extend(dict(hit.get("_source") or {}) for hit in hits if isinstance(hit, Mapping) and isinstance(hit.get("_source"), Mapping) and hit["_source"].get("tenant_id") == tenant_id)
