@@ -147,6 +147,11 @@ class Settings(BaseSettings):
     VISUAL_SEARCH_CROP_ENABLED: bool = False
     VISUAL_SEARCH_HYBRID_TEXT_ENABLED: bool = False
     VISUAL_SEARCH_BACKFILL_ENABLED: bool = False
+    # Historical visual indexing is deliberately progressive. Live writes stay
+    # higher priority while backfill yields once this tenant-scoped queue cap is hit.
+    VISUAL_SEARCH_BACKFILL_MAX_QUEUED_JOBS: int = 250
+    VISUAL_SEARCH_BACKFILL_MAX_SLICE_ASSETS: int = 100
+    VISUAL_SEARCH_BACKFILL_RECENT_DAYS: int = 30
     VISUAL_SEARCH_RANKING_IMAGE_WEIGHT: float = 0.82
     VISUAL_SEARCH_RANKING_TEXT_WEIGHT: float = 0.18
     VISUAL_SEARCH_RANKING_MAX_PER_SOURCE: int = 0

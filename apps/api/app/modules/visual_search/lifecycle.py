@@ -30,6 +30,7 @@ def enqueue_visual_index_sync(
     asset_id: str,
     source_asset_id: str,
     content_sha256: str,
+    priority: int = VISUAL_INDEX_SYNC_PRIORITY,
 ) -> bool:
     """Enqueue one versioned, idempotent visual projection job.
 
@@ -39,6 +40,8 @@ def enqueue_visual_index_sync(
     """
     if not visual_index_job_enabled(settings, tenant_id):
         return False
+    if priority < 0:
+        raise ValueError("visual index priority cannot be negative")
     key = visual_index_job_key(asset_id, content_sha256)
     before = processing.get_job_by_key(tenant_id, key)
     processing.create_job(
@@ -56,7 +59,7 @@ def enqueue_visual_index_sync(
         },
         provider_key="visual_encoder",
         provider_scope="visual",
-        priority=VISUAL_INDEX_SYNC_PRIORITY,
+        priority=priority,
     )
     return before is None
 

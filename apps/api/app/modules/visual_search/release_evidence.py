@@ -12,6 +12,8 @@ import httpx
 
 from app.modules.visual_search.rollout_policy import (
     ROLLOUT_MODE_ENCODER_ONLY,
+    ROLLOUT_MODE_FULL_MIGRATION,
+    ROLLOUT_MODE_PROGRESSIVE_INDEXING,
     ROLLOUT_MODES,
     normalize_rollout_mode,
 )
@@ -253,6 +255,16 @@ def _gate_summary(
         )
     return {
         "rollout_mode": mode,
+        "historical_backfill": {
+            "strategy": (
+                "continuous_best_effort"
+                if mode == ROLLOUT_MODE_PROGRESSIVE_INDEXING
+                else "disabled"
+                if mode == ROLLOUT_MODE_ENCODER_ONLY
+                else "complete_before_closeout"
+            ),
+            "completion_required_for_release": mode == ROLLOUT_MODE_FULL_MIGRATION,
+        },
         "encoder_ready": bool(
             isinstance(encoder, dict)
             and encoder.get("status") == "ok"
@@ -367,8 +379,10 @@ def main() -> int:
         default="full_migration",
         help=(
             "encoder_only validates/provisions the encoder without authorizing "
-            "ANN backfill or alias activation; full_migration keeps the full "
-            "migration evidence requirements."
+            "ANN backfill or alias activation; progressive_indexing authorizes "
+            "the production ANN while historical coverage remains continuous "
+            "best-effort; full_migration keeps the legacy complete-backfill "
+            "closeout policy."
         ),
     )
     parser.add_argument("--timeout-seconds", type=float, default=5.0)

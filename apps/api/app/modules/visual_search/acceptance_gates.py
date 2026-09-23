@@ -7,6 +7,8 @@ from typing import Any
 
 from app.modules.visual_search.rollout_policy import (
     ROLLOUT_MODE_ENCODER_ONLY,
+    ROLLOUT_MODE_FULL_MIGRATION,
+    ROLLOUT_MODE_PROGRESSIVE_INDEXING,
     ROLLOUT_MODES,
     disk_rollout_policy,
     normalize_rollout_mode,
@@ -346,7 +348,7 @@ def evaluate_acceptance_gates(
     baseline_disk = baseline_disk if isinstance(baseline_disk, dict) else {}
     baseline_disk_free = baseline_disk.get("free")
 
-    if mode == ROLLOUT_MODE_ENCODER_ONLY:
+    if mode in {ROLLOUT_MODE_ENCODER_ONLY, ROLLOUT_MODE_PROGRESSIVE_INDEXING}:
         if isinstance(baseline_disk_free, int) and isinstance(disk_free, int):
             disk_status = (
                 "pass"
@@ -359,11 +361,11 @@ def evaluate_acceptance_gates(
         else:
             disk_status = "unknown"
         disk_reason = (
-            "Encoder-only disk headroom meets the 6 GiB pre-rollout and 4 GiB post-provision targets."
+            f"{mode} disk headroom meets its reviewed pre/post rollout targets."
             if disk_status == "pass"
-            else "Encoder-only disk headroom is below the 6 GiB pre-rollout or 4 GiB post-provision target."
+            else f"{mode} disk headroom is below its reviewed pre/post rollout target."
             if disk_status == "fail"
-            else "Encoder-only disk evidence needs both baseline and current free-space measurements."
+            else f"{mode} disk evidence needs both baseline and current free-space measurements."
         )
     else:
         if isinstance(disk_free, int):
@@ -466,6 +468,8 @@ def evaluate_acceptance_gates(
         decision = (
             "eligible_for_encoder_only_rollout_review"
             if mode == ROLLOUT_MODE_ENCODER_ONLY
+            else "eligible_for_progressive_indexing_review"
+            if mode == ROLLOUT_MODE_PROGRESSIVE_INDEXING
             else "eligible_for_release_review"
         )
     else:
@@ -473,6 +477,7 @@ def evaluate_acceptance_gates(
     return {
         "rollout_mode": mode,
         "permits_full_migration": disk_policy.permits_full_migration,
+        "historical_backfill_completion_required": mode == ROLLOUT_MODE_FULL_MIGRATION,
         "gates": gates,
         "counts": counts,
         "prerequisites": prerequisites,

@@ -8,6 +8,7 @@ from app.modules.visual_search.acceptance_gates import (
 from app.modules.visual_search.rollout_policy import (
     ROLLOUT_MODE_ENCODER_ONLY,
     ROLLOUT_MODE_FULL_MIGRATION,
+    ROLLOUT_MODE_PROGRESSIVE_INDEXING,
 )
 
 
@@ -217,3 +218,23 @@ def test_int8_gate_requires_fifty_passing_cases_when_candidate_is_present() -> N
 
     assert by_id["int8_representative_sanity"]["status"] == "fail"
     assert result["acceptance_complete"] is False
+
+def test_progressive_indexing_does_not_require_complete_historical_backfill() -> None:
+    release = _release_bundle(
+        rollout_mode=ROLLOUT_MODE_PROGRESSIVE_INDEXING,
+        baseline_free_gib=8.3,
+        current_free_gib=6.5,
+    )
+
+    result = evaluate_acceptance_gates(release)
+    by_id = {row["id"]: row for row in result["gates"]}
+
+    assert result["rollout_mode"] == ROLLOUT_MODE_PROGRESSIVE_INDEXING
+    assert result["permits_full_migration"] is False
+    assert result["historical_backfill_completion_required"] is False
+    assert result["acceptance_complete"] is True
+    assert result["decision"] == "eligible_for_progressive_indexing_review"
+    assert by_id["knn_relevance_evidence"]["status"] == "pass"
+    assert by_id["elasticsearch_alias_rollback"]["status"] == "pass"
+    assert by_id["disk_migration_headroom"]["evidence"]["minimum_before_bytes"] == 8 * 1024**3
+    assert by_id["disk_migration_headroom"]["evidence"]["minimum_after_bytes"] == 6 * 1024**3

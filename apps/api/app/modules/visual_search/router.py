@@ -224,6 +224,16 @@ def visual_search_diagnostics(
         "crop_enabled": bool(settings.VISUAL_SEARCH_CROP_ENABLED),
         "hybrid_text_enabled": bool(settings.VISUAL_SEARCH_HYBRID_TEXT_ENABLED),
         "backfill_enabled": bool(settings.VISUAL_SEARCH_BACKFILL_ENABLED),
+        "backfill_policy": {
+            "strategy": "progressive_best_effort",
+            "completion_required_for_release": False,
+            "max_queued_jobs": int(settings.VISUAL_SEARCH_BACKFILL_MAX_QUEUED_JOBS),
+            "max_slice_assets": int(settings.VISUAL_SEARCH_BACKFILL_MAX_SLICE_ASSETS),
+            "recent_days": int(settings.VISUAL_SEARCH_BACKFILL_RECENT_DAYS),
+            "live_write_priority": 20,
+            "recent_backfill_priority": 15,
+            "archive_backfill_priority": 5,
+        },
         "metrics": VISUAL_SEARCH_METRICS.snapshot(),
     }
 

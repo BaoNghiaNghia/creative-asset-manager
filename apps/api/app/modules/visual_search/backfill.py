@@ -9,6 +9,10 @@ from app.modules.pipeline.mime_types import is_supported_image_mime_type
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.visual_search.eligibility import visual_search_tenant_eligible
 from app.modules.visual_search.lifecycle import VISUAL_EMBEDDING_SCHEMA_VERSION, enqueue_visual_index_sync, visual_index_job_key
+from app.modules.visual_search.backfill_policy import (
+    VisualBackfillPolicy,
+    active_visual_queue_depth,
+)
 
 @dataclass
 class VisualSearchBackfillResult:
@@ -21,6 +25,7 @@ class VisualSearchBackfillResult:
     errors: int = 0
     checkpoint_asset_id: str | None = None
     stopped: bool = False
+    throttled: bool = False
 
 class VisualSearchBackfillService:
     def __init__(self, processing: ProcessingRepository, *, settings: Settings):
@@ -34,6 +39,25 @@ class VisualSearchBackfillService:
         if max_assets < 1 or delay_seconds < 0: raise ValueError("invalid max_assets or delay_seconds")
         if not dry_run and not self.settings.VISUAL_SEARCH_BACKFILL_ENABLED: raise ValueError("visual search backfill is disabled")
         result, checkpoint = VisualSearchBackfillResult(), after_asset_id
+        policy = VisualBackfillPolicy.from_settings(self.settings)
+        enqueue_budget = max_assets
+        if not dry_run:
+            queue_depth = active_visual_queue_depth(
+                self.session,
+                tenant_id=tenant_id,
+            )
+            enqueue_budget = max(
+                0,
+                min(
+                    max_assets,
+                    policy.max_slice_assets,
+                    policy.max_queued_jobs - queue_depth,
+                ),
+            )
+            if enqueue_budget <= 0:
+                result.stopped = True
+                result.throttled = True
+                return result
         while result.scanned < max_assets and not stop_requested():
             query = select(AssetModel, SourceAssetModel).join(AssetSourceLinkModel, AssetSourceLinkModel.asset_id == AssetModel.id).join(SourceAssetModel, SourceAssetModel.id == AssetSourceLinkModel.source_asset_id).where(AssetModel.tenant_id == tenant_id, AssetSourceLinkModel.tenant_id == tenant_id, SourceAssetModel.tenant_id == tenant_id, SourceAssetModel.deleted_at.is_(None)).order_by(AssetModel.id.asc(), SourceAssetModel.id.asc())
             if checkpoint: query = query.where(AssetModel.id > checkpoint)
@@ -53,8 +77,24 @@ class VisualSearchBackfillService:
                 if dry_run:
                     result.enqueued += 1
                     continue
+                if not dry_run and result.enqueued >= enqueue_budget:
+                    result.stopped = True
+                    result.throttled = True
+                    return result
                 try:
-                    created = enqueue_visual_index_sync(self.processing, settings=self.settings, tenant_id=tenant_id, asset_id=asset.id, source_asset_id=source.id, content_sha256=asset.content_hash)
+                    created = enqueue_visual_index_sync(
+                        self.processing,
+                        settings=self.settings,
+                        tenant_id=tenant_id,
+                        asset_id=asset.id,
+                        source_asset_id=source.id,
+                        content_sha256=asset.content_hash,
+                        priority=policy.priority_for_activity(
+                            getattr(source, "source_modified_at", None)
+                            or getattr(source, "last_seen_at", None)
+                            or getattr(asset, "updated_at", None)
+                        ),
+                    )
                     result.enqueued += int(created)
                     result.skipped_existing += int(not created)
                 except Exception: result.errors += 1

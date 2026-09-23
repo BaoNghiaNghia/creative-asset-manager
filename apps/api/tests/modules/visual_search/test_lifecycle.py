@@ -63,6 +63,22 @@ def test_visual_index_enqueue_is_content_and_schema_idempotent() -> None:
     assert all(job["priority"] == 20 for job in jobs)
 
 
+
+def test_backfill_can_enqueue_below_live_write_priority() -> None:
+    processing = FakeProcessing()
+    assert enqueue_visual_index_sync(
+        processing,
+        settings=enabled_settings(),
+        tenant_id="tenant-a",
+        asset_id="asset-a",
+        source_asset_id="source-a",
+        content_sha256="a" * 64,
+        priority=5,
+    )
+    job = next(iter(processing.jobs.values()))
+    assert job["priority"] == 5
+
+
 def test_visual_retire_enqueue_is_idempotent_and_does_not_need_content() -> None:
     processing = FakeProcessing()
     settings = enabled_settings()

@@ -4,6 +4,7 @@ from app.modules.visual_search.release_evidence import _gate_summary
 from app.modules.visual_search.rollout_policy import (
     ROLLOUT_MODE_ENCODER_ONLY,
     ROLLOUT_MODE_FULL_MIGRATION,
+    ROLLOUT_MODE_PROGRESSIVE_INDEXING,
 )
 
 
@@ -117,3 +118,18 @@ def test_encoder_only_release_evidence_does_not_require_ann() -> None:
         "regression": True,
     }
     assert summary["optional_reports_present"]["ann"] is False
+
+def test_progressive_indexing_requires_ann_but_not_historical_completion() -> None:
+    bundle = _bundle(
+        include_all_reports=True,
+        rollout_mode=ROLLOUT_MODE_PROGRESSIVE_INDEXING,
+    )
+
+    summary = _gate_summary(bundle)
+
+    assert summary["release_evidence_complete"] is True
+    assert summary["required_reports_present"]["ann"] is True
+    assert summary["historical_backfill"] == {
+        "strategy": "continuous_best_effort",
+        "completion_required_for_release": False,
+    }

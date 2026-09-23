@@ -18,6 +18,9 @@ class VisualSearchBackfillExecutor:
         counters=dict(run.counters_json or {})
         for key in ('scanned','current','missing','stale','enqueued','existing'):
             counters[key]=int(counters.get(key,0))+int(getattr(result,key))
+        counters["throttled_slices"] = int(counters.get("throttled_slices", 0)) + int(result.throttled)
+        counters["last_queue_depth"] = int(result.queue_depth)
+        counters["last_queue_capacity"] = int(result.queue_capacity)
         if result.has_more: runs.checkpoint(run,asset_id=result.checkpoint_asset_id,counters=counters)
         else: runs.complete(run,counters=counters)
         return run,result
