@@ -130,6 +130,31 @@ const labels: Record<string, string> = {
 
 const summaryStatuses = ["running", "queued", "failed", "completed"] as const;
 
+
+const PIPELINE_GROUP_HEADER_ESTIMATE = 50;
+const PIPELINE_LISTING_ROW_ESTIMATE = 84;
+const PIPELINE_MASONRY_GAP = 10;
+
+export function buildPipelineMasonryColumns<T extends { id: string }>(
+  items: T[],
+  rowCountByGroup: ReadonlyMap<string, number>,
+): Array<Array<{ item: T; order: number }>> {
+  const columns: Array<Array<{ item: T; order: number }>> = [[], []];
+  const heights = [0, 0];
+
+  items.forEach((item, order) => {
+    const target = heights[0] <= heights[1] ? 0 : 1;
+    const rows = Math.max(0, rowCountByGroup.get(item.id) || 0);
+    columns[target].push({ item, order });
+    heights[target] +=
+      PIPELINE_GROUP_HEADER_ESTIMATE +
+      rows * PIPELINE_LISTING_ROW_ESTIMATE +
+      PIPELINE_MASONRY_GAP;
+  });
+
+  return columns;
+}
+
 const status = (value: string | null | undefined) =>
   ({
     queued: "Queued",
@@ -269,6 +294,20 @@ export function CreativePipelineTab({ canManage }: { canManage: boolean }) {
     return grouped;
   }, [visible]);
 
+  const masonryColumns = useMemo(
+    () =>
+      buildPipelineMasonryColumns(
+        groups,
+        new Map(
+          groups.map((group) => [
+            group.id,
+            (visibleByGroup.get(group.id) || []).length,
+          ]),
+        ),
+      ),
+    [groups, visibleByGroup],
+  );
+
   const summary = useMemo(
     () =>
       summaryStatuses.map((key) => ({
@@ -401,83 +440,25 @@ export function CreativePipelineTab({ canManage }: { canManage: boolean }) {
       </div>
 
       <div className="creative-pipeline-groups">
-        {groups.map((group) => {
-          const rows = visibleByGroup.get(group.id) || [];
-
-          return (
-            <section
-              className={`creative-pipeline-group${rows.length ? "" : " is-empty"}`}
-              key={group.id}
-            >
-              <header>
-                <div className="creative-pipeline-group-main">
-                  <div className="creative-pipeline-group-title">
-                    <span className="creative-pipeline-platform">
-                      {group.platform.toUpperCase()}
-                    </span>
-                    <h3>{group.name}</h3>
-                  </div>
-                  <span className="creative-pipeline-group-count">
-                    {group.active_listing_count}/{group.listing_count} active
-                  </span>
-                </div>
-
-                <div className="creative-pipeline-group-actions">
-                  {!rows.length && (
-                    <span className="creative-pipeline-no-match">
-                      No matching listings
-                    </span>
-                  )}
-                  {canManage && (
-                    <button
-                      className="ops-button secondary"
-                      type="button"
-                      disabled={mutationBusy}
-                      onClick={() =>
-                        void action(
-                          "/api/v1/creative-pipeline/groups/" +
-                            group.id +
-                            "/scan",
-                        )
-                      }
-                    >
-                      {mutationBusy ? "Working…" : "Scan now"}
-                    </button>
-                  )}
-                </div>
-              </header>
-
-              {rows.length > 0 && (
-                <div className="creative-pipeline-list">
-                  {rows.map((listing) => (
-                    <button
-                      className="creative-pipeline-row"
-                      key={listing.id}
-                      type="button"
-                      onClick={() => setSelected(listing)}
-                    >
-                      <div className="creative-pipeline-row-copy">
-                        <b>{listing.folder_name}</b>
-                        <small>
-                          {listing.listing_key} · {listing.source_status}
-                        </small>
-                      </div>
-                      <Nodes nodes={listing.current_run?.nodes || []} />
-                      <span
-                        className={
-                          "creative-status " +
-                          (listing.pipeline_status || "empty")
-                        }
-                      >
-                        {status(listing.pipeline_status)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
-          );
-        })}
+        {masonryColumns.map((column, columnIndex) => (
+          <div
+            className="creative-pipeline-column"
+            key={`pipeline-column-${columnIndex}`}
+          >
+            {column.map(({ item: group, order }) => (
+              <PipelineGroupCard
+                key={group.id}
+                group={group}
+                rows={visibleByGroup.get(group.id) || []}
+                order={order}
+                canManage={canManage}
+                mutationBusy={mutationBusy}
+                action={action}
+                onSelect={setSelected}
+              />
+            ))}
+          </div>
+        ))}
       </div>
 
       {selected && (
@@ -496,6 +477,97 @@ export function CreativePipelineTab({ canManage }: { canManage: boolean }) {
     </div>
   );
 }
+
+
+function PipelineGroupCard({
+  group,
+  rows,
+  order,
+  canManage,
+  mutationBusy,
+  action,
+  onSelect,
+}: {
+  group: Group;
+  rows: Listing[];
+  order: number;
+  canManage: boolean;
+  mutationBusy: boolean;
+  action: (path: string) => Promise<void>;
+  onSelect: (listing: Listing) => void;
+}) {
+  return (
+    <section
+      className={`creative-pipeline-group${rows.length ? "" : " is-empty"}`}
+      style={{ order }}
+    >
+      <header>
+        <div className="creative-pipeline-group-main">
+          <div className="creative-pipeline-group-title">
+            <span className="creative-pipeline-platform">
+              {group.platform.toUpperCase()}
+            </span>
+            <h3>{group.name}</h3>
+          </div>
+          <span className="creative-pipeline-group-count">
+            {group.active_listing_count}/{group.listing_count} active
+          </span>
+        </div>
+
+        <div className="creative-pipeline-group-actions">
+          {!rows.length && (
+            <span className="creative-pipeline-no-match">
+              No matching listings
+            </span>
+          )}
+          {canManage && (
+            <button
+              className="ops-button secondary"
+              type="button"
+              disabled={mutationBusy}
+              onClick={() =>
+                void action(
+                  "/api/v1/creative-pipeline/groups/" + group.id + "/scan",
+                )
+              }
+            >
+              {mutationBusy ? "Working…" : "Scan now"}
+            </button>
+          )}
+        </div>
+      </header>
+
+      {rows.length > 0 && (
+        <div className="creative-pipeline-list">
+          {rows.map((listing) => (
+            <button
+              className="creative-pipeline-row"
+              key={listing.id}
+              type="button"
+              onClick={() => onSelect(listing)}
+            >
+              <div className="creative-pipeline-row-copy">
+                <b>{listing.folder_name}</b>
+                <small>
+                  {listing.listing_key} · {listing.source_status}
+                </small>
+              </div>
+              <Nodes nodes={listing.current_run?.nodes || []} />
+              <span
+                className={
+                  "creative-status " + (listing.pipeline_status || "empty")
+                }
+              >
+                {status(listing.pipeline_status)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 
 const nodeSymbol = (node: Node) =>
   node.inherited || node.status === "completed"

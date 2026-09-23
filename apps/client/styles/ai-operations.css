@@ -1624,6 +1624,16 @@
   align-items:start;
   gap:10px;
 }
+.creative-pipeline-column{
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  gap:10px;
+}
+.creative-pipeline-column>.creative-pipeline-group{
+  width:100%;
+  box-sizing:border-box;
+}
 .creative-pipeline-group{
   border-color:#e0e6ee;
   border-radius:9px;
@@ -1826,6 +1836,9 @@
 @media(max-width:1180px){
   .creative-pipeline-groups{
     grid-template-columns:1fr;
+  }
+  .creative-pipeline-column{
+    display:contents;
   }
 }
 @media(max-width:900px){
