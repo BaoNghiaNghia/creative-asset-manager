@@ -55,6 +55,45 @@ def test_scoped_browse_asset_and_search(ctx):
 
 def note_body():
  return {"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]},"anchor_x":None,"anchor_y":None}
+
+def test_public_search_uses_search_v3_with_share_scope_and_hydrates_only_allowed_assets(ctx):
+ assert exchange(ctx).status_code==201
+ captured={}
+ class Index:
+  async def search(self,query):
+   captured["query"]=query
+   return {
+    "took":7,
+    "hits":{"hits":[
+     {"_id":"asset-good","_score":4.2,"_source":{"asset_id":"asset-good","source_id":"source-a","filename":"cat-good.jpg"}},
+     {"_id":"asset-private","_score":3.1,"_source":{"asset_id":"asset-private","source_id":"source-a","filename":"cat-private.jpg"}},
+    ]},
+   }
+ class Pool:
+  async def get(self,_config):
+   return Index()
+ configured=SimpleNamespace(
+  SEARCH_V3_ENABLED=True,
+  SEARCH_V3_REQUIRED=True,
+  ELASTICSEARCH_URL="http://search.test:9200",
+  ELASTICSEARCH_INDEX_PREFIX="creative-assets",
+ )
+ with patch("app.modules.public_review.public_router.get_settings",return_value=configured), \
+      patch("app.modules.public_review.public_router._search_generation",return_value="ready"), \
+      patch("app.modules.public_review.public_router.API_SEARCH_INDEX_POOL",Pool()):
+  found=request(ctx,"GET","/api/public/review/share-a/search?q=cat")
+ assert found.status_code==200
+ payload=found.json()
+ assert payload["search_version"]=="v3"
+ assert payload["took_ms"]==7
+ assert [item["asset_id"] for item in payload["items"]]==["asset-good"]
+ filters=captured["query"]["query"]["bool"]["filter"]
+ assert {"term":{"tenant_id":"tenant-a"}} in filters
+ scope_filter=next(row for row in filters if "bool" in row and "should" in row["bool"])
+ assert scope_filter["bool"]["minimum_should_match"]==1
+ assert scope_filter["bool"]["should"]==[{"bool":{"filter":[{"term":{"source_id":"source-a"}},{"terms":{"ancestor_ids":["root"]}}]}}]
+
+
 def test_anonymous_annotation_origin_and_ownership(ctx):
  assert exchange(ctx).status_code==201
  path="/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"

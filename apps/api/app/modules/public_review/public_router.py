@@ -11,6 +11,7 @@ from starlette.background import BackgroundTask
 from sqlalchemy import func, select
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
 from app.modules.assets.content_resolver import SourceAssetContentResolver
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.public_review.authorization import PublicShareAccessDenied, PublicShareScopeService
@@ -21,6 +22,10 @@ from app.modules.explorer.media_types import infer_media_type
 from app.modules.public_review.rate_limit import PublicRateLimitExceeded, consume
 from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.service import PublicReviewService, utcnow
+from app.modules.search.query_builder import ElasticsearchQueryBuilder
+from app.modules.search.query_parser import SearchQueryParser
+from app.modules.search.runtime import API_SEARCH_INDEX_POOL
+from app.modules.search.router import _search_generation, _require_v3, search_config
 router=APIRouter(prefix="/api/public/review",tags=["public-review"])
 COOKIE="cam_public_review_session"; TTL=timedelta(days=7)
 # Public media streams must not exhaust the small production database/provider pool.
@@ -122,16 +127,119 @@ def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Que
 @router.get("/{public_share_id}/assets/{asset_id}")
 def metadata(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
  a,src=asset_pair(user(request,public_share_id),asset_id,source_asset_id);return safe(doc(a,src,public_share_id))
+
+def _public_search_scope_filter(scope: PublicShareScopeService, principal) -> dict:
+ accesses=scope.scoped_accesses(principal=principal)
+ clauses=[]
+ for source_id,access in accesses.items():
+  roots=sorted(str(value) for value in access.folder_ids if str(value).strip())
+  if not roots: continue
+  clauses.append({"bool":{"filter":[
+   {"term":{"source_id":str(source_id)}},
+   {"terms":{"ancestor_ids":roots}},
+  ]}})
+ return {"bool":{"should":clauses,"minimum_should_match":1}} if clauses else {"match_none":{}}
+
+def _hydrate_public_search_hits(session, scope: PublicShareScopeService, principal, hits: list[dict], public_share_id: str, limit_value: int) -> list[dict]:
+ asset_ids=[str(hit.get("_source",{}).get("asset_id") or hit.get("_id") or "") for hit in hits]
+ asset_ids=[value for value in asset_ids if value]
+ if not asset_ids: return []
+ rows=session.execute(
+  select(AssetModel,SourceAssetModel)
+  .join(AssetSourceLinkModel,(AssetSourceLinkModel.tenant_id==AssetModel.tenant_id)&(AssetSourceLinkModel.asset_id==AssetModel.id))
+  .join(SourceAssetModel,(SourceAssetModel.tenant_id==AssetSourceLinkModel.tenant_id)&(SourceAssetModel.id==AssetSourceLinkModel.source_asset_id))
+  .where(
+   AssetModel.tenant_id==principal.tenant_id,
+   AssetModel.id.in_(asset_ids),
+   SourceAssetModel.deleted_at.is_(None),
+  )
+ ).all()
+ by_asset:dict[str,list[tuple[AssetModel,SourceAssetModel]]]={}
+ for asset,source in rows:
+  if permitted_linked(scope,principal,source):
+   by_asset.setdefault(str(asset.id),[]).append((asset,source))
+ out=[]
+ seen=set()
+ for hit in hits:
+  asset_id=str(hit.get("_source",{}).get("asset_id") or hit.get("_id") or "")
+  document_source_id=str(hit.get("_source",{}).get("source_id") or "")
+  candidates=by_asset.get(asset_id,[])
+  pair=next((value for value in candidates if str(value[1].external_source_id)==document_source_id),None) or (candidates[0] if candidates else None)
+  if pair is None: continue
+  asset,source=pair
+  key=(str(asset.id),str(source.id))
+  if key in seen: continue
+  seen.add(key);out.append(doc(asset,source,public_share_id))
+  if len(out)>=limit_value: break
+ return out
+
+def _legacy_public_search(session, scope: PublicShareScopeService, principal, public_share_id: str, query: str, limit_value: int) -> list[dict]:
+ needle=" ".join(query.split()).casefold();out=[]
+ rows=session.execute(
+  select(AssetModel,SourceAssetModel)
+  .join(AssetSourceLinkModel,(AssetSourceLinkModel.tenant_id==AssetModel.tenant_id)&(AssetSourceLinkModel.asset_id==AssetModel.id))
+  .join(SourceAssetModel,(SourceAssetModel.tenant_id==AssetSourceLinkModel.tenant_id)&(SourceAssetModel.id==AssetSourceLinkModel.source_asset_id))
+  .where(AssetModel.tenant_id==principal.tenant_id,SourceAssetModel.deleted_at.is_(None))
+  .limit(2000)
+ ).all()
+ for asset,source in rows:
+  if needle in (source.filename or "").casefold() and permitted_linked(scope,principal,source):
+   out.append(doc(asset,source,public_share_id))
+  if len(out)>=limit_value: break
+ return out
+
 @router.get("/{public_share_id}/search")
-def search(public_share_id:str,request:Request,q:str=Query(...,min_length=1,max_length=200),limit_value:int=Query(25,ge=1,le=100)):
- p=user(request,public_share_id); needle=" ".join(q.split()).casefold()
- if not needle: raise HTTPException(422,detail={"code":"invalid_search_query"})
+async def search(public_share_id:str,request:Request,q:str=Query(...,min_length=1,max_length=500),limit_value:int=Query(60,ge=1,le=100)):
+ p=user(request,public_share_id);value=" ".join(q.split())
+ if not value: raise HTTPException(422,detail={"code":"invalid_search_query"})
+ settings=get_settings()
  with SessionLocal() as s:
-  limit(s,request,"search",60);scope=PublicShareScopeService(s);rows=s.execute(select(AssetModel,SourceAssetModel).join(AssetSourceLinkModel,(AssetSourceLinkModel.tenant_id==AssetModel.tenant_id)&(AssetSourceLinkModel.asset_id==AssetModel.id)).join(SourceAssetModel,(SourceAssetModel.tenant_id==AssetSourceLinkModel.tenant_id)&(SourceAssetModel.id==AssetSourceLinkModel.source_asset_id)).where(AssetModel.tenant_id==p.tenant_id,SourceAssetModel.deleted_at.is_(None)).limit(2000)).all();out=[]
-  for a,src in rows:
-   if needle in (src.filename or "").casefold() and permitted_linked(scope,p,src): out.append(doc(a,src,public_share_id))
-   if len(out)>=limit_value: break
-  s.commit();return safe({"items":out,"query":q})
+  limit(s,request,"search",60);scope=PublicShareScopeService(s)
+  try:
+   readiness=_search_generation(s,p.tenant_id,settings)
+   _require_v3(readiness,settings)
+   config,_facets=search_config(s,p.tenant_id)
+   parsed=SearchQueryParser().parse(value)
+   query=ElasticsearchQueryBuilder().build(
+    parsed,
+    tenant_id=p.tenant_id,
+    config=config,
+    size=min(limit_value+40,140),
+    offset=0,
+    sort_mode="relevance",
+   )
+   query["query"]["bool"]["filter"]=[
+    {"term":{"tenant_id":p.tenant_id}},
+    _public_search_scope_filter(scope,p),
+   ]
+   query["track_total_hits"]=False
+   s.commit()
+   index=await API_SEARCH_INDEX_POOL.get(
+    ElasticsearchV3Config(
+     settings.ELASTICSEARCH_URL,
+     settings.ELASTICSEARCH_INDEX_PREFIX,
+     index_generation="v3",
+    )
+   )
+   response=await index.search(query)
+   with SessionLocal() as hydrate_session:
+    hydrate_scope=PublicShareScopeService(hydrate_session)
+    principal=user(request,public_share_id,hydrate_session)
+    items=_hydrate_public_search_hits(
+     hydrate_session,hydrate_scope,principal,
+     list(response.get("hits",{}).get("hits",[])),
+     public_share_id,limit_value,
+    )
+    hydrate_session.commit()
+   return safe({"items":items,"query":q,"search_version":"v3","took_ms":response.get("took")})
+  except ElasticsearchV3RequestError:
+   s.rollback()
+  except HTTPException as exc:
+   s.rollback()
+   if exc.status_code!=503: raise
+  fallback_scope=PublicShareScopeService(s)
+  items=_legacy_public_search(s,fallback_scope,p,public_share_id,value,limit_value)
+  s.commit();return safe({"items":items,"query":q,"search_version":"filename_fallback"})
 async def media(public_share_id,asset_id,request,source_id):
  # Authorization and the optional R2/CDN decision do not consume a long-lived
  # provider-stream slot. Only a real Google/OneDrive fallback occupies one.
