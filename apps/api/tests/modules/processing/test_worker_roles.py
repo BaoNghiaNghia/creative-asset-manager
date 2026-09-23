@@ -97,6 +97,16 @@ class WorkerRoleTest(unittest.TestCase):
         finally:
             runtime.close()
 
+    def test_runtime_accepts_visual_role(self) -> None:
+        runtime = build_worker_runtime(
+            Settings(PROCESSING_JOBS_ENABLED=False, WORKER_ROLE="visual")
+        )
+        try:
+            self.assertEqual(runtime.config.worker_role, "visual")
+            self.assertEqual(runtime.config.allowed_job_types, ())
+        finally:
+            runtime.close()
+
 
 if __name__ == "__main__":
     unittest.main()
