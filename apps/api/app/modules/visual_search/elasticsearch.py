@@ -322,22 +322,266 @@ class VisualSearchElasticsearchIndex:
             )
         return created
 
-    async def switch_aliases(self, target_index: str) -> AliasSwitchResult:
-        """Atomically move the dedicated visual read/write target.
+    async def _target_kind(self) -> str:
+        alias_payload = await self._index._request(
+            "GET",
+            f"/_alias/{self.read_alias}",
+            allow_not_found=True,
+        )
+        if alias_payload:
+            return "alias"
+        index_payload = await self._index._request(
+            "GET",
+            f"/{self.read_alias}/_settings",
+            allow_not_found=True,
+        )
+        return "physical" if index_payload else "missing"
 
-        The first canary index was created at the legacy write-alias name, so an
-        Elasticsearch alias with that same name cannot coexist with it. Visual
-        Search has one active projection, therefore its read alias is also the
-        safe single write target until the legacy physical index is retired.
+    def _validate_candidate_mapping(
+        self,
+        target_index: str,
+        mapping_payload: Mapping[str, Any],
+    ) -> None:
+        index_payload = mapping_payload.get(target_index)
+        mappings = (
+            index_payload.get("mappings")
+            if isinstance(index_payload, Mapping)
+            else None
+        )
+        properties = (
+            mappings.get("properties")
+            if isinstance(mappings, Mapping)
+            else None
+        )
+        vector = (
+            properties.get("visual_embedding")
+            if isinstance(properties, Mapping)
+            else None
+        )
+        if (
+            not isinstance(mappings, Mapping)
+            or mappings.get("dynamic") != "strict"
+            or not isinstance(properties, Mapping)
+            or properties.get("tenant_id") != {"type": "keyword"}
+            or properties.get("asset_id") != {"type": "keyword"}
+            or not isinstance(vector, Mapping)
+            or vector.get("type") != "dense_vector"
+            or vector.get("dims") != self.descriptor.dimension
+            or vector.get("similarity") != self.descriptor.similarity
+        ):
+            raise VisualSearchIndexError(
+                "candidate mapping is incompatible with the active visual schema"
+            )
+
+    async def migrate_legacy_physical_to_alias(
+        self,
+        target_index: str,
+        *,
+        backup_index: str,
+    ) -> AliasSwitchResult:
+        """Promote a strict candidate when the historical read target is an index.
+
+        The first Visual Search canary used the future read-alias name as a
+        physical index. Elasticsearch does not allow an alias and index to share
+        a name, so the safe transition is:
+
+        1. copy the legacy physical index to a separately named rollback index;
+        2. require source, rollback and candidate counts to match;
+        3. atomically remove the legacy physical index and add the read alias to
+           the candidate in one alias cluster-state update.
+
+        Callers must drain visual-index writers before invoking this method.
+        Any failed precondition leaves the active physical index untouched.
         """
+        self._validate_physical_candidate_index(target_index)
+        self._validate_physical_candidate_index(backup_index)
+        if target_index == backup_index:
+            raise VisualSearchIndexError(
+                "candidate and rollback backup must be different indices"
+            )
+        if await self._target_kind() != "physical":
+            raise VisualSearchIndexError(
+                "legacy migration requires the visual read target to be a physical index"
+            )
+
+        target_mapping = await self._index._request(
+            "GET",
+            f"/{target_index}/_mapping",
+        )
+        self._validate_candidate_mapping(target_index, target_mapping)
+
+        existing_backup = await self._index._request(
+            "GET",
+            f"/{backup_index}/_settings",
+            allow_not_found=True,
+        )
+        if existing_backup:
+            raise VisualSearchIndexError(
+                "rollback backup index already exists"
+            )
+
+        source_mapping_payload = await self._index._request(
+            "GET",
+            f"/{self.read_alias}/_mapping",
+        )
+        source_payload = source_mapping_payload.get(self.read_alias)
+        source_mappings = (
+            source_payload.get("mappings")
+            if isinstance(source_payload, Mapping)
+            else None
+        )
+        if not isinstance(source_mappings, Mapping):
+            raise ElasticsearchV3RequestError(
+                "legacy visual index mapping response is malformed"
+            )
+
+        source_count_payload = await self._index._request(
+            "GET",
+            f"/{self.read_alias}/_count",
+        )
+        source_count = source_count_payload.get("count")
+        if not isinstance(source_count, int) or source_count < 0:
+            raise ElasticsearchV3RequestError(
+                "legacy visual index count response is malformed"
+            )
+
+        await self._index._request(
+            "PUT",
+            f"/{backup_index}",
+            json_body={"settings": {}, "mappings": dict(source_mappings)},
+        )
+        backup_copy = await self._index._request(
+            "POST",
+            "/_reindex?refresh=true&wait_for_completion=true",
+            json_body={
+                "source": {"index": self.read_alias},
+                "dest": {"index": backup_index, "op_type": "create"},
+                "conflicts": "abort",
+            },
+        )
+        failures = (
+            backup_copy.get("failures")
+            if isinstance(backup_copy, Mapping)
+            else None
+        )
+        backup_created = (
+            backup_copy.get("created")
+            if isinstance(backup_copy, Mapping)
+            else None
+        )
+        if failures or backup_created != source_count:
+            raise ElasticsearchV3RequestError(
+                "legacy visual rollback backup did not copy the full source"
+            )
+
+        # Rebuild the inactive candidate from the drained source immediately
+        # before cutover. This removes stale candidate documents and guarantees
+        # that a successful migration promotes the same projection we backed up.
+        await self._index._request(
+            "POST",
+            f"/{target_index}/_delete_by_query?refresh=true&conflicts=proceed",
+            json_body={"query": {"match_all": {}}},
+        )
+        target_copy = await self._index._request(
+            "POST",
+            "/_reindex?refresh=true&wait_for_completion=true",
+            json_body={
+                "source": {"index": self.read_alias},
+                "dest": {"index": target_index, "op_type": "create"},
+                "conflicts": "abort",
+            },
+        )
+        target_failures = (
+            target_copy.get("failures")
+            if isinstance(target_copy, Mapping)
+            else None
+        )
+        target_created = (
+            target_copy.get("created")
+            if isinstance(target_copy, Mapping)
+            else None
+        )
+        if target_failures or target_created != source_count:
+            raise ElasticsearchV3RequestError(
+                "strict visual candidate did not copy the full source"
+            )
+
+        source_after_payload = await self._index._request(
+            "GET",
+            f"/{self.read_alias}/_count",
+        )
+        backup_count_payload = await self._index._request(
+            "GET",
+            f"/{backup_index}/_count",
+        )
+        target_count_payload = await self._index._request(
+            "GET",
+            f"/{target_index}/_count",
+        )
+        source_after = source_after_payload.get("count")
+        backup_count = backup_count_payload.get("count")
+        target_count = target_count_payload.get("count")
+        if (
+            source_after != source_count
+            or backup_count != source_count
+            or target_count != source_count
+        ):
+            raise VisualSearchIndexError(
+                "visual index counts changed or do not match; cutover aborted"
+            )
+
+        await self._index._request(
+            "POST",
+            "/_aliases",
+            json_body={
+                "actions": [
+                    {"remove_index": {"index": self.read_alias}},
+                    {
+                        "add": {
+                            "index": target_index,
+                            "alias": self.read_alias,
+                            "is_write_index": True,
+                        }
+                    },
+                ]
+            },
+        )
+        active = await self._index._request(
+            "GET",
+            f"/_alias/{self.read_alias}",
+        )
+        if set(active) != {target_index}:
+            raise ElasticsearchV3RequestError(
+                "visual read alias verification failed after cutover"
+            )
+        return AliasSwitchResult(
+            target_index,
+            (backup_index,),
+            (),
+        )
+
+    async def switch_aliases(self, target_index: str) -> AliasSwitchResult:
+        """Atomically move the dedicated visual read/write target."""
         self._validate_physical_candidate_index(target_index)
         await self._index._request("HEAD", f"/{target_index}")
         current = await self._index._alias_indices()
+        if not current["read"]:
+            raise VisualSearchIndexError(
+                "visual read alias is not established; use the legacy migration path"
+            )
         actions = [
             {"remove": {"index": name, "alias": self.read_alias, "must_exist": True}}
             for name in sorted(current["read"])
         ]
-        actions.append({"add": {"index": target_index, "alias": self.read_alias}})
+        actions.append(
+            {
+                "add": {
+                    "index": target_index,
+                    "alias": self.read_alias,
+                    "is_write_index": True,
+                }
+            }
+        )
         await self._index._request("POST", "/_aliases", json_body={"actions": actions})
         return AliasSwitchResult(target_index, tuple(sorted(current["read"])), ())
     async def alias_indices(self) -> dict[str, set[str]]: return await self._index.alias_indices()

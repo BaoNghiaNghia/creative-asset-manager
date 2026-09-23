@@ -71,6 +71,7 @@ DEFAULT_CHECKS = (
             "-k",
             (
                 "switch_aliases or "
+                "migrate_legacy_physical_to_alias or "
                 "v1_and_siglip2_v2_use_distinct_index_namespaces"
             ),
         ),

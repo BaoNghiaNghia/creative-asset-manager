@@ -638,6 +638,7 @@ Operator sequence:
 - candidate target names must stay inside the active Visual Search schema/index-generation namespace; aliases and cross-namespace indices are rejected;
 - `search_index()` benchmarks a physical candidate directly, retaining tenant/lifecycle/access filters and defensive cross-tenant hit filtering;
 - `switch_aliases()` now validates that its target is a physical index in the same Visual Search namespace before any alias mutation;
+- the original SigLIP2 canary accidentally used the future read-alias name as a physical index; `migrate_legacy_physical_to_alias()` provides a fail-closed one-time transition by copying that legacy index to a rollback physical index, rebuilding the inactive strict candidate from the drained source, verifying equal counts, and atomically replacing the legacy physical index with the read/write alias in one Elasticsearch alias update;
 - `ann_benchmark.py` compares the physical candidate against the active alias without activation and reports p50/p95/max KNN latency, expected-positive recall, baseline result overlap, and result counts;
 - the benchmark matrix is A=`K40/candidates160/page20`, B=`K80/candidates240/page20`, C=`K120/candidates320/page40`, D=`K200/candidates500/page40`;
 - benchmark datasets carry already-versioned `visual_embedding_v2` vectors plus tenant scope and expected positive asset IDs; raw images/text do not need to be logged into the benchmark report;

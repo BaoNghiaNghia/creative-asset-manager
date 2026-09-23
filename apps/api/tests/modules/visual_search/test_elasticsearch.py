@@ -237,8 +237,157 @@ class VisualSearchElasticsearchTest(unittest.TestCase):
             actions = action_request.kwargs["json_body"]["actions"]
             self.assertEqual(actions, [
                 {"remove": {"index": "old-index", "alias": self.index.read_alias, "must_exist": True}},
-                {"add": {"index": target, "alias": self.index.read_alias}},
+                {"add": {"index": target, "alias": self.index.read_alias, "is_write_index": True}},
             ])
+        asyncio.run(verify())
+
+    def test_migrate_legacy_physical_to_alias_preserves_rollback_copy_and_switches_atomically(self) -> None:
+        async def verify() -> None:
+            target = self.index.physical_index_name("20260923-strict")
+            backup = self.index.physical_index_name("20260923-legacy-backup")
+            legacy = self.index.read_alias
+            candidate_mapping = {
+                target: {
+                    "mappings": {
+                        "dynamic": "strict",
+                        "properties": {
+                            "tenant_id": {"type": "keyword"},
+                            "asset_id": {"type": "keyword"},
+                            "visual_embedding": {
+                                "type": "dense_vector",
+                                "dims": 3,
+                                "similarity": "cosine",
+                            },
+                        },
+                    }
+                }
+            }
+            legacy_mapping = {
+                legacy: {
+                    "mappings": {
+                        "properties": {
+                            "tenant_id": {"type": "text"},
+                            "asset_id": {"type": "text"},
+                            "visual_embedding": {
+                                "type": "dense_vector",
+                                "dims": 3,
+                                "similarity": "cosine",
+                            },
+                        }
+                    }
+                }
+            }
+            self.index._index._request = AsyncMock(
+                side_effect=[
+                    {},
+                    {legacy: {"settings": {}}},
+                    candidate_mapping,
+                    {},
+                    legacy_mapping,
+                    {"count": 2},
+                    {},
+                    {"created": 2, "failures": []},
+                    {"deleted": 2},
+                    {"created": 2, "failures": []},
+                    {"count": 2},
+                    {"count": 2},
+                    {"count": 2},
+                    {},
+                    {target: {"aliases": {legacy: {"is_write_index": True}}}},
+                ]
+            )
+
+            result = await self.index.migrate_legacy_physical_to_alias(
+                target,
+                backup_index=backup,
+            )
+
+            self.assertEqual(result.target_index, target)
+            self.assertEqual(result.previous_read_indices, (backup,))
+            requests = self.index._index._request.await_args_list
+            self.assertEqual(
+                requests[6].kwargs["json_body"]["mappings"],
+                legacy_mapping[legacy]["mappings"],
+            )
+            self.assertEqual(
+                requests[8].args[1],
+                f"/{target}/_delete_by_query?refresh=true&conflicts=proceed",
+            )
+            self.assertEqual(
+                requests[9].kwargs["json_body"]["dest"],
+                {"index": target, "op_type": "create"},
+            )
+            alias_request = requests[13]
+            self.assertEqual(alias_request.args[:2], ("POST", "/_aliases"))
+            self.assertEqual(
+                alias_request.kwargs["json_body"]["actions"],
+                [
+                    {"remove_index": {"index": legacy}},
+                    {
+                        "add": {
+                            "index": target,
+                            "alias": legacy,
+                            "is_write_index": True,
+                        }
+                    },
+                ],
+            )
+
+        asyncio.run(verify())
+
+    def test_migrate_legacy_physical_to_alias_aborts_before_alias_mutation_when_counts_drift(self) -> None:
+        async def verify() -> None:
+            target = self.index.physical_index_name("20260923-strict")
+            backup = self.index.physical_index_name("20260923-legacy-backup")
+            legacy = self.index.read_alias
+            candidate_mapping = {
+                target: {
+                    "mappings": {
+                        "dynamic": "strict",
+                        "properties": {
+                            "tenant_id": {"type": "keyword"},
+                            "asset_id": {"type": "keyword"},
+                            "visual_embedding": {
+                                "type": "dense_vector",
+                                "dims": 3,
+                                "similarity": "cosine",
+                            },
+                        },
+                    }
+                }
+            }
+            self.index._index._request = AsyncMock(
+                side_effect=[
+                    {},
+                    {legacy: {"settings": {}}},
+                    candidate_mapping,
+                    {},
+                    {legacy: {"mappings": {"properties": {}}}},
+                    {"count": 2},
+                    {},
+                    {"created": 2, "failures": []},
+                    {"deleted": 2},
+                    {"created": 2, "failures": []},
+                    {"count": 3},
+                    {"count": 2},
+                    {"count": 2},
+                ]
+            )
+
+            with self.assertRaisesRegex(
+                VisualSearchIndexError,
+                "counts changed or do not match",
+            ):
+                await self.index.migrate_legacy_physical_to_alias(
+                    target,
+                    backup_index=backup,
+                )
+
+            self.assertNotIn(
+                "/_aliases",
+                [call.args[1] for call in self.index._index._request.await_args_list],
+            )
+
         asyncio.run(verify())
 if __name__ == "__main__":
     unittest.main()
