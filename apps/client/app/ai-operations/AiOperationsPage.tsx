@@ -8,8 +8,9 @@ import {
   aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsScope, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
   retryAiOperationsJob, retryAiOperationsJobsByError, searchFromFilters, fetchAiOperationsVideoDetail,
   fetchVisualSearchCoverageDashboard,
+  fetchVisualSearchDiagnostics,
   type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage, type PipelineSnapshot, type DashboardField,
-  type VisualSearchCoverage, type VisualSearchSourceCoverageResponse,
+  type VisualSearchCoverage, type VisualSearchDiagnostics, type VisualSearchSourceCoverageResponse,
 } from "../../features/ai_operations";
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
@@ -78,6 +79,9 @@ export function AiOperationsPage() {
   const [visualSources, setVisualSources] = useState<VisualSearchSourceCoverageResponse | null>(null);
   const [visualLoading, setVisualLoading] = useState(false);
   const [visualError, setVisualError] = useState<string | null>(null);
+  const [visualDiagnostics, setVisualDiagnostics] = useState<VisualSearchDiagnostics | null>(null);
+  const [visualDiagnosticsLoading, setVisualDiagnosticsLoading] = useState(false);
+  const [visualDiagnosticsError, setVisualDiagnosticsError] = useState<string | null>(null);
   const visualLoadedReload = useRef<number | null>(null);
   const [detailsAssetId, setDetailsAssetId] = useState<string | null>(null);
   const [detailsVideo, setDetailsVideo] = useState<{ item: Asset; analysis: VideoSearchItem } | null>(null);
@@ -236,10 +240,24 @@ export function AiOperationsPage() {
       setErrors(current => [...current, error instanceof Error ? error.message : "Unable to load video details."]);
     }
   }
+
+  async function loadVisualDiagnostics() {
+    setVisualDiagnosticsLoading(true);
+    setVisualDiagnosticsError(null);
+    try {
+      setVisualDiagnostics(await fetchVisualSearchDiagnostics());
+    } catch (error) {
+      setVisualDiagnosticsError(error instanceof Error ? error.message : "Không thể tải Visual Search diagnostics.");
+    } finally {
+      setVisualDiagnosticsLoading(false);
+    }
+  }
   return <AiOperationsShell subtitle={identity?.email || "Operations console"} tab={tab} onTab={changeTab}>
     <AiOperationsContent
       data={data} loading={loading} errors={errors} unauthorized={identityUnauthorized || scopeUnauthorized}
       visualCoverage={visualCoverage} visualSources={visualSources} visualLoading={visualLoading} visualError={visualError}
+      visualDiagnostics={visualDiagnostics} visualDiagnosticsLoading={visualDiagnosticsLoading}
+      visualDiagnosticsError={visualDiagnosticsError} onLoadVisualDiagnostics={() => void loadVisualDiagnostics()}
       filters={filters} tab={tab} onTab={changeTab} onFilters={changeFilters}
       refreshSeconds={refreshSeconds} onRefreshSeconds={changeRefresh}
       media={media} onMedia={changeMedia}
@@ -304,6 +322,10 @@ type ContentProps = {
   visualSources?: VisualSearchSourceCoverageResponse | null;
   visualLoading?: boolean;
   visualError?: string | null;
+  visualDiagnostics?: VisualSearchDiagnostics | null;
+  visualDiagnosticsLoading?: boolean;
+  visualDiagnosticsError?: string | null;
+  onLoadVisualDiagnostics?: () => void;
 };
 
 export function AiOperationsContent({
@@ -312,6 +334,8 @@ export function AiOperationsContent({
   lastUpdated = null, permissions = [], authorizationReason = "Sign in is required.", media = "image", onMedia = () => undefined,
   onOpenAsset = () => undefined, onOpenVideo = () => undefined,
   visualCoverage = null, visualSources = null, visualLoading = false, visualError = null,
+  visualDiagnostics = null, visualDiagnosticsLoading = false, visualDiagnosticsError = null,
+  onLoadVisualDiagnostics = () => undefined,
 }: ContentProps) {
   const independentTabs = ["inventory", "creative-pipeline", "visual-search", "providers", "configuration"] as const;
   const [visitedTabs, setVisitedTabs] = useState<AiOpsTab[]>([tab]);
@@ -481,7 +505,11 @@ export function AiOperationsContent({
     {independentTabs.map(value => visitedTabs.includes(value) ? <section key={value} id={`ops-panel-${value}`} role="tabpanel" aria-labelledby={`ops-tab-${value}`} tabIndex={tab === value ? 0 : -1} hidden={tab !== value}>
       {value === "inventory" ? <InventoryDailyTab />
         : value === "creative-pipeline" ? <CreativePipelineTab canManage={permissions.includes("assets.generate")} />
-        : value === "visual-search" ? <VisualSearchOperationsTab coverage={visualCoverage} sources={visualSources} loading={visualLoading} error={visualError} onRetry={onRetry} />
+        : value === "visual-search" ? <VisualSearchOperationsTab
+          coverage={visualCoverage} sources={visualSources} loading={visualLoading} error={visualError} onRetry={onRetry}
+          diagnostics={visualDiagnostics} diagnosticsLoading={visualDiagnosticsLoading}
+          diagnosticsError={visualDiagnosticsError} onLoadDiagnostics={onLoadVisualDiagnostics}
+        />
         : value === "providers" ? <ProvidersTab metrics={data.todayProviders} inventoryPermissions={permissions} />
         : <ConfigurationTab />}
     </section> : null)}

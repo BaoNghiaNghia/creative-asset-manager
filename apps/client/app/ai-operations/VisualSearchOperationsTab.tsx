@@ -1,6 +1,16 @@
-import type { VisualSearchCoverage, VisualSearchSourceCoverage, VisualSearchSourceCoverageResponse } from "../../features/ai_operations";
+import type { VisualSearchCoverage, VisualSearchDiagnostics, VisualSearchSourceCoverage, VisualSearchSourceCoverageResponse } from "../../features/ai_operations";
 
-type Props = { coverage: VisualSearchCoverage | null; sources: VisualSearchSourceCoverageResponse | null; loading: boolean; error: string | null; onRetry: () => void; };
+type Props = {
+  coverage: VisualSearchCoverage | null;
+  sources: VisualSearchSourceCoverageResponse | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  diagnostics: VisualSearchDiagnostics | null;
+  diagnosticsLoading: boolean;
+  diagnosticsError: string | null;
+  onLoadDiagnostics: () => void;
+};
 type IconName = "visual" | "eligible" | "indexed" | "sync" | "queue" | "running" | "review" | "source";
 const iconPaths: Record<IconName, string> = {
   visual: "M4 7h3l1.4-2h7.2L17 7h3v11H4V7z M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
@@ -36,7 +46,7 @@ function VisualSearchSkeleton() {
   </div>;
 }
 
-export function VisualSearchOperationsTab({ coverage, sources, loading, error, onRetry }: Props) {
+export function VisualSearchOperationsTab({ coverage, sources, loading, error, onRetry, diagnostics, diagnosticsLoading, diagnosticsError, onLoadDiagnostics }: Props) {
   if (loading || (!coverage && !error)) return <VisualSearchSkeleton />;
   if (error) return <div className="visual-ops-state visual-ops-state-error"><div><b>Không thể tải trạng thái Visual Search.</b><span>{error}</span></div><button type="button" onClick={onRetry}>Thử lại</button></div>;
   if (!coverage) return <div className="visual-ops-state">Chưa có dữ liệu coverage cho Visual Search.</div>;
@@ -46,7 +56,9 @@ export function VisualSearchOperationsTab({ coverage, sources, loading, error, o
   const indexAvailable = coverage.index_state === "available";
   const queueTotal = totals.visual_jobs_pending || 0;
   return <div className="ops-content pipeline-content visual-ops" aria-label="Visual Search pipeline">
-    <header className="visual-ops-heading"><div className="visual-ops-heading-copy"><span className="visual-ops-heading-icon"><VisualIcon name="visual" /></span><div><small>VISUAL SEARCH</small><h2>Tiến trình lập chỉ mục hình ảnh</h2><p>Theo dõi ảnh nguồn, mức sẵn sàng tìm kiếm và phần việc cần đồng bộ.</p></div></div><span className={indexAvailable ? "visual-ops-index-state ready" : "visual-ops-index-state unavailable"}><i aria-hidden="true" />{indexAvailable ? "Elasticsearch sẵn sàng" : "Elasticsearch chưa khả dụng"}</span></header>
+    <header className="visual-ops-heading"><div className="visual-ops-heading-copy"><span className="visual-ops-heading-icon"><VisualIcon name="visual" /></span><div><small>VISUAL SEARCH</small><h2>Tiến trình lập chỉ mục hình ảnh</h2><p>Theo dõi ảnh nguồn, mức sẵn sàng tìm kiếm và phần việc cần đồng bộ.</p></div></div><div className="visual-ops-heading-actions"><button type="button" onClick={onLoadDiagnostics} disabled={diagnosticsLoading}>{diagnosticsLoading ? "Đang tải diagnostics…" : "Export diagnostics"}</button><span className={indexAvailable ? "visual-ops-index-state ready" : "visual-ops-index-state unavailable"}><i aria-hidden="true" />{indexAvailable ? "Elasticsearch sẵn sàng" : "Elasticsearch chưa khả dụng"}</span></div></header>
+    {diagnosticsError && <div className="visual-ops-diagnostics-error" role="alert">{diagnosticsError}</div>}
+    {diagnostics && <details className="visual-ops-diagnostics" open><summary>Visual Search diagnostics JSON</summary><pre>{JSON.stringify(diagnostics, null, 2)}</pre></details>}
     <section className="pipeline-summary visual-ops-summary" aria-label="Tóm tắt Visual Search"><SummaryMetric icon="eligible" label="Ảnh đủ điều kiện" value={totals.visual_eligible} detail="Có thể tạo embedding" /><SummaryMetric icon="indexed" label="Sẵn sàng tìm kiếm" value={totals.visual_indexed_current} detail={`${formatPercent(ratios.eligible_visual_coverage)} ảnh đủ điều kiện`} tone="success" /><SummaryMetric icon="running" label="Đang xử lý" value={totals.visual_jobs_processing} detail="Job đồng bộ đang chạy" tone="info" /><SummaryMetric icon="queue" label="Đang chờ xử lý" value={queueTotal} detail="Chờ bắt đầu hoặc thử lại" tone="warning" /><SummaryMetric icon="review" label="Cần xử lý" value={totals.visual_jobs_failed} detail="Job cần kiểm tra" tone="attention" /></section>
     <div className="pipeline-context-row visual-ops-context-row" role="group" aria-label="Tình trạng Visual Search">
       <section className="pipeline-scan-card visual-ops-corpus-card"><div className="pipeline-context-heading"><small>PHẠM VI LẬP CHỈ MỤC</small><div className="pipeline-context-title"><ContextIcon name="sync" /><h2>{indexAvailable ? "Đồng bộ corpus Visual Search" : "Chờ kết nối Elasticsearch"}</h2></div><p>{indexAvailable ? "Projection current được giữ nguyên; pipeline chỉ xử lý tài sản thiếu hoặc stale." : "Số liệu phụ thuộc Elasticsearch giữ trạng thái chưa rõ, không được hiểu là 0."}</p></div><dl><div><dt>Đã phát hiện</dt><dd>{formatNumber(totals.discovered_images)}</dd></div><div><dt>Đã nhập</dt><dd>{formatNumber(totals.imported_images)}</dd></div><div><dt>Cần đồng bộ</dt><dd>{indexAvailable ? formatNumber(actionNeeded) : "Chưa rõ"}</dd></div></dl></section>

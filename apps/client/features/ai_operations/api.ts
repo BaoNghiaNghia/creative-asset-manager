@@ -511,6 +511,18 @@ export const fetchVisualSearchCoverageDashboard = (fetcher: Fetcher = fetch, sig
 export const fetchVisualSearchSourceCoverage = (fetcher: Fetcher = fetch, signal?: AbortSignal) =>
   read<VisualSearchSourceCoverageResponse>("/api/v1/admin/visual-search/coverage/sources", fetcher, signal);
 
+export type VisualSearchDiagnostics = {
+  enabled: boolean;
+  upload_enabled: boolean;
+  crop_enabled: boolean;
+  hybrid_text_enabled: boolean;
+  backfill_enabled: boolean;
+  metrics: Record<string, unknown>;
+};
+
+export const fetchVisualSearchDiagnostics = (fetcher: Fetcher = fetch, signal?: AbortSignal) =>
+  read<VisualSearchDiagnostics>("/api/v1/visual-search/diagnostics", fetcher, signal);
+
 export const repairSearchCoverage = (body: { confirmed: true; limit: number; verify_elasticsearch?: boolean; repair_projections: boolean; repair_indexes: boolean }, fetcher: Fetcher = fetch) =>
   mutate("/api/v1/admin/ai-operations/coverage/repair", "POST", body, fetcher);
 

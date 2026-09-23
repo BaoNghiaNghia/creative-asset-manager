@@ -1079,7 +1079,7 @@ describe("Search Coverage card", () => {
 describe("Visual Search Operations pipeline", () => {
 
   it("renders the pipeline-shaped skeleton while coverage is loading", () => {
-    const markup = renderToStaticMarkup(<VisualSearchOperationsTab loading error={null} onRetry={noop} coverage={null} sources={null} />);
+    const markup = renderToStaticMarkup(<VisualSearchOperationsTab loading error={null} onRetry={noop} coverage={null} sources={null} diagnostics={null} diagnosticsLoading={false} diagnosticsError={null} onLoadDiagnostics={noop} />);
     expect(markup).toContain("visual-ops-skeleton");
     expect(markup).toContain("visual-ops-skeleton-metric");
     expect(markup).toContain("Đang tải dữ liệu Visual Search");
@@ -1090,6 +1090,10 @@ describe("Visual Search Operations pipeline", () => {
       loading={false}
       error={null}
       onRetry={noop}
+      diagnostics={{ enabled: true, upload_enabled: true, crop_enabled: true, hybrid_text_enabled: true, backfill_enabled: false, metrics: { encode_success_total: 12 } }}
+      diagnosticsLoading={false}
+      diagnosticsError={null}
+      onLoadDiagnostics={noop}
       coverage={{
         generated_at: "2026-09-14T10:00:00Z",
         index_state: "available",
@@ -1116,12 +1120,16 @@ describe("Visual Search Operations pipeline", () => {
     expect(markup).toContain("Đã phát hiện");
     expect(markup).toContain("Cần đồng bộ");
     expect(markup).toContain("Creative Drive");
+    expect(markup).toContain("Visual Search diagnostics JSON");
+    expect(markup).toContain("encode_success_total");
     expect(markup).not.toContain("access_token");
+    expect(markup).not.toContain("refresh_token");
   });
 
   it("keeps Elasticsearch-derived source values explicitly unknown while unavailable", () => {
     const markup = renderToStaticMarkup(<VisualSearchOperationsTab
       loading={false} error={null} onRetry={noop}
+      diagnostics={null} diagnosticsLoading={false} diagnosticsError={null} onLoadDiagnostics={noop}
       coverage={{
         generated_at: "2026-09-14T10:00:00Z", index_state: "unavailable",
         totals: { discovered_images: 1, imported_images: 1, visual_eligible: 1, visual_indexed_current: null, visual_index_missing: null, visual_index_stale: null, unsupported_images: 0, visual_jobs_pending: 0, visual_jobs_processing: 0, visual_jobs_failed: 0 },
