@@ -164,10 +164,13 @@ function AssetMetadataBar({
   onRate: (item: Asset, rating: number | null) => void;
 }) {
   const visibility = metadata?.tag_ids.find(tag => tag === "public" || tag === "draft");
+  const showProcessingStatus = item.kind !== "folder" && Boolean(metadata);
+
+  if (!showProcessingStatus && !visibility && item.kind === "folder") return null;
 
   return <div className="asset-metadata">
     <span className="asset-labels">
-      {metadata && <AssetStatusBadge status={metadata.processing_status} />}
+      {showProcessingStatus && metadata && <AssetStatusBadge status={metadata.processing_status} />}
       {visibility && <span className={"asset-status " + visibility}>{visibility}</span>}
     </span>
     {item.kind !== "folder" && <span className="asset-rating" aria-label="Asset rating">

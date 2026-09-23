@@ -2,6 +2,7 @@ import { isPreviewableAsset } from "./utils/fileType";
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
+import { FolderReviewLinkActions, reviewShareIdForFolder } from "./components/FolderReviewLinkActions";
 import { VideoSearchResults } from "./components/VideoSearchResults";
 import { VideoSearchPlayer } from "./components/VideoSearchPlayer";
 import type { VideoSearchItem } from "./hooks/useVideoSearch";
@@ -302,6 +303,14 @@ export default function App() {
     && explorer.query.trim().length >= 2
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
   const showSearchHistory = searchHistoryOpen && !showSuggestions && !explorer.query.trim() && searchHistory.length > 0;
+  const currentFolder = explorer.path.at(-1);
+  const currentFolderReviewShareId = canManageReviewLinks
+    ? reviewShareIdForFolder(
+        currentFolder,
+        explorer.activeExternalSourceId,
+        reviewLinkShareIds,
+      )
+    : null;
   useEffect(() => {
     const restoreMediaMode = () => {
       setSearchMediaMode(parseSearchMediaMode(new URLSearchParams(window.location.search).get("media")));
@@ -992,7 +1001,14 @@ export default function App() {
           <div className="title">
             <span className="search-summary">
               <h1>
-                {explorer.path.at(-1)?.name || "My Drive"}
+                {currentFolder?.name || "My Drive"}
+                {currentFolder && currentFolderReviewShareId && <FolderReviewLinkActions
+                  item={currentFolder}
+                  shareId={currentFolderReviewShareId}
+                  onCopyReviewLink={copyCurrentReviewLink}
+                  onRefreshReviewLink={refreshReviewLink}
+                  titleContext
+                />}
                 {folderNoteAvailable && <button
                   type="button"
                   className="folder-note-trigger"

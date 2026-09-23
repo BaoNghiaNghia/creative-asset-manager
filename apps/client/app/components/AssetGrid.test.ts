@@ -207,6 +207,38 @@ describe("AssetGrid marquee selection and drag-out", () => {
     expect(prewarm.some(item => item.id === "unknown")).toBe(false);
   });
 
+  it("hides the Discovered processing badge on folder cards", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(AssetGrid, {
+      items: [
+        { provider: "google-drive", id: "folder-1", name: "Amazon - Collection", kind: "folder", mime_type: "application/vnd.google-apps.folder" },
+        { provider: "google-drive", id: "file-1", name: "photo.jpg", kind: "image", mime_type: "image/jpeg" },
+      ],
+      path: [],
+      selected: new Set<string>(),
+      metadataByItem: {
+        "folder-1": { item_id: "folder-1", tag_ids: [], rating: null, processing_status: "discovered" },
+        "file-1": { item_id: "file-1", tag_ids: [], rating: null, processing_status: "discovered" },
+      },
+      onOpen: noop,
+      onToggle: noop,
+      onReplaceSelection: noop,
+      onPrefetch: noop,
+      onCancelPrefetch: noop,
+      onPreview: noop,
+      onRate: noop,
+      onDetails: noop,
+      onFocus: noop,
+      onContextMenu: noop,
+    }));
+    const folderMarkup = markup.slice(
+      markup.indexOf('data-asset-id="folder-1"'),
+      markup.indexOf('data-asset-id="file-1"'),
+    );
+    expect(folderMarkup).not.toContain("Discovered");
+    expect(markup).toContain("Discovered");
+  });
+
   it("marks files, but not folders, as draggable originals", () => {
     const noop = () => undefined;
     const markup = renderToStaticMarkup(createElement(AssetGrid, {
