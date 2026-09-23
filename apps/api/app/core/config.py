@@ -804,8 +804,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_worker_role(cls, value: str) -> str:
         normalized = value.strip().casefold()
-        if normalized not in {"all", "image", "video"}:
-            raise ValueError("WORKER_ROLE must be one of: all, image, video")
+        if normalized not in {"all", "image", "video", "visual"}:
+            raise ValueError("WORKER_ROLE must be one of: all, image, video, visual")
         return normalized
 
     @field_validator("WORKER_LOG_LEVEL")

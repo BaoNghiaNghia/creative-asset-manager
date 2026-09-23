@@ -33,6 +33,14 @@ Historical backfill must yield to user-facing and live-ingestion work:
 - `VISUAL_SEARCH_BACKFILL_RECENT_DAYS` defines the recent-asset priority
   window.
 
+Production runs `visual_index_sync` on the dedicated
+`creative-asset-manager-visual-worker.service` (`WORKER_ROLE=visual`). Image
+workers do not claim visual jobs. This gives historical indexing one bounded
+consumer even when the Image AI queue contains an older high-priority backlog,
+while the isolated encoder remains the single inference concurrency boundary.
+The dedicated worker must be drained together with the encoder before alias
+cutover or rollback.
+
 Default production-safe values are:
 
     VISUAL_SEARCH_BACKFILL_MAX_QUEUED_JOBS=250

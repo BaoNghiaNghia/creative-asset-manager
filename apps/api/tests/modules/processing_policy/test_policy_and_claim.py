@@ -127,7 +127,7 @@ class ProcessingPolicyTest(unittest.TestCase):
             session.get(ProcessingJobModel, fresh).priority = 40
 
         claimed = self.claim(
-            "image-worker", ("visual_index_sync",), worker_role="image",
+            "visual-worker", ("visual_index_sync",), worker_role="visual",
         )
 
         self.assertIsNotNone(claimed)
@@ -152,8 +152,8 @@ class ProcessingPolicyTest(unittest.TestCase):
             download_job.next_attempt_at = NOW - timedelta(days=2)
 
         claimed = self.claim(
-            "image-worker", ("visual_index_sync", "source_asset_download"),
-            worker_role="image",
+            "visual-worker", ("visual_index_sync", "source_asset_download"),
+            worker_role="visual",
         )
 
         self.assertIsNotNone(claimed)
@@ -420,12 +420,11 @@ class ProcessingPolicyTest(unittest.TestCase):
         )
 
         claimed = self.claim(
-            "image-worker", ("visual_index_sync",), worker_role="image",
+            "visual-worker", ("visual_index_sync",), worker_role="visual",
         )
 
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.id, visual)
-
     def test_visual_index_sync_respects_search_policy(self):
         self.policy("tenant")
         self.job(
@@ -436,7 +435,7 @@ class ProcessingPolicyTest(unittest.TestCase):
             session.get(TenantProcessingPolicyModel, "tenant").search_v2_enabled = False
 
         self.assertIsNone(
-            self.claim("image-worker", ("visual_index_sync",), worker_role="image")
+            self.claim("visual-worker", ("visual_index_sync",), worker_role="visual")
         )
 
     def test_video_search_index_remains_tenant_scoped_by_search_v2_policy(self):

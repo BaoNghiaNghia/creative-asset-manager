@@ -26,6 +26,7 @@ LOG_DIR="${CAM_BACKEND_LOG_DIR:-/var/log/creative-asset-manager}"
 
 IMAGE_WORKER_HEALTH_PORT="${CAM_IMAGE_WORKER_HEALTH_PORT:-8081}"
 VIDEO_WORKER_HEALTH_PORT="${CAM_VIDEO_WORKER_HEALTH_PORT:-8082}"
+VISUAL_WORKER_HEALTH_PORT="${CAM_VISUAL_WORKER_HEALTH_PORT:-8087}"
 VISUAL_ENCODER_RUNTIME_DIR="${CAM_VISUAL_ENCODER_RUNTIME_DIR:-/var/lib/creative-asset-manager/visual-encoder-runtime}"
 
 REF=""
@@ -790,7 +791,8 @@ cleanup_old_releases() {
     creative-asset-manager-image-worker-3.service \
     creative-asset-manager-image-worker-4.service \
     creative-asset-manager-image-worker-5.service \
-    creative-asset-manager-video-worker.service
+    creative-asset-manager-video-worker.service \
+    creative-asset-manager-visual-worker.service
   do
 
     pid="$(
@@ -1122,6 +1124,10 @@ diagnose_endpoint_failure() {
       service="creative-asset-manager-video-worker.service"
       port="$VIDEO_WORKER_HEALTH_PORT"
       ;;
+    "worker $VISUAL_WORKER_HEALTH_PORT "*)
+      service="creative-asset-manager-visual-worker.service"
+      port="$VISUAL_WORKER_HEALTH_PORT"
+      ;;
   esac
 
   [[ -n "$service" ]] || return 0
@@ -1160,6 +1166,7 @@ verify_services() {
     creative-asset-manager-image-worker-2.service \
     creative-asset-manager-image-worker-3.service \
     creative-asset-manager-video-worker.service \
+    creative-asset-manager-visual-worker.service \
     creative-asset-manager-visual-encoder.service
   do
 
@@ -1241,7 +1248,8 @@ verify_services() {
     "$IMAGE_WORKER_HEALTH_PORT" \
     "8083" \
     "8084" \
-    "$VIDEO_WORKER_HEALTH_PORT"
+    "$VIDEO_WORKER_HEALTH_PORT" \
+    "$VISUAL_WORKER_HEALTH_PORT"
   do
 
     for endpoint in \
@@ -1290,6 +1298,13 @@ restart_services() {
 
   systemctl restart \
     creative-asset-manager-video-worker.service
+
+
+  info "Restarting dedicated Visual Search worker"
+
+  systemctl restart \
+    creative-asset-manager-visual-worker.service
+
 
 
   info "Restarting isolated visual encoder"
@@ -1714,6 +1729,7 @@ for unit in \
   creative-asset-manager-video-worker.service \
   creative-asset-manager-visual-encoder.service \
   creative-asset-manager-inventory-v41-snapshot.service \
+  creative-asset-manager-visual-worker.service \
   creative-asset-manager-inventory-v41-snapshot.timer \
   creative-asset-manager-inventory-v41-reconcile.service \
   creative-asset-manager-inventory-v41-reconcile.timer \
@@ -1795,8 +1811,8 @@ systemctl enable \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
   creative-asset-manager-video-worker.service \
+  creative-asset-manager-visual-worker.service \
   creative-asset-manager-visual-encoder.service
-
 
 info \
   "Replacing fixed Inventory V4.1 timers with the configured V5J lifecycle timer"

@@ -18,6 +18,7 @@ QUATERNARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-im
 QUINARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-5.service"
 VIDEO_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
 VISUAL_ENCODER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-visual-encoder.service"
+VISUAL_WORKER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-visual-worker.service"
 NGINX_CONFIG = ROOT / "infrastructure" / "nginx" / "creative-asset-manager.conf"
 
 
@@ -74,6 +75,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             "creative-asset-manager-image-worker-4.service",
             "creative-asset-manager-image-worker-5.service",
             "creative-asset-manager-video-worker.service",
+            "creative-asset-manager-visual-worker.service",
             "Preparing persistent isolated visual encoder runtime",
             "VISUAL_ENCODER_RUNTIME_DIR",
             "requirements.sha256",
@@ -124,6 +126,10 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("WORKER_ID=creativeasset-image-quinary", QUINARY_IMAGE_UNIT.read_text())
         self.assertIn("WORKER_HEALTH_PORT=8086", QUINARY_IMAGE_UNIT.read_text())
         self.assertIn("WORKER_ROLE=video", VIDEO_UNIT.read_text())
+        self.assertIn("WORKER_ROLE=visual", VISUAL_WORKER_UNIT.read_text())
+        self.assertIn("WORKER_ID=creativeasset-visual-index", VISUAL_WORKER_UNIT.read_text())
+        self.assertIn("WORKER_HEALTH_PORT=8087", VISUAL_WORKER_UNIT.read_text())
+        self.assertIn("WantedBy=multi-user.target", VISUAL_WORKER_UNIT.read_text())
 
     def test_scripts_have_valid_shell_syntax(self) -> None:
         for script in (FRONTEND, BACKEND):

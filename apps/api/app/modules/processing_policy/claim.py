@@ -15,6 +15,7 @@ from app.modules.processing_policy.model import TenantProcessingPolicyModel, Ten
 from app.modules.processing.worker_roles import (
     IMAGE_AI_JOB_TYPES, IMAGE_WORKER_JOB_TYPES,
     VIDEO_AI_JOB_TYPES, VIDEO_WORKER_JOB_TYPES,
+    VISUAL_WORKER_JOB_TYPES,
 )
 
 def rate_limit_provider_key(
@@ -386,6 +387,8 @@ class TenantAwareJobClaimer:
                     video_paused,
                 ),
             )
+        if role == "visual":
+            return ProcessingJobModel.job_type.in_(VISUAL_WORKER_JOB_TYPES)
         return false()
 
     @staticmethod

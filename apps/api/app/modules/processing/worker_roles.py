@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from app.domain.processing.types import JOB_TYPES
 
-WORKER_ROLES = ("all", "image", "video")
+WORKER_ROLES = ("all", "image", "video", "visual")
+VISUAL_WORKER_JOB_TYPES = ("visual_index_sync",)
 VIDEO_WORKER_JOB_TYPES = ("video_analyze", "video_search_index", "video_generate", "video_cache_fill", "video_playback_prepare")
 VIDEO_AI_JOB_TYPES = ("video_analyze",)
 IMAGE_AI_JOB_TYPES = (
@@ -10,7 +11,7 @@ IMAGE_AI_JOB_TYPES = (
     "ai_batch_import", "ai_batch_retry_items", "image_generate",
 )
 IMAGE_WORKER_JOB_TYPES = tuple(
-    job_type for job_type in JOB_TYPES if job_type not in VIDEO_WORKER_JOB_TYPES
+    job_type for job_type in JOB_TYPES if job_type not in VIDEO_WORKER_JOB_TYPES + VISUAL_WORKER_JOB_TYPES
 )
 
 
@@ -23,7 +24,9 @@ def allowed_job_types_for_role(role: str) -> tuple[str, ...]:
         return IMAGE_WORKER_JOB_TYPES
     if normalized == "video":
         return VIDEO_WORKER_JOB_TYPES
-    raise ValueError("WORKER_ROLE must be one of: all, image, video")
+    if normalized == "visual":
+        return VISUAL_WORKER_JOB_TYPES
+    raise ValueError("WORKER_ROLE must be one of: all, image, video, visual")
 
 
 def enabled_job_types_for_role(
