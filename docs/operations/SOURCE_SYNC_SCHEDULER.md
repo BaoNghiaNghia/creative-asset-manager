@@ -33,3 +33,31 @@ python -m app.operations.source_sync_cli source-sync:enqueue-all --tenant-id TEN
 ```
 
 Enqueue operations are protected by the processing job idempotency constraint, so multiple workers cannot create duplicate jobs for the same source and scheduler interval.
+
+## Video asset identity repair
+
+Google Drive binary videos expose a SHA-256 checksum in normal source discovery.
+Source sync now uses that digest to create/reuse the tenant content-addressed
+`Asset` and persist the `AssetSourceLink` before video analysis is enqueued.
+Explorer uploads do the same while streaming, and video proxy preparation
+computes the SHA-256 from the materialized source as a fallback when the
+provider did not supply one. This keeps Asset Explorer and Public Review on the
+same asset identity.
+
+For historical videos that were analyzed before this invariant existed, run a
+read-only preview first:
+
+```bash
+python -m app.operations.video_asset_link_repair --tenant-id TENANT --limit 100000
+```
+
+If the reported `repairable_sha256` count is expected, persist only those
+checksum-backed links:
+
+```bash
+python -m app.operations.video_asset_link_repair --tenant-id TENANT --limit 100000 --execute
+```
+
+The repair never invents content hashes. Legacy videos whose persisted provider
+checksum is not SHA-256 are skipped; their next video materialization or source
+change will establish the link from actual source bytes.

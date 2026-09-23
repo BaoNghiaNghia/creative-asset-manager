@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.domain.providers.contracts import AssetDownloadStream
 from app.modules.assets.content_resolver import SourceAssetContentTransient, SourceAssetContentUnavailable
-from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 from app.modules.video_search.proxy import (
     VideoProxyChunkTooLargeError,
@@ -119,6 +119,13 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertIn("0:a:0?", command); self.assertNotIn("0:a?", command)
         self.assertIn("-segment_time", command); self.assertNotIn("Authorization", " ".join(command))
         self.assertEqual(chunks[0].source_start_ms, 0); self.assertEqual(chunks[0].source_end_ms, 1250); self.assertTrue(chunks[0].path.exists())
+        with self.sessions() as session:
+            source = session.get(SourceAssetModel, "asset-a")
+            link = session.query(AssetSourceLinkModel).filter_by(source_asset_id=source.id).one()
+            asset = session.get(AssetModel, link.asset_id)
+            self.assertEqual(asset.content_hash, __import__("hashlib").sha256(bytes(range(20))).hexdigest())
+            self.assertEqual(source.hashed_provider_checksum, "checksum")
+            self.assertEqual(source.hashed_provider_version, "v1")
         service.cleanup(chunks); self.assertFalse(chunks[0].path.exists()); self.assertFalse(chunks[0].path.parent.exists())
     def test_deleted_source_reaches_resolver_for_move_recovery(self):
         with self.sessions() as session:

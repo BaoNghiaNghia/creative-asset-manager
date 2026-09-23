@@ -13,7 +13,7 @@ from app.domain.providers.contracts import (
     SourceChange,
     SourceChangePage,
 )
-from app.modules.assets.model import SourceAssetModel, SourceSyncCursorModel
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel, SourceSyncCursorModel
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -586,6 +586,53 @@ class SourceSyncServiceTest(unittest.IsolatedAsyncioTestCase):
         repeated = await self.service.sync_source(tenant_id="tenant-a", source_id=self.source.id, provider=FakeProvider([SourceChangePage((SourceChange("updated", "video-1", video),), "c2")]))
         self.assertEqual(repeated.jobs_created, 0)
         self.assertEqual(self.processing.count_jobs(), 1)
+
+    async def test_video_sha256_checksum_creates_asset_link_without_download(self):
+        self._enable_video_enqueue()
+        checksum = "a" * 64
+        video = candidate(
+            "video-linked",
+            name="linked.mp4",
+            mime_type="video/mp4",
+            checksum=checksum,
+        )
+
+        await self.service.sync_source(
+            tenant_id="tenant-a",
+            source_id=self.source.id,
+            provider=FakeProvider([
+                SourceChangePage(
+                    (SourceChange("updated", "video-linked", video),),
+                    "done",
+                )
+            ]),
+        )
+
+        source = self.repository.get_source_asset_by_external_id(
+            "tenant-a", self.source.id, "video-linked"
+        )
+        linked = self.assets.find_linked_asset("tenant-a", source.id)
+        self.assertIsNotNone(linked)
+        self.assertEqual(linked.content_hash, checksum)
+        self.assertEqual(source.hashed_provider_checksum, checksum)
+        self.assertEqual(
+            self.session.scalar(
+                select(func.count()).select_from(AssetSourceLinkModel)
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.session.scalar(select(func.count()).select_from(AssetModel)),
+            1,
+        )
+        self.assertEqual(
+            self.session.scalar(
+                select(func.count())
+                .select_from(ProcessingJobModel)
+                .where(ProcessingJobModel.job_type == "source_asset_download")
+            ),
+            0,
+        )
 
     async def test_changed_deleted_unsupported_and_no_profile_videos_do_not_download(self):
         self._enable_video_enqueue()

@@ -15,8 +15,10 @@ from starlette.background import BackgroundTask
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
+from app.modules.assets.content_identity import ensure_source_asset_link
 from app.modules.assets.status_service import AssetProcessingStatusService
 from app.modules.assets.model import AssetModel, ExternalSourceModel, SourceAssetModel
+from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.explorer.cache import (
     CachedThumbnail,
     invalidate_drive_listings,
@@ -42,6 +44,9 @@ from app.modules.explorer.schema import (
 from app.modules.explorer.service import ExplorerService
 from app.modules.explorer.breadcrumb import location_breadcrumb_cache, resolve_breadcrumb
 from app.modules.explorer.media_types import infer_media_type
+from app.modules.pipeline.mime_types import is_eligible_video_source_asset
+from app.modules.processing.repository import ProcessingRepository
+from app.modules.video_search.enqueue import enqueue_video_analysis_job
 from app.modules.explorer.preview import (
     PREVIEW_CACHE_VERSION,
     PreviewConversionError,
@@ -802,6 +807,20 @@ _SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 _MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 
+class _UploadDigest:
+    def __init__(self) -> None:
+        self._hash = hashlib.sha256()
+        self.size_bytes = 0
+
+    def update(self, block: bytes) -> None:
+        self._hash.update(block)
+        self.size_bytes += len(block)
+
+    @property
+    def content_hash(self) -> str:
+        return self._hash.hexdigest()
+
+
 @router.post("/upload/dedupe-preflight", response_model=ContentHashPreflightResponse)
 def upload_dedupe_preflight(
     body: ContentHashPreflightRequest,
@@ -820,13 +839,18 @@ def upload_dedupe_preflight(
     return ContentHashPreflightResponse(existing={value: value in existing_hashes for value in hashes})
 
 
-async def _bounded_upload_stream(request: Request):
+async def _bounded_upload_stream(
+    request: Request,
+    digest: _UploadDigest | None = None,
+):
     total = 0
     async for chunk in request.stream():
         total += len(chunk)
         if total > _MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Files larger than 100 MB cannot be uploaded.")
         if chunk:
+            if digest is not None:
+                digest.update(chunk)
             yield chunk
 
 
@@ -873,11 +897,59 @@ async def upload_file(
         )
         if not token:
             raise HTTPException(status_code=401, detail="Connect Google Drive before uploading.")
+        digest = _UploadDigest()
         async with create_source_provider(provider, token) as client:
             parent = await client.get_node(parent_id)
             if parent.kind != "folder":
                 raise HTTPException(status_code=422, detail="Destination must be a folder.")
-            node = await client.upload_file_stream(parent_id, filename, mime_type, _bounded_upload_stream(request))
+            node = await client.upload_file_stream(
+                parent_id,
+                filename,
+                mime_type,
+                _bounded_upload_stream(request, digest),
+            )
+
+        registry = AssetRegistryRepository(session)
+        source_metadata = {
+            "parents": [parent_id],
+            "is_folder": False,
+        }
+        if node.web_url:
+            source_metadata["web_url"] = node.web_url
+        if node.image_width is not None:
+            source_metadata[
+                "video_width" if node.kind == "video" else "image_width"
+            ] = node.image_width
+        if node.image_height is not None:
+            source_metadata[
+                "video_height" if node.kind == "video" else "image_height"
+            ] = node.image_height
+        if node.media_duration_ms is not None:
+            source_metadata["video_duration_ms"] = node.media_duration_ms
+        source_asset = registry.upsert_source_asset(
+            tenant_id=tenant_id,
+            external_source_id=resolved_source_id,
+            external_asset_id=node.id,
+            filename=node.name,
+            mime_type=node.mime_type,
+            size_bytes=node.size if node.size is not None else digest.size_bytes,
+            source_modified_at=node.modified_at,
+            provider_checksum=digest.content_hash,
+            source_metadata=source_metadata,
+        )
+        ensure_source_asset_link(
+            registry,
+            source_asset=source_asset,
+            content_hash=digest.content_hash,
+        )
+        if is_eligible_video_source_asset(source_asset):
+            enqueue_video_analysis_job(
+                tenant_id=tenant_id,
+                source_asset=source_asset,
+                processing=ProcessingRepository(session),
+                settings=get_settings(),
+            )
+        session.commit()
     except HTTPException:
         raise
     except httpx.HTTPStatusError as exc:

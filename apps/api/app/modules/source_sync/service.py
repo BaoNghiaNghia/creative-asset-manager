@@ -12,6 +12,7 @@ from app.modules.authorization.folder_scope_cache import (
     viewer_folder_hierarchy_cache,
     viewer_folder_remote_parent_cache,
 )
+from app.modules.assets.content_identity import ensure_source_asset_link, normalize_sha256
 from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type, is_eligible_video_source_asset
 from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.video_search.enqueue import enqueue_video_analysis_job
@@ -315,6 +316,14 @@ class SourceSyncService:
                         tenant_id, "source_asset", source_asset.id
                     ) is None
                     video_content_changed = existing is None or old_video_fingerprint != build_video_source_fingerprint(source_asset)
+                    if is_video:
+                        provider_sha256 = normalize_sha256(source_asset.provider_checksum)
+                        if provider_sha256 is not None:
+                            ensure_source_asset_link(
+                                self.repository.assets,
+                                source_asset=source_asset,
+                                content_hash=provider_sha256,
+                            )
                     if is_video and video_content_changed:
                         created = int(enqueue_video_analysis_job(
                             tenant_id=tenant_id, source_asset=source_asset,

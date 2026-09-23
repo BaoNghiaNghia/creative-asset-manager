@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -22,7 +23,9 @@ from app.modules.assets.content_resolver import (
     SourceAssetContentTransient,
     SourceAssetContentUnavailable,
 )
+from app.modules.assets.content_identity import ensure_source_asset_link
 from app.modules.assets.model import SourceAssetModel
+from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.mime_types import is_supported_video_mime_type
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
 
@@ -214,6 +217,11 @@ class VideoProxyPreparationService:
             )
             if self._load_fingerprint(tenant_id, source_asset_id) != expected_source_fingerprint:
                 raise VideoProxySourceChangedError("source asset fingerprint changed during proxy preparation")
+            self._ensure_source_asset_link_from_file(
+                tenant_id=tenant_id,
+                source_asset_id=source_asset_id,
+                source_path=source_path,
+            )
             return chunks
         except asyncio.CancelledError:
             if process is not None:
@@ -303,6 +311,39 @@ class VideoProxyPreparationService:
             raise VideoProxySourceSizeMismatchError(
                 "video source size does not match source metadata"
             )
+
+    def _ensure_source_asset_link_from_file(
+        self,
+        *,
+        tenant_id: str,
+        source_asset_id: str,
+        source_path: Path,
+    ) -> None:
+        digest = hashlib.sha256()
+        try:
+            with source_path.open("rb") as source:
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(block)
+        except OSError as exc:
+            raise VideoProxyMaterializationError(
+                "cannot hash materialized video source"
+            ) from exc
+
+        with self._session_factory() as session:
+            source_asset = session.scalar(
+                select(SourceAssetModel).where(
+                    SourceAssetModel.tenant_id == tenant_id,
+                    SourceAssetModel.id == source_asset_id,
+                )
+            )
+            if source_asset is None:
+                raise VideoProxySourceChangedError("source asset disappeared during proxy preparation")
+            ensure_source_asset_link(
+                AssetRegistryRepository(session),
+                source_asset=source_asset,
+                content_hash=digest.hexdigest(),
+            )
+            session.commit()
 
     @staticmethod
     def _source_path(directory: Path, mime_type: str | None) -> Path:
