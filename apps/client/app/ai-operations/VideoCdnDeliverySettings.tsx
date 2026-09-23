@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { ConfigurationCardHeader } from "./ConfigurationCardHeader";
 import {
   fetchVideoCdnDeliveryObservability,
   fetchVideoCdnDeliveryRuntimeStatus,
@@ -52,13 +53,13 @@ export function VideoCdnDeliverySettingsView({
   const guard = observability?.guard;
 
   return <section className="ops-config-card ops-config-video-cdn" aria-labelledby="video-cdn-delivery-title">
-    <header className="ops-config-card-header">
-      <div>
-        <h3 id="video-cdn-delivery-title">Video CDN activation</h3>
-        <p>Production activation console for original-quality Public Review video delivery through the signed Cloudflare path.</p>
-      </div>
-      <span className="ops-card-kicker">Platform</span>
-    </header>
+    <ConfigurationCardHeader
+      icon="video-cdn-activation"
+      title="Video CDN activation"
+      titleId="video-cdn-delivery-title"
+      description="Production activation console for original-quality Public Review video delivery through the signed Cloudflare path."
+      kicker="Platform"
+    />
 
     <div className="ops-video-cdn-state" aria-label="Video CDN activation state">
       <span className={status.effective_enabled ? "ok" : "off"}>
@@ -202,15 +203,23 @@ export function VideoCdnDeliverySettings() {
 
   if (loading) {
     return <section className="ops-config-card ops-config-video-cdn" aria-busy="true" aria-live="polite">
-      <h3>Video CDN activation</h3>
-      <p>Loading runtime, rollout, and circuit-breaker status…</p>
+      <ConfigurationCardHeader
+        icon="video-cdn-activation"
+        title="Video CDN activation"
+        description="Loading runtime, rollout, and circuit-breaker status…"
+        kicker="Platform"
+      />
     </section>;
   }
 
   if (!status) {
     return <section className="ops-config-card ops-config-video-cdn" role="alert">
-      <h3>Video CDN activation</h3>
-      <p>{error || "Video CDN activation status is unavailable."}</p>
+      <ConfigurationCardHeader
+        icon="video-cdn-activation"
+        title="Video CDN activation"
+        description={error || "Video CDN activation status is unavailable."}
+        kicker="Platform"
+      />
       <button type="button" onClick={() => { void load(); }}>Retry</button>
     </section>;
   }

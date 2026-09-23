@@ -709,12 +709,12 @@ export function PipelineOverview({ pipeline, mediaDashboard = null, imageTodayDe
     </section>
     <div className="pipeline-context-row" role="group" aria-label="Latest scan and current processing">
       <section className="pipeline-scan-card pipeline-scan-card-compact" aria-label="Trạng thái quét Google Drive">
-        <div className="pipeline-context-heading"><small>ĐỒNG BỘ GOOGLE DRIVE</small><div className="pipeline-context-title"><PipelineContextIcon kind="sync" /><h2>{scan ? (scan.mode === "full" ? "Lần quét toàn bộ gần nhất" : "Lần quét cập nhật gần nhất") : "Chưa có lần quét nào"}</h2></div>
-        <p>{scan ? (scan.status === "completed" ? scan.items_seen_count.toLocaleString() + " mục trên Google Drive đã được ghi nhận. " + scan.jobs_created_count.toLocaleString() + " tác vụ xử lý đã được xếp hàng." : "Hệ thống đang quét. Đã ghi nhận " + scan.items_seen_count.toLocaleString() + " mục cho đến thời điểm này.") : "Kết nối Google Drive để hệ thống phát hiện tài sản và chuẩn bị xử lý."}</p></div>
+        <div className="pipeline-context-heading"><small>ĐỒNG BỘ GOOGLE DRIVE</small><div className="pipeline-context-main"><PipelineContextIcon kind="sync" /><div className="pipeline-context-copy"><h2>{scan ? (scan.mode === "full" ? "Lần quét toàn bộ gần nhất" : "Lần quét cập nhật gần nhất") : "Chưa có lần quét nào"}</h2>
+        <p>{scan ? (scan.status === "completed" ? scan.items_seen_count.toLocaleString() + " mục trên Google Drive đã được ghi nhận. " + scan.jobs_created_count.toLocaleString() + " tác vụ xử lý đã được xếp hàng." : "Hệ thống đang quét. Đã ghi nhận " + scan.items_seen_count.toLocaleString() + " mục cho đến thời điểm này.") : "Kết nối Google Drive để hệ thống phát hiện tài sản và chuẩn bị xử lý."}</p></div></div></div>
         {scan && <dl><div><dt>Trạng thái</dt><dd><span className="scan-status"><ScanStatusIcon status={scan.status} />{scanStatusLabel(scan.status)}</span></dd></div><div><dt>{scan.completed_at ? "Hoàn tất lúc" : "Thời gian"}</dt><dd>{scan.completed_at ? new Date(scan.completed_at).toLocaleString() : "Đang thực hiện"}</dd></div></dl>}
       </section>
-      {active && <section className="pipeline-active-job" aria-live="polite"><div className="pipeline-context-heading"><small>ĐANG XỬ LÝ</small><div className="pipeline-context-title"><PipelineContextIcon kind="active" /><div className="pipeline-active-title"><span className="pipeline-status-dot active" aria-hidden="true" /><h2>{pipelineStageLabel(active.stage)}</h2></div></div><p>{active.message}</p></div><dl>{active.filename && <div><dt>Tài sản</dt><dd>{active.filename}</dd></div>}<div><dt>Bắt đầu</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Thời gian đã chạy</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Lần thử</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl></section>}
-    <section className="pipeline-progress-summary pipeline-progress-summary-compact" aria-label="Mức sẵn sàng của tài sản theo giai đoạn đã xác thực"><div className="pipeline-context-heading"><small>MỨC SẴN SÀNG CỦA TÀI SẢN</small><div className="pipeline-context-title"><PipelineContextIcon kind="ready" /><h2>Giai đoạn hoàn tất đã xác thực</h2></div><p>Mỗi ảnh đủ điều kiện chỉ được tính một lần.</p></div><dl>{pipeline.overall.asset_progress.filter(item => item.count > 0).map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
+      {active && <section className="pipeline-active-job" aria-live="polite"><div className="pipeline-context-heading"><small>ĐANG XỬ LÝ</small><div className="pipeline-context-main"><PipelineContextIcon kind="active" /><div className="pipeline-context-copy"><div className="pipeline-active-title"><span className="pipeline-status-dot active" aria-hidden="true" /><h2>{pipelineStageLabel(active.stage)}</h2></div><p>{active.message}</p></div></div></div><dl>{active.filename && <div><dt>Tài sản</dt><dd>{active.filename}</dd></div>}<div><dt>Bắt đầu</dt><dd>{active.started_at ? new Date(active.started_at).toLocaleString() : "-"}</dd></div><div><dt>Thời gian đã chạy</dt><dd>{formatProcessingDuration(active.elapsed_ms)}</dd></div><div><dt>Lần thử</dt><dd>{active.attempt_count}/{active.max_attempts}</dd></div></dl></section>}
+    <section className="pipeline-progress-summary pipeline-progress-summary-compact" aria-label="Mức sẵn sàng của tài sản theo giai đoạn đã xác thực"><div className="pipeline-context-heading"><small>MỨC SẴN SÀNG CỦA TÀI SẢN</small><div className="pipeline-context-main"><PipelineContextIcon kind="ready" /><div className="pipeline-context-copy"><h2>Giai đoạn hoàn tất đã xác thực</h2><p>Mỗi ảnh đủ điều kiện chỉ được tính một lần.</p></div></div></div><dl>{pipeline.overall.asset_progress.filter(item => item.count > 0).map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
     </div>
     {needsAttentionStages.length > 0 && <section className="pipeline-stage-section" aria-label="Các giai đoạn cần xử lý"><header><div><small>ĐIỂM CẦN LƯU Ý</small><h2>Các giai đoạn đang hoạt động</h2><p>Chỉ các giai đoạn đang chờ, đang chạy hoặc gặp lỗi mới được mở rộng.</p></div><span>{needsAttentionStages.length} giai đoạn</span></header><div className="pipeline-stage-grid">{needsAttentionStages.map(stage => { const tone = pipelineStageTone(stage, active?.job_type); return <article key={stage.key} className={tone}>
       <header><div><small>GIAI ĐOẠN</small><h2>{pipelineStageLabel(stage.label)}</h2></div><StageStatusBadge tone={tone} /></header><p>{stage.subtitle}</p>
@@ -731,8 +731,23 @@ export function PipelineOverview({ pipeline, mediaDashboard = null, imageTodayDe
 }
 function VideoThumbnailWithDuration({ thumbnailUrl, durationMs }: { thumbnailUrl: string | null; durationMs: number | null | undefined }) {
   const duration = formatVideoDuration(durationMs);
-  return <span className="video-thumbnail-with-duration">
-    {thumbnailUrl ? <img src={thumbnailUrl} alt="" loading="lazy" /> : <span className="video-recent-placeholder" aria-hidden="true">&#9654;</span>}
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const failed = !thumbnailUrl || failedUrl === thumbnailUrl;
+  const loading = Boolean(thumbnailUrl && !failed && loadedUrl !== thumbnailUrl);
+
+  return <span className={"video-thumbnail-with-duration " + (loading ? "is-loading" : "")}>
+    {thumbnailUrl && !failed ? <>
+      <img
+        src={thumbnailUrl}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onLoad={() => setLoadedUrl(thumbnailUrl)}
+        onError={() => setFailedUrl(thumbnailUrl)}
+      />
+      {loading ? <span className="ops-thumbnail-skeleton" aria-hidden="true" /> : null}
+    </> : <span className="video-recent-placeholder" aria-hidden="true">&#9654;</span>}
     {duration !== "—" ? <span className="video-duration-badge" aria-label={"Thời lượng " + duration}><span aria-hidden="true">♪</span>{duration}</span> : null}
   </span>;
 }
@@ -912,9 +927,24 @@ function PipelineAssetIcon({ filename }: { filename: string }) {
 }
 
 function PipelineAssetThumbnail({ filename, thumbnailUrl }: { filename: string; thumbnailUrl?: string | null }) {
-  const [failed, setFailed] = useState(false);
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const failed = !thumbnailUrl || failedUrl === thumbnailUrl;
+  const loading = Boolean(thumbnailUrl && !failed && loadedUrl !== thumbnailUrl);
+
   if (!thumbnailUrl || failed) return <PipelineAssetIcon filename={filename} />;
-  return <span className="pipeline-asset-thumbnail"><img src={thumbnailUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /></span>;
+
+  return <span className={"pipeline-asset-thumbnail " + (loading ? "is-loading" : "")}>
+    <img
+      src={thumbnailUrl}
+      alt=""
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onLoad={() => setLoadedUrl(thumbnailUrl)}
+      onError={() => setFailedUrl(thumbnailUrl)}
+    />
+    {loading ? <span className="ops-thumbnail-skeleton" aria-hidden="true" /> : null}
+  </span>;
 }
 
 function pipelineStageLabel(label: string): string {
@@ -1010,6 +1040,10 @@ function opsKpiIcon(label: string): string {
   return "▣";
 }
 
+export function formatKpiValue(value: number | string): string {
+  return typeof value === "number" ? value.toLocaleString("en-US") : value;
+}
+
 function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashboardData["media"]>; media: "image" | "video" }) {
   const primary = media === "image" ? dashboard.image : dashboard.video;
   const videoEstimatedCost = dashboard.analytics.daily.reduce(
@@ -1030,7 +1064,7 @@ function MediaOverview({ dashboard, media }: { dashboard: NonNullable<AiOpsDashb
     ] : []),
   ];
   return <>
-    <section className={`ops-kpis${media === "video" ? " ops-kpis-video" : ""}`} aria-label={media + " AI processing summary"}>{cards.map(card => <article key={card.label} className={"ops-kpi ops-kpi-" + card.tone}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value.toLocaleString()}</strong><small>{card.detail}</small></article>)}</section>
+    <section className={`ops-kpis${media === "video" ? " ops-kpis-video" : ""}`} aria-label={media + " AI processing summary"}>{cards.map(card => <article key={card.label} className={"ops-kpi ops-kpi-" + card.tone}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{formatKpiValue(card.value)}</strong><small>{card.detail}</small></article>)}</section>
   </>;
 }
 
@@ -1096,7 +1130,7 @@ function Overview({ data, media = "image", onMedia = () => undefined, canManage,
       <div><span className="ops-quota-badge">Quota</span><div><strong>Gemini quota or provider cooldown is active</strong><p>{quotaScheduled} {quotaScheduled === 1 ? "analysis" : "analyses"} will retry automatically after the provider allows another request.</p></div></div>
       <time dateTime={nextQuotaRetry}><span>Tiếp provider retry</span>{new Date(nextQuotaRetry).toLocaleString()}</time>
     </section>}
-    <section className="ops-kpis" aria-label="AI processing summary">{cards.map(card => <article key={card.label} className={`ops-kpi ops-kpi-${card.tone}`}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
+    <section className="ops-kpis" aria-label="AI processing summary">{cards.map(card => <article key={card.label} className={`ops-kpi ops-kpi-${card.tone}`}><span className="ops-kpi-title"><i aria-hidden="true">{opsKpiIcon(card.label)}</i>{card.label}</span><strong>{formatKpiValue(card.value)}</strong><small>{card.detail}</small></article>)}</section>
     <section className="ops-charts">
       <AccessibleChart title="Daily processing" description="Hoàn tất and failed analyses by UTC day." data={dailyStatusChart(data.daily)} />
       <AccessibleChart title="Daily estimated cost by provider" description="Estimated provider cost aggregated by the server for the selected period." data={dailyProviderCostChart(data.daily)} valueLabel={value => formatCost(value)} />

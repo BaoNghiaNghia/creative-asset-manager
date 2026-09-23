@@ -82,6 +82,8 @@ describe("Video CDN Phase 5B activation console", () => {
       "Enable canary delivery",
     ]) expect(markup).toContain(value);
     expect(markup).toContain('aria-pressed="false"');
+    expect(markup).toContain("ops-config-card-icon");
+    expect(markup).toContain("ops-config-card-heading-copy");
     expect(markup).not.toContain("tenant-a");
     expect(markup).not.toContain("R2_VIDEO_MEDIA_SIGNING_SECRET");
     expect(markup).not.toContain("media.example");

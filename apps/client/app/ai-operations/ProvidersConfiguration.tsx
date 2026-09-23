@@ -11,6 +11,7 @@ import { CreativeGeminiCredentialSettings } from "./CreativeGeminiCredentialSett
 import { GeminiBackupPoolSettings } from "./GeminiBackupPoolSettings";
 import { ManagedStorageCredentialSettings } from "./ManagedStorageCredentialSettings";
 import { VideoCdnDeliverySettings } from "./VideoCdnDeliverySettings";
+import { ConfigurationCardHeader, type ConfigurationCardIconName } from "./ConfigurationCardHeader";
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
 import openAiLogo from "../../assets/openai-logo.svg";
 
@@ -355,7 +356,12 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
     {error && <div className="ops-inline-error" role="alert">{error}</div>}{audit && <AuditNotice audit={audit} />}
     <ConfigurationMasonryGrid>
       <form className="ops-config-card ops-config-defaults" onSubmit={event => { event.preventDefault(); saveConfiguration(); }}>
-        <header className="ops-config-card-header"><div><h3>Thiết lập mặc định</h3><p>Chọn cách hệ thống xử lý tài sản mới trong workspace này.</p></div><span className="ops-card-kicker">Tenant</span></header>
+        <ConfigurationCardHeader
+          icon="tenant-defaults"
+          title="Thiết lập mặc định"
+          description="Chọn cách hệ thống xử lý tài sản mới trong workspace này."
+          kicker="Tenant"
+        />
         <div className="ops-form-section">
           <div className="ops-form-section-heading"><h4>Nhà cung cấp &amp; mô hình</h4><p>Chỉ các nhà cung cấp đã kết nối và mô hình được phép mới có thể chọn.</p></div>
           <div className="ops-field-grid">
@@ -383,12 +389,17 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
           <button className="primary" disabled={!canEdit || saving} type="submit">Save tenant defaults</button>
         </div>
       </form>
-      <JobPriorityConfigurationCard title="Ưu tiên job Image" description="Chọn chế độ cho tải xuống, phân tích ảnh và lập chỉ mục ảnh." saveLabel="Save image job priorities" priorities={jobPriorities} canEdit={canEdit} modes={JOB_PRIORITY_MODES} items={IMAGE_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Image" onReload={onReload} />
-      <JobPriorityConfigurationCard title="Ưu tiên job Video" description="Chọn chế độ cho phân tích video và lập chỉ mục video. Lưu thay đổi áp dụng ngay cho các job video đang chờ." saveLabel="Save video job priorities" priorities={jobPriorities} canEdit={canEdit} modes={VIDEO_JOB_PRIORITY_MODES} items={VIDEO_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Video" onReload={onReload} />
+      <JobPriorityConfigurationCard icon="image-job-priority" title="Ưu tiên job Image" description="Chọn chế độ cho tải xuống, phân tích ảnh và lập chỉ mục ảnh." saveLabel="Save image job priorities" priorities={jobPriorities} canEdit={canEdit} modes={JOB_PRIORITY_MODES} items={IMAGE_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Image" onReload={onReload} />
+      <JobPriorityConfigurationCard icon="video-job-priority" title="Ưu tiên job Video" description="Chọn chế độ cho phân tích video và lập chỉ mục video. Lưu thay đổi áp dụng ngay cho các job video đang chờ." saveLabel="Save video job priorities" priorities={jobPriorities} canEdit={canEdit} modes={VIDEO_JOB_PRIORITY_MODES} items={VIDEO_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Video" onReload={onReload} />
       <MetadataPromptTemplateCard key={configuration.metadata_prompt_template?.id || "image-missing"} media="image" profile={configuration.metadata_prompt_template} canEdit={canEdit} onReload={onReload} />
       <MetadataPromptTemplateCard key={videoPromptProfile.id || "video-draft"} media="video" profile={videoPromptProfile} canEdit={canEdit} onReload={onReload} />
       {configuration.permissions.can_read_budget !== false ? <form className="ops-config-card ops-config-budget" onSubmit={event => { event.preventDefault(); setConfirmAction("budget"); }}>
-        <header className="ops-config-card-header"><div><h3>Chính sách ngân sách</h3><p>Đặt ngưỡng chi phí AI cho tenant. Mọi thay đổi đều cần xác nhận.</p></div><span className="ops-card-kicker">Budget</span></header>
+        <ConfigurationCardHeader
+          icon="budget-policy"
+          title="Chính sách ngân sách"
+          description="Đặt ngưỡng chi phí AI cho tenant. Mọi thay đổi đều cần xác nhận."
+          kicker="Budget"
+        />
         <label className="check ops-field-full"><input disabled={!canUpdateBudget} type="checkbox" checked={budget.enabled} onChange={event => setBudget({ ...budget, enabled: event.target.checked })} /> Bật kiểm soát ngân sách</label>
         <div className="ops-form-section">
           <div className="ops-form-section-heading"><h4>Hạn mức chi phí</h4><p>Đơn vị micro theo loại tiền tệ được cấu hình ở máy chủ.</p></div>
@@ -405,8 +416,15 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
           </div>
         </div>
         <button className="primary ops-form-submit" disabled={!canUpdateBudget || saving} type="submit">Review budget update</button>
-      </form> : <section className="ops-config-card ops-config-budget"><h3>Budget policy</h3><small>Permission ai_budget.read is required to view budget settings.</small></section>}
-      <section className="ops-global-settings ops-config-global"><header className="ops-config-card-header"><div><h3>Global controls</h3><p>Giới hạn toàn cục do deployment quản lý và chỉ có thể xem tại đây.</p></div><span className="ops-card-kicker">Read-only</span></header><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Tenant không thể bật lại chức năng đã bị tắt ở cấp toàn cục.</p>
+      </form> : <section className="ops-config-card ops-config-budget">
+        <ConfigurationCardHeader
+          icon="budget-policy"
+          title="Budget policy"
+          description="Permission ai_budget.read is required to view budget settings."
+          kicker="Budget"
+        />
+      </section>}
+      <section className="ops-global-settings ops-config-global"><ConfigurationCardHeader icon="global-controls" title="Global controls" description="Giới hạn toàn cục do deployment quản lý và chỉ có thể xem tại đây." kicker="Read-only" /><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Tenant không thể bật lại chức năng đã bị tắt ở cấp toàn cục.</p>
         {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục.</small>}
         <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
       </section>
@@ -416,7 +434,8 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
   </section>;
 }
 
-export function JobPriorityConfigurationCard({ title, description, saveLabel, priorities: configuredPriorities, canEdit, modes, items, ariaLabel, onReload }: {
+export function JobPriorityConfigurationCard({ icon, title, description, saveLabel, priorities: configuredPriorities, canEdit, modes, items, ariaLabel, onReload }: {
+  icon: ConfigurationCardIconName;
   title: string;
   description: string;
   saveLabel: string;
@@ -451,7 +470,7 @@ export function JobPriorityConfigurationCard({ title, description, saveLabel, pr
   }
 
   return <form className="ops-config-card ops-config-priority" onSubmit={event => { event.preventDefault(); savePriorities(); }}>
-    <header className="ops-config-card-header"><div><h3>{title}</h3><p>{description}</p></div><span className="ops-card-kicker">Queue</span></header>
+    <ConfigurationCardHeader icon={icon} title={title} description={description} kicker="Queue" />
     {error && <div className="ops-inline-error" role="alert">{error}</div>}
     {notice && <div className="ops-audit" role="status">{notice}</div>}
     <JobPriorityModeChart priorities={priorities} canEdit={canEdit} modes={modes} items={items} ariaLabel={ariaLabel} onSelect={changes => setPriorities({ ...priorities, ...changes })} />
@@ -547,9 +566,15 @@ function MetadataPromptTemplateCard({ profile, canEdit, onReload, media }: {
     finally { setSaving(false); }
   }
 
-  if (!profile) return <section className="ops-config-card ops-config-prompt"><header className="ops-config-card-header"><div><h3>Prompt template</h3><p>Chưa có {isVideo ? "video " : ""}metadata profile để hiển thị prompt.</p></div><span className="ops-card-kicker">{isVideo ? "Video AI" : "Image AI"}</span></header></section>;
+  if (!profile) return <section className="ops-config-card ops-config-prompt"><ConfigurationCardHeader icon={isVideo ? "video-prompt-template" : "image-prompt-template"} title="Prompt template" description={<>Chưa có {isVideo ? "video " : ""}metadata profile để hiển thị prompt.</>} kicker={isVideo ? "Video AI" : "Image AI"} /></section>;
   return <form className="ops-config-card ops-config-prompt" onSubmit={event => { event.preventDefault(); void save(); }}>
-    <header className="ops-config-card-header ops-prompt-card-header"><div><h3>Prompt template</h3><p>{isVideo ? "Prompt phân tích video dùng để tạo scene, timestamp và dữ liệu tìm kiếm." : "Prompt nhận diện hình ảnh dùng để tạo metadata phục vụ search."} Thay đổi chỉ áp dụng cho phân tích mới.</p></div><span className="ops-card-kicker">{isVideo ? "Video AI" : "Image AI"}</span></header>
+    <ConfigurationCardHeader
+      icon={isVideo ? "video-prompt-template" : "image-prompt-template"}
+      title="Prompt template"
+      description={<>{isVideo ? "Prompt phân tích video dùng để tạo scene, timestamp và dữ liệu tìm kiếm." : "Prompt nhận diện hình ảnh dùng để tạo metadata phục vụ search."} Thay đổi chỉ áp dụng cho phân tích mới.</>}
+      kicker={isVideo ? "Video AI" : "Image AI"}
+      className="ops-prompt-card-header"
+    />
     <dl className="ops-prompt-profile ops-prompt-profile-grid"><div><dt>{isVideo ? "Video metadata profile" : "Metadata profile"}</dt><dd>{profile.profile_name}</dd></div><div><dt>Version</dt><dd>{profile.profile_version}</dd></div></dl>{profile.is_draft && <p className="ops-prompt-message">Đây là prompt mặc định. Bấm lưu lần đầu để tạo {isVideo ? "video " : ""}metadata profile active cho tenant.</p>}
     <section className="ops-prompt-editor"><div className="ops-prompt-editor-heading"><div><strong>Prompt template</strong><small>JSON structure is previewed in the expanded view.</small></div><button type="button" className="ops-prompt-expand" onClick={() => setExpanded(true)} disabled={saving}>⤢ Expand</button></div>
     <textarea aria-label={isVideo ? "Video metadata prompt template" : "Image metadata prompt template"} disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} rows={12} spellCheck={false} />

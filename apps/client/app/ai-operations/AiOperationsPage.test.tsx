@@ -300,6 +300,8 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(processingMarkup).toContain("Video processing page numbers");
     expect(processingMarkup).toContain('aria-label="Thời lượng 1:05"');
     expect(processingMarkup).toContain("video-duration-badge");
+    expect(processingMarkup).toContain("ops-thumbnail-skeleton");
+    expect(processingMarkup).toContain("is-loading");
     expect(processingMarkup).toContain('aria-label="Mở chi tiết clip.mp4"');
     expect(processingMarkup).toContain("video-processing-title-button");
     expect(processingMarkup).not.toContain("<b>clip.mp4</b>");
@@ -418,6 +420,8 @@ describe("AI Operations media dashboard compatibility", () => {
     expect(markup).toContain("/api/explorer/thumbnail/asset");
     expect(markup).toContain('aria-label="Thời lượng 1:05"');
     expect(markup).toContain("video-duration-badge");
+    expect(markup).toContain("ops-thumbnail-skeleton");
+    expect(markup).toContain("is-loading");
     expect(markup).toContain('aria-label="Mở chi tiết clip.mp4"');
     expect(markup).toContain("video-recent-title-button");
     expect(markup).toContain("video/mp4");
@@ -603,6 +607,40 @@ describe("AI Operations dashboard", () => {
     expect(markup).toContain("provider_timeout");
   });
 
+  it("formats KPI count cards with en-US thousands separators", () => {
+    const markup = render("overview", {
+      data: {
+        ...data,
+        summary: {
+          ...summary,
+          completed: 52_417,
+          failed: 2_190,
+          running: 1_234,
+          queued: 12_840,
+          budget_blocked: 1_005,
+          local_rate_limited: 2_345,
+          quota_deferred: 4_000,
+          provider_cooldown_deferred: 321,
+        },
+        today: {
+          ...data.today,
+          completed: 50_000,
+          failed: 2_417,
+        },
+      },
+    });
+    for (const value of [
+      "52,417",
+      "2,190",
+      "1,234",
+      "12,840",
+      "1,005",
+      "2,345",
+      "4,321",
+    ]) expect(markup).toContain(value);
+    expect(markup).not.toContain(">52417<");
+  });
+
   it("explains deferred Gemini work with its next retry time", () => {
     const markup = render("overview", { data: { ...data, summary: { ...summary, deferred: 3, quota_deferred: 3, next_deferred_retry_at: "2026-07-22T10:30:00Z", next_quota_retry_at: "2026-07-22T10:30:00Z" } } });
     expect(markup).toContain("Gemini quota or provider cooldown is active");
@@ -629,6 +667,8 @@ describe("AI Operations dashboard", () => {
     expect(markup).toContain("inventory-photo.avif");
     expect(markup).toContain("image/avif");
     expect(markup).toContain('src="/api/explorer/thumbnail/drive-item?provider=google-drive"');
+    expect(markup).toContain("ops-thumbnail-skeleton");
+    expect(markup).toContain("is-loading");
     expect(markup).toContain('aria-label="View asset asset-1"');
     expect(markup).toContain("Chi tiết");
     expect(markup).toContain('aria-haspopup="dialog"');
@@ -1055,11 +1095,16 @@ describe("Search Coverage card", () => {
     expect(markup).toContain("Đang xử lý");
     expect(markup).toContain("Đang chờ xử lý");
     expect(markup).toContain('aria-label="Latest scan and current processing"');
+    expect((markup.match(/pipeline-context-main/g) || []).length).toBe(3);
+    expect((markup.match(/pipeline-context-copy/g) || []).length).toBe(3);
+    expect((markup.match(/pipeline-context-icon/g) || []).length).toBe(3);
     expect(markup).toContain("8 m");
     expect(markup).not.toContain("<dd>Pipeline item</dd>");
     expect(markup).toContain("Hiển thị 26-50 trên tổng số 60 tài sản logic");
     expect(markup).toContain("Pipeline asset pagination");
     expect(markup).toContain("pipeline-asset-thumbnail");
+    expect(markup).toContain("ops-thumbnail-skeleton");
+    expect(markup).toContain("is-loading");
     expect(markup).toContain("/api/explorer/thumbnail/drive-item?provider=google-drive");
     expect(markup).toContain("image/jpeg");
     expect(markup).toContain("creative@example.com");

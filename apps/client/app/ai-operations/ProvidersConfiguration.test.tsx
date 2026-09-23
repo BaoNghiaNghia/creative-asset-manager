@@ -33,6 +33,8 @@ describe("AI Operations provider and configuration tabs", () => {
   it("renders tenant configuration, model allowlist, budgets and read-only global controls", () => {
     const markup = renderToStaticMarkup(<ConfigurationForm configuration={configuration} onChanged={noop} onReload={noop} />);
     for (const value of ["Thiết lập mặc định", "gpt-5-mini", "Default metadata profile", "Prompt template", "Describe {{ asset }}", "Describe video scenes", "Image AI", "Video AI", "Save image prompt template", "Save video prompt template", "Expand", "Daily item limit", "Retry count", "Timeout", "Daily budget", "Monthly budget", "Warning threshold", "Hard-stop threshold", "Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục"]) expect(markup).toContain(value);
+    expect((markup.match(/ops-config-card-icon/g) || []).length).toBe(7);
+    expect(markup).toContain("ops-config-card-heading-copy");
     expect(markup).not.toContain("Emergency stop all AI");
   });
 
