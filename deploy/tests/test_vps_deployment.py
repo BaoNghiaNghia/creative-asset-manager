@@ -110,6 +110,45 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("MemoryMax=2300M", unit)
         self.assertNotIn("--workers", unit)
 
+    def test_fresh_release_drains_visual_lane_on_low_memory_hosts(self) -> None:
+        source = BACKEND.read_text()
+        self.assertIn(
+            'MIN_AVAILABLE_MEMORY_MIB="${CAM_BACKEND_MIN_AVAILABLE_MEMORY_MIB:-3072}"',
+            source,
+        )
+        self.assertIn("pause_visual_services_for_low_memory", source)
+        self.assertIn(
+            "systemctl stop creative-asset-manager-visual-worker.service",
+            source,
+        )
+        self.assertIn(
+            "systemctl stop creative-asset-manager-visual-encoder.service",
+            source,
+        )
+        self.assertIn("resume_paused_visual_services", source)
+        build_start = source.index('if [[ ! -e "$TARGET" ]]; then')
+        copy_start = source.index('"Copying source into immutable release"', build_start)
+        drain_start = source.index("pause_visual_services_for_low_memory", build_start)
+        self.assertLess(drain_start, copy_start)
+
+    def test_backend_restarts_encoder_before_visual_worker(self) -> None:
+        source = BACKEND.read_text()
+        restart_start = source.index("restart_services()")
+        restart_end = source.index("# ROLLBACK", restart_start)
+        restart_section = source[restart_start:restart_end]
+        encoder = restart_section.index(
+            "systemctl restart \\\n    creative-asset-manager-visual-encoder.service"
+        )
+        encoder_ready = restart_section.index(
+            '"http://127.0.0.1:8091/ready"',
+            encoder,
+        )
+        worker = restart_section.index(
+            "systemctl restart \\\n    creative-asset-manager-visual-worker.service"
+        )
+        self.assertLess(encoder, encoder_ready)
+        self.assertLess(encoder_ready, worker)
+
     def test_alembic_configuration_includes_the_api_module_path(self) -> None:
         config = (ROOT / "apps" / "api" / "alembic.ini").read_text()
         self.assertIn("prepend_sys_path = %(here)s", config)

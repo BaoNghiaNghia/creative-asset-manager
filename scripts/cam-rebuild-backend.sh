@@ -21,6 +21,7 @@ KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-4}"
 KEEP_LOGS="${CAM_BACKEND_DEPLOY_LOG_KEEP:-20}"
 MIN_FREE_MIB="${CAM_BACKEND_MIN_FREE_MIB:-2048}"
 RELEASE_HEADROOM_PERCENT="${CAM_BACKEND_RELEASE_HEADROOM_PERCENT:-125}"
+MIN_AVAILABLE_MEMORY_MIB="${CAM_BACKEND_MIN_AVAILABLE_MEMORY_MIB:-3072}"
 
 LOCK_FILE="${CAM_BACKEND_DEPLOY_LOCK_FILE:-/run/lock/creative-asset-manager-backend-deploy.lock}"
 
@@ -47,6 +48,9 @@ LOG_FILE=""
 START_TS="$(date +%s)"
 CURRENT_PROGRESS=0
 CURRENT_STAGE="startup"
+VISUAL_SERVICES_PAUSED=false
+VISUAL_ENCODER_WAS_ACTIVE=false
+VISUAL_WORKER_WAS_ACTIVE=false
 
 
 usage() {
@@ -213,8 +217,47 @@ cleanup_stage() {
 }
 
 
+available_memory_mib() {
+  awk '/^MemAvailable:/ { print int($2 / 1024); found=1; exit } END { if (!found) exit 1 }' /proc/meminfo
+}
+
+
+resume_paused_visual_services() {
+  $VISUAL_SERVICES_PAUSED \
+    || return 0
+
+  warn "Restoring visual services after interrupted/failed deployment"
+
+  if $VISUAL_ENCODER_WAS_ACTIVE; then
+    systemctl start creative-asset-manager-visual-encoder.service \
+      || warn "Could not restore visual encoder automatically"
+  fi
+
+  if $VISUAL_WORKER_WAS_ACTIVE; then
+    systemctl start creative-asset-manager-visual-worker.service \
+      || warn "Could not restore visual worker automatically"
+  fi
+
+  VISUAL_SERVICES_PAUSED=false
+}
+
+
+cleanup_on_exit() {
+  local exit_code=$?
+
+  trap - EXIT
+  cleanup_stage
+
+  if ((exit_code != 0)); then
+    resume_paused_visual_services || true
+  fi
+
+  exit "$exit_code"
+}
+
+
 trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
-trap cleanup_stage EXIT
+trap cleanup_on_exit EXIT
 
 
 #
@@ -349,6 +392,12 @@ done
 ((RELEASE_HEADROOM_PERCENT >= 100)) \
   || die "CAM_BACKEND_RELEASE_HEADROOM_PERCENT must be at least 100."
 
+[[ "$MIN_AVAILABLE_MEMORY_MIB" =~ ^[0-9]+$ ]] \
+  || die "CAM_BACKEND_MIN_AVAILABLE_MEMORY_MIB must be an integer."
+
+((MIN_AVAILABLE_MEMORY_MIB >= 1024)) \
+  || die "CAM_BACKEND_MIN_AVAILABLE_MEMORY_MIB must be at least 1024."
+
 
 if [[ ! -d "$SOURCE_DIR/.git" ]]; then
   SOURCE_DIR="$CHECKOUT_ROOT"
@@ -455,6 +504,7 @@ info "Release retention: $KEEP_RELEASES"
 info "Deployment log retention: $KEEP_LOGS"
 info "Minimum free disk: ${MIN_FREE_MIB}MiB"
 info "Release headroom: ${RELEASE_HEADROOM_PERCENT}%"
+info "Low-memory visual drain threshold: ${MIN_AVAILABLE_MEMORY_MIB}MiB"
 info "Deployment log: $LOG_FILE"
 
 
@@ -1101,6 +1151,48 @@ cleanup_backend_disk() {
 }
 
 
+pause_visual_services_for_low_memory() {
+  local available_mib=""
+
+  if $NO_RESTART; then
+    info "Low-memory visual-service drain skipped (--no-restart)"
+    return 0
+  fi
+
+  available_mib="$(available_memory_mib 2>/dev/null || true)"
+
+  if [[ ! "$available_mib" =~ ^[0-9]+$ ]]; then
+    warn "Could not read MemAvailable; continuing without visual-service drain"
+    return 0
+  fi
+
+  info "Memory preflight: available=${available_mib}MiB threshold=${MIN_AVAILABLE_MEMORY_MIB}MiB"
+
+  if ((available_mib >= MIN_AVAILABLE_MEMORY_MIB)); then
+    return 0
+  fi
+
+  if systemctl is-active --quiet creative-asset-manager-visual-worker.service; then
+    VISUAL_WORKER_WAS_ACTIVE=true
+    VISUAL_SERVICES_PAUSED=true
+    info "Low-memory host: draining Visual Search worker before release build"
+    systemctl stop creative-asset-manager-visual-worker.service
+  fi
+
+  if systemctl is-active --quiet creative-asset-manager-visual-encoder.service; then
+    VISUAL_ENCODER_WAS_ACTIVE=true
+    VISUAL_SERVICES_PAUSED=true
+    info "Low-memory host: stopping isolated visual encoder before release build"
+    systemctl stop creative-asset-manager-visual-encoder.service
+  fi
+
+  if $VISUAL_SERVICES_PAUSED; then
+    available_mib="$(available_memory_mib 2>/dev/null || true)"
+    info "Visual services drained for release build; available memory now=${available_mib:-unknown}MiB"
+  fi
+}
+
+
 #
 # ==========================================================
 # HEALTH CHECKS
@@ -1367,18 +1459,28 @@ restart_services() {
     creative-asset-manager-video-delivery-worker.service
 
 
+  info "Restarting isolated visual encoder"
+
+  systemctl restart \
+    creative-asset-manager-visual-encoder.service
+
+  # The visual worker must never resume against an encoder that is still loading
+  # its model. Otherwise deploy restarts turn healthy queued work into avoidable
+  # retryable visual_index_failed attempts.
+  wait_for_endpoint \
+    "visual encoder ready" \
+    "http://127.0.0.1:8091/ready"
+
+
   info "Restarting dedicated Visual Search worker"
 
   systemctl restart \
     creative-asset-manager-visual-worker.service
 
 
-
-  info "Restarting isolated visual encoder"
-
-
-  systemctl restart \
-    creative-asset-manager-visual-encoder.service
+  VISUAL_SERVICES_PAUSED=false
+  VISUAL_ENCODER_WAS_ACTIVE=false
+  VISUAL_WORKER_WAS_ACTIVE=false
 
 
   info "Waiting for backend health checks"
@@ -1569,6 +1671,12 @@ check_disk_headroom
 #
 
 if [[ ! -e "$TARGET" ]]; then
+
+  # Fresh release builds temporarily add Python/pip/validation processes on top
+  # of the running production footprint. On low-memory hosts, drain only the
+  # rebuildable visual lane first so the kernel does not choose the encoder as
+  # a global OOM victim while the application remains otherwise available.
+  pause_visual_services_for_low_memory
 
   progress 25 \
     "Copying source into immutable release"

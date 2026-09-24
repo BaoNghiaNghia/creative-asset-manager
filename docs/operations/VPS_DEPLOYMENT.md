@@ -66,6 +66,12 @@ Backend deploys abort before building a new immutable release when free disk is 
 
 The preflight runs after normal old-release/log cleanup. Lower these gates only after reviewing the actual release size and keeping enough space for the active and rollback releases.
 
+## Low-memory release protection
+
+Fresh backend release builds can temporarily add Python/pip/validation memory on top of the running production footprint. Before a fresh build, the deployment script checks Linux `MemAvailable`. When it is below `CAM_BACKEND_MIN_AVAILABLE_MEMORY_MIB` (default `3072` MiB), the script drains the dedicated Visual Search worker first and then stops the isolated visual encoder. Other API/image/video services remain available. If the deployment fails, the script restores only the visual services that had been active before the drain.
+
+The drain is skipped for an already-built immutable release and for `--no-restart`. During normal restart, the visual encoder is restarted and must pass `/ready` before the visual worker is restarted. This avoids turning healthy queued visual work into transient failures while the model is still loading. Do not lower the memory threshold on a no-swap host without measuring the full API/worker/Elasticsearch/PostgreSQL footprint during a fresh release build.
+
 ## Verification
 
 ```bash
