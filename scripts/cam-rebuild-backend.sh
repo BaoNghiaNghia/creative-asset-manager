@@ -28,6 +28,7 @@ LOCK_FILE="${CAM_BACKEND_DEPLOY_LOCK_FILE:-/run/lock/creative-asset-manager-back
 LOG_DIR="${CAM_BACKEND_LOG_DIR:-/var/log/creative-asset-manager}"
 
 IMAGE_WORKER_HEALTH_PORT="${CAM_IMAGE_WORKER_HEALTH_PORT:-8081}"
+IMAGE_WORKER_4_HEALTH_PORT="${CAM_IMAGE_WORKER_4_HEALTH_PORT:-8085}"
 VIDEO_WORKER_HEALTH_PORT="${CAM_VIDEO_WORKER_HEALTH_PORT:-8082}"
 VIDEO_DELIVERY_WORKER_HEALTH_PORT="${CAM_VIDEO_DELIVERY_WORKER_HEALTH_PORT:-8088}"
 VISUAL_WORKER_HEALTH_PORT="${CAM_VISUAL_WORKER_HEALTH_PORT:-8087}"
@@ -1316,6 +1317,7 @@ verify_services() {
     creative-asset-manager-image-worker.service \
     creative-asset-manager-image-worker-2.service \
     creative-asset-manager-image-worker-3.service \
+    creative-asset-manager-image-worker-4.service \
     creative-asset-manager-video-worker.service \
     creative-asset-manager-video-delivery-worker.service \
     creative-asset-manager-visual-worker.service \
@@ -1400,6 +1402,7 @@ verify_services() {
     "$IMAGE_WORKER_HEALTH_PORT" \
     "8083" \
     "8084" \
+    "$IMAGE_WORKER_4_HEALTH_PORT" \
     "$VIDEO_WORKER_HEALTH_PORT" \
     "$VIDEO_DELIVERY_WORKER_HEALTH_PORT" \
     "$VISUAL_WORKER_HEALTH_PORT"
@@ -1445,6 +1448,12 @@ restart_services() {
 
   systemctl restart \
     creative-asset-manager-image-worker-3.service
+
+
+  info "Restarting quaternary Image worker"
+
+  systemctl restart \
+    creative-asset-manager-image-worker-4.service
 
 
   info "Restarting heavy Video worker"
@@ -1902,6 +1911,7 @@ for unit in \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
+  creative-asset-manager-image-worker-4.service \
   creative-asset-manager-video-worker.service \
   creative-asset-manager-video-delivery-worker.service \
   creative-asset-manager-visual-encoder.service \
@@ -1928,18 +1938,17 @@ systemctl daemon-reload
 
 
 #
-# Optional workers 4 and 5 are retained as unit files for controlled future
-# scale-up, but must never be enabled in the default three-worker profile.
+# Worker 4 is part of the production profile so the image lane can fully use
+# the tenant's third storage slot while one image worker handles image AI.
+# Worker 5 stays reserved for controlled future scale-up.
 #
-info "Stopping/disabling optional image workers 4 and 5"
+info "Stopping/disabling optional image worker 5"
 
 systemctl stop \
-  creative-asset-manager-image-worker-4.service \
   creative-asset-manager-image-worker-5.service \
   || true
 
 systemctl disable \
-  creative-asset-manager-image-worker-4.service \
   creative-asset-manager-image-worker-5.service \
   || true
 
@@ -1987,6 +1996,7 @@ systemctl enable \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
+  creative-asset-manager-image-worker-4.service \
   creative-asset-manager-video-worker.service \
   creative-asset-manager-video-delivery-worker.service \
   creative-asset-manager-visual-worker.service \

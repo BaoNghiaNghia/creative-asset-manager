@@ -41,21 +41,21 @@ The backend script runs disk cleanup before and after deployment, creates an imm
 
 ## One-time split-worker migration
 
-The legacy all-role worker and optional image workers 4 and 5 must be inactive before the default three-image-worker profile is enabled:
+The legacy all-role worker and optional image worker 5 must be inactive before the default four-image-worker profile is enabled:
 
 ```bash
 sudo systemctl stop creative-asset-manager-worker.service
 sudo systemctl disable creative-asset-manager-worker.service
-sudo systemctl disable --now creative-asset-manager-image-worker-4.service
 sudo systemctl disable --now creative-asset-manager-image-worker-5.service
 sudo systemctl enable --now creative-asset-manager-image-worker.service
 sudo systemctl enable --now creative-asset-manager-image-worker-2.service
 sudo systemctl enable --now creative-asset-manager-image-worker-3.service
+sudo systemctl enable --now creative-asset-manager-image-worker-4.service
 sudo systemctl enable --now creative-asset-manager-video-worker.service
 sudo systemctl enable --now creative-asset-manager-video-delivery-worker.service
 ```
 
-The image worker has `WORKER_ROLE=image` and health port 8081. The heavy-video worker keeps the historical service name `creative-asset-manager-video-worker.service`, uses `WORKER_ROLE=video-heavy`, and listens on health port 8082. It claims only `video_analyze` and `video_generate`. The delivery worker uses `WORKER_ROLE=video-delivery`, health port 8088, and claims `video_search_index`, `video_cache_fill`, and `video_playback_prepare`. This prevents long Gemini/FFmpeg/generation work from blocking review playback and CDN cache jobs. All workers use the same PostgreSQL processing queue and policy accounting.
+Image workers 1-4 use `WORKER_ROLE=image` on health ports 8081, 8083, 8084, and 8085. The fourth image worker lets the production queue use the tenant's third storage slot while one image worker continues image-AI work; worker 5 remains reserve capacity. The heavy-video worker keeps the historical service name `creative-asset-manager-video-worker.service`, uses `WORKER_ROLE=video-heavy`, and listens on health port 8082. It claims only `video_analyze` and `video_generate`. The delivery worker uses `WORKER_ROLE=video-delivery`, health port 8088, and claims `video_search_index`, `video_cache_fill`, and `video_playback_prepare`. This prevents long Gemini/FFmpeg/generation work from blocking review playback and CDN cache jobs. All workers use the same PostgreSQL processing queue and policy accounting.
 
 ## Disk preflight
 
@@ -91,7 +91,7 @@ sudo journalctl -u creative-asset-manager-video-delivery-worker.service -f
 curl --fail --silent http://127.0.0.1:9200/_cluster/health
 ```
 
-Expected: API, image workers 1-3, heavy-video worker, video-delivery worker, visual worker, and visual encoder are active. Image workers 4-5 and the legacy all-role worker are inactive.
+Expected: API, image workers 1-4, heavy-video worker, video-delivery worker, visual worker, and visual encoder are active. Image worker 5 and the legacy all-role worker are inactive.
 
 ## Rollback
 

@@ -21,6 +21,8 @@ def test_production_video_workers_are_split_into_heavy_and_delivery_lanes():
 
     assert "creative-asset-manager-video-worker.service" in deploy
     assert "creative-asset-manager-video-delivery-worker.service" in deploy
+    assert "creative-asset-manager-image-worker-4.service" in deploy
+    assert 'CAM_IMAGE_WORKER_4_HEALTH_PORT:-8085' in deploy
     assert 'CAM_VIDEO_DELIVERY_WORKER_HEALTH_PORT:-8088' in deploy
     assert 'CAM_BACKEND_MIN_FREE_MIB:-2048' in deploy
     assert 'CAM_BACKEND_RELEASE_HEADROOM_PERCENT:-125' in deploy
