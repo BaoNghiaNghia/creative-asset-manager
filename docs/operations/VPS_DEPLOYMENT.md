@@ -14,7 +14,7 @@ The frontend and backend workflows are independent. Do not deploy the API or wor
 ## Topology
 
 - Nginx serves `/var/www/creative-asset-manager/current`.
-- Native systemd runs `creative-asset-manager-api.service`, `creative-asset-manager-image-worker.service`, and `creative-asset-manager-video-worker.service` from `/opt/creative-asset-manager/current`.
+- Native systemd runs the API, exactly three image workers, the video worker, the visual worker, and the isolated visual encoder from `/opt/creative-asset-manager/current`. Image worker units 4 and 5 are retained for a reviewed future scale-up but are stopped and disabled by the default deployment profile.
 - PostgreSQL is native and loopback-only at `127.0.0.1:5432`.
 - Docker Compose production runs Elasticsearch only at `127.0.0.1:9200`.
 - Production settings remain root-owned at `/etc/creative-asset-manager/production.env`; never source that file.
@@ -41,16 +41,16 @@ The backend script runs disk cleanup before and after deployment, creates an imm
 
 ## One-time split-worker migration
 
-The legacy all-role worker must be inactive before both split workers are enabled:
+The legacy all-role worker and optional image workers 4 and 5 must be inactive before the default three-image-worker profile is enabled:
 
 ```bash
 sudo systemctl stop creative-asset-manager-worker.service
 sudo systemctl disable creative-asset-manager-worker.service
+sudo systemctl disable --now creative-asset-manager-image-worker-4.service
+sudo systemctl disable --now creative-asset-manager-image-worker-5.service
 sudo systemctl enable --now creative-asset-manager-image-worker.service
 sudo systemctl enable --now creative-asset-manager-image-worker-2.service
 sudo systemctl enable --now creative-asset-manager-image-worker-3.service
-sudo systemctl enable --now creative-asset-manager-image-worker-4.service
-sudo systemctl enable --now creative-asset-manager-image-worker-5.service
 sudo systemctl enable --now creative-asset-manager-video-worker.service
 ```
 
@@ -73,7 +73,7 @@ sudo journalctl -u creative-asset-manager-video-worker.service -f
 curl --fail --silent http://127.0.0.1:9200/_cluster/health
 ```
 
-Expected: API, image worker, and video worker are active; the legacy worker is inactive.
+Expected: API, image workers 1-3, video worker, visual worker, and visual encoder are active. Image workers 4-5 and the legacy all-role worker are inactive.
 
 ## Rollback
 

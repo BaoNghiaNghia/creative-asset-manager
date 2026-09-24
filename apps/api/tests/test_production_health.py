@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -38,6 +40,37 @@ class ProductionHealthTest(unittest.TestCase):
         self.assertNotIn("database", body)
         self.assertNotIn("elasticsearch", body)
         self.assertNotIn("token", body)
+
+    def test_version_prefers_the_immutable_backend_release_marker(self) -> None:
+        settings = Settings(APP_VERSION="1.2.3", BUILD_COMMIT="abc123")
+        release_commit = "f" * 40
+        with TemporaryDirectory() as directory:
+            marker = Path(directory) / ".cam-release"
+            marker.write_text(release_commit, encoding="utf-8")
+            with patch("app.main._backend_release_marker", marker):
+                response = self.request(settings, "/version")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"version": "1.2.3", "commit": release_commit},
+        )
+
+    def test_version_never_exposes_invalid_release_marker_contents(self) -> None:
+        settings = Settings(APP_VERSION="1.2.3", BUILD_COMMIT="abc123")
+        invalid_marker = "secret-production-value"
+        with TemporaryDirectory() as directory:
+            marker = Path(directory) / ".cam-release"
+            marker.write_text(invalid_marker, encoding="utf-8")
+            with patch("app.main._backend_release_marker", marker):
+                response = self.request(settings, "/version")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"version": "1.2.3", "commit": "abc123"},
+        )
+        self.assertNotIn(invalid_marker, response.text)
 
     def test_ready_when_postgresql_is_available_and_search_is_disabled(self) -> None:
         settings = Settings()

@@ -89,6 +89,21 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         for forbidden in ("docker compose build api", "docker compose up api", "docker compose up worker", "alembic downgrade"):
             self.assertNotIn(forbidden, source)
 
+    def test_default_profile_enables_exactly_three_image_workers(self) -> None:
+        source = BACKEND.read_text()
+        self.assertIn("Stopping/disabling optional image workers 4 and 5", source)
+        enable_start = source.index('"Enabling production native services"')
+        enable_end = source.index('"Replacing fixed Inventory V4.1 timers', enable_start)
+        enable_section = source[enable_start:enable_end]
+        for worker in (
+            "creative-asset-manager-image-worker.service",
+            "creative-asset-manager-image-worker-2.service",
+            "creative-asset-manager-image-worker-3.service",
+        ):
+            self.assertIn(worker, enable_section)
+        self.assertNotIn("creative-asset-manager-image-worker-4.service", enable_section)
+        self.assertNotIn("creative-asset-manager-image-worker-5.service", enable_section)
+
     def test_visual_encoder_reserves_two_cpu_threads_without_process_replication(self) -> None:
         unit = VISUAL_ENCODER_UNIT.read_text()
         self.assertIn("CPUQuota=200%", unit)

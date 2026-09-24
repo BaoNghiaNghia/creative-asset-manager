@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
+import re
 from time import perf_counter
 
 from app.core.environment import load_development_environment
@@ -55,6 +57,25 @@ from app.providers.microsoft.onedrive import create_stream_client as create_oned
 
 
 _operations_logger = logging.getLogger("app.operations_timing")
+_backend_release_marker = Path(__file__).resolve().parents[3] / ".cam-release"
+_release_commit_pattern = re.compile(r"[0-9a-f]{7,64}")
+
+
+def _runtime_build_commit(configured_commit: str) -> str:
+    """Resolve the immutable deployed release without exposing marker contents."""
+    try:
+        release_commit = _backend_release_marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return configured_commit
+
+    if _release_commit_pattern.fullmatch(release_commit):
+        return release_commit
+
+    # Older releases and local checkouts may not have a valid marker. Fail
+    # closed to the validated configured value instead of returning arbitrary
+    # filesystem content from a public endpoint.
+    return configured_commit
+
 _timed_operations_paths = frozenset({
     "/api/v1/admin/ai-operations/summary",
     "/api/v1/admin/ai-operations/daily",
@@ -117,6 +138,7 @@ async def lifespan(_app: FastAPI):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    runtime_build_commit = _runtime_build_commit(settings.BUILD_COMMIT)
     # Lifespan uses this exact resolved Settings instance.
     api = FastAPI(
         title="Creative Asset Manager API",
@@ -223,7 +245,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def version():
         return {
             "version": settings.APP_VERSION,
-            "commit": settings.BUILD_COMMIT,
+            "commit": runtime_build_commit,
         }
 
     return api
