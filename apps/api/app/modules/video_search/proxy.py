@@ -366,11 +366,30 @@ class VideoProxyPreparationService:
         return root.resolve()
 
     def _max_source_bytes(self) -> int:
-        configured = getattr(self._settings, "VIDEO_PROXY_MAX_SOURCE_BYTES", self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES)
+        configured = getattr(
+            self._settings,
+            "VIDEO_PROXY_MAX_SOURCE_BYTES",
+            self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES,
+        )
         maximum = int(configured)
         if maximum <= 0:
             raise VideoProxyConfigurationError("VIDEO_PROXY_MAX_SOURCE_BYTES must be positive")
-        return maximum
+        host_ceiling = int(
+            getattr(self._settings, "VIDEO_PROXY_HOST_SOURCE_CEILING_BYTES", maximum)
+        )
+        if host_ceiling <= 0:
+            raise VideoProxyConfigurationError(
+                "VIDEO_PROXY_HOST_SOURCE_CEILING_BYTES must be positive"
+            )
+        return min(maximum, host_ceiling)
+
+    def _minimum_free_disk_bytes(self) -> int:
+        reserve = int(getattr(self._settings, "VIDEO_PROXY_MIN_FREE_DISK_BYTES", 0))
+        if reserve < 0:
+            raise VideoProxyConfigurationError(
+                "VIDEO_PROXY_MIN_FREE_DISK_BYTES cannot be negative"
+            )
+        return reserve
 
     def _storage_safety_reserve(self) -> int:
         maximum = int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES)
@@ -406,8 +425,11 @@ class VideoProxyPreparationService:
             free = int(self._disk_usage(root).free)
         except OSError as exc:
             raise VideoProxyDiskSpaceError("cannot inspect free proxy storage") from exc
-        if free < required:
-            raise VideoProxyDiskSpaceError("insufficient free space for video proxy preparation")
+        minimum_free = self._minimum_free_disk_bytes()
+        if free < required + minimum_free:
+            raise VideoProxyDiskSpaceError(
+                "insufficient free space for video proxy preparation"
+            )
 
     def _load_source_asset(self, tenant_id: str, source_asset_id: str) -> SourceAssetModel | None:
         with self._session_factory() as session:

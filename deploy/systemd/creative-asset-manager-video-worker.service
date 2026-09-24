@@ -19,6 +19,8 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=WORKER_ROLE=video-heavy
 Environment=WORKER_ID=creativeasset-video-heavy
 Environment=WORKER_HEALTH_PORT=8082
+Environment=VIDEO_PROXY_HOST_SOURCE_CEILING_BYTES=1500000000
+Environment=VIDEO_PROXY_MIN_FREE_DISK_BYTES=8589934592
 ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
 ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python /opt/creative-asset-manager/current/apps/worker/main.py
 Restart=on-failure
@@ -26,6 +28,10 @@ RestartSec=5s
 TimeoutStartSec=60s
 TimeoutStopSec=45s
 KillSignal=SIGTERM
+CPUQuota=100%
+MemoryHigh=1G
+MemoryMax=1536M
+TasksMax=64
 UMask=0027
 
 NoNewPrivileges=true

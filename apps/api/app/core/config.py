@@ -250,6 +250,12 @@ class Settings(BaseSettings):
     VIDEO_CHUNK_SECONDS: int = 1200
     VIDEO_PROXY_MAX_CHUNK_BYTES: int = 1_500_000_000
     VIDEO_PROXY_MAX_SOURCE_BYTES: int = 1_500_000_000
+    # Host safety ceiling is independent from tenant/runtime overrides. Production
+    # can lower it, but an oversized source must not consume the VPS disk first.
+    VIDEO_PROXY_HOST_SOURCE_CEILING_BYTES: int = 1_500_000_000
+    # Keep enough filesystem headroom for PostgreSQL, Elasticsearch and deploys
+    # while a proxy source + output chunks coexist.
+    VIDEO_PROXY_MIN_FREE_DISK_BYTES: int = 8 * 1024 * 1024 * 1024
     VIDEO_TEMP_DIRECTORY: str = ""
     PIPELINE_TEMP_DIRECTORY: str = ""
     PIPELINE_TEMP_GOOGLE_DRIVE_FOLDER_ID: str = ""
@@ -1325,6 +1331,10 @@ class Settings(BaseSettings):
             raise ValueError("VIDEO_PROXY_PREPARATION_TIMEOUT_SECONDS must be positive")
         if self.VIDEO_PROXY_SOURCE_DOWNLOAD_ATTEMPTS <= 0:
             raise ValueError("VIDEO_PROXY_SOURCE_DOWNLOAD_ATTEMPTS must be positive")
+        if self.VIDEO_PROXY_HOST_SOURCE_CEILING_BYTES <= 0:
+            raise ValueError("VIDEO_PROXY_HOST_SOURCE_CEILING_BYTES must be positive")
+        if self.VIDEO_PROXY_MIN_FREE_DISK_BYTES < 0:
+            raise ValueError("VIDEO_PROXY_MIN_FREE_DISK_BYTES cannot be negative")
         if self.VIDEO_GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS <= 0:
             raise ValueError("VIDEO_GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS must be positive")
         if not 0 < self.VIDEO_AI_TOKEN_SAFETY_RATIO <= 1 or not 0 < self.VIDEO_AI_DAILY_BUDGET_RATIO <= 1:

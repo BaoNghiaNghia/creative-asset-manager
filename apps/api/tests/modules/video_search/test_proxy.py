@@ -315,6 +315,31 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertIsNone(factory.ffmpeg)
         self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
 
+    def test_host_source_ceiling_cannot_be_bypassed_by_runtime_limit(self):
+        factory = FakeProcessFactory()
+        settings = self.settings(
+            VIDEO_PROXY_MAX_SOURCE_BYTES=100,
+            VIDEO_PROXY_HOST_SOURCE_CEILING_BYTES=10,
+        )
+        with self.assertRaises(VideoProxySourceTooLargeError):
+            asyncio.run(self.service(factory, settings=settings).prepare(
+                tenant_id="tenant-a",
+                source_asset_id="asset-a",
+                expected_source_fingerprint=self.fingerprint(),
+            ))
+        self.assertEqual(factory.calls, [])
+        self.assertEqual(list(Path(self.temp.name).glob("video-proxy-*")), [])
+
+    def test_minimum_free_disk_reserve_is_preserved(self):
+        settings = self.settings(VIDEO_PROXY_MIN_FREE_DISK_BYTES=500)
+        self.service(settings=settings, free=1500)._ensure_free_space(
+            Path(self.temp.name), 1000
+        )
+        with self.assertRaises(VideoProxyStorageError):
+            self.service(settings=settings, free=1499)._ensure_free_space(
+                Path(self.temp.name), 1000
+            )
+
     def test_process_failure_is_reported_and_cleaned(self):
         factory = FakeProcessFactory()
         original = factory.__call__
