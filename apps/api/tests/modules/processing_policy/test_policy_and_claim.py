@@ -230,6 +230,39 @@ class ProcessingPolicyTest(unittest.TestCase):
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.id, cache_fill)
 
+    def test_split_video_roles_claim_only_their_lane(self):
+        self.policy("tenant", total=4, ai=1)
+        heavy = self.job(
+            "tenant",
+            "video-analyze-heavy",
+            kind="video_analyze",
+            provider="gemini",
+            scope="video",
+        )
+        delivery = self.job(
+            "tenant",
+            "video-cache-delivery",
+            kind="video_cache_fill",
+            provider=None,
+            scope=None,
+        )
+
+        claimed_delivery = self.claim(
+            "video-delivery-worker",
+            ("video_analyze", "video_cache_fill"),
+            worker_role="video-delivery",
+        )
+        self.assertIsNotNone(claimed_delivery)
+        self.assertEqual(claimed_delivery.id, delivery)
+
+        claimed_heavy = self.claim(
+            "video-heavy-worker",
+            ("video_analyze", "video_cache_fill"),
+            worker_role="video-heavy",
+        )
+        self.assertIsNotNone(claimed_heavy)
+        self.assertEqual(claimed_heavy.id, heavy)
+
     def test_video_generate_defer_and_stale_terminal_release_are_idempotent(self):
         self.policy("tenant", total=1, ai=1)
         with self.sessions.begin() as session:

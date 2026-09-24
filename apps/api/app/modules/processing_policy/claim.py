@@ -13,8 +13,12 @@ from app.modules.processing.model import ProcessingJobModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
 from app.modules.processing.worker_roles import (
-    IMAGE_AI_JOB_TYPES, IMAGE_WORKER_JOB_TYPES,
-    VIDEO_AI_JOB_TYPES, VIDEO_WORKER_JOB_TYPES,
+    IMAGE_AI_JOB_TYPES,
+    IMAGE_WORKER_JOB_TYPES,
+    VIDEO_AI_JOB_TYPES,
+    VIDEO_DELIVERY_JOB_TYPES,
+    VIDEO_HEAVY_JOB_TYPES,
+    VIDEO_WORKER_JOB_TYPES,
     VISUAL_WORKER_JOB_TYPES,
 )
 
@@ -387,6 +391,10 @@ class TenantAwareJobClaimer:
                     video_paused,
                 ),
             )
+        if role == "video-heavy":
+            return ProcessingJobModel.job_type.in_(VIDEO_HEAVY_JOB_TYPES)
+        if role == "video-delivery":
+            return ProcessingJobModel.job_type.in_(VIDEO_DELIVERY_JOB_TYPES)
         if role == "visual":
             return ProcessingJobModel.job_type.in_(VISUAL_WORKER_JOB_TYPES)
         return false()
