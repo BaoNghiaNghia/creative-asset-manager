@@ -26,6 +26,18 @@ export type CurrentShareLink = {
 
 const root = "/api/v1/public-review/shares";
 
+export class ManagementApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(status: number, code?: string, message?: string) {
+    super(message || "Unable to manage review share");
+    this.name = "ManagementApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(root + path, {
     credentials: "same-origin",
@@ -35,8 +47,19 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
   });
-  if (!response.ok) throw new Error("Unable to manage review share");
-  return response.json();
+  const payload = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    const detail =
+      payload && typeof payload === "object" && "detail" in payload
+        ? (payload as { detail?: { code?: string; message?: string } }).detail
+        : undefined;
+    throw new ManagementApiError(
+      response.status,
+      detail?.code,
+      detail?.message,
+    );
+  }
+  return payload as T;
 }
 
 export function activeShareFolderIds(
@@ -55,6 +78,32 @@ export function activeShareFolderIds(
     }
   }
   return result;
+}
+
+export async function resolveShareLinkForCopy(
+  id: string,
+): Promise<CurrentShareLink & { rotated: boolean }> {
+  try {
+    const current = await managementApi.current(id);
+    return { ...current, rotated: false };
+  } catch (error) {
+    if (
+      error instanceof ManagementApiError &&
+      error.status === 409 &&
+      error.code === "current_share_link_unavailable"
+    ) {
+      const rotated = await managementApi.rotate(id);
+      if (!rotated.share_url) {
+        throw new Error("Missing rotated share URL");
+      }
+      return {
+        share_url: rotated.share_url,
+        expires_at: rotated.expires_at,
+        rotated: true,
+      };
+    }
+    throw error;
+  }
 }
 
 export const managementApi = {

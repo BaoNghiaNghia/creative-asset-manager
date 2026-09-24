@@ -1,3 +1,4 @@
+import base64
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -66,6 +67,27 @@ def request_without_share_link_encryption(context, method, path, **kwargs):
         PUBLIC_APP_URL="https://assets.example.test",
         SENSITIVE_URL_ENCRYPTION_KEYS="",
         SENSITIVE_URL_ACTIVE_KEY_VERSION="v1",
+    )
+    with patch(
+        "app.modules.public_review.router.SessionLocal",
+        factory,
+    ), patch(
+        "app.modules.public_review.router.get_settings",
+        return_value=settings,
+    ):
+        return client.request(method, path, **kwargs)
+
+
+
+def request_with_oauth_derived_share_encryption(context, method, path, **kwargs):
+    client, factory, _ = context
+    oauth_key = base64.urlsafe_b64encode(b"o" * 32).decode("ascii").rstrip("=")
+    settings = SimpleNamespace(
+        PUBLIC_APP_URL="https://assets.example.test",
+        SENSITIVE_URL_ENCRYPTION_KEYS="",
+        SENSITIVE_URL_ACTIVE_KEY_VERSION="v1",
+        OAUTH_TOKEN_ENCRYPTION_KEYS="v1:" + oauth_key,
+        OAUTH_ACTIVE_KEY_VERSION="v1",
     )
     with patch(
         "app.modules.public_review.router.SessionLocal",
@@ -162,6 +184,33 @@ def test_legacy_share_requires_one_rotation_before_current_link_can_be_recovered
     assert current.status_code == 200
     assert current.json()["share_url"] == rotated.json()["share_url"]
 
+
+
+
+def test_oauth_keys_are_domain_separated_fallback_for_recoverable_share_links(context):
+    created = request_with_oauth_derived_share_encryption(
+        context,
+        "POST",
+        "/api/v1/public-review/shares",
+        json=payload(),
+    )
+    assert created.status_code == 201
+    share_id = created.json()["id"]
+    first_url = created.json()["share_url"]
+
+    with context[1]() as db:
+        share = PublicReviewRepository(db).get_share("tenant-a", share_id)
+        assert share is not None
+        assert share.secret_ciphertext
+        assert share.secret_key_version == "oauth-derived-v1"
+
+    current = request_with_oauth_derived_share_encryption(
+        context,
+        "GET",
+        f"/api/v1/public-review/shares/{share_id}/current-link",
+    )
+    assert current.status_code == 200
+    assert current.json()["share_url"] == first_url
 
 
 def test_create_and_rotate_return_one_time_link_when_recovery_encryption_is_unconfigured(context):

@@ -10,7 +10,7 @@ import { useVideoSearch } from "./hooks/useVideoSearch";
 import { useVisualSearch } from "./hooks/useVisualSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { PublicReviewManagementDialog } from "./public-review-management/PublicReviewManagementDialog";
-import { activeShareFolderIds, managementApi } from "./public-review-management/api";
+import { activeShareFolderIds, managementApi, resolveShareLinkForCopy } from "./public-review-management/api";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { SquareImageGenerationDialog } from "./components/SquareImageGenerationDialog";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
@@ -628,13 +628,21 @@ export default function App() {
       return;
     }
     try {
-      const value = await managementApi.current(shareId);
+      const value = await resolveShareLinkForCopy(shareId);
       await navigator.clipboard.writeText(value.share_url);
-      setShortcutNotice({ tone: "success", message: "Đã sao chép đường dẫn chia sẻ của “" + item.name + "”." });
+      setShortcutNotice({
+        tone: "success",
+        message: value.rotated
+          ? "Link cũ không thể khôi phục nên hệ thống đã tạo và sao chép link mới của “" +
+            item.name +
+            "”. Link cũ đã hết hiệu lực."
+          : "Đã sao chép đường dẫn chia sẻ của “" + item.name + "”.",
+      });
+      if (value.rotated) reloadReviewLinkShares();
     } catch {
       setShortcutNotice({
         tone: "error",
-        message: "Không thể lấy đường dẫn hiện tại. Hãy chọn “Cập nhật đường dẫn chia sẻ” một lần rồi thử lại.",
+        message: "Không thể lấy hoặc tạo lại đường dẫn chia sẻ.",
       });
     }
   }

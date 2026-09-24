@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import hmac
+from hashlib import sha256
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.config import get_settings
@@ -26,10 +30,26 @@ def _secret_aad(share) -> str:
     return f"cam-public-review:{share.tenant_id}:{share.id}:secret"
 
 
+def _decode_versioned_keys(value: str) -> dict[str, bytes]:
+    keys: dict[str, bytes] = {}
+    for item in value.split(","):
+        if not item.strip():
+            continue
+        version, encoded = item.strip().split(":", 1)
+        decoded = base64.urlsafe_b64decode(
+            encoded + "=" * (-len(encoded) % 4)
+        )
+        if not version or version in keys or len(decoded) != 32:
+            raise ValueError("invalid versioned encryption key configuration")
+        keys[version] = decoded
+    return keys
+
+
 def _share_secret_cipher(*, required: bool = True) -> TokenCipher | None:
     settings = get_settings()
     configured = settings.SENSITIVE_URL_ENCRYPTION_KEYS.strip()
-    if not configured:
+    oauth_configured = getattr(settings, "OAUTH_TOKEN_ENCRYPTION_KEYS", "").strip()
+    if not configured and not oauth_configured:
         if not required:
             return None
         raise HTTPException(
@@ -39,12 +59,32 @@ def _share_secret_cipher(*, required: bool = True) -> TokenCipher | None:
                 "message": "Share-link encryption is not configured",
             },
         )
+
+    keys: dict[str, bytes] = {}
+    active_version: str | None = None
     try:
-        return TokenCipher.from_config(
-            configured,
-            settings.SENSITIVE_URL_ACTIVE_KEY_VERSION,
-        )
-    except ValueError as exc:
+        if configured:
+            keys.update(_decode_versioned_keys(configured))
+            active_version = settings.SENSITIVE_URL_ACTIVE_KEY_VERSION
+        if oauth_configured:
+            for version, master_key in _decode_versioned_keys(oauth_configured).items():
+                derived_version = f"oauth-derived-{version}"
+                if derived_version in keys:
+                    raise ValueError("duplicate derived public-review key version")
+                keys[derived_version] = hmac.new(
+                    master_key,
+                    b"cam-public-review-share-link-v1",
+                    sha256,
+                ).digest()
+            if active_version is None:
+                active_version = (
+                    "oauth-derived-"
+                    + getattr(settings, "OAUTH_ACTIVE_KEY_VERSION", "v1")
+                )
+        if not keys or active_version is None:
+            raise ValueError("share-link encryption is unavailable")
+        return TokenCipher(keys, active_version)
+    except (ValueError, TypeError) as exc:
         raise HTTPException(
             503,
             {
