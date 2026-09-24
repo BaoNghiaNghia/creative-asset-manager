@@ -114,6 +114,24 @@ class VisualSearchElasticsearchTest(unittest.TestCase):
             self.assertEqual(self.index._index._request.await_args_list[1].kwargs["json_body"]["search_after"],["x","2"])
         asyncio.run(verify())
 
+    def test_projection_metadata_scan_can_bound_to_requested_assets(self) -> None:
+        async def verify() -> None:
+            self.index._index._request = AsyncMock(
+                return_value={"hits": {"hits": []}}
+            )
+            rows = await self.index.scan_projection_metadata(
+                "tenant-a",
+                asset_ids=("asset-a", "asset-b", "asset-a"),
+            )
+            self.assertEqual(rows, [])
+            body = self.index._index._request.await_args.kwargs["json_body"]
+            self.assertIn(
+                {"terms": {"asset_id": ["asset-a", "asset-b"]}},
+                body["query"]["bool"]["filter"],
+            )
+
+        asyncio.run(verify())
+
     def test_projection_metadata_scan_falls_back_for_legacy_dynamic_mapping(self) -> None:
         async def verify() -> None:
             self.index._index._request = AsyncMock(side_effect=[
@@ -149,9 +167,38 @@ class VisualSearchElasticsearchTest(unittest.TestCase):
             document = VisualIndexDocument("tenant-a", "asset-a", "a" * 64, EMBEDDING)
             await self.index.upsert(document)
             self.assertIn(document.document_id, self.index._index._request.await_args.args[1])
+            self.assertNotIn("refresh=", self.index._index._request.await_args.args[1])
             self.assertEqual(self.index._index._request.await_args.kwargs["json_body"]["tenant_id"], "tenant-a")
             await self.index.delete_asset(tenant_id="tenant-a", asset_id="asset-a")
             self.assertIn({"term": {"tenant_id": "tenant-a"}}, self.index._index._request.await_args.kwargs["json_body"]["query"]["bool"]["filter"])
+        asyncio.run(verify())
+
+    def test_bulk_upsert_uses_one_ndjson_request_without_refresh_barrier(self) -> None:
+        async def verify() -> None:
+            self.index._index._request = AsyncMock(return_value={
+                "errors": False,
+                "items": [
+                    {"index": {"status": 201}},
+                    {"index": {"status": 201}},
+                ],
+            })
+            documents = [
+                VisualIndexDocument("tenant-a", "asset-a", "a" * 64, EMBEDDING),
+                VisualIndexDocument("tenant-a", "asset-b", "b" * 64, EMBEDDING),
+            ]
+            count = await self.index.bulk_upsert(documents)
+            self.assertEqual(count, 2)
+            request = self.index._index._request.await_args
+            self.assertEqual(request.args[:2], ("POST", "/_bulk"))
+            self.assertEqual(
+                request.kwargs["headers"],
+                {"Content-Type": "application/x-ndjson"},
+            )
+            payload = request.kwargs["content"].decode()
+            self.assertIn(documents[0].document_id, payload)
+            self.assertIn(documents[1].document_id, payload)
+            self.assertNotIn("refresh", request.args[1])
+
         asyncio.run(verify())
 
 

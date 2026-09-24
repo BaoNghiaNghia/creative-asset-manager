@@ -5,7 +5,7 @@ import logging
 import threading
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.video_cache.model import VideoCacheObjectModel, utcnow
@@ -167,6 +167,22 @@ class VideoCacheCleanup:
         ):
             return 0
         with self.quota.transaction() as session:
+            active_jobs = int(session.scalar(
+                select(func.count()).select_from(ProcessingJobModel).where(
+                    ProcessingJobModel.job_type == "video_playback_prepare",
+                    ProcessingJobModel.status.in_(("pending", "processing", "retry")),
+                )
+            ) or 0)
+            headroom = max(
+                0,
+                self.settings.R2_VIDEO_PLAYBACK_BACKFILL_MAX_QUEUED_JOBS - active_jobs,
+            )
+            if headroom == 0:
+                return 0
+            batch_size = min(
+                self.settings.R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE,
+                headroom,
+            )
             rows = session.scalars(
                 select(VideoCacheObjectModel).where(
                     VideoCacheObjectModel.status == "ready",
@@ -174,7 +190,7 @@ class VideoCacheCleanup:
                 ).order_by(
                     VideoCacheObjectModel.cached_at,
                     VideoCacheObjectModel.id,
-                ).limit(self.settings.R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE)
+                ).limit(batch_size)
             ).all()
             scheduled = 0
             for row in rows:

@@ -22,7 +22,7 @@ class FakeSession:
 
 class FakeProcessing:
     def __init__(self, session, existing=()): self.session = session; self.existing = set(existing)
-    def get_job_by_key(self, _tenant_id, key): return key if key in self.existing else None
+    def existing_job_keys(self, _tenant_id, keys): return set(keys) & self.existing
 
 
 def asset(asset_id, mime_type="image/jpeg", content_hash="a" * 64):

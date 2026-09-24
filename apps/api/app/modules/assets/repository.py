@@ -7,6 +7,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+_UNSET_SOURCE_ASSET = object()
+
 from app.modules.assets.model import (
     AssetModel,
     AssetSourceLinkModel,
@@ -70,14 +72,17 @@ class AssetRegistryRepository:
         provider_checksum: str | None = None,
         provider_version: str | None = None,
         source_metadata: Mapping[str, Any] | None = None,
+        existing_source_asset: SourceAssetModel | None | object = _UNSET_SOURCE_ASSET,
     ) -> SourceAssetModel:
-        source_asset = self.session.scalar(
-            select(SourceAssetModel).where(
-                SourceAssetModel.tenant_id == tenant_id,
-                SourceAssetModel.external_source_id == external_source_id,
-                SourceAssetModel.external_asset_id == external_asset_id,
+        source_asset = existing_source_asset
+        if source_asset is _UNSET_SOURCE_ASSET:
+            source_asset = self.session.scalar(
+                select(SourceAssetModel).where(
+                    SourceAssetModel.tenant_id == tenant_id,
+                    SourceAssetModel.external_source_id == external_source_id,
+                    SourceAssetModel.external_asset_id == external_asset_id,
+                )
             )
-        )
         if source_asset is None:
             source_asset = SourceAssetModel(
                 tenant_id=tenant_id,
@@ -156,8 +161,20 @@ class AssetRegistryRepository:
     def link_source_asset(
         self, *, tenant_id: str, asset_id: str, source_asset_id: str
     ) -> AssetSourceLinkModel:
+        # Serialize relinks for one source identity. The database uniqueness
+        # constraint below is the final invariant; this row lock avoids a
+        # concurrent content-change race reaching that constraint in normal use.
+        source_asset = self.session.scalar(
+            select(SourceAssetModel).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.id == source_asset_id,
+            ).with_for_update()
+        )
+        if source_asset is None:
+            raise LookupError(source_asset_id)
         existing = self.session.scalar(
             select(AssetSourceLinkModel).where(
+                AssetSourceLinkModel.tenant_id == tenant_id,
                 AssetSourceLinkModel.asset_id == asset_id,
                 AssetSourceLinkModel.source_asset_id == source_asset_id,
             )
@@ -166,6 +183,7 @@ class AssetRegistryRepository:
             return existing
         self.session.execute(
             delete(AssetSourceLinkModel).where(
+                AssetSourceLinkModel.tenant_id == tenant_id,
                 AssetSourceLinkModel.source_asset_id == source_asset_id,
                 AssetSourceLinkModel.asset_id != asset_id,
             )

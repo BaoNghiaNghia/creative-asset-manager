@@ -12,15 +12,18 @@ from app.providers.google.incremental import _candidate
 
 
 class VideoMimeFoundationTest(unittest.TestCase):
-    def test_supported_video_mimes_are_limited_to_v1(self):
+    def test_supported_video_mimes_and_filename_fallback_are_canonical(self):
         self.assertTrue(is_supported_google_drive_video_mime_type("video/mp4"))
         self.assertTrue(is_supported_video_mime_type("video/quicktime"))
-        self.assertFalse(is_supported_video_mime_type("video/webm"))
+        self.assertTrue(is_supported_video_mime_type("video/webm"))
         self.assertTrue(is_eligible_video_source_asset(SimpleNamespace(
-            mime_type="video/mp4", deleted_at=None,
+            filename="clip.mp4", mime_type="application/octet-stream", deleted_at=None,
+        )))
+        self.assertTrue(is_eligible_video_source_asset(SimpleNamespace(
+            filename="clip.webm", mime_type="video/webm", deleted_at=None,
         )))
         self.assertFalse(is_eligible_video_source_asset(SimpleNamespace(
-            mime_type="video/mp4", deleted_at=object(),
+            filename="clip.mp4", mime_type="video/mp4", deleted_at=object(),
         )))
 
     def test_video_flags_are_disabled_by_default(self):

@@ -54,6 +54,28 @@ class ProcessingRepositoryTest(unittest.TestCase):
             )
             return job.id
 
+    def test_create_job_once_reports_insert_without_global_count(self) -> None:
+        with self.sessions() as session:
+            repository = ProcessingRepository(session)
+            first, first_created = repository.create_job_once(
+                tenant_id="tenant-a",
+                job_type="asset_store",
+                entity_type="asset",
+                entity_id="asset-1",
+                idempotency_key="store:asset-1:once",
+            )
+            second, second_created = repository.create_job_once(
+                tenant_id="tenant-a",
+                job_type="asset_store",
+                entity_type="asset",
+                entity_id="asset-1",
+                idempotency_key="store:asset-1:once",
+            )
+            session.commit()
+            self.assertTrue(first_created)
+            self.assertFalse(second_created)
+            self.assertEqual(first.id, second.id)
+
     def test_duplicate_job_creation_returns_one_job(self) -> None:
         with self.sessions() as session:
             repository = ProcessingRepository(session)

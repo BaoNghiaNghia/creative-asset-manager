@@ -22,6 +22,8 @@ from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysi
 IMAGE_JOB_TYPE = "asset_analyze"
 VIDEO_JOB_TYPE = "video_analyze"
 VIDEO_INDEX_JOB_TYPE = "video_search_index"
+VIDEO_CACHE_FILL_JOB_TYPE = "video_cache_fill"
+VIDEO_PLAYBACK_PREPARE_JOB_TYPE = "video_playback_prepare"
 _RUNNING = {"processing", "claimed", "running"}
 _QUEUED = {"pending", "queued", "retry"}
 _TERMINAL = {"completed", "failed"}
@@ -395,11 +397,20 @@ def _stage(key: str, label: str, rows: list[ProcessingJobModel], now: datetime) 
         and ((retry_at := _as_utc(row.next_attempt_at)) is None or retry_at <= now)
         for row in rows
     )
+    queued_rows = [row for row in rows if row.status in _QUEUED]
+    oldest_queued_at = min(
+        (_as_utc(row.created_at) for row in queued_rows if row.created_at is not None),
+        default=None,
+    )
     return {
         "key": key,
         "label": label,
         "queued": sum(counts[state] for state in _QUEUED),
         "eligible_now": eligible_now,
+        "oldest_queued_age_seconds": (
+            max(0, int((now - oldest_queued_at).total_seconds()))
+            if oldest_queued_at is not None else 0
+        ),
         "running": sum(counts[state] for state in _RUNNING),
         "completed": counts["completed"],
         "failed": counts["failed"],
@@ -629,18 +640,29 @@ class MediaDashboardService:
         now = datetime.now(timezone.utc)
         to_at = _as_utc(to_at) or now
         from_at = _as_utc(from_at) or datetime(1970, 1, 1, tzinfo=timezone.utc)
+        dashboard_job_types = (
+            IMAGE_JOB_TYPE,
+            VIDEO_JOB_TYPE,
+            VIDEO_INDEX_JOB_TYPE,
+            VIDEO_CACHE_FILL_JOB_TYPE,
+            VIDEO_PLAYBACK_PREPARE_JOB_TYPE,
+        )
         rows = list(self.session.scalars(select(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == tenant_id,
-            ProcessingJobModel.job_type.in_((IMAGE_JOB_TYPE, VIDEO_JOB_TYPE, VIDEO_INDEX_JOB_TYPE)),
+            ProcessingJobModel.job_type.in_(dashboard_job_types),
         )))
         by_type = {job_type: [row for row in rows if row.job_type == job_type] for job_type in (IMAGE_JOB_TYPE, VIDEO_JOB_TYPE, VIDEO_INDEX_JOB_TYPE)}
         image = _stage(IMAGE_JOB_TYPE, "Image analysis", by_type[IMAGE_JOB_TYPE], now)
         video = _stage(VIDEO_JOB_TYPE, "Video analysis", by_type[VIDEO_JOB_TYPE], now)
         indexing = _stage(VIDEO_INDEX_JOB_TYPE, "Video indexing", by_type[VIDEO_INDEX_JOB_TYPE], now)
         image["state"] = "waiting_rate_limit" if image["waiting_rate_limit"] and not image["running"] else ("running" if image["running"] else "idle")
-        image_probe, video_probe = await __import__("asyncio").gather(
+        image_probe, video_probe, video_delivery_probe = await __import__("asyncio").gather(
             _probe_worker(self.settings.IMAGE_WORKER_HEALTH_URL, self.settings.HEALTHCHECK_TIMEOUT_SECONDS),
             _probe_worker(self.settings.VIDEO_WORKER_HEALTH_URL, self.settings.HEALTHCHECK_TIMEOUT_SECONDS),
+            _probe_worker(
+                self.settings.VIDEO_DELIVERY_WORKER_HEALTH_URL,
+                self.settings.HEALTHCHECK_TIMEOUT_SECONDS,
+            ),
         )
         def worker(role: str, job_types: tuple[str, ...], probe: dict) -> dict:
             active = [row for row in rows if row.job_type in job_types and row.status in _RUNNING]
@@ -908,7 +930,16 @@ class MediaDashboardService:
             "recent_video": {"page": video_page, "page_size": video_page_size, "total": len(ordered_video), "items": recent_video},
             "workers": [
                 worker("image", (IMAGE_JOB_TYPE,), image_probe),
-                worker("video", (VIDEO_JOB_TYPE, VIDEO_INDEX_JOB_TYPE), video_probe),
+                worker("video-heavy", (VIDEO_JOB_TYPE,), video_probe),
+                worker(
+                    "video-delivery",
+                    (
+                        VIDEO_INDEX_JOB_TYPE,
+                        VIDEO_CACHE_FILL_JOB_TYPE,
+                        VIDEO_PLAYBACK_PREPARE_JOB_TYPE,
+                    ),
+                    video_delivery_probe,
+                ),
             ],
             "analytics": _merge_video_job_failure_groups(
                 _video_analytics(

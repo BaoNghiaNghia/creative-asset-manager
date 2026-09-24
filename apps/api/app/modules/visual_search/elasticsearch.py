@@ -5,7 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from math import isfinite
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from app.infrastructure.search.elasticsearch_v2 import AliasSwitchResult, ElasticsearchV3Config, ElasticsearchV3Index, ElasticsearchV3RequestError
 from app.modules.visual_search.contracts import EmbeddingDescriptor, VisualEmbedding
@@ -588,7 +588,50 @@ class VisualSearchElasticsearchIndex:
 
     async def upsert(self, document: VisualIndexDocument) -> None:
         self._validate_embedding(document.embedding)
-        await self._index._request("PUT", f"/{self.read_alias}/_doc/{document.document_id}?refresh=wait_for", json_body=document.to_document())
+        # Background indexing must not wait for a refresh on every document.
+        # Elasticsearch's normal refresh cadence keeps the projection near-real-time
+        # without serializing a 60k+ asset backfill on refresh barriers.
+        await self._index._request(
+            "PUT",
+            f"/{self.read_alias}/_doc/{document.document_id}",
+            json_body=document.to_document(),
+        )
+
+    async def bulk_upsert(self, documents: Sequence[VisualIndexDocument]) -> int:
+        """Bulk-write visual projections without per-document refresh barriers."""
+        if not documents:
+            return 0
+        lines: list[str] = []
+        for document in documents:
+            self._validate_embedding(document.embedding)
+            lines.append(json.dumps({
+                "index": {
+                    "_index": self.read_alias,
+                    "_id": document.document_id,
+                }
+            }, separators=(",", ":")))
+            lines.append(json.dumps(document.to_document(), separators=(",", ":")))
+        response = await self._index._request(
+            "POST",
+            "/_bulk",
+            content=("\n".join(lines) + "\n").encode(),
+            headers={"Content-Type": "application/x-ndjson"},
+        )
+        items = response.get("items")
+        if not isinstance(items, list) or len(items) != len(documents):
+            raise ElasticsearchV3RequestError(
+                "visual bulk indexing response is malformed"
+            )
+        failures = []
+        for item in items:
+            result = item.get("index", {}) if isinstance(item, Mapping) else {}
+            if result.get("error") or int(result.get("status") or 500) >= 300:
+                failures.append(result)
+        if response.get("errors") or failures:
+            raise ElasticsearchV3RequestError(
+                f"visual bulk indexing failed for {len(failures)} item(s)"
+            )
+        return len(documents)
 
     async def get_document(self, document_id: str) -> Mapping[str, Any]:
         if not document_id.strip():
@@ -611,14 +654,34 @@ class VisualSearchElasticsearchIndex:
             filters.append({"bool": {"must_not": [{"term": {"asset_id": exclude_asset_id}}]}})
         return {"size": limit, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "source_id", "source_provider", "media_kind", "mime_type", "extension", "design_type"], "knn": {"field": "visual_embedding", "query_vector": list(embedding.values), "k": limit, "num_candidates": candidates, "filter": filters}}
 
-    async def scan_projection_metadata(self, tenant_id: str, *, page_size: int = 500) -> list[dict[str, Any]]:
+    async def scan_projection_metadata(
+        self,
+        tenant_id: str,
+        *,
+        page_size: int = 500,
+        asset_ids: Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Read-only tenant projection scan; intentionally excludes vectors."""
         if not tenant_id.strip(): raise VisualSearchIndexError("visual search requires a tenant scope")
         if not 1 <= page_size <= 1000: raise VisualSearchIndexError("projection scan page_size must be between 1 and 1000")
+        normalized_asset_ids = tuple(dict.fromkeys(
+            value.strip() for value in (asset_ids or ()) if value.strip()
+        ))
+        if asset_ids is not None and not normalized_asset_ids:
+            return []
+        if len(normalized_asset_ids) > 1000:
+            raise VisualSearchIndexError("projection metadata asset filter is too large")
         after = None; rows = []; legacy_keyword_fields = False
         while True:
             suffix = ".keyword" if legacy_keyword_fields else ""
-            body = {"size": page_size, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "encoder_name", "encoder_revision", "preprocess_version", "similarity", "is_deleted", "is_hidden"], "query": {"bool": {"filter": [{"term": {f"tenant_id{suffix}": tenant_id}}]}}, "sort": [{f"asset_id{suffix}": "asc"}, {f"content_sha256{suffix}": "asc"}, {f"embedding_schema_version{suffix}": "asc"}]}
+            filters: list[dict[str, Any]] = [
+                {"term": {f"tenant_id{suffix}": tenant_id}}
+            ]
+            if normalized_asset_ids:
+                filters.append(
+                    {"terms": {f"asset_id{suffix}": list(normalized_asset_ids)}}
+                )
+            body = {"size": page_size, "_source": ["tenant_id", "asset_id", "content_sha256", "embedding_schema_version", "encoder_name", "encoder_revision", "preprocess_version", "similarity", "is_deleted", "is_hidden"], "query": {"bool": {"filter": filters}}, "sort": [{f"asset_id{suffix}": "asc"}, {f"content_sha256{suffix}": "asc"}, {f"embedding_schema_version{suffix}": "asc"}]}
             if after is not None: body["search_after"] = after
             try:
                 payload = await self._index._request("POST", f"/{self.read_alias}/_search", json_body=body)

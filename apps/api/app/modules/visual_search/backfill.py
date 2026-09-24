@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from app.core.config import Settings
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
-from app.modules.pipeline.mime_types import is_supported_image_mime_type
+from app.modules.pipeline.mime_types import is_eligible_image_source_asset
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.visual_search.eligibility import visual_search_tenant_eligible
 from app.modules.visual_search.lifecycle import VISUAL_EMBEDDING_SCHEMA_VERSION, enqueue_visual_index_sync, visual_index_job_key
@@ -63,15 +63,23 @@ class VisualSearchBackfillService:
             if checkpoint: query = query.where(AssetModel.id > checkpoint)
             rows = self.session.execute(query.limit(min(batch_size, max_assets-result.scanned))).all()
             if not rows: break
+            candidate_keys = {
+                visual_index_job_key(asset.id, asset.content_hash)
+                for asset, source in rows
+                if asset.content_hash and is_eligible_image_source_asset(source)
+            }
+            existing_keys = self.processing.existing_job_keys(
+                tenant_id, candidate_keys
+            )
             seen = set()
             for asset, source in rows:
                 if asset.id in seen: continue
                 seen.add(asset.id); checkpoint = asset.id; result.checkpoint_asset_id = checkpoint; result.scanned += 1
                 if not asset.content_hash: result.skipped_missing_hash += 1; continue
-                if not is_supported_image_mime_type(source.mime_type): result.skipped_unsupported += 1; continue
+                if not is_eligible_image_source_asset(source): result.skipped_unsupported += 1; continue
                 result.eligible += 1
                 key = visual_index_job_key(asset.id, asset.content_hash)
-                if self.processing.get_job_by_key(tenant_id, key) is not None:
+                if key in existing_keys:
                     result.skipped_existing += 1
                     continue
                 if dry_run:

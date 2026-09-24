@@ -91,6 +91,35 @@ class AssetRegistryRepositoryTest(unittest.TestCase):
         count = self.session.scalar(select(func.count()).select_from(AssetSourceLinkModel))
         self.assertEqual(count, 1)
 
+    def test_relink_source_asset_keeps_one_canonical_link(self) -> None:
+        source = self._source("tenant-a", "drive-primary")
+        source_asset = self._source_asset("tenant-a", source.id, "external-relink")
+        first_asset = self.repository.create_asset(
+            tenant_id="tenant-a", content_hash="1" * 64
+        )
+        second_asset = self.repository.create_asset(
+            tenant_id="tenant-a", content_hash="2" * 64
+        )
+        self.repository.link_source_asset(
+            tenant_id="tenant-a",
+            asset_id=first_asset.id,
+            source_asset_id=source_asset.id,
+        )
+        self.repository.link_source_asset(
+            tenant_id="tenant-a",
+            asset_id=second_asset.id,
+            source_asset_id=source_asset.id,
+        )
+
+        links = list(self.session.scalars(
+            select(AssetSourceLinkModel).where(
+                AssetSourceLinkModel.tenant_id == "tenant-a",
+                AssetSourceLinkModel.source_asset_id == source_asset.id,
+            )
+        ))
+        self.assertEqual(len(links), 1)
+        self.assertEqual(links[0].asset_id, second_asset.id)
+
     def test_soft_delete_source_asset_keeps_asset_content(self) -> None:
         source = self._source("tenant-a", "drive-primary")
         source_asset = self._source_asset("tenant-a", source.id, "external-1")

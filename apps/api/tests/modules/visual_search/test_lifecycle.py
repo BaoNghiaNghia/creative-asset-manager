@@ -18,9 +18,13 @@ class FakeProcessing:
     def get_job_by_key(self, tenant_id: str, key: str):
         return self.jobs.get((tenant_id, key))
 
-    def create_job(self, **kwargs):
-        self.jobs[(kwargs["tenant_id"], kwargs["idempotency_key"])] = kwargs
-        return kwargs
+    def create_job_once(self, **kwargs):
+        key = (kwargs["tenant_id"], kwargs["idempotency_key"])
+        existing = self.jobs.get(key)
+        if existing is not None:
+            return existing, False
+        self.jobs[key] = kwargs
+        return kwargs, True
 
 
 def enabled_settings() -> Settings:

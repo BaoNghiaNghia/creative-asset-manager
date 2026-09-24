@@ -11,13 +11,27 @@ def resource(asset_id, source_id=None, hash_="a"*64, activity_at=None):
 def document(asset_id, hash_="a"*64, **changes):
     return {"tenant_id":"tenant-a","asset_id":asset_id,"content_sha256":hash_,"embedding_schema_version":d.embedding_schema_version,"encoder_name":d.encoder_name,"encoder_revision":d.encoder_revision,"preprocess_version":d.preprocess_version,"similarity":d.similarity,"is_deleted":False,"is_hidden":False,**changes}
 class Index:
-    def __init__(self,docs): self.docs=docs;self.calls=0
-    async def scan_projection_metadata(self,tenant): self.calls+=1;return self.docs
+    def __init__(self,docs): self.docs=docs;self.calls=0;self.asset_ids=None
+    async def scan_projection_metadata(self,tenant,*,asset_ids=None):
+        self.calls+=1;self.asset_ids=tuple(asset_ids or ());return self.docs
+
+def reader(rows):
+    def page(_tenant, *, after_asset_id=None, limit=100):
+        by_asset={}
+        for item in rows:
+            if not item.eligible or not item.asset_id:
+                continue
+            if after_asset_id is not None and item.asset_id <= after_asset_id:
+                continue
+            by_asset.setdefault(item.asset_id,item)
+        ordered=[by_asset[key] for key in sorted(by_asset)]
+        return ordered[:limit], len(ordered) > limit
+    return SimpleNamespace(eligible_resources_page=page)
 
 def test_only_missing_and_stale_are_enqueued_once(monkeypatch):
     monkeypatch.setattr(reconciliation,"active_visual_queue_depth",lambda *_args,**_kwargs:0)
     rows=[resource("current"),resource("missing"),resource("stale",hash_="b"*64),resource("missing","second-source")]
-    monkeypatch.setattr(reconciliation,"VisualCoverageResourceReader",lambda _:SimpleNamespace(resources=lambda _:rows))
+    monkeypatch.setattr(reconciliation,"VisualCoverageResourceReader",lambda _:reader(rows))
     calls=[]
     monkeypatch.setattr(reconciliation,"enqueue_visual_index_sync",lambda processing,**kwargs: calls.append(kwargs) or True)
     index=Index([document("current"),document("stale","old"*16)])
@@ -25,12 +39,13 @@ def test_only_missing_and_stale_are_enqueued_once(monkeypatch):
     assert (result.scanned,result.current,result.missing,result.stale,result.enqueued,result.existing)==(3,1,1,1,2,0)
     assert result.checkpoint_asset_id=="stale" and not result.has_more
     assert {call["asset_id"] for call in calls}=={"missing","stale"} and index.calls==1
+    assert set(index.asset_ids)=={"current","missing","stale"}
 
 def test_es_failure_enqueues_nothing(monkeypatch):
     monkeypatch.setattr(reconciliation,"active_visual_queue_depth",lambda *_args,**_kwargs:0)
-    monkeypatch.setattr(reconciliation,"VisualCoverageResourceReader",lambda _:SimpleNamespace(resources=lambda _:[resource("missing")]))
+    monkeypatch.setattr(reconciliation,"VisualCoverageResourceReader",lambda _:reader([resource("missing")]))
     class Broken:
-        async def scan_projection_metadata(self,_): raise RuntimeError("down")
+        async def scan_projection_metadata(self,_,*,asset_ids=None): raise RuntimeError("down")
     monkeypatch.setattr(reconciliation,"enqueue_visual_index_sync",lambda *_ ,**__: pytest.fail("must not enqueue"))
     with pytest.raises(RuntimeError): reconciliation.VisualSearchReconciliationService(object(),object(),Broken(),settings=object()).reconcile(tenant_id="tenant-a")
 
@@ -66,7 +81,7 @@ def test_recent_backfill_jobs_outrank_archive_jobs_but_not_live_writes(monkeypat
     monkeypatch.setattr(
         reconciliation,
         "VisualCoverageResourceReader",
-        lambda _:SimpleNamespace(resources=lambda _:rows),
+        lambda _:reader(rows),
     )
     calls=[]
     monkeypatch.setattr(

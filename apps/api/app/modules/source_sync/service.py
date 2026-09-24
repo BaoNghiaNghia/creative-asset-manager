@@ -13,7 +13,7 @@ from app.modules.authorization.folder_scope_cache import (
     viewer_folder_remote_parent_cache,
 )
 from app.modules.assets.content_identity import ensure_source_asset_link, normalize_sha256
-from app.modules.pipeline.mime_types import is_supported_google_drive_image_mime_type, is_eligible_video_source_asset
+from app.modules.pipeline.mime_types import is_eligible_image_source_asset, is_eligible_video_source_asset
 from app.modules.pipeline.repository import AssetPipelineRepository
 from app.modules.video_search.enqueue import enqueue_video_analysis_job
 from app.modules.video_search.fingerprint import build_video_source_fingerprint
@@ -110,6 +110,7 @@ class SourceSyncResult:
     jobs_created: int
     cursor: str | None
     reconciliation: bool = False
+    has_more: bool = False
     run_id: str | None = None
     generation: int | None = None
     missing_marked: int = 0
@@ -217,13 +218,32 @@ class SourceSyncService:
                 ))
                 page_changes = page_jobs = 0
                 active_generation = run.generation if run else self.repository.active_full_generation(tenant_id, source_id)
+                external_asset_ids = {
+                    change.external_asset_id
+                    for change in page.changes
+                    if change.external_asset_id
+                }
+                existing_by_external_id = self.repository.get_source_assets_by_external_ids(
+                    tenant_id, source_id, external_asset_ids
+                )
+                existing_source_ids = {
+                    source_asset.id for source_asset in existing_by_external_id.values()
+                }
+                imported_source_ids = pipelines.existing_origin_ids(
+                    tenant_id, "source_asset", existing_source_ids
+                )
+                initial_download_keys = {
+                    initial_source_asset_download_key(source_asset_id)
+                    for source_asset_id in existing_source_ids
+                }
+                existing_initial_download_keys = self.processing.existing_job_keys(
+                    tenant_id, initial_download_keys
+                )
                 for change in page.changes:
                     changes_count += 1
                     page_changes += 1
                     if change.change_type == "deleted":
-                        existing = self.repository.get_source_asset_by_external_id(
-                            tenant_id, source_id, change.external_asset_id
-                        )
+                        existing = existing_by_external_id.get(change.external_asset_id)
                         if existing is not None and existing.deleted_at is None:
                             self._retire_source_asset_and_enqueue_sync(
                                 tenant_id=tenant_id,
@@ -237,9 +257,7 @@ class SourceSyncService:
                     # Defense in depth for Google providers that produce candidates
                     # directly instead of going through incremental.py.
                     if source.source_type == "google_drive" and is_cam_managed_file(candidate.source_metadata):
-                        existing = self.repository.get_source_asset_by_external_id(
-                            tenant_id, source_id, candidate.external_asset_id
-                        )
+                        existing = existing_by_external_id.get(candidate.external_asset_id)
                         if existing is not None and existing.deleted_at is None:
                             self._retire_source_asset_and_enqueue_sync(
                                 tenant_id=tenant_id,
@@ -247,9 +265,7 @@ class SourceSyncService:
                                 identity=f"deleted:{change.external_asset_id}",
                             )
                         continue
-                    existing = self.repository.get_source_asset_by_external_id(
-                        tenant_id, source_id, candidate.external_asset_id
-                    )
+                    existing = existing_by_external_id.get(candidate.external_asset_id)
                     was_deleted = existing is not None and existing.deleted_at is not None
                     previous_search_projection = (
                         _search_projection(existing, source_type=source.source_type)
@@ -277,7 +293,9 @@ class SourceSyncService:
                         provider_checksum=candidate.provider_checksum,
                         provider_version=candidate.provider_version,
                         source_metadata=sanitize_sensitive_urls(candidate_metadata),
+                        existing_source_asset=existing,
                     )
+                    existing_by_external_id[candidate.external_asset_id] = source_asset
                     current_search_projection = _search_projection(
                         source_asset, source_type=source.source_type
                     )
@@ -309,12 +327,10 @@ class SourceSyncService:
                     is_video = not is_folder and is_eligible_video_source_asset(source_asset)
                     is_download_supported = (
                         source.source_type != "google_drive"
-                        or is_supported_google_drive_image_mime_type(candidate.mime_type)
+                        or is_eligible_image_source_asset(source_asset)
                     )
                     content_maybe_changed = existing is None or (new_marker is not None and old_marker != new_marker)
-                    never_imported = pipelines.get_by_origin(
-                        tenant_id, "source_asset", source_asset.id
-                    ) is None
+                    never_imported = source_asset.id not in imported_source_ids
                     video_content_changed = existing is None or old_video_fingerprint != build_video_source_fingerprint(source_asset)
                     if is_video:
                         provider_sha256 = normalize_sha256(source_asset.provider_checksum)
@@ -338,11 +354,8 @@ class SourceSyncService:
                         and (content_maybe_changed or never_imported)
                         and not (was_deleted and old_marker == new_marker)
                     ):
-                        before = self.processing.count_jobs()
                         initial_key = initial_source_asset_download_key(source_asset.id)
-                        initial_job_exists = self.processing.get_job_by_key(
-                            tenant_id, initial_key
-                        ) is not None
+                        initial_job_exists = initial_key in existing_initial_download_keys
                         initial_import = never_imported and (
                             existing is None
                             or not content_maybe_changed
@@ -353,7 +366,7 @@ class SourceSyncService:
                             if initial_import
                             else f"source-asset-download:{source_asset.id}:{new_marker or candidate.source_modified_at or 'unknown'}"
                         )
-                        self.processing.create_job(
+                        _job, was_created = self.processing.create_job_once(
                             tenant_id=tenant_id,
                             job_type="source_asset_download",
                             entity_type="source_asset",
@@ -363,7 +376,7 @@ class SourceSyncService:
                             provider_key=source.source_type,
                             provider_scope="source",
                         )
-                        created = int(self.processing.count_jobs() > before)
+                        created = int(was_created)
                         jobs_created += created
                         page_jobs += created
                 if reconciliation and run is not None:
@@ -389,10 +402,19 @@ class SourceSyncService:
             has_more = page.has_more
 
         if has_more:
-            if run is not None:
-                self.repository.fail_run(run.id, "PageLimitExceeded")
-                self.repository.session.commit()
-            raise RuntimeError("source sync page limit exceeded")
+            # This is an intentional durable yield, not a failed reconciliation.
+            # The caller can enqueue a continuation job using the persisted cursor.
+            return SourceSyncResult(
+                pages=pages,
+                changes=changes_count,
+                jobs_created=jobs_created,
+                cursor=cursor,
+                reconciliation=reconciliation,
+                has_more=True,
+                run_id=run.id if run else None,
+                generation=run.generation if run else None,
+                missing_marked=0,
+            )
 
         missing_marked = 0
         if run is not None:
@@ -430,6 +452,13 @@ class SourceSyncService:
                 self.repository.session.commit()
                 raise
         return SourceSyncResult(
-            pages, changes_count, jobs_created, cursor, reconciliation,
-            run.id if run else None, run.generation if run else None, missing_marked,
+            pages=pages,
+            changes=changes_count,
+            jobs_created=jobs_created,
+            cursor=cursor,
+            reconciliation=reconciliation,
+            has_more=False,
+            run_id=run.id if run else None,
+            generation=run.generation if run else None,
+            missing_marked=missing_marked,
         )

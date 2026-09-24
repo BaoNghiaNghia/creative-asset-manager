@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.modules.assets.media_types import infer_media_type, normalize_media_type
+
 
 class UnsupportedSourceMimeType(ValueError):
     pass
@@ -23,7 +25,15 @@ SUPPORTED_GOOGLE_DRIVE_IMAGE_MIME_TYPES = frozenset({
     "image/heic-sequence",
     "image/heif-sequence",
 })
-SUPPORTED_GOOGLE_DRIVE_VIDEO_MIME_TYPES = frozenset({"video/mp4", "video/quicktime"})
+SUPPORTED_GOOGLE_DRIVE_VIDEO_MIME_TYPES = frozenset({
+    "video/mp4",
+    "video/quicktime",
+    "video/x-msvideo",
+    "video/x-m4v",
+    "video/x-matroska",
+    "video/mpeg",
+    "video/webm",
+})
 
 IGNORED_IMAGE_ANALYSIS_MIME_TYPES = frozenset({
     "image/x-photoshop", "image/vnd.adobe.photoshop",
@@ -32,7 +42,7 @@ IGNORED_IMAGE_ANALYSIS_MIME_TYPES = frozenset({
 
 
 def normalize_source_mime_type(mime_type: str | None) -> str:
-    return mime_type.strip().lower() if isinstance(mime_type, str) else ""
+    return normalize_media_type(mime_type)
 
 
 def is_supported_google_drive_image_mime_type(mime_type: str | None) -> bool:
@@ -44,8 +54,12 @@ def is_supported_image_mime_type(mime_type: str | None) -> bool:
 
 
 def is_eligible_image_source_asset(source_asset) -> bool:
+    resolved = infer_media_type(
+        getattr(source_asset, "filename", None),
+        getattr(source_asset, "mime_type", None),
+    )
     return (
-        is_supported_image_mime_type(getattr(source_asset, "mime_type", None))
+        is_supported_image_mime_type(resolved)
         and getattr(source_asset, "deleted_at", None) is None
     )
 
@@ -59,8 +73,12 @@ def is_supported_video_mime_type(mime_type: str | None) -> bool:
 
 
 def is_eligible_video_source_asset(source_asset) -> bool:
+    resolved = infer_media_type(
+        getattr(source_asset, "filename", None),
+        getattr(source_asset, "mime_type", None),
+    )
     return (
-        is_supported_video_mime_type(getattr(source_asset, "mime_type", None))
+        is_supported_video_mime_type(resolved)
         and getattr(source_asset, "deleted_at", None) is None
     )
 

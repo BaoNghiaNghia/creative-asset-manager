@@ -34,6 +34,19 @@ class AssetPipelineRepository:
             AssetPipelineModel.origin_id == origin_id,
         ))
 
+    def existing_origin_ids(
+        self, tenant_id: str, origin_type: str, origin_ids: set[str]
+    ) -> set[str]:
+        if not origin_ids:
+            return set()
+        return set(self.session.scalars(
+            select(AssetPipelineModel.origin_id).where(
+                AssetPipelineModel.tenant_id == tenant_id,
+                AssetPipelineModel.origin_type == origin_type,
+                AssetPipelineModel.origin_id.in_(origin_ids),
+            )
+        ))
+
     def get_or_create(self, *, tenant_id: str, origin_type: str, origin_id: str,
                       source_asset_id: str | None = None,
                       correlation_id: str | None = None) -> AssetPipelineModel:

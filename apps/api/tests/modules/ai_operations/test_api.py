@@ -215,7 +215,12 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertEqual(document["video"]["running"], 1)
         self.assertEqual(document["video_indexing"]["completed"], 1)
         self.assertEqual([stage["key"] for stage in document["pipeline"]["video"]], ["video_analyze", "video_search_index"])
-        self.assertEqual(len(document["workers"]), 2)
+        self.assertEqual(len(document["workers"]), 3)
+        self.assertEqual(
+            [worker["role"] for worker in document["workers"]],
+            ["image", "video-heavy", "video-delivery"],
+        )
+        self.assertIn("oldest_queued_age_seconds", document["video"])
         self.assertNotIn("127.0.0.1", str(document))
 
     def test_media_dashboard_returns_video_only_analytics_for_selected_period(self):

@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     # API-only worker health probes; browsers never access worker ports directly.
     IMAGE_WORKER_HEALTH_URL: str = "http://127.0.0.1:8081"
     VIDEO_WORKER_HEALTH_URL: str = "http://127.0.0.1:8082"
+    VIDEO_DELIVERY_WORKER_HEALTH_URL: str = "http://127.0.0.1:8088"
     DATABASE_URL: str | None = None
     DATABASE_POOL_SIZE: int = 3
     DATABASE_MAX_OVERFLOW: int = 2
@@ -184,7 +185,9 @@ class Settings(BaseSettings):
     R2_VIDEO_PLAYBACK_VIDEO_BITRATE_KBPS: int = 6_000
     R2_VIDEO_PLAYBACK_AUDIO_BITRATE_KBPS: int = 128
     R2_VIDEO_PLAYBACK_PREPARATION_TIMEOUT_SECONDS: int = 3600
-    R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE: int = 2
+    # Backfill is admitted in bounded bursts by the dedicated delivery lane.
+    R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE: int = 8
+    R2_VIDEO_PLAYBACK_BACKFILL_MAX_QUEUED_JOBS: int = 16
     R2_VIDEO_MEDIA_BASE_URL: str = ""
     # Exceptional zero-custom-domain mode. Keep false unless the operator
     # intentionally accepts a workers.dev delivery hostname for this deployment.
@@ -417,6 +420,9 @@ class Settings(BaseSettings):
     SOURCE_SYNC_POLL_INTERVAL_SECONDS: int = 60
     SOURCE_SYNC_MAX_SOURCES_PER_TICK: int = 100
     SOURCE_SYNC_JOB_STALE_SECONDS: int = 900
+    # Yield large provider traversals back to the durable queue instead of
+    # monopolizing one image worker for an entire 60k+ asset reconciliation.
+    SOURCE_SYNC_MAX_PAGES_PER_JOB: int = 25
     # A daily reconciliation catches provider changes that incremental cursors can miss.
     SOURCE_SYNC_DAILY_FULL_SCAN_ENABLED: bool = True
     SOURCE_SYNC_DAILY_FULL_SCAN_HOUR: int = 10
@@ -475,7 +481,12 @@ class Settings(BaseSettings):
                 return False
         raise ValueError("feature flags must be either 'true' or 'false'")
 
-    @field_validator("SOURCE_SYNC_POLL_INTERVAL_SECONDS", "SOURCE_SYNC_MAX_SOURCES_PER_TICK", "SOURCE_SYNC_JOB_STALE_SECONDS")
+    @field_validator(
+        "SOURCE_SYNC_POLL_INTERVAL_SECONDS",
+        "SOURCE_SYNC_MAX_SOURCES_PER_TICK",
+        "SOURCE_SYNC_JOB_STALE_SECONDS",
+        "SOURCE_SYNC_MAX_PAGES_PER_JOB",
+    )
     @classmethod
     def validate_source_sync_scheduler_limits(cls, value: int) -> int:
         if value < 1:
@@ -804,8 +815,13 @@ class Settings(BaseSettings):
     @classmethod
     def validate_worker_role(cls, value: str) -> str:
         normalized = value.strip().casefold()
-        if normalized not in {"all", "image", "video", "visual"}:
-            raise ValueError("WORKER_ROLE must be one of: all, image, video, visual")
+        if normalized not in {
+            "all", "image", "video", "video-heavy", "video-delivery", "visual"
+        }:
+            raise ValueError(
+                "WORKER_ROLE must be one of: all, image, video, video-heavy, "
+                "video-delivery, visual"
+            )
         return normalized
 
     @field_validator("WORKER_LOG_LEVEL")
@@ -914,8 +930,12 @@ class Settings(BaseSettings):
             self.R2_VIDEO_PLAYBACK_PREPARATION_TIMEOUT_SECONDS,
         ) <= 0:
             raise ValueError("R2 video playback derivative limits must be positive")
-        if not 1 <= self.R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE <= 25:
-            raise ValueError("R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE is invalid")
+        if not (
+            1 <= self.R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE
+            <= self.R2_VIDEO_PLAYBACK_BACKFILL_MAX_QUEUED_JOBS
+            <= 100
+        ):
+            raise ValueError("R2 video playback backfill queue limits are invalid")
         if self.R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS <= 0:
             raise ValueError("R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS must be positive")
         if not 300 <= self.R2_VIDEO_CACHE_PREPARING_STALE_SECONDS <= 7 * 24 * 3600:

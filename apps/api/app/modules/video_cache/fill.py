@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.modules.assets.media_types import infer_media_type
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -84,7 +85,10 @@ class VideoCacheFillService:
                 ))
                 if asset is None or source is None or link is None or asset.content_hash != content_hash:
                     return CacheFillResult(CacheFillStatus.BYPASSED_SOURCE_CHANGED)
-                if not (asset.mime_type or "").startswith("video/") or not (source.mime_type or "").startswith("video/"):
+                resolved_mime_type = infer_media_type(
+                    source.filename, source.mime_type, asset.mime_type
+                )
+                if not resolved_mime_type.startswith("video/"):
                     return CacheFillResult(CacheFillStatus.BYPASSED_NOT_VIDEO)
                 if asset.size_bytes is None or source.size_bytes is None or asset.size_bytes <= 0 or source.size_bytes <= 0:
                     return CacheFillResult(CacheFillStatus.BYPASSED_NO_SIZE)
@@ -116,13 +120,13 @@ class VideoCacheFillService:
                     if row is None:
                         row = repo.create_preparing(
                             tenant_id=tenant_id, asset_id=asset_id, source_asset_id=source_asset_id,
-                            content_hash=content_hash, mime_type=asset.mime_type,
+                            content_hash=content_hash, mime_type=resolved_mime_type,
                             reserved_bytes=required,
                         )
                     else:
                         row.asset_id = asset_id
                         row.source_asset_id = source_asset_id
-                        row.mime_type = asset.mime_type
+                        row.mime_type = resolved_mime_type
                         row.multipart_upload_id = None
                         row.size_bytes = 0
                         row.status = "preparing"

@@ -32,6 +32,16 @@ class ProcessingRepository:
     def get_job_by_key(self, tenant_id: str, key: str) -> ProcessingJobModel | None:
         return self._job_by_key(tenant_id, key)
 
+    def existing_job_keys(self, tenant_id: str, keys: set[str]) -> set[str]:
+        if not keys:
+            return set()
+        return set(self.session.scalars(
+            select(ProcessingJobModel.idempotency_key).where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.idempotency_key.in_(keys),
+            )
+        ))
+
     def create_job(
         self,
         *,
@@ -47,12 +57,43 @@ class ProcessingRepository:
         provider_key: str | None = None,
         provider_scope: str | None = None,
     ) -> ProcessingJobModel:
+        job, _created = self.create_job_once(
+            tenant_id=tenant_id,
+            job_type=job_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            idempotency_key=idempotency_key,
+            payload=payload,
+            priority=priority,
+            max_attempts=max_attempts,
+            next_attempt_at=next_attempt_at,
+            provider_key=provider_key,
+            provider_scope=provider_scope,
+        )
+        return job
+
+    def create_job_once(
+        self,
+        *,
+        tenant_id: str,
+        job_type: str,
+        entity_type: str,
+        entity_id: str,
+        idempotency_key: str,
+        payload: Mapping[str, Any] | None = None,
+        priority: int = 0,
+        max_attempts: int = 5,
+        next_attempt_at: datetime | None = None,
+        provider_key: str | None = None,
+        provider_scope: str | None = None,
+    ) -> tuple[ProcessingJobModel, bool]:
+        """Create one idempotent job and report whether this call inserted it."""
         if job_type not in JOB_TYPES:
             raise ValueError(f"Unsupported job type: {job_type}")
         priority = self._configured_priority(tenant_id, job_type, priority)
         existing = self._job_by_key(tenant_id, idempotency_key)
         if existing is not None:
-            return existing
+            return existing, False
         try:
             with self.session.begin_nested():
                 job = ProcessingJobModel(
@@ -70,12 +111,12 @@ class ProcessingRepository:
                 )
                 self.session.add(job)
                 self.session.flush()
-            return job
+            return job, True
         except IntegrityError:
             existing = self._job_by_key(tenant_id, idempotency_key)
             if existing is None:
                 raise
-            return existing
+            return existing, False
 
     def _configured_priority(self, tenant_id: str, job_type: str, fallback: int) -> int:
         policy = self.session.get(TenantProcessingPolicyModel, tenant_id)

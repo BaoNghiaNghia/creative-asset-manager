@@ -12,7 +12,7 @@ from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
 from app.modules.assets.content_resolver import SourceAssetContentTransient, SourceAssetContentUnavailable
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
-from app.modules.pipeline.mime_types import is_supported_image_mime_type
+from app.modules.pipeline.mime_types import is_eligible_image_source_asset
 from app.modules.search.source_index import SearchSourceIndexResolver
 from app.modules.visual_search.contracts import (
     VisualEmbedding,
@@ -241,7 +241,7 @@ class VisualIndexSyncJobHandler:
             if row is None:
                 return None
             _asset, source, source_type = row
-            if not is_supported_image_mime_type(source.mime_type):
+            if not is_eligible_image_source_asset(source):
                 return None
             details = SearchSourceIndexResolver(session).for_source(source, source_type=str(source_type or ""))
             return VisualIndexDocument(

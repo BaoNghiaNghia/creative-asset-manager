@@ -107,6 +107,26 @@ def test_cleanup_backfills_pending_ready_rows_and_lru_skips_active_derivative(tm
     engine.dispose()
 
 
+def test_cleanup_backfill_respects_active_queue_cap(tmp_path):
+    engine, factory = setup(tmp_path)
+    config = playback_settings(
+        R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE=1,
+        R2_VIDEO_PLAYBACK_BACKFILL_MAX_QUEUED_JOBS=1,
+    )
+    ready_original(factory, config, data=b"video-a")
+    ready_original(factory, config, data=b"video-b")
+    cleanup = VideoCacheCleanup(factory, config, FakeR2())
+
+    assert cleanup._schedule_playback_backfill() == 1
+    assert cleanup._schedule_playback_backfill() == 0
+    with factory() as session:
+        jobs = session.scalars(select(ProcessingJobModel).where(
+            ProcessingJobModel.job_type == "video_playback_prepare"
+        )).all()
+        assert len(jobs) == 1
+    engine.dispose()
+
+
 def test_scheduler_skips_oversized_source_without_enqueuing_derivative(tmp_path):
     engine, factory = setup(tmp_path)
     config = playback_settings(R2_VIDEO_PLAYBACK_MAX_SOURCE_BYTES=4)

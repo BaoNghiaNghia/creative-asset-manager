@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
@@ -95,8 +95,22 @@ def bootstrap(public_share_id:str,request:Request):
 def folders(public_share_id:str,request:Request):
  p=user(request,public_share_id)
  with SessionLocal() as s:
-  scope=PublicShareScopeService(s); access=scope.scoped_accesses(principal=p); rows=s.execute(select(SourceAssetModel).where(SourceAssetModel.tenant_id==p.tenant_id,SourceAssetModel.external_source_id.in_(list(access)),SourceAssetModel.deleted_at.is_(None))).scalars()
-  return safe({"items":[{"source_id":x.external_source_id,"folder_id":x.external_asset_id,"name":x.filename or "Untitled folder"} for x in rows if x.external_asset_id in access[x.external_source_id].folder_ids]})
+  scope=PublicShareScopeService(s); access=scope.scoped_accesses(principal=p)
+  clauses=[
+   and_(
+    SourceAssetModel.external_source_id==source_id,
+    SourceAssetModel.external_asset_id.in_(tuple(sorted(value.folder_ids))),
+   )
+   for source_id,value in access.items() if value.folder_ids
+  ]
+  if not clauses: return safe({"items":[]})
+  rows=s.scalars(select(SourceAssetModel).where(
+   SourceAssetModel.tenant_id==p.tenant_id,
+   SourceAssetModel.deleted_at.is_(None),
+   SourceAssetModel.is_folder.is_(True),
+   or_(*clauses),
+  ).order_by(SourceAssetModel.external_source_id,func.lower(func.coalesce(SourceAssetModel.filename,"")),SourceAssetModel.id))
+  return safe({"items":[{"source_id":x.external_source_id,"folder_id":x.external_asset_id,"name":x.filename or "Untitled folder"} for x in rows]})
 @router.get("/{public_share_id}/folders/{folder_id}/children")
 def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Query(...,max_length=36),limit_value:int=Query(50,ge=1,le=100),offset:int=Query(0,ge=0,le=100000)):
  p=user(request,public_share_id)
@@ -111,6 +125,7 @@ def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Que
    SourceAssetModel.external_source_id==source_id,
    SourceAssetModel.parent_external_id==folder_id,
    SourceAssetModel.deleted_at.is_(None),
+   or_(SourceAssetModel.is_folder.is_(True),AssetSourceLinkModel.asset_id.is_not(None)),
   ).order_by(
    SourceAssetModel.is_folder.desc(),
    func.lower(func.coalesce(SourceAssetModel.filename,"")),

@@ -14,7 +14,7 @@ The frontend and backend workflows are independent. Do not deploy the API or wor
 ## Topology
 
 - Nginx serves `/var/www/creative-asset-manager/current`.
-- Native systemd runs the API, exactly three image workers, the video worker, the visual worker, and the isolated visual encoder from `/opt/creative-asset-manager/current`. Image worker units 4 and 5 are retained for a reviewed future scale-up but are stopped and disabled by the default deployment profile.
+- Native systemd runs the API, exactly three image workers, one heavy-video worker, one video-delivery worker, the visual worker, and the isolated visual encoder from `/opt/creative-asset-manager/current`. Image worker units 4 and 5 are retained for a reviewed future scale-up but are stopped and disabled by the default deployment profile.
 - PostgreSQL is native and loopback-only at `127.0.0.1:5432`.
 - Docker Compose production runs Elasticsearch only at `127.0.0.1:9200`.
 - Production settings remain root-owned at `/etc/creative-asset-manager/production.env`; never source that file.
@@ -52,9 +52,19 @@ sudo systemctl enable --now creative-asset-manager-image-worker.service
 sudo systemctl enable --now creative-asset-manager-image-worker-2.service
 sudo systemctl enable --now creative-asset-manager-image-worker-3.service
 sudo systemctl enable --now creative-asset-manager-video-worker.service
+sudo systemctl enable --now creative-asset-manager-video-delivery-worker.service
 ```
 
-The image worker has `WORKER_ROLE=image` and health port 8081. The video worker has `WORKER_ROLE=video` and health port 8082. Both use the same PostgreSQL processing queue and policy accounting.
+The image worker has `WORKER_ROLE=image` and health port 8081. The heavy-video worker keeps the historical service name `creative-asset-manager-video-worker.service`, uses `WORKER_ROLE=video-heavy`, and listens on health port 8082. It claims only `video_analyze` and `video_generate`. The delivery worker uses `WORKER_ROLE=video-delivery`, health port 8088, and claims `video_search_index`, `video_cache_fill`, and `video_playback_prepare`. This prevents long Gemini/FFmpeg/generation work from blocking review playback and CDN cache jobs. All workers use the same PostgreSQL processing queue and policy accounting.
+
+## Disk preflight
+
+Backend deploys abort before building a new immutable release when free disk is below the larger of:
+
+- `CAM_BACKEND_MIN_FREE_MIB` (default `2048` MiB), or
+- the current/source release estimate multiplied by `CAM_BACKEND_RELEASE_HEADROOM_PERCENT` (default `125`%).
+
+The preflight runs after normal old-release/log cleanup. Lower these gates only after reviewing the actual release size and keeping enough space for the active and rollback releases.
 
 ## Verification
 
@@ -66,14 +76,16 @@ systemctl is-active creative-asset-manager-image-worker-3.service
 systemctl is-active creative-asset-manager-image-worker-4.service
 systemctl is-active creative-asset-manager-image-worker-5.service
 systemctl is-active creative-asset-manager-video-worker.service
+systemctl is-active creative-asset-manager-video-delivery-worker.service
 systemctl is-active creative-asset-manager-worker.service
 
 sudo journalctl -u creative-asset-manager-image-worker.service -f
 sudo journalctl -u creative-asset-manager-video-worker.service -f
+sudo journalctl -u creative-asset-manager-video-delivery-worker.service -f
 curl --fail --silent http://127.0.0.1:9200/_cluster/health
 ```
 
-Expected: API, image workers 1-3, video worker, visual worker, and visual encoder are active. Image workers 4-5 and the legacy all-role worker are inactive.
+Expected: API, image workers 1-3, heavy-video worker, video-delivery worker, visual worker, and visual encoder are active. Image workers 4-5 and the legacy all-role worker are inactive.
 
 ## Rollback
 

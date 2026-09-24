@@ -49,19 +49,34 @@ class VisualSearchReconciliationService:
                 queue_depth,0,True,
             )
         bounded_assets=min(max_assets,policy.max_slice_assets,queue_capacity)
-        resources=VisualCoverageResourceReader(self.session).resources(tenant_id)
-        documents=asyncio.run(self.index.scan_projection_metadata(tenant_id))
+        resources, has_more = VisualCoverageResourceReader(
+            self.session
+        ).eligible_resources_page(
+            tenant_id,
+            after_asset_id=after_asset_id,
+            limit=bounded_assets,
+        )
+        batch_asset_ids=[
+            resource.asset_id
+            for resource in resources
+            if resource.asset_id
+        ]
+        documents=asyncio.run(
+            self.index.scan_projection_metadata(
+                tenant_id,
+                asset_ids=batch_asset_ids,
+            )
+        )
         by_asset=defaultdict(list)
         for document in documents:
-            if document.get("tenant_id")==tenant_id: by_asset[document.get("asset_id")].append(document)
-        assets={}
-        for resource in resources:
-            if resource.eligible and resource.asset_id and resource.asset_id not in assets: assets[resource.asset_id]=resource
+            if document.get("tenant_id")==tenant_id:
+                by_asset[document.get("asset_id")].append(document)
         current=missing=stale=enqueued=existing=0
-        candidate_ids=[asset_id for asset_id in sorted(assets) if after_asset_id is None or asset_id > after_asset_id]
-        batch=candidate_ids[:bounded_assets]
-        for asset_id in batch:
-            resource=assets[asset_id]; documents_for_asset=by_asset[asset_id]
+        for resource in resources:
+            asset_id=resource.asset_id
+            if not asset_id:
+                continue
+            documents_for_asset=by_asset[asset_id]
             if any(_current(document,resource) for document in documents_for_asset): current+=1; continue
             if documents_for_asset: stale+=1
             else: missing+=1
@@ -76,14 +91,14 @@ class VisualSearchReconciliationService:
             )
             enqueued+=int(created); existing+=int(not created)
         return VisualReconciliationResult(
-            len(batch),
+            len(resources),
             current,
             missing,
             stale,
             enqueued,
             existing,
-            batch[-1] if batch else after_asset_id,
-            len(candidate_ids) > len(batch),
+            resources[-1].asset_id if resources else after_asset_id,
+            has_more,
             queue_depth,
             queue_capacity,
             False,

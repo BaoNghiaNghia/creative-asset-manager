@@ -19,6 +19,8 @@ APP_ROOT="${CAM_APP_ROOT:-/opt/creative-asset-manager}"
 
 KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-4}"
 KEEP_LOGS="${CAM_BACKEND_DEPLOY_LOG_KEEP:-20}"
+MIN_FREE_MIB="${CAM_BACKEND_MIN_FREE_MIB:-2048}"
+RELEASE_HEADROOM_PERCENT="${CAM_BACKEND_RELEASE_HEADROOM_PERCENT:-125}"
 
 LOCK_FILE="${CAM_BACKEND_DEPLOY_LOCK_FILE:-/run/lock/creative-asset-manager-backend-deploy.lock}"
 
@@ -26,6 +28,7 @@ LOG_DIR="${CAM_BACKEND_LOG_DIR:-/var/log/creative-asset-manager}"
 
 IMAGE_WORKER_HEALTH_PORT="${CAM_IMAGE_WORKER_HEALTH_PORT:-8081}"
 VIDEO_WORKER_HEALTH_PORT="${CAM_VIDEO_WORKER_HEALTH_PORT:-8082}"
+VIDEO_DELIVERY_WORKER_HEALTH_PORT="${CAM_VIDEO_DELIVERY_WORKER_HEALTH_PORT:-8088}"
 VISUAL_WORKER_HEALTH_PORT="${CAM_VISUAL_WORKER_HEALTH_PORT:-8087}"
 VISUAL_ENCODER_RUNTIME_DIR="${CAM_VISUAL_ENCODER_RUNTIME_DIR:-/var/lib/creative-asset-manager/visual-encoder-runtime}"
 
@@ -334,6 +337,18 @@ done
 ((KEEP_LOGS >= 1)) \
   || die "--keep-logs must be at least 1."
 
+[[ "$MIN_FREE_MIB" =~ ^[0-9]+$ ]] \
+  || die "CAM_BACKEND_MIN_FREE_MIB must be an integer."
+
+((MIN_FREE_MIB >= 512)) \
+  || die "CAM_BACKEND_MIN_FREE_MIB must be at least 512."
+
+[[ "$RELEASE_HEADROOM_PERCENT" =~ ^[0-9]+$ ]] \
+  || die "CAM_BACKEND_RELEASE_HEADROOM_PERCENT must be an integer."
+
+((RELEASE_HEADROOM_PERCENT >= 100)) \
+  || die "CAM_BACKEND_RELEASE_HEADROOM_PERCENT must be at least 100."
+
 
 if [[ ! -d "$SOURCE_DIR/.git" ]]; then
   SOURCE_DIR="$CHECKOUT_ROOT"
@@ -438,6 +453,8 @@ info "Application root: $APP_ROOT"
 info "Production env: $ENV_FILE"
 info "Release retention: $KEEP_RELEASES"
 info "Deployment log retention: $KEEP_LOGS"
+info "Minimum free disk: ${MIN_FREE_MIB}MiB"
+info "Release headroom: ${RELEASE_HEADROOM_PERCENT}%"
 info "Deployment log: $LOG_FILE"
 
 
@@ -792,6 +809,7 @@ cleanup_old_releases() {
     creative-asset-manager-image-worker-4.service \
     creative-asset-manager-image-worker-5.service \
     creative-asset-manager-video-worker.service \
+    creative-asset-manager-video-delivery-worker.service \
     creative-asset-manager-visual-worker.service
   do
 
@@ -1022,6 +1040,43 @@ report_disk_usage() {
 }
 
 
+check_disk_headroom() {
+  local estimate_root="$SOURCE_DIR"
+  local current_release=""
+  local available_kib=0
+  local estimated_release_kib=0
+  local required_kib=0
+  local minimum_kib=$((MIN_FREE_MIB * 1024))
+  local estimated_headroom_kib=0
+
+  if [[ -e "$CURRENT" ]]; then
+    current_release="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+    if [[ -n "$current_release" && -d "$current_release" ]]; then
+      estimate_root="$current_release"
+    fi
+  fi
+
+  available_kib="$(
+    df -Pk -- "$APP_ROOT" | awk 'NR == 2 {print $4}'
+  )"
+  estimated_release_kib="$(
+    du -sk -- "$estimate_root" | awk '{print $1}'
+  )"
+  estimated_headroom_kib=$(
+    (estimated_release_kib * RELEASE_HEADROOM_PERCENT + 99) / 100
+  )
+  required_kib="$minimum_kib"
+  if ((estimated_headroom_kib > required_kib)); then
+    required_kib="$estimated_headroom_kib"
+  fi
+
+  info "Disk preflight: available=$((available_kib / 1024))MiB estimated_release=$((estimated_release_kib / 1024))MiB required=$((required_kib / 1024))MiB"
+
+  ((available_kib >= required_kib)) \
+    || die "Insufficient free disk for an immutable backend release: available=$((available_kib / 1024))MiB required=$((required_kib / 1024))MiB. Cleanup or increase CAM_BACKEND_MIN_FREE_MIB only after reviewing actual release size."
+}
+
+
 cleanup_backend_disk() {
   local phase="$1"
 
@@ -1124,6 +1179,10 @@ diagnose_endpoint_failure() {
       service="creative-asset-manager-video-worker.service"
       port="$VIDEO_WORKER_HEALTH_PORT"
       ;;
+    "worker $VIDEO_DELIVERY_WORKER_HEALTH_PORT "*)
+      service="creative-asset-manager-video-delivery-worker.service"
+      port="$VIDEO_DELIVERY_WORKER_HEALTH_PORT"
+      ;;
     "worker $VISUAL_WORKER_HEALTH_PORT "*)
       service="creative-asset-manager-visual-worker.service"
       port="$VISUAL_WORKER_HEALTH_PORT"
@@ -1166,6 +1225,7 @@ verify_services() {
     creative-asset-manager-image-worker-2.service \
     creative-asset-manager-image-worker-3.service \
     creative-asset-manager-video-worker.service \
+    creative-asset-manager-video-delivery-worker.service \
     creative-asset-manager-visual-worker.service \
     creative-asset-manager-visual-encoder.service
   do
@@ -1249,6 +1309,7 @@ verify_services() {
     "8083" \
     "8084" \
     "$VIDEO_WORKER_HEALTH_PORT" \
+    "$VIDEO_DELIVERY_WORKER_HEALTH_PORT" \
     "$VISUAL_WORKER_HEALTH_PORT"
   do
 
@@ -1294,10 +1355,16 @@ restart_services() {
     creative-asset-manager-image-worker-3.service
 
 
-  info "Restarting Video worker"
+  info "Restarting heavy Video worker"
 
   systemctl restart \
     creative-asset-manager-video-worker.service
+
+
+  info "Restarting Video delivery worker"
+
+  systemctl restart \
+    creative-asset-manager-video-delivery-worker.service
 
 
   info "Restarting dedicated Visual Search worker"
@@ -1492,6 +1559,7 @@ progress 20 \
 
 
 cleanup_backend_disk "Pre-deploy"
+check_disk_headroom
 
 
 #
@@ -1727,6 +1795,7 @@ for unit in \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
   creative-asset-manager-video-worker.service \
+  creative-asset-manager-video-delivery-worker.service \
   creative-asset-manager-visual-encoder.service \
   creative-asset-manager-inventory-v41-snapshot.service \
   creative-asset-manager-visual-worker.service \
@@ -1811,6 +1880,7 @@ systemctl enable \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
   creative-asset-manager-video-worker.service \
+  creative-asset-manager-video-delivery-worker.service \
   creative-asset-manager-visual-worker.service \
   creative-asset-manager-visual-encoder.service
 

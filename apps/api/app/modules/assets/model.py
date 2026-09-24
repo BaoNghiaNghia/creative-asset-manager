@@ -178,6 +178,10 @@ class AssetSourceLinkModel(Base):
             name="fk_asset_source_links_tenant_source_asset",
         ),
         UniqueConstraint("asset_id", "source_asset_id", name="uq_asset_source_links_pair"),
+        UniqueConstraint(
+            "tenant_id", "source_asset_id",
+            name="uq_asset_source_links_tenant_source_asset",
+        ),
         Index("ix_asset_source_links_source_asset", "source_asset_id"),
     )
 

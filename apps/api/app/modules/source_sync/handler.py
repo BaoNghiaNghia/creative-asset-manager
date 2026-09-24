@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 
 from sqlalchemy import select
@@ -73,14 +74,50 @@ class SourceSyncJobHandler:
             adapter_key = source_credential_contract(access.source_type).adapter_key
             async with context.dependencies.source_provider_factory(adapter_key, access.access_token) as provider:
                 with context.dependencies.session_factory() as sync_session:
-                    await SourceSyncService(
-                        SourceSyncRepository(sync_session), ProcessingRepository(sync_session),
+                    processing = ProcessingRepository(sync_session)
+                    result = await SourceSyncService(
+                        SourceSyncRepository(sync_session), processing,
                         enabled=True, settings=settings,
                     ).sync_source(
-                        tenant_id=context.job.tenant_id, source_id=source_id, provider=provider,
+                        tenant_id=context.job.tenant_id,
+                        source_id=source_id,
+                        provider=provider,
                         reconciliation=reconciliation,
+                        max_pages=settings.SOURCE_SYNC_MAX_PAGES_PER_JOB,
                         continue_check=lambda: not context.is_cancelled and not context.shutdown_requested.is_set(),
                     )
+                    if result.has_more:
+                        if not result.cursor:
+                            raise RuntimeError(
+                                "source provider reported more pages without a continuation cursor"
+                            )
+                        cursor_digest = hashlib.sha256(
+                            result.cursor.encode("utf-8")
+                        ).hexdigest()[:24]
+                        mode = "full" if reconciliation else "incremental"
+                        priority = (
+                            settings.SOURCE_SYNC_FULL_SCAN_PRIORITY
+                            if reconciliation
+                            else settings.SOURCE_SYNC_INCREMENTAL_PRIORITY
+                        )
+                        processing.create_job_once(
+                            tenant_id=context.job.tenant_id,
+                            job_type="source_sync",
+                            entity_type="external_source",
+                            entity_id=source_id,
+                            idempotency_key=(
+                                f"source-sync-continuation:{source_id}:{mode}:{cursor_digest}"
+                            ),
+                            payload={
+                                "external_source_id": source_id,
+                                "reconciliation": reconciliation,
+                                "continuation": True,
+                            },
+                            priority=priority,
+                            provider_key=access.source_type,
+                            provider_scope="source",
+                        )
+                        sync_session.commit()
 
         try:
             executor = context.dependencies.resources.get("async_executor")

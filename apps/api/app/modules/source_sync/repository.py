@@ -28,6 +28,20 @@ class SourceSyncRepository:
             SourceAssetModel.external_asset_id == external_asset_id,
         ))
 
+    def get_source_assets_by_external_ids(
+        self, tenant_id: str, source_id: str, external_asset_ids: set[str]
+    ) -> dict[str, SourceAssetModel]:
+        if not external_asset_ids:
+            return {}
+        rows = self.session.scalars(
+            select(SourceAssetModel).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id == source_id,
+                SourceAssetModel.external_asset_id.in_(external_asset_ids),
+            )
+        )
+        return {row.external_asset_id: row for row in rows}
+
     def get_cursor(self, tenant_id: str, source_id: str, cursor_key: str = "changes") -> str | None:
         cursor = self.session.scalar(select(SourceSyncCursorModel).where(
             SourceSyncCursorModel.tenant_id == tenant_id,

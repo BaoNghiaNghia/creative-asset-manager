@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from app.domain.processing.types import JOB_TYPES
 
-WORKER_ROLES = ("all", "image", "video", "visual")
+WORKER_ROLES = ("all", "image", "video", "video-heavy", "video-delivery", "visual")
 VISUAL_WORKER_JOB_TYPES = ("visual_index_sync",)
-VIDEO_WORKER_JOB_TYPES = ("video_analyze", "video_search_index", "video_generate", "video_cache_fill", "video_playback_prepare")
+VIDEO_HEAVY_JOB_TYPES = ("video_analyze", "video_generate")
+VIDEO_DELIVERY_JOB_TYPES = ("video_search_index", "video_cache_fill", "video_playback_prepare")
+# "video" remains a compatibility role for local/legacy deployments. Preserve
+# its historical claim order while production splits heavy FFmpeg/provider work
+# from latency-sensitive delivery work.
+VIDEO_WORKER_JOB_TYPES = (
+    "video_analyze", "video_search_index", "video_generate",
+    "video_cache_fill", "video_playback_prepare",
+)
 VIDEO_AI_JOB_TYPES = ("video_analyze",)
 IMAGE_AI_JOB_TYPES = (
     "asset_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll",
@@ -24,9 +32,16 @@ def allowed_job_types_for_role(role: str) -> tuple[str, ...]:
         return IMAGE_WORKER_JOB_TYPES
     if normalized == "video":
         return VIDEO_WORKER_JOB_TYPES
+    if normalized == "video-heavy":
+        return VIDEO_HEAVY_JOB_TYPES
+    if normalized == "video-delivery":
+        return VIDEO_DELIVERY_JOB_TYPES
     if normalized == "visual":
         return VISUAL_WORKER_JOB_TYPES
-    raise ValueError("WORKER_ROLE must be one of: all, image, video, visual")
+    raise ValueError(
+        "WORKER_ROLE must be one of: all, image, video, video-heavy, "
+        "video-delivery, visual"
+    )
 
 
 def enabled_job_types_for_role(
@@ -51,5 +66,15 @@ def borrowable_job_types_for_role(
 
 
 def runs_operational_schedulers(role: str) -> bool:
-    """Only the non-video worker schedules source and maintenance work."""
+    """Only image/all workers schedule source and general maintenance work."""
     return role.strip().casefold() in {"all", "image"}
+
+
+def runs_video_cache_scheduler(role: str) -> bool:
+    """Run R2 cleanup/backfill exactly on all-role or the delivery lane.
+
+    The all-role case preserves local/backward-compatible deployments. Production
+    uses a single video-delivery worker so three image workers no longer start
+    duplicate cache-maintenance loops.
+    """
+    return role.strip().casefold() in {"all", "video-delivery"}

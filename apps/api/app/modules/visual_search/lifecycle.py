@@ -43,8 +43,7 @@ def enqueue_visual_index_sync(
     if priority < 0:
         raise ValueError("visual index priority cannot be negative")
     key = visual_index_job_key(asset_id, content_sha256)
-    before = processing.get_job_by_key(tenant_id, key)
-    processing.create_job(
+    _job, created = processing.create_job_once(
         tenant_id=tenant_id,
         job_type="visual_index_sync",
         entity_type="asset",
@@ -61,7 +60,7 @@ def enqueue_visual_index_sync(
         provider_scope="visual",
         priority=priority,
     )
-    return before is None
+    return created
 
 
 
@@ -77,8 +76,7 @@ def enqueue_visual_retire_sync(
     if not visual_search_infrastructure_enabled(settings):
         return False
     key = f"visual-retire:{asset_id}:{identity}:{VISUAL_EMBEDDING_SCHEMA_VERSION}"
-    before = processing.get_job_by_key(tenant_id, key)
-    processing.create_job(
+    _job, created = processing.create_job_once(
         tenant_id=tenant_id,
         job_type="visual_index_sync",
         entity_type="asset",
@@ -93,4 +91,4 @@ def enqueue_visual_retire_sync(
         provider_scope="visual",
         priority=VISUAL_INDEX_SYNC_PRIORITY,
     )
-    return before is None
+    return created

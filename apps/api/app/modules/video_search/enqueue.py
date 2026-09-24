@@ -59,8 +59,7 @@ def enqueue_video_analysis_job(
     )
     if identity is None:
         return False
-    before = processing.count_jobs()
-    processing.create_job(
+    _job, created = processing.create_job_once(
         tenant_id=tenant_id,
         job_type="video_analyze",
         entity_type="source_asset",
@@ -70,4 +69,4 @@ def enqueue_video_analysis_job(
         provider_key="gemini",
         provider_scope="video",
     )
-    return processing.count_jobs() > before
+    return created

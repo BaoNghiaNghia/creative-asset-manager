@@ -66,6 +66,7 @@ from app.modules.processing.worker_roles import (
     borrowable_job_types_for_role,
     enabled_job_types_for_role,
     runs_operational_schedulers,
+    runs_video_cache_scheduler,
 )
 from app.modules.source_sync.handler import SourceSyncJobHandler
 from app.modules.source_sync.scheduler import SourceSyncScheduler
@@ -352,10 +353,14 @@ def run_worker(
                     session_factory, settings, logger=worker_logger,
                 )
                 managed_cleanup_scheduler.start()
-            if settings.R2_VIDEO_CACHE_ENABLED:
-                video_cache_cleanup = VideoCacheCleanupRunner(
-                    session_factory, settings, logger=worker_logger)
-                video_cache_cleanup.start()
+        if (
+            runs_video_cache_scheduler(runtime.config.worker_role)
+            and settings.R2_VIDEO_CACHE_ENABLED
+        ):
+            video_cache_cleanup = VideoCacheCleanupRunner(
+                session_factory, settings, logger=worker_logger
+            )
+            video_cache_cleanup.start()
 
         if install_signal_handlers:
             def stop(_signum: int, _frame: object) -> None:

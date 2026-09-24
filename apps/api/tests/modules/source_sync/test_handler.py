@@ -2,7 +2,7 @@ import logging
 import unittest
 from threading import Event
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -16,6 +16,7 @@ from app.domain.processing.handlers import (
 )
 from app.domain.providers.contracts import SourceChangePage
 from app.modules.assets.repository import AssetRegistryRepository
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.source_sync.handler import SourceSyncJobHandler
 
 
@@ -32,6 +33,12 @@ class FakeGoogleProvider:
     async def list_changes(self, input):
         self.inputs.append(input)
         return SourceChangePage((), "cursor", False)
+
+
+class PagedGoogleProvider(FakeGoogleProvider):
+    async def list_changes(self, input):
+        self.inputs.append(input)
+        return SourceChangePage((), "cursor-next", True)
 
 
 class SourceSyncJobHandlerTest(unittest.TestCase):
@@ -118,6 +125,31 @@ class SourceSyncJobHandlerTest(unittest.TestCase):
         self.assertFalse(later_provider.inputs[0].reconciliation)
 
 
+
+    def test_large_scan_yields_to_durable_continuation_job(self) -> None:
+        provider = PagedGoogleProvider()
+        settings = self.settings.model_copy(
+            update={"SOURCE_SYNC_MAX_PAGES_PER_JOB": 1}
+        )
+        result = SourceSyncJobHandler(settings)(self.context(provider))
+        self.assertEqual(result.outcome, JobOutcome.COMPLETED)
+        self.assertEqual(len(provider.inputs), 1)
+
+        with Session(self.engine, expire_on_commit=False) as session:
+            continuation = session.scalar(
+                select(ProcessingJobModel).where(
+                    ProcessingJobModel.job_type == "source_sync",
+                    ProcessingJobModel.entity_id == self.source.id,
+                )
+            )
+            self.assertIsNotNone(continuation)
+            self.assertTrue(continuation.payload_json["continuation"])
+            self.assertTrue(continuation.payload_json["reconciliation"])
+            self.assertTrue(
+                continuation.idempotency_key.startswith(
+                    f"source-sync-continuation:{self.source.id}:full:"
+                )
+            )
 
     def test_handler_uses_current_source_connection_not_legacy_payload(self) -> None:
         with Session(self.engine, expire_on_commit=False) as session:
