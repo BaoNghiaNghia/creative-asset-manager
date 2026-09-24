@@ -1,4 +1,5 @@
 import type { Asset, TreeCache } from "../types";
+import { FolderReviewLinkActions, reviewShareIdForFolder } from "./FolderReviewLinkActions";
 import { ChevronIcon, SourceFolderIcon } from "./Icons";
 
 export function TreeChildrenSkeleton({ rows = 3 }: { rows?: number }) {
@@ -21,6 +22,10 @@ type Props = {
   onToggle: (node: Asset) => void;
   onPrefetch: (id: string) => void;
   onCancelPrefetch: () => void;
+  reviewLinkShareIds?: ReadonlyMap<string, string>;
+  activeExternalSourceId?: string | null;
+  onCopyReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
+  onRefreshReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
 };
 
 export function DriveTreeNode({
@@ -35,6 +40,10 @@ export function DriveTreeNode({
   onToggle,
   onPrefetch,
   onCancelPrefetch,
+  reviewLinkShareIds,
+  activeExternalSourceId,
+  onCopyReviewLink,
+  onRefreshReviewLink,
 }: Props) {
   const isExpanded = expanded.has(node.id);
   const isLoading = loadingNodes.has(node.id);
@@ -44,6 +53,9 @@ export function DriveTreeNode({
   const isCurrent = activeId === node.id;
   const isAncestor = !isCurrent && activePathIds.has(node.id);
   const rowState = isCurrent ? "active" : isAncestor ? "active-path" : "";
+  const reviewShareId = reviewLinkShareIds
+    ? reviewShareIdForFolder(node, activeExternalSourceId, reviewLinkShareIds)
+    : null;
 
   return <div className="tree-node">
     <div
@@ -63,6 +75,12 @@ export function DriveTreeNode({
         <SourceFolderIcon name={node.name} />
         <span>{node.name}</span>
       </button>
+      {reviewShareId && onCopyReviewLink && onRefreshReviewLink && <FolderReviewLinkActions
+        item={node}
+        shareId={reviewShareId}
+        onCopyReviewLink={onCopyReviewLink}
+        onRefreshReviewLink={onRefreshReviewLink}
+      />}
     </div>
     {isExpanded && (isLoading
       ? <TreeChildrenSkeleton />
@@ -80,6 +98,10 @@ export function DriveTreeNode({
           onToggle={onToggle}
           onPrefetch={onPrefetch}
           onCancelPrefetch={onCancelPrefetch}
+          reviewLinkShareIds={reviewLinkShareIds}
+          activeExternalSourceId={activeExternalSourceId}
+          onCopyReviewLink={onCopyReviewLink}
+          onRefreshReviewLink={onRefreshReviewLink}
         />)}
       </div>
     )}

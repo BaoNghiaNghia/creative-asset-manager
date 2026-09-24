@@ -32,7 +32,7 @@ export function FolderReviewLinkActions({
     if (!menu) return;
     const closeOnOutsidePointer = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest(".folder-share-menu, .folder-title-share-trigger")) return;
+      if (target?.closest(".folder-share-menu, .folder-share-trigger")) return;
       setMenu(null);
     };
     const closeOnEscape = (event: KeyboardEvent) => {

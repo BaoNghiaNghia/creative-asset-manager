@@ -10,7 +10,7 @@ import { useVideoSearch } from "./hooks/useVideoSearch";
 import { useVisualSearch } from "./hooks/useVisualSearch";
 import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { PublicReviewManagementDialog } from "./public-review-management/PublicReviewManagementDialog";
-import { activeShareFolderIds, managementApi, resolveShareLinkForCopy } from "./public-review-management/api";
+import { activeShareFolderIds, ManagementApiError, managementApi, resolveShareLinkForCopy } from "./public-review-management/api";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { SquareImageGenerationDialog } from "./components/SquareImageGenerationDialog";
 import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
@@ -276,6 +276,17 @@ export default function App() {
   const [folderNoteAvailable, setFolderNoteAvailable] = useState(false);
   useEffect(() => window.camDesktop?.ingestion.onProgress(setDesktopIngestion), []);
 
+  function reportReviewLinkLoadFailure(error: unknown) {
+    const diagnostic = error instanceof ManagementApiError
+      ? { status: error.status, code: error.code }
+      : { status: undefined, code: undefined };
+    console.warn("Unable to load Public Review share mappings", diagnostic);
+    setShortcutNotice({
+      tone: "error",
+      message: "Không thể tải trạng thái đường dẫn chia sẻ. Hãy thử tải lại trang.",
+    });
+  }
+
   useEffect(() => {
     if (!canManageReviewLinks) {
       setReviewLinkShareIds(new Map());
@@ -284,8 +295,8 @@ export default function App() {
     let alive = true;
     managementApi.list().then(value => {
       if (alive) setReviewLinkShareIds(activeShareFolderIds(value.items));
-    }).catch(() => {
-      if (alive) setReviewLinkShareIds(new Map());
+    }).catch(error => {
+      if (alive) reportReviewLinkLoadFailure(error);
     });
     return () => { alive = false; };
   }, [canManageReviewLinks]);
@@ -617,8 +628,8 @@ export default function App() {
     }
     void managementApi.list().then(value => {
       setReviewLinkShareIds(activeShareFolderIds(value.items));
-    }).catch(() => {
-      setReviewLinkShareIds(new Map());
+    }).catch(error => {
+      reportReviewLinkLoadFailure(error);
     });
   }
 
@@ -793,6 +804,9 @@ export default function App() {
       onToggle={explorer.toggleTree}
       onPrefetch={explorer.scheduleFolderPrefetch}
       onCancelPrefetch={explorer.cancelFolderPrefetch}
+      reviewLinkShareIds={canManageReviewLinks ? reviewLinkShareIds : undefined}
+      onCopyReviewLink={copyCurrentReviewLink}
+      onRefreshReviewLink={refreshReviewLink}
       onCollapse={sidebar.collapse}
       onResizeStart={sidebar.startResize}
       applicationAuthenticated={explorer.applicationAuthenticated === true}

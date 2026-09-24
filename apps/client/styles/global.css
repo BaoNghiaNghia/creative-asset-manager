@@ -909,6 +909,8 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .folder-share-trigger svg{display:block;width:15px;height:15px;fill:#65758b}
 .folder-share-trigger:hover,.folder-share-trigger:focus{border-color:#8098c5;background:#f2f6ff}
 .folder-share-trigger:focus-visible{outline:2px solid #6f9af0;outline-offset:2px}
+.tree-row>.folder-share-trigger{margin:0 5px 0 0;background:#fff}
+.tree-row.active>.folder-share-trigger,.tree-row.active-path>.folder-share-trigger{border-color:#9eb1d6;background:#f7f9ff}
 .folder-share-menu{position:fixed;z-index:80;display:flex;width:260px;flex-direction:column;padding:5px;border:1px solid #d8dee8;border-radius:10px;background:#fff;box-shadow:0 12px 32px #18213326}
 .folder-share-menu button{width:100%;padding:9px 10px;border:0;border-radius:7px;background:transparent;color:#263244;cursor:pointer;text-align:left;font-size:12px;font-weight:650}
 .folder-share-menu button:hover,.folder-share-menu button:focus{background:#f1f5fb;outline:0}
