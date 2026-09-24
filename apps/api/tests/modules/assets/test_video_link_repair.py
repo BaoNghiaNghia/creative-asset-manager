@@ -35,7 +35,7 @@ def test_video_link_repair_is_dry_run_by_default_and_executes_sha256_repairs() -
                     external_source_id="source-a",
                     external_asset_id="drive-video-sha",
                     filename="clip.mp4",
-                    mime_type="video/mp4",
+                    mime_type="application/octet-stream",
                     provider_checksum="a" * 64,
                     source_metadata={"parents": ["folder-a"], "is_folder": False},
                 ),

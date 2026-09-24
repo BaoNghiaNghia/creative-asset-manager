@@ -4,7 +4,9 @@ from sqlalchemy import select
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
-from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.assets.content_identity import ensure_source_asset_link, normalize_sha256
+from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.video_search.elasticsearch import VideoSearchElasticsearchIndex
 from app.modules.video_search.indexing import VideoIndexDataError, build_video_document
 from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
@@ -22,6 +24,13 @@ class VideoSearchIndexJobHandler:
             external=None if source is None else session.scalar(select(ExternalSourceModel).where(ExternalSourceModel.tenant_id==context.job.tenant_id,ExternalSourceModel.id==source.external_source_id))
             chunks=[] if run is None else list(session.scalars(select(VideoAnalysisChunkModel).where(VideoAnalysisChunkModel.tenant_id==context.job.tenant_id,VideoAnalysisChunkModel.run_id==run.id)))
             if run is None or source is None or external is None: return JobHandlerResult.non_retryable("video_index_source_unavailable","completed video source is unavailable")
+            linked_asset_id=session.scalar(select(AssetSourceLinkModel.asset_id).where(AssetSourceLinkModel.tenant_id==context.job.tenant_id,AssetSourceLinkModel.source_asset_id==source.id).limit(1))
+            if linked_asset_id is None:
+                checksum=normalize_sha256(source.provider_checksum)
+                if checksum is None:
+                    return JobHandlerResult.retryable("video_asset_link_missing","Video content identity is not ready; retry after the source bytes are hashed.")
+                ensure_source_asset_link(AssetRegistryRepository(session),source_asset=source,content_hash=checksum)
+                session.commit()
             try: document=build_video_document(run=run,source=source,chunks=chunks,source_type=external.source_type)
             except VideoIndexDataError as exc: return JobHandlerResult.non_retryable("invalid_video_index_data",str(exc))
         async def upsert() -> None:

@@ -176,6 +176,14 @@ class VideoProxyPreparationService:
                 output_reserve=output_reserve,
                 size_is_authoritative=source_asset.size_bytes is not None,
             )
+            # Establish canonical content identity as soon as the provider bytes
+            # are fully materialized. Public Review relies on this link, so it
+            # must not depend on the later FFmpeg/AI stages succeeding.
+            self._ensure_source_asset_link_from_file(
+                tenant_id=tenant_id,
+                source_asset_id=source_asset_id,
+                source_path=source_path,
+            )
             await self._probe_source(source_path)
             command = self._ffmpeg_command(working_directory, source_path)
             try:
@@ -217,11 +225,6 @@ class VideoProxyPreparationService:
             )
             if self._load_fingerprint(tenant_id, source_asset_id) != expected_source_fingerprint:
                 raise VideoProxySourceChangedError("source asset fingerprint changed during proxy preparation")
-            self._ensure_source_asset_link_from_file(
-                tenant_id=tenant_id,
-                source_asset_id=source_asset_id,
-                source_path=source_path,
-            )
             return chunks
         except asyncio.CancelledError:
             if process is not None:

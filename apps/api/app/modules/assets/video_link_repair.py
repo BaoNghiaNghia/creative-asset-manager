@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.assets.content_identity import ensure_source_asset_link, normalize_sha256
 from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
-from app.modules.pipeline.mime_types import is_eligible_video_source_asset
+_VIDEO_EXTENSIONS = (".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +43,13 @@ def repair_video_asset_links(
         .where(
             SourceAssetModel.deleted_at.is_(None),
             SourceAssetModel.is_folder.is_(False),
-            SourceAssetModel.mime_type.like("video/%"),
+            or_(
+                SourceAssetModel.mime_type.like("video/%"),
+                *[
+                    func.lower(func.coalesce(SourceAssetModel.filename, "")).like(f"%{extension}")
+                    for extension in _VIDEO_EXTENSIONS
+                ],
+            ),
             AssetSourceLinkModel.id.is_(None),
         )
         .order_by(SourceAssetModel.id)
@@ -56,8 +62,6 @@ def repair_video_asset_links(
     repository = AssetRegistryRepository(session)
     eligible = repairable = linked = skipped = 0
     for source in rows:
-        if not is_eligible_video_source_asset(source):
-            continue
         eligible += 1
         checksum = normalize_sha256(source.provider_checksum)
         if checksum is None:

@@ -2,13 +2,13 @@ import logging
 import unittest
 from threading import Event
 from unittest.mock import AsyncMock, patch
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 from app.core.config import Settings
 from app.core.database import Base
 from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, WorkerDependencies
-from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.video_search.index_handler import VideoSearchIndexJobHandler
 from app.modules.video_search.model import VideoAnalysisChunkModel, VideoAnalysisRunModel
 
@@ -19,9 +19,12 @@ class IndexHandlerTest(unittest.TestCase):
  def tearDown(self): self.s.close(); self.e.dispose()
  def context(self,tenant="a",run="run",cancel=False):
   return JobHandlerContext(ClaimedJob("job",tenant,"video_search_index","video_analysis_run",run,{"analysis_run_id":run},1,"w"),WorkerDependencies(session_factory=lambda:Session(self.e)),Event(),Event(),logging.LoggerAdapter(logging.getLogger("t"),{}))
- def data(self,tenant="a",status="completed",chunks=True,valid=True):
+ def data(self,tenant="a",status="completed",chunks=True,valid=True,linked=True,checksum=None):
   external=ExternalSourceModel(id="source",tenant_id=tenant,source_key=f"source-{tenant}",source_type="google_drive"); self.s.add(external)
-  source=SourceAssetModel(id="asset",tenant_id=tenant,external_source_id=external.id,external_asset_id="external",filename="x.mp4",mime_type="video/mp4",source_metadata={}); self.s.add(source)
+  source=SourceAssetModel(id="asset",tenant_id=tenant,external_source_id=external.id,external_asset_id="external",filename="x.mp4",mime_type="video/mp4",provider_checksum=checksum,source_metadata={}); self.s.add(source)
+  if linked:
+   managed=AssetModel(id="managed",tenant_id=tenant,content_hash="a"*64,mime_type="video/mp4"); self.s.add(managed)
+   self.s.add(AssetSourceLinkModel(id="link",tenant_id=tenant,asset_id=managed.id,source_asset_id=source.id))
   run=VideoAnalysisRunModel(id="run",tenant_id=tenant,source_asset_id="asset",source_fingerprint="f"*64,video_metadata_profile_id="profile",metadata_profile="p",metadata_profile_version="v1",prompt_version="p1",analysis_version="a1",ai_provider="gemini",ai_model="m",idempotency_key="k"*64,status=status,duration_ms=1000,chunk_seconds=1,total_chunks=1,completed_chunks=1 if chunks else 0)
   self.s.add(run)
   if chunks:self.s.add(VideoAnalysisChunkModel(id="chunk",tenant_id=tenant,run_id="run",chunk_index=0,source_start_ms=0,source_end_ms=1,status="completed",metadata_json={"segments":[{"start_ms":0,"end_ms":500}] if valid else [{"start_ms":0,"end_ms":2000}]}))
@@ -57,6 +60,26 @@ class IndexHandlerTest(unittest.TestCase):
   with patch("app.modules.video_search.index_handler.VideoSearchElasticsearchIndex") as cls:
       self.assertEqual(VideoSearchIndexJobHandler(self.settings)(context).outcome.value,"cancelled")
       cls.assert_not_called()
+
+ def test_missing_link_with_sha256_is_repaired_before_index(self):
+  self.data(linked=False,checksum="c"*64)
+  with patch("app.modules.video_search.index_handler.VideoSearchElasticsearchIndex") as cls:
+      instance=cls.return_value; instance.upsert_video_document=AsyncMock(); instance.aclose=AsyncMock()
+      result=VideoSearchIndexJobHandler(self.settings)(self.context())
+  self.assertEqual(result.outcome.value,"completed")
+  with Session(self.e) as session:
+      link=session.scalar(select(AssetSourceLinkModel).where(AssetSourceLinkModel.source_asset_id=="asset"))
+      self.assertIsNotNone(link)
+  instance.upsert_video_document.assert_awaited_once()
+
+ def test_missing_link_without_sha256_is_retryable_and_not_indexed(self):
+  self.data(linked=False)
+  with patch("app.modules.video_search.index_handler.VideoSearchElasticsearchIndex") as cls:
+      instance=cls.return_value; instance.upsert_video_document=AsyncMock()
+      result=VideoSearchIndexJobHandler(self.settings)(self.context())
+  self.assertEqual(result.outcome.value,"retryable_failure")
+  self.assertEqual(result.error_code,"video_asset_link_missing")
+  instance.upsert_video_document.assert_not_called()
 
  def test_transport_errors_are_retryable(self):
   from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
