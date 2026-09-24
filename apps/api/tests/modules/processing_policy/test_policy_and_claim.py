@@ -11,6 +11,8 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
+from app.modules.assets.model import AssetModel
+from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.bootstrap import globally_enabled_job_types
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -19,6 +21,7 @@ from app.modules.processing.worker_roles import IMAGE_WORKER_JOB_TYPES, VIDEO_WO
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel, TenantProcessingPolicyModel, TenantProviderPolicyModel
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService, TenantPolicyCache
+from app.modules.storage.model import AssetStorageObjectModel
 
 NOW = datetime(2026, 7, 20, tzinfo=timezone.utc)
 
@@ -62,10 +65,12 @@ class ProcessingPolicyTest(unittest.TestCase):
 
     def claim(
         self, worker, allowed_job_types=("asset_analyze", "asset_store"), *,
-        preferred_job_types=(), worker_role="all",
+        preferred_job_types=(), worker_role="all", settings=None,
     ):
         with self.sessions() as session:
-            return ProcessingJobService(ProcessingRepository(session)).claim_next(
+            return ProcessingJobService(
+                ProcessingRepository(session, settings)
+            ).claim_next(
                 worker_id=worker, lease_seconds=60, now=NOW, enforce_tenant_policy=True,
                 allowed_job_types=allowed_job_types,
                 preferred_job_types=preferred_job_types,
@@ -478,6 +483,86 @@ class ProcessingPolicyTest(unittest.TestCase):
         with self.sessions.begin() as session:
             session.get(TenantProcessingPolicyModel, "blocked-index").search_v2_enabled = False
         self.assertIsNone(self.claim("worker-two", ("video_search_index",)))
+
+    def test_asset_store_backpressure_preserves_hard_capacity_without_retry_churn(self):
+        self.policy("tenant", total=4, ai=4)
+        settings = Settings(
+            GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID="managed-root",
+            MANAGED_STORAGE_STAGING_MAX_BYTES=1000,
+            MANAGED_STORAGE_CLEANUP_CRITICAL_PERCENT=95,
+        )
+        with self.sessions.begin() as session:
+            staged_asset = AssetModel(
+                id="staged-asset", tenant_id="tenant",
+                content_hash="a" * 64, mime_type="image/png", size_bytes=950,
+            )
+            fresh_asset = AssetModel(
+                id="fresh-asset", tenant_id="tenant",
+                content_hash="b" * 64, mime_type="image/png", size_bytes=10,
+            )
+            session.add_all([staged_asset, fresh_asset])
+            staged_pipeline = AssetPipelineModel(
+                id="staged-pipeline", tenant_id="tenant",
+                correlation_id="staged-pipeline", origin_type="source_asset",
+                origin_id="source-staged", asset_id=staged_asset.id,
+                content_hash=staged_asset.content_hash, state="storage_pending",
+            )
+            fresh_pipeline = AssetPipelineModel(
+                id="fresh-pipeline", tenant_id="tenant",
+                correlation_id="fresh-pipeline", origin_type="source_asset",
+                origin_id="source-fresh", asset_id=fresh_asset.id,
+                content_hash=fresh_asset.content_hash, state="storage_pending",
+            )
+            session.add_all([staged_pipeline, fresh_pipeline])
+            session.add(AssetStorageObjectModel(
+                tenant_id="tenant", asset_id=staged_asset.id,
+                content_hash=staged_asset.content_hash,
+                storage_provider="google_drive_managed",
+                storage_class="staging", status="stored",
+                remote_file_id="managed-staged", remote_folder_id="managed-root",
+                stored_at=NOW,
+            ))
+            repository = ProcessingRepository(session, settings)
+            staged_job = repository.create_job(
+                tenant_id="tenant", job_type="asset_store",
+                entity_type="asset_pipeline", entity_id=staged_pipeline.id,
+                idempotency_key="store-staged", priority=30,
+                next_attempt_at=NOW, provider_key="google_drive",
+                provider_scope="storage",
+            )
+            fresh_job = repository.create_job(
+                tenant_id="tenant", job_type="asset_store",
+                entity_type="asset_pipeline", entity_id=fresh_pipeline.id,
+                idempotency_key="store-fresh", priority=30,
+                next_attempt_at=NOW, provider_key="google_drive",
+                provider_scope="storage",
+            )
+
+        claimed = self.claim(
+            "image-worker", ("asset_store",), worker_role="image", settings=settings,
+        )
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, staged_job.id)
+
+        with self.sessions() as session:
+            ProcessingJobService(
+                ProcessingRepository(session, settings)
+            ).complete(job_id=staged_job.id, worker_id="image-worker")
+
+        self.assertIsNone(
+            self.claim(
+                "image-worker", ("asset_store",),
+                worker_role="image", settings=settings,
+            )
+        )
+        with self.sessions.begin() as session:
+            session.get(AssetModel, staged_asset.id).size_bytes = 949
+
+        claimed = self.claim(
+            "image-worker", ("asset_store",), worker_role="image", settings=settings,
+        )
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, fresh_job.id)
 
     def test_role_allowlists_claim_only_their_own_jobs(self):
         self.policy("tenant", total=4, ai=4)

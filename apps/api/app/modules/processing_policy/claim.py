@@ -9,7 +9,10 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.types import JobStatus
 from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository, configured_model_rates
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.assets.model import AssetModel
+from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
 from app.modules.processing.worker_roles import (
@@ -342,6 +345,7 @@ class TenantAwareJobClaimer:
             ProcessingJobModel.job_type.in_(allowed_job_types),
             self._worker_role_available(worker_role),
             self._runtime_control_available(),
+            self._managed_storage_capacity_available(),
             exists(select(TenantProcessingPolicyModel.tenant_id).where(*policy_conditions)),
             or_(ProcessingJobModel.provider_key.is_(None), ~provider_blocked),
         )
@@ -484,6 +488,66 @@ class TenantAwareJobClaimer:
             batch = TenantProviderPolicyModel.batch_active_jobs
             values["batch_active_jobs"] = case((batch > 0, batch - 1), else_=0)
         return values
+
+    def _managed_storage_capacity_available(self):
+        """Apply backpressure before managed staging reaches its hard ceiling.
+
+        New asset_store jobs pause at the configured critical watermark, while
+        jobs that already own a staging reservation may finish. This preserves
+        the hard capacity invariant without burning workers on futile retries.
+        """
+        maximum = int(self.settings.MANAGED_STORAGE_STAGING_MAX_BYTES)
+        folder = str(self.settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or "").strip()
+        if maximum <= 0 or not folder:
+            return true()
+
+        critical_percent = int(
+            self.settings.MANAGED_STORAGE_CLEANUP_CRITICAL_PERCENT
+        )
+        critical_bytes = max(1, maximum * critical_percent // 100)
+        used_bytes = (
+            select(func.coalesce(func.sum(AssetModel.size_bytes), 0))
+            .select_from(AssetStorageObjectModel)
+            .join(
+                AssetModel,
+                and_(
+                    AssetModel.tenant_id == AssetStorageObjectModel.tenant_id,
+                    AssetModel.id == AssetStorageObjectModel.asset_id,
+                ),
+            )
+            .where(
+                AssetStorageObjectModel.remote_folder_id == folder,
+                AssetStorageObjectModel.storage_class == "staging",
+                AssetStorageObjectModel.status.in_(("stored", "uploading", "retry")),
+            )
+            .scalar_subquery()
+        )
+        already_reserved = exists(
+            select(AssetStorageObjectModel.id)
+            .join(
+                AssetPipelineModel,
+                and_(
+                    AssetPipelineModel.tenant_id
+                    == AssetStorageObjectModel.tenant_id,
+                    AssetPipelineModel.asset_id
+                    == AssetStorageObjectModel.asset_id,
+                ),
+            )
+            .where(
+                AssetPipelineModel.tenant_id == ProcessingJobModel.tenant_id,
+                AssetPipelineModel.id == ProcessingJobModel.entity_id,
+                AssetStorageObjectModel.remote_folder_id == folder,
+                AssetStorageObjectModel.storage_class == "staging",
+                AssetStorageObjectModel.status.in_(("stored", "uploading", "retry")),
+            )
+            .correlate(ProcessingJobModel)
+        )
+        return or_(
+            ProcessingJobModel.job_type != "asset_store",
+            ProcessingJobModel.concurrency_accounted.is_(True),
+            already_reserved,
+            used_bytes < critical_bytes,
+        )
 
     @staticmethod
     def _runtime_control_available():

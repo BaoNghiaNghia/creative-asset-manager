@@ -22,6 +22,15 @@ treated as an already-removed staging binary and only removes its stale DB
 reference. Authorization, rate-limit, network, and server errors retain the DB
 row for a future retry.
 
+When a byte ceiling is configured, the ceiling remains a hard admission limit.
+Automatic cleanup and worker backpressure use the pressure/critical watermarks
+instead of waiting for the folder to reach 100%. At the critical watermark
+(default 95%), new asset_store work is paused unless it already owns a staging
+reservation, and completed analysis artifacts may bypass the normal six-hour
+retention. This lets AI analysis drain the staging set and prevents thousands of
+futile asset_store retries while preserving the configured hard ceiling. The
+hard limit itself is not increased by this behavior.
+
 The active Managed Storage location is identified by the folder ID configured
 for the current environment. Take only the value after `/folders/` from the
 active Google Drive URL; do not copy the whole URL and do not reuse an example

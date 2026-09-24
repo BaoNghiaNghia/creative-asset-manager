@@ -82,10 +82,16 @@ class ManagedStorageCleanupService:
             candidate_ids = repository.list_cleanup_candidate_ids(
                 tenant_id=tenant_id, remote_folder_id=active_folder_id, limit=bounded
             )
+            maximum = self.settings.MANAGED_STORAGE_STAGING_MAX_BYTES
+            used = repository.staging_bytes_used(remote_folder_id=active_folder_id)
+            # Enter emergency retention bypass before the hard 10 GiB admission
+            # ceiling is reached. Otherwise new asset_store jobs are rejected at
+            # the ceiling while cleanup still waits for normal retention, which
+            # can deadlock the staging pipeline near 100% utilization.
             capacity_pressure = (
-                self.settings.MANAGED_STORAGE_STAGING_MAX_BYTES > 0
-                and repository.staging_bytes_used(remote_folder_id=active_folder_id)
-                >= self.settings.MANAGED_STORAGE_STAGING_MAX_BYTES
+                maximum > 0
+                and used * 100
+                >= maximum * self.settings.MANAGED_STORAGE_CLEANUP_CRITICAL_PERCENT
             )
         result = ManagedStorageCleanupResult(
             selected=len(candidate_ids), capacity_pressure=int(capacity_pressure)

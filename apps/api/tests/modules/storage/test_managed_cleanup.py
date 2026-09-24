@@ -297,8 +297,8 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.skipped_active, 1)
         self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
 
-    async def test_capacity_pressure_bypasses_completed_retention(self) -> None:
-        self.asset.size_bytes = 100
+    async def test_critical_capacity_pressure_bypasses_completed_retention(self) -> None:
+        self.asset.size_bytes = 95
         self.session.commit()
         row = self._record(age_hours=1)
         row_id = row.id

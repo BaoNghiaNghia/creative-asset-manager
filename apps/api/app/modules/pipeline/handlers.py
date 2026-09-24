@@ -329,10 +329,14 @@ class AssetStoreJobHandler(_PipelineHandler):
                 error_code=exc.code,
             )
         except StagingCapacityExceeded as exc:
+            # This should be a race-only fallback now that the claimer applies
+            # staging backpressure at the critical watermark. A longer defer
+            # prevents a thundering herd if several workers crossed the watermark
+            # at the same time.
             return DeferredJobOutcome(
                 reason_code="managed_storage_staging_capacity_reached",
                 reason_message=str(exc),
-                retry_at=datetime.now(timezone.utc) + timedelta(minutes=1),
+                retry_at=datetime.now(timezone.utc) + timedelta(minutes=5),
             )
         except Exception as exc:
             return self._failed(context, exc)
