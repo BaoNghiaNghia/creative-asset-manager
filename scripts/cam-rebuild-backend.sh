@@ -1062,9 +1062,9 @@ check_disk_headroom() {
   estimated_release_kib="$(
     du -sk -- "$estimate_root" | awk '{print $1}'
   )"
-  estimated_headroom_kib=$(
+  estimated_headroom_kib=$((
     (estimated_release_kib * RELEASE_HEADROOM_PERCENT + 99) / 100
-  )
+  ))
   required_kib="$minimum_kib"
   if ((estimated_headroom_kib > required_kib)); then
     required_kib="$estimated_headroom_kib"
