@@ -5,7 +5,9 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
     restart: unless-stopped
     cpus: "1.0"
-    mem_limit: 1200m
+    # Keep JVM heap at 512 MiB while reserving native/off-heap + mmap headroom.
+    # Production can override this without editing the Compose file.
+    mem_limit: "${CAM_ELASTICSEARCH_MEMORY_LIMIT:-1536m}"
     environment:
       discovery.type: "single-node"
       xpack.security.enabled: "false"

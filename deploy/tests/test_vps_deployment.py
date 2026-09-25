@@ -169,7 +169,19 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
     def test_production_compose_is_elasticsearch_only(self) -> None:
         config = yaml.safe_load(COMPOSE.read_text())
         self.assertEqual(set(config["services"]), {"elasticsearch"})
-        self.assertEqual(config["services"]["elasticsearch"]["ports"], ["127.0.0.1:9200:9200"])
+        elasticsearch = config["services"]["elasticsearch"]
+        self.assertEqual(elasticsearch["ports"], ["127.0.0.1:9200:9200"])
+        self.assertEqual(
+            elasticsearch["mem_limit"],
+            "${CAM_ELASTICSEARCH_MEMORY_LIMIT:-1536m}",
+        )
+        self.assertEqual(
+            elasticsearch["environment"]["ES_JAVA_OPTS"],
+            "${ES_JAVA_OPTS:--Xms512m -Xmx512m}",
+        )
+        production_env = (ROOT / "deploy" / "production.env.example").read_text()
+        self.assertIn("CAM_ELASTICSEARCH_MEMORY_LIMIT=1536m", production_env)
+        self.assertIn("ES_JAVA_OPTS=-Xms512m -Xmx512m", production_env)
 
     def test_worker_units_have_exclusive_roles(self) -> None:
         self.assertIn("WORKER_ROLE=image", IMAGE_UNIT.read_text())
