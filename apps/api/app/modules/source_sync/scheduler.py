@@ -176,8 +176,18 @@ class SourceSyncScheduler:
                 session.rollback()
                 return SourceSyncScheduleResult(tenant_id, source_id, None, active.id, False, "active_job")
 
-            cursor = SourceSyncRepository(session).get_cursor(tenant_id, source_id, "changes")
-            mode = "full" if daily_full or full or not cursor else "incremental"
+            source_sync = SourceSyncRepository(session)
+            cursor = source_sync.get_cursor(tenant_id, source_id, "changes")
+            # A successful reconciliation establishes the source inventory but
+            # deliberately uses a different paging cursor. The next normal
+            # poll must bootstrap the provider's incremental cursor instead of
+            # starting another expensive full reconciliation every interval.
+            reconciled = source_sync.has_completed_full_run(tenant_id, source_id)
+            mode = (
+                "full"
+                if daily_full or full or (not cursor and not reconciled)
+                else "incremental"
+            )
             bucket = int(current.timestamp()) // max(1, self.settings.SOURCE_SYNC_POLL_INTERVAL_SECONDS)
             key = daily_key if daily_full else f"source-sync-scheduler:{source_id}:{mode}:{bucket}"
             if dry_run:

@@ -54,6 +54,43 @@ class SourceSyncSchedulerTest(unittest.TestCase):
         self.assertEqual(result.mode, "incremental")
         self.assertFalse(self.session.get(ProcessingJobModel, result.job_id).payload_json["reconciliation"])
 
+    def test_completed_full_scan_bootstraps_incremental_cursor_instead_of_repeating_full(self):
+        self.session.add(SourceSyncRunModel(
+            tenant_id="tenant-a",
+            external_source_id=self.source.id,
+            mode="full",
+            generation=1,
+            status="completed",
+        ))
+        self.session.commit()
+
+        result = self.scheduler.tick()[0]
+
+        self.assertEqual(result.mode, "incremental")
+        self.assertTrue(result.created)
+        self.assertFalse(
+            self.session.get(ProcessingJobModel, result.job_id)
+            .payload_json["reconciliation"]
+        )
+
+    def test_failed_full_scan_without_cursor_is_retried_as_full(self):
+        self.session.add(SourceSyncRunModel(
+            tenant_id="tenant-a",
+            external_source_id=self.source.id,
+            mode="full",
+            generation=1,
+            status="failed",
+        ))
+        self.session.commit()
+
+        result = self.scheduler.tick()[0]
+
+        self.assertEqual(result.mode, "full")
+        self.assertTrue(
+            self.session.get(ProcessingJobModel, result.job_id)
+            .payload_json["reconciliation"]
+        )
+
     def test_active_job_prevents_duplicate(self):
         first = self.scheduler.tick()[0]
         second = self.scheduler.tick()[0]

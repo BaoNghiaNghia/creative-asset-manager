@@ -50,6 +50,18 @@ class SourceSyncRepository:
         ))
         return cursor.cursor_value if cursor else None
 
+    def has_completed_full_run(self, tenant_id: str, source_id: str) -> bool:
+        return self.session.scalar(
+            select(SourceSyncRunModel.id)
+            .where(
+                SourceSyncRunModel.tenant_id == tenant_id,
+                SourceSyncRunModel.external_source_id == source_id,
+                SourceSyncRunModel.mode == "full",
+                SourceSyncRunModel.status == "completed",
+            )
+            .limit(1)
+        ) is not None
+
     def start_or_resume_full_run(self, tenant_id: str, source_id: str) -> SourceSyncRunModel:
         # Locking the source serializes generation allocation on PostgreSQL.
         source = self.session.scalar(select(ExternalSourceModel).where(
