@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import JSON, and_, exists, func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from app.core.redaction import redact_url_queries
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
@@ -82,7 +82,13 @@ class SearchOperationRepository:
         self.session.refresh(run)
         return run
 
-    def analysis_page(self, run: SearchOperationRunModel, *, require_active: bool = False) -> list[AssetAiAnalysisModel]:
+    def analysis_page(
+        self,
+        run: SearchOperationRunModel,
+        *,
+        require_active: bool = False,
+        latest_per_asset: bool = False,
+    ) -> list[AssetAiAnalysisModel]:
         filters = run.filters_json or {}
         statement = select(AssetAiAnalysisModel).where(
             AssetAiAnalysisModel.tenant_id == run.tenant_id,
@@ -99,6 +105,33 @@ class SearchOperationRepository:
                     ActiveAssetAnalysisModel.analysis_id == AssetAiAnalysisModel.id,
                     ActiveAssetAnalysisModel.search_context == "search_v2",
                 ),
+            )
+        elif latest_per_asset:
+            newer = aliased(AssetAiAnalysisModel)
+            newer_filters = [
+                newer.tenant_id == AssetAiAnalysisModel.tenant_id,
+                newer.asset_id == AssetAiAnalysisModel.asset_id,
+                newer.status == "completed",
+                newer.metadata_json.is_not(None),
+                or_(
+                    newer.created_at > AssetAiAnalysisModel.created_at,
+                    and_(
+                        newer.created_at == AssetAiAnalysisModel.created_at,
+                        newer.id > AssetAiAnalysisModel.id,
+                    ),
+                ),
+            ]
+            if filters.get("metadata_profile"):
+                newer_filters.append(
+                    newer.metadata_profile == filters["metadata_profile"]
+                )
+            if filters.get("current_projection_version"):
+                newer_filters.append(
+                    newer.search_projection_version
+                    == filters["current_projection_version"]
+                )
+            statement = statement.where(
+                ~exists(select(1).where(*newer_filters))
             )
         if filters.get("metadata_profile"):
             statement = statement.where(

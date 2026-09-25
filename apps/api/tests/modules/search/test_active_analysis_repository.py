@@ -42,6 +42,17 @@ class ActiveAnalysisRepositoryTest(unittest.TestCase):
         self.session.close()
         self.engine.dispose()
 
+    def test_reindex_fallback_selects_only_latest_completed_analysis_per_asset(self):
+        repository = SearchOperationRepository(self.session)
+        run = repository.create_run(
+            tenant_id="tenant-a", operation_type="rebuild_and_reindex",
+            filters={}, target_projection_version="v3",
+        )
+
+        selected = repository.analysis_page(run, latest_per_asset=True)
+
+        self.assertEqual([row.id for row in selected], [self.analyses[1].id])
+
     def test_rebuild_selection_uses_explicit_active_pointer(self):
         ActiveAnalysisService(self.session).activate(
             tenant_id="tenant-a", asset_id=self.asset.id,

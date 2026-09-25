@@ -79,7 +79,11 @@ class SearchMaintenanceService:
                     self.repository.session.commit()
                     return run
                 page = self.repository.analysis_page(
-                    run, require_active=self.deterministic_active_analysis_enabled
+                    run,
+                    require_active=self.deterministic_active_analysis_enabled,
+                    latest_per_asset=(
+                        reindex and not self.deterministic_active_analysis_enabled
+                    ),
                 )
                 if not page:
                     break
