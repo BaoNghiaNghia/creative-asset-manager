@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Annotation, type Asset } from "./api";
 import { PublicReviewRoute } from "./PublicReviewRoute";
+import { readReviewHistory } from "./viewHistory";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -53,6 +54,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
+  localStorage.clear();
 });
 
 describe("Public Review folder deep links", () => {
@@ -183,6 +185,42 @@ describe("Review notes follow the selected asset", () => {
     currentDraft.value = "Comment on C";
     await click(host.querySelector('button[type="submit"]'));
     expect(create).toHaveBeenCalledWith("share-1", assets[2], expect.any(Object), expect.any(Object));
+    await act(async () => root.unmount());
+  });
+});
+
+describe("Public Review device-local history", () => {
+  it("records opened assets and reopens them from the History drawer", async () => {
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
+    vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
+    vi.spyOn(api, "children").mockResolvedValue({ items: assets.slice(0, 2), next_offset: null });
+    vi.spyOn(api, "annotations").mockResolvedValue({ items: [] });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await click(host.querySelector('[aria-label="Open a.jpg"]'));
+    await act(async () => { await Promise.resolve(); });
+    expect(readReviewHistory("share-1").map(item => item.asset_id)).toEqual(["a"]);
+    await click(host.querySelector('[aria-label="Close"]'));
+
+    await click(host.querySelector('[title="History"]'));
+    expect(host.querySelector('[aria-label="Open a.jpg from history"]')).not.toBeNull();
+    expect(host.textContent).toContain("1 viewed · last 15 days");
+
+    await click(host.querySelector('[aria-label="Open a.jpg from history"]'));
+    expect(host.querySelector('[aria-label="Review a.jpg"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Media 1 of 1"]')).not.toBeNull();
+
     await act(async () => root.unmount());
   });
 });
