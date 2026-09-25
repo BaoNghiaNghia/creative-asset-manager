@@ -701,6 +701,7 @@
 
 .public-comment-replies{
   position:relative;
+  --public-thread-surface:#fff;
   margin:7px 0 0 -39px;
   padding-left:39px;
 }
@@ -734,6 +735,19 @@
   border-bottom-left-radius:12px;
   pointer-events:none;
 }
+.public-comment-reply:last-child::after{
+  content:"";
+  position:absolute;
+  z-index:-1;
+  top:14px;
+  bottom:-2px;
+  left:-26px;
+  width:4px;
+  background:var(--public-thread-surface);
+  pointer-events:none;
+}
+.public-comment.selected .public-comment-replies{--public-thread-surface:#f7f9fd}
+.public-review-backdrop .public-comment-replies{--public-thread-surface:#212328}
 .public-review-backdrop .public-comment-replies::before{background:#ffffff32}
 .public-review-backdrop .public-comment-reply::before{border-color:#ffffff32}
 @media(max-width:560px){
