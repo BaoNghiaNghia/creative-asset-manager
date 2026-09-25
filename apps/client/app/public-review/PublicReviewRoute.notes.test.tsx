@@ -186,3 +186,52 @@ describe("Review notes follow the selected asset", () => {
     await act(async () => root.unmount());
   });
 });
+
+describe("Public Review replies", () => {
+  it("shows reply context and creates the comment under the selected parent", async () => {
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
+    vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
+    vi.spyOn(api, "children").mockResolvedValue({ items: [assets[0]], next_offset: null });
+    vi.spyOn(api, "annotations").mockResolvedValue({ items: [note("note-a", "Parent message for reply")] });
+    const reply = { ...note("reply-a", "Child reply"), parent_annotation_id: "note-a" };
+    const create = vi.spyOn(api, "create").mockResolvedValue(reply);
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await click(host.querySelector('[aria-label="Open a.jpg"]'));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const replyButton = host.querySelector<HTMLButtonElement>('[aria-label="Reply to Guest ABCD"]');
+    await click(replyButton);
+    expect(replyButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector('[aria-label="Replying to Guest ABCD"]')?.textContent).toContain("Parent message for reply");
+    expect(host.querySelector(".public-review-composer")?.classList.contains("is-replying")).toBe(true);
+
+    const draft = host.querySelector<HTMLInputElement>('[aria-label="Comment draft"]')!;
+    draft.value = "Child reply";
+    await click(host.querySelector('button[type="submit"]'));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(create).toHaveBeenCalledWith(
+      "share-1",
+      assets[0],
+      expect.any(Object),
+      expect.objectContaining({ parentAnnotationId: "note-a" }),
+    );
+    expect(host.textContent).toContain("Child reply");
+    expect(host.querySelector(".public-reply-context")).toBeNull();
+    await act(async () => root.unmount());
+  });
+});
