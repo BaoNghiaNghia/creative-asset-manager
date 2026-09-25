@@ -35,9 +35,9 @@ function deferred<T>() {
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 }
-function note(id: string, text: string): Annotation {
+function note(id: string, text: string, authorName = "Guest ABCD"): Annotation {
   return {
-    id, author: { display_name: "Guest ABCD" },
+    id, author: { display_name: authorName },
     content_json: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] },
     plain_text: text, parent_annotation_id: null, anchor_x: null, anchor_y: null,
     created_at: "2026-09-19T00:00:00Z", updated_at: "2026-09-19T00:00:00Z",
@@ -195,8 +195,8 @@ describe("Public Review replies", () => {
     vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
     vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
     vi.spyOn(api, "children").mockResolvedValue({ items: [assets[0]], next_offset: null });
-    vi.spyOn(api, "annotations").mockResolvedValue({ items: [note("note-a", "Parent message for reply")] });
-    const reply = { ...note("reply-a", "Child reply"), parent_annotation_id: "note-a" };
+    vi.spyOn(api, "annotations").mockResolvedValue({ items: [note("note-a", "Parent message for reply", "Tan Le")] });
+    const reply = { ...note("reply-a", "Child reply", "Thuy Linh"), parent_annotation_id: "note-a" };
     const create = vi.spyOn(api, "create").mockResolvedValue(reply);
 
     const host = document.createElement("div");
@@ -213,10 +213,10 @@ describe("Public Review replies", () => {
       await Promise.resolve();
     });
 
-    const replyButton = host.querySelector<HTMLButtonElement>('[aria-label="Reply to Guest ABCD"]');
+    const replyButton = host.querySelector<HTMLButtonElement>('[aria-label="Reply to Tan Le"]');
     await click(replyButton);
     expect(replyButton?.getAttribute("aria-pressed")).toBe("true");
-    expect(host.querySelector('[aria-label="Replying to Guest ABCD"]')?.textContent).toContain("Parent message for reply");
+    expect(host.querySelector('[aria-label="Replying to Tan Le"]')?.textContent).toContain("Parent message for reply");
     expect(host.querySelector(".public-review-composer")?.classList.contains("is-replying")).toBe(true);
 
     const draft = host.querySelector<HTMLInputElement>('[aria-label="Comment draft"]')!;
@@ -231,6 +231,14 @@ describe("Public Review replies", () => {
       expect.objectContaining({ parentAnnotationId: "note-a" }),
     );
     expect(host.textContent).toContain("Child reply");
+    expect(host.querySelector(".public-comment-replies")).not.toBeNull();
+    const rootAvatar = host.querySelector<HTMLElement>(".public-comment > .public-comment-avatar");
+    const replyAvatar = host.querySelector<HTMLElement>(".public-comment-reply .public-comment-avatar");
+    const rootTone = Array.from(rootAvatar?.classList || []).find(value => value.startsWith("public-avatar-tone-"));
+    const replyTone = Array.from(replyAvatar?.classList || []).find(value => value.startsWith("public-avatar-tone-"));
+    expect(rootTone).toBeTruthy();
+    expect(replyTone).toBeTruthy();
+    expect(rootTone).not.toBe(replyTone);
     expect(host.querySelector(".public-reply-context")).toBeNull();
     await act(async () => root.unmount());
   });
