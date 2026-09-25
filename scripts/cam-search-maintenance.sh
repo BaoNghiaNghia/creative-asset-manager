@@ -25,6 +25,7 @@ Usage:
   scripts/cam-search-maintenance.sh test-search
   scripts/cam-search-maintenance.sh test-workspace-search
   scripts/cam-search-maintenance.sh search <search_cli arguments...>
+  scripts/cam-search-maintenance.sh index-lifecycle <search_index_cli arguments...>
 
 Runs bounded Search V3 maintenance against the active immutable production
 release. Production environment values are never evaluated by the shell and
@@ -91,6 +92,14 @@ case "${1:-}" in
       "$CHECKOUT_ROOT/apps/api/tests/modules/search/test_query_builder.py" \
       "$CHECKOUT_ROOT/apps/api/tests/modules/search/test_active_analysis_repository.py" \
       "$CHECKOUT_ROOT/apps/api/tests/modules/search/test_operations_service.py"
+    ;;
+
+  index-lifecycle)
+    shift
+    (($#)) || die "index-lifecycle requires search_index_cli arguments."
+    cd "$CHECKOUT_ROOT/apps/api"
+    run_redacted env PYTHONPATH="$CHECKOUT_ROOT/apps/api" \
+      "$PYTHON" -m app.operations.search_index_cli "$@"
     ;;
 
   search)
