@@ -93,7 +93,6 @@ export function AnnotationEditor({
   };
 
   return <div className="public-editor">
-    <div className="public-editor-input"><EditorContent editor={editor}/></div>
     <div className="public-editor-emoji" ref={emojiPanelRef}>
       <button
         type="button"
@@ -124,6 +123,7 @@ export function AnnotationEditor({
         </div>
       </div>}
     </div>
+    <div className="public-editor-input"><EditorContent editor={editor}/></div>
     <button type="button" className="public-editor-submit" disabled={!hasText || submitting} onClick={() => void submit()}>{submitLabel}</button>
   </div>;
 }

@@ -573,7 +573,7 @@
 .public-review-backdrop .public-review-metadata small{color:#ffffff73}
 .public-review-backdrop .public-review-metadata b{color:#ffffffe8}
 
-/* Emoji lives immediately before the comment action and opens upward. */
+/* Emoji leads the composer row, before the comment input, and opens upward. */
 .public-review-composer .public-editor-emoji{
   position:relative;
   display:flex;
@@ -620,7 +620,8 @@
 .public-emoji-picker{
   position:absolute;
   z-index:30;
-  right:0;
+  left:0;
+  right:auto;
   bottom:calc(100% + 8px);
   width:280px;
   max-width:calc(100vw - 34px);
@@ -672,7 +673,7 @@
   .public-review-backdrop .public-review-header{min-height:92px;padding:10px 14px}
   .public-review-metadata{gap:5px}
   .public-review-metadata span{padding:5px 6px}
-  .public-emoji-picker{right:-48px;width:264px}
+  .public-emoji-picker{left:0;right:auto;width:264px}
   .public-emoji-grid{grid-template-columns:repeat(8,minmax(0,1fr))}
   .public-viewer .public-emoji-grid button{width:29px;height:29px;min-height:29px;font-size:18px}
 }
