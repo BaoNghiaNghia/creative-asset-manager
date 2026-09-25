@@ -14,6 +14,8 @@ WorkingDirectory=/opt/creative-asset-manager/current
 EnvironmentFile=/etc/creative-asset-manager/production.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MALLOC_ARENA_MAX=2
+Environment=MALLOC_TRIM_THRESHOLD_=131072
 Environment=WORKER_ROLE=visual
 Environment=WORKER_ID=creativeasset-visual-index
 Environment=WORKER_HEALTH_PORT=8087

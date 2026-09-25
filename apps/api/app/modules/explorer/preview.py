@@ -11,10 +11,11 @@ PREVIEW_CACHE_VERSION = "v2"
 PreviewCacheKey = tuple[str, str, str, str, str]
 
 _preview_cache: ByteSizeTTLCache[PreviewCacheKey, bytes] = ByteSizeTTLCache(
-    # Preview conversions are larger than ordinary thumbnails, so keep a
-    # smaller bounded working set and let LRU eviction control memory.
+    # Preview conversions are larger than ordinary thumbnails. Keep this
+    # working set intentionally smaller so decoded-image allocator pressure
+    # cannot crowd out the API, workers, and Elasticsearch on an 8 GiB host.
     max_entries=1024,
-    max_bytes=128 * 1024 * 1024,
+    max_bytes=64 * 1024 * 1024,
     ttl_seconds=3600,
     size_of=len,
 )

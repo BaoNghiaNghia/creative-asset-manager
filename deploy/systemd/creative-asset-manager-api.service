@@ -14,6 +14,8 @@ WorkingDirectory=/opt/creative-asset-manager/current/apps/api
 EnvironmentFile=/etc/creative-asset-manager/production.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MALLOC_ARENA_MAX=2
+Environment=MALLOC_TRIM_THRESHOLD_=131072
 ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
 ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 Restart=on-failure
@@ -21,6 +23,12 @@ RestartSec=5s
 TimeoutStartSec=60s
 TimeoutStopSec=45s
 KillSignal=SIGTERM
+# Reclaim before host-level OOM on the production VPS. The hard ceiling is
+# deliberately above the observed steady-state target so transient requests
+# can complete while allocator trimming returns freed pages to the OS.
+MemoryHigh=1536M
+MemoryMax=2G
+TasksMax=128
 UMask=0027
 
 NoNewPrivileges=true

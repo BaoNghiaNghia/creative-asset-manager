@@ -11,12 +11,15 @@ SCRIPTS = ROOT / "scripts"
 FRONTEND = SCRIPTS / "deploy-cam-frontend.sh"
 BACKEND = SCRIPTS / "cam-rebuild-backend.sh"
 COMPOSE = ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml"
+API_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-api.service"
+GENERIC_WORKER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-worker.service"
 IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker.service"
 SECONDARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-2.service"
 TERTIARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-3.service"
 QUATERNARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-4.service"
 QUINARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-5.service"
 VIDEO_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.service"
+VIDEO_DELIVERY_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-delivery-worker.service"
 VISUAL_ENCODER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-visual-encoder.service"
 VISUAL_WORKER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-visual-worker.service"
 NGINX_CONFIG = ROOT / "infrastructure" / "nginx" / "creative-asset-manager.conf"
@@ -89,9 +92,9 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         for forbidden in ("docker compose build api", "docker compose up api", "docker compose up worker", "alembic downgrade"):
             self.assertNotIn(forbidden, source)
 
-    def test_default_profile_enables_exactly_three_image_workers(self) -> None:
+    def test_default_profile_enables_exactly_four_image_workers(self) -> None:
         source = BACKEND.read_text()
-        self.assertIn("Stopping/disabling optional image workers 4 and 5", source)
+        self.assertIn("Stopping/disabling optional image worker 5", source)
         enable_start = source.index('"Enabling production native services"')
         enable_end = source.index('"Replacing fixed Inventory V4.1 timers', enable_start)
         enable_section = source[enable_start:enable_end]
@@ -99,9 +102,9 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             "creative-asset-manager-image-worker.service",
             "creative-asset-manager-image-worker-2.service",
             "creative-asset-manager-image-worker-3.service",
+            "creative-asset-manager-image-worker-4.service",
         ):
             self.assertIn(worker, enable_section)
-        self.assertNotIn("creative-asset-manager-image-worker-4.service", enable_section)
         self.assertNotIn("creative-asset-manager-image-worker-5.service", enable_section)
 
     def test_visual_encoder_reserves_two_cpu_threads_without_process_replication(self) -> None:
@@ -184,6 +187,33 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("WORKER_ID=creativeasset-visual-index", VISUAL_WORKER_UNIT.read_text())
         self.assertIn("WORKER_HEALTH_PORT=8087", VISUAL_WORKER_UNIT.read_text())
         self.assertIn("WantedBy=multi-user.target", VISUAL_WORKER_UNIT.read_text())
+
+    def test_python_services_bound_allocator_retention_and_api_memory(self) -> None:
+        python_units = (
+            API_UNIT,
+            GENERIC_WORKER_UNIT,
+            IMAGE_UNIT,
+            SECONDARY_IMAGE_UNIT,
+            TERTIARY_IMAGE_UNIT,
+            QUATERNARY_IMAGE_UNIT,
+            QUINARY_IMAGE_UNIT,
+            VIDEO_UNIT,
+            VIDEO_DELIVERY_UNIT,
+            VISUAL_WORKER_UNIT,
+        )
+        for unit_path in python_units:
+            unit = unit_path.read_text()
+            self.assertIn("Environment=MALLOC_ARENA_MAX=2", unit, unit_path.name)
+            self.assertIn(
+                "Environment=MALLOC_TRIM_THRESHOLD_=131072",
+                unit,
+                unit_path.name,
+            )
+
+        api = API_UNIT.read_text()
+        self.assertIn("MemoryHigh=1536M", api)
+        self.assertIn("MemoryMax=2G", api)
+        self.assertIn("TasksMax=128", api)
 
     def test_scripts_have_valid_shell_syntax(self) -> None:
         for script in (FRONTEND, BACKEND):
