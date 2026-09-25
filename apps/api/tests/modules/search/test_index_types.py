@@ -96,6 +96,17 @@ class SearchIndexDocumentBuilderTest(unittest.TestCase):
 
         self.assertEqual(payload["design_type"], ["petfull", "handwriting"])
 
+    def test_design_type_survives_compact_projection_via_raw_metadata(self):
+        analysis = self._analysis()
+        analysis.metadata_json["embroidery_details"] = {
+            "embroidery_type": "PetFull Embroidery",
+        }
+        analysis.search_projection["path_values"] = []
+
+        payload = build_search_index_document(analysis).to_document()
+
+        self.assertEqual(payload["design_type"], ["petfull"])
+
     def test_unknown_optional_source_values_are_not_emitted(self):
         payload = build_search_index_document(self._analysis()).to_document()
         for field in (

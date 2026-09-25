@@ -37,7 +37,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--only-failed", action="store_true")
     value.add_argument("--dry-run", action="store_true")
     value.add_argument("--page-size", type=int, default=100)
-    value.add_argument("--target-projection-version", default="search-projection-v1")
+    value.add_argument("--target-projection-version", default=SearchProjectionBuilder().projection_version)
     value.add_argument("--index-version")
     value.add_argument("--elasticsearch-url")
     value.add_argument("--index-prefix", default="creative-assets")

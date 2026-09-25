@@ -58,6 +58,10 @@ class SearchProjectionBuilderTest(unittest.TestCase):
                 "facet_paths": {
                     "subject": ["visual_entities[0].species"],
                 },
+                "field_aliases": {
+                    "species": "visual_entities.species",
+                },
+                "path_value_paths": ["copy"],
             },
         )
         projection = result.projection
@@ -86,7 +90,7 @@ class SearchProjectionBuilderTest(unittest.TestCase):
         ).projection
         self.assertEqual(projection.normalized_terms, ("cat", "public"))
         self.assertEqual(projection.facets, {})
-        self.assertEqual(len(projection.path_values), 1)
+        self.assertEqual(projection.path_values, ())
 
     def test_booleans_are_only_included_when_configured(self) -> None:
         builder = SearchProjectionBuilder()
@@ -126,6 +130,45 @@ class SearchProjectionBuilderTest(unittest.TestCase):
             },
         )
 
+    def test_compact_nested_paths_preserve_full_text_and_facets(self) -> None:
+        projection = SearchProjectionBuilder().build(
+            {
+                "keywords": ["Cat", "Dog"],
+                "mood": "Happy",
+                "subject": "Tiger",
+                "unused": "Still searchable",
+            },
+            {
+                "facet_paths": {"keyword": ["keywords"]},
+                "field_aliases": {"subject": "subject"},
+                "boost_paths": {"mood": 2},
+            },
+        ).projection
+
+        for term in ("cat", "dog", "happy", "tiger", "still", "searchable"):
+            self.assertIn(term, projection.normalized_terms)
+        self.assertEqual(projection.facets, {"keyword": ("cat", "dog")})
+        self.assertEqual(
+            [(item.path, item.value) for item in projection.path_values],
+            [("mood", "happy"), ("subject", "tiger")],
+        )
+
+    def test_all_nested_paths_require_explicit_legacy_opt_in(self) -> None:
+        builder = SearchProjectionBuilder()
+        compact = builder.build({"a": "Cat", "b": "Dog"}).projection
+        legacy = builder.build(
+            {"a": "Cat", "b": "Dog"},
+            {"include_all_path_values": True},
+        ).projection
+
+        self.assertEqual(compact.path_values, ())
+        self.assertEqual(
+            [(item.path, item.value) for item in legacy.path_values],
+            [("a", "cat"), ("b", "dog")],
+        )
+        self.assertEqual(compact.normalized_terms, legacy.normalized_terms)
+        self.assertEqual(builder.projection_version, "search-projection-v2")
+
     def test_duplicates_and_projection_limits_are_enforced(self) -> None:
         projection = SearchProjectionBuilder(
             limits=ProjectionLimits(
@@ -147,7 +190,10 @@ class SearchProjectionBuilderTest(unittest.TestCase):
                 "b": "MAMA",
                 "c": "EST. 2015",
             },
-            {"facet_paths": ["a", "b"]},
+            {
+                "facet_paths": ["a", "b"],
+                "path_value_paths": ["a", "b", "c"],
+            },
         ).projection
         self.assertEqual(projection.search_terms, ("cat", "est 2015"))
         self.assertEqual(projection.normalized_terms, ("2015", "cat"))

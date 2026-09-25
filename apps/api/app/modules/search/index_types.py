@@ -173,7 +173,7 @@ def build_search_index_document(
         file_size_bytes=file_size_bytes,
         has_visible_text=bool(visible),
         has_ai_metadata=bool(metadata),
-        design_type=_design_types(projection),
+        design_type=_design_types(projection, metadata),
     )
 
 
@@ -201,7 +201,10 @@ _DESIGN_PATHS = frozenset({
 })
 
 
-def _design_types(projection: Mapping[str, Any]) -> tuple[str, ...]:
+def _design_types(
+    projection: Mapping[str, Any],
+    metadata: Mapping[str, Any] | None = None,
+) -> tuple[str, ...]:
     values: list[str] = []
     facets = projection.get("facets")
     if isinstance(facets, Mapping):
@@ -218,6 +221,10 @@ def _design_types(projection: Mapping[str, Any]) -> tuple[str, ...]:
             path = str(entry.get("path") or "").casefold()
             if path in _DESIGN_PATHS:
                 values.append(str(entry.get("value") or ""))
+    if isinstance(metadata, Mapping):
+        for item in MetadataTraverser().traverse(metadata):
+            if item.path.casefold() in _DESIGN_PATHS:
+                values.append(item.original_value)
     normalized: list[str] = []
     for value in values:
         candidate = MetadataNormalizer.normalize_text(value).replace(" ", "")

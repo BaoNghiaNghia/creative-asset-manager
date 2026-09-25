@@ -23,6 +23,7 @@ from app.modules.ai_operations.coverage import SearchCoverageSummaryService
 from app.modules.ai_operations.schema import AI_JOB_TYPES, AiOperationsFilters, ManagedStorageCleanupRequest, ManagedStorageSelfIngestionRepairRequest, SearchCoverageAuditRequest, SearchCoverageRepairRequest
 from app.modules.authorization.principal import CurrentPrincipal, require_permission, require_tenant_scope
 from app.modules.ai_governance.repository import AiGovernanceRepository
+from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.search.coverage_audit import SearchV3CoverageAudit, SearchV3CoverageRepair
 from app.modules.storage.managed_cleanup import ManagedStorageCleanupService
 from app.modules.storage.provider_factory import build_managed_storage_provider
@@ -140,7 +141,7 @@ def _job_type_filters(filters: AiOperationsFilters, job_type: str | None) -> AiO
 
 
 def _projection_version() -> str:
-    return "search-projection-v1"
+    return SearchProjectionBuilder().projection_version
 
 
 def _v3_index():

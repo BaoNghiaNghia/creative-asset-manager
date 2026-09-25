@@ -81,7 +81,7 @@ class SearchProjectionBuilder:
     def __init__(
         self,
         *,
-        projection_version: str = "search-projection-v1",
+        projection_version: str = "search-projection-v2",
         traverser: MetadataTraverser | None = None,
         normalizer: MetadataNormalizer | None = None,
         limits: ProjectionLimits | None = None,
@@ -115,12 +115,18 @@ class SearchProjectionBuilder:
         text_paths = self._normalized_paths(config.get("text_paths"))
         facet_paths = self._facet_paths(config)
         boost_paths = self._boost_paths(config.get("boost_paths"))
+        field_alias_paths = self._field_alias_paths(config.get("field_aliases"))
+        explicit_path_value_paths = self._normalized_paths(
+            config.get("path_value_paths")
+        )
         selection_paths = tuple(
             sorted(
                 {
                     *text_paths,
                     *(path for paths in facet_paths.values() for path in paths),
                     *boost_paths.keys(),
+                    *field_alias_paths,
+                    *explicit_path_value_paths,
                 }
             )
         )
@@ -128,6 +134,24 @@ class SearchProjectionBuilder:
             item
             for item in normalized
             if include_all or self._matches_any(item.path, selection_paths)
+        )
+        path_value_paths = tuple(
+            sorted(
+                {
+                    *boost_paths.keys(),
+                    *field_alias_paths,
+                    *explicit_path_value_paths,
+                }
+            )
+        )
+        nested_values = (
+            normalized
+            if config.get("include_all_path_values") is True
+            else tuple(
+                item
+                for item in normalized
+                if self._matches_any(item.path, path_value_paths)
+            )
         )
 
         search_terms = self._limited_unique(
@@ -160,7 +184,7 @@ class SearchProjectionBuilder:
             (number for item in selected for number in item.numbers),
             self.limits.max_numbers,
         )
-        path_values = self._path_values(selected)
+        path_values = self._path_values(nested_values)
         facets = self._build_facets(normalized, facet_paths)
 
         projection = SearchProjection(
@@ -226,6 +250,13 @@ class SearchProjectionBuilder:
             return result
         paths = self._normalized_paths(raw)
         return {path: (path,) for path in paths}
+
+    def _field_alias_paths(self, raw: Any) -> tuple[str, ...]:
+        if not isinstance(raw, Mapping):
+            return ()
+        return self._normalized_paths(
+            tuple(value for value in raw.values() if isinstance(value, str))
+        )
 
     def _boost_paths(self, raw: Any) -> dict[str, float]:
         if not isinstance(raw, Mapping):
