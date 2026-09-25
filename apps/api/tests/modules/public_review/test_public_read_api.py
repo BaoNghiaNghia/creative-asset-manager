@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -438,3 +438,34 @@ def test_public_preview_redirect_requires_real_exact_share_scope(ctx):
  assert "sig=" in allowed.headers["location"] and secret not in allowed.headers["location"]
  assert denied.status_code==404
  assert denied.json()=={"detail":{"code":"public_review_unavailable"}}
+
+
+def test_public_download_requires_policy_and_streams_attachment(monkeypatch):
+ principal=SimpleNamespace(tenant_id="tenant-a",allow_download=False)
+ asset=SimpleNamespace(id="asset-good",mime_type="image/jpeg")
+ source=SimpleNamespace(id="child",filename="summer photo.jpg",mime_type="image/jpeg")
+ class Resolver:
+  def __init__(self,*_,**__): pass
+  @asynccontextmanager
+  async def open(self,**kwargs):
+   assert kwargs["tenant_id"]=="tenant-a"
+   assert kwargs["source_asset_id"]=="child"
+   assert kwargs["range_header"] is None
+   async def chunks():
+    yield b"original"
+   yield SimpleNamespace(body=chunks(),status_code=200,content_type="image/jpeg",headers={"content-length":"8"})
+ monkeypatch.setattr(public_router,"user",lambda *_: principal)
+ monkeypatch.setattr(public_router,"asset_pair",lambda *_: (asset,source))
+ monkeypatch.setattr(public_router,"SourceAssetContentResolver",Resolver)
+ state=SimpleNamespace(google_drive_stream_client=None,onedrive_stream_client=None)
+ request_obj=SimpleNamespace(headers={},app=SimpleNamespace(state=state))
+ with pytest.raises(HTTPException) as exc:
+  asyncio.run(public_router.media("share-a","asset-good",request_obj,"child",force_download=True))
+ assert exc.value.status_code==404
+ principal.allow_download=True
+ async def consume():
+  response=await public_router.media("share-a","asset-good",request_obj,"child",force_download=True)
+  assert response.status_code==200
+  assert response.headers["content-disposition"]=="attachment; filename*=UTF-8''summer%20photo.jpg"
+  return [chunk async for chunk in response.body_iterator]
+ assert asyncio.run(consume())==[b"original"]

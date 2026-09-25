@@ -3,7 +3,7 @@ import asyncio
 import hashlib
 from datetime import timedelta
 from secrets import token_urlsafe
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
@@ -320,11 +320,12 @@ async def search(public_share_id:str,request:Request,q:str=Query(...,min_length=
   fallback_scope=PublicShareScopeService(s)
   items=_legacy_public_search(s,fallback_scope,p,public_share_id,value,limit_value)
   s.commit();return safe({"items":items,"query":q,"search_version":"filename_fallback"})
-async def media(public_share_id,asset_id,request,source_id):
+async def media(public_share_id,asset_id,request,source_id,force_download:bool=False):
  # Authorization and the optional R2/CDN decision do not consume a long-lived
  # provider-stream slot. Only a real Google/OneDrive fallback occupies one.
  p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_id)
- ticket=await PublicVideoDeliveryResolver(SessionLocal,get_settings()).resolve(principal=p,asset=a,source=src)
+ if force_download and not p.allow_download: raise denied()
+ ticket=None if force_download else await PublicVideoDeliveryResolver(SessionLocal,get_settings()).resolve(principal=p,asset=a,source=src)
  if ticket is not None:
   r=RedirectResponse(ticket.url,status_code=307)
   r.headers.update({"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"})
@@ -372,6 +373,7 @@ async def media(public_share_id,asset_id,request,source_id):
 
  provider_headers={str(k).lower():str(v) for k,v in (stream.headers or {}).items()}
  response_headers={"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"}
+ if force_download: response_headers["Content-Disposition"]="attachment; filename*=UTF-8''"+quote(src.filename or "asset",safe="")
  if provider_headers.get("accept-ranges"): response_headers["Accept-Ranges"]=provider_headers["accept-ranges"]
  if provider_headers.get("content-range"): response_headers["Content-Range"]=provider_headers["content-range"]
  if provider_headers.get("content-length") and not provider_headers.get("content-encoding"): response_headers["Content-Length"]=provider_headers["content-length"]
@@ -412,6 +414,9 @@ async def image_preview(public_share_id:str,asset_id:str,request:Request,source_
 
 @router.get("/{public_share_id}/assets/{asset_id}/preview")
 async def preview(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None): return await media(public_share_id,asset_id,request,source_asset_id)
+
+@router.get("/{public_share_id}/assets/{asset_id}/download")
+async def download(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None): return await media(public_share_id,asset_id,request,source_asset_id,force_download=True)
 
 @router.get("/{public_share_id}/assets/{asset_id}/playback-ticket")
 async def playback_ticket(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):

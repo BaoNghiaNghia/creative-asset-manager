@@ -103,7 +103,7 @@ describe("Public Review folder deep links", () => {
 describe("Public Review card comment badges", () => {
   it("shows counts on image and video comment actions and caps the visible badge at 99+", async () => {
     vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
-    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: true, expires_at: null });
     vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
     vi.spyOn(api, "children").mockResolvedValue({
       items: [
@@ -130,6 +130,12 @@ describe("Public Review card comment badges", () => {
     expect(host.querySelector('[aria-label="Actions for c.jpg"]')?.classList.contains("has-comments")).toBe(false);
     expect(host.querySelector('[aria-label="Open c.jpg"]')?.closest(".public-media-card")?.classList.contains("has-comments")).toBe(false);
     expect(Array.from(host.querySelectorAll(".public-card-copy .public-status")).some(node => node.textContent === "Shared")).toBe(false);
+    expect(host.querySelectorAll(".public-card-check")).toHaveLength(0);
+    expect(host.querySelectorAll(".public-card-actions .public-card-comment-action")).toHaveLength(3);
+    expect(host.querySelectorAll(".public-card-hover-actions")).toHaveLength(3);
+    expect(host.querySelectorAll(".public-card-hover-actions .public-card-share-action")).toHaveLength(3);
+    expect(host.querySelectorAll<HTMLAnchorElement>(".public-card-hover-actions .public-card-download-action")).toHaveLength(3);
+    expect(host.querySelector<HTMLAnchorElement>('[aria-label="Download a.jpg"]')?.getAttribute("href")).toContain("/api/public/review/share-1/assets/a/download?source_asset_id=source-a");
     await act(async () => root.unmount());
   });
 });
