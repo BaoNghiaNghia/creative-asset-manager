@@ -231,6 +231,49 @@ describe("Public Review device-local history", () => {
   });
 });
 
+describe("Public Review comments activity", () => {
+  it("lists share comments and opens the matching media with the comment selected", async () => {
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
+    vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
+    vi.spyOn(api, "children").mockResolvedValue({ items: assets.slice(0, 2), next_offset: null });
+    const parent = note("note-a", "Please adjust the opening shot", "Tan Le");
+    const reply = { ...note("reply-a", "Updated in this version", "Thuy Linh"), parent_annotation_id: "note-a" };
+    vi.spyOn(api, "comments").mockResolvedValue({ items: [
+      { annotation: reply, asset: { ...assets[1], annotation_count: 2 } },
+      { annotation: parent, asset: { ...assets[1], annotation_count: 2 } },
+    ] });
+    vi.spyOn(api, "annotations").mockResolvedValue({ items: [parent, reply] });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await click(host.querySelector('[title="Comments"]'));
+    await act(async () => { await Promise.resolve(); });
+    expect(host.textContent).toContain("2 comments in this share");
+    expect(host.textContent).toContain("Please adjust the opening shot");
+    expect(host.textContent).toContain("Reply to Tan Le");
+
+    await click(host.querySelector('[aria-label="Open comment by Thuy Linh on b.mp4"]'));
+    await act(async () => {
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(host.querySelector('[aria-label="Review b.mp4"]')).not.toBeNull();
+    expect(host.querySelector("#annotation-reply-a")?.classList.contains("selected")).toBe(true);
+
+    await act(async () => root.unmount());
+  });
+});
+
 describe("Public Review replies", () => {
   it("shows reply context and creates the comment under the selected parent", async () => {
     vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });

@@ -199,3 +199,19 @@ class PublicReviewRepository:
 
     def list_annotations_with_guests(self, tenant_id: str, share_id: str, asset_id: str, source_asset_id: str):
         return list(self.session.execute(select(AssetAnnotationModel, PublicShareGuestModel.display_name).join(PublicShareGuestModel, (PublicShareGuestModel.tenant_id == AssetAnnotationModel.tenant_id) & (PublicShareGuestModel.share_id == AssetAnnotationModel.share_id) & (PublicShareGuestModel.id == AssetAnnotationModel.guest_id)).where(AssetAnnotationModel.tenant_id == tenant_id, AssetAnnotationModel.share_id == share_id, AssetAnnotationModel.asset_id == asset_id, AssetAnnotationModel.source_asset_id == source_asset_id).order_by(AssetAnnotationModel.created_at)))
+
+    def list_recent_annotations_with_context(self, tenant_id: str, share_id: str, limit: int = 100):
+        return list(self.session.execute(
+            select(AssetAnnotationModel, PublicShareGuestModel.display_name, AssetModel, SourceAssetModel)
+            .join(PublicShareGuestModel, (PublicShareGuestModel.tenant_id == AssetAnnotationModel.tenant_id) & (PublicShareGuestModel.share_id == AssetAnnotationModel.share_id) & (PublicShareGuestModel.id == AssetAnnotationModel.guest_id))
+            .join(AssetSourceLinkModel, (AssetSourceLinkModel.tenant_id == AssetAnnotationModel.tenant_id) & (AssetSourceLinkModel.asset_id == AssetAnnotationModel.asset_id) & (AssetSourceLinkModel.source_asset_id == AssetAnnotationModel.source_asset_id))
+            .join(AssetModel, (AssetModel.tenant_id == AssetSourceLinkModel.tenant_id) & (AssetModel.id == AssetSourceLinkModel.asset_id))
+            .join(SourceAssetModel, (SourceAssetModel.tenant_id == AssetSourceLinkModel.tenant_id) & (SourceAssetModel.id == AssetSourceLinkModel.source_asset_id))
+            .where(
+                AssetAnnotationModel.tenant_id == tenant_id,
+                AssetAnnotationModel.share_id == share_id,
+                SourceAssetModel.deleted_at.is_(None),
+            )
+            .order_by(AssetAnnotationModel.created_at.desc(), AssetAnnotationModel.id.desc())
+            .limit(max(1, min(int(limit), 200)))
+        ).all())

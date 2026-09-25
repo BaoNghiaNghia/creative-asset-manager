@@ -450,6 +450,15 @@ def ensure_guest(s,p):
  if row.guest_id: return row.guest_id
  name="Guest "+token_urlsafe(4).replace("-","").replace("_","")[:4].upper()
  guest=PublicReviewRepository(s).create_guest(tenant_id=p.tenant_id,share_id=p.share_id,display_name=name);row.guest_id=guest.id;s.flush();return guest.id
+@router.get("/{public_share_id}/comments")
+def comments(public_share_id:str,request:Request,limit_value:int=Query(100,alias="limit",ge=1,le=200)):
+ p=user(request,public_share_id)
+ with SessionLocal() as s:
+  scope=PublicShareScopeService(s); rows=PublicReviewRepository(s).list_recent_annotations_with_context(p.tenant_id,p.share_id,limit_value);items=[]
+  for row,name,asset,src in rows:
+   if not permitted_linked(scope,p,src): continue
+   items.append({"annotation":annotation_dto(row,p,name),"asset":doc(asset,src,public_share_id)})
+  return safe({"items":items})
 @router.get("/{public_share_id}/assets/{asset_id}/annotations")
 def annotations(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
  p=user(request,public_share_id);_a,src=asset_pair(p,asset_id,source_asset_id)

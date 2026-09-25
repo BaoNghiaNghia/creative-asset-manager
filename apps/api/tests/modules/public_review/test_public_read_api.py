@@ -92,6 +92,12 @@ def test_public_asset_cards_include_annotation_count(ctx):
  assert metadata.status_code==200 and metadata.json()["annotation_count"]==2
  found=request(ctx,"GET","/api/public/review/share-a/search?q=cat")
  assert found.status_code==200 and found.json()["items"][0]["annotation_count"]==2
+ comments=request(ctx,"GET","/api/public/review/share-a/comments")
+ assert comments.status_code==200
+ assert len(comments.json()["items"])==2
+ assert comments.json()["items"][0]["asset"]["asset_id"]=="asset-good"
+ assert comments.json()["items"][0]["asset"]["source_asset_id"]=="child"
+ assert comments.json()["items"][0]["annotation"]["plain_text"]=="hello"
 
 def test_public_search_uses_search_v3_with_share_scope_and_hydrates_only_allowed_assets(ctx):
  assert exchange(ctx).status_code==201
@@ -151,6 +157,8 @@ def test_annotation_mutations_revalidate_the_exact_asset_source_scope(ctx):
  with ctx[1]() as s:
   PublicReviewRepository(s).replace_scopes("tenant-a",ctx[2].id,[{"external_source_id":"source-a","folder_external_id":"other"}]);s.commit()
  assert request(ctx,"GET","/api/public/review/share-a/assets/asset-good?source_asset_id=sibling-copy").status_code==200
+ comments=request(ctx,"GET","/api/public/review/share-a/comments")
+ assert comments.status_code==200 and comments.json()["items"]==[]
  patch=request(ctx,"PATCH","/api/public/review/share-a/annotations/"+annotation_id,json={"content_json":note_body()["content_json"]},headers={"Origin":"http://localhost:5173"})
  delete=request(ctx,"DELETE","/api/public/review/share-a/annotations/"+annotation_id,headers={"Origin":"http://localhost:5173"})
  assert patch.status_code==delete.status_code==404
