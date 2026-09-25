@@ -164,16 +164,17 @@
 .public-card-open{display:block;width:100%;height:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .public-card-open:focus-visible{outline:3px solid #4f7ff055;outline-offset:-3px}
 .public-grid>article.public-card.public-media-card{display:block;min-height:0;aspect-ratio:1/1}
-.public-card-actions{position:absolute;z-index:4;right:10px;bottom:10px;display:flex;gap:6px;opacity:0;transform:translateY(5px);transition:opacity .16s ease,transform .16s ease}
-.public-media-card:hover .public-card-actions,.public-media-card:focus-within .public-card-actions{opacity:1;transform:translateY(0)}
-.public-card-actions button{display:grid;width:30px;height:30px;place-items:center;padding:0;border:1px solid #ffffffb8;border-radius:50%;background:#18243bd9;color:#fff;box-shadow:0 2px 8px #17243d33;cursor:pointer}
+.public-card-actions{position:absolute;z-index:4;right:10px;bottom:10px;display:flex;gap:6px}
+.public-card-actions button{display:grid;width:30px;height:30px;place-items:center;padding:0;border:1px solid #ffffffb8;border-radius:50%;background:#18243bd9;color:#fff;box-shadow:0 2px 8px #17243d33;opacity:0;transform:translateY(5px);pointer-events:none;cursor:pointer;transition:opacity .16s ease,transform .16s ease}
+.public-media-card:hover .public-card-actions button,.public-media-card:focus-within .public-card-actions button{opacity:1;transform:translateY(0);pointer-events:auto}
+.public-card-actions.has-comments .public-card-comment-action{opacity:1;transform:translateY(0);pointer-events:auto}
 .public-card-actions .public-card-comment-action{position:relative}
 .public-card-comment-count{position:absolute;top:-6px;right:-6px;display:grid;min-width:17px;height:17px;box-sizing:border-box;place-items:center;padding:0 4px;border:2px solid #fff;border-radius:999px;background:#315fe9;color:#fff;font-size:9px;font-weight:800;line-height:13px;letter-spacing:0;pointer-events:none}
 .public-card-actions button:hover{background:#315fe9}
 .public-card-actions button:focus-visible{outline:2px solid #315fe9;outline-offset:2px}
 .public-card-actions svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .public-share-notice{margin:0 20px 14px;padding:8px 10px;border-radius:8px;background:#edf4ff;color:#2454b8;font-size:12px;font-weight:650}
-@media(prefers-reduced-motion:reduce){.public-card-actions{transition:none}}
+@media(prefers-reduced-motion:reduce){.public-card-actions button{transition:none}}
 
 
 /* Modal interaction follows the public-review viewer contract: the backdrop owns
