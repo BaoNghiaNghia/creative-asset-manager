@@ -108,6 +108,7 @@ def test_management_create_read_rotate_revoke_and_secret_safety(context):
     created = request(context, "POST", "/api/v1/public-review/shares", json=payload())
     assert created.status_code == 201
     item = created.json(); share_id = item["id"]; first_url = item["share_url"]
+    assert "/share/" in first_url and "/folder/folder-a#key=" in first_url
     assert "#key=" in first_url and "secret_digest" not in created.text
     created_expiry = datetime.fromisoformat(item["expires_at"])
     assert timedelta(days=6, hours=23) < created_expiry - datetime.now(timezone.utc) <= timedelta(days=7, minutes=1)

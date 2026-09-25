@@ -68,6 +68,7 @@ describe("Review Board boundary", () => {
     expect(routeForPath("/review-board")).toBe("review-board");
     expect(routeForPath("/review-board/")).toBe("review-board");
     expect(routeForPath("/share/public-id")).toBe("public-review");
+    expect(routeForPath("/share/public-id/folder/1ppjQw5qYj3xEXC3wMa__5Lm8sXiNM16U")).toBe("public-review");
     expect(routeForPath("/job-queue")).toBe("job-queue");
   });
 

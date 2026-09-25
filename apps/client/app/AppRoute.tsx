@@ -14,7 +14,7 @@ const VideoGenerationPage = lazy(() => import("./video-generation/VideoGeneratio
 export type ApplicationRoute = "public-review" | "review-board" | "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory" | "job-queue" | "video-generation";
 
 export function routeForPath(pathname: string): ApplicationRoute {
-  if (pathname.startsWith("/share/") && /^[A-Za-z0-9_-]{1,128}$/.test(pathname.slice(7))) return "public-review";
+  if (/^\/share\/[A-Za-z0-9_-]{1,128}(?:\/folder\/[^/]{1,1024})?\/?$/.test(pathname)) return "public-review";
   if (pathname === "/review-board" || pathname === "/review-board/") return "review-board";
   if (pathname === "/job-queue") return "job-queue";
   if (pathname === "/video-generation" || pathname.startsWith("/video-generation/")) return "video-generation";

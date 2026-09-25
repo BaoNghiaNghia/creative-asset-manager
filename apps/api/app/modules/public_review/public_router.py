@@ -109,6 +109,9 @@ def bootstrap(public_share_id:str,request:Request):
   share=s.scalar(select(PublicShareModel).where(PublicShareModel.tenant_id==p.tenant_id,PublicShareModel.id==p.share_id))
   if not share: raise denied()
   return safe({"public_id":p.public_id,"name":share.name,"allow_comments":p.allow_comments,"allow_download":p.allow_download,"expires_at":p.expires_at})
+def folder_dto(row):
+ return {"source_id":row.external_source_id,"folder_id":row.external_asset_id,"name":row.filename or "Untitled folder"}
+
 @router.get("/{public_share_id}/folders")
 def folders(public_share_id:str,request:Request):
  p=user(request,public_share_id)
@@ -128,7 +131,48 @@ def folders(public_share_id:str,request:Request):
    SourceAssetModel.is_folder.is_(True),
    or_(*clauses),
   ).order_by(SourceAssetModel.external_source_id,func.lower(func.coalesce(SourceAssetModel.filename,"")),SourceAssetModel.id))
-  return safe({"items":[{"source_id":x.external_source_id,"folder_id":x.external_asset_id,"name":x.filename or "Untitled folder"} for x in rows]})
+  return safe({"items":[folder_dto(x) for x in rows]})
+
+@router.get("/{public_share_id}/folders/{folder_id}")
+def resolve_folder(public_share_id:str,folder_id:str,request:Request):
+ p=user(request,public_share_id)
+ with SessionLocal() as s:
+  limit(s,request,"traversal",120);scope=PublicShareScopeService(s)
+  accesses=scope.scoped_accesses(principal=p)
+  source_ids=tuple(sorted(accesses))
+  if not source_ids: raise denied()
+  candidates=list(s.scalars(select(SourceAssetModel).where(
+   SourceAssetModel.tenant_id==p.tenant_id,
+   SourceAssetModel.external_source_id.in_(source_ids),
+   SourceAssetModel.external_asset_id==folder_id,
+   SourceAssetModel.deleted_at.is_(None),
+   SourceAssetModel.is_folder.is_(True),
+  )))
+  candidates=[row for row in candidates if scope.allows_external_asset(principal=p,external_source_id=row.external_source_id,external_asset_id=row.external_asset_id)]
+  if len(candidates)!=1: raise denied()
+  folder=candidates[0];access=accesses.get(str(folder.external_source_id))
+  if access is None: raise denied()
+  trail=[];cursor=folder;visited=set()
+  for _ in range(128):
+   cursor_id=str(cursor.external_asset_id)
+   if cursor_id in visited: raise denied()
+   visited.add(cursor_id);trail.append(cursor)
+   if cursor_id in access.folder_ids: break
+   parent_id=str(cursor.parent_external_id or "").strip()
+   if not parent_id: raise denied()
+   parent=s.scalar(select(SourceAssetModel).where(
+    SourceAssetModel.tenant_id==p.tenant_id,
+    SourceAssetModel.external_source_id==folder.external_source_id,
+    SourceAssetModel.external_asset_id==parent_id,
+    SourceAssetModel.deleted_at.is_(None),
+    SourceAssetModel.is_folder.is_(True),
+   ))
+   if parent is None: raise denied()
+   cursor=parent
+  else: raise denied()
+  trail.reverse()
+  return safe({"folder":folder_dto(folder),"trail":[folder_dto(row) for row in trail]})
+
 @router.get("/{public_share_id}/folders/{folder_id}/children")
 def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Query(...,max_length=36),limit_value:int=Query(50,ge=1,le=100),offset:int=Query(0,ge=0,le=100000)):
  p=user(request,public_share_id)

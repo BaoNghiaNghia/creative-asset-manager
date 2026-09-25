@@ -55,6 +55,51 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+describe("Public Review folder deep links", () => {
+  it("restores a deep-linked folder and keeps browser history in sync", async () => {
+    const fakeLocation = { pathname: "/share/share-1/folder/nested", hash: "", origin: "https://review.example.test" };
+    const pushState = vi.fn((_state: unknown, _title: string, url?: string | URL | null) => { if (url) fakeLocation.pathname = String(url); });
+    const replaceState = vi.fn((_state: unknown, _title: string, url?: string | URL | null) => { if (url) fakeLocation.pathname = String(url); });
+    vi.stubGlobal("location", fakeLocation);
+    vi.stubGlobal("history", { pushState, replaceState });
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
+    const rootFolder = { source_id: "source", folder_id: "root", name: "Root" };
+    const nestedFolder = { source_id: "source", folder_id: "nested", name: "Nested" };
+    vi.spyOn(api, "folders").mockResolvedValue({ items: [rootFolder] });
+    const resolveFolder = vi.spyOn(api, "folder").mockResolvedValue({ folder: nestedFolder, trail: [rootFolder, nestedFolder] });
+    vi.spyOn(api, "children").mockImplementation(async (_id, folder) => folder.folder_id === "nested"
+      ? { items: [assets[1]], next_offset: null }
+      : { items: [{ ...nestedFolder, kind: "folder" as const }, assets[0]], next_offset: null });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(resolveFolder).toHaveBeenCalledWith("share-1", "nested");
+    expect(host.querySelector(".public-folder-header h2")?.textContent).toBe("Nested");
+
+    fakeLocation.pathname = "/share/share-1";
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector(".public-folder-header h2")?.textContent).toBe("Root");
+
+    await click(host.querySelector(".public-folder-card"));
+    expect(pushState).toHaveBeenLastCalledWith(null, "", "/share/share-1/folder/nested");
+    expect(host.querySelector(".public-folder-header h2")?.textContent).toBe("Nested");
+
+    await act(async () => root.unmount());
+  });
+});
+
 describe("Public Review card comment badges", () => {
   it("shows counts on image and video comment actions and caps the visible badge at 99+", async () => {
     vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });

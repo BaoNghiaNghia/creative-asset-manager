@@ -23,8 +23,22 @@ function preconnectReviewMedia(ticket: PlaybackTicket) {
   document.head.appendChild(link);
  }
 }
-export function publicShareIdFromPath(path: string) { return /^\/share\/([A-Za-z0-9_-]{1,128})\/?$/.exec(path)?.[1] || null; }
-export function reviewShareUrl(publicId: string, key: string) { return location.origin + "/share/" + encodeURIComponent(publicId) + "#key=" + encodeURIComponent(key); }
+export function publicReviewLocationFromPath(path: string) {
+ const match = /^\/share\/([A-Za-z0-9_-]{1,128})(?:\/folder\/([^/]{1,1024}))?\/?$/.exec(path);
+ if (!match) return null;
+ try {
+  return { publicId: match[1], folderId: match[2] ? decodeURIComponent(match[2]) : null };
+ } catch {
+  return null;
+ }
+}
+export function publicShareIdFromPath(path: string) { return publicReviewLocationFromPath(path)?.publicId || null; }
+export function publicFolderIdFromPath(path: string) { return publicReviewLocationFromPath(path)?.folderId || null; }
+export function reviewFolderPath(publicId: string, folderId?: string | null) {
+ const base = "/share/" + encodeURIComponent(publicId);
+ return folderId ? base + "/folder/" + encodeURIComponent(folderId) : base;
+}
+export function reviewShareUrl(publicId: string, key: string, folderId?: string | null) { return location.origin + reviewFolderPath(publicId, folderId) + "#key=" + encodeURIComponent(key); }
 function keyFor(id: string) { const value = keys.get(id) || new URLSearchParams(location.hash.slice(1)).get("key"); if (value) { keys.set(id, value); history.replaceState(null, "", location.pathname); } return value || null; }
 function exchange(id: string, key: string) { const cacheKey = id + ":" + key; if (!exchanges.has(cacheKey)) exchanges.set(cacheKey, api.exchange(id, key).finally(() => exchanges.delete(cacheKey))); return exchanges.get(cacheKey)!; }
 function imageAsset(asset: Asset) { return getFileType(asset.media_type, undefined, asset.filename) === "image"; }
@@ -64,7 +78,7 @@ export async function autoplayReviewVideo(video: HTMLVideoElement, isCurrent: ()
 }
 
 export function PublicReviewRoute() {
- const id = publicShareIdFromPath(location.pathname); const shareKey = useRef<string | null>(null); const [shareNotice, setShareNotice] = useState(""); const [boot, setBoot] = useState<Bootstrap>(); const [folders, setFolders] = useState<Folder[]>([]); const [activeFolder, setActiveFolder] = useState<Folder>(); const [activeTrail, setActiveTrail] = useState<Folder[]>([]); const [children, setChildren] = useState<Child[]>([]); const [folderAssets, setFolderAssets] = useState<Asset[]>([]); const [assets, setAssets] = useState<Asset[]>([]); const [current, setCurrent] = useState<Asset>(); const [notes, setNotes] = useState<Annotation[]>([]); const [notesKey, setNotesKey] = useState(""); const [query, setQuery] = useState(""); const [mediaFilter, setMediaFilter] = useState<"all" | "images" | "videos">("all"); const [error, setError] = useState(""); const [editor, setEditor] = useState<{ parent?: string; edit?: Annotation; pin?: { x: number; y: number } }>(); const [pinMode, setPinMode] = useState(false); const [selected, setSelected] = useState<string>(); const mediaRef = useRef<HTMLDivElement>(null); const imageRef = useRef<HTMLImageElement>(null); const videoRef = useRef<HTMLVideoElement>(null); const autoplayAttempted = useRef<HTMLVideoElement | null>(null); const videoTicketRetries = useRef(0); const videoResumeAt = useRef(0); const activeVideoKey = useRef<string | null>(null); activeVideoKey.current = current ? current.asset_id + ":" + current.source_asset_id : null; const [videoSource, setVideoSource] = useState<{ key: string; url: string }>(); const [videoReady, setVideoReady] = useState(false); const [autoplayPending, setAutoplayPending] = useState(false); const [videoPlaying, setVideoPlaying] = useState(false); const [videoBuffering, setVideoBuffering] = useState(false); const [videoMuted, setVideoMuted] = useState(true); const [mediaDetails, setMediaDetails] = useState<{ width: number; height: number; duration: number | null }>(); const [geometry, setGeometry] = useState<{ box: Rect; width: number; height: number }>(); const [nextOffset, setNextOffset] = useState<number | null>(null); const [loadingFolder, setLoadingFolder] = useState(false); const [loadingMore, setLoadingMore] = useState(false); const loadMoreRef = useRef<HTMLDivElement>(null); const searchEpoch = useRef(0); const annotationEpoch = useRef(0);
+ const id = publicShareIdFromPath(location.pathname); const shareKey = useRef<string | null>(null); const [shareNotice, setShareNotice] = useState(""); const [boot, setBoot] = useState<Bootstrap>(); const [folders, setFolders] = useState<Folder[]>([]); const [activeFolder, setActiveFolder] = useState<Folder>(); const [activeTrail, setActiveTrail] = useState<Folder[]>([]); const [children, setChildren] = useState<Child[]>([]); const [folderAssets, setFolderAssets] = useState<Asset[]>([]); const [assets, setAssets] = useState<Asset[]>([]); const [current, setCurrent] = useState<Asset>(); const [notes, setNotes] = useState<Annotation[]>([]); const [notesKey, setNotesKey] = useState(""); const [query, setQuery] = useState(""); const [mediaFilter, setMediaFilter] = useState<"all" | "images" | "videos">("all"); const [error, setError] = useState(""); const [editor, setEditor] = useState<{ parent?: string; edit?: Annotation; pin?: { x: number; y: number } }>(); const [pinMode, setPinMode] = useState(false); const [selected, setSelected] = useState<string>(); const mediaRef = useRef<HTMLDivElement>(null); const imageRef = useRef<HTMLImageElement>(null); const videoRef = useRef<HTMLVideoElement>(null); const autoplayAttempted = useRef<HTMLVideoElement | null>(null); const videoTicketRetries = useRef(0); const videoResumeAt = useRef(0); const activeVideoKey = useRef<string | null>(null); activeVideoKey.current = current ? current.asset_id + ":" + current.source_asset_id : null; const [videoSource, setVideoSource] = useState<{ key: string; url: string }>(); const [videoReady, setVideoReady] = useState(false); const [autoplayPending, setAutoplayPending] = useState(false); const [videoPlaying, setVideoPlaying] = useState(false); const [videoBuffering, setVideoBuffering] = useState(false); const [videoMuted, setVideoMuted] = useState(true); const [mediaDetails, setMediaDetails] = useState<{ width: number; height: number; duration: number | null }>(); const [geometry, setGeometry] = useState<{ box: Rect; width: number; height: number }>(); const [nextOffset, setNextOffset] = useState<number | null>(null); const [loadingFolder, setLoadingFolder] = useState(false); const [loadingMore, setLoadingMore] = useState(false); const loadMoreRef = useRef<HTMLDivElement>(null); const searchEpoch = useRef(0); const annotationEpoch = useRef(0); const folderNavigationEpoch = useRef(0);
  const searchTimer = useRef<number | null>(null);
  const playbackTickets = useMemo(() => id ? createReviewPlaybackTicketCache(
   asset => api.playbackTicket(id, asset),
@@ -82,15 +96,43 @@ export function PublicReviewRoute() {
   setFolderAssets(update);
  };
  const refreshGeometry = () => { const box = mediaRef.current?.getBoundingClientRect(), image = imageRef.current; if (box && image?.naturalWidth && image.naturalHeight) setGeometry({ box: { left: box.left, top: box.top, width: box.width, height: box.height }, width: image.naturalWidth, height: image.naturalHeight }); };
- useEffect(() => { if (!id) { setError("This review link is unavailable or has expired."); return; } (async () => { try { const key = keyFor(id); if (key) { shareKey.current = key; await exchange(id, key); keys.delete(id); } const values = await Promise.all([api.bootstrap(id), api.folders(id)]); setBoot(values[0]); setFolders(values[1].items);
+ const displayFolder = async (folder: Folder, trail: Folder[]) => {
+  if (!id) return;
+  const epoch = ++folderNavigationEpoch.current;
+  setLoadingFolder(true);
+  try {
+   const page = await api.children(id, folder);
+   if (epoch !== folderNavigationEpoch.current) return;
+   const next = page.items.filter((item): item is Asset => item.kind === "asset");
+   setChildren(page.items); setFolderAssets(next); setActiveFolder(folder); setActiveTrail(trail); setNextOffset(page.next_offset);
+   if (!query) setAssets(next);
+  } finally {
+   if (epoch === folderNavigationEpoch.current) setLoadingFolder(false);
+  }
+ };
+ useEffect(() => { if (!id) { setError("This review link is unavailable or has expired."); return; } (async () => { try {
+        const key = keyFor(id);
+        if (key) { shareKey.current = key; await exchange(id, key); keys.delete(id); }
+        const values = await Promise.all([api.bootstrap(id), api.folders(id)]);
+        setBoot(values[0]);
+        setFolders(values[1].items);
         const root = values[1].items[0];
-        if (root) {
-          setLoadingFolder(true);
-          const rootChildren = await api.children(id, root);
-          const rootAssets = rootChildren.items.filter((item): item is Asset => item.kind === "asset");
-          setChildren(rootChildren.items); setFolderAssets(rootAssets); setAssets(rootAssets); setNextOffset(rootChildren.next_offset);
-          setActiveFolder(root); setActiveTrail([root]); setLoadingFolder(false);
-        } } catch { setError("This review link is unavailable or has expired."); } })(); }, [id]);
+        if (!root) return;
+        let folder = root;
+        let trail = [root];
+        const requestedFolderId = publicFolderIdFromPath(location.pathname);
+        if (requestedFolderId) {
+          try {
+            const resolved = await api.folder(id, requestedFolderId);
+            folder = resolved.folder;
+            trail = resolved.trail;
+          } catch {
+            setShareNotice("This shared folder is no longer available.");
+            history.replaceState(null, "", reviewFolderPath(id));
+          }
+        }
+        await displayFolder(folder, trail);
+      } catch { setError("This review link is unavailable or has expired."); } })(); }, [id]);
  useEffect(() => {
   const epoch = ++annotationEpoch.current;
   if (!id || !current) { setNotes([]); setNotesKey(""); return; }
@@ -181,13 +223,38 @@ export function PublicReviewRoute() {
  useEffect(() => () => {
   if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
  }, []);
+ useEffect(() => {
+  if (!id || !folders.length) return;
+  const onPopState = () => {
+   const route = publicReviewLocationFromPath(location.pathname);
+   if (!route || route.publicId !== id) return;
+   const root = folders[0];
+   if (!route.folderId) {
+    void displayFolder(root, [root]);
+    return;
+   }
+   api.folder(id, route.folderId)
+    .then(value => displayFolder(value.folder, value.trail))
+    .catch(() => {
+     setShareNotice("This shared folder is no longer available.");
+     history.replaceState(null, "", reviewFolderPath(id));
+     void displayFolder(root, [root]);
+    });
+  };
+  window.addEventListener("popstate", onPopState);
+  return () => window.removeEventListener("popstate", onPopState);
+ }, [id, folders, query]);
  const warmVideoInteraction = (asset: Asset) => {
   if (!videoAsset(asset)) return;
   videoPrewarm?.enqueue(asset, "high");
   void playbackTickets?.prefetch(asset).catch(() => undefined);
  };
  if (error) return <main className="public-review state">{error}</main>; if (!id || !boot) return <main className="public-review state">Loading review…</main>;
- const open = async (folder: Folder, trail: Folder[] = [folder]) => { setLoadingFolder(true); try { const value = await api.children(id, folder); setChildren(value.items); const next = value.items.filter((item): item is Asset => item.kind === "asset"); setFolderAssets(next); setActiveFolder(folder); setActiveTrail(trail); setNextOffset(value.next_offset); if (!query) setAssets(next); } finally { setLoadingFolder(false); } };
+ const open = async (folder: Folder, trail: Folder[] = [folder]) => {
+  await displayFolder(folder, trail);
+  const nextPath = reviewFolderPath(id, folder.folder_id);
+  if (location.pathname !== nextPath) history.pushState(null, "", nextPath);
+ };
  const previousAsset = () => { if (!current) return; const index = reviewMediaPosition(assets, current).currentIndex; if (index > 0) selectMediaAsset(assets[index - 1]); };
  const nextAsset = () => { if (!current) return; const index = reviewMediaPosition(assets, current).currentIndex; if (index >= 0 && index < assets.length - 1) selectMediaAsset(assets[index + 1]); };
  const select = (note: Annotation) => { setSelected(note.id); document.getElementById("annotation-" + note.id)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
@@ -216,7 +283,7 @@ export function PublicReviewRoute() {
  const isActiveVideo = (video: HTMLVideoElement) => videoRef.current === video && activeVideoKey.current === video.dataset.mediaKey;
  const autoplayWhenReady = (video: HTMLVideoElement) => { if (!isActiveVideo(video) || autoplayAttempted.current === video) return; autoplayAttempted.current = video; setAutoplayPending(true); void autoplayReviewVideo(video, () => isActiveVideo(video)).then(played => { if (isActiveVideo(video)) { setAutoplayPending(false); setVideoPlaying(played); } }); };
  const retryVideoTicket = (video: HTMLVideoElement) => { if (!playbackTickets || !current || !videoAsset(current) || !isActiveVideo(video) || videoTicketRetries.current >= 1) return; videoTicketRetries.current += 1; videoResumeAt.current = Number.isFinite(video.currentTime) ? video.currentTime : 0; autoplayAttempted.current = null; const asset = current; const key = reviewAssetKey(asset); void playbackTickets.get(asset, true).then(ticket => { if (activeVideoKey.current === key) { setVideoReady(false); setVideoBuffering(true); setVideoSource({ key, url: ticket.url }); } }).catch(() => { if (activeVideoKey.current === key) setVideoBuffering(false); }); };
- const captureVideoMetadata = (video: HTMLVideoElement) => { if (!isActiveVideo(video) || !video.videoWidth || !video.videoHeight) return; setMediaDetails({ width: video.videoWidth, height: video.videoHeight, duration: Number.isFinite(video.duration) ? video.duration : null }); }; const toggleVideoMuted = (event: MouseEvent<HTMLButtonElement>) => { event.stopPropagation(); const next = !videoMuted; setVideoMuted(next); if (videoRef.current) videoRef.current.muted = next; }; const toggleVideo = () => { const video = videoRef.current; if (!video || !videoReady) return; if (video.paused) { autoplayAttempted.current = video; void video.play().catch(() => { if (isActiveVideo(video)) setVideoPlaying(false); }); } else video.pause(); }; const clickMedia = (event: MouseEvent<HTMLDivElement>) => { if (!current) return; if (videoAsset(current)) { toggleVideo(); return; } if (!pinMode || !geometry || !imageAsset(current)) return; const point = normalizedPoint(geometry.box, geometry.width, geometry.height, event.clientX, event.clientY); if (point) setEditor({ pin: point }); }; const openNote = (asset: Asset) => { selectMediaAsset(asset); setEditor({}); }; const copyReviewLink = async () => { if (!shareKey.current) { setShareNotice("The review link is unavailable in this browser session."); return; } try { await navigator.clipboard.writeText(reviewShareUrl(id, shareKey.current)); setShareNotice("Review link copied."); } catch { setShareNotice("Unable to copy the review link."); } };
+ const captureVideoMetadata = (video: HTMLVideoElement) => { if (!isActiveVideo(video) || !video.videoWidth || !video.videoHeight) return; setMediaDetails({ width: video.videoWidth, height: video.videoHeight, duration: Number.isFinite(video.duration) ? video.duration : null }); }; const toggleVideoMuted = (event: MouseEvent<HTMLButtonElement>) => { event.stopPropagation(); const next = !videoMuted; setVideoMuted(next); if (videoRef.current) videoRef.current.muted = next; }; const toggleVideo = () => { const video = videoRef.current; if (!video || !videoReady) return; if (video.paused) { autoplayAttempted.current = video; void video.play().catch(() => { if (isActiveVideo(video)) setVideoPlaying(false); }); } else video.pause(); }; const clickMedia = (event: MouseEvent<HTMLDivElement>) => { if (!current) return; if (videoAsset(current)) { toggleVideo(); return; } if (!pinMode || !geometry || !imageAsset(current)) return; const point = normalizedPoint(geometry.box, geometry.width, geometry.height, event.clientX, event.clientY); if (point) setEditor({ pin: point }); }; const openNote = (asset: Asset) => { selectMediaAsset(asset); setEditor({}); }; const copyReviewLink = async () => { if (!shareKey.current) { setShareNotice("The review link is unavailable in this browser session."); return; } try { await navigator.clipboard.writeText(reviewShareUrl(id, shareKey.current, activeFolder?.folder_id)); setShareNotice("Review link copied."); } catch { setShareNotice("Unable to copy the review link."); } };
  const mediaPosition = reviewMediaPosition(assets, current); const currentIndex = mediaPosition.currentIndex; const currentMediaKey = current ? reviewAssetKey(current) : ""; const activeVideoSource = current && videoAsset(current) ? (videoSource?.key === currentMediaKey ? videoSource.url : playbackTickets?.peek(current)?.url) : undefined; const reviewResolution = mediaDetails ? mediaDetails.width + " × " + mediaDetails.height : "—"; const reviewDuration = current && videoAsset(current) ? formatReviewDuration(mediaDetails?.duration) : "—"; const reviewRatio = mediaDetails ? reviewAspectRatio(mediaDetails.width, mediaDetails.height) : "—"; const composerKey = currentMediaKey + ":" + (editor?.edit?.id || editor?.parent || (editor?.pin ? "pin" : "root")); const visibleNotes = notesKey === currentMediaKey ? notes : []; const notesLoading = Boolean(current && notesKey !== currentMediaKey); const roots = visibleNotes.filter(note => !note.parent_annotation_id); const pins = visibleNotes.filter(note => note.anchor_x !== null && note.anchor_y !== null); const visibleAssets = assets.filter(asset => mediaFilter === "all" || mediaFilter === "images" && imageAsset(asset) || mediaFilter === "videos" && videoAsset(asset));
  return <main className="public-review"><header className="public-explorer-toolbar"><div className="public-search-field"><span aria-hidden="true">⌕</span><input aria-label="Search images and videos" placeholder="Search images & videos" value={query} onChange={event => search(event.target.value)}/><span className="public-search-visual" aria-hidden="true"><VisualSearchIcon /></span></div><div className="public-media-filter" aria-label="Media filter"><button className={mediaFilter === "all" ? "active" : ""} onClick={() => setMediaFilter("all")}>All</button><button className={mediaFilter === "images" ? "active" : ""} onClick={() => setMediaFilter("images")}>Images</button><button className={mediaFilter === "videos" ? "active" : ""} onClick={() => setMediaFilter("videos")}>Videos</button></div></header><div className="public-workspace"><PublicSourceTree shareId={id} roots={folders} active={activeFolder} activeTrail={activeTrail} onOpen={(folder, trail) => void open(folder, trail)}/><section className="public-folder-detail"><div className="public-breadcrumb"><span>Shared drive</span>{activeTrail.map((folder, index) => <span key={folder.source_id + folder.folder_id}> / {index === activeTrail.length - 1 ? <b>{folder.name}</b> : <button onClick={() => void open(folder, activeTrail.slice(0, index + 1))}>{folder.name}</button>}</span>)}</div><div className="public-folder-header"><div><h2>{query ? "Search results" : activeFolder?.name || "Shared folders"}</h2><p>{query ? "Matching files in this shared review." : children.length + " items in this folder."}</p></div><span className="public-read-only">View only</span></div>{shareNotice && <p className="public-share-notice" role="status">{shareNotice}</p>}{loadingFolder ? <PublicGridSkeleton/> : <section className="public-grid">{!query && children.filter((item): item is Folder & { kind: "folder" } => item.kind === "folder").map(folder => <button className={"public-card public-folder-card " + (folder.name.startsWith("Amazon") ? "amazon" : folder.name.startsWith("Etsy") ? "etsy" : "")} key={folder.source_id + folder.folder_id} onClick={() => void open(folder, [...activeTrail, folder])}><span className="public-card-check" aria-hidden="true"/><span className="public-card-thumb public-folder-glyph"><span className="public-folder-icon"/></span><span className="public-card-copy"><b>{folder.name}</b><small>Folder</small><span className="public-status">Discovered</span></span></button>)}{visibleAssets.map(asset => <article className={"public-card" + (mediaAsset(asset) ? " public-media-card" : "") + ((asset.annotation_count || 0) > 0 ? " has-comments" : "")} key={asset.asset_id + asset.source_asset_id} data-review-video-key={videoAsset(asset) ? reviewAssetKey(asset) : undefined} onMouseEnter={() => warmVideoInteraction(asset)} onFocus={() => warmVideoInteraction(asset)}><button type="button" className="public-card-open" onPointerDown={() => warmVideoInteraction(asset)} onClick={() => selectMediaAsset(asset)} aria-label={"Open " + asset.filename}><span className="public-card-check" aria-hidden="true"/><span className="public-card-info" aria-hidden="true">i</span><span className="public-card-thumb"><PublicAssetThumbnail asset={asset}/></span>{videoAsset(asset) && <span className="public-video-card-badge" aria-hidden="true">▶</span>}<span className="public-card-copy"><b>{asset.filename}</b><small>{imageAsset(asset) ? "Image" : videoAsset(asset) ? "Video" : "File"}</small>{mediaAsset(asset) && <span className="public-card-rating" aria-hidden="true">★★★★★</span>}</span></button>{mediaAsset(asset) && <span className={"public-card-actions" + ((asset.annotation_count || 0) > 0 ? " has-comments" : "")} aria-label={"Actions for " + asset.filename}><button type="button" className="public-card-comment-action" onClick={() => openNote(asset)} aria-label={(asset.annotation_count || 0) > 0 ? (asset.annotation_count || 0) + " comments on " + asset.filename : "Add note to " + asset.filename} title={(asset.annotation_count || 0) > 0 ? (asset.annotation_count || 0) + " comments" : "Add note"}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.8 7.5 8.4 8.4 0 0 1-3.4-.7L4 20l1.4-4A7.1 7.1 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z"/></svg>{(asset.annotation_count || 0) > 0 && <span className="public-card-comment-count" aria-hidden="true">{(asset.annotation_count || 0) > 99 ? "99+" : asset.annotation_count}</span>}</button><button type="button" onClick={() => void copyReviewLink()} aria-label="Copy review link" title="Copy review link"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.5-4.4M8.2 13.2l7.5 4.4"/></svg></button></span>}</article>)}{!children.length && !visibleAssets.length && <p className="public-empty">No shared items in this folder.</p>}{!query && nextOffset !== null && <><div ref={loadMoreRef} className="public-load-more-sentinel" aria-hidden="true"/>{loadingMore && <span className="public-load-more">Loading more shared items…</span>}</>}</section>}</section></div>{current && <div className="public-review-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeViewer(); }}>
   <section className="public-viewer" role="dialog" aria-modal="true" aria-label={"Review " + current.filename} onMouseDown={event => event.stopPropagation()}>

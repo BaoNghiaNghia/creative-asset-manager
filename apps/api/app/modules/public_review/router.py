@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hmac
 from hashlib import sha256
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -18,8 +19,17 @@ router = APIRouter(prefix="/api/v1/public-review/shares", tags=["public-review"]
 MANAGE_PUBLIC_REVIEW = require_permission("public_review.manage")
 
 
-def _share_url(public_id: str, raw_secret: str) -> str:
-    return f"{get_settings().PUBLIC_APP_URL.rstrip('/')}/share/{public_id}#key={raw_secret}"
+def _share_url(public_id: str, raw_secret: str, folder_id: str | None = None) -> str:
+    base = f"{get_settings().PUBLIC_APP_URL.rstrip('/')}/share/{quote(public_id, safe='')}"
+    if folder_id:
+        base += f"/folder/{quote(folder_id, safe='')}"
+    return f"{base}#key={raw_secret}"
+
+
+def _share_url_for(repository: PublicReviewRepository, share, raw_secret: str) -> str:
+    scopes = repository.list_scopes(share.tenant_id, share.id)
+    folder_id = str(scopes[0].folder_external_id) if len(scopes) == 1 else None
+    return _share_url(share.public_id, raw_secret, folder_id)
 
 
 class CurrentShareLinkUnavailable(RuntimeError):
@@ -180,7 +190,7 @@ def create_share(body: CreateShareRequest, principal: CurrentPrincipal = Depends
         try:
             share, secret = PublicReviewService(repository).create_managed_share(tenant_id=principal.active_tenant_id, actor_id=principal.user_id, name=body.name, scopes=[item.model_dump() for item in body.scopes], allow_comments=body.allow_comments, allow_download=body.allow_download, expires_at=body.expires_at)
             share = _persist_current_secret(repository, share, secret)
-            result = _document(repository, share, _share_url(share.public_id, secret))
+            result = _document(repository, share, _share_url_for(repository, share, secret))
             session.commit()
             return result
         except Exception as exc:
@@ -221,7 +231,7 @@ def current_share_link(share_id: str, principal: CurrentPrincipal = Depends(MANA
                 share_id=share.id,
             )
             result = {
-                "share_url": _share_url(share.public_id, secret),
+                "share_url": _share_url_for(repository, share, secret),
                 "expires_at": share.expires_at,
             }
             session.commit()
@@ -266,7 +276,7 @@ def rotate_share_secret(share_id: str, principal: CurrentPrincipal = Depends(MAN
         try:
             share, secret = PublicReviewService(repository).rotate_managed_share_secret(tenant_id=principal.active_tenant_id, actor_id=principal.user_id, share_id=share_id)
             share = _persist_current_secret(repository, share, secret)
-            result = _document(repository, share, _share_url(share.public_id, secret))
+            result = _document(repository, share, _share_url_for(repository, share, secret))
             session.commit()
             return result
         except Exception as exc:

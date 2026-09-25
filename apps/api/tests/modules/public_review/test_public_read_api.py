@@ -53,6 +53,27 @@ def test_scoped_browse_asset_and_search(ctx):
  allowed=request(ctx,"GET","/api/public/review/share-a/assets/asset-good?source_asset_id=child");denied=request(ctx,"GET","/api/public/review/share-a/assets/asset-private?source_asset_id=sibling");assert allowed.status_code==200 and denied.status_code==404 and "source_metadata" not in allowed.text
  found=request(ctx,"GET","/api/public/review/share-a/search?q=cat");assert found.status_code==200 and [x["asset_id"] for x in found.json()["items"]]==["asset-good"] and "private" not in found.text
 
+def test_public_folder_resolution_returns_authorized_breadcrumb(ctx):
+ assert exchange(ctx).status_code==201
+ with ctx[1]() as s:
+  s.add_all([
+   SourceAssetModel(id="nested-folder",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="nested",filename="Nested",source_metadata={"is_folder":True,"parents":["root"]}),
+   SourceAssetModel(id="private-folder",tenant_id="tenant-a",external_source_id="source-a",external_asset_id="private-folder",filename="Private",source_metadata={"is_folder":True,"parents":["other"]}),
+  ])
+  s.commit()
+ viewer_folder_hierarchy_cache.invalidate(tenant_id="tenant-a",external_source_id="source-a")
+ resolved=request(ctx,"GET","/api/public/review/share-a/folders/nested")
+ assert resolved.status_code==200
+ assert resolved.json()=={
+  "folder":{"source_id":"source-a","folder_id":"nested","name":"Nested"},
+  "trail":[
+   {"source_id":"source-a","folder_id":"root","name":"Root"},
+   {"source_id":"source-a","folder_id":"nested","name":"Nested"},
+  ],
+ }
+ denied=request(ctx,"GET","/api/public/review/share-a/folders/private-folder")
+ assert denied.status_code==404
+
 def note_body():
  return {"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]},"anchor_x":None,"anchor_y":None}
 

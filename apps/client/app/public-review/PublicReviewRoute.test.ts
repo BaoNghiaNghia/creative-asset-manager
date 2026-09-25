@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { autoplayReviewVideo, formatReviewDuration, reviewAspectRatio, reviewMediaPosition, reviewShareUrl } from "./PublicReviewRoute";
+import { autoplayReviewVideo, formatReviewDuration, publicFolderIdFromPath, publicReviewLocationFromPath, publicShareIdFromPath, reviewAspectRatio, reviewFolderPath, reviewMediaPosition, reviewShareUrl } from "./PublicReviewRoute";
 import type { Asset } from "./api";
 
 describe("reviewShareUrl", () => {
@@ -10,6 +10,20 @@ describe("reviewShareUrl", () => {
     expect(reviewShareUrl("share-id", "key+/=?")).toBe(
       "https://creative-assets.example/share/share-id#key=key%2B%2F%3D%3F",
     );
+    expect(reviewShareUrl("share-id", "key+/=?", "folder_A-1")).toBe(
+      "https://creative-assets.example/share/share-id/folder/folder_A-1#key=key%2B%2F%3D%3F",
+    );
+  });
+});
+
+describe("public review folder routes", () => {
+  it("parses root and folder routes and safely encodes folder IDs", () => {
+    expect(publicReviewLocationFromPath("/share/share-id")).toEqual({ publicId: "share-id", folderId: null });
+    expect(publicReviewLocationFromPath("/share/share-id/folder/folder_A-1")).toEqual({ publicId: "share-id", folderId: "folder_A-1" });
+    expect(publicShareIdFromPath("/share/share-id/folder/folder_A-1")).toBe("share-id");
+    expect(publicFolderIdFromPath("/share/share-id/folder/folder%20name")).toBe("folder name");
+    expect(reviewFolderPath("share-id", "folder name")).toBe("/share/share-id/folder/folder%20name");
+    expect(publicReviewLocationFromPath("/share/share-id/unknown/folder")).toBeNull();
   });
 });
 
