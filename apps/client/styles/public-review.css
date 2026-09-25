@@ -166,7 +166,7 @@
 .public-grid>article.public-card.public-media-card{display:block;min-height:0;aspect-ratio:1/1}
 .public-card-actions{position:absolute;z-index:5;top:12px;right:12px;display:flex;gap:6px}
 .public-card-actions button,.public-card-hover-actions button,.public-card-hover-actions a{display:grid;width:30px;height:30px;place-items:center;box-sizing:border-box;padding:0;border:1px solid #ffffffb8;border-radius:50%;background:#18243bd9;color:#fff;box-shadow:0 2px 8px #17243d33;cursor:pointer;text-decoration:none}
-.public-card-actions button{opacity:1;pointer-events:auto}
+.public-card-actions button{opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .16s ease,transform .16s ease,background .16s ease}.public-card-actions.has-comments button,.public-media-card:hover .public-card-actions button,.public-media-card:focus-within .public-card-actions button{opacity:1;transform:translateY(0);pointer-events:auto}
 .public-card-hover-actions{position:absolute;z-index:5;right:12px;bottom:12px;display:flex;gap:6px}
 .public-card-actions .public-card-comment-action{position:relative}
 .public-card-hover-actions button,.public-card-hover-actions a{opacity:0;transform:translateY(5px);pointer-events:none;transition:opacity .16s ease,transform .16s ease,background .16s ease}
