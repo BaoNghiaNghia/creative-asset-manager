@@ -176,8 +176,12 @@ def build_worker_runtime(
     worker_role = settings.WORKER_ROLE
     worker_id = settings.WORKER_ID or default_worker_id(worker_role)
     probe_database(session_factory)
-    if (
+    operational_schedulers_enabled = (
         runs_operational_schedulers(worker_role)
+        and settings.WORKER_RUN_OPERATIONAL_SCHEDULERS
+    )
+    if (
+        operational_schedulers_enabled
         and settings.PROCESSING_JOBS_ENABLED
         and settings.RETENTION_CLEANUP_ENABLED
     ):
@@ -196,7 +200,7 @@ def build_worker_runtime(
         )
     if (
         storage_configured
-        and runs_operational_schedulers(worker_role)
+        and operational_schedulers_enabled
         and settings.PROCESSING_JOBS_ENABLED
         and settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED
     ):
@@ -341,7 +345,10 @@ def run_worker(
             settings.WORKER_HEALTH_PORT,
         )
         health_server.start()
-        if runs_operational_schedulers(runtime.config.worker_role):
+        if (
+            runs_operational_schedulers(runtime.config.worker_role)
+            and settings.WORKER_RUN_OPERATIONAL_SCHEDULERS
+        ):
             source_sync_scheduler = SourceSyncScheduler(
                 session_factory, settings, logger=worker_logger,
             )
@@ -387,6 +394,10 @@ def run_worker(
                 "heartbeat_seconds": runtime.config.heartbeat_seconds,
                 "drain_timeout_seconds": runtime.config.drain_timeout_seconds,
                 "registered_job_types": runtime.registry.job_types,
+                "operational_schedulers_enabled": (
+                    runs_operational_schedulers(runtime.config.worker_role)
+                    and settings.WORKER_RUN_OPERATIONAL_SCHEDULERS
+                ),
                 "pipeline_download_stage_configured": (
                     "pipeline_download_stage"
                     in runtime_resources

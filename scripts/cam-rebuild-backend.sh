@@ -22,6 +22,8 @@ KEEP_LOGS="${CAM_BACKEND_DEPLOY_LOG_KEEP:-20}"
 MIN_FREE_MIB="${CAM_BACKEND_MIN_FREE_MIB:-2048}"
 RELEASE_HEADROOM_PERCENT="${CAM_BACKEND_RELEASE_HEADROOM_PERCENT:-125}"
 MIN_AVAILABLE_MEMORY_MIB="${CAM_BACKEND_MIN_AVAILABLE_MEMORY_MIB:-3072}"
+PIP_CACHE_DIR="${CAM_BACKEND_PIP_CACHE_DIR:-/var/cache/creative-asset-manager/pip}"
+PIP_CACHE_MAX_MIB="${CAM_BACKEND_PIP_CACHE_MAX_MIB:-768}"
 
 LOCK_FILE="${CAM_BACKEND_DEPLOY_LOCK_FILE:-/run/lock/creative-asset-manager-backend-deploy.lock}"
 
@@ -399,6 +401,12 @@ done
 ((MIN_AVAILABLE_MEMORY_MIB >= 1024)) \
   || die "CAM_BACKEND_MIN_AVAILABLE_MEMORY_MIB must be at least 1024."
 
+[[ "$PIP_CACHE_MAX_MIB" =~ ^[0-9]+$ ]] \
+  || die "CAM_BACKEND_PIP_CACHE_MAX_MIB must be an integer."
+
+((PIP_CACHE_MAX_MIB >= 128)) \
+  || die "CAM_BACKEND_PIP_CACHE_MAX_MIB must be at least 128."
+
 
 if [[ ! -d "$SOURCE_DIR/.git" ]]; then
   SOURCE_DIR="$CHECKOUT_ROOT"
@@ -506,6 +514,7 @@ info "Deployment log retention: $KEEP_LOGS"
 info "Minimum free disk: ${MIN_FREE_MIB}MiB"
 info "Release headroom: ${RELEASE_HEADROOM_PERCENT}%"
 info "Low-memory visual drain threshold: ${MIN_AVAILABLE_MEMORY_MIB}MiB"
+info "Persistent pip cache: $PIP_CACHE_DIR (cap ${PIP_CACHE_MAX_MIB}MiB)"
 info "Deployment log: $LOG_FILE"
 
 
@@ -1737,16 +1746,34 @@ if [[ ! -e "$TARGET" ]]; then
   progress 50 \
     "Installing Python dependencies"
 
+  install \
+    -d \
+    -o creative-assets \
+    -g creative-assets \
+    -m 0750 \
+    "$PIP_CACHE_DIR"
 
   runuser \
     -u creative-assets \
     -- \
+    env \
+    PIP_CACHE_DIR="$PIP_CACHE_DIR" \
     "$STAGE/apps/api/.venv/bin/python" \
     -m pip install \
     --disable-pip-version-check \
     --no-input \
-    --no-cache-dir \
     --requirement "$STAGE/apps/api/requirements.txt"
+
+  pip_cache_kb="$(
+    du -sk -- "$PIP_CACHE_DIR" 2>/dev/null | awk '{print $1}' || true
+  )"
+  [[ "$pip_cache_kb" =~ ^[0-9]+$ ]] || pip_cache_kb=0
+  if ((pip_cache_kb > PIP_CACHE_MAX_MIB * 1024)); then
+    warn "Pip cache exceeded ${PIP_CACHE_MAX_MIB}MiB; purging bounded deploy cache"
+    runuser -u creative-assets -- env PIP_CACHE_DIR="$PIP_CACHE_DIR" \
+      "$STAGE/apps/api/.venv/bin/python" -m pip cache purge >/dev/null \
+      || warn "Could not purge pip cache automatically"
+  fi
 
 
   progress 55 \

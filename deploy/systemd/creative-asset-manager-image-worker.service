@@ -17,6 +17,7 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=MALLOC_ARENA_MAX=2
 Environment=MALLOC_TRIM_THRESHOLD_=131072
 Environment=WORKER_ROLE=image
+Environment=WORKER_RUN_OPERATIONAL_SCHEDULERS=true
 Environment=WORKER_HEALTH_PORT=8081
 ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
 ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python /opt/creative-asset-manager/current/apps/worker/main.py

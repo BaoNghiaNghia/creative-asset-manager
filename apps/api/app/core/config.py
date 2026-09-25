@@ -380,6 +380,9 @@ class Settings(BaseSettings):
     WORKER_IDLE_POLL_SECONDS: float = 2.0
     WORKER_DRAIN_TIMEOUT_SECONDS: float = 30.0
     WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY: int = 2
+    # Production may run several workers for throughput, but recurring
+    # operational schedulers must have a single elected process.
+    WORKER_RUN_OPERATIONAL_SCHEDULERS: bool = True
     WORKER_HEALTH_HOST: str = "127.0.0.1"
     WORKER_HEALTH_PORT: int = 8081
     WORKER_LOG_LEVEL: str = "INFO"

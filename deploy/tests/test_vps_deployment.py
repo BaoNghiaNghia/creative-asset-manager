@@ -173,7 +173,28 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
 
     def test_worker_units_have_exclusive_roles(self) -> None:
         self.assertIn("WORKER_ROLE=image", IMAGE_UNIT.read_text())
+        self.assertIn(
+            "WORKER_RUN_OPERATIONAL_SCHEDULERS=true",
+            IMAGE_UNIT.read_text(),
+        )
         self.assertIn("WORKER_ROLE=image", SECONDARY_IMAGE_UNIT.read_text())
+        for unit_path in (
+            SECONDARY_IMAGE_UNIT,
+            TERTIARY_IMAGE_UNIT,
+            QUATERNARY_IMAGE_UNIT,
+            QUINARY_IMAGE_UNIT,
+            VIDEO_UNIT,
+            VIDEO_DELIVERY_UNIT,
+            VISUAL_WORKER_UNIT,
+        ):
+            unit = unit_path.read_text()
+            self.assertIn(
+                "WORKER_RUN_OPERATIONAL_SCHEDULERS=false",
+                unit,
+                unit_path.name,
+            )
+            self.assertIn("DATABASE_POOL_SIZE=2", unit, unit_path.name)
+            self.assertIn("DATABASE_MAX_OVERFLOW=0", unit, unit_path.name)
         self.assertIn("WORKER_ID=creativeasset-image-secondary", SECONDARY_IMAGE_UNIT.read_text())
         self.assertIn("WORKER_HEALTH_PORT=8083", SECONDARY_IMAGE_UNIT.read_text())
         self.assertIn("WORKER_ROLE=image", TERTIARY_IMAGE_UNIT.read_text())
@@ -188,6 +209,19 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("WORKER_ID=creativeasset-visual-index", VISUAL_WORKER_UNIT.read_text())
         self.assertIn("WORKER_HEALTH_PORT=8087", VISUAL_WORKER_UNIT.read_text())
         self.assertIn("WantedBy=multi-user.target", VISUAL_WORKER_UNIT.read_text())
+
+    def test_backend_uses_bounded_persistent_pip_cache(self) -> None:
+        source = BACKEND.read_text()
+        self.assertIn(
+            'PIP_CACHE_DIR="${CAM_BACKEND_PIP_CACHE_DIR:-/var/cache/creative-asset-manager/pip}"',
+            source,
+        )
+        self.assertIn(
+            'PIP_CACHE_MAX_MIB="${CAM_BACKEND_PIP_CACHE_MAX_MIB:-768}"',
+            source,
+        )
+        self.assertIn('PIP_CACHE_DIR="$PIP_CACHE_DIR"', source)
+        self.assertIn("-m pip cache purge", source)
 
     def test_python_services_bound_allocator_retention_and_api_memory(self) -> None:
         python_units = (

@@ -16,7 +16,10 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=MALLOC_ARENA_MAX=2
 Environment=MALLOC_TRIM_THRESHOLD_=131072
+Environment=DATABASE_POOL_SIZE=2
+Environment=DATABASE_MAX_OVERFLOW=0
 Environment=WORKER_ROLE=image
+Environment=WORKER_RUN_OPERATIONAL_SCHEDULERS=false
 Environment=WORKER_ID=creativeasset-image-quinary
 Environment=WORKER_HEALTH_PORT=8086
 ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
