@@ -110,7 +110,8 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
     def test_visual_encoder_reserves_two_cpu_threads_without_process_replication(self) -> None:
         unit = VISUAL_ENCODER_UNIT.read_text()
         self.assertIn("CPUQuota=200%", unit)
-        self.assertIn("MemoryMax=2300M", unit)
+        self.assertIn("MemoryHigh=2600M", unit)
+        self.assertIn("MemoryMax=3G", unit)
         self.assertNotIn("--workers", unit)
 
     def test_fresh_release_drains_visual_lane_on_low_memory_hosts(self) -> None:

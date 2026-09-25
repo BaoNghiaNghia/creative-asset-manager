@@ -18,7 +18,11 @@ Restart=on-failure
 RestartSec=10s
 TimeoutStartSec=300s
 TimeoutStopSec=30s
-MemoryMax=2300M
+# SigLIP2/OpenVINO idles around 2.3 GiB after both towers are compiled.
+# Leave reclaim pressure above the steady state and reserve transient inference
+# headroom before the hard cgroup ceiling to avoid avoidable encoder OOMs.
+MemoryHigh=2600M
+MemoryMax=3G
 CPUQuota=200%
 NoNewPrivileges=true
 PrivateTmp=true
