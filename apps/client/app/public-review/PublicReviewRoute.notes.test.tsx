@@ -217,6 +217,12 @@ describe("Public Review device-local history", () => {
     expect(host.querySelector('[aria-label="Open a.jpg from history"]')).not.toBeNull();
     expect(host.textContent).toContain("1 viewed · last 15 days");
 
+    const outside = host.querySelector(".public-folder-detail")!;
+    await act(async () => outside.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(host.querySelector('[title="History"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Open a.jpg from history"]')).toBeNull();
+
+    await click(host.querySelector('[title="History"]'));
     await click(host.querySelector('[aria-label="Open a.jpg from history"]'));
     expect(host.querySelector('[aria-label="Review a.jpg"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="Media 1 of 1"]')).not.toBeNull();

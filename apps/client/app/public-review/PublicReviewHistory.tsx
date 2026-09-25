@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ReviewHistoryEntry } from "./viewHistory";
 import { getFileType } from "../utils/fileType";
 
@@ -36,12 +37,24 @@ function ClockIcon() {
 }
 
 export function PublicReviewHistory({ entries, open, currentKey, onToggle, onOpen, onClear }: Props) {
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && panelRef.current?.contains(target)) return;
+      onToggle();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+  }, [open, onToggle]);
+
   const groups = ["Today", "Yesterday", "Earlier"].map(label => ({
     label,
     items: entries.filter(entry => groupLabel(entry.viewed_at) === label),
   })).filter(group => group.items.length);
 
-  return <aside className={"public-history-panel " + (open ? "open" : "collapsed")} aria-label="View history">
+  return <aside ref={panelRef} className={"public-history-panel " + (open ? "open" : "collapsed")} aria-label="View history">
     {!open ? <button type="button" className="public-history-rail" onClick={onToggle} aria-expanded="false" title="History">
       <ClockIcon/>
       <span>History</span>
