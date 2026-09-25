@@ -20,6 +20,7 @@ from app.modules.authorization.principal import (
 )
 
 from app.modules.authorization.service import AuthorizationError
+from app.modules.authorization.principal_cache import principal_cache
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import TenantMembershipModel
@@ -118,11 +119,17 @@ def _error(exc: Exception) -> HTTPException:
     )
 
 
-def _write(operation):
+def _write(operation, *, invalidate_tenant_id: str | None = None):
     with SessionLocal() as session:
         try:
             result = operation(TenantAccessAdminService(session))
             session.commit()
+            # Authorization services also invalidate eagerly for legacy callers,
+            # but an overlapping request can repopulate the cache from the old
+            # transaction state before commit. Flush again after commit so new
+            # grants/removals are authoritative immediately.
+            if invalidate_tenant_id:
+                principal_cache.invalidate_tenant(invalidate_tenant_id)
             return result
         except (TenantAccessAdminError, AuthorizationError, TenantAccessError, IntegrityError, ValueError, LookupError) as exc:
             session.rollback()
@@ -190,7 +197,8 @@ def update_membership(
             reason=body.reason,
             platform_admin=principal.platform_admin,
             allow_final_admin_override=body.allow_final_admin_override,
-        )
+        ),
+        invalidate_tenant_id=tenant_id,
     )
     return {"membership_id": membership.id, "user_id": membership.user_id, "status": membership.status}
 
@@ -212,7 +220,8 @@ def assign_role(
             actor_permissions=principal.effective_permissions,
             platform_admin=principal.platform_admin,
             reason=body.reason,
-        )
+        ),
+        invalidate_tenant_id=tenant_id,
     )
     return {"assignment_id": assignment.id, "membership_id": membership_id, "role_id": body.role_id}
 
@@ -235,7 +244,8 @@ def remove_role(
             reason=body.reason,
             platform_admin=principal.platform_admin,
             allow_final_admin_override=body.allow_final_admin_override,
-        )
+        ),
+        invalidate_tenant_id=tenant_id,
     )
     return {"removed": removed, "membership_id": membership_id, "role_id": role_id}
 
@@ -286,7 +296,8 @@ def create_role(
             description=body.description,
             permission_keys=body.permission_keys,
             reason=body.reason,
-        )
+        ),
+        invalidate_tenant_id=tenant_id,
     )
     return {"id": role.id, "key": role.role_key, "name": role.name, "protected": role.protected}
 
@@ -310,7 +321,8 @@ def update_role(
             description=body.description,
             permission_keys=body.permission_keys,
             reason=body.reason,
-        )
+        ),
+        invalidate_tenant_id=tenant_id,
     )
     return {"id": role.id, "key": role.role_key, "name": role.name, "protected": role.protected}
 
@@ -329,7 +341,8 @@ def delete_role(
             role_id=role_id,
             actor_user_id=principal.user_id,
             reason=body.reason,
-        )
+        ),
+        invalidate_tenant_id=tenant_id,
     )
     return {"deleted": True, "role_id": role_id}
 

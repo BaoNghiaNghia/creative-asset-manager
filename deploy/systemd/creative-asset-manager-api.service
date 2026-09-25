@@ -16,6 +16,10 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=MALLOC_ARENA_MAX=2
 Environment=MALLOC_TRIM_THRESHOLD_=131072
+# The web API fans out AI Operations and media requests concurrently. Keep a
+# slightly larger pool here only; worker services retain their smaller pools.
+Environment=DATABASE_POOL_SIZE=5
+Environment=DATABASE_MAX_OVERFLOW=3
 ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
 ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 Restart=on-failure

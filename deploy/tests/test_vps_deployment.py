@@ -261,6 +261,8 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("MemoryHigh=1536M", api)
         self.assertIn("MemoryMax=2G", api)
         self.assertIn("TasksMax=128", api)
+        self.assertIn("Environment=DATABASE_POOL_SIZE=5", api)
+        self.assertIn("Environment=DATABASE_MAX_OVERFLOW=3", api)
 
     def test_scripts_have_valid_shell_syntax(self) -> None:
         for script in (FRONTEND, BACKEND):

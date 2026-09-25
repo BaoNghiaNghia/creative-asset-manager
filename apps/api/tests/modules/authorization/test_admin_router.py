@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.modules.auth_persistence.model import AuthAuditEventModel, UserModel
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
+from app.modules.authorization import admin_router
 from app.modules.authorization.admin_router import router
 from app.modules.authorization.model import RoleModel
 from app.modules.authorization.principal import CurrentPrincipal
@@ -157,6 +158,33 @@ class TenantAccessAdminRouterTest(unittest.TestCase):
         )
         self.assertEqual(protected.status_code, 409)
         self.assertEqual(protected.json()["detail"]["code"], "protected_role")
+
+    def test_write_invalidates_principal_cache_after_commit(self):
+        events = []
+
+        class FakeSession:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def commit(self): events.append("commit")
+            def rollback(self): events.append("rollback")
+
+        fake_session = FakeSession()
+        with (
+            patch.object(admin_router, "SessionLocal", return_value=fake_session),
+            patch.object(admin_router, "TenantAccessAdminService", side_effect=lambda _session: object()),
+            patch.object(
+                admin_router.principal_cache,
+                "invalidate_tenant",
+                side_effect=lambda tenant_id: events.append(f"invalidate:{tenant_id}"),
+            ),
+        ):
+            result = admin_router._write(
+                lambda _service: events.append("operation") or "ok",
+                invalidate_tenant_id="tenant-a",
+            )
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(events, ["operation", "commit", "invalidate:tenant-a"])
 
     def test_final_admin_cross_tenant_and_permission_denial(self):
         final_admin = self.request(
