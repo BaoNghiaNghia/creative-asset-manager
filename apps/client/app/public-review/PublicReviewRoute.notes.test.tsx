@@ -81,7 +81,9 @@ describe("Public Review card comment badges", () => {
     expect(host.querySelector('[aria-label="Add note to c.jpg"]')).not.toBeNull();
     expect(Array.from(host.querySelectorAll(".public-card-comment-count")).map(node => node.textContent)).toEqual(["3", "99+"]);
     expect(host.querySelectorAll(".public-card-actions.has-comments")).toHaveLength(2);
+    expect(host.querySelectorAll(".public-media-card.has-comments")).toHaveLength(2);
     expect(host.querySelector('[aria-label="Actions for c.jpg"]')?.classList.contains("has-comments")).toBe(false);
+    expect(host.querySelector('[aria-label="Open c.jpg"]')?.closest(".public-media-card")?.classList.contains("has-comments")).toBe(false);
     expect(Array.from(host.querySelectorAll(".public-card-copy .public-status")).some(node => node.textContent === "Shared")).toBe(false);
     await act(async () => root.unmount());
   });
