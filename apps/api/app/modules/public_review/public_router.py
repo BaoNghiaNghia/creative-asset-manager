@@ -15,7 +15,7 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, El
 from app.modules.assets.content_resolver import SourceAssetContentResolver
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.public_review.authorization import PublicShareAccessDenied, PublicShareScopeService
-from app.modules.public_review.model import PublicShareModel, aware_utc
+from app.modules.public_review.model import AssetAnnotationModel, PublicShareModel, PublicShareSessionModel, aware_utc
 from app.modules.public_review.public_thumbnail import PublicThumbnailResolver, PublicThumbnailUnavailable
 from app.modules.public_review.video_delivery import PublicVideoDeliveryResolver
 from app.modules.explorer.media_types import infer_media_type
@@ -64,6 +64,24 @@ def doc(asset,source,pid):
  media_type=infer_media_type(source.filename,source.mime_type or asset.mime_type)
  preview_endpoint="image-preview" if media_type.startswith("image/") else "preview"
  return {"asset_id":asset.id,"source_asset_id":source.id,"filename":source.filename or "Untitled asset","media_type":media_type,"folder_context":list((source.source_metadata or {}).get("parents") or [])[:8],"thumbnail_url":f"{base}/thumbnail?source_asset_id={source.id}","preview_url":f"{base}/{preview_endpoint}?source_asset_id={source.id}"}
+def _with_annotation_counts(session,principal,items):
+ pairs={(str(item["asset_id"]),str(item["source_asset_id"])) for item in items if item.get("asset_id") and item.get("source_asset_id")}
+ if not pairs: return items
+ clauses=[and_(AssetAnnotationModel.asset_id==asset_id,AssetAnnotationModel.source_asset_id==source_asset_id) for asset_id,source_asset_id in pairs]
+ rows=session.execute(
+  select(AssetAnnotationModel.asset_id,AssetAnnotationModel.source_asset_id,func.count(AssetAnnotationModel.id))
+  .where(
+   AssetAnnotationModel.tenant_id==principal.tenant_id,
+   AssetAnnotationModel.share_id==principal.share_id,
+   or_(*clauses),
+  )
+  .group_by(AssetAnnotationModel.asset_id,AssetAnnotationModel.source_asset_id)
+ ).all()
+ counts={(str(asset_id),str(source_asset_id)):int(count) for asset_id,source_asset_id,count in rows}
+ for item in items:
+  if item.get("asset_id") and item.get("source_asset_id"):
+   item["annotation_count"]=counts.get((str(item["asset_id"]),str(item["source_asset_id"])),0)
+ return items
 def asset_pair(p,asset_id,source_id,db=None):
  if db is None:
   with SessionLocal() as s: return asset_pair(p,asset_id,source_id,s)
@@ -138,10 +156,13 @@ def children(public_share_id:str,folder_id:str,request:Request,source_id:str=Que
    elif asset_id:
     out.append(doc(type("AssetRef",(),{"id":asset_id,"mime_type":None})(),x,public_share_id)|{"kind":"asset"})
   next_offset=offset+limit_value if len(rows)>limit_value else None
+  out=_with_annotation_counts(s,p,out)
   s.commit();return safe({"items":out,"next_offset":next_offset})
 @router.get("/{public_share_id}/assets/{asset_id}")
 def metadata(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
- a,src=asset_pair(user(request,public_share_id),asset_id,source_asset_id);return safe(doc(a,src,public_share_id))
+ with SessionLocal() as s:
+  p=user(request,public_share_id,s);a,src=asset_pair(p,asset_id,source_asset_id,s)
+  return safe(_with_annotation_counts(s,p,[doc(a,src,public_share_id)])[0])
 
 def _public_search_scope_filter(scope: PublicShareScopeService, principal) -> dict:
  accesses=scope.scoped_accesses(principal=principal)
@@ -186,7 +207,7 @@ def _hydrate_public_search_hits(session, scope: PublicShareScopeService, princip
   if key in seen: continue
   seen.add(key);out.append(doc(asset,source,public_share_id))
   if len(out)>=limit_value: break
- return out
+ return _with_annotation_counts(session,principal,out)
 
 def _legacy_public_search(session, scope: PublicShareScopeService, principal, public_share_id: str, query: str, limit_value: int) -> list[dict]:
  needle=" ".join(query.split()).casefold();out=[]
@@ -201,7 +222,7 @@ def _legacy_public_search(session, scope: PublicShareScopeService, principal, pu
   if needle in (source.filename or "").casefold() and permitted_linked(scope,principal,source):
    out.append(doc(asset,source,public_share_id))
   if len(out)>=limit_value: break
- return out
+ return _with_annotation_counts(session,principal,out)
 
 @router.get("/{public_share_id}/search")
 async def search(public_share_id:str,request:Request,q:str=Query(...,min_length=1,max_length=500),limit_value:int=Query(60,ge=1,le=100)):
@@ -366,7 +387,6 @@ async def prewarm(public_share_id:str,asset_id:str,request:Request,source_asset_
  await PublicVideoDeliveryResolver(SessionLocal,get_settings()).resolve(principal=p,asset=a,source=src)
  return safe({"accepted":True},202)
 
-from app.modules.public_review.model import AssetAnnotationModel, PublicShareSessionModel
 from app.modules.public_review.schema import validate_annotation_document
 from app.modules.public_review.service import validate_anchors
 

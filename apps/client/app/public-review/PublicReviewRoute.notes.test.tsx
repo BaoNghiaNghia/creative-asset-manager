@@ -55,6 +55,33 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+describe("Public Review card comment badges", () => {
+  it("shows counts on image and video comment actions and caps the visible badge at 99+", async () => {
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
+    vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
+    vi.spyOn(api, "children").mockResolvedValue({
+      items: [
+        { ...assets[0], annotation_count: 3 },
+        { ...assets[1], annotation_count: 120 },
+      ],
+      next_offset: null,
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector('[aria-label="3 comments on a.jpg"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="120 comments on b.mp4"]')).not.toBeNull();
+    expect(Array.from(host.querySelectorAll(".public-card-comment-count")).map(node => node.textContent)).toEqual(["3", "99+"]);
+    await act(async () => root.unmount());
+  });
+});
+
 describe("Review notes follow the selected asset", () => {
   it("clears stale notes and drafts, ignores late responses, and creates on the active asset", async () => {
     vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });

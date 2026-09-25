@@ -1,7 +1,7 @@
 import type { EditorJson } from "./RichAnnotation";
 export type Bootstrap={public_id:string;name:string;allow_comments:boolean;allow_download:boolean;expires_at:string|null};
 export type Folder={source_id:string;folder_id:string;name:string};
-export type Asset={kind:"asset";asset_id:string;source_asset_id:string;filename:string;media_type:string|null;thumbnail_url:string;preview_url:string};
+export type Asset={kind:"asset";asset_id:string;source_asset_id:string;filename:string;media_type:string|null;thumbnail_url:string;preview_url:string;annotation_count?:number};
 export type Child=(Folder&{kind:"folder"})|Asset;
 export type ChildPage={items:Child[];next_offset:number|null};
 export type Annotation={id:string;author:{display_name:string};content_json:EditorJson;plain_text:string;parent_annotation_id:string|null;anchor_x:number|null;anchor_y:number|null;created_at:string;updated_at:string;can_edit:boolean;can_delete:boolean};

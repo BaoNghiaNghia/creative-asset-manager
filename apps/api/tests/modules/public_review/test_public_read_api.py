@@ -56,6 +56,22 @@ def test_scoped_browse_asset_and_search(ctx):
 def note_body():
  return {"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]},"anchor_x":None,"anchor_y":None}
 
+def test_public_asset_cards_include_annotation_count(ctx):
+ assert exchange(ctx).status_code==201
+ path="/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"
+ first=request(ctx,"POST",path,json=note_body(),headers={"Origin":"http://localhost:5173"})
+ assert first.status_code==201
+ reply=request(ctx,"POST",path,json={**note_body(),"parent_annotation_id":first.json()["id"]},headers={"Origin":"http://localhost:5173"})
+ assert reply.status_code==201
+ child=request(ctx,"GET","/api/public/review/share-a/folders/root/children?source_id=source-a")
+ assert child.status_code==200
+ item=next(value for value in child.json()["items"] if value.get("asset_id")=="asset-good")
+ assert item["annotation_count"]==2
+ metadata=request(ctx,"GET","/api/public/review/share-a/assets/asset-good?source_asset_id=child")
+ assert metadata.status_code==200 and metadata.json()["annotation_count"]==2
+ found=request(ctx,"GET","/api/public/review/share-a/search?q=cat")
+ assert found.status_code==200 and found.json()["items"][0]["annotation_count"]==2
+
 def test_public_search_uses_search_v3_with_share_scope_and_hydrates_only_allowed_assets(ctx):
  assert exchange(ctx).status_code==201
  captured={}
