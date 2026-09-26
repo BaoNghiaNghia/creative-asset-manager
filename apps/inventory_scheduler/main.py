@@ -33,6 +33,7 @@ _MANUAL_RECOVERY_ERROR_CODES = frozenset({
     "inventory_morning_reset_manual_recovery_preview_ready",
     "stale_evidence",
     "carry_forward_plan_has_issues",
+    "empty_carry_forward_plan",
 })
 
 
@@ -176,7 +177,10 @@ def _run_manual_recovery_current_day(
         return 2
 
     tenant_id, business_date, initial_error_code = candidates[0]
-    preview_only = initial_error_code == "carry_forward_plan_has_issues"
+    preview_only = initial_error_code in {
+        "carry_forward_plan_has_issues",
+        "empty_carry_forward_plan",
+    }
     try:
         preview = scheduler.preview_v4_morning_reset_recovery(
             tenant_id,

@@ -73,7 +73,9 @@ class Planner:
     def __init__(self, rows, issues=None):
         self.rows = rows
         self.issues = list(issues or [])
-    def plan(self, **_kwargs):
+        self.last_prompt = None
+    def plan(self, **kwargs):
+        self.last_prompt = kwargs.get("prompt")
         return CarryForwardPlan(
             self.rows,
             self.issues,
@@ -172,16 +174,19 @@ def test_manual_recovery_preview_never_writes_or_clears_and_apply_sets_only_safe
             },
         },
     ]
+    planner = Planner(rows)
     service = InventorySharedCarryForwardService(
         sessions,
         client_factory=lambda _token: google,
         token_resolver=lambda _id: "token",
-        planner=Planner(rows),
+        planner=planner,
     )
 
     preview = service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
 
     assert preview["status"] == "preview_ready"
+    assert "MANUAL RECOVERY MODE" in planner.last_prompt
+    assert "Do NOT plan clear_cell operations" in planner.last_prompt
     assert preview["safe_operation_count"] == 1
     assert preview["write_operation_count"] == 1
     assert preview["excluded_clear_count"] == 1
@@ -286,19 +291,21 @@ def test_manual_recovery_still_blocks_no_reset_rule_when_another_issue_exists():
 def test_normal_carry_forward_does_not_ignore_no_reset_rule():
     temp, engine, sessions = make_db()
     google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    planner = Planner(
+        [row("material-a", "warehouse-a", "H14", "B14", 50, 1)],
+        issues=[{"code": "NO_RESET_RULE", "message": "No clear/reset rule."}],
+    )
     service = InventorySharedCarryForwardService(
         sessions,
         client_factory=lambda _token: google,
         token_resolver=lambda _id: "token",
-        planner=Planner(
-            [row("material-a", "warehouse-a", "H14", "B14", 50, 1)],
-            issues=[{"code": "NO_RESET_RULE", "message": "No clear/reset rule."}],
-        ),
+        planner=planner,
     )
 
     result = service.run("tenant-a", date(2030, 8, 10))
 
     assert result.status == "review_required"
+    assert "MANUAL RECOVERY MODE" not in planner.last_prompt
     assert result.error_code == "carry_forward_plan_has_issues"
     assert google.writes == []
     assert google.clears == []

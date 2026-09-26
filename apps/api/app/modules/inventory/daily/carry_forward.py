@@ -35,6 +35,8 @@ from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeServic
 
 CARRY_FORWARD_PROMPT = """You are planning a narrow previous-terminal-state to current-starting-state carry-forward. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Understand workbook roles, layouts, dimensions, and quantity representations from metadata and exact cell evidence; do not assume sheet positions, columns, rows, or labels have fixed meanings. Resolve canonical material and location identities through the tenant catalogs. Preserve every workbook-defined dimension independently and never total, redistribute, or invent conversions unless evidence and explicit business instructions justify it. Blank is not zero. The authorized carry-forward rule is explicit: when exact workbook evidence establishes the same material, location, quantity dimension, and a SOURCE terminal/closing inventory field corresponding to a formula-free TARGET opening/starting inventory input, set today's opening value equal to yesterday's verified closing value. Daily movement/input fields may be cleared only when exact TARGET headers and cell structure prove they are formula-free per-day operator inputs for that same inventory row. Never clear formulas, identities, balances, labels, dates, units, notes, or any cell whose daily-input role is ambiguous. Do not report a missing reset rule merely because no tenant custom prompt exists; this paragraph is the reset authorization. Every row must cite exact source and target evidence and structured semantic context. Report unresolved structural or identity ambiguity as an issue. Finish by calling submit_carry_forward_plan exactly once. The backend controls authorization and write safety; you control workbook interpretation."""
 
+MANUAL_RECOVERY_PROMPT = """MANUAL RECOVERY MODE: the TARGET workbook is already active for the current business day. Plan ONLY safe set_cell operations that copy a verified SOURCE terminal/closing inventory value into the corresponding formula-free TARGET opening/starting inventory input for the same canonical material, location, and quantity dimension. Do NOT plan clear_cell operations and do NOT inspect, require, or report reset/clear rules for daily movement or operator-input fields; those fields must remain untouched during manual recovery. In particular, absence of a custom reset rule is not an issue in this mode and must not produce NO_RESET_RULE. If a Closing-to-Opening mapping itself cannot be proven from exact workbook evidence, report the specific structural or identity ambiguity instead of inventing a mapping. All normal source/target evidence, catalog identity, formula, and dimensional safety requirements still apply."""
+
 
 class CarryForwardError(RuntimeError):
     code = "carry_forward_blocked"
@@ -359,6 +361,8 @@ class InventorySharedCarryForwardService:
                     "=== ACTIVE INVENTORY KNOWLEDGE (HUMAN-APPROVED) ===\n"
                     f"{knowledge_text}\n"
                     "=== END ACTIVE INVENTORY KNOWLEDGE ===\n\n"
+                    f"{MANUAL_RECOVERY_PROMPT}\n\n"
+                    "The manual-recovery constraints above are authoritative for this preview. "
                     "The server binds the two workbook roles; never request identifiers."
                 ),
                 connection_id=connection_id,
