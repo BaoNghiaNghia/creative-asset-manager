@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from app.core.config import Settings
 from app.domain.providers.contracts import AssetStorageProvider
-from app.modules.storage.managed_oauth import resolve_managed_storage_credential
+from app.modules.storage.managed_oauth import (
+    mark_managed_storage_reconnect_required,
+    resolve_managed_storage_credential,
+)
 from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
@@ -23,4 +26,8 @@ def build_managed_storage_provider(settings: Settings) -> AssetStorageProvider:
         refresh_token=credentials.refresh_token,
         client_id=settings.GOOGLE_CLIENT_ID,
         client_secret=settings.GOOGLE_CLIENT_SECRET,
+        credentials_rejected=lambda: mark_managed_storage_reconnect_required(
+            settings,
+            code="google_refresh_token_rejected",
+        ),
     )

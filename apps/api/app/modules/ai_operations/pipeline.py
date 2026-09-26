@@ -84,8 +84,15 @@ class PipelineOperationsRepository:
     def _skip_category(code: str | None, message: str | None) -> str | None:
         if code in _SKIPPED_CODES:
             return _SKIPPED_CODES[code]
-        if code == "InvalidPipelineContent" and "byte" in (message or "").lower() and "limit" in (message or "").lower():
-            return "oversized"
+        normalized = (message or "").lower()
+        if code == "InvalidPipelineContent":
+            if "byte" in normalized and "limit" in normalized:
+                return "oversized"
+            if (
+                "unsupported file signature" in normalized
+                or "invalid iso-bmff image signature" in normalized
+            ):
+                return "unsupported"
         return None
 
     @staticmethod

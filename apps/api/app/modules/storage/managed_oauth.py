@@ -102,6 +102,41 @@ def _masked_email(value: str | None) -> str | None:
     return f"{local[:1]}***@{domain}"
 
 
+def mark_managed_storage_reconnect_required(
+    settings: Settings, *, code: str = "managed_storage_credentials_rejected"
+) -> int:
+    """Persist a permanent managed-storage credential failure for operator visibility."""
+    root_folder_id = str(settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or "").strip()
+    if not root_folder_id or not settings.PERSISTENT_AUTH_ENABLED:
+        return 0
+    updated = 0
+    try:
+        with auth_repository() as repository:
+            for row in _matching_rows(repository, root_folder_id):
+                row.status = "reconnect_required"
+                row.refresh_error_json = {
+                    "code": str(code or "managed_storage_credentials_rejected")[:100],
+                    "retryable": False,
+                    "occurred_at": datetime.now(timezone.utc).isoformat(),
+                }
+                row.updated_at = datetime.now(timezone.utc)
+                repository.audit(
+                    "reconnect_required",
+                    tenant_id=row.tenant_id,
+                    provider=row.provider,
+                    connection_id=row.id,
+                    actor_id=row.provider_account_id,
+                    detail={"code": row.refresh_error_json["code"], "retryable": False},
+                )
+                updated += 1
+    except Exception as exc:
+        logger.warning(
+            "managed_storage_reconnect_mark_failed error_type=%s",
+            type(exc).__name__,
+        )
+    return updated
+
+
 def managed_storage_oauth_status(settings: Settings) -> dict[str, Any]:
     root_folder_id = str(settings.GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or "").strip()
     result: dict[str, Any] = {

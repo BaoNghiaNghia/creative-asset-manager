@@ -42,6 +42,7 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
         client_id: str | None = None,
         client_secret: str | None = None,
         clock: Callable[[], float] = time.monotonic,
+        credentials_rejected: Callable[[], None] | None = None,
     ):
         if not root_folder_id:
             raise ValueError("managed storage root folder ID is required")
@@ -61,6 +62,8 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
         self._root_folder_id = root_folder_id
         self._transport = transport
         self._clock = clock
+        self._credentials_rejected = credentials_rejected
+        self._credentials_invalid = False
 
     async def open_asset(self, input: OpenStoredAssetInput) -> StoredAssetReadStream:
         access_token = await self._get_access_token()
@@ -337,6 +340,11 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
             return self._stored_sidecar(input, data)
 
     async def _get_access_token(self) -> str:
+        if self._credentials_invalid:
+            raise StorageProviderError(
+                "Google managed storage credentials were rejected.",
+                retryable=False,
+            )
         if not self._refresh_token:
             if not self._static_access_token:
                 raise StorageProviderError(
@@ -384,6 +392,14 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
                     retryable=True,
                 )
             if response.status_code >= 400:
+                self._credentials_invalid = True
+                if self._credentials_rejected is not None:
+                    try:
+                        self._credentials_rejected()
+                    except Exception:
+                        # Credential-state bookkeeping must never hide the
+                        # provider error that caused the storage operation to fail.
+                        pass
                 raise StorageProviderError(
                     "Google managed storage credentials were rejected.",
                     retryable=False,

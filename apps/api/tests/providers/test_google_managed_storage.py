@@ -228,6 +228,35 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await provider._get_access_token(), "refreshed-2")
         self.assertEqual(len(token_requests), 2)
 
+    async def test_rejected_refresh_token_notifies_credential_state(self) -> None:
+        notified = []
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            return httpx.Response(400, json={"error": "invalid_grant"})
+
+        provider = GoogleDriveAssetStorage(
+            None,
+            root_folder_id="managed-root",
+            refresh_token="refresh-secret",
+            client_id="client-id",
+            client_secret="client-secret",
+            transport=httpx.MockTransport(handler),
+            credentials_rejected=lambda: notified.append(True),
+        )
+
+        with self.assertRaises(StorageProviderError) as context:
+            await provider._get_access_token()
+
+        self.assertFalse(context.exception.retryable)
+        self.assertEqual(notified, [True])
+        with self.assertRaises(StorageProviderError):
+            await provider._get_access_token()
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(notified, [True])
+
+
     async def test_delete_uses_managed_remote_identity_and_supports_all_drives(self) -> None:
         requests = []
 

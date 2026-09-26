@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -388,27 +389,18 @@ class ManagedStorageSelfIngestionRepairTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(self.session.get(SourceAssetModel, managed_id))
         self.assertIsNotNone(self.session.get(SourceAssetModel, duplicate_id))
 
-    async def test_duplicate_with_multiple_links_is_not_partially_repaired(self) -> None:
-        duplicate, duplicate_link = self._add_managed_duplicate()
+    async def test_source_asset_cannot_link_to_multiple_assets(self) -> None:
+        duplicate, _duplicate_link = self._add_managed_duplicate()
         other_asset = AssetModel(tenant_id="tenant-a", content_hash="b" * 64)
         self.session.add(other_asset)
         self.session.flush()
-        cross_link = AssetSourceLinkModel(
+        self.session.add(AssetSourceLinkModel(
             tenant_id="tenant-a", asset_id=other_asset.id, source_asset_id=duplicate.id
-        )
-        self.session.add(cross_link)
-        self.session.commit()
-        managed_link_id, duplicate_link_id, cross_link_id = (
-            self.managed_link.id, duplicate_link.id, cross_link.id
-        )
+        ))
 
-        result = await self._repair().execute(tenant_id="tenant-a", dry_run=False)
-        self.assertEqual(result.skipped_ambiguous, 1)
-        self.assertEqual(result.repaired_links, 0)
-        self.session.expire_all()
-        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, managed_link_id))
-        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, duplicate_link_id))
-        self.assertIsNotNone(self.session.get(AssetSourceLinkModel, cross_link_id))
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+        self.session.rollback()
 
     async def test_duplicate_managed_sources_without_an_original_source_are_not_repaired(self) -> None:
         duplicate, duplicate_link = self._add_managed_duplicate()
