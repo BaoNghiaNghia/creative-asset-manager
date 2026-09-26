@@ -157,6 +157,38 @@ def test_new_candidate_approval_creates_material_and_future_match_is_determinist
         assert matched.material_id == material.id
 
 
+def test_new_candidate_approval_requires_unit_and_dimension(sessions):
+    with sessions() as session:
+        registry = MaterialRegistry(session)
+        result = resolve(
+            registry,
+            name="Sua Fresh",
+            key="55",
+            matcher=lambda _context: {
+                "material_id": None,
+                "suggested_canonical_name": "Sua Fresh",
+                "confidence": 0.99,
+                "reasons": ["new ingredient"],
+            },
+        )
+        candidate = registry.queue_candidate(
+            "tenant-a",
+            source_id="sheet-1",
+            external_key="55",
+            raw_name="Sua Fresh",
+            category="Milk",
+            source_row=55,
+            sheet="Daily",
+            resolution=result,
+        )
+        session.flush()
+
+        with pytest.raises(ValueError, match="material_unit_and_dimension_required"):
+            registry.approve("tenant-a", candidate.id, actor_id="admin")
+
+        assert candidate.status == "new_material"
+
+
 def test_external_identity_name_change_is_possible_rename_not_new_material(sessions):
     with sessions() as session:
         registry = MaterialRegistry(session)

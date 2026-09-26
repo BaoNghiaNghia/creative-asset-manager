@@ -290,7 +290,9 @@ def approve_material_candidate(candidate_id: str, body: MaterialApprovalRequest,
         except LookupError as exc:
             raise HTTPException(404, detail={"code": str(exc)}) from exc
         except ValueError as exc:
-            raise HTTPException(409, detail={"code": str(exc)}) from exc
+            code = str(exc)
+            status_code = 422 if code == "material_unit_and_dimension_required" else 409
+            raise HTTPException(status_code, detail={"code": code}) from exc
 
 
 @router.post("/materials/candidates/{candidate_id}/reject")

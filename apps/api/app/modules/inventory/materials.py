@@ -71,20 +71,85 @@ class MaterialRegistry:
         if row is None:
             row=InventoryMaterialCandidateModel(tenant_id=tenant_id,source_id=source_id,sheet=sheet,source_row=source_row,external_key=external_key,raw_name=raw_name,category=category,status=resolution.status,suggested_item_id=resolution.material_id,suggested_canonical_name=resolution.suggested_canonical_name,confidence=resolution.confidence,reasons_json=list(resolution.reasons),context_json=dict(context or {}));self.session.add(row)
         return row
-    def approve(self,tenant_id:str,candidate_id:str,*,actor_id:str|None,item_id:str|None=None,canonical_name:str|None=None,preferred_unit:str|None=None,canonical_dimension:str|None=None):
-        c=self.session.scalar(select(InventoryMaterialCandidateModel).where(InventoryMaterialCandidateModel.tenant_id==tenant_id,InventoryMaterialCandidateModel.id==candidate_id))
-        if c is None:raise LookupError("material_candidate_not_found")
-        item=self._item(tenant_id,item_id) if item_id else None
-        if item_id and item is None:raise LookupError("material_not_found")
+    def approve(
+        self,
+        tenant_id: str,
+        candidate_id: str,
+        *,
+        actor_id: str | None,
+        item_id: str | None = None,
+        canonical_name: str | None = None,
+        preferred_unit: str | None = None,
+        canonical_dimension: str | None = None,
+    ):
+        c = self.session.scalar(
+            select(InventoryMaterialCandidateModel).where(
+                InventoryMaterialCandidateModel.tenant_id == tenant_id,
+                InventoryMaterialCandidateModel.id == candidate_id,
+            )
+        )
+        if c is None:
+            raise LookupError("material_candidate_not_found")
+        item = self._item(tenant_id, item_id) if item_id else None
+        if item_id and item is None:
+            raise LookupError("material_not_found")
         if item is None:
-            name=(canonical_name or c.suggested_canonical_name or c.raw_name).strip();unit=preferred_unit or "count"
-            item=InventoryItemModel(tenant_id=tenant_id,sku=f"material-{c.id}",name=name,base_unit=unit,preferred_unit=unit,canonical_dimension=canonical_dimension or "count",category=c.category,first_seen_at=inventory_utcnow(),last_seen_at=inventory_utcnow(),metadata_json={"created_from_candidate":c.id});self.session.add(item);self.session.flush()
-        normalized=normalize_material_text(c.raw_name)
-        if not self._is_alias(tenant_id,item.id,normalized):self.session.add(InventoryItemAliasModel(tenant_id=tenant_id,item_id=item.id,alias=c.raw_name,normalized_alias=normalized))
-        identity=self.session.scalar(select(InventoryMaterialExternalIdentityModel).where(InventoryMaterialExternalIdentityModel.tenant_id==tenant_id,InventoryMaterialExternalIdentityModel.source_type=="google_sheet",InventoryMaterialExternalIdentityModel.source_id==c.source_id,InventoryMaterialExternalIdentityModel.external_key==c.external_key))
-        if identity is None:self.session.add(InventoryMaterialExternalIdentityModel(tenant_id=tenant_id,item_id=item.id,source_type="google_sheet",source_id=c.source_id,external_key=c.external_key,last_seen_name=c.raw_name))
-        elif identity.item_id!=item.id:raise ValueError("external_identity_already_mapped")
-        c.status="approved";c.suggested_item_id=item.id;c.context_json={**(c.context_json or {}),"approved_by":actor_id};item.last_seen_at=inventory_utcnow();self.session.flush();return item
+            name = (canonical_name or c.suggested_canonical_name or c.raw_name).strip()
+            unit = str(preferred_unit or "").strip()
+            dimension = str(canonical_dimension or "").strip()
+            if not unit or not dimension:
+                raise ValueError("material_unit_and_dimension_required")
+            item = InventoryItemModel(
+                tenant_id=tenant_id,
+                sku=f"material-{c.id}",
+                name=name,
+                base_unit=unit,
+                preferred_unit=unit,
+                canonical_dimension=dimension,
+                category=c.category,
+                first_seen_at=inventory_utcnow(),
+                last_seen_at=inventory_utcnow(),
+                metadata_json={"created_from_candidate": c.id},
+            )
+            self.session.add(item)
+            self.session.flush()
+        normalized = normalize_material_text(c.raw_name)
+        if not self._is_alias(tenant_id, item.id, normalized):
+            self.session.add(
+                InventoryItemAliasModel(
+                    tenant_id=tenant_id,
+                    item_id=item.id,
+                    alias=c.raw_name,
+                    normalized_alias=normalized,
+                )
+            )
+        identity = self.session.scalar(
+            select(InventoryMaterialExternalIdentityModel).where(
+                InventoryMaterialExternalIdentityModel.tenant_id == tenant_id,
+                InventoryMaterialExternalIdentityModel.source_type == "google_sheet",
+                InventoryMaterialExternalIdentityModel.source_id == c.source_id,
+                InventoryMaterialExternalIdentityModel.external_key == c.external_key,
+            )
+        )
+        if identity is None:
+            self.session.add(
+                InventoryMaterialExternalIdentityModel(
+                    tenant_id=tenant_id,
+                    item_id=item.id,
+                    source_type="google_sheet",
+                    source_id=c.source_id,
+                    external_key=c.external_key,
+                    last_seen_name=c.raw_name,
+                )
+            )
+        elif identity.item_id != item.id:
+            raise ValueError("external_identity_already_mapped")
+        c.status = "approved"
+        c.suggested_item_id = item.id
+        c.context_json = {**(c.context_json or {}), "approved_by": actor_id}
+        item.last_seen_at = inventory_utcnow()
+        self.session.flush()
+        return item
     def package_conversion(self,tenant_id:str,item_id:str,package_name:str):
         return self.session.scalar(select(InventoryMaterialPackageConversionModel).where(InventoryMaterialPackageConversionModel.tenant_id==tenant_id,InventoryMaterialPackageConversionModel.item_id==item_id,InventoryMaterialPackageConversionModel.normalized_package==normalize_material_text(package_name)))
     def _item(self,tenant_id,item_id):
