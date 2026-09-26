@@ -28,6 +28,7 @@ from app.modules.inventory.daily.scheduler import (
 _MANUAL_RECOVERY_ERROR_CODES = V4_MANUAL_RECOVERY_ERROR_CODES
 from app.modules.inventory.persistence_model import (
     InventoryDailyCarryForwardModel,
+    InventoryMaterialCandidateModel,
     InventorySettingsModel,
 )
 
@@ -68,6 +69,7 @@ def _manual_recovery_scan(
         "carry_eligible": 0,
         "other_errors": {},
         "plan_issue_codes": {},
+        "missing_catalog_materials": 0,
     }
     with SessionLocal() as session:
         settings_rows = list(session.scalars(select(InventorySettingsModel)))
@@ -106,6 +108,18 @@ def _manual_recovery_scan(
                     else "unknown"
                 )
                 plan_issue_codes[code] = int(plan_issue_codes.get(code, 0)) + 1
+                if (
+                    isinstance(issue, dict)
+                    and code.strip().upper() == "MISSING_CATALOG_ITEMS"
+                ):
+                    diagnostics["missing_catalog_materials"] = int(
+                        diagnostics["missing_catalog_materials"]
+                    ) + sum(
+                        1
+                        for item in list(issue.get("missing_materials") or [])
+                        if isinstance(item, dict)
+                        and str(item.get("raw_name") or "").strip()
+                    )
             if carry.status == "completed":
                 diagnostics["carry_completed"] = int(diagnostics["carry_completed"]) + 1
                 continue
@@ -122,6 +136,56 @@ def _manual_recovery_scan(
             assert isinstance(other_errors, dict)
             other_errors[code] = int(other_errors.get(code, 0)) + 1
     return candidates, diagnostics
+
+
+def _pending_carry_forward_materials(
+    tenant_id: str,
+    business_date: date,
+) -> list[str]:
+    """Return unresolved catalog candidates referenced by the stored carry-forward plan."""
+    pending: list[str] = []
+    with SessionLocal() as session:
+        carry = session.scalar(
+            select(InventoryDailyCarryForwardModel).where(
+                InventoryDailyCarryForwardModel.tenant_id == tenant_id,
+                InventoryDailyCarryForwardModel.target_business_date == business_date,
+            )
+        )
+        if carry is None or not carry.source_gemini_file_id:
+            return pending
+        plan_json = carry.plan_json if isinstance(carry.plan_json, dict) else {}
+        for issue in list(plan_json.get("issues") or []):
+            if (
+                not isinstance(issue, dict)
+                or str(issue.get("code") or "").strip().upper()
+                != "MISSING_CATALOG_ITEMS"
+            ):
+                continue
+            for item in list(issue.get("missing_materials") or []):
+                if not isinstance(item, dict):
+                    continue
+                raw_name = str(item.get("raw_name") or "").strip()
+                evidence = item.get("name_evidence") or {}
+                if not raw_name or not isinstance(evidence, dict):
+                    continue
+                sheet = str(evidence.get("sheet") or "").strip()
+                cell = str(evidence.get("cell") or "").strip().upper()
+                if not sheet or not cell:
+                    pending.append(raw_name)
+                    continue
+                candidate = session.scalar(
+                    select(InventoryMaterialCandidateModel).where(
+                        InventoryMaterialCandidateModel.tenant_id == tenant_id,
+                        InventoryMaterialCandidateModel.source_id
+                        == carry.source_gemini_file_id,
+                        InventoryMaterialCandidateModel.external_key
+                        == f"carry-forward:{sheet}:{cell}",
+                        InventoryMaterialCandidateModel.raw_name == raw_name,
+                    )
+                )
+                if candidate is None or candidate.status != "approved":
+                    pending.append(raw_name)
+    return pending
 
 
 def _manual_recovery_candidates(
@@ -163,7 +227,8 @@ def _run_manual_recovery_current_day(
             f"carry_completed={diagnostics.get('carry_completed', 0)} "
             f"carry_eligible={diagnostics.get('carry_eligible', 0)} "
             f"other_errors={other_error_summary} "
-            f"plan_issue_codes={issue_summary}"
+            f"plan_issue_codes={issue_summary} "
+            f"missing_catalog_materials={diagnostics.get('missing_catalog_materials', 0)}"
         )
         return 0
     if len(candidates) != 1:
@@ -174,6 +239,20 @@ def _run_manual_recovery_current_day(
         return 2
 
     tenant_id, business_date, initial_error_code = candidates[0]
+    pending_catalog_materials = (
+        _pending_carry_forward_materials(tenant_id, business_date)
+        if initial_error_code == "carry_forward_plan_has_issues"
+        else []
+    )
+    if pending_catalog_materials:
+        print(
+            "INVENTORY_MANUAL_RECOVERY status=blocked "
+            "stage=preflight "
+            f"business_date={business_date.isoformat()} "
+            "error_code=carry_forward_catalog_review_pending "
+            f"pending_catalog_materials={len(pending_catalog_materials)}"
+        )
+        return 2
     preview_only = initial_error_code in {
         "carry_forward_plan_has_issues",
         "empty_carry_forward_plan",
@@ -203,7 +282,8 @@ def _run_manual_recovery_current_day(
         print(
             "INVENTORY_MANUAL_RECOVERY status=blocked "
             f"stage=preview business_date={business_date.isoformat()} "
-            f"error_code={code} plan_issue_codes={issue_summary}"
+            f"error_code={code} plan_issue_codes={issue_summary} "
+            f"missing_catalog_materials={fresh_diagnostics.get('missing_catalog_materials', 0)}"
         )
         return 2
 

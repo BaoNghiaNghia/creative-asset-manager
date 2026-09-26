@@ -198,6 +198,45 @@ def test_manual_recovery_one_shot_previews_then_applies_exact_plan(capsys):
 
 
 
+def test_manual_recovery_blocks_before_gemini_when_catalog_review_is_pending(capsys):
+    scheduler = Mock()
+    now = datetime(2030, 8, 10, 7, tzinfo=timezone.utc)
+    with patch.object(
+        _MODULE,
+        "_manual_recovery_scan",
+        return_value=([(
+            "tenant-a",
+            date(2030, 8, 10),
+            "carry_forward_plan_has_issues",
+        )], {
+            "v4_tenants": 1,
+            "carry_absent": 0,
+            "carry_completed": 0,
+            "carry_eligible": 1,
+            "other_errors": {},
+            "plan_issue_codes": {"MISSING_CATALOG_ITEMS": 1},
+            "missing_catalog_materials": 22,
+        }),
+    ), patch.object(
+        _MODULE,
+        "_pending_carry_forward_materials",
+        return_value=["SỮA ĐẶC*", "SỮA TƯƠI*"],
+    ):
+        result = _run_manual_recovery_current_day(
+            scheduler,
+            frozenset({"tenant-a"}),
+            now=now,
+        )
+
+    assert result == 2
+    scheduler.preview_v4_morning_reset_recovery.assert_not_called()
+    scheduler.apply_v4_morning_reset_recovery.assert_not_called()
+    output = capsys.readouterr().out
+    assert "stage=preflight" in output
+    assert "error_code=carry_forward_catalog_review_pending" in output
+    assert "pending_catalog_materials=2" in output
+
+
 def test_manual_recovery_prior_plan_issues_only_repreviews_on_first_pass(capsys):
     scheduler = Mock()
     scheduler.preview_v4_morning_reset_recovery.return_value = _preview()
@@ -216,7 +255,12 @@ def test_manual_recovery_prior_plan_issues_only_repreviews_on_first_pass(capsys)
             "carry_eligible": 1,
             "other_errors": {},
             "plan_issue_codes": {},
+            "missing_catalog_materials": 0,
         }),
+    ), patch.object(
+        _MODULE,
+        "_pending_carry_forward_materials",
+        return_value=[],
     ):
         result = _run_manual_recovery_current_day(
             scheduler,
