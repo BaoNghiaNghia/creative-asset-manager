@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from app.modules.inventory.ai.gateway import (
+    InventoryAiGatewayError,
     InventoryGeminiToolCall,
     InventoryGeminiToolTurn,
     RuntimeInventoryGeminiGateway,
@@ -667,6 +668,24 @@ class ScriptedGateway:
         )
 
 
+class RetryableFailoverGateway(ScriptedGateway):
+    def __init__(self):
+        super().__init__()
+        self.attempted_models = []
+        self.failed_once = False
+
+    def generate_tool_turn(self, **kwargs):
+        self.attempted_models.append(kwargs["model"])
+        if not self.failed_once:
+            self.failed_once = True
+            raise InventoryAiGatewayError(
+                "inventory_gemini_request_failed",
+                retryable=True,
+                provider_status=503,
+            )
+        return super().generate_tool_turn(**kwargs)
+
+
 def test_real_v4_service_tool_loop_is_shadow_and_does_not_call_legacy_parsers():
     control = SimpleNamespace(
         enabled=True,
@@ -712,6 +731,60 @@ def test_real_v4_service_tool_loop_is_shadow_and_does_not_call_legacy_parsers():
     initial_prompt = service.gateway.requests[0]["contents"][0]["parts"][0]["text"]
     assert '"spreadsheet_file_id": "gemini-copy"' in initial_prompt
     assert "Do not ask the operator for another workbook URL or file ID." in initial_prompt
+
+
+def _v4_service_for_models(*, models, deployment_models=(), gateway=None):
+    control = SimpleNamespace(
+        enabled=True,
+        emergency_stop=False,
+        provider="gemini",
+        allowed_models_json=list(models),
+    )
+    config = parse_daily_sheet_config(
+        {
+            "version": 4,
+            "mode": "gemini_tool_sheet_agent",
+            "source": {"allowed_sheets": ["Arbitrary"]},
+        }
+    )
+    return InventoryDailySheetV4Service(
+        session_factory=SessionFactory(control=control),
+        gateway=gateway or ScriptedGateway(),
+        context_provider=lambda _tenant: SimpleNamespace(
+            config=config,
+            configured_source_file_id="sheet-1",
+            runtime_target_file_id="gemini-copy",
+            connection_id="connection-1",
+        ),
+        client_factory=lambda _token: FakeGoogle(),
+        token_resolver=lambda _connection: "oauth-token",
+        enabled=True,
+        deployment_allowed_models=tuple(deployment_models),
+    )
+
+
+def test_v4_provider_retryable_error_fails_over_to_next_model():
+    gateway = RetryableFailoverGateway()
+    result = _v4_service_for_models(
+        models=("model-a", "model-b"),
+        deployment_models=("model-a", "model-b"),
+        gateway=gateway,
+    ).run_shadow("tenant-a", date(2030, 8, 9))
+    assert result.status == "shadow"
+    assert result.model == "model-b"
+    assert gateway.attempted_models[:2] == ["model-a", "model-b"]
+
+
+def test_v4_runtime_intersects_tenant_models_with_deployment_allowlist():
+    gateway = ScriptedGateway()
+    result = _v4_service_for_models(
+        models=("stale-model", "approved-model"),
+        deployment_models=("approved-model",),
+        gateway=gateway,
+    ).run_shadow("tenant-a", date(2030, 8, 9))
+    assert result.status == "shadow"
+    assert result.model == "approved-model"
+    assert {request["model"] for request in gateway.requests} == {"approved-model"}
 
 
 def test_stage_tool_schema_is_authoritative_and_contains_operations():

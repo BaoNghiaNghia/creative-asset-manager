@@ -366,14 +366,18 @@ def function_declarations() -> list[dict[str, Any]]:
 
 
 class GeminiCarryForwardPlanner:
-    def __init__(self, sessions: sessionmaker[Session], gateway: RuntimeInventoryGeminiGateway, *, enabled: bool, client_factory=GoogleSheetsInventoryClient, token_resolver=get_connection_access_token):
+    def __init__(self, sessions: sessionmaker[Session], gateway: RuntimeInventoryGeminiGateway, *, enabled: bool, deployment_allowed_models: tuple[str, ...] = (), client_factory=GoogleSheetsInventoryClient, token_resolver=get_connection_access_token):
         self.sessions, self.gateway, self.enabled, self.client_factory, self.token_resolver = sessions, gateway, enabled, client_factory, token_resolver
+        self.deployment_allowed_models = tuple(dict.fromkeys(deployment_allowed_models))
     def _runtime(self, tenant_id: str) -> tuple[str, tuple[str, ...]]:
         if not self.enabled: raise CarryForwardReviewRequired("inventory_ai_disabled")
         with self.sessions() as session: control = session.scalar(select(InventoryAiControlModel).where(InventoryAiControlModel.tenant_id == tenant_id))
         if control is None or not control.enabled: raise CarryForwardReviewRequired("inventory_ai_disabled")
         if control.emergency_stop: raise CarryForwardReviewRequired("inventory_ai_emergency_stop")
-        models = tuple(str(v) for v in (control.allowed_models_json or []) if v)
+        models = tuple(dict.fromkeys(str(v) for v in (control.allowed_models_json or []) if v))
+        if self.deployment_allowed_models:
+            allowed = set(self.deployment_allowed_models)
+            models = tuple(model for model in models if model in allowed)
         if control.provider != "gemini" or not models: raise CarryForwardReviewRequired("inventory_ai_model_not_allowed")
         return control.provider, models
     def plan(self, *, tenant_id: str, previous_gemini_file_id: str, shared_workbook_id: str, prompt: str, connection_id: str = "") -> CarryForwardPlan:
@@ -416,6 +420,7 @@ class GeminiCarryForwardPlanner:
                     pass
                 return error
 
+            last_retryable_error: InventoryAiGatewayError | None = None
             try:
                 for model in models:
                     active_model = model
@@ -448,7 +453,8 @@ class GeminiCarryForwardPlanner:
                                     host.audit_snapshot(model=active_model, rounds=rounds),
                                 )
                     except InventoryAiGatewayError as exc:
-                        if exc.code == "inventory_gemini_rate_limited":
+                        if exc.retryable:
+                            last_retryable_error = exc
                             continue
                         wrapped = CarryForwardReviewRequired(exc.code)
                         attach_context(wrapped)
@@ -456,6 +462,11 @@ class GeminiCarryForwardPlanner:
             except Exception as exc:
                 attach_context(exc)
                 raise
+            if last_retryable_error is not None:
+                wrapped = CarryForwardReviewRequired(last_retryable_error.code)
+                setattr(wrapped, "retryable", True)
+                attach_context(wrapped)
+                raise wrapped from last_retryable_error
             error = CarryForwardReviewRequired("carry_forward_plan_not_submitted")
             attach_context(error)
             raise error
@@ -463,4 +474,4 @@ class GeminiCarryForwardPlanner:
 
 def build_carry_forward_planner(*, session_factory: sessionmaker[Session], settings: Settings | None = None, client_factory=GoogleSheetsInventoryClient, token_resolver=get_connection_access_token) -> GeminiCarryForwardPlanner:
     runtime = settings or get_settings()
-    return GeminiCarryForwardPlanner(session_factory, RuntimeInventoryGeminiGateway(InventoryGeminiCredentialResolver(session_factory, runtime), timeout_seconds=runtime.INVENTORY_AI_TIMEOUT_SECONDS), enabled=runtime.INVENTORY_AI_ENABLED, client_factory=client_factory, token_resolver=token_resolver)
+    return GeminiCarryForwardPlanner(session_factory, RuntimeInventoryGeminiGateway(InventoryGeminiCredentialResolver(session_factory, runtime), timeout_seconds=runtime.INVENTORY_AI_TIMEOUT_SECONDS), enabled=runtime.INVENTORY_AI_ENABLED, deployment_allowed_models=runtime.inventory_ai_allowed_models, client_factory=client_factory, token_resolver=token_resolver)

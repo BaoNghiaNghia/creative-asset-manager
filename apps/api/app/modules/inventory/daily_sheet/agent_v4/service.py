@@ -53,6 +53,7 @@ class InventoryDailySheetV4Service:
         client_factory: Callable[..., Any],
         token_resolver: Callable[[str], Any],
         enabled: bool,
+        deployment_allowed_models: tuple[str, ...] = (),
     ) -> None:
         self.session_factory = session_factory
         self.gateway = gateway
@@ -60,6 +61,7 @@ class InventoryDailySheetV4Service:
         self.client_factory = client_factory
         self.token_resolver = token_resolver
         self.enabled = enabled
+        self.deployment_allowed_models = tuple(dict.fromkeys(deployment_allowed_models))
 
     def _runtime(self, tenant_id: str) -> tuple[str, tuple[str, ...]]:
         if not self.enabled:
@@ -74,7 +76,10 @@ class InventoryDailySheetV4Service:
             raise V4AgentUnavailable("inventory_ai_disabled")
         if control.emergency_stop:
             raise V4AgentUnavailable("inventory_ai_emergency_stop")
-        models = tuple(str(value) for value in (control.allowed_models_json or ()) if value)
+        models = tuple(dict.fromkeys(str(value) for value in (control.allowed_models_json or ()) if value))
+        if self.deployment_allowed_models:
+            allowed = set(self.deployment_allowed_models)
+            models = tuple(model for model in models if model in allowed)
         if control.provider != "gemini" or not models:
             raise V4AgentUnavailable("inventory_ai_model_not_allowed")
         return control.provider, models
@@ -213,7 +218,7 @@ class InventoryDailySheetV4Service:
             for rounds in range(1, config.agent.max_tool_rounds + 1):
                 if rounds > 1 and config.agent.tool_call_min_interval_seconds:
                     time.sleep(config.agent.tool_call_min_interval_seconds)
-                last_rate_limit_error: InventoryAiGatewayError | None = None
+                last_retryable_error: InventoryAiGatewayError | None = None
                 turn = None
                 for retry_index in range(config.agent.tool_call_rate_limit_retries + 1):
                     model_indexes = tuple(range(selected_model_index, len(models))) + tuple(
@@ -233,16 +238,29 @@ class InventoryDailySheetV4Service:
                             selected_model_index = model_index
                             break
                         except InventoryAiGatewayError as exc:
-                            if exc.code != "inventory_gemini_rate_limited":
+                            if not exc.retryable:
+                                logger.error(
+                                    "inventory_sheet_agent_v4_provider_failed",
+                                    extra={
+                                        "tenant_id": tenant_id,
+                                        "model": model,
+                                        "round": rounds,
+                                        "retry_index": retry_index,
+                                        "error_code": exc.code,
+                                        "provider_status": getattr(exc, "provider_status", None),
+                                    },
+                                )
                                 raise
-                            last_rate_limit_error = exc
+                            last_retryable_error = exc
                             logger.warning(
-                                "inventory_sheet_agent_v4_rate_limited",
+                                "inventory_sheet_agent_v4_provider_retry",
                                 extra={
                                     "tenant_id": tenant_id,
                                     "model": model,
                                     "round": rounds,
                                     "retry_index": retry_index,
+                                    "error_code": exc.code,
+                                    "provider_status": getattr(exc, "provider_status", None),
                                 },
                             )
                     if turn is not None:
@@ -253,8 +271,8 @@ class InventoryDailySheetV4Service:
                             * (retry_index + 1)
                         )
                 if turn is None:
-                    assert last_rate_limit_error is not None
-                    raise last_rate_limit_error
+                    assert last_retryable_error is not None
+                    raise last_retryable_error
                 contents.append(dict(turn.content))
                 if not turn.calls:
                     raise V4AgentUnavailable("inventory_sheet_agent_v4_missing_tool_call")
@@ -427,4 +445,5 @@ def build_daily_sheet_v4_service(
         client_factory=client_factory,
         token_resolver=token_resolver,
         enabled=runtime_settings.INVENTORY_AI_ENABLED,
+        deployment_allowed_models=runtime_settings.inventory_ai_allowed_models,
     )

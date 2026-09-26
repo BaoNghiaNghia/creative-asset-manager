@@ -194,6 +194,7 @@ def test_structured_http_errors_are_safe_and_classified(
 
     assert captured.value.code == code
     assert captured.value.retryable is retryable
+    assert captured.value.provider_status == status_code
     assert str(captured.value) == code
     assert "sensitive" not in str(captured.value)
     assert "test-secret" not in str(captured.value)

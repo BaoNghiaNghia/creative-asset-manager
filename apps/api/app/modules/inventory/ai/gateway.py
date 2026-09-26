@@ -13,10 +13,11 @@ from app.modules.inventory.credentials import InventoryCredentialError, Inventor
 
 
 class InventoryAiGatewayError(RuntimeError):
-    def __init__(self, code: str, *, retryable: bool):
+    def __init__(self, code: str, *, retryable: bool, provider_status: int | None = None):
         super().__init__(code)
         self.code = code
         self.retryable = retryable
+        self.provider_status = provider_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +161,7 @@ class RuntimeInventoryGeminiGateway:
         else:
             code = "inventory_gemini_request_failed"
             retryable = status_code >= 500
-        raise InventoryAiGatewayError(code, retryable=retryable)
+        raise InventoryAiGatewayError(code, retryable=retryable, provider_status=status_code)
 
     @staticmethod
     def _structured_result(response: httpx.Response) -> Mapping[str, Any]:

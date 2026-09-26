@@ -530,6 +530,14 @@ class Settings(BaseSettings):
         return frozenset(value.strip() for value in self.INVENTORY_TENANT_ALLOWLIST.split(",") if value.strip())
 
     @property
+    def inventory_ai_allowed_models(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(
+            value.strip()
+            for value in self.INVENTORY_AI_ALLOWED_MODELS.split(",")
+            if value.strip()
+        ))
+
+    @property
     def cors_allowed_origins(self) -> tuple[str, ...]:
         return tuple(
             value.strip().rstrip("/")

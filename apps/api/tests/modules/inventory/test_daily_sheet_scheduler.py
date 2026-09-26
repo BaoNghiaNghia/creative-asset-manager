@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.database import Base
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import TenantModel
+from app.modules.inventory.ai.gateway import InventoryAiGatewayError
 from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 from app.modules.inventory.daily_sheet.semantic import InventoryDailySheetSemanticAnalyzer
 from app.modules.inventory.daily_sheet.agent_v4.tools import V4AgentSafetyError
@@ -321,6 +322,8 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 self.assertTrue(
                     InventoryDailyScheduler._retryable_v4_error(RuntimeError(code))
                 )
+        transient = InventoryAiGatewayError("inventory_gemini_request_failed", retryable=True)
+        self.assertTrue(InventoryDailyScheduler._retryable_v4_error(transient))
 
     def test_v4_permanent_failure_is_terminal_without_hot_loop(self):
         self._enable_v4()

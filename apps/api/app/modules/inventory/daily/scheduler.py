@@ -97,6 +97,8 @@ class InventoryDailyScheduler:
 
     @staticmethod
     def _retryable_v4_error(error: Exception) -> bool:
+        if bool(getattr(error, "retryable", False)):
+            return True
         code = str(error).strip().lower()
         name = type(error).__name__.lower()
         return (

@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.database import Base
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.inventory.daily_sheet.audit import InventoryOperationAuditService
+from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeError, InventoryKnowledgeService
 from app.modules.inventory.daily_sheet.agent_v4.tools import V4WorkbookToolHost, V4AgentSafetyError
 
@@ -21,6 +22,8 @@ def db():
     for name in (
         "tenants",
         "inventory_knowledge_entries",
+        "inventory_daily_carry_forwards",
+        "inventory_jobs",
         "inventory_operation_audits",
         "inventory_operation_changes",
     ):
@@ -277,4 +280,31 @@ def test_failure_audit_preserves_partial_gemini_activity():
     assert audit["knowledge"]["version"] == 7
     assert audit["changes"][0]["cell"] == "G3"
     assert audit["changes"][0]["verification_status"] == "failed"
+    engine.dispose(); temp.cleanup()
+
+
+def test_morning_reset_detail_falls_back_to_scheduler_job_error():
+    temp, engine, sessions = db()
+    with sessions.begin() as session:
+        session.add(
+            InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_morning_reset_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2026-09-26:morning_reset",
+                idempotency_key="inventory-v5-slot:tenant-a:2026-09-26:morning_reset",
+                status="failed",
+                attempt_count=5,
+                max_attempts=5,
+                last_error_code="previous_day_gemini_not_verified",
+                last_error_message="previous_day_gemini_not_verified",
+            )
+        )
+    detail = InventoryOperationAuditService(sessions).stage_detail(
+        "tenant-a", date(2026, 9, 26), "morning_reset"
+    )
+    assert detail["source"] == "scheduler_job"
+    assert detail["status"] == "failed"
+    assert detail["error_code"] == "previous_day_gemini_not_verified"
+    assert detail["summary"]["attempt_count"] == 5
     engine.dispose(); temp.cleanup()

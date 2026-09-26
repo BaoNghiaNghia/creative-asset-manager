@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.persistence_model import (
     InventoryDailyCarryForwardModel,
     InventoryOperationAuditModel,
@@ -19,6 +20,11 @@ _STAGE_NAMES = {
     "afternoon_snapshot": "Snapshot",
     "evening_reconcile": "Đối soát Gemini",
     "manual_prompt_test": "Gemini manual test",
+}
+_STAGE_JOB_TYPES = {
+    "morning_reset": "inventory_v5_morning_reset_slot",
+    "afternoon_snapshot": "inventory_v5_afternoon_snapshot_slot",
+    "evening_reconcile": "inventory_v5_evening_reconcile_slot",
 }
 
 
@@ -419,4 +425,44 @@ class InventoryOperationAuditService:
                         "issues": list(plan.get("issues") or []),
                         "source": "carry_forward_plan",
                     }
+                job_type = _STAGE_JOB_TYPES.get(stage)
+                if job_type:
+                    job = session.scalar(
+                        select(InventoryJobModel)
+                        .where(
+                            InventoryJobModel.tenant_id == tenant_id,
+                            InventoryJobModel.job_type == job_type,
+                            InventoryJobModel.entity_id == f"{business_date.isoformat()}:{stage}",
+                        )
+                        .order_by(InventoryJobModel.created_at.desc())
+                        .limit(1)
+                    )
+                    if job is not None:
+                        return {
+                            "id": job.id,
+                            "business_date": business_date.isoformat(),
+                            "stage": stage,
+                            "stage_label": _STAGE_NAMES[stage],
+                            "run_id": job.id,
+                            "status": job.status,
+                            "summary": {
+                                "attempt_count": job.attempt_count,
+                                "max_attempts": job.max_attempts,
+                                "scheduler_status": job.status,
+                            },
+                            "assessment": {},
+                            "tool_trace": [],
+                            "read_ranges": [],
+                            "prompt": {"source": None, "version": None, "hash": None},
+                            "knowledge": {"hash": None, "version": None},
+                            "model": None,
+                            "writes": 0,
+                            "error_code": job.last_error_code,
+                            "error_message": job.last_error_message,
+                            "started_at": job.claimed_at.isoformat() if job.claimed_at else None,
+                            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                            "changes": [],
+                            "issues": [],
+                            "source": "scheduler_job",
+                        }
         raise LookupError("inventory_operation_audit_not_found")
