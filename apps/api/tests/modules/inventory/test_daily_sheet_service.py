@@ -1423,6 +1423,45 @@ def test_lifecycle_history_exposes_stage_error_message(daily_sheet_db):
     assert morning["error_message"] == "The previous Gemini workbook is not verified."
 
 
+def test_lifecycle_history_prefers_carry_forward_state_over_stale_scheduler_error(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        session.add(
+            InventoryDailyCarryForwardModel(
+                tenant_id="tenant-a",
+                target_business_date=date(2030, 8, 10),
+                previous_business_date=date(2030, 8, 9),
+                idempotency_key="carry-review",
+                status="review_required",
+                error_code="carry_forward_plan_has_issues",
+                error_message="carry_forward_plan_has_issues",
+            )
+        )
+        session.add(
+            InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_morning_reset_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-10:morning_reset",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-10:morning_reset",
+                status="failed",
+                attempt_count=1,
+                max_attempts=5,
+                last_error_code="unknown_carry_forward_tool",
+                last_error_message="unknown_carry_forward_tool",
+            )
+        )
+
+    history = service(
+        daily_sheet_db,
+        FakeGoogle(),
+        datetime(2030, 8, 10, 8, tzinfo=timezone.utc),
+    ).lifecycle_history("tenant-a")
+    morning = history["items"][0]["stages"][0]
+    assert morning["status"] == "review_required"
+    assert morning["error_code"] == "carry_forward_plan_has_issues"
+    assert history["items"][0]["action_required"]["code"] == "carry_forward_plan_has_issues"
+
+
 def test_lifecycle_history_derives_current_and_completed_pipeline_without_writes(daily_sheet_db):
     completed_at = datetime(2030, 8, 9, 16, tzinfo=timezone.utc)
     with daily_sheet_db.begin() as session:
