@@ -70,6 +70,8 @@ class MaterialRegistry:
         row=self.session.scalar(select(InventoryMaterialCandidateModel).where(InventoryMaterialCandidateModel.tenant_id==tenant_id,InventoryMaterialCandidateModel.source_id==source_id,InventoryMaterialCandidateModel.external_key==external_key,InventoryMaterialCandidateModel.raw_name==raw_name))
         if row is None:
             row=InventoryMaterialCandidateModel(tenant_id=tenant_id,source_id=source_id,sheet=sheet,source_row=source_row,external_key=external_key,raw_name=raw_name,category=category,status=resolution.status,suggested_item_id=resolution.material_id,suggested_canonical_name=resolution.suggested_canonical_name,confidence=resolution.confidence,reasons_json=list(resolution.reasons),context_json=dict(context or {}));self.session.add(row)
+        elif context and row.status in {"new_material","possible_rename","ambiguous"}:
+            row.context_json={**dict(row.context_json or {}),**dict(context)}
         return row
     def approve(
         self,

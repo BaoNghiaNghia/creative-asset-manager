@@ -157,6 +157,46 @@ def test_new_candidate_approval_creates_material_and_future_match_is_determinist
         assert matched.material_id == material.id
 
 
+def test_queue_candidate_merges_new_context_for_existing_pending_candidate(sessions):
+    with sessions() as session:
+        registry = MaterialRegistry(session)
+        resolution = resolve(registry, name="Sua Fresh", key="55")
+        candidate = registry.queue_candidate(
+            "tenant-a",
+            source_id="sheet-1",
+            external_key="55",
+            raw_name="Sua Fresh",
+            category="Milk",
+            source_row=55,
+            sheet="Daily",
+            resolution=resolution,
+            context={"origin": "carry_forward_missing_catalog_item"},
+        )
+        session.flush()
+        same = registry.queue_candidate(
+            "tenant-a",
+            source_id="sheet-1",
+            external_key="55",
+            raw_name="Sua Fresh",
+            category="Milk",
+            source_row=55,
+            sheet="Daily",
+            resolution=resolution,
+            context={
+                "review_evidence": {
+                    "status": "explicit_unit_found",
+                    "suggested_preferred_unit": "L",
+                }
+            },
+        )
+        session.flush()
+
+        assert same.id == candidate.id
+        assert same.status == "new_material"
+        assert same.context_json["origin"] == "carry_forward_missing_catalog_item"
+        assert same.context_json["review_evidence"]["suggested_preferred_unit"] == "L"
+
+
 def test_new_candidate_approval_requires_unit_and_dimension(sessions):
     with sessions() as session:
         registry = MaterialRegistry(session)
