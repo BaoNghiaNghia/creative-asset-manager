@@ -45,8 +45,14 @@ def test_manual_recovery_one_shot_noops_without_candidate(capsys):
     scheduler = Mock()
     with patch.object(
         _MODULE,
-        "_manual_recovery_candidates",
-        return_value=[],
+        "_manual_recovery_scan",
+        return_value=([], {
+            "v4_tenants": 1,
+            "carry_absent": 0,
+            "carry_completed": 1,
+            "carry_eligible": 0,
+            "other_errors": {},
+        }),
     ):
         result = _run_manual_recovery_current_day(
             scheduler,
@@ -64,11 +70,17 @@ def test_manual_recovery_one_shot_blocks_ambiguous_candidates(capsys):
     scheduler = Mock()
     with patch.object(
         _MODULE,
-        "_manual_recovery_candidates",
-        return_value=[
+        "_manual_recovery_scan",
+        return_value=([
             ("tenant-a", date(2030, 8, 10)),
             ("tenant-b", date(2030, 8, 10)),
-        ],
+        ], {
+            "v4_tenants": 2,
+            "carry_absent": 0,
+            "carry_completed": 0,
+            "carry_eligible": 2,
+            "other_errors": {},
+        }),
     ):
         result = _run_manual_recovery_current_day(
             scheduler,
@@ -98,8 +110,14 @@ def test_manual_recovery_one_shot_previews_then_applies_exact_plan(capsys):
     now = datetime(2030, 8, 10, 7, tzinfo=timezone.utc)
     with patch.object(
         _MODULE,
-        "_manual_recovery_candidates",
-        return_value=[("tenant-a", date(2030, 8, 10))],
+        "_manual_recovery_scan",
+        return_value=([("tenant-a", date(2030, 8, 10))], {
+            "v4_tenants": 1,
+            "carry_absent": 0,
+            "carry_completed": 0,
+            "carry_eligible": 1,
+            "other_errors": {},
+        }),
     ):
         result = _run_manual_recovery_current_day(
             scheduler,
@@ -134,8 +152,14 @@ def test_manual_recovery_one_shot_rejects_invalid_preview_without_apply(capsys):
     scheduler.preview_v4_morning_reset_recovery.return_value = preview
     with patch.object(
         _MODULE,
-        "_manual_recovery_candidates",
-        return_value=[("tenant-a", date(2030, 8, 10))],
+        "_manual_recovery_scan",
+        return_value=([("tenant-a", date(2030, 8, 10))], {
+            "v4_tenants": 1,
+            "carry_absent": 0,
+            "carry_completed": 0,
+            "carry_eligible": 1,
+            "other_errors": {},
+        }),
     ):
         result = _run_manual_recovery_current_day(
             scheduler,

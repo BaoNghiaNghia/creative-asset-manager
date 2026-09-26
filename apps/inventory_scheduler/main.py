@@ -57,11 +57,18 @@ def _handle_signal(_signum, _frame) -> None:
     _stop = True
 
 
-def _manual_recovery_candidates(
+def _manual_recovery_scan(
     now: datetime,
     allowed_tenant_ids: frozenset[str],
-) -> list[tuple[str, date]]:
+) -> tuple[list[tuple[str, date]], dict[str, object]]:
     candidates: list[tuple[str, date]] = []
+    diagnostics: dict[str, object] = {
+        "v4_tenants": 0,
+        "carry_absent": 0,
+        "carry_completed": 0,
+        "carry_eligible": 0,
+        "other_errors": {},
+    }
     with SessionLocal() as session:
         settings_rows = list(session.scalars(select(InventorySettingsModel)))
         for settings in settings_rows:
@@ -74,6 +81,7 @@ def _manual_recovery_candidates(
                 or config.get("version") != 4
             ):
                 continue
+            diagnostics["v4_tenants"] = int(diagnostics["v4_tenants"]) + 1
             business_date = now.astimezone(
                 ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh")
             ).date()
@@ -85,12 +93,28 @@ def _manual_recovery_candidates(
                     == business_date,
                 )
             )
-            if (
-                carry is not None
-                and carry.status != "completed"
-                and carry.error_code in _MANUAL_RECOVERY_ERROR_CODES
-            ):
+            if carry is None:
+                diagnostics["carry_absent"] = int(diagnostics["carry_absent"]) + 1
+                continue
+            if carry.status == "completed":
+                diagnostics["carry_completed"] = int(diagnostics["carry_completed"]) + 1
+                continue
+            if carry.error_code in _MANUAL_RECOVERY_ERROR_CODES:
+                diagnostics["carry_eligible"] = int(diagnostics["carry_eligible"]) + 1
                 candidates.append((settings.tenant_id, business_date))
+                continue
+            code = str(carry.error_code or "none")
+            other_errors = diagnostics["other_errors"]
+            assert isinstance(other_errors, dict)
+            other_errors[code] = int(other_errors.get(code, 0)) + 1
+    return candidates, diagnostics
+
+
+def _manual_recovery_candidates(
+    now: datetime,
+    allowed_tenant_ids: frozenset[str],
+) -> list[tuple[str, date]]:
+    candidates, _diagnostics = _manual_recovery_scan(now, allowed_tenant_ids)
     return candidates
 
 
@@ -101,9 +125,24 @@ def _run_manual_recovery_current_day(
     now: datetime | None = None,
 ) -> int:
     moment = now or datetime.now(timezone.utc)
-    candidates = _manual_recovery_candidates(moment, allowed_tenant_ids)
+    candidates, diagnostics = _manual_recovery_scan(moment, allowed_tenant_ids)
     if not candidates:
-        print("INVENTORY_MANUAL_RECOVERY status=noop reason=no_eligible_current_day")
+        other_errors = diagnostics.get("other_errors") or {}
+        if isinstance(other_errors, dict):
+            other_error_summary = ",".join(
+                f"{code}:{count}" for code, count in sorted(other_errors.items())
+            ) or "none"
+        else:
+            other_error_summary = "invalid"
+        print(
+            "INVENTORY_MANUAL_RECOVERY status=noop "
+            "reason=no_eligible_current_day "
+            f"v4_tenants={diagnostics.get('v4_tenants', 0)} "
+            f"carry_absent={diagnostics.get('carry_absent', 0)} "
+            f"carry_completed={diagnostics.get('carry_completed', 0)} "
+            f"carry_eligible={diagnostics.get('carry_eligible', 0)} "
+            f"other_errors={other_error_summary}"
+        )
         return 0
     if len(candidates) != 1:
         print(
