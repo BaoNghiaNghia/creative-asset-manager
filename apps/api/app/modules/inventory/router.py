@@ -28,6 +28,10 @@ from app.modules.inventory.permissions import (
 )
 from app.modules.inventory.review.service import InventoryReviewService
 from app.modules.inventory.materials import MaterialRegistry
+from app.modules.inventory.material_evidence import (
+    MaterialCandidateEvidenceService,
+    MaterialEvidenceError,
+)
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 _CREDENTIAL_LOGGER = logging.getLogger("cam.inventory.credentials_api")
@@ -263,6 +267,11 @@ def _material_candidate_view(row):
         "sheet_item_key": row.external_key, "raw_name": row.raw_name, "category": row.category,
         "suggested_item_id": row.suggested_item_id, "suggested_canonical_name": row.suggested_canonical_name,
         "confidence": float(row.confidence or 0), "reasons": row.reasons_json,
+        "review_evidence": (
+            (row.context_json or {}).get("review_evidence")
+            if isinstance(row.context_json, dict)
+            else None
+        ),
     }
 
 
@@ -278,6 +287,19 @@ def list_material_candidates(principal: CurrentPrincipal = Depends(require_permi
     with SessionLocal() as session:
         registry = MaterialRegistry(session)
         return {"items": [_material_candidate_view(row) for row in registry.list_candidates(principal.active_tenant_id)]}
+
+
+@router.post("/materials/candidates/refresh-evidence")
+def refresh_material_candidate_evidence(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION)),
+):
+    try:
+        result = MaterialCandidateEvidenceService(SessionLocal).refresh_pending(
+            principal.active_tenant_id
+        )
+    except MaterialEvidenceError as exc:
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+    return result
 
 
 @router.post("/materials/candidates/{candidate_id}/approve")

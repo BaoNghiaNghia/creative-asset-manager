@@ -777,12 +777,30 @@ def test_tool_host_retries_missing_catalog_once_before_accepting_review_issue():
         tenant_id="tenant-a",
         source_id="gemini",
         target_id="shared",
-        google=Google(),
+        google=Google(
+            source_values={
+                "A4": "Material",
+                "B4": "Unit",
+                "A5": "Unlisted Cotton",
+                "B5": "kg",
+            }
+        ),
         sessions=sessions,
+    )
+    host.execute(
+        "read_source_cells",
+        {"sheet": "Warehouses", "cells": ["A4", "B4", "A5", "B5"]},
     )
     issue = {
         "code": "MISSING_CATALOG_ITEMS",
-        "missing_materials": [{"raw_name": "Unlisted Cotton"}],
+        "missing_materials": [{
+            "raw_name": "Unlisted Cotton",
+            "name_evidence": {
+                "sheet": "Warehouses",
+                "cell": "A5",
+                "evidence_hash": canonical_hash(["Unlisted Cotton"]),
+            },
+        }],
     }
 
     first = host.execute(
@@ -802,6 +820,10 @@ def test_tool_host_retries_missing_catalog_once_before_accepting_review_issue():
     assert second["accepted"] is True
     assert host.plan is not None
     assert host.plan.issues == [issue]
+    review_evidence = host.plan.issues[0]["missing_materials"][0]["review_evidence"]
+    assert review_evidence["status"] == "explicit_unit_found"
+    assert review_evidence["suggested_preferred_unit"] == "kg"
+    assert review_evidence["suggested_canonical_dimension"] == "mass"
     engine.dispose(); temp.cleanup()
 
 

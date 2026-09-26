@@ -311,6 +311,11 @@ class InventorySharedCarryForwardService:
                                 "cell": cell,
                                 "evidence_hash": evidence_hash,
                             },
+                            **(
+                                {"review_evidence": dict(item.get("review_evidence") or {})}
+                                if isinstance(item.get("review_evidence"), dict)
+                                else {}
+                            ),
                         },
                     )
                     session.commit()

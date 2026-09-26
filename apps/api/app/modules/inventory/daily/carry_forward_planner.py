@@ -20,6 +20,7 @@ from app.modules.inventory.daily.carry_forward import CarryForwardPlan, CarryFor
 from app.modules.inventory.daily_sheet.parser import canonical_hash
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient
 from app.modules.inventory.model import InventoryAiControlModel
+from app.modules.inventory.material_evidence import build_material_review_evidence
 from app.modules.inventory.persistence_model import InventoryItemAliasModel, InventoryItemModel, InventoryLocationModel
 from app.providers.google.auth import get_connection_access_token
 
@@ -267,6 +268,25 @@ class CarryForwardToolHost:
             if not material_ok: raise CarryForwardReviewRequired("unknown_material")
             if not warehouse_ok: raise CarryForwardReviewRequired("unknown_warehouse")
             accepted.append({"type": "set_cell", "material_id": row.get("material_id"), "warehouse_id": row.get("warehouse_id"), "semantic_context": semantic_context, "value": source_raw_value, "source": {**source, "closing_value": source_raw_value, "spreadsheet_file_id": self.source_id}, "target": {**target, "opening_value": source_raw_value, "spreadsheet_file_id": self.target_id}})
+        ledger_cells = list(self.ledger.values())
+        for issue in issues:
+            if (
+                not isinstance(issue, dict)
+                or str(issue.get("code") or "").strip().upper()
+                != "MISSING_CATALOG_ITEMS"
+            ):
+                continue
+            for item in list(issue.get("missing_materials") or []):
+                if not isinstance(item, dict):
+                    continue
+                raw_name = str(item.get("raw_name") or "").strip()
+                name_evidence = item.get("name_evidence") or {}
+                if raw_name and isinstance(name_evidence, Mapping):
+                    item["review_evidence"] = build_material_review_evidence(
+                        raw_name=raw_name,
+                        name_evidence=name_evidence,
+                        cells=ledger_cells,
+                    )
         self.plan = CarryForwardPlan(accepted, issues, None, 3)
         self.submitted = True
         return {"accepted": True, "operations": len(accepted), "issues": len(issues)}

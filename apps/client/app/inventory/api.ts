@@ -133,10 +133,12 @@ export const inventoryDailySheetApi = {
 
 
 export type InventoryMaterial={material_id:string;canonical_name:string;category:string|null;canonical_dimension:string|null;preferred_unit:string|null;active:boolean;first_seen_at:string|null;last_seen_at:string|null;metadata:Record<string,unknown>;sheet_keys:string[];aliases:string[];package_conversions:Array<{package_name:string;canonical_value:string;canonical_unit:string}>};
-export type InventoryMaterialCandidate={id:string;status:"new_material"|"possible_rename"|"ambiguous";sheet:string;source_row:number;sheet_item_key:string;raw_name:string;category:string|null;suggested_item_id:string|null;suggested_canonical_name:string|null;confidence:number;reasons:string[]};
+export type InventoryMaterialReviewEvidence={status:string;name_cell?:string;unit_evidence:Array<{header_cell:string;header:string;value_cell:string;value:string;evidence_hash:string}>;suggested_preferred_unit?:string;suggested_canonical_dimension?:string;refreshed_at?:string};
+export type InventoryMaterialCandidate={id:string;status:"new_material"|"possible_rename"|"ambiguous";sheet:string;source_row:number;sheet_item_key:string;raw_name:string;category:string|null;suggested_item_id:string|null;suggested_canonical_name:string|null;confidence:number;reasons:string[];review_evidence?:InventoryMaterialReviewEvidence|null};
 export const inventoryMaterialApi={
   list:()=>request<{items:InventoryMaterial[]}>("/materials"),
   candidates:()=>request<{items:InventoryMaterialCandidate[]}>("/materials/candidates"),
+  refreshEvidence:()=>request<{updated:number;statuses:Record<string,number>}>("/materials/candidates/refresh-evidence",{method:"POST"}),
   approve:(id:string,body:{item_id?:string;canonical_name?:string;preferred_unit?:string;canonical_dimension?:string})=>request<InventoryMaterial>(`/materials/candidates/${encodeURIComponent(id)}/approve`,{method:"POST",body:JSON.stringify(body)}),
   ignore:(id:string)=>request<{status:string}>(`/materials/candidates/${encodeURIComponent(id)}/ignore`,{method:"POST"}),
   reject:(id:string)=>request<{status:string}>(`/materials/candidates/${encodeURIComponent(id)}/reject`,{method:"POST"}),
