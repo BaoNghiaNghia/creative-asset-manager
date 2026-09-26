@@ -187,6 +187,7 @@ def test_manual_recovery_preview_never_writes_or_clears_and_apply_sets_only_safe
     assert preview["status"] == "preview_ready"
     assert "MANUAL RECOVERY MODE" in planner.last_prompt
     assert "Do NOT plan clear_cell operations" in planner.last_prompt
+    assert "backend derives the authoritative write value" in planner.last_prompt
     assert preview["safe_operation_count"] == 1
     assert preview["write_operation_count"] == 1
     assert preview["excluded_clear_count"] == 1
@@ -416,6 +417,11 @@ def test_carry_forward_declares_bounded_catalog_search_tools_only():
     submit = next(item for item in declarations if item["name"] == "submit_carry_forward_plan")
     properties = submit["parameters"]["properties"]
     assert properties["operations"]["items"]["type"] == "object"
+    operation = properties["operations"]["items"]["properties"]
+    assert "backend derives the exact set_cell write value" in operation["value"]["description"]
+    evidence = operation["source"]
+    assert "backend derives the desired opening value" in evidence["properties"]["opening_value"]["description"]
+    assert "not the target cell's current value" in evidence["properties"]["opening_value"]["description"]
     assert properties["issues"]["items"]["type"] == "object"
 
 
@@ -521,6 +527,49 @@ def test_tool_host_requires_grounded_evidence_and_rejects_conflicting_target():
     assert snapshot["operation_count"] == 1
     assert snapshot["model"] == "gemini-test"
     assert "raw_value" not in str(snapshot["tool_trace"])
+    engine.dispose(); temp.cleanup()
+
+
+def test_tool_host_derives_write_value_from_verified_source_evidence():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    host = CarryForwardToolHost(
+        tenant_id="tenant-a",
+        source_id="gemini",
+        target_id="shared",
+        google=google,
+        sessions=sessions,
+    )
+    source = host.execute(
+        "read_source_cells", {"sheet": "Warehouses", "cells": ["H14"]}
+    )["cells"][0]
+    target = host.execute(
+        "read_target_cells", {"sheet": "Warehouses", "cells": ["B14"]}
+    )["cells"][0]
+
+    result = host.execute(
+        "submit_carry_forward_plan",
+        {
+            "issues": [],
+            "operations": [
+                {
+                    "type": "set_cell",
+                    "material_id": "material-a",
+                    "warehouse_id": "warehouse-a",
+                    "value": 1,
+                    "source": {**source, "closing_value": 999},
+                    "target": {**target, "opening_value": 1},
+                }
+            ],
+        },
+    )
+
+    assert result["accepted"] is True
+    assert host.plan is not None
+    operation = host.plan.rows[0]
+    assert operation["value"] == 50
+    assert operation["source"]["closing_value"] == 50
+    assert operation["target"]["opening_value"] == 50
     engine.dispose(); temp.cleanup()
 
 

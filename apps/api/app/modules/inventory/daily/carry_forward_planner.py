@@ -227,8 +227,12 @@ class CarryForwardToolHost:
                 accepted.append({"type": "clear_cell", "semantic_context": semantic_context, "target": {**target, "spreadsheet_file_id": self.target_id}})
                 continue
             if operation_type != "set_cell": raise CarryForwardReviewRequired("unsupported_carry_forward_operation")
-            source_value = self._number(source_evidence["raw_value"])
-            if self._number(source.get("closing_value")) != source_value or self._number(target.get("opening_value")) != source_value: raise CarryForwardReviewRequired("closing_opening_mismatch")
+            # Gemini selects the evidence-backed mapping; the trusted backend owns
+            # the numeric write value. Derive it from the exact SOURCE ledger so
+            # a stale current TARGET value cannot be mistaken for the desired
+            # post-carry-forward opening value.
+            source_raw_value = source_evidence["raw_value"]
+            self._number(source_raw_value)
             if target_key[1:] in targets: raise CarryForwardReviewRequired("duplicate_or_conflicting_target")
             targets.add(target_key[1:])
             with self.sessions() as session:
@@ -236,7 +240,7 @@ class CarryForwardToolHost:
                 warehouse_ok = session.scalar(select(InventoryLocationModel.id).where(InventoryLocationModel.id == row.get("warehouse_id"), InventoryLocationModel.tenant_id == self.tenant_id, InventoryLocationModel.active.is_(True)))
             if not material_ok: raise CarryForwardReviewRequired("unknown_material")
             if not warehouse_ok: raise CarryForwardReviewRequired("unknown_warehouse")
-            accepted.append({"type": "set_cell", "material_id": row.get("material_id"), "warehouse_id": row.get("warehouse_id"), "semantic_context": semantic_context, "value": row.get("value", target.get("opening_value")), "source": {**source, "spreadsheet_file_id": self.source_id}, "target": {**target, "spreadsheet_file_id": self.target_id}})
+            accepted.append({"type": "set_cell", "material_id": row.get("material_id"), "warehouse_id": row.get("warehouse_id"), "semantic_context": semantic_context, "value": source_raw_value, "source": {**source, "closing_value": source_raw_value, "spreadsheet_file_id": self.source_id}, "target": {**target, "opening_value": source_raw_value, "spreadsheet_file_id": self.target_id}})
         self.plan = CarryForwardPlan(accepted, issues, None, 3)
         return {"accepted": True, "operations": len(accepted), "issues": len(issues)}
 
@@ -361,8 +365,14 @@ def function_declarations() -> list[dict[str, Any]]:
             "sheet": {"type": "string"},
             "cell": {"type": "string"},
             "evidence_hash": {"type": "string"},
-            "closing_value": {"type": "number"},
-            "opening_value": {"type": "number"},
+            "closing_value": {
+                "type": "number",
+                "description": "Optional model echo for SOURCE evidence. The backend derives the authoritative closing value from the exact verified source-cell read and does not trust this field for writes.",
+            },
+            "opening_value": {
+                "type": "number",
+                "description": "Optional model echo for TARGET semantics. The backend derives the desired opening value from verified SOURCE closing evidence; this is not the target cell's current value and is not trusted for writes.",
+            },
         },
         "required": ["sheet", "cell", "evidence_hash"],
     }
@@ -372,7 +382,10 @@ def function_declarations() -> list[dict[str, Any]]:
             "type": {"type": "string", "enum": ["set_cell", "clear_cell"]},
             "material_id": {"type": "string"},
             "warehouse_id": {"type": "string"},
-            "value": {"type": "number"},
+            "value": {
+                "type": "number",
+                "description": "Optional model echo only. The backend derives the exact set_cell write value from verified SOURCE closing evidence.",
+            },
             "source": evidence,
             "target": evidence,
             "semantic_context": {
@@ -395,7 +408,7 @@ def function_declarations() -> list[dict[str, Any]]:
     declarations.append(
         {
             "name": "submit_carry_forward_plan",
-            "description": "Submit the evidence-backed carry-forward plan. Use set_cell only with exact source and target evidence; use clear_cell only for validated reset cells.",
+            "description": "Submit the evidence-backed carry-forward plan. For set_cell operations, choose the correct SOURCE closing cell and TARGET opening cell with exact evidence hashes; the backend derives source.closing_value, target.opening_value, and operation.value from the verified SOURCE read. The current TARGET value may differ. Use clear_cell only for validated reset cells.",
             "parameters": {
                 "type": "object",
                 "properties": {

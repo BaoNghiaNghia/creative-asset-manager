@@ -219,6 +219,43 @@ def test_manual_recovery_empty_plan_error_only_repreviews_on_first_pass(capsys):
     assert "prior_plan_issues_requires_second_pass" in output
 
 
+
+
+def test_manual_recovery_closing_opening_mismatch_only_repreviews_on_first_pass(capsys):
+    scheduler = Mock()
+    scheduler.preview_v4_morning_reset_recovery.return_value = _preview()
+    now = datetime(2030, 8, 10, 7, tzinfo=timezone.utc)
+    with patch.object(
+        _MODULE,
+        "_manual_recovery_scan",
+        return_value=([(
+            "tenant-a",
+            date(2030, 8, 10),
+            "closing_opening_mismatch",
+        )], {
+            "v4_tenants": 1,
+            "carry_absent": 0,
+            "carry_completed": 0,
+            "carry_eligible": 1,
+            "other_errors": {},
+            "plan_issue_codes": {"NO_RESET_RULE": 1},
+        }),
+    ):
+        result = _run_manual_recovery_current_day(
+            scheduler,
+            frozenset({"tenant-a"}),
+            now=now,
+        )
+
+    assert result == 0
+    scheduler.preview_v4_morning_reset_recovery.assert_called_once()
+    scheduler.apply_v4_morning_reset_recovery.assert_not_called()
+    output = capsys.readouterr().out
+    assert "status=preview_ready" in output
+    assert "status=preview_only" in output
+    assert "prior_plan_issues_requires_second_pass" in output
+
+
 def test_manual_recovery_one_shot_rejects_invalid_preview_without_apply(capsys):
     scheduler = Mock()
     preview = _preview()
