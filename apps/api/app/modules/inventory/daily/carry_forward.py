@@ -364,6 +364,31 @@ class InventorySharedCarryForwardService:
                 connection_id=connection_id,
             )
             if plan.issues:
+                now = inventory_utcnow()
+                with self.session_factory() as session:
+                    row = session.get(InventoryDailyCarryForwardModel, operation.id)
+                    row.previous_snapshot_id = snapshot_id
+                    row.source_gemini_file_id = source_id
+                    row.shared_target_file_id = shared_id
+                    row.plan_json = {
+                        "contract_version": plan.contract_version,
+                        "operations": list(plan.rows),
+                        "issues": list(plan.issues),
+                        "audit": {
+                            **dict(plan.audit or {}),
+                            "manual_recovery": True,
+                            "preview_blocked_by_issues": True,
+                        },
+                    }
+                    row.issue_count = len(plan.issues)
+                    row.status = "review_required"
+                    row.started_at = row.started_at or now
+                    row.error_code = "carry_forward_plan_has_issues"
+                    row.error_message = (
+                        "Manual recovery preview is blocked because the carry-forward "
+                        "planner reported unresolved issues."
+                    )
+                    session.commit()
                 raise CarryForwardReviewRequired("carry_forward_plan_has_issues")
 
             excluded_clear_count = sum(

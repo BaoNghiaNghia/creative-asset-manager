@@ -32,6 +32,7 @@ _MANUAL_RECOVERY_ERROR_CODES = frozenset({
     "previous_day_gemini_not_verified",
     "inventory_morning_reset_manual_recovery_preview_ready",
     "stale_evidence",
+    "carry_forward_plan_has_issues",
 })
 
 
@@ -60,8 +61,8 @@ def _handle_signal(_signum, _frame) -> None:
 def _manual_recovery_scan(
     now: datetime,
     allowed_tenant_ids: frozenset[str],
-) -> tuple[list[tuple[str, date]], dict[str, object]]:
-    candidates: list[tuple[str, date]] = []
+) -> tuple[list[tuple[str, date, str]], dict[str, object]]:
+    candidates: list[tuple[str, date, str]] = []
     diagnostics: dict[str, object] = {
         "v4_tenants": 0,
         "carry_absent": 0,
@@ -112,7 +113,11 @@ def _manual_recovery_scan(
                 continue
             if carry.error_code in _MANUAL_RECOVERY_ERROR_CODES:
                 diagnostics["carry_eligible"] = int(diagnostics["carry_eligible"]) + 1
-                candidates.append((settings.tenant_id, business_date))
+                candidates.append((
+                    settings.tenant_id,
+                    business_date,
+                    str(carry.error_code),
+                ))
                 continue
             code = str(carry.error_code or "none")
             other_errors = diagnostics["other_errors"]
@@ -126,7 +131,7 @@ def _manual_recovery_candidates(
     allowed_tenant_ids: frozenset[str],
 ) -> list[tuple[str, date]]:
     candidates, _diagnostics = _manual_recovery_scan(now, allowed_tenant_ids)
-    return candidates
+    return [(tenant_id, business_date) for tenant_id, business_date, _code in candidates]
 
 
 def _run_manual_recovery_current_day(
@@ -170,7 +175,8 @@ def _run_manual_recovery_current_day(
         )
         return 2
 
-    tenant_id, business_date = candidates[0]
+    tenant_id, business_date, initial_error_code = candidates[0]
+    preview_only = initial_error_code == "carry_forward_plan_has_issues"
     try:
         preview = scheduler.preview_v4_morning_reset_recovery(
             tenant_id,
@@ -179,10 +185,21 @@ def _run_manual_recovery_current_day(
         )
     except Exception as exc:
         code = str(getattr(exc, "code", type(exc).__name__))
+        _fresh_candidates, fresh_diagnostics = _manual_recovery_scan(
+            moment, allowed_tenant_ids
+        )
+        plan_issue_codes = fresh_diagnostics.get("plan_issue_codes") or {}
+        if isinstance(plan_issue_codes, dict):
+            issue_summary = ",".join(
+                f"{issue_code}:{count}"
+                for issue_code, count in sorted(plan_issue_codes.items())
+            ) or "none"
+        else:
+            issue_summary = "invalid"
         print(
             "INVENTORY_MANUAL_RECOVERY status=blocked "
             f"stage=preview business_date={business_date.isoformat()} "
-            f"error_code={code}"
+            f"error_code={code} plan_issue_codes={issue_summary}"
         )
         return 2
 
@@ -228,6 +245,13 @@ def _run_manual_recovery_current_day(
         f"safe_operations={safe_count} writes={write_count} "
         f"excluded_clears={excluded_clear_count} plan_hash={plan_hash}"
     )
+    if preview_only:
+        print(
+            "INVENTORY_MANUAL_RECOVERY status=preview_only "
+            "reason=prior_plan_issues_requires_second_pass "
+            f"business_date={business_date.isoformat()} plan_hash={plan_hash}"
+        )
+        return 0
 
     try:
         result = scheduler.apply_v4_morning_reset_recovery(

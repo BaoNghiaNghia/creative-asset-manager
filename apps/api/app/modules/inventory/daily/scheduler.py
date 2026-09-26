@@ -640,6 +640,7 @@ class InventoryDailyScheduler:
                 "previous_day_gemini_not_verified",
                 "inventory_morning_reset_manual_recovery_preview_ready",
                 "stale_evidence",
+                "carry_forward_plan_has_issues",
             }:
                 raise ValueError(
                     "inventory_morning_reset_recovery_blocked_by_other_error"
