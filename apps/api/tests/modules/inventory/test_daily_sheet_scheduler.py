@@ -194,9 +194,9 @@ class DailySheetSchedulerTest(unittest.TestCase):
         sheets = Sheets()
         scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
-        self.assertEqual(2, scheduler.run_once(moment))
+        self.assertEqual(1, scheduler.run_once(moment))
         self.assertEqual(0, scheduler.run_once(moment))
-        self.assertEqual(2, sheets.calls)
+        self.assertEqual(1, sheets.calls)
 
     def _enable_v4(self):
         with self.sessions.begin() as session:
@@ -237,6 +237,38 @@ class DailySheetSchedulerTest(unittest.TestCase):
             self.assertEqual("completed", job.status)
             self.assertEqual(1, job.attempt_count)
 
+    def test_v4_slot_metadata_self_heals_from_durable_completion(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_morning_reset_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-09:morning_reset",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-09:morning_reset",
+                payload_json={"business_date": "2030-08-09", "slot_kind": "morning_reset"},
+                status="failed",
+                attempt_count=5,
+                max_attempts=5,
+                last_error_code="inventory_v5_slot_attempts_exhausted",
+                last_error_message="stale scheduler metadata",
+            ))
+
+        class Sheets:
+            def run_agent_v4(self, *_args, **_kwargs):
+                raise AssertionError("durable completion must prevent a rerun")
+
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=Sheets())
+        moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(0, scheduler.execute_v4_slot("morning_reset", moment))
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v5_morning_reset_slot"
+            ))
+            self.assertEqual("completed", job.status)
+            self.assertIsNone(job.last_error_code)
+            self.assertTrue(job.payload_json["recovered_from_durable_state"])
+
     def test_v4_snapshot_and_reconcile_are_independent_and_next_day_is_eligible(self):
         self._enable_v4()
 
@@ -251,13 +283,12 @@ class DailySheetSchedulerTest(unittest.TestCase):
         sheets = Sheets()
         scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         first = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
-        self.assertEqual(1, scheduler.execute_v4_slot("afternoon_snapshot", first))
+        self.assertEqual(0, scheduler.execute_v4_slot("afternoon_snapshot", first))
         self.assertEqual(1, scheduler.execute_v4_slot("evening_reconcile", first))
         with self.sessions.begin() as session:
             session.add(InventoryDailyCarryForwardModel(tenant_id="tenant-a", target_business_date=date(2030, 8, 10), previous_business_date=date(2030, 8, 9), idempotency_key="ready-next", status="completed", verified_at=datetime.now(timezone.utc)))
         self.assertEqual(1, scheduler.execute_v4_slot("afternoon_snapshot", first + timedelta(days=1)))
         self.assertEqual([
-            ("2030-08-09", "afternoon_snapshot"),
             ("2030-08-09", "evening_reconcile"),
             ("2030-08-10", "afternoon_snapshot"),
         ], sheets.calls)
@@ -324,6 +355,147 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 )
         transient = InventoryAiGatewayError("inventory_gemini_request_failed", retryable=True)
         self.assertTrue(InventoryDailyScheduler._retryable_v4_error(transient))
+        self.assertTrue(
+            InventoryDailyScheduler._retryable_v4_error(
+                RuntimeError("inventory_gemini_rate_limited")
+            )
+        )
+        self.assertFalse(
+            InventoryDailyScheduler._retryable_v4_error(
+                RuntimeError("inventory_gemini_auth_or_permission_error")
+            )
+        )
+        self.assertFalse(
+            InventoryDailyScheduler._retryable_v4_error(
+                RuntimeError("inventory_morning_reset_missed_safe_window")
+            )
+        )
+
+    def test_v4_due_gate_keeps_terminal_jobs_cold_until_durable_repair(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 10, 0, 0, tzinfo=timezone.utc)
+        with self.sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_afternoon_snapshot_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-10:afternoon_snapshot",
+                idempotency_key="cold-terminal-snapshot",
+                payload_json={"business_date": "2030-08-10", "slot_kind": "afternoon_snapshot"},
+                status="failed",
+                attempt_count=5,
+                max_attempts=5,
+                last_error_code="spreadsheet_not_authorized",
+                next_attempt_at=moment,
+                completed_at=moment,
+            ))
+
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=SimpleNamespace())
+        self.assertEqual(
+            frozenset(),
+            scheduler._v4_due_slot_candidates(
+                tenant_id="tenant-a",
+                business_date=date(2030, 8, 10),
+                slot_kinds=("afternoon_snapshot",),
+                now=moment,
+            ),
+        )
+
+        with self.sessions.begin() as session:
+            session.add(InventoryDailySheetSnapshotModel(
+                id="repaired-snapshot-10",
+                tenant_id="tenant-a",
+                business_date=date(2030, 8, 10),
+                external_source_id="source-a",
+                source_spreadsheet_file_id="working",
+                snapshot_file_id="snapshot-10",
+                gemini_file_id="gemini-10",
+                status="completed",
+            ))
+
+        self.assertEqual(
+            frozenset({"afternoon_snapshot"}),
+            scheduler._v4_due_slot_candidates(
+                tenant_id="tenant-a",
+                business_date=date(2030, 8, 10),
+                slot_kinds=("afternoon_snapshot",),
+                now=moment,
+            ),
+        )
+
+    def test_v4_due_gate_skips_retry_backoff_and_active_lease(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 10, 0, 0, tzinfo=timezone.utc)
+        with self.sessions.begin() as session:
+            session.add_all([
+                InventoryJobModel(
+                    tenant_id="tenant-a",
+                    job_type="inventory_v5_afternoon_snapshot_slot",
+                    entity_type="inventory_v5_scheduler_slot",
+                    entity_id="2030-08-10:afternoon_snapshot",
+                    idempotency_key="future-retry-snapshot",
+                    payload_json={"business_date": "2030-08-10", "slot_kind": "afternoon_snapshot"},
+                    status="retry",
+                    attempt_count=1,
+                    max_attempts=5,
+                    next_attempt_at=moment + timedelta(minutes=5),
+                ),
+                InventoryJobModel(
+                    tenant_id="tenant-a",
+                    job_type="inventory_v5_evening_reconcile_slot",
+                    entity_type="inventory_v5_scheduler_slot",
+                    entity_id="2030-08-10:evening_reconcile",
+                    idempotency_key="leased-reconcile",
+                    payload_json={"business_date": "2030-08-10", "slot_kind": "evening_reconcile"},
+                    status="processing",
+                    attempt_count=1,
+                    max_attempts=5,
+                    next_attempt_at=moment,
+                    claimed_by="worker-a",
+                    claimed_at=moment,
+                    lease_expires_at=moment + timedelta(minutes=10),
+                ),
+            ])
+
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=SimpleNamespace())
+        self.assertEqual(
+            frozenset(),
+            scheduler._v4_due_slot_candidates(
+                tenant_id="tenant-a",
+                business_date=date(2030, 8, 10),
+                slot_kinds=("afternoon_snapshot", "evening_reconcile"),
+                now=moment,
+            ),
+        )
+
+    def test_v4_run_once_does_not_enter_claim_path_for_settled_slots(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 10, 16, 56, tzinfo=timezone.utc)
+        with self.sessions.begin() as session:
+            for slot_kind, job_type in (
+                ("morning_reset", "inventory_v5_morning_reset_slot"),
+                ("afternoon_snapshot", "inventory_v5_afternoon_snapshot_slot"),
+                ("evening_reconcile", "inventory_v5_evening_reconcile_slot"),
+            ):
+                session.add(InventoryJobModel(
+                    tenant_id="tenant-a",
+                    job_type=job_type,
+                    entity_type="inventory_v5_scheduler_slot",
+                    entity_id=f"2030-08-10:{slot_kind}",
+                    idempotency_key=f"settled-{slot_kind}",
+                    payload_json={"business_date": "2030-08-10", "slot_kind": slot_kind},
+                    status="completed",
+                    attempt_count=1,
+                    max_attempts=5,
+                    next_attempt_at=moment,
+                    completed_at=moment,
+                ))
+
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=SimpleNamespace())
+        def unexpected_claim(**_kwargs):
+            raise AssertionError("settled V4 slots must not enter claim path")
+        scheduler._claim_v4_slot = unexpected_claim
+        self.assertEqual(0, scheduler.run_once(moment))
 
     def test_v4_permanent_failure_is_terminal_without_hot_loop(self):
         self._enable_v4()

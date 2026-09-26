@@ -8,7 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 from app.modules.inventory.daily.service import InventoryDailyRunService
 from app.modules.inventory.daily.report import DailyReportNotFinalized, InventoryDailyReportService
-from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
+from app.modules.inventory.daily_sheet.service import InventoryDailySheetService, inventory_error_metadata
 from app.modules.inventory.daily.carry_forward import InventorySharedCarryForwardService
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.jobs.model import InventoryJobModel
@@ -101,17 +101,103 @@ class InventoryDailyScheduler:
             return True
         code = str(error).strip().lower()
         name = type(error).__name__.lower()
-        return (
-            code in {"morning_reset_not_completed", "afternoon_snapshot_not_ready", "stale_evidence", "previous_day_gemini_not_verified"}
-            or any(value in code for value in (
-                "429", "rate_limit", "rate limit", "timeout", "timed out",
-                "temporarily unavailable", "connection reset", "network",
-                "google_transport", "service unavailable", "502", "503", "504",
-                "inventory_sheet_agent_v4_missing_tool_call",
-                "inventory_sheet_agent_v4_round_limit",
-            ))
-            or any(value in name for value in ("timeout", "connection", "transport"))
+        metadata = inventory_error_metadata(code)
+        return bool(metadata["retryable"]) or any(
+            value in name for value in ("timeout", "connection", "transport")
         )
+
+    def _v4_due_slot_candidates(
+        self, *, tenant_id: str, business_date: date,
+        slot_kinds: tuple[str, ...], now: datetime,
+    ) -> frozenset[str]:
+        """Cheap persisted gate before entering claim/execution paths."""
+        if not slot_kinds:
+            return frozenset()
+        entity_ids = [
+            f"{business_date.isoformat()}:{slot_kind}" for slot_kind in slot_kinds
+        ]
+        with self.session_factory() as session:
+            jobs = list(session.scalars(select(InventoryJobModel).where(
+                InventoryJobModel.tenant_id == tenant_id,
+                InventoryJobModel.job_type.in_(
+                    [V4_SLOT_JOB_TYPES[slot_kind] for slot_kind in slot_kinds]
+                ),
+                InventoryJobModel.entity_id.in_(entity_ids),
+            )))
+            jobs_by_kind = {
+                str(
+                    (job.payload_json or {}).get("slot_kind")
+                    or job.entity_id.rsplit(":", 1)[-1]
+                ): job
+                for job in jobs
+            }
+            candidates: set[str] = set()
+            for slot_kind in slot_kinds:
+                job = jobs_by_kind.get(slot_kind)
+                if job is None:
+                    candidates.add(slot_kind)
+                    continue
+                if job.status == "completed":
+                    continue
+                if job.status == "retry":
+                    next_attempt_at = job.next_attempt_at
+                    if next_attempt_at is not None and next_attempt_at.tzinfo is None:
+                        next_attempt_at = next_attempt_at.replace(tzinfo=timezone.utc)
+                    if next_attempt_at is not None and next_attempt_at > now:
+                        continue
+                if job.status == "processing":
+                    lease_expires_at = job.lease_expires_at
+                    if lease_expires_at is not None and lease_expires_at.tzinfo is None:
+                        lease_expires_at = lease_expires_at.replace(tzinfo=timezone.utc)
+                    if lease_expires_at is not None and lease_expires_at > now:
+                        continue
+                if job.status == "failed":
+                    # Terminal failures stay cold unless an external repair has
+                    # produced durable evidence that can safely self-heal them.
+                    if self._durable_v4_slot_completed_at(
+                        session,
+                        tenant_id=tenant_id,
+                        business_date=business_date,
+                        slot_kind=slot_kind,
+                    ) is None:
+                        continue
+                candidates.add(slot_kind)
+            return frozenset(candidates)
+
+    @staticmethod
+    def _durable_v4_slot_completed_at(
+        session: Session, *, tenant_id: str, business_date: date, slot_kind: str
+    ) -> datetime | None:
+        if slot_kind == "morning_reset":
+            row = session.scalar(select(InventoryDailyCarryForwardModel).where(
+                InventoryDailyCarryForwardModel.tenant_id == tenant_id,
+                InventoryDailyCarryForwardModel.target_business_date == business_date,
+            ))
+            if row and row.status == "completed" and row.verified_at is not None:
+                return row.completed_at or row.verified_at
+            return None
+        snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+            InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+            InventoryDailySheetSnapshotModel.business_date == business_date,
+        ))
+        if snapshot is None:
+            return None
+        if slot_kind == "afternoon_snapshot":
+            if (
+                snapshot.status == "completed"
+                and snapshot.snapshot_file_id
+                and snapshot.gemini_file_id
+            ):
+                return snapshot.reset_completed_at or snapshot.cloned_at or snapshot.updated_at
+            return None
+        if slot_kind == "evening_reconcile":
+            if (
+                snapshot.gemini_reconcile_status == "completed"
+                and snapshot.gemini_reconcile_verified_at is not None
+            ):
+                return snapshot.gemini_reconcile_completed_at or snapshot.gemini_reconcile_verified_at
+            return None
+        return None
 
     def _claim_v4_slot(
         self, *, tenant_id: str, business_date: date, slot_kind: str, now: datetime
@@ -137,7 +223,31 @@ class InventoryDailyScheduler:
             if session.bind is not None and session.bind.dialect.name == "postgresql":
                 query = query.with_for_update()
             job = session.scalar(query)
-            if job is None or job.status in {"completed", "failed"}:
+            if job is None:
+                return None
+            durable_completed_at = self._durable_v4_slot_completed_at(
+                session,
+                tenant_id=tenant_id,
+                business_date=business_date,
+                slot_kind=slot_kind,
+            )
+            if durable_completed_at is not None:
+                if job.status != "completed":
+                    job.status = "completed"
+                    job.completed_at = durable_completed_at
+                    job.last_error_code = None
+                    job.last_error_message = None
+                    job.claimed_by = None
+                    job.claimed_at = None
+                    job.lease_expires_at = None
+                    job.payload_json = {
+                        **(job.payload_json or {}),
+                        "recovered_from_durable_state": True,
+                    }
+                    job.updated_at = now
+                    session.flush()
+                return None
+            if job.status in {"completed", "failed"}:
                 return None
             next_attempt_at = job.next_attempt_at
             if next_attempt_at is not None and next_attempt_at.tzinfo is None:
@@ -479,7 +589,22 @@ class InventoryDailyScheduler:
                     )
                     snapshot_due = local.time() >= _configured_time(settings.daily_snapshot_time_local, time(23, 50))
                     reconcile_due = local.time() >= _configured_time(settings.daily_reconcile_time_local, time(23, 55))
-                    if is_v4 and carry_forward_due:
+                    v4_candidates: frozenset[str] = frozenset()
+                    if is_v4:
+                        due_slots: list[str] = []
+                        if carry_forward_due:
+                            due_slots.append("morning_reset")
+                        if snapshot_due:
+                            due_slots.append("afternoon_snapshot")
+                        if reconcile_due:
+                            due_slots.append("evening_reconcile")
+                        v4_candidates = self._v4_due_slot_candidates(
+                            tenant_id=tenant_id,
+                            business_date=target_business_date,
+                            slot_kinds=tuple(due_slots),
+                            now=moment,
+                        )
+                    if is_v4 and carry_forward_due and "morning_reset" in v4_candidates:
                         claimed = self._claim_v4_slot(tenant_id=tenant_id, business_date=target_business_date, slot_kind="morning_reset", now=moment)
                         if claimed:
                             job_id, worker_id = claimed
@@ -503,8 +628,9 @@ class InventoryDailyScheduler:
                             and settings.daily_sheet_config_json.get("version") == 3
                         )
                         if is_v4:
-                            count += self._execute_v4_snapshot(settings=settings, business_date=target_business_date, moment=moment)
-                            if reconcile_due:
+                            if "afternoon_snapshot" in v4_candidates:
+                                count += self._execute_v4_snapshot(settings=settings, business_date=target_business_date, moment=moment)
+                            if reconcile_due and "evening_reconcile" in v4_candidates:
                                 count += self._execute_v4_reconcile_after_snapshot(settings=settings, business_date=target_business_date, moment=moment)
                         elif is_v3:
                             plan_key = (tenant_id, target_business_date)

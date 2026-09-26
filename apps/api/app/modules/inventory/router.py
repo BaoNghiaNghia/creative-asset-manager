@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 import logging
 
 
@@ -45,12 +45,15 @@ def _credential_view(metadata, *, source: str) -> dict:
         return {
             "provider": "gemini", "configured": False, "source": "unavailable",
             "masked_key": None, "label": None, "status": "unavailable",
+            "health_status": "NOT_TESTED", "last_test_status": None,
             "last_tested_at": None, "updated_at": None, "updated_by": None,
         }
     return {
         "provider": metadata.provider, "configured": True, "source": source,
         "masked_key": f"••••••••{metadata.secret_last4}", "label": metadata.label,
         "status": "connected" if metadata.status == "active" else metadata.status,
+        "health_status": metadata.last_test_status or "NOT_TESTED",
+        "last_test_status": metadata.last_test_status,
         "last_tested_at": metadata.last_tested_at, "updated_at": metadata.updated_at,
         "updated_by": metadata.updated_by,
     }
@@ -79,7 +82,8 @@ def get_ai_credential(
         return {
             "provider": "gemini", "configured": True, "source": "environment",
             "masked_key": f"••••••••{environment_key[-4:]}", "label": None,
-            "status": "connected", "last_tested_at": None, "updated_at": None,
+            "status": "connected", "health_status": "NOT_TESTED",
+            "last_test_status": None, "last_tested_at": None, "updated_at": None,
             "updated_by": None,
         }
     return _credential_view(None, source="unavailable")
@@ -103,11 +107,37 @@ def test_ai_credential(
             result = validate_gemini_candidate(api_key)
     else:
         result = validate_gemini_candidate(body.api_key)
+    tested_at = datetime.now(timezone.utc)
+    if body.api_key is None:
+        try:
+            with SessionLocal() as session:
+                repository = _credential_metadata_repository(session)
+                metadata = repository.record_test_result(
+                    principal.active_tenant_id,
+                    result=result,
+                    tested_at=tested_at,
+                )
+                if metadata is not None:
+                    repository.audit(
+                        principal.active_tenant_id,
+                        actor_id=principal.actor_id,
+                        action="credential_tested",
+                        result=result,
+                        previous_fingerprint=metadata.secret_fingerprint,
+                        new_fingerprint=metadata.secret_fingerprint,
+                    )
+                    session.commit()
+        except SQLAlchemyError:
+            _CREDENTIAL_LOGGER.warning(
+                "inventory_gemini_credential_test_metadata_persist_failed tenant_id=%s actor_id=%s provider=gemini",
+                principal.active_tenant_id,
+                principal.actor_id,
+            )
     _CREDENTIAL_LOGGER.info(
         "inventory_gemini_credential_test tenant_id=%s actor_id=%s provider=gemini result=%s",
         principal.active_tenant_id, principal.actor_id, result,
     )
-    return {"provider": "gemini", "status": result}
+    return {"provider": "gemini", "status": result, "tested_at": tested_at}
 
 
 @router.put("/configuration/ai-credential")

@@ -128,7 +128,9 @@ class InventoryCredentialRouterTest(unittest.TestCase):
             with patch("app.modules.inventory.router.validate_gemini_candidate", return_value=expected):
                 response = self.request(self.manage, "POST", "/api/inventory/configuration/ai-credential/test", json=payload)
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), {"provider": "gemini", "status": expected})
+            self.assertEqual(response.json()["provider"], "gemini")
+            self.assertEqual(response.json()["status"], expected)
+            self.assertIsNotNone(response.json()["tested_at"])
             self.assertNotIn(NEW_KEY, response.text)
         with self.sessions() as session:
             self.assertEqual(session.scalar(select(func.count(InventoryAiCredentialModel.id))), 0)
@@ -140,16 +142,26 @@ class InventoryCredentialRouterTest(unittest.TestCase):
                 self.manage, "POST", "/api/inventory/configuration/ai-credential/test", json={}
             )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"provider": "gemini", "status": "VALID"})
+        self.assertEqual(response.json()["provider"], "gemini")
+        self.assertEqual(response.json()["status"], "VALID")
+        self.assertIsNotNone(response.json()["tested_at"])
         validate.assert_called_once_with(OLD_KEY)
         self.assertNotIn(OLD_KEY, response.text)
+        with self.sessions() as session:
+            metadata = self.repository(session).get_metadata("tenant-a")
+            self.assertEqual(metadata.last_test_status, "VALID")
+            self.assertIsNotNone(metadata.last_tested_at)
+            audit = session.scalars(select(InventoryAiCredentialAuditModel).order_by(InventoryAiCredentialAuditModel.created_at.desc())).first()
+            self.assertEqual(audit.action, "credential_tested")
 
     def test_test_endpoint_returns_safe_unavailable_status_without_a_configured_key(self):
         response = self.request(
             self.manage, "POST", "/api/inventory/configuration/ai-credential/test", json={}
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"provider": "gemini", "status": "PROVIDER_UNAVAILABLE"})
+        self.assertEqual(response.json()["provider"], "gemini")
+        self.assertEqual(response.json()["status"], "PROVIDER_UNAVAILABLE")
+        self.assertIsNotNone(response.json()["tested_at"])
 
     def test_put_validates_before_atomic_replacement_and_audits_safe_metadata(self):
         self.store("tenant-a", OLD_KEY)

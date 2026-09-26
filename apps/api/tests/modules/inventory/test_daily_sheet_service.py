@@ -309,6 +309,18 @@ def test_v4_status_uses_scheduler_slots_instead_of_legacy_records(daily_sheet_db
             "source": {"allowed_sheets": []},
             "agent": {"apply_mode": "auto"},
         }
+        session.add(InventoryDailySheetSnapshotModel(
+            id="v4-status-snapshot",
+            tenant_id="tenant-a",
+            business_date=date(2030, 8, 9),
+            external_source_id="source-a",
+            source_spreadsheet_file_id="working",
+            snapshot_file_id="snapshot-9",
+            gemini_file_id="gemini-9",
+            status="completed",
+            gemini_reconcile_status="completed",
+            gemini_reconcile_verified_at=datetime(2030, 8, 9, 16, tzinfo=timezone.utc),
+        ))
         session.add_all([
             InventoryJobModel(
                 id="v4-snapshot",
@@ -334,7 +346,11 @@ def test_v4_status_uses_scheduler_slots_instead_of_legacy_records(daily_sheet_db
             ),
         ])
 
-    result = service(daily_sheet_db, FakeGoogle()).status("tenant-a")
+    result = service(
+        daily_sheet_db,
+        FakeGoogle(),
+        now=datetime(2030, 8, 9, 15, 0, tzinfo=timezone.utc),
+    ).status("tenant-a")
 
     assert result["execution_mode"] == "v4_slots"
     assert result["operational_state"] == "healthy"
@@ -1415,12 +1431,117 @@ def test_lifecycle_history_exposes_stage_error_message(daily_sheet_db):
             error_code="previous_day_gemini_not_verified",
             error_message="The previous Gemini workbook is not verified.",
         ))
+        session.add(InventoryJobModel(
+            tenant_id="tenant-a",
+            job_type="inventory_v5_morning_reset_slot",
+            entity_type="inventory_v5_scheduler_slot",
+            entity_id="2030-08-10:morning_reset",
+            idempotency_key="carry-failed-job",
+            payload_json={"business_date": "2030-08-10", "slot_kind": "morning_reset"},
+            status="retry",
+            attempt_count=3,
+            max_attempts=5,
+            next_attempt_at=datetime(2030, 8, 10, 8, 5, tzinfo=timezone.utc),
+            claimed_at=datetime(2030, 8, 10, 7, 59, tzinfo=timezone.utc),
+        ))
 
     history = service(daily_sheet_db, FakeGoogle(), datetime(2030, 8, 10, 8, tzinfo=timezone.utc)).lifecycle_history("tenant-a")
     morning = history["items"][0]["stages"][0]
     assert morning["status"] == "failed"
     assert morning["error_code"] == "previous_day_gemini_not_verified"
     assert morning["error_message"] == "The previous Gemini workbook is not verified."
+    assert morning["error_category"] == "DEPENDENCY"
+    assert morning["retryable"] is True
+    assert morning["attempt_count"] == 3
+    assert morning["max_attempts"] == 5
+    assert morning["next_attempt_at"].startswith("2030-08-10T08:05:00")
+
+
+def test_lifecycle_history_marks_missed_reset_window_after_dependency_is_repaired(daily_sheet_db):
+    verified_at = datetime(2030, 8, 10, 5, tzinfo=timezone.utc)
+    with daily_sheet_db.begin() as session:
+        session.add(InventoryDailyCarryForwardModel(
+            tenant_id="tenant-a",
+            target_business_date=date(2030, 8, 10),
+            previous_business_date=date(2030, 8, 9),
+            idempotency_key="carry-missed-window",
+            status="terminal_failure",
+            error_code="previous_day_gemini_not_verified",
+            error_message="The previous Gemini workbook is not verified.",
+        ))
+        session.add(InventoryDailySheetSnapshotModel(
+            tenant_id="tenant-a",
+            business_date=date(2030, 8, 9),
+            external_source_id="source-a",
+            source_spreadsheet_file_id="working",
+            snapshot_file_id="snapshot-9",
+            gemini_file_id="gemini-9",
+            status="completed",
+            gemini_reconcile_status="completed",
+            gemini_reconcile_verified_at=verified_at,
+        ))
+
+    history = service(
+        daily_sheet_db,
+        FakeGoogle(),
+        datetime(2030, 8, 10, 8, tzinfo=timezone.utc),
+    ).lifecycle_history("tenant-a")
+    current = history["items"][0]
+    morning = current["stages"][0]
+    assert morning["status"] == "review_required"
+    assert morning["error_code"] == "inventory_morning_reset_missed_safe_window"
+    assert morning["error_category"] == "DEPENDENCY"
+    assert morning["retryable"] is False
+    assert current["action_required"]["label"] == "Cần recovery thủ công"
+
+
+def test_lifecycle_history_marks_invariant_when_completed_snapshot_has_no_files(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        session.add(InventoryDailySheetSnapshotModel(
+            tenant_id="tenant-a",
+            business_date=date(2030, 8, 10),
+            external_source_id="source-a",
+            source_spreadsheet_file_id="working",
+            status="completed",
+        ))
+
+    history = service(
+        daily_sheet_db,
+        FakeGoogle(),
+        datetime(2030, 8, 10, 8, tzinfo=timezone.utc),
+    ).lifecycle_history("tenant-a")
+    current = history["items"][0]
+    codes = {item["code"] for item in current["invariants"]}
+    assert "snapshot_completed_without_file" in codes
+    assert "snapshot_completed_without_gemini_copy" in codes
+    assert current["overall_status"] == "stale"
+    assert current["action_required"]["label"] == "Kiểm tra invariant"
+
+
+def test_lifecycle_history_detects_completed_slot_without_durable_state(daily_sheet_db):
+    with daily_sheet_db.begin() as session:
+        session.add(InventoryJobModel(
+            tenant_id="tenant-a",
+            job_type="inventory_v5_evening_reconcile_slot",
+            entity_type="inventory_v5_scheduler_slot",
+            entity_id="2030-08-10:evening_reconcile",
+            idempotency_key="invariant-evening-slot",
+            status="completed",
+            attempt_count=1,
+            max_attempts=5,
+        ))
+
+    history = service(
+        daily_sheet_db,
+        FakeGoogle(),
+        datetime(2030, 8, 10, 8, tzinfo=timezone.utc),
+    ).lifecycle_history("tenant-a")
+    current = history["items"][0]
+    assert any(
+        item["code"] == "evening_reconcile_slot_completed_without_durable_state"
+        for item in current["invariants"]
+    )
+    assert current["overall_status"] == "stale"
 
 
 def test_lifecycle_history_prefers_carry_forward_state_over_stale_scheduler_error(daily_sheet_db):
@@ -1465,7 +1586,7 @@ def test_lifecycle_history_prefers_carry_forward_state_over_stale_scheduler_erro
 def test_lifecycle_history_derives_current_and_completed_pipeline_without_writes(daily_sheet_db):
     completed_at = datetime(2030, 8, 9, 16, tzinfo=timezone.utc)
     with daily_sheet_db.begin() as session:
-        session.add(InventoryDailyCarryForwardModel(tenant_id="tenant-a", target_business_date=date(2030, 8, 10), previous_business_date=date(2030, 8, 9), idempotency_key="carry-10", status="completed", shared_target_file_id="shared-10", verified_at=completed_at, completed_at=completed_at))
+        session.add(InventoryDailyCarryForwardModel(tenant_id="tenant-a", target_business_date=date(2030, 8, 10), previous_business_date=date(2030, 8, 9), idempotency_key="carry-10", status="completed", shared_target_file_id="shared-10", source_gemini_file_id="gemini-9", verified_at=completed_at, completed_at=completed_at))
         session.add(InventoryDailySheetSnapshotModel(tenant_id="tenant-a", business_date=date(2030, 8, 9), external_source_id="source-a", source_spreadsheet_file_id="working", snapshot_file_id="snapshot-9", gemini_file_id="gemini-9", status="completed", gemini_reconcile_status="completed", gemini_reconcile_verified_at=completed_at))
     history = service(daily_sheet_db, FakeGoogle(), datetime(2030, 8, 10, 8, tzinfo=timezone.utc)).lifecycle_history("tenant-a")
     assert [row["business_date"] for row in history["items"]] == ["2030-08-10", "2030-08-09"]

@@ -20,6 +20,8 @@ export function credentialStatusLabel(status: string, configured: boolean): stri
     PERMISSION_DENIED: "Permission denied",
     RATE_LIMITED: "Rate limited",
     PROVIDER_UNAVAILABLE: "Unavailable",
+    NOT_TESTED: "Not tested",
+    not_tested: "Not tested",
     unavailable: "Unavailable",
   } as Record<string, string>)[status] || status;
 }
@@ -37,6 +39,8 @@ export function credentialStatusClass(status: string, configured: boolean): stri
     PERMISSION_DENIED: "denied",
     RATE_LIMITED: "limited",
     PROVIDER_UNAVAILABLE: "unavailable",
+    NOT_TESTED: "not-configured",
+    not_tested: "not-configured",
     unavailable: "unavailable",
   } as Record<string, string>)[status] || "unavailable";
 }
@@ -119,6 +123,12 @@ export function InventoryGeminiCredentialSettings({
     try {
       const result = await inventoryApi.testAiCredential();
       setTestStatus(result.status);
+      setCredential(current => current ? {
+        ...current,
+        health_status: result.status,
+        last_test_status: result.status,
+        last_tested_at: result.tested_at,
+      } : current);
       setCurrentTestButtonStatus(credentialStatusLabel(result.status, true));
     } catch (error) {
       if (error instanceof InventoryApiError && error.status === 403) setState("forbidden");
@@ -167,15 +177,16 @@ export function InventoryGeminiCredentialSettings({
         <h2 id="inventory-ai-title">Gemini cho Inventory</h2>
         <p className="inventory-muted">Dùng riêng cho pipeline tài liệu Inventory; không ảnh hưởng đến Creative AI.</p>
       </div>
-      <span className={"inventory-credential-status status-" + credentialStatusClass(credential.status, credential.configured)}>{credentialStatusLabel(credential.status, credential.configured)}</span>
+      <span className={"inventory-credential-status status-" + credentialStatusClass(credential.health_status, credential.configured)}>{credentialStatusLabel(credential.health_status, credential.configured)}</span>
     </div>
     <dl className="inventory-credential-grid">
       <div><dt>Provider</dt><dd>Google Gemini</dd></div>
-      <div><dt>Status</dt><dd>{credentialStatusLabel(credential.status, credential.configured)}</dd></div>
+      <div><dt>Configuration</dt><dd>{credential.configured ? "Configured" : "Not configured"}</dd></div>
+      <div><dt>Provider Health</dt><dd>{credentialStatusLabel(credential.health_status, credential.configured)}</dd></div>
+      <div><dt>Last Tested</dt><dd>{formatTimestamp(credential.last_tested_at)}</dd></div>
+      <div><dt>Credential Source</dt><dd>{credential.source === "configuration" ? "Inventory configuration" : credential.source === "environment" ? "Environment fallback" : "Unavailable"}</dd></div>
       <div><dt>API Key</dt><dd>{credential.masked_key || "Not configured"}</dd></div>
-
       <div><dt>Label</dt><dd>{credential.label || "Not set"}</dd></div>
-
       <div><dt>Last Updated</dt><dd>{formatTimestamp(credential.updated_at)}</dd></div>
 
     </dl>

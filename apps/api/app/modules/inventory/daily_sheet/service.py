@@ -22,6 +22,48 @@ from app.providers.google.auth import get_connection_access_token
 
 logger = logging.getLogger("cam.inventory.daily_sheet")
 
+def inventory_error_metadata(code: str | None) -> dict[str, Any]:
+    """Stable operator-facing classification while preserving the exact error code."""
+    if not code:
+        return {"category": None, "retryable": False}
+    value = str(code).strip().lower()
+    if any(token in value for token in ("invariant", "completed_without_", "without_durable_state")):
+        category = "STATE_INVARIANT"
+    elif any(token in value for token in ("invalid_key", "credential", "auth", "permission", "decryption", "encryption")):
+        category = "AUTH"
+    elif "429" in value or "rate_limit" in value or "rate limit" in value:
+        category = "RATE_LIMIT"
+    elif "model_not_found" in value or ("model" in value and "not found" in value):
+        category = "MODEL"
+    elif any(token in value for token in ("tool_call", "missing_tool", "round_limit")):
+        category = "TOOL_PROTOCOL"
+    elif any(token in value for token in ("previous_day_gemini_not_verified", "morning_reset_not_completed", "afternoon_snapshot_not_ready", "missed_safe_window", "dependency")):
+        category = "DEPENDENCY"
+    elif any(token in value for token in ("stale_evidence", "verification", "not_verified", "invalid_response")):
+        category = "VERIFICATION"
+    elif any(token in value for token in ("google_sheets", "spreadsheet", "sheets_scope", "drive_")):
+        category = "GOOGLE_SHEETS"
+    elif any(token in value for token in ("transport", "timeout", "timed out", "network", "connection reset", "service unavailable", "502", "503", "504")):
+        category = "TRANSPORT"
+    elif any(token in value for token in ("configuration", "not_configured")):
+        category = "CONFIGURATION"
+    else:
+        category = "UNKNOWN"
+    retryable = (
+        category in {"RATE_LIMIT", "TRANSPORT"}
+        or any(token in value for token in (
+            "previous_day_gemini_not_verified",
+            "morning_reset_not_completed",
+            "afternoon_snapshot_not_ready",
+            "stale_evidence",
+            "inventory_sheet_agent_v4_missing_tool_call",
+            "inventory_sheet_agent_v4_round_limit",
+        ))
+    )
+    if "missed_safe_window" in value:
+        retryable = False
+    return {"category": category, "retryable": retryable}
+
 class DailySheetConfigurationError(ValueError):
     code = "invalid_configuration"
 
@@ -1760,11 +1802,20 @@ class InventoryDailySheetService:
                 job = v4_jobs.get(slot_kind)
                 if job is None:
                     return None
+                error_meta = inventory_error_metadata(job.last_error_code)
                 return {
                     "id": job.id,
                     "business_date": str((job.payload_json or {}).get("business_date") or ""),
                     "status": job.status,
                     "error_code": job.last_error_code,
+                    "error_message": job.last_error_message,
+                    "error_category": error_meta["category"],
+                    "retryable": error_meta["retryable"],
+                    "attempt_count": job.attempt_count,
+                    "max_attempts": job.max_attempts,
+                    "last_attempt_at": job.claimed_at,
+                    "next_attempt_at": job.next_attempt_at,
+                    "self_healed": bool((job.payload_json or {}).get("recovered_from_durable_state")),
                     "completed_at": job.completed_at,
                 }
             v4_jobs: dict[str, InventoryJobModel | None] = {}
@@ -1779,6 +1830,7 @@ class InventoryDailySheetService:
                         .where(
                             InventoryJobModel.tenant_id == tenant_id,
                             InventoryJobModel.job_type == job_type,
+                            InventoryJobModel.entity_id == f"{current_business_date.isoformat()}:{slot_kind}",
                         )
                         .order_by(InventoryJobModel.created_at.desc())
                     )
@@ -1812,6 +1864,7 @@ class InventoryDailySheetService:
                         if snap.archive_folder_id else None
                     ),
                     "error_code": snap.error_code,
+                    "error_message": snap.error_message,
                     "completed_at": snap.reset_completed_at,
                     "prompt_source": snap.gemini_prompt_source,
                     "prompt_version": snap.gemini_prompt_version,
@@ -1821,6 +1874,7 @@ class InventoryDailySheetService:
                     "gemini_reconcile_plan_hash": snap.gemini_reconcile_plan_hash,
                     "gemini_reconcile_verified_at": snap.gemini_reconcile_verified_at,
                     "gemini_reconcile_error_code": snap.gemini_reconcile_error_code,
+                    "gemini_reconcile_error_message": snap.gemini_reconcile_error_message,
                 }
 
             reconciliation_status = None
@@ -1849,12 +1903,17 @@ class InventoryDailySheetService:
                     "warehouse_count": carry.warehouse_count,
                     "issue_count": carry.issue_count,
                     "error_code": carry.error_code,
+                    "error_message": carry.error_message,
+                    "error_category": inventory_error_metadata(carry.error_code)["category"],
+                    "retryable": inventory_error_metadata(carry.error_code)["retryable"],
                     "prompt_source": carry.prompt_source,
                     "prompt_version": carry.prompt_version,
                     "prompt_hash": carry.prompt_hash,
                     "source_gemini_file_id": carry.source_gemini_file_id,
                 }
 
+            v4_snapshot = None
+            v4_reconciliation = None
             if is_v4:
                 v4_snapshot = v4_slot_status("afternoon_snapshot")
                 v4_reconciliation = v4_slot_status("evening_reconcile")
@@ -1913,6 +1972,47 @@ class InventoryDailySheetService:
                 and settings.daily_archive_root_folder_id
                 and settings.daily_sheet_config_json
             )
+            current_carry_forward = (
+                carry_forward_status
+                if carry_forward_status
+                and carry_forward_status["target_business_date"] == current_business_date
+                else None
+            )
+            morning_slot = v4_slot_status("morning_reset") if is_v4 else None
+            morning_lifecycle = current_carry_forward or morning_slot or {}
+            status_invariants: list[dict[str, str]] = []
+            if current_carry_forward and current_carry_forward["status"] == "completed":
+                if carry is not None and carry.verified_at is None:
+                    status_invariants.append({"code": "carry_forward_completed_without_verification", "stage": "morning_reset"})
+                if not current_carry_forward.get("source_gemini_file_id"):
+                    status_invariants.append({"code": "carry_forward_completed_without_source", "stage": "morning_reset"})
+            if snap is not None and snap.status == "completed":
+                if not snap.snapshot_file_id:
+                    status_invariants.append({"code": "snapshot_completed_without_file", "stage": "afternoon_snapshot"})
+                if not snap.gemini_file_id:
+                    status_invariants.append({"code": "snapshot_completed_without_gemini_copy", "stage": "afternoon_snapshot"})
+            if snap is not None and snap.gemini_reconcile_status == "completed" and snap.gemini_reconcile_verified_at is None:
+                status_invariants.append({"code": "reconcile_completed_without_verification", "stage": "evening_reconcile"})
+            durable_status = {
+                "morning_reset": bool(carry is not None and carry.target_business_date == current_business_date and carry.status == "completed" and carry.verified_at is not None),
+                "afternoon_snapshot": bool(snap is not None and snap.status == "completed" and snap.snapshot_file_id and snap.gemini_file_id),
+                "evening_reconcile": bool(snap is not None and snap.gemini_reconcile_status == "completed" and snap.gemini_reconcile_verified_at is not None),
+            }
+            for slot_kind, job in v4_jobs.items():
+                if job is not None and job.status == "completed" and not durable_status.get(slot_kind, False):
+                    status_invariants.append({"code": f"{slot_kind}_slot_completed_without_durable_state", "stage": slot_kind})
+            degraded = degraded or bool(status_invariants)
+            morning_error_meta = inventory_error_metadata(morning_lifecycle.get("error_code"))
+            afternoon_error_code = (
+                (snapshot_status or {}).get("error_code")
+                or (v4_snapshot or {}).get("error_code")
+            )
+            afternoon_error_meta = inventory_error_metadata(afternoon_error_code)
+            evening_error_code = (
+                (snapshot_status or {}).get("gemini_reconcile_error_code")
+                or (v4_reconciliation or {}).get("error_code")
+            )
+            evening_error_meta = inventory_error_metadata(evening_error_code)
             return {
                 "enabled": enabled,
                 "configured": configured,
@@ -1936,22 +2036,44 @@ class InventoryDailySheetService:
                     f"https://docs.google.com/spreadsheets/d/{settings.daily_working_spreadsheet_file_id}/edit"
                     if settings and settings.daily_working_spreadsheet_file_id else None
                 ),
+                "invariants": status_invariants,
                 "last_snapshot": snapshot_status,
                 "last_reconciliation": reconciliation_status,
                 "carry_forward": carry_forward_status,
                 "lifecycle": {
                     "business_date": current_business_date.isoformat(),
                     "morning_reset": {
-                        "status": (v4_slot_status("morning_reset") or {}).get("status", "pending") if is_v4 else (carry_forward_status or {}).get("status", "pending"),
+                        "status": morning_lifecycle.get("status", "pending") if is_v4 else (carry_forward_status or {}).get("status", "pending"),
                         "scheduled_time": carry_forward_time,
                         "source_business_date": (current_business_date - timedelta(days=1)).isoformat(),
-                        "source_gemini_file_id": (carry_forward_status or {}).get("source_gemini_file_id"),
+                        "source_gemini_file_id": (current_carry_forward or carry_forward_status or {}).get("source_gemini_file_id"),
+                        "error_code": morning_lifecycle.get("error_code"),
+                        "error_message": morning_lifecycle.get("error_message"),
+                        "error_category": morning_error_meta["category"],
+                        "retryable": morning_error_meta["retryable"],
+                        "attempt_count": (morning_slot or {}).get("attempt_count"),
+                        "max_attempts": (morning_slot or {}).get("max_attempts"),
+                        "last_attempt_at": (morning_slot or {}).get("last_attempt_at"),
+                        "next_attempt_at": (morning_slot or {}).get("next_attempt_at"),
+                        "self_healed": bool((morning_slot or {}).get("self_healed")),
                     },
                     "afternoon_snapshot": {
                         "status": (snapshot_status or {}).get("status", "pending"),
                         "scheduled_time": snapshot_time,
                         "snapshot_file_id": (snapshot_status or {}).get("snapshot_file_id"),
                         "gemini_file_id": (snapshot_status or {}).get("gemini_file_id"),
+                        "error_code": afternoon_error_code,
+                        "error_message": (
+                            (snapshot_status or {}).get("error_message")
+                            or (v4_snapshot or {}).get("error_message")
+                        ),
+                        "error_category": afternoon_error_meta["category"],
+                        "retryable": afternoon_error_meta["retryable"],
+                        "attempt_count": (v4_snapshot or {}).get("attempt_count"),
+                        "max_attempts": (v4_snapshot or {}).get("max_attempts"),
+                        "last_attempt_at": (v4_snapshot or {}).get("last_attempt_at"),
+                        "next_attempt_at": (v4_snapshot or {}).get("next_attempt_at"),
+                        "self_healed": bool((v4_snapshot or {}).get("self_healed")),
                     },
                     "evening_reconcile": {
                         "status": (snapshot_status or {}).get("gemini_reconcile_status") or (v4_slot_status("evening_reconcile") or {}).get("status", "pending"),
@@ -1961,6 +2083,18 @@ class InventoryDailySheetService:
                         "plan_hash": (snapshot_status or {}).get("gemini_reconcile_plan_hash"),
                         "prompt_version": (snapshot_status or {}).get("prompt_version"),
                         "prompt_hash": (snapshot_status or {}).get("prompt_hash"),
+                        "error_code": evening_error_code,
+                        "error_message": (
+                            (snapshot_status or {}).get("gemini_reconcile_error_message")
+                            or (v4_reconciliation or {}).get("error_message")
+                        ),
+                        "error_category": evening_error_meta["category"],
+                        "retryable": evening_error_meta["retryable"],
+                        "attempt_count": (v4_reconciliation or {}).get("attempt_count"),
+                        "max_attempts": (v4_reconciliation or {}).get("max_attempts"),
+                        "last_attempt_at": (v4_reconciliation or {}).get("last_attempt_at"),
+                        "next_attempt_at": (v4_reconciliation or {}).get("next_attempt_at"),
+                        "self_healed": bool((v4_reconciliation or {}).get("self_healed")),
                     },
                 },
                 "as_of_business_date": (
@@ -1982,7 +2116,8 @@ class InventoryDailySheetService:
                 )
             )
             timezone_name = settings.timezone if settings else "Asia/Ho_Chi_Minh"
-            today = self.clock().astimezone(ZoneInfo(timezone_name)).date()
+            local_now = self.clock().astimezone(ZoneInfo(timezone_name))
+            today = local_now.date()
             job_types = (
                 "inventory_v5_morning_reset_slot",
                 "inventory_v5_afternoon_snapshot_slot",
@@ -2040,16 +2175,19 @@ class InventoryDailySheetService:
                 if page_dates
                 else []
             )
+            snapshot_lookup_dates = sorted(
+                set(page_dates) | {day - timedelta(days=1) for day in page_dates}
+            )
             snapshots = (
                 list(
                     session.scalars(
                         select(InventoryDailySheetSnapshotModel).where(
                             InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
-                            InventoryDailySheetSnapshotModel.business_date.in_(page_dates),
+                            InventoryDailySheetSnapshotModel.business_date.in_(snapshot_lookup_dates),
                         )
                     )
                 )
-                if page_dates
+                if snapshot_lookup_dates
                 else []
             )
             job_entity_ids = [
@@ -2097,8 +2235,59 @@ class InventoryDailySheetService:
                 if value == "retry": return "scheduled"
                 return "pending"
 
-            def slot(key: str, label: str, value: str | None, job: InventoryJobModel | None, scheduled_time: str, **detail: Any) -> dict[str, Any]:
-                return {"key": key, "label": label, "status": normalize(job.status if job else value), "scheduled_time": scheduled_time, "started_at": job.claimed_at.isoformat() if job and job.claimed_at else detail.pop("started_at", None), "completed_at": job.completed_at.isoformat() if job and job.completed_at else detail.pop("completed_at", None), "error_code": job.last_error_code if job else detail.pop("error_code", None), "error_message": job.last_error_message if job else detail.pop("error_message", None), "run_id": job.id if job else detail.pop("run_id", None), **detail}
+            def slot(
+                key: str, label: str, value: str | None,
+                job: InventoryJobModel | None, scheduled_time: str,
+                *, observability_job: InventoryJobModel | None = None, **detail: Any,
+            ) -> dict[str, Any]:
+                metadata_job = observability_job or job
+                error_code = (
+                    job.last_error_code
+                    if job and value is None
+                    else detail.pop("error_code", None)
+                )
+                error_message = (
+                    job.last_error_message
+                    if job and value is None
+                    else detail.pop("error_message", None)
+                )
+                error_meta = inventory_error_metadata(error_code)
+                return {
+                    "key": key,
+                    "label": label,
+                    "status": normalize(value if value is not None else (job.status if job else None)),
+                    "scheduled_time": scheduled_time,
+                    "started_at": (
+                        job.claimed_at.isoformat()
+                        if job and job.claimed_at and value is None
+                        else detail.pop("started_at", None)
+                    ),
+                    "completed_at": (
+                        job.completed_at.isoformat()
+                        if job and job.completed_at and value is None
+                        else detail.pop("completed_at", None)
+                    ),
+                    "error_code": error_code,
+                    "error_message": error_message,
+                    "error_category": error_meta["category"],
+                    "retryable": error_meta["retryable"],
+                    "run_id": job.id if job and value is None else detail.pop("run_id", None),
+                    "attempt_count": metadata_job.attempt_count if metadata_job else None,
+                    "max_attempts": metadata_job.max_attempts if metadata_job else None,
+                    "last_attempt_at": (
+                        metadata_job.claimed_at.isoformat()
+                        if metadata_job and metadata_job.claimed_at else None
+                    ),
+                    "next_attempt_at": (
+                        metadata_job.next_attempt_at.isoformat()
+                        if metadata_job and metadata_job.next_attempt_at else None
+                    ),
+                    "self_healed": bool(
+                        metadata_job
+                        and (metadata_job.payload_json or {}).get("recovered_from_durable_state")
+                    ),
+                    **detail,
+                }
 
             def build(day: date) -> dict[str, Any]:
                 carry, snapshot, day_jobs = carries_by_day.get(day), snapshots_by_day.get(day), jobs_by_day.get(day, {})
@@ -2106,18 +2295,98 @@ class InventoryDailySheetService:
                 # Morning Reset state. A scheduler job can contain an older
                 # transient failure from a prior attempt, so only fall back to
                 # the job when no carry-forward record exists yet.
-                morning = slot("morning_reset", "Reset đầu ngày", carry.status if carry else None, None if carry else day_jobs.get("morning_reset"), settings.daily_carry_forward_time_local if settings else "05:00", started_at=carry.started_at.isoformat() if carry and carry.started_at else None, completed_at=carry.completed_at.isoformat() if carry and carry.completed_at else None, error_code=carry.error_code if carry else None, error_message=carry.error_message if carry else None)
+                morning = slot(
+                    "morning_reset",
+                    "Reset đầu ngày",
+                    carry.status if carry else None,
+                    None if carry else day_jobs.get("morning_reset"),
+                    settings.daily_carry_forward_time_local if settings else "05:00",
+                    observability_job=day_jobs.get("morning_reset"),
+                    started_at=carry.started_at.isoformat() if carry and carry.started_at else None,
+                    completed_at=carry.completed_at.isoformat() if carry and carry.completed_at else None,
+                    error_code=carry.error_code if carry else None,
+                    error_message=carry.error_message if carry else None,
+                )
+                if (
+                    day == today
+                    and morning["status"] == "failed"
+                    and morning.get("error_code") == "previous_day_gemini_not_verified"
+                ):
+                    previous_snapshot = snapshots_by_day.get(day - timedelta(days=1))
+                    if previous_snapshot and previous_snapshot.gemini_reconcile_verified_at:
+                        reset_value = settings.daily_carry_forward_time_local if settings else "05:00"
+                        reset_hour, reset_minute = (int(value) for value in reset_value.split(":", 1))
+                        scheduled_reset = local_now.replace(
+                            hour=reset_hour,
+                            minute=reset_minute,
+                            second=0,
+                            microsecond=0,
+                        )
+                        if abs((local_now - scheduled_reset).total_seconds()) > 3600:
+                            morning = {
+                                **morning,
+                                "status": "review_required",
+                                "error_code": "inventory_morning_reset_missed_safe_window",
+                                "error_message": (
+                                    "Previous-day Gemini is verified, but today's safe Morning Reset "
+                                    "window has passed. Automatic recovery is disabled to protect the "
+                                    "active shared workbook."
+                                ),
+                                "error_category": "DEPENDENCY",
+                                "retryable": False,
+                            }
                 snap = slot("afternoon_snapshot", "Snapshot", snapshot.status if snapshot else None, day_jobs.get("afternoon_snapshot"), settings.daily_snapshot_time_local if settings else "23:50", started_at=snapshot.cloned_at.isoformat() if snapshot and snapshot.cloned_at else None, completed_at=snapshot.reset_completed_at.isoformat() if snapshot and snapshot.reset_completed_at else None, error_code=snapshot.error_code if snapshot else None, error_message=snapshot.error_message if snapshot else None)
                 evening = slot("evening_reconcile", "Đối soát Gemini", snapshot.gemini_reconcile_status if snapshot else None, day_jobs.get("evening_reconcile"), settings.daily_reconcile_time_local if settings else "23:55", started_at=snapshot.gemini_reconcile_started_at.isoformat() if snapshot and snapshot.gemini_reconcile_started_at else None, completed_at=snapshot.gemini_reconcile_completed_at.isoformat() if snapshot and snapshot.gemini_reconcile_completed_at else None, error_code=snapshot.gemini_reconcile_error_code if snapshot else None, error_message=snapshot.gemini_reconcile_error_message if snapshot else None, run_id=snapshot.gemini_reconcile_run_id if snapshot else None, plan_hash=snapshot.gemini_reconcile_plan_hash if snapshot else None, prompt_version=snapshot.gemini_prompt_version if snapshot else None, prompt_hash=snapshot.gemini_prompt_hash if snapshot else None)
                 verified = {"key": "verified", "label": "Xác minh", "status": "completed" if snapshot and snapshot.gemini_reconcile_verified_at else ("blocked" if evening["status"] in {"failed", "review_required"} else "pending"), "completed_at": snapshot.gemini_reconcile_verified_at.isoformat() if snapshot and snapshot.gemini_reconcile_verified_at else None}
                 stages = [morning, snap, evening, verified]
+                invariants: list[dict[str, str]] = []
+                previous_snapshot = snapshots_by_day.get(day - timedelta(days=1))
+                if carry and carry.status == "completed":
+                    if carry.verified_at is None:
+                        invariants.append({"code": "carry_forward_completed_without_verification", "stage": "morning_reset", "message": "Carry-forward is completed but has no verification timestamp."})
+                    if (
+                        not carry.source_gemini_file_id
+                        or previous_snapshot is None
+                        or previous_snapshot.gemini_reconcile_verified_at is None
+                        or previous_snapshot.gemini_file_id != carry.source_gemini_file_id
+                    ):
+                        invariants.append({"code": "carry_forward_without_verified_source", "stage": "morning_reset", "message": "Carry-forward completion is not backed by the verified previous-day Gemini workbook."})
+                if snapshot and snapshot.status == "completed":
+                    if not snapshot.snapshot_file_id:
+                        invariants.append({"code": "snapshot_completed_without_file", "stage": "afternoon_snapshot", "message": "Snapshot is completed but snapshot_file_id is missing."})
+                    if not snapshot.gemini_file_id:
+                        invariants.append({"code": "snapshot_completed_without_gemini_copy", "stage": "afternoon_snapshot", "message": "Snapshot is completed but Gemini working copy is missing."})
+                if snapshot and snapshot.gemini_reconcile_status == "completed" and snapshot.gemini_reconcile_verified_at is None:
+                    invariants.append({"code": "reconcile_completed_without_verification", "stage": "evening_reconcile", "message": "Gemini reconcile is completed but has not been verified."})
+                durable_completed = {
+                    "morning_reset": bool(carry and carry.status == "completed" and carry.verified_at is not None),
+                    "afternoon_snapshot": bool(snapshot and snapshot.status == "completed" and snapshot.snapshot_file_id and snapshot.gemini_file_id),
+                    "evening_reconcile": bool(snapshot and snapshot.gemini_reconcile_status == "completed" and snapshot.gemini_reconcile_verified_at is not None),
+                }
+                for slot_key, job in day_jobs.items():
+                    if job.status == "completed" and not durable_completed.get(slot_key, False):
+                        invariants.append({"code": f"{slot_key}_slot_completed_without_durable_state", "stage": slot_key, "message": "Scheduler slot is completed but authoritative durable stage evidence is missing."})
                 failed = next((item for item in stages if item["status"] == "failed"), None); blocked = next((item for item in stages if item["status"] in {"review_required", "blocked"}), None); running = next((item for item in stages if item["status"] == "running"), None)
                 current = failed or blocked or running or next((item for item in stages if item["status"] in {"pending", "scheduled"}), None)
                 overall = "failed" if failed else (blocked["status"] if blocked else ("running" if running else ("completed" if verified["status"] == "completed" else "pending")))
+                if invariants and overall not in {"failed", "review_required", "blocked", "running"}:
+                    overall = "stale"
                 timestamps = [value for value in [carry.updated_at if carry else None, snapshot.updated_at if snapshot else None, *(job.updated_at for job in day_jobs.values())] if value]
                 shared_file_id = carry.shared_target_file_id if carry else (settings.daily_working_spreadsheet_file_id if settings else None)
                 attention = failed or blocked
-                return {"business_date": day.isoformat(), "overall_status": overall, "current_stage": "completed" if overall == "completed" else current["key"], "stages": stages, "files": {"shared_url": f"https://docs.google.com/spreadsheets/d/{shared_file_id}/edit" if shared_file_id else None, "snapshot_url": f"https://docs.google.com/spreadsheets/d/{snapshot.snapshot_file_id}/edit" if snapshot and snapshot.snapshot_file_id else None, "gemini_url": f"https://docs.google.com/spreadsheets/d/{snapshot.gemini_file_id}/edit" if snapshot and snapshot.gemini_file_id else None}, "updated_at": max(timestamps).isoformat() if timestamps else None, "action_required": {"code": attention.get("error_code") or ("review_required" if attention["status"] != "failed" else "lifecycle_failed"), "stage": attention["key"], "label": "Xem lỗi"} if attention else None}
+                action_label = "Xem lỗi"
+                if attention:
+                    if attention.get("error_code") == "inventory_morning_reset_missed_safe_window":
+                        action_label = "Cần recovery thủ công"
+                    elif attention.get("error_code") == "previous_day_gemini_not_verified":
+                        action_label = "Repair Gemini ngày trước"
+                    elif attention["key"] == "evening_reconcile":
+                        action_label = "Chạy lại Gemini"
+                action_required = {"code": attention.get("error_code") or ("review_required" if attention["status"] != "failed" else "lifecycle_failed"), "stage": attention["key"], "label": action_label} if attention else None
+                if action_required is None and invariants:
+                    action_required = {"code": invariants[0]["code"], "stage": invariants[0]["stage"], "label": "Kiểm tra invariant"}
+                current_stage = "completed" if overall == "completed" else (invariants[0]["stage"] if overall == "stale" else current["key"])
+                return {"business_date": day.isoformat(), "overall_status": overall, "current_stage": current_stage, "stages": stages, "invariants": invariants, "files": {"shared_url": f"https://docs.google.com/spreadsheets/d/{shared_file_id}/edit" if shared_file_id else None, "snapshot_url": f"https://docs.google.com/spreadsheets/d/{snapshot.snapshot_file_id}/edit" if snapshot and snapshot.snapshot_file_id else None, "gemini_url": f"https://docs.google.com/spreadsheets/d/{snapshot.gemini_file_id}/edit" if snapshot and snapshot.gemini_file_id else None}, "updated_at": max(timestamps).isoformat() if timestamps else None, "action_required": action_required}
 
             return {
                 "items": [build(day) for day in page_dates],

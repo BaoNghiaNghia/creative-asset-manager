@@ -16,6 +16,8 @@ const credential = {
   masked_key: "••••••••7KxQ",
   label: "Gemini Account B",
   status: "connected",
+  health_status: "VALID",
+  last_test_status: "VALID",
   last_tested_at: "2026-08-13T10:20:00Z",
   updated_at: "2026-08-13T10:20:00Z",
   updated_by: "user-a",
@@ -28,11 +30,13 @@ describe("Inventory Gemini credential settings", () => {
     );
     for (const value of [
       "Inventory AI", "Google Gemini", "Connected", "••••••••7KxQ",
-      "Gemini Account B", "Last Updated", "Dùng riêng cho pipeline tài liệu Inventory; không ảnh hưởng đến Creative AI.",
+      "Gemini Account B", "Configuration", "Configured", "Provider Health", "Credential Source",
+      "Inventory configuration", "Last Tested", "Last Updated",
+      "Dùng riêng cho pipeline tài liệu Inventory; không ảnh hưởng đến Creative AI.",
       "Test Connection", "Replace API Key",
     ]) expect(markup).toContain(value);
     expect(markup).not.toContain(secret);
-    for (const hidden of ["Credential Source", "Last Tested", "Updated By"]) expect(markup).not.toContain(hidden);
+    expect(markup).not.toContain("Updated By");
     expect(markup).not.toContain("Google Drive account");
   });
 
@@ -43,7 +47,7 @@ describe("Inventory Gemini credential settings", () => {
 
   it("renders not-configured metadata without hiding the credential section", () => {
     const markup = renderToStaticMarkup(<InventoryGeminiCredentialSettings initialCredential={{
-      ...credential, configured: false, source: "unavailable", masked_key: null, label: null, status: "unavailable",
+      ...credential, configured: false, source: "unavailable", masked_key: null, label: null, status: "unavailable", health_status: "NOT_TESTED", last_test_status: null,
     }} />);
     expect(markup).toContain("Not configured");
     expect(markup).toContain("Google Gemini");
@@ -61,6 +65,7 @@ describe("Inventory Gemini credential settings", () => {
     expect(credentialStatusLabel("PERMISSION_DENIED", true)).toBe("Permission denied");
     expect(credentialStatusLabel("RATE_LIMITED", true)).toBe("Rate limited");
     expect(credentialStatusLabel("PROVIDER_UNAVAILABLE", true)).toBe("Unavailable");
+    expect(credentialStatusLabel("NOT_TESTED", true)).toBe("Not tested");
     expect(credentialStatusLabel("unavailable", false)).toBe("Not configured");
     expect(credentialStatusClass("INVALID_KEY", true)).toBe("invalid");
     expect(credentialStatusClass("PERMISSION_DENIED", true)).toBe("denied");

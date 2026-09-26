@@ -78,10 +78,12 @@ export function InventoryDailyTab() {
     setError("");
     inventoryDailySheetApi.getStatus().then(async status => {
       let run: InventoryDailyRun | null = null;
-      try {
-        run = await inventoryApi.getDailyRun(status.working_business_date);
-      } catch (failure) {
-        if (!(failure instanceof InventoryApiError) || failure.status !== 404) throw failure;
+      if (status.execution_mode !== "v4_slots") {
+        try {
+          run = await inventoryApi.getDailyRun(status.working_business_date);
+        } catch (failure) {
+          if (!(failure instanceof InventoryApiError) || failure.status !== 404) throw failure;
+        }
       }
       if (alive) setValue({ status, run });
     }).catch(failure => {
@@ -111,9 +113,12 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
     afternoon_snapshot: { status: snapshot?.status || "pending", scheduled_time: status.snapshot_time, snapshot_file_id: snapshot?.snapshot_file_id || null, gemini_file_id: snapshot?.gemini_file_id || null },
     evening_reconcile: { status: reconciliation?.status || "pending", scheduled_time: status.reconcile_time, verified: reconciliation?.status === "completed", run_id: null, plan_hash: null, prompt_version: null, prompt_hash: null },
   };
-  const v4Completed = snapshot?.status === "completed" && reconciliation?.status === "completed";
-  const v4Started = Boolean(snapshot || reconciliation);
-  const runLabel = run?.finalized ? "Đã chốt" : run?.ready ? "Sẵn sàng" : run ? "Cần xử lý" : usesV4Slots ? (v4Completed ? "Đã hoàn tất" : v4Started ? "Đang xử lý" : "Chưa chạy") : "Chưa tạo";
+  const v4Completed = lifecycle.afternoon_snapshot.status === "completed" && lifecycle.evening_reconcile.verified;
+  const v4NeedsRecovery = ["failed", "blocked", "review_required", "stale"].includes(lifecycle.morning_reset.status)
+    || ["failed", "blocked", "review_required", "stale"].includes(lifecycle.evening_reconcile.status);
+  const v4Started = [lifecycle.morning_reset.status, lifecycle.afternoon_snapshot.status, lifecycle.evening_reconcile.status]
+    .some(stage => !["pending", "scheduled"].includes(stage));
+  const runLabel = run?.finalized ? "Đã chốt" : run?.ready ? "Sẵn sàng" : run ? "Cần xử lý" : usesV4Slots ? (v4Completed ? "Đã hoàn tất" : v4NeedsRecovery ? "Cần recovery" : v4Started ? "Đang xử lý" : "Chưa chạy") : "Chưa tạo";
   const runTone = run?.finalized || run?.ready || (usesV4Slots && v4Completed) ? "success" : run || (usesV4Slots && v4Started) ? "warning" : "warning";
 
   useEffect(() => {

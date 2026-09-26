@@ -47,6 +47,10 @@ class InventoryAiCredentialRepository:
         row=self.session.scalar(select(InventoryAiCredentialModel).where(InventoryAiCredentialModel.tenant_id==tenant_id,InventoryAiCredentialModel.provider==provider))
         if row is None: row=InventoryAiCredentialModel(tenant_id=tenant_id,provider=provider);self.session.add(row)
         row.encrypted_secret=encrypted.ciphertext;row.key_version=encrypted.key_version;row.secret_fingerprint=hashlib.sha256(secret.encode()).hexdigest();row.secret_last4=secret[-4:];row.label=label.strip() if label else None;row.status="active";row.last_tested_at=datetime.now(timezone.utc) if last_test_status else None;row.last_test_status=last_test_status or "not_tested";row.updated_by=updated_by;self.session.flush();return self._metadata(row)
+    def record_test_result(self,tenant_id:str,*,result:str,provider:str="gemini",tested_at:datetime|None=None):
+        row=self.session.scalar(select(InventoryAiCredentialModel).where(InventoryAiCredentialModel.tenant_id==tenant_id,InventoryAiCredentialModel.provider==provider))
+        if row is None:return None
+        row.last_tested_at=tested_at or datetime.now(timezone.utc);row.last_test_status=result;self.session.flush();return self._metadata(row)
     def delete(self,tenant_id:str,provider:str="gemini"):
         row=self.session.scalar(select(InventoryAiCredentialModel).where(InventoryAiCredentialModel.tenant_id==tenant_id,InventoryAiCredentialModel.provider==provider))
         if not row:return False
