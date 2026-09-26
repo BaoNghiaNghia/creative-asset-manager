@@ -39,6 +39,11 @@ CARRY_FORWARD_PROMPT = """You are planning a narrow previous-terminal-state to c
 class CarryForwardError(RuntimeError):
     code = "carry_forward_blocked"
 
+    def __init__(self, code: str | None = None):
+        resolved = str(code or self.code)
+        super().__init__(resolved)
+        self.code = resolved
+
 
 class CarryForwardReviewRequired(CarryForwardError):
     code = "review_required"
@@ -51,6 +56,10 @@ class CarryForwardReviewRequired(CarryForwardError):
 
 class CarryForwardStaleEvidence(CarryForwardError):
     code = "stale_evidence"
+
+    def __init__(self, message: str | None = None):
+        RuntimeError.__init__(self, str(message or self.code))
+        self.code = "stale_evidence"
 
 
 @dataclass(frozen=True)
@@ -281,12 +290,19 @@ class InventorySharedCarryForwardService:
         return validated
 
     def run(self, tenant_id: str, target_business_date: date) -> InventoryDailyCarryForwardModel:
-        shared_id, source_id, snapshot_id, connection_id, previous_date = self._context(tenant_id, target_business_date)
+        # Persist the operation before dependency resolution so failures such as
+        # previous_day_gemini_not_verified remain visible in lifecycle audit.
+        previous_date = date.fromordinal(target_business_date.toordinal() - 1)
         operation = self._operation(tenant_id, target_business_date, previous_date)
         if operation.status == "completed":
             return operation
         failure_audit: dict[str, Any] = {}
         try:
+            shared_id, source_id, snapshot_id, connection_id, resolved_previous_date = self._context(
+                tenant_id, target_business_date
+            )
+            if resolved_previous_date != previous_date:
+                raise CarryForwardError("carry_forward_business_date_mismatch")
             with self.client_factory(self._token(connection_id)) as google:
                 google.validate_native_spreadsheet(source_id)
                 source_meta = google.spreadsheet_metadata(source_id)

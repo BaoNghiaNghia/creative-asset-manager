@@ -404,6 +404,98 @@ class DailySheetSchedulerTest(unittest.TestCase):
             snapshot = session.scalar(select(InventoryJobModel).where(InventoryJobModel.job_type == "inventory_v5_afternoon_snapshot_slot"))
             self.assertEqual("retry", reset.status)
             self.assertEqual("completed", snapshot.status)
+
+    def test_historical_replay_recovers_current_day_reset_outside_normal_window(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            settings = session.scalar(
+                select(InventorySettingsModel).where(
+                    InventorySettingsModel.tenant_id == "tenant-a"
+                )
+            )
+            settings.daily_carry_forward_time_local = "05:00"
+            settings.daily_snapshot_time_local = "23:50"
+            settings.daily_reconcile_time_local = "23:55"
+            source = session.scalar(
+                select(InventoryDailySheetSnapshotModel).where(
+                    InventoryDailySheetSnapshotModel.business_date
+                    == date(2030, 8, 9)
+                )
+            )
+            source.gemini_reconcile_status = "completed"
+            source.gemini_reconcile_verified_at = datetime.now(timezone.utc)
+            session.add(
+                InventoryJobModel(
+                    tenant_id="tenant-a",
+                    job_type="inventory_v5_morning_reset_slot",
+                    entity_type="inventory_v5_scheduler_slot",
+                    entity_id="2030-08-10:morning_reset",
+                    idempotency_key="inventory-v5-slot:tenant-a:2030-08-10:morning_reset",
+                    status="failed",
+                    attempt_count=5,
+                    max_attempts=5,
+                    last_error_code="previous_day_gemini_not_verified",
+                    last_error_message="previous_day_gemini_not_verified",
+                )
+            )
+
+        class Carry:
+            def __init__(self): self.calls = []
+            def run(self, tenant_id, business_date):
+                self.calls.append((tenant_id, business_date.isoformat()))
+                return SimpleNamespace(status="completed")
+
+        carry = Carry()
+        scheduler = InventoryDailyScheduler(
+            self.sessions,
+            carry_forward_service=carry,
+        )
+        result = scheduler.recover_current_morning_reset_after_replay(
+            "tenant-a",
+            date(2030, 8, 9),
+            datetime(2030, 8, 10, 3, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual({"status": "completed", "stage": "morning_reset"}, result)
+        self.assertEqual([("tenant-a", "2030-08-10")], carry.calls)
+        with self.sessions() as session:
+            job = session.scalar(
+                select(InventoryJobModel).where(
+                    InventoryJobModel.entity_id == "2030-08-10:morning_reset"
+                )
+            )
+            self.assertEqual("completed", job.status)
+            self.assertEqual(1, job.attempt_count)
+            self.assertEqual(
+                5, job.payload_json["dependency_recovery_prior_attempts"]
+            )
+
+    def test_historical_replay_never_replays_old_reset_into_current_shared_workbook(self):
+        self._enable_v4()
+
+        class Carry:
+            def __init__(self): self.calls = []
+            def run(self, tenant_id, business_date):
+                self.calls.append((tenant_id, business_date.isoformat()))
+                return SimpleNamespace(status="completed")
+
+        carry = Carry()
+        scheduler = InventoryDailyScheduler(
+            self.sessions,
+            carry_forward_service=carry,
+        )
+        result = scheduler.recover_current_morning_reset_after_replay(
+            "tenant-a",
+            date(2030, 8, 8),
+            datetime(2030, 8, 10, 3, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(
+            {"status": "historical_day_skipped", "stage": "morning_reset"},
+            result,
+        )
+        self.assertEqual([], carry.calls)
+
     def test_v4_morning_reset_retry_only_runs_within_one_hour(self):
         self._enable_v4()
         with self.sessions.begin() as session:

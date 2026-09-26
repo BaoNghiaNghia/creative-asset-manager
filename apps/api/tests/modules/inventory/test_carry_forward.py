@@ -99,6 +99,40 @@ def make_db():
     return temp, engine, sessions
 
 
+def test_dependency_failure_is_persisted_before_context_resolution():
+    temp, engine, sessions = make_db()
+    with sessions.begin() as session:
+        snapshot = session.scalar(
+            select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == "tenant-a"
+            )
+        )
+        snapshot.gemini_reconcile_status = "failed"
+        snapshot.gemini_reconcile_verified_at = None
+    service = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: Google(),
+        token_resolver=lambda _id: "token",
+        planner=Planner([]),
+    )
+
+    result = service.run("tenant-a", date(2030, 8, 10))
+
+    assert result.status == "retryable_failure"
+    assert result.error_code == "previous_day_gemini_not_verified"
+    with sessions() as session:
+        persisted = session.scalar(
+            select(InventoryDailyCarryForwardModel).where(
+                InventoryDailyCarryForwardModel.target_business_date
+                == date(2030, 8, 10)
+            )
+        )
+        assert persisted is not None
+        assert persisted.previous_business_date == date(2030, 8, 9)
+        assert persisted.error_code == "previous_day_gemini_not_verified"
+    engine.dispose(); temp.cleanup()
+
+
 def test_carry_forward_preserves_each_warehouse_and_writes_shared_only():
     temp, engine, sessions = make_db()
     google = Google()
@@ -167,11 +201,16 @@ def test_read_back_mismatch_is_not_completed():
 
 
 def test_carry_forward_declares_bounded_catalog_search_tools_only():
-    names = {item["name"] for item in function_declarations()}
+    declarations = function_declarations()
+    names = {item["name"] for item in declarations}
     assert "search_material_catalog" in names
     assert "search_warehouse_catalog" in names
     assert "get_material_catalog" not in names
     assert "get_warehouse_catalog" not in names
+    submit = next(item for item in declarations if item["name"] == "submit_carry_forward_plan")
+    properties = submit["parameters"]["properties"]
+    assert properties["operations"]["items"]["type"] == "object"
+    assert properties["issues"]["items"]["type"] == "object"
 
 
 def test_carry_forward_tool_host_batches_cell_reads():

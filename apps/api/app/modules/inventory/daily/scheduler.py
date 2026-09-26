@@ -334,6 +334,105 @@ class InventoryDailyScheduler:
         with self.session_factory() as session:
             job = session.scalar(select(InventoryJobModel).where(InventoryJobModel.tenant_id == tenant_id, InventoryJobModel.job_type == V4_SLOT_JOB_TYPES["morning_reset"], InventoryJobModel.entity_id == f"{business_date.isoformat()}:morning_reset"))
             return {"status": job.status if job else "unknown", "stage": "morning_reset"}
+
+    def recover_current_morning_reset_after_replay(
+        self,
+        tenant_id: str,
+        source_business_date: date,
+        now: datetime | None = None,
+    ) -> dict[str, str]:
+        """Recover today's reset when yesterday became verified after its normal window."""
+        moment = now or datetime.now(timezone.utc)
+        target_business_date = date.fromordinal(source_business_date.toordinal() + 1)
+        with self.session_factory.begin() as session:
+            settings = session.scalar(
+                select(InventorySettingsModel).where(
+                    InventorySettingsModel.tenant_id == tenant_id
+                )
+            )
+            if (
+                settings is None
+                or not settings.daily_sheet_automation_enabled
+                or not isinstance(settings.daily_sheet_config_json, dict)
+                or settings.daily_sheet_config_json.get("version") != 4
+            ):
+                return {"status": "not_applicable", "stage": "morning_reset"}
+            local = moment.astimezone(
+                ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh")
+            )
+            # Never replay a historical reset into the current shared workbook.
+            # Dependency recovery is allowed only for the current local day.
+            if target_business_date != local.date():
+                return {"status": "historical_day_skipped", "stage": "morning_reset"}
+            source_snapshot = session.scalar(
+                select(InventoryDailySheetSnapshotModel).where(
+                    InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                    InventoryDailySheetSnapshotModel.business_date
+                    == source_business_date,
+                    InventoryDailySheetSnapshotModel.status == "completed",
+                    InventoryDailySheetSnapshotModel.gemini_reconcile_status
+                    == "completed",
+                    InventoryDailySheetSnapshotModel.gemini_reconcile_verified_at.is_not(
+                        None
+                    ),
+                    InventoryDailySheetSnapshotModel.gemini_file_id.is_not(None),
+                )
+            )
+            if source_snapshot is None:
+                return {"status": "dependency_not_verified", "stage": "morning_reset"}
+            job = session.scalar(
+                select(InventoryJobModel).where(
+                    InventoryJobModel.tenant_id == tenant_id,
+                    InventoryJobModel.job_type
+                    == V4_SLOT_JOB_TYPES["morning_reset"],
+                    InventoryJobModel.entity_id
+                    == f"{target_business_date.isoformat()}:morning_reset",
+                )
+            )
+            if job is None:
+                return {"status": "not_scheduled", "stage": "morning_reset"}
+            if job.status == "completed":
+                return {"status": "completed", "stage": "morning_reset"}
+            if job.status in {"processing", "pending"}:
+                return {"status": job.status, "stage": "morning_reset"}
+            if job.last_error_code != "previous_day_gemini_not_verified":
+                return {
+                    "status": "blocked_by_other_error",
+                    "stage": "morning_reset",
+                }
+            prior_attempts = job.attempt_count
+            job.status = "retry"
+            job.attempt_count = 0
+            job.max_attempts = V4_SLOT_MAX_ATTEMPTS
+            job.next_attempt_at = moment
+            job.completed_at = None
+            job.lease_expires_at = None
+            job.claimed_by = None
+            job.claimed_at = None
+            job.last_error_code = None
+            job.last_error_message = None
+            job.payload_json = {
+                **(job.payload_json or {}),
+                "dependency_recovered_from_business_date": source_business_date.isoformat(),
+                "dependency_recovery_prior_attempts": prior_attempts,
+            }
+            job.updated_at = moment
+        self.run_once(moment)
+        with self.session_factory() as session:
+            job = session.scalar(
+                select(InventoryJobModel).where(
+                    InventoryJobModel.tenant_id == tenant_id,
+                    InventoryJobModel.job_type
+                    == V4_SLOT_JOB_TYPES["morning_reset"],
+                    InventoryJobModel.entity_id
+                    == f"{target_business_date.isoformat()}:morning_reset",
+                )
+            )
+            return {
+                "status": job.status if job else "unknown",
+                "stage": "morning_reset",
+            }
+
     def run_once(self, now: datetime | None = None) -> int:
         moment = now or datetime.now(timezone.utc)
         with self.session_factory() as session:

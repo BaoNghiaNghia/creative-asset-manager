@@ -418,12 +418,30 @@ def replay_historical_gemini(
             raise HTTPException(
                 409, detail={"code": "gemini_tool_sheet_agent_not_configured"}
             )
-        return service.replay_agent_v4_historical(
+        result = service.replay_agent_v4_historical(
             principal.active_tenant_id,
             business_date,
             mode=body.mode,
             promote=body.promote,
         )
+        if result.get("promoted"):
+            try:
+                result["morning_reset_recovery"] = (
+                    InventoryDailyScheduler(SessionLocal)
+                    .recover_current_morning_reset_after_replay(
+                        principal.active_tenant_id,
+                        business_date,
+                    )
+                )
+            except Exception as recovery_exc:
+                result["morning_reset_recovery"] = {
+                    "status": "recovery_failed",
+                    "stage": "morning_reset",
+                    "error_code": str(
+                        getattr(recovery_exc, "code", type(recovery_exc).__name__)
+                    )[:100],
+                }
+        return result
     except HTTPException:
         raise
     except Exception as exc:

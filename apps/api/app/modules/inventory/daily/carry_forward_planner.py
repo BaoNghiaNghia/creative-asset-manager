@@ -349,14 +349,52 @@ def function_declarations() -> list[dict[str, Any]]:
         {"name": "search_material_catalog", "parameters": catalog_search},
         {"name": "search_warehouse_catalog", "parameters": warehouse_search},
     ]
+    evidence = {
+        "type": "object",
+        "properties": {
+            "sheet": {"type": "string"},
+            "cell": {"type": "string"},
+            "evidence_hash": {"type": "string"},
+            "closing_value": {"type": "number"},
+            "opening_value": {"type": "number"},
+        },
+        "required": ["sheet", "cell", "evidence_hash"],
+    }
+    operation = {
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "enum": ["set_cell", "clear_cell"]},
+            "material_id": {"type": "string"},
+            "warehouse_id": {"type": "string"},
+            "value": {"type": "number"},
+            "source": evidence,
+            "target": evidence,
+            "semantic_context": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string"},
+                    "rule": {"type": "string"},
+                },
+            },
+        },
+        "required": ["type", "target"],
+    }
+    issue = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string"},
+            "message": {"type": "string"},
+        },
+    }
     declarations.append(
         {
             "name": "submit_carry_forward_plan",
+            "description": "Submit the evidence-backed carry-forward plan. Use set_cell only with exact source and target evidence; use clear_cell only for validated reset cells.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "operations": {"type": "array"},
-                    "issues": {"type": "array"},
+                    "operations": {"type": "array", "items": operation},
+                    "issues": {"type": "array", "items": issue},
                 },
                 "required": ["operations", "issues"],
             },

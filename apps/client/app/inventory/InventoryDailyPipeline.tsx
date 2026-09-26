@@ -142,9 +142,10 @@ export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolea
     setReplaying(true); setNotice(`Đang chạy lại Gemini cho ${item.business_date}…`);
     try {
       const result = await inventoryLifecycleApi.replayHistoricalGemini(item.business_date, mode, promote);
+      const recovery = result.morning_reset_recovery;
       setNotice(
         result.promoted
-          ? `Gemini ${item.business_date} đã xác minh và promote thành công.`
+          ? `Gemini ${item.business_date} đã xác minh và promote thành công.${recovery?.status === "completed" ? " Morning Reset hôm nay cũng đã được tự động phục hồi." : recovery && !["historical_day_skipped", "not_applicable", "not_scheduled"].includes(recovery.status) ? ` Morning Reset recovery: ${recovery.status}.` : ""}`
           : `Replay ${item.business_date} hoàn tất: ${result.status} / ${result.verification_status}. Không thay đổi file chính thức.`
       );
       await load();
@@ -156,7 +157,7 @@ export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolea
     if (!item.files.snapshot_url) return false;
     const evening = item.stages.find((stage) => stage.key === "evening_reconcile");
     const verified = item.stages.find((stage) => stage.key === "verified");
-    return evening?.status !== "completed" || verified?.status !== "completed";
+    return (evening?.status === "failed" || evening?.status === "review_required") && verified?.status !== "completed";
   });
   const replayFailedDays = async () => {
     if (!batchCandidates.length || replaying) return;
