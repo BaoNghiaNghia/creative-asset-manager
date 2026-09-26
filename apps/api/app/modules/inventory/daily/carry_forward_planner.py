@@ -420,6 +420,7 @@ def function_declarations() -> list[dict[str, Any]]:
         "properties": {
             "code": {"type": "string"},
             "message": {"type": "string"},
+            "missing_materials": {"type": "array", "items": {"type": "object", "properties": {"raw_name": {"type": "string"}, "category": {"type": "string"}, "name_evidence": {"type": "object", "properties": {"sheet": {"type": "string"}, "cell": {"type": "string"}, "evidence_hash": {"type": "string"}}, "required": ["sheet", "cell", "evidence_hash"]}}, "required": ["raw_name", "name_evidence"]}},
         },
     }
     declarations.append(

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -24,6 +25,7 @@ from app.modules.inventory.persistence_model import (
     InventoryDailySheetSnapshotModel,
     InventoryItemModel,
     InventoryLocationModel,
+    InventoryMaterialCandidateModel,
     InventorySettingsModel,
     inventory_utcnow,
 )
@@ -31,9 +33,10 @@ from app.providers.google.auth import get_connection_access_token
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
 from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
+from app.modules.inventory.materials import MaterialRegistry, MaterialResolution
 
 
-CARRY_FORWARD_PROMPT = """You are planning a narrow previous-terminal-state to current-starting-state carry-forward. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Understand workbook roles, layouts, dimensions, and quantity representations from metadata and exact cell evidence; do not assume sheet positions, columns, rows, or labels have fixed meanings. Resolve canonical material and location identities through the tenant catalogs. Preserve every workbook-defined dimension independently and never total, redistribute, or invent conversions unless evidence and explicit business instructions justify it. Blank is not zero. The authorized carry-forward rule is explicit: when exact workbook evidence establishes the same material, location, quantity dimension, and a SOURCE terminal/closing inventory field corresponding to a formula-free TARGET opening/starting inventory input, set today's opening value equal to yesterday's verified closing value. Daily movement/input fields may be cleared only when exact TARGET headers and cell structure prove they are formula-free per-day operator inputs for that same inventory row. Never clear formulas, identities, balances, labels, dates, units, notes, or any cell whose daily-input role is ambiguous. Do not report a missing reset rule merely because no tenant custom prompt exists; this paragraph is the reset authorization. Every row must cite exact source and target evidence and structured semantic context. Report unresolved structural or identity ambiguity as an issue. Submit only after evidence and canonical catalog identities are ready. If submit_carry_forward_plan returns retryable identity feedback, use the catalog search tools, correct the canonical ID, and resubmit; an accepted submission is final. The backend controls authorization and write safety; you control workbook interpretation."""
+CARRY_FORWARD_PROMPT = """You are planning a narrow previous-terminal-state to current-starting-state carry-forward. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Understand workbook roles, layouts, dimensions, and quantity representations from metadata and exact cell evidence; do not assume sheet positions, columns, rows, or labels have fixed meanings. Resolve canonical material and location identities through the tenant catalogs. Preserve every workbook-defined dimension independently and never total, redistribute, or invent conversions unless evidence and explicit business instructions justify it. Blank is not zero. The authorized carry-forward rule is explicit: when exact workbook evidence establishes the same material, location, quantity dimension, and a SOURCE terminal/closing inventory field corresponding to a formula-free TARGET opening/starting inventory input, set today's opening value equal to yesterday's verified closing value. Daily movement/input fields may be cleared only when exact TARGET headers and cell structure prove they are formula-free per-day operator inputs for that same inventory row. Never clear formulas, identities, balances, labels, dates, units, notes, or any cell whose daily-input role is ambiguous. Do not report a missing reset rule merely because no tenant custom prompt exists; this paragraph is the reset authorization. Every row must cite exact source and target evidence and structured semantic context. Report unresolved structural or identity ambiguity as an issue. When an otherwise carry-forward-eligible material has no canonical catalog match, report MISSING_CATALOG_ITEMS and include missing_materials with raw_name plus an exact SOURCE name_evidence reference (sheet, cell, evidence_hash) for each missing material; copy raw_name exactly from that referenced cell. Submit only after evidence and canonical catalog identities are ready. If submit_carry_forward_plan returns retryable identity feedback, use the catalog search tools, correct the canonical ID, and resubmit; an accepted submission is final. The backend controls authorization and write safety; you control workbook interpretation."""
 
 MANUAL_RECOVERY_PROMPT = """MANUAL RECOVERY MODE: the TARGET workbook is already active for the current business day. Plan ONLY safe set_cell operations that map a verified SOURCE terminal/closing inventory cell to the corresponding formula-free TARGET opening/starting inventory input for the same canonical material, location, and quantity dimension. The backend derives the authoritative write value directly from the exact SOURCE cell evidence and normalizes source.closing_value, target.opening_value, and operation.value to that verified source value; do not use the current TARGET value as the desired opening value. It is valid for the current TARGET cell to contain a different stale/missed-reset value as long as its evidence_hash is exact. Do NOT plan clear_cell operations and do NOT inspect, require, or report reset/clear rules for daily movement or operator-input fields; those fields must remain untouched during manual recovery. In particular, absence of a custom reset rule is not an issue in this mode and must not produce NO_RESET_RULE. If a Closing-to-Opening mapping itself cannot be proven from exact workbook evidence, report the specific structural or identity ambiguity instead of inventing a mapping. All normal source/target evidence, catalog identity, formula, and dimensional safety requirements still apply."""
 
@@ -234,6 +237,87 @@ class InventorySharedCarryForwardService:
             if protected_range.get("sheetId") == sheet_id and _range_contains(cell, protected_range):
                 raise CarryForwardReviewRequired("protected_target_cell")
 
+    def _queue_missing_material_candidates(
+        self,
+        tenant_id: str,
+        plan: CarryForwardPlan,
+        *,
+        source_id: str,
+        google: Any,
+    ) -> int:
+        """Persist evidence-backed missing catalog items for human review only."""
+        queued = 0
+        for issue in plan.issues:
+            if (
+                not isinstance(issue, dict)
+                or str(issue.get("code") or "").strip().upper() != "MISSING_CATALOG_ITEMS"
+            ):
+                continue
+            missing = list(issue.get("missing_materials") or [])
+            for item in missing[:100]:
+                if not isinstance(item, dict):
+                    continue
+                raw_name = str(item.get("raw_name") or "").strip()
+                category = str(item.get("category") or "").strip() or None
+                evidence = item.get("name_evidence") or {}
+                if not raw_name or len(raw_name) > 512 or not isinstance(evidence, dict):
+                    continue
+                sheet = str(evidence.get("sheet") or "").strip()
+                cell = str(evidence.get("cell") or "").strip().upper()
+                evidence_hash = str(evidence.get("evidence_hash") or "")
+                row_match = re.search(r"(\d+)$", cell)
+                if not sheet or not cell or not evidence_hash or row_match is None:
+                    continue
+                actual = self._cell_value(google, source_id, sheet, cell)
+                if canonical_hash([actual]) != evidence_hash:
+                    continue
+                if str(actual or "").strip() != raw_name:
+                    continue
+                resolution = MaterialResolution(
+                    status="new_material",
+                    material_id=None,
+                    raw_name=raw_name,
+                    suggested_canonical_name=raw_name,
+                    category=category,
+                    confidence=Decimal("0"),
+                    reasons=("carry_forward_missing_catalog_item",),
+                    requires_review=True,
+                    interpretation_source="gemini",
+                )
+                with self.session_factory() as session:
+                    registry = MaterialRegistry(session)
+                    before = registry.session.scalar(
+                        select(InventoryMaterialCandidateModel.id).where(
+                            InventoryMaterialCandidateModel.tenant_id == tenant_id,
+                            InventoryMaterialCandidateModel.source_id == source_id,
+                            InventoryMaterialCandidateModel.external_key
+                            == f"carry-forward:{sheet}:{cell}",
+                            InventoryMaterialCandidateModel.raw_name == raw_name,
+                        )
+                    )
+                    registry.queue_candidate(
+                        tenant_id,
+                        source_id=source_id,
+                        external_key=f"carry-forward:{sheet}:{cell}",
+                        raw_name=raw_name,
+                        category=category,
+                        source_row=int(row_match.group(1)),
+                        sheet=sheet,
+                        resolution=resolution,
+                        context={
+                            "origin": "carry_forward_missing_catalog_item",
+                            "name_evidence": {
+                                "sheet": sheet,
+                                "cell": cell,
+                                "evidence_hash": evidence_hash,
+                            },
+                        },
+                    )
+                    session.commit()
+                    if before is None:
+                        queued += 1
+        return queued
+
     def _validate_plan(self, tenant_id: str, plan: CarryForwardPlan, *, source_id: str, target_id: str, source_meta: dict[str, Any], target_meta: dict[str, Any]) -> list[dict[str, Any]]:
         if plan.contract_version != 3:
             raise CarryForwardReviewRequired("carry_forward_plan_contract_outdated")
@@ -367,6 +451,9 @@ class InventorySharedCarryForwardService:
                 ),
                 connection_id=connection_id,
             )
+            queued_candidate_count = self._queue_missing_material_candidates(
+                tenant_id, plan, source_id=source_id, google=google
+            )
             ignored_reset_issues = [
                 issue
                 for issue in plan.issues
@@ -391,6 +478,7 @@ class InventorySharedCarryForwardService:
                             **dict(plan.audit or {}),
                             "manual_recovery": True,
                             "preview_blocked_by_issues": True,
+                            "queued_material_candidate_count": queued_candidate_count,
                         },
                     }
                     row.issue_count = len(blocking_issues)
@@ -801,6 +889,9 @@ class InventorySharedCarryForwardService:
                         ),
                         connection_id=connection_id,
                     )
+                queued_candidate_count = self._queue_missing_material_candidates(
+                    tenant_id, plan, source_id=source_id, google=google
+                )
                 if plan.issues:
                     with self.session_factory() as session:
                         row = session.get(InventoryDailyCarryForwardModel, operation.id)
@@ -811,7 +902,10 @@ class InventorySharedCarryForwardService:
                             "contract_version": plan.contract_version,
                             "operations": list(plan.rows),
                             "issues": list(plan.issues),
-                            "audit": dict(plan.audit or {}),
+                            "audit": {
+                                **dict(plan.audit or {}),
+                                "queued_material_candidate_count": queued_candidate_count,
+                            },
                         }
                         row.issue_count = len(plan.issues)
                         row.started_at = row.started_at or inventory_utcnow()

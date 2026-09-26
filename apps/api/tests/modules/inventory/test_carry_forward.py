@@ -23,6 +23,7 @@ from app.modules.inventory.persistence_model import (
     InventoryItemAliasModel,
     InventoryItemModel,
     InventoryLocationModel,
+    InventoryMaterialCandidateModel,
     InventorySettingsModel,
 )
 
@@ -95,7 +96,7 @@ def make_db():
     temp = tempfile.TemporaryDirectory()
     engine = create_engine(f"sqlite:///{Path(temp.name) / 'carry.db'}")
     event.listen(engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
-    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards", "inventory_prompt_versions", "inventory_items", "inventory_item_aliases", "inventory_locations"):
+    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards", "inventory_prompt_versions", "inventory_items", "inventory_item_aliases", "inventory_locations", "inventory_material_candidates"):
         Base.metadata.tables[name].create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     with sessions.begin() as session:
@@ -210,6 +211,94 @@ def test_manual_recovery_preview_never_writes_or_clears_and_apply_sets_only_safe
     assert google.clears == []
     engine.dispose(); temp.cleanup()
 
+
+
+def test_manual_recovery_queues_evidence_backed_missing_material_for_review():
+    temp, engine, sessions = make_db()
+    google = Google(
+        source_values={"A14": "New Cotton", "H14": 50},
+        target_values={"B14": 1},
+    )
+    issue = {
+        "code": "MISSING_CATALOG_ITEMS",
+        "message": "A source material has no canonical catalog match.",
+        "missing_materials": [{
+            "raw_name": "New Cotton",
+            "category": "Fabric",
+            "name_evidence": {
+                "sheet": "Warehouses",
+                "cell": "A14",
+                "evidence_hash": canonical_hash(["New Cotton"]),
+            },
+        }],
+    }
+    service = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner([], issues=[issue]),
+    )
+
+    try:
+        service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
+        raise AssertionError("missing catalog material must still require review")
+    except CarryForwardReviewRequired as exc:
+        assert exc.code == "carry_forward_plan_has_issues"
+
+    with sessions() as session:
+        candidates = list(session.scalars(select(InventoryMaterialCandidateModel)))
+        assert len(candidates) == 1
+        candidate = candidates[0]
+        assert candidate.status == "new_material"
+        assert candidate.raw_name == "New Cotton"
+        assert candidate.category == "Fabric"
+        assert candidate.source_id == "gemini"
+        assert candidate.sheet == "Warehouses"
+        assert candidate.source_row == 14
+        assert candidate.external_key == "carry-forward:Warehouses:A14"
+        assert candidate.context_json["origin"] == "carry_forward_missing_catalog_item"
+        carry = session.scalar(select(InventoryDailyCarryForwardModel))
+        assert carry.plan_json["audit"]["queued_material_candidate_count"] == 1
+
+    assert google.writes == []
+    assert google.clears == []
+    engine.dispose(); temp.cleanup()
+
+
+def test_manual_recovery_does_not_queue_unverified_missing_material_evidence():
+    temp, engine, sessions = make_db()
+    google = Google(
+        source_values={"A14": "Actual Name", "H14": 50},
+        target_values={"B14": 1},
+    )
+    issue = {
+        "code": "MISSING_CATALOG_ITEMS",
+        "message": "Unverified candidate evidence.",
+        "missing_materials": [{
+            "raw_name": "Invented Name",
+            "name_evidence": {
+                "sheet": "Warehouses",
+                "cell": "A14",
+                "evidence_hash": canonical_hash(["Actual Name"]),
+            },
+        }],
+    }
+    service = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner([], issues=[issue]),
+    )
+
+    try:
+        service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
+        raise AssertionError("planner issue must block recovery")
+    except CarryForwardReviewRequired:
+        pass
+
+    with sessions() as session:
+        assert session.scalar(select(InventoryMaterialCandidateModel)) is None
+    engine.dispose(); temp.cleanup()
 
 
 def test_manual_recovery_ignores_only_no_reset_rule_and_keeps_set_validation():
@@ -425,6 +514,10 @@ def test_carry_forward_declares_bounded_catalog_search_tools_only():
     assert "copy the canonical material_id verbatim" in operation["material_id"]["description"]
     assert "copy the canonical warehouse_id verbatim" in operation["warehouse_id"]["description"]
     assert properties["issues"]["items"]["type"] == "object"
+    issue_properties = properties["issues"]["items"]["properties"]
+    missing_item = issue_properties["missing_materials"]["items"]
+    assert set(missing_item["required"]) == {"raw_name", "name_evidence"}
+    assert set(missing_item["properties"]["name_evidence"]["required"]) == {"sheet", "cell", "evidence_hash"}
 
 
 def test_carry_forward_prompt_contains_explicit_opening_reset_authorization():
@@ -432,6 +525,8 @@ def test_carry_forward_prompt_contains_explicit_opening_reset_authorization():
     assert "formula-free per-day operator inputs" in CARRY_FORWARD_PROMPT
     assert "retryable identity feedback" in CARRY_FORWARD_PROMPT
     assert "correct the canonical ID" in CARRY_FORWARD_PROMPT
+    assert "MISSING_CATALOG_ITEMS" in CARRY_FORWARD_PROMPT
+    assert "name_evidence" in CARRY_FORWARD_PROMPT
 
 
 def test_unknown_tool_is_returned_to_gemini_as_recoverable_feedback():
