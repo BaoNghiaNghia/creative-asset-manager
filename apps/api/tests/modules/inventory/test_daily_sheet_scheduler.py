@@ -692,7 +692,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
                     previous_business_date=date(2030, 8, 9),
                     idempotency_key="manual-recovery",
                     status="retryable_failure",
-                    error_code="previous_day_gemini_not_verified",
+                    error_code="unknown_material",
                 )
             )
             session.add(

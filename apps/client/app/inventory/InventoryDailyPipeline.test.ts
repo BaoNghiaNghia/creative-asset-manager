@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { InventoryApiError, type InventoryHistoricalReplayResult } from "./api";
-import { isManualRecoveryError, retryFreshHistoricalReplay } from "./InventoryDailyPipeline";
+import { isManualRecoveryError, isMaterialRecoveryError, retryFreshHistoricalReplay } from "./InventoryDailyPipeline";
 
 const replayResult: InventoryHistoricalReplayResult = {
   run_id: "replay-3",
@@ -18,12 +18,29 @@ const replayResult: InventoryHistoricalReplayResult = {
 };
 
 describe("Inventory Morning Reset manual recovery routing", () => {
-  it("routes only missed-window, preview-ready and stale evidence states to manual recovery", () => {
-    expect(isManualRecoveryError("inventory_morning_reset_missed_safe_window")).toBe(true);
-    expect(isManualRecoveryError("inventory_morning_reset_manual_recovery_preview_ready")).toBe(true);
-    expect(isManualRecoveryError("stale_evidence")).toBe(true);
+  it("routes recoverable post-window carry-forward failures to manual recovery", () => {
+    for (const code of [
+      "inventory_morning_reset_missed_safe_window",
+      "inventory_morning_reset_manual_recovery_preview_ready",
+      "stale_evidence",
+      "carry_forward_plan_has_issues",
+      "empty_carry_forward_plan",
+      "closing_opening_mismatch",
+      "unknown_material",
+      "unknown_warehouse",
+      "inventory_gemini_rate_limited",
+      "inventory_gemini_transport_error",
+    ]) expect(isManualRecoveryError(code)).toBe(true);
     expect(isManualRecoveryError("previous_day_gemini_not_verified")).toBe(false);
+    expect(isManualRecoveryError("inventory_gemini_auth_or_permission_error")).toBe(false);
     expect(isManualRecoveryError(null)).toBe(false);
+  });
+
+  it("routes material mapping failures to the material registry", () => {
+    expect(isMaterialRecoveryError("carry_forward_plan_has_issues")).toBe(true);
+    expect(isMaterialRecoveryError("unknown_material")).toBe(true);
+    expect(isMaterialRecoveryError("unknown_warehouse")).toBe(false);
+    expect(isMaterialRecoveryError(null)).toBe(false);
   });
 });
 

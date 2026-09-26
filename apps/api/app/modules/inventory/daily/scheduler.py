@@ -26,6 +26,19 @@ V4_SLOT_JOB_TYPES = {
 V4_SETTLED_RESULTS = frozenset({"completed", "shadow", "review_required"})
 V4_SLOT_MAX_ATTEMPTS = 5
 V4_SLOT_LEASE_SECONDS = 15 * 60
+V4_MANUAL_RECOVERY_ERROR_CODES = frozenset({
+    "previous_day_gemini_not_verified",
+    "inventory_morning_reset_missed_safe_window",
+    "inventory_morning_reset_manual_recovery_preview_ready",
+    "stale_evidence",
+    "carry_forward_plan_has_issues",
+    "empty_carry_forward_plan",
+    "closing_opening_mismatch",
+    "unknown_material",
+    "unknown_warehouse",
+    "inventory_gemini_rate_limited",
+    "inventory_gemini_transport_error",
+})
 
 
 def _configured_time(value: str, fallback: time) -> time:
@@ -636,12 +649,10 @@ class InventoryDailyScheduler:
                 raise ValueError(
                     "inventory_morning_reset_recovery_unavailable"
                 )
-            if carry.status != "completed" and carry.error_code not in {
-                "previous_day_gemini_not_verified",
-                "inventory_morning_reset_manual_recovery_preview_ready",
-                "stale_evidence",
-                "carry_forward_plan_has_issues",
-            }:
+            if (
+                carry.status != "completed"
+                and carry.error_code not in V4_MANUAL_RECOVERY_ERROR_CODES
+            ):
                 raise ValueError(
                     "inventory_morning_reset_recovery_blocked_by_other_error"
                 )

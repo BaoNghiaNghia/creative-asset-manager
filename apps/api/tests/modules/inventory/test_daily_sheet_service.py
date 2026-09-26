@@ -1581,6 +1581,7 @@ def test_lifecycle_history_prefers_carry_forward_state_over_stale_scheduler_erro
     assert morning["status"] == "review_required"
     assert morning["error_code"] == "carry_forward_plan_has_issues"
     assert history["items"][0]["action_required"]["code"] == "carry_forward_plan_has_issues"
+    assert history["items"][0]["action_required"]["label"] == "Xử lý mapping và recovery"
 
 
 def test_lifecycle_history_derives_current_and_completed_pipeline_without_writes(daily_sheet_db):

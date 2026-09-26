@@ -11,6 +11,7 @@ describe("Inventory routes and API boundary", () => {
     expect(markup).toContain("inventory-shell--embedded");
     expect(markup).toContain("<button");
     expect(markup).toContain("Inventory dashboard");
+    expect(markup).toContain("Nguyên vật liệu");
     expect(markup).toContain("Gemini Prompts");
     expect(markup).toContain("C\u1ea5u h\u00ecnh");
     expect(markup).not.toContain(">Inbox<");

@@ -19,7 +19,10 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 # Register tenant mappings before inventory models with tenant foreign keys flush.
 from app.modules.auth_persistence import model as _auth_persistence_models  # noqa: F401
-from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
+from app.modules.inventory.daily.scheduler import (
+    InventoryDailyScheduler,
+    V4_MANUAL_RECOVERY_ERROR_CODES,
+)
 from app.modules.inventory.persistence_model import (
     InventoryDailyCarryForwardModel,
     InventorySettingsModel,
@@ -27,20 +30,6 @@ from app.modules.inventory.persistence_model import (
 
 logger = logging.getLogger(__name__)
 _stop = False
-
-_MANUAL_RECOVERY_ERROR_CODES = frozenset({
-    "previous_day_gemini_not_verified",
-    "inventory_morning_reset_manual_recovery_preview_ready",
-    "stale_evidence",
-    "carry_forward_plan_has_issues",
-    "empty_carry_forward_plan",
-    "closing_opening_mismatch",
-    "unknown_material",
-    "unknown_warehouse",
-    "inventory_gemini_rate_limited",
-    "inventory_gemini_transport_error",
-})
-
 
 def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inventory scheduler runtime")
@@ -117,7 +106,7 @@ def _manual_recovery_scan(
             if carry.status == "completed":
                 diagnostics["carry_completed"] = int(diagnostics["carry_completed"]) + 1
                 continue
-            if carry.error_code in _MANUAL_RECOVERY_ERROR_CODES:
+            if carry.error_code in V4_MANUAL_RECOVERY_ERROR_CODES:
                 diagnostics["carry_eligible"] = int(diagnostics["carry_eligible"]) + 1
                 candidates.append((
                     settings.tenant_id,
