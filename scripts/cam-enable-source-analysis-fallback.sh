@@ -5,10 +5,11 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}"
 RUNNER="$ROOT/deploy/tools/production_env.py"
 API_ROOT="$ROOT/apps/api"
+PYTHON="$API_ROOT/.venv/bin/python"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || die "Run as root."
-[[ -f "$ENV_FILE" && -x "$RUNNER" ]] || die "Production environment tooling is unavailable."
+[[ -f "$ENV_FILE" && -x "$RUNNER" && -x "$PYTHON" ]] || die "Production environment tooling is unavailable."
 
 BACKUP="${ENV_FILE}.source-fallback-backup.$$"
 cp -a -- "$ENV_FILE" "$BACKUP"
@@ -47,11 +48,11 @@ os.chown(tmp, st.st_uid, st.st_gid)
 os.replace(tmp, path)
 PY
 
-"$RUNNER" check \
+"$PYTHON" "$RUNNER" check \
   --env-file "$ENV_FILE" \
   --expected-owner-uid 0 \
   --api-root "$API_ROOT" >/dev/null
-"$RUNNER" flag-enabled \
+"$PYTHON" "$RUNNER" flag-enabled \
   --env-file "$ENV_FILE" \
   --expected-owner-uid 0 \
   --name AI_ANALYSIS_SOURCE_FALLBACK_ENABLED
