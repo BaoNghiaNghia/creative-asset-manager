@@ -405,7 +405,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
             self.assertEqual("retry", reset.status)
             self.assertEqual("completed", snapshot.status)
 
-    def test_historical_replay_recovers_current_day_reset_outside_normal_window(self):
+    def test_historical_replay_recovers_current_day_reset_within_safe_window(self):
         self._enable_v4()
         with self.sessions.begin() as session:
             settings = session.scalar(
@@ -453,7 +453,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
         result = scheduler.recover_current_morning_reset_after_replay(
             "tenant-a",
             date(2030, 8, 9),
-            datetime(2030, 8, 10, 3, 0, tzinfo=timezone.utc),
+            datetime(2030, 8, 9, 22, 30, tzinfo=timezone.utc),
         )
 
         self.assertEqual({"status": "completed", "stage": "morning_reset"}, result)

@@ -255,7 +255,13 @@ class CarryForwardToolHost:
             "submit_carry_forward_plan": self.submit_carry_forward_plan,
         }
         if name not in handlers:
-            raise CarryForwardReviewRequired("unknown_carry_forward_tool")
+            result = {
+                "ok": False,
+                "error": "unknown_carry_forward_tool",
+                "allowed_tools": sorted(handlers),
+            }
+            self.tool_trace.append({"tool": name, "status": "rejected_unknown_tool"})
+            return result
         result = handlers[name](args)
         trace: dict[str, Any] = {"tool": name}
         if name.startswith("get_source_"):

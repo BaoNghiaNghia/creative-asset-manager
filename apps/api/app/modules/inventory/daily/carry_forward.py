@@ -33,7 +33,7 @@ from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
 from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
 
 
-CARRY_FORWARD_PROMPT = """You are planning a narrow previous-terminal-state to current-starting-state carry-forward. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Understand workbook roles, layouts, dimensions, and quantity representations from metadata and exact cell evidence; do not assume sheet positions, columns, rows, or labels have fixed meanings. Resolve canonical material and location identities through the tenant catalogs. Preserve every workbook-defined dimension independently and never total, redistribute, or invent conversions unless evidence and explicit business instructions justify it. Blank is not zero. Do not change formulas, labels, dates, units, notes, or unrelated fields. Every row must cite exact source and target evidence and structured semantic context. Report ambiguity as an issue. Finish by calling submit_carry_forward_plan exactly once. The backend controls authorization and write safety; you control workbook interpretation."""
+CARRY_FORWARD_PROMPT = """You are planning a narrow previous-terminal-state to current-starting-state carry-forward. You have two authorized workbooks: SOURCE is the previous verified Gemini workbook and TARGET is the current shared operational workbook. Do not write either workbook. Understand workbook roles, layouts, dimensions, and quantity representations from metadata and exact cell evidence; do not assume sheet positions, columns, rows, or labels have fixed meanings. Resolve canonical material and location identities through the tenant catalogs. Preserve every workbook-defined dimension independently and never total, redistribute, or invent conversions unless evidence and explicit business instructions justify it. Blank is not zero. The authorized carry-forward rule is explicit: when exact workbook evidence establishes the same material, location, quantity dimension, and a SOURCE terminal/closing inventory field corresponding to a formula-free TARGET opening/starting inventory input, set today's opening value equal to yesterday's verified closing value. Daily movement/input fields may be cleared only when exact TARGET headers and cell structure prove they are formula-free per-day operator inputs for that same inventory row. Never clear formulas, identities, balances, labels, dates, units, notes, or any cell whose daily-input role is ambiguous. Do not report a missing reset rule merely because no tenant custom prompt exists; this paragraph is the reset authorization. Every row must cite exact source and target evidence and structured semantic context. Report unresolved structural or identity ambiguity as an issue. Finish by calling submit_carry_forward_plan exactly once. The backend controls authorization and write safety; you control workbook interpretation."""
 
 
 class CarryForwardError(RuntimeError):
@@ -361,6 +361,21 @@ class InventorySharedCarryForwardService:
                         ),
                         connection_id=connection_id,
                     )
+                if plan.issues:
+                    with self.session_factory() as session:
+                        row = session.get(InventoryDailyCarryForwardModel, operation.id)
+                        row.previous_snapshot_id = snapshot_id
+                        row.source_gemini_file_id = source_id
+                        row.shared_target_file_id = shared_id
+                        row.plan_json = {
+                            "contract_version": plan.contract_version,
+                            "operations": list(plan.rows),
+                            "issues": list(plan.issues),
+                            "audit": dict(plan.audit or {}),
+                        }
+                        row.issue_count = len(plan.issues)
+                        row.started_at = row.started_at or inventory_utcnow()
+                        session.commit()
                 rows = self._validate_plan(tenant_id, plan, source_id=source_id, target_id=shared_id, source_meta=source_meta, target_meta=target_meta)
                 plan_core = {
                     "contract_version": 3,

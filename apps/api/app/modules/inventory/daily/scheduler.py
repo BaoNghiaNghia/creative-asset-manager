@@ -341,7 +341,7 @@ class InventoryDailyScheduler:
         source_business_date: date,
         now: datetime | None = None,
     ) -> dict[str, str]:
-        """Recover today's reset when yesterday became verified after its normal window."""
+        """Recover today's reset only while the normal reset window is still safe."""
         moment = now or datetime.now(timezone.utc)
         target_business_date = date.fromordinal(source_business_date.toordinal() + 1)
         with self.session_factory.begin() as session:
@@ -364,6 +364,17 @@ class InventoryDailyScheduler:
             # Dependency recovery is allowed only for the current local day.
             if target_business_date != local.date():
                 return {"status": "historical_day_skipped", "stage": "morning_reset"}
+            reset_time = _configured_time(
+                settings.daily_carry_forward_time_local, time(5, 0)
+            )
+            scheduled = datetime.combine(
+                target_business_date, reset_time, tzinfo=local.tzinfo
+            )
+            if abs((local - scheduled).total_seconds()) > 3600:
+                # Mid-day recovery could clear operator inputs that belong to
+                # the current business day. Leave the failed stage visible for
+                # review rather than mutating an active workbook.
+                return {"status": "outside_safe_window", "stage": "morning_reset"}
             source_snapshot = session.scalar(
                 select(InventoryDailySheetSnapshotModel).where(
                     InventoryDailySheetSnapshotModel.tenant_id == tenant_id,

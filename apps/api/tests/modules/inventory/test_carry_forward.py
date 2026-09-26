@@ -9,6 +9,7 @@ from app.core.database import Base
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.inventory.daily.carry_forward import (
+    CARRY_FORWARD_PROMPT,
     CarryForwardPlan,
     CarryForwardReviewRequired,
     InventorySharedCarryForwardService,
@@ -211,6 +212,30 @@ def test_carry_forward_declares_bounded_catalog_search_tools_only():
     properties = submit["parameters"]["properties"]
     assert properties["operations"]["items"]["type"] == "object"
     assert properties["issues"]["items"]["type"] == "object"
+
+
+def test_carry_forward_prompt_contains_explicit_opening_reset_authorization():
+    assert "today's opening value equal to yesterday's verified closing value" in CARRY_FORWARD_PROMPT
+    assert "formula-free per-day operator inputs" in CARRY_FORWARD_PROMPT
+
+
+def test_unknown_tool_is_returned_to_gemini_as_recoverable_feedback():
+    temp, engine, sessions = make_db()
+    host = CarryForwardToolHost(
+        tenant_id="tenant-a",
+        source_id="gemini",
+        target_id="shared",
+        google=Google(),
+        sessions=sessions,
+    )
+    result = host.execute("made_up_tool", {})
+    assert result["error"] == "unknown_carry_forward_tool"
+    assert "submit_carry_forward_plan" in result["allowed_tools"]
+    assert host.tool_trace[-1] == {
+        "tool": "made_up_tool",
+        "status": "rejected_unknown_tool",
+    }
+    engine.dispose(); temp.cleanup()
 
 
 def test_carry_forward_tool_host_batches_cell_reads():
