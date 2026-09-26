@@ -35,6 +35,8 @@ _MANUAL_RECOVERY_ERROR_CODES = frozenset({
     "carry_forward_plan_has_issues",
     "empty_carry_forward_plan",
     "closing_opening_mismatch",
+    "unknown_material",
+    "unknown_warehouse",
 })
 
 
@@ -182,6 +184,8 @@ def _run_manual_recovery_current_day(
         "carry_forward_plan_has_issues",
         "empty_carry_forward_plan",
         "closing_opening_mismatch",
+        "unknown_material",
+        "unknown_warehouse",
     }
     try:
         preview = scheduler.preview_v4_morning_reset_recovery(

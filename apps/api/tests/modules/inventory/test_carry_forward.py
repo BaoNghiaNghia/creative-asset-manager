@@ -422,12 +422,16 @@ def test_carry_forward_declares_bounded_catalog_search_tools_only():
     evidence = operation["source"]
     assert "backend derives the desired opening value" in evidence["properties"]["opening_value"]["description"]
     assert "not the target cell's current value" in evidence["properties"]["opening_value"]["description"]
+    assert "copy the canonical material_id verbatim" in operation["material_id"]["description"]
+    assert "copy the canonical warehouse_id verbatim" in operation["warehouse_id"]["description"]
     assert properties["issues"]["items"]["type"] == "object"
 
 
 def test_carry_forward_prompt_contains_explicit_opening_reset_authorization():
     assert "today's opening value equal to yesterday's verified closing value" in CARRY_FORWARD_PROMPT
     assert "formula-free per-day operator inputs" in CARRY_FORWARD_PROMPT
+    assert "retryable identity feedback" in CARRY_FORWARD_PROMPT
+    assert "correct the canonical ID" in CARRY_FORWARD_PROMPT
 
 
 def test_unknown_tool_is_returned_to_gemini_as_recoverable_feedback():
@@ -570,6 +574,105 @@ def test_tool_host_derives_write_value_from_verified_source_evidence():
     assert operation["value"] == 50
     assert operation["source"]["closing_value"] == 50
     assert operation["target"]["opening_value"] == 50
+    engine.dispose(); temp.cleanup()
+
+
+def test_tool_host_returns_retryable_identity_feedback_and_allows_corrected_resubmit():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    host = CarryForwardToolHost(
+        tenant_id="tenant-a",
+        source_id="gemini",
+        target_id="shared",
+        google=google,
+        sessions=sessions,
+    )
+    source = host.execute(
+        "read_source_cells", {"sheet": "Warehouses", "cells": ["H14"]}
+    )["cells"][0]
+    target = host.execute(
+        "read_target_cells", {"sheet": "Warehouses", "cells": ["B14"]}
+    )["cells"][0]
+    invalid = {
+        "issues": [],
+        "operations": [{
+            "type": "set_cell",
+            "material_id": "invented-material",
+            "warehouse_id": "warehouse-a",
+            "source": source,
+            "target": target,
+        }],
+    }
+
+    rejected = host.execute("submit_carry_forward_plan", invalid)
+
+    assert rejected["accepted"] is False
+    assert rejected["error"] == "unknown_material"
+    assert rejected["retryable"] is True
+    assert "search_material_catalog" in rejected["guidance"]
+    assert host.plan is None
+    assert host.submitted is False
+
+    catalog = host.execute("search_material_catalog", {"query": "a", "limit": 10})
+    canonical_material_id = catalog["materials"][0]["material_id"]
+    corrected = {
+        **invalid,
+        "operations": [{
+            **invalid["operations"][0],
+            "material_id": canonical_material_id,
+        }],
+    }
+    accepted = host.execute("submit_carry_forward_plan", corrected)
+
+    assert accepted["accepted"] is True
+    assert host.plan is not None
+    assert host.plan.rows[0]["material_id"] == "material-a"
+    assert host.submitted is True
+    assert any(
+        item.get("status") == "rejected_retryable"
+        and item.get("error") == "unknown_material"
+        for item in host.tool_trace
+    )
+    engine.dispose(); temp.cleanup()
+
+
+def test_tool_host_returns_retryable_unknown_warehouse_feedback():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    host = CarryForwardToolHost(
+        tenant_id="tenant-a",
+        source_id="gemini",
+        target_id="shared",
+        google=google,
+        sessions=sessions,
+    )
+    source = host.execute(
+        "read_source_cells", {"sheet": "Warehouses", "cells": ["H14"]}
+    )["cells"][0]
+    target = host.execute(
+        "read_target_cells", {"sheet": "Warehouses", "cells": ["B14"]}
+    )["cells"][0]
+
+    rejected = host.execute(
+        "submit_carry_forward_plan",
+        {
+            "issues": [],
+            "operations": [{
+                "type": "set_cell",
+                "material_id": "material-a",
+                "warehouse_id": "invented-warehouse",
+                "source": source,
+                "target": target,
+            }],
+        },
+    )
+
+    assert rejected["accepted"] is False
+    assert rejected["error"] == "unknown_warehouse"
+    assert rejected["retryable"] is True
+    assert "search_warehouse_catalog" in rejected["guidance"]
+    assert host.plan is None
+    assert host.submitted is False
     engine.dispose(); temp.cleanup()
 
 

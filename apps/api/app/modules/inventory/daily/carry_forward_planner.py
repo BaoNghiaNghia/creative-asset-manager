@@ -208,7 +208,6 @@ class CarryForwardToolHost:
 
     def submit_carry_forward_plan(self, args: Mapping[str, Any]) -> dict[str, Any]:
         if self.submitted: raise CarryForwardReviewRequired("carry_forward_plan_already_submitted")
-        self.submitted = True
         rows, issues = list(args.get("operations") or args.get("rows") or []), list(args.get("issues") or [])
         targets: set[tuple[str, str]] = set()
         accepted = []
@@ -242,6 +241,7 @@ class CarryForwardToolHost:
             if not warehouse_ok: raise CarryForwardReviewRequired("unknown_warehouse")
             accepted.append({"type": "set_cell", "material_id": row.get("material_id"), "warehouse_id": row.get("warehouse_id"), "semantic_context": semantic_context, "value": source_raw_value, "source": {**source, "closing_value": source_raw_value, "spreadsheet_file_id": self.source_id}, "target": {**target, "opening_value": source_raw_value, "spreadsheet_file_id": self.target_id}})
         self.plan = CarryForwardPlan(accepted, issues, None, 3)
+        self.submitted = True
         return {"accepted": True, "operations": len(accepted), "issues": len(issues)}
 
     def execute(self, name: str, args: Mapping[str, Any]) -> dict[str, Any]:
@@ -266,7 +266,18 @@ class CarryForwardToolHost:
             }
             self.tool_trace.append({"tool": name, "status": "rejected_unknown_tool"})
             return result
-        result = handlers[name](args)
+        try:
+            result = handlers[name](args)
+        except CarryForwardReviewRequired as exc:
+            if name == "submit_carry_forward_plan" and exc.code in {"unknown_material", "unknown_warehouse"}:
+                guidance = (
+                    "Search the material catalog with the workbook material label/SKU/name and resubmit using the returned material_id verbatim."
+                    if exc.code == "unknown_material"
+                    else "Search the warehouse catalog with the workbook warehouse label/code/name and resubmit using the returned warehouse_id verbatim."
+                )
+                self.tool_trace.append({"tool": name, "status": "rejected_retryable", "error": exc.code})
+                return {"accepted": False, "error": exc.code, "retryable": True, "guidance": guidance}
+            raise
         trace: dict[str, Any] = {"tool": name}
         if name.startswith("get_source_"):
             trace["role"] = "previous_gemini"
@@ -380,8 +391,14 @@ def function_declarations() -> list[dict[str, Any]]:
         "type": "object",
         "properties": {
             "type": {"type": "string", "enum": ["set_cell", "clear_cell"]},
-            "material_id": {"type": "string"},
-            "warehouse_id": {"type": "string"},
+            "material_id": {
+                "type": "string",
+                "description": "For set_cell, copy the canonical material_id verbatim from search_material_catalog results. Never invent an ID or substitute a workbook label/SKU/name.",
+            },
+            "warehouse_id": {
+                "type": "string",
+                "description": "For set_cell, copy the canonical warehouse_id verbatim from search_warehouse_catalog results. Never invent an ID or substitute a workbook label/code/name.",
+            },
             "value": {
                 "type": "number",
                 "description": "Optional model echo only. The backend derives the exact set_cell write value from verified SOURCE closing evidence.",
@@ -450,8 +467,8 @@ class GeminiCarryForwardPlanner:
                     prompt
                     + "\nThe server has bound roles previous_gemini and shared_current. "
                     "Use the read-only tools. Search material and warehouse catalogs with "
-                    "specific queries instead of requesting broad catalogs. "
-                    "Call submit_carry_forward_plan exactly once."
+                    "specific queries and copy returned canonical IDs verbatim instead of inventing IDs. "
+                    "Call submit_carry_forward_plan only after the evidence and IDs are ready. If the server returns accepted=false with retryable=true, follow its guidance, correct the IDs, and resubmit; only an accepted submission is final."
                 )
             }],
         }]
