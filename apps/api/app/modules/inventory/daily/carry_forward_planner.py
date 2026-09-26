@@ -36,6 +36,7 @@ class CarryForwardToolHost:
         self.ledger: dict[tuple[str, str, str], dict[str, Any]] = {}
         self.plan: CarryForwardPlan | None = None
         self.submitted = False
+        self.missing_catalog_retry_attempted = False
         self.tool_trace: list[dict[str, Any]] = []
 
     def _metadata(self, role: str) -> dict[str, Any]:
@@ -209,6 +210,32 @@ class CarryForwardToolHost:
     def submit_carry_forward_plan(self, args: Mapping[str, Any]) -> dict[str, Any]:
         if self.submitted: raise CarryForwardReviewRequired("carry_forward_plan_already_submitted")
         rows, issues = list(args.get("operations") or args.get("rows") or []), list(args.get("issues") or [])
+        missing_catalog_issues = [
+            issue for issue in issues
+            if isinstance(issue, dict)
+            and str(issue.get("code") or "").strip().upper() == "MISSING_CATALOG_ITEMS"
+        ]
+        if missing_catalog_issues and not self.missing_catalog_retry_attempted:
+            self.missing_catalog_retry_attempted = True
+            raw_names: list[str] = []
+            for issue in missing_catalog_issues:
+                for item in list(issue.get("missing_materials") or [])[:25]:
+                    if isinstance(item, dict):
+                        raw_name = str(item.get("raw_name") or "").strip()
+                        if raw_name and raw_name not in raw_names:
+                            raw_names.append(raw_name)
+            return {
+                "accepted": False,
+                "retryable": True,
+                "error": "missing_catalog_items_retry_required",
+                "missing_materials": raw_names,
+                "guidance": (
+                    "Before finalizing these items as missing, search_material_catalog once for each raw material name "
+                    "using the exact workbook text. If a single canonical result is supported by the workbook evidence, "
+                    "use its material_id and resubmit. If no supported catalog match exists after those searches, resubmit "
+                    "MISSING_CATALOG_ITEMS unchanged so the backend can queue it for human review."
+                ),
+            }
         targets: set[tuple[str, str]] = set()
         accepted = []
         for row in rows:

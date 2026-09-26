@@ -771,6 +771,40 @@ def test_tool_host_returns_retryable_unknown_warehouse_feedback():
     engine.dispose(); temp.cleanup()
 
 
+def test_tool_host_retries_missing_catalog_once_before_accepting_review_issue():
+    temp, engine, sessions = make_db()
+    host = CarryForwardToolHost(
+        tenant_id="tenant-a",
+        source_id="gemini",
+        target_id="shared",
+        google=Google(),
+        sessions=sessions,
+    )
+    issue = {
+        "code": "MISSING_CATALOG_ITEMS",
+        "missing_materials": [{"raw_name": "Unlisted Cotton"}],
+    }
+
+    first = host.execute(
+        "submit_carry_forward_plan",
+        {"operations": [], "issues": [issue]},
+    )
+    assert first["accepted"] is False
+    assert first["retryable"] is True
+    assert first["error"] == "missing_catalog_items_retry_required"
+    assert first["missing_materials"] == ["Unlisted Cotton"]
+    assert host.plan is None
+
+    second = host.execute(
+        "submit_carry_forward_plan",
+        {"operations": [], "issues": [issue]},
+    )
+    assert second["accepted"] is True
+    assert host.plan is not None
+    assert host.plan.issues == [issue]
+    engine.dispose(); temp.cleanup()
+
+
 def test_tool_host_rejects_blank_and_fabricated_or_unread_evidence():
     temp, engine, sessions = make_db()
     host = CarryForwardToolHost(tenant_id="tenant-a", source_id="gemini", target_id="shared", google=Google(source_values={"H14": None}), sessions=sessions)
