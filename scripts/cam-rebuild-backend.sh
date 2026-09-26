@@ -1948,7 +1948,8 @@ for unit in \
   creative-asset-manager-inventory-v41-reconcile.service \
   creative-asset-manager-inventory-v41-reconcile.timer \
   creative-asset-manager-inventory-v5j-lifecycle.service \
-  creative-asset-manager-inventory-v5j-lifecycle.timer
+  creative-asset-manager-inventory-v5j-lifecycle.timer \
+  creative-asset-manager-inventory-manual-recovery.service
 do
 
   install \
