@@ -9,7 +9,7 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.inventory.daily_sheet.config import GeminiToolSheetAgentConfig, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.audit import InventoryOperationAuditService
 from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeError, InventoryKnowledgeService
-from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
+from app.modules.inventory.daily_sheet.service import InventoryDailySheetService, inventory_error_metadata
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.permissions import INVENTORY_CONTROL_PERMISSION, INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
 from app.modules.inventory.persistence_model import InventorySettingsModel
@@ -445,11 +445,15 @@ def replay_historical_gemini(
     except HTTPException:
         raise
     except Exception as exc:
+        code = str(getattr(exc, "code", type(exc).__name__))
+        metadata = inventory_error_metadata(code)
         raise HTTPException(
             409,
             detail={
-                "code": getattr(exc, "code", type(exc).__name__),
+                "code": code,
                 "message": str(exc),
+                "error_category": metadata["category"],
+                "retryable": metadata["retryable"],
             },
         ) from exc
 

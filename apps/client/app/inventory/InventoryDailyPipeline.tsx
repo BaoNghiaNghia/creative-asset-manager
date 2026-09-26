@@ -1,11 +1,32 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
-import { inventoryLifecycleApi, type InventoryLifecycleHistoryItem, type InventoryLifecycleStage, type InventoryLifecycleStageStatus, type InventoryStageDetail } from "./api";
+import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult, type InventoryLifecycleHistoryItem, type InventoryLifecycleStage, type InventoryLifecycleStageStatus, type InventoryStageDetail } from "./api";
 
 const labels: Record<string, string> = { morning_reset: "Reset đầu ngày", afternoon_snapshot: "Đang snapshot", evening_reconcile: "Đang đối soát", verified: "Cần xác minh", completed: "Hoàn tất" };
 const symbols: Record<InventoryLifecycleStageStatus, string> = { pending: "○", scheduled: "◌", running: "●", completed: "✓", blocked: "!", review_required: "!", failed: "×", stale: "×" };
 type MenuState = { item: InventoryLifecycleHistoryItem; stage: InventoryLifecycleStage; x: number; y: number };
 
 function format(value: string | null) { return value ? new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—"; }
+
+export async function retryFreshHistoricalReplay(
+  run: () => Promise<InventoryHistoricalReplayResult>,
+  onRetry?: (nextAttempt: number, error: InventoryApiError) => void,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+): Promise<InventoryHistoricalReplayResult> {
+  const retryDelays = [0, 1500, 4000];
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= retryDelays.length; attempt += 1) {
+    if (attempt > 1) await sleep(retryDelays[attempt - 1]);
+    try {
+      return await run();
+    } catch (cause) {
+      lastError = cause;
+      if (!(cause instanceof InventoryApiError) || !cause.retryable || attempt === retryDelays.length) throw cause;
+      onRetry?.(attempt + 1, cause);
+    }
+  }
+  throw lastError;
+}
+
 function Stage({ stage, onClick, onMenu }: { stage: InventoryLifecycleStage; onClick: () => void; onMenu: (event: MouseEvent<HTMLButtonElement>) => void }) {
   return <button type="button" className={`inventory-pipeline-stage ${stage.status}`} onClick={onClick} onContextMenu={onMenu} title={`${stage.label}: ${stage.status}`}><span aria-hidden="true">{symbols[stage.status]}</span><small>{stage.label.replace(" đầu ngày", "")}</small></button>;
 }
@@ -150,7 +171,12 @@ export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolea
     if (!window.confirm(`${description}\n\nNgày: ${item.business_date}\nTiếp tục?`)) return;
     setReplaying(true); setNotice(`Đang chạy lại Gemini cho ${item.business_date}…`);
     try {
-      const result = await inventoryLifecycleApi.replayHistoricalGemini(item.business_date, mode, promote);
+      const result = mode === "fresh_copy"
+        ? await retryFreshHistoricalReplay(
+            () => inventoryLifecycleApi.replayHistoricalGemini(item.business_date, mode, promote),
+            (nextAttempt, error) => setNotice(`Replay ${item.business_date} gặp lỗi ${error.category || error.code || "tạm thời"}; đang thử fresh copy lần ${nextAttempt}/3…`),
+          )
+        : await inventoryLifecycleApi.replayHistoricalGemini(item.business_date, mode, promote);
       const recovery = result.morning_reset_recovery;
       setNotice(
         result.promoted
@@ -174,19 +200,27 @@ export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolea
       `Chạy lại tuần tự ${batchCandidates.length} ngày lỗi trên trang hiện tại?\n\nMỗi ngày sẽ tạo Gemini copy mới từ Snapshot và chỉ promote khi verify thành công.`
     )) return;
     setReplaying(true);
-    let promoted = 0; let notPromoted = 0; let failed = 0;
+    let promoted = 0; let notPromoted = 0; let failed = 0; let stoppedReason: string | null = null;
     try {
       for (let index = 0; index < batchCandidates.length; index += 1) {
         const item = batchCandidates[index];
         setNotice(`Đang replay ${index + 1}/${batchCandidates.length}: ${item.business_date}…`);
         try {
-          const result = await inventoryLifecycleApi.replayHistoricalGemini(item.business_date, "fresh_copy", true);
+          const result = await retryFreshHistoricalReplay(
+            () => inventoryLifecycleApi.replayHistoricalGemini(item.business_date, "fresh_copy", true),
+            (nextAttempt, error) => setNotice(`Replay ${item.business_date} gặp lỗi ${error.category || error.code || "tạm thời"}; đang thử fresh copy lần ${nextAttempt}/3…`),
+          );
           if (result.promoted) promoted += 1; else notPromoted += 1;
-        } catch {
+        } catch (cause) {
           failed += 1;
+          if (cause instanceof InventoryApiError) {
+            const reason = cause.category || cause.code || cause.message;
+            stoppedReason = `Batch dừng tại ${item.business_date}: ${reason}. Đã promote ${promoted}, chưa promote ${notPromoted}, lỗi ${failed}.`;
+            break;
+          }
         }
       }
-      setNotice(`Batch replay hoàn tất: ${promoted} promote, ${notPromoted} chưa promote, ${failed} lỗi.`);
+      setNotice(stoppedReason || `Batch replay hoàn tất: ${promoted} promote, ${notPromoted} chưa promote, ${failed} lỗi.`);
       await load();
     } finally { setReplaying(false); }
   };

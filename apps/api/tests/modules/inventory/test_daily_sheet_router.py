@@ -265,6 +265,28 @@ def test_stage_detail_requires_read_permission_and_forwards_stage():
     )
 
 
+def test_historical_replay_errors_expose_retry_metadata():
+    class ReplayTransportError(RuntimeError):
+        code = "inventory_gemini_transport_error"
+
+    service = Mock()
+    service.is_agent_v4_configured.return_value = True
+    service.replay_agent_v4_historical.side_effect = ReplayTransportError("temporary upstream timeout")
+    allowed = client_for(principal({"inventory.control"}))
+    with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
+        response = allowed.post(
+            "/api/inventory/daily-sheet/lifecycle-history/2030-08-09/gemini/replay",
+            json={"mode": "fresh_copy", "promote": True},
+        )
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "inventory_gemini_transport_error",
+        "message": "temporary upstream timeout",
+        "error_category": "TRANSPORT",
+        "retryable": True,
+    }
+
+
 def test_knowledge_routes_separate_read_from_control_permission():
     denied = client_for(principal({"inventory.read"}))
     assert denied.post(

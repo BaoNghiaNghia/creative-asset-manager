@@ -5,14 +5,20 @@ export type InventoryAiCredential = { provider:"gemini"; configured:boolean; sou
 export type InventoryGeminiCredentialStatus = "VALID"|"INVALID_KEY"|"PERMISSION_DENIED"|"RATE_LIMITED"|"PROVIDER_UNAVAILABLE";
 export class InventoryApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly code: string | null;
+  readonly category: string | null;
+  readonly retryable: boolean;
+  constructor(status: number, message: string, details?: { code?: string | null; category?: string | null; retryable?: boolean }) {
     super(message);
     this.name = "InventoryApiError";
     this.status = status;
+    this.code = details?.code ?? null;
+    this.category = details?.category ?? null;
+    this.retryable = details?.retryable === true;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
-async function request<T>(path:string, init?:RequestInit):Promise<T> { const response=await fetch(`/api/inventory${path}`,{credentials:"include",headers:{"Content-Type":"application/json",...(init?.headers||{})},...init}); if(!response.ok){let message="Inventory request failed"; try { const body=await response.json(); message=body?.detail?.message||body?.detail?.code||message; } catch {} if (message === "inventory_credential_encryption_unavailable") message="Credential encryption is not configured correctly on the server."; if (message === "inventory_credential_storage_unavailable") message="Credential storage is not ready. A database migration may be required."; throw new InventoryApiError(response.status,message); } return response.json() as Promise<T>; }
+async function request<T>(path:string, init?:RequestInit):Promise<T> { let response:Response; try { response=await fetch(`/api/inventory${path}`,{credentials:"include",headers:{"Content-Type":"application/json",...(init?.headers||{})},...init}); } catch (cause) { throw new InventoryApiError(0,cause instanceof Error ? cause.message : "Inventory network request failed",{code:"inventory_client_transport_error",category:"TRANSPORT",retryable:true}); } if(!response.ok){let message="Inventory request failed"; let code:string|null=null; let category:string|null=null; let retryable=false; try { const body=await response.json(); code=body?.detail?.code||null; category=body?.detail?.error_category||null; retryable=body?.detail?.retryable===true; message=body?.detail?.message||code||message; } catch {} if (message === "inventory_credential_encryption_unavailable") message="Credential encryption is not configured correctly on the server."; if (message === "inventory_credential_storage_unavailable") message="Credential storage is not ready. A database migration may be required."; throw new InventoryApiError(response.status,message,{code,category,retryable}); } return response.json() as Promise<T>; }
 export const inventoryApi={ listReviews:()=>request<{items:InventoryReview[]}>("/reviews"), getReview:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}`), approve:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/approve`,{method:"POST"}), correct:(id:string,values:Record<string,unknown>)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/correct`,{method:"POST",body:JSON.stringify({values})}), requestReupload:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/request-reupload`,{method:"POST"}), getDailyRun:(businessDate:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}`), finalizeDailyRun:(businessDate:string,force=false,reason?:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}/finalize`,{method:"POST",body:JSON.stringify({force,reason})}), getExport:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`), exportDay:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`,{method:"POST"}), getAiCredential:()=>request<InventoryAiCredential>("/configuration/ai-credential"), testAiCredential:(api_key?:string,label?:string)=>request<{provider:"gemini";status:InventoryGeminiCredentialStatus;tested_at:string}>("/configuration/ai-credential/test",{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiCredential:(api_key:string,label?:string)=>request<InventoryAiCredential>("/configuration/ai-credential",{method:"PUT",body:JSON.stringify({api_key,label})}) };
 
 
