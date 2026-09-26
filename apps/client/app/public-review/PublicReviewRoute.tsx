@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import { api, type Annotation, type Asset, type Bootstrap, type Child, type Folder, type PlaybackTicket, type PublicCommentActivity } from "./api";
+import type { SearchSuggestion } from "../types";
 import { AnnotationEditor } from "./AnnotationEditor";
 import { PublicSourceTree } from "./PublicSourceTree";
 import { PublicReviewHistory, type PublicActivityTab } from "./PublicReviewHistory";
@@ -83,7 +84,35 @@ function loadPublicSearchHistory(id: string | null) {
 }
 function savePublicSearchHistory(id: string | null, entries: string[]) { const key = publicSearchHistoryKey(id); if (!key || typeof window === "undefined") return; try { window.localStorage.setItem(key, JSON.stringify(entries.slice(0, PUBLIC_SEARCH_HISTORY_LIMIT))); } catch { /* Search history is optional. */ } }
 function addPublicSearchHistory(entries: string[], value: string) { const text = normalizeSearchTerm(value); if (!text) return entries; const key = text.toLocaleLowerCase(); return [text, ...entries.filter(item => item.toLocaleLowerCase() !== key)].slice(0, PUBLIC_SEARCH_HISTORY_LIMIT); }
-function publicSearchSuggestions(items: Asset[], value: string) { const needle = normalizeSearchTerm(value).toLocaleLowerCase(); if (needle.length < 2) return [] as string[]; const seen = new Set<string>(); return items.flatMap(item => { const text = normalizeSearchTerm(item.filename || ""); const key = text.toLocaleLowerCase(); if (!text || !key.includes(needle) || seen.has(key)) return []; seen.add(key); return [text]; }).slice(0, 10); }
+export function localPublicSearchSuggestions(items: Asset[], value: string): SearchSuggestion[] {
+ const needle = normalizeSearchTerm(value).toLocaleLowerCase();
+ if (needle.length < 2) return [];
+ const seen = new Set<string>();
+ return items.flatMap(item => {
+  const text = normalizeSearchTerm(item.filename || "");
+  const key = text.toLocaleLowerCase();
+  if (!text || !key.includes(needle) || key === needle || seen.has(key)) return [];
+  seen.add(key);
+  const startsWith = key.startsWith(needle);
+  return [{ text, prefix: startsWith ? text.slice(0, needle.length) : text, completion: startsWith ? text.slice(needle.length) : "", kind: "filename" as const }];
+ }).slice(0, 10);
+}
+export function mergePublicSearchSuggestions(remote: SearchSuggestion[], local: SearchSuggestion[], value: string): SearchSuggestion[] {
+ const queryKey = normalizeSearchTerm(value).toLocaleLowerCase();
+ const seen = new Set<string>();
+ const result: SearchSuggestion[] = [];
+ for (const suggestion of [...remote, ...local]) {
+  const text = normalizeSearchTerm(suggestion.text || "").slice(0, 160);
+  const key = text.toLocaleLowerCase();
+  if (!text || key === queryKey || seen.has(key)) continue;
+  seen.add(key);
+  const rawPrefix = normalizeSearchTerm(suggestion.prefix || "");
+  const prefix = rawPrefix && key.startsWith(rawPrefix.toLocaleLowerCase()) ? rawPrefix : text;
+  result.push({ ...suggestion, text, prefix, completion: prefix === text ? "" : suggestion.completion || text.slice(prefix.length) });
+  if (result.length === 10) break;
+ }
+ return result;
+}
 export async function autoplayReviewVideo(video: HTMLVideoElement, isCurrent: () => boolean) {
  if (!isCurrent()) return false;
  try {
@@ -94,8 +123,9 @@ export async function autoplayReviewVideo(video: HTMLVideoElement, isCurrent: ()
 }
 
 export function PublicReviewRoute() {
- const id = publicShareIdFromPath(location.pathname); const shareKey = useRef<string | null>(null); const [shareNotice, setShareNotice] = useState(""); const [boot, setBoot] = useState<Bootstrap>(); const [folders, setFolders] = useState<Folder[]>([]); const [activeFolder, setActiveFolder] = useState<Folder>(); const [activeTrail, setActiveTrail] = useState<Folder[]>([]); const [children, setChildren] = useState<Child[]>([]); const [folderAssets, setFolderAssets] = useState<Asset[]>([]); const [assets, setAssets] = useState<Asset[]>([]); const [viewerAssets, setViewerAssets] = useState<Asset[]>([]); const [current, setCurrent] = useState<Asset>(); const [viewHistory, setViewHistory] = useState<ReviewHistoryEntry[]>([]); const [activityTab, setActivityTab] = useState<PublicActivityTab | null>(null); const [commentActivity, setCommentActivity] = useState<PublicCommentActivity[]>([]); const [commentsLoading, setCommentsLoading] = useState(false); const [pendingAnnotationId, setPendingAnnotationId] = useState<string>(); const [notes, setNotes] = useState<Annotation[]>([]); const [notesKey, setNotesKey] = useState(""); const [query, setQuery] = useState(""); const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]); const [suggestionIndex, setSuggestionIndex] = useState(-1); const [suggestionsDismissed, setSuggestionsDismissed] = useState(false); const [searchHistory, setSearchHistory] = useState<string[]>(() => loadPublicSearchHistory(id)); const [searchHistoryOpen, setSearchHistoryOpen] = useState(false); const [mediaFilter, setMediaFilter] = useState<"all" | "images" | "videos">("all"); const [error, setError] = useState(""); const [editor, setEditor] = useState<{ parent?: string; edit?: Annotation; pin?: { x: number; y: number } }>(); const [pinMode, setPinMode] = useState(false); const [selected, setSelected] = useState<string>(); const composerRef = useRef<HTMLDivElement>(null); const searchFieldRef = useRef<HTMLDivElement>(null); const mediaRef = useRef<HTMLDivElement>(null); const imageRef = useRef<HTMLImageElement>(null); const videoRef = useRef<HTMLVideoElement>(null); const autoplayAttempted = useRef<HTMLVideoElement | null>(null); const videoTicketRetries = useRef(0); const videoResumeAt = useRef(0); const activeVideoKey = useRef<string | null>(null); activeVideoKey.current = current ? current.asset_id + ":" + current.source_asset_id : null; const [videoSource, setVideoSource] = useState<{ key: string; url: string }>(); const [videoReady, setVideoReady] = useState(false); const [autoplayPending, setAutoplayPending] = useState(false); const [videoPlaying, setVideoPlaying] = useState(false); const [videoBuffering, setVideoBuffering] = useState(false); const [videoMuted, setVideoMuted] = useState(true); const [mediaDetails, setMediaDetails] = useState<{ width: number; height: number; duration: number | null }>(); const [geometry, setGeometry] = useState<{ box: Rect; width: number; height: number }>(); const [nextOffset, setNextOffset] = useState<number | null>(null); const [loadingFolder, setLoadingFolder] = useState(false); const [loadingMore, setLoadingMore] = useState(false); const loadMoreRef = useRef<HTMLDivElement>(null); const searchEpoch = useRef(0); const annotationEpoch = useRef(0); const folderNavigationEpoch = useRef(0);
+ const id = publicShareIdFromPath(location.pathname); const shareKey = useRef<string | null>(null); const [shareNotice, setShareNotice] = useState(""); const [boot, setBoot] = useState<Bootstrap>(); const [folders, setFolders] = useState<Folder[]>([]); const [activeFolder, setActiveFolder] = useState<Folder>(); const [activeTrail, setActiveTrail] = useState<Folder[]>([]); const [children, setChildren] = useState<Child[]>([]); const [folderAssets, setFolderAssets] = useState<Asset[]>([]); const [assets, setAssets] = useState<Asset[]>([]); const [viewerAssets, setViewerAssets] = useState<Asset[]>([]); const [current, setCurrent] = useState<Asset>(); const [viewHistory, setViewHistory] = useState<ReviewHistoryEntry[]>([]); const [activityTab, setActivityTab] = useState<PublicActivityTab | null>(null); const [commentActivity, setCommentActivity] = useState<PublicCommentActivity[]>([]); const [commentsLoading, setCommentsLoading] = useState(false); const [pendingAnnotationId, setPendingAnnotationId] = useState<string>(); const [notes, setNotes] = useState<Annotation[]>([]); const [notesKey, setNotesKey] = useState(""); const [query, setQuery] = useState(""); const [searchSuggestions, setSearchSuggestions] = useState<SearchSuggestion[]>([]); const [suggestionsLoading, setSuggestionsLoading] = useState(false); const [suggestionIndex, setSuggestionIndex] = useState(-1); const [suggestionsDismissed, setSuggestionsDismissed] = useState(false); const [searchHistory, setSearchHistory] = useState<string[]>(() => loadPublicSearchHistory(id)); const [searchHistoryOpen, setSearchHistoryOpen] = useState(false); const [mediaFilter, setMediaFilter] = useState<"all" | "images" | "videos">("all"); const [error, setError] = useState(""); const [editor, setEditor] = useState<{ parent?: string; edit?: Annotation; pin?: { x: number; y: number } }>(); const [pinMode, setPinMode] = useState(false); const [selected, setSelected] = useState<string>(); const composerRef = useRef<HTMLDivElement>(null); const searchFieldRef = useRef<HTMLDivElement>(null); const mediaRef = useRef<HTMLDivElement>(null); const imageRef = useRef<HTMLImageElement>(null); const videoRef = useRef<HTMLVideoElement>(null); const autoplayAttempted = useRef<HTMLVideoElement | null>(null); const videoTicketRetries = useRef(0); const videoResumeAt = useRef(0); const activeVideoKey = useRef<string | null>(null); activeVideoKey.current = current ? current.asset_id + ":" + current.source_asset_id : null; const [videoSource, setVideoSource] = useState<{ key: string; url: string }>(); const [videoReady, setVideoReady] = useState(false); const [autoplayPending, setAutoplayPending] = useState(false); const [videoPlaying, setVideoPlaying] = useState(false); const [videoBuffering, setVideoBuffering] = useState(false); const [videoMuted, setVideoMuted] = useState(true); const [mediaDetails, setMediaDetails] = useState<{ width: number; height: number; duration: number | null }>(); const [geometry, setGeometry] = useState<{ box: Rect; width: number; height: number }>(); const [nextOffset, setNextOffset] = useState<number | null>(null); const [loadingFolder, setLoadingFolder] = useState(false); const [loadingMore, setLoadingMore] = useState(false); const loadMoreRef = useRef<HTMLDivElement>(null); const searchEpoch = useRef(0); const annotationEpoch = useRef(0); const folderNavigationEpoch = useRef(0);
  const searchTimer = useRef<number | null>(null);
+ const suggestionTimer = useRef<number | null>(null);
  const playbackTickets = useMemo(() => id ? createReviewPlaybackTicketCache(
   asset => api.playbackTicket(id, asset),
   { onTicket: preconnectReviewMedia },
@@ -232,12 +262,38 @@ export function PublicReviewRoute() {
   setQuery(value);
   setSuggestionIndex(-1);
   if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
+  if (suggestionTimer.current !== null) window.clearTimeout(suggestionTimer.current);
   const normalized = normalizeSearchTerm(value);
   const epoch = ++searchEpoch.current;
-  if (normalized.length < 2) setSearchSuggestions([]);
+  const localSuggestions = localPublicSearchSuggestions(folderAssets, normalized);
+  if (normalized.length < 2) {
+   setSearchSuggestions([]);
+   setSuggestionsLoading(false);
+  } else {
+   setSearchSuggestions(localSuggestions);
+   setSuggestionsLoading(true);
+   suggestionTimer.current = window.setTimeout(() => {
+    api.suggestions(id!, normalized)
+     .then(result => {
+      if (epoch !== searchEpoch.current) return;
+      setSearchSuggestions(mergePublicSearchSuggestions(result.suggestions || [], localSuggestions, normalized));
+     })
+     .catch(() => {
+      if (epoch !== searchEpoch.current) return;
+      setSearchSuggestions(localSuggestions);
+     })
+     .finally(() => {
+      if (epoch === searchEpoch.current) {
+       setSuggestionsLoading(false);
+       suggestionTimer.current = null;
+      }
+     });
+   }, 60);
+  }
   if (!normalized) {
    setAssets(folderAssets);
    setSearchSuggestions([]);
+   setSuggestionsLoading(false);
    searchTimer.current = null;
    return;
   }
@@ -246,12 +302,11 @@ export function PublicReviewRoute() {
     .then(result => {
      if (epoch !== searchEpoch.current) return;
      setAssets(result.items);
-     setSearchSuggestions(publicSearchSuggestions(result.items, normalized));
+     setSearchSuggestions(current => mergePublicSearchSuggestions(current, localPublicSearchSuggestions(result.items, normalized), normalized));
     })
     .catch(() => {
      if (epoch !== searchEpoch.current) return;
      setAssets([]);
-     setSearchSuggestions([]);
     })
     .finally(() => { if (epoch === searchEpoch.current) searchTimer.current = null; });
   }, 250);
@@ -277,7 +332,7 @@ export function PublicReviewRoute() {
   });
  };
  const clearSearchHistory = () => { setSearchHistory([]); savePublicSearchHistory(id, []); };
- const showSearchSuggestions = !suggestionsDismissed && query.trim().length >= 2 && searchSuggestions.length > 0;
+ const showSearchSuggestions = !suggestionsDismissed && query.trim().length >= 2 && (suggestionsLoading || searchSuggestions.length > 0);
  const showSearchHistory = searchHistoryOpen && !showSearchSuggestions && !query.trim() && searchHistory.length > 0;
  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
   if (event.key === "Escape") {
@@ -296,12 +351,13 @@ export function PublicReviewRoute() {
   if (event.key === "ArrowUp") { event.preventDefault(); setSuggestionIndex(currentIndex => (currentIndex - 1 + searchSuggestions.length) % searchSuggestions.length); return; }
   if (event.key === "Enter") {
    event.preventDefault();
-   if (suggestionIndex >= 0) commitSearch(searchSuggestions[suggestionIndex]);
+   if (suggestionIndex >= 0) commitSearch(searchSuggestions[suggestionIndex].text);
    else commitSearch(query);
   }
  };
  useEffect(() => () => {
   if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
+  if (suggestionTimer.current !== null) window.clearTimeout(suggestionTimer.current);
  }, []);
  useEffect(() => {
   if (!id || !folders.length) return;
@@ -400,17 +456,19 @@ export function PublicReviewRoute() {
     </div>}
     {showSearchSuggestions && <div id="public-search-suggestions" className="search-suggestions" role="listbox" aria-label="Search suggestions">
       <div className="search-suggestions-header"><strong>Suggestions</strong><span>Use ↑ ↓ then Enter</span></div>
-      {searchSuggestions.map((suggestion, index) => <button
-        key={suggestion}
-        id={"public-search-suggestion-" + index}
-        type="button"
-        role="option"
-        aria-selected={suggestionIndex === index}
-        className={suggestionIndex === index ? "active" : ""}
-        onMouseDown={event => event.preventDefault()}
-        onMouseEnter={() => setSuggestionIndex(index)}
-        onClick={() => commitSearch(suggestion)}
-      ><span aria-hidden="true">F</span><span className="search-suggestion-text"><b>{suggestion}</b></span><small>File name</small></button>)}
+      {suggestionsLoading && !searchSuggestions.length
+        ? <span className="search-suggestions-loading">Finding suggestions...</span>
+        : searchSuggestions.map((suggestion, index) => <button
+          key={suggestion.kind + ":" + suggestion.text}
+          id={"public-search-suggestion-" + index}
+          type="button"
+          role="option"
+          aria-selected={suggestionIndex === index}
+          className={suggestionIndex === index ? "active" : ""}
+          onMouseDown={event => event.preventDefault()}
+          onMouseEnter={() => setSuggestionIndex(index)}
+          onClick={() => commitSearch(suggestion.text)}
+        ><span aria-hidden="true">{suggestion.kind === "filename" ? "F" : suggestion.kind === "visible_text" ? "T" : "S"}</span><span className="search-suggestion-text"><b>{suggestion.prefix}</b><em>{suggestion.completion}</em></span><small>{suggestion.kind === "filename" ? "File name" : suggestion.kind === "visible_text" ? "Detected text" : "Indexed text"}</small></button>)}
     </div>}
   </div>
   <div className="public-media-filter" aria-label="Media filter"><button className={mediaFilter === "all" ? "active" : ""} onClick={() => setMediaFilter("all")}>All</button><button className={mediaFilter === "images" ? "active" : ""} onClick={() => setMediaFilter("images")}>Images</button><button className={mediaFilter === "videos" ? "active" : ""} onClick={() => setMediaFilter("videos")}>Videos</button></div>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { autoplayReviewVideo, formatReviewDuration, publicFolderIdFromPath, publicReviewLocationFromPath, publicShareIdFromPath, reviewAspectRatio, reviewFolderPath, reviewMediaPosition, reviewShareUrl } from "./PublicReviewRoute";
+import { autoplayReviewVideo, formatReviewDuration, localPublicSearchSuggestions, mergePublicSearchSuggestions, publicFolderIdFromPath, publicReviewLocationFromPath, publicShareIdFromPath, reviewAspectRatio, reviewFolderPath, reviewMediaPosition, reviewShareUrl } from "./PublicReviewRoute";
 import type { Asset } from "./api";
 
 describe("reviewShareUrl", () => {
@@ -28,6 +28,38 @@ describe("public review folder routes", () => {
 });
 
 
+
+describe("public review search suggestions", () => {
+  const asset = (filename: string): Asset => ({
+    kind: "asset",
+    asset_id: filename,
+    source_asset_id: "source-" + filename,
+    filename,
+    media_type: "image/jpeg",
+    thumbnail_url: "/thumbnail/" + filename,
+    preview_url: "/preview/" + filename,
+  });
+
+  it("shows immediate filename recommendations before remote suggestions arrive", () => {
+    expect(localPublicSearchSuggestions([
+      asset("summer-cat-banner.jpg"),
+      asset("cat-campaign.png"),
+      asset("other.jpg"),
+    ], "cat").map(value => value.text)).toEqual([
+      "summer-cat-banner.jpg",
+      "cat-campaign.png",
+    ]);
+  });
+
+  it("prefers backend recommendations, deduplicates, and keeps local fallback", () => {
+    const remote = [{ text: "cat campaign", prefix: "cat", completion: " campaign", kind: "visible_text" as const }];
+    const local = localPublicSearchSuggestions([asset("cat-campaign.png"), asset("cat campaign")], "cat");
+    expect(mergePublicSearchSuggestions(remote, local, "cat").map(value => value.text)).toEqual([
+      "cat campaign",
+      "cat-campaign.png",
+    ]);
+  });
+});
 
 describe("reviewMediaPosition", () => {
   const asset = (asset_id: string, media_type: string): Asset => ({

@@ -25,7 +25,7 @@ from app.modules.public_review.service import PublicReviewService, utcnow
 from app.modules.search.query_builder import ElasticsearchQueryBuilder
 from app.modules.search.query_parser import SearchQueryParser
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL
-from app.modules.search.router import _search_generation, _require_v3, search_config
+from app.modules.search.router import _search_generation, _require_v3, _suggestion_values, search_config
 router=APIRouter(prefix="/api/public/review",tags=["public-review"])
 COOKIE="cam_public_review_session"; TTL=timedelta(days=7)
 # Public media streams must not exhaust the small production database/provider pool.
@@ -220,6 +220,31 @@ def _public_search_scope_filter(scope: PublicShareScopeService, principal) -> di
   ]}})
  return {"bool":{"should":clauses,"minimum_should_match":1}} if clauses else {"match_none":{}}
 
+def _public_live_suggestion_hits(session, scope: PublicShareScopeService, principal, hits: list[dict]) -> list[dict]:
+ asset_ids=[str(hit.get("_source",{}).get("asset_id") or hit.get("_id") or "") for hit in hits]
+ asset_ids=[value for value in asset_ids if value]
+ if not asset_ids: return []
+ rows=session.execute(
+  select(AssetSourceLinkModel.asset_id,SourceAssetModel)
+  .join(SourceAssetModel,(SourceAssetModel.tenant_id==AssetSourceLinkModel.tenant_id)&(SourceAssetModel.id==AssetSourceLinkModel.source_asset_id))
+  .where(
+   AssetSourceLinkModel.tenant_id==principal.tenant_id,
+   AssetSourceLinkModel.asset_id.in_(asset_ids),
+   SourceAssetModel.deleted_at.is_(None),
+  )
+ ).all()
+ allowed=set()
+ for asset_id,source in rows:
+  if permitted_linked(scope,principal,source):
+   allowed.add((str(asset_id),str(source.external_source_id)))
+ return [
+  hit for hit in hits
+  if (
+   str(hit.get("_source",{}).get("asset_id") or hit.get("_id") or ""),
+   str(hit.get("_source",{}).get("source_id") or ""),
+  ) in allowed
+ ]
+
 def _hydrate_public_search_hits(session, scope: PublicShareScopeService, principal, hits: list[dict], public_share_id: str, limit_value: int) -> list[dict]:
  asset_ids=[str(hit.get("_source",{}).get("asset_id") or hit.get("_id") or "") for hit in hits]
  asset_ids=[value for value in asset_ids if value]
@@ -267,6 +292,63 @@ def _legacy_public_search(session, scope: PublicShareScopeService, principal, pu
    out.append(doc(asset,source,public_share_id))
   if len(out)>=limit_value: break
  return _with_annotation_counts(session,principal,out)
+
+@router.get("/{public_share_id}/search/suggestions")
+async def search_suggestions(public_share_id:str,request:Request,q:str=Query(...,min_length=2,max_length=160),limit_value:int=Query(10,ge=1,le=10)):
+ p=user(request,public_share_id);value=" ".join(q.split())
+ if len(value)<2: raise HTTPException(422,detail={"code":"invalid_search_query"})
+ settings=get_settings()
+ with SessionLocal() as s:
+  limit(s,request,"search_suggestions",120);scope=PublicShareScopeService(s)
+  readiness=_search_generation(s,p.tenant_id,settings)
+  _require_v3(readiness,settings)
+  filters=[
+   {"term":{"tenant_id":p.tenant_id}},
+   _public_search_scope_filter(scope,p),
+  ]
+  s.commit()
+ query={
+  "_source":["asset_id","source_id","filename","visible_text","search_suggest","search_terms","normalized_terms"],
+  "size":min(limit_value*2,16),
+  "terminate_after":100,
+  "track_total_hits":False,
+  "query":{"bool":{
+   "filter":filters,
+   "should":[
+    {"match_phrase_prefix":{"visible_text":{"query":value,"boost":12,"max_expansions":20}}},
+    {"match_phrase_prefix":{"filename":{"query":value,"boost":8,"max_expansions":20}}},
+    {"multi_match":{"query":value,"type":"bool_prefix","fields":["search_suggest","search_suggest._2gram","search_suggest._3gram"],"boost":4}},
+   ],
+   "minimum_should_match":1,
+  }},
+ }
+ try:
+  index=await API_SEARCH_INDEX_POOL.get(
+   ElasticsearchV3Config(
+    settings.ELASTICSEARCH_URL,
+    settings.ELASTICSEARCH_INDEX_PREFIX,
+    index_generation="v3",
+   )
+  )
+  response=await index.search(query)
+ except ElasticsearchV3RequestError as exc:
+  raise HTTPException(503,detail={"code":"search_v3_unavailable","message":"Suggestions are temporarily unavailable.","retryable":True}) from exc
+ raw_hits=list(response.get("hits",{}).get("hits",[]))
+ with SessionLocal() as s:
+  scope=PublicShareScopeService(s)
+  principal=user(request,public_share_id,s)
+  live_hits=_public_live_suggestion_hits(s,scope,principal,raw_hits)
+  s.commit()
+ seen=set();candidates=[]
+ for hit in live_hits:
+  for kind,text,completion in _suggestion_values(hit.get("_source",{}),value):
+   key=text.casefold()
+   if key in seen: continue
+   seen.add(key)
+   candidates.append({"text":text,"prefix":text[:len(text)-len(completion)],"completion":completion,"kind":kind})
+ kind_rank={"search_text":0,"visible_text":1,"filename":2}
+ result=sorted(candidates,key=lambda item:(len(item["text"]),kind_rank.get(item["kind"],9),item["text"].casefold()))[:limit_value]
+ return safe({"search_version":"v3","suggestions":result,"took_ms":response.get("took")})
 
 @router.get("/{public_share_id}/search")
 async def search(public_share_id:str,request:Request,q:str=Query(...,min_length=1,max_length=500),limit_value:int=Query(60,ge=1,le=100)):
