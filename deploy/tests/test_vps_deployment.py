@@ -22,6 +22,7 @@ VIDEO_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-worker.
 VIDEO_DELIVERY_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-video-delivery-worker.service"
 VISUAL_ENCODER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-visual-encoder.service"
 VISUAL_WORKER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-visual-worker.service"
+INVENTORY_MANUAL_RECOVERY_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-inventory-manual-recovery.service"
 NGINX_CONFIG = ROOT / "infrastructure" / "nginx" / "creative-asset-manager.conf"
 
 
@@ -152,6 +153,12 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         )
         self.assertLess(encoder, encoder_ready)
         self.assertLess(encoder_ready, worker)
+
+    def test_inventory_manual_recovery_review_block_is_not_systemd_failure(self) -> None:
+        unit = INVENTORY_MANUAL_RECOVERY_UNIT.read_text()
+        self.assertIn("Type=oneshot", unit)
+        self.assertIn("SuccessExitStatus=2", unit)
+        self.assertIn("--manual-recovery-current-day", unit)
 
     def test_alembic_configuration_includes_the_api_module_path(self) -> None:
         config = (ROOT / "apps" / "api" / "alembic.ini").read_text()

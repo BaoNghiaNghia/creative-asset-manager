@@ -5,6 +5,8 @@ After=network-online.target postgresql.service
 
 [Service]
 Type=oneshot
+# Exit 2 means the recovery was safely blocked for operator review, not a process crash.
+SuccessExitStatus=2
 User=creative-assets
 Group=creative-assets
 WorkingDirectory=/opt/creative-asset-manager/current

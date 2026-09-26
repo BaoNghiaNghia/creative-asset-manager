@@ -298,9 +298,9 @@ class CarryForwardToolHost:
         except CarryForwardReviewRequired as exc:
             if name == "submit_carry_forward_plan" and exc.code in {"unknown_material", "unknown_warehouse"}:
                 guidance = (
-                    "Search the material catalog with the workbook material label/SKU/name and resubmit using the returned material_id verbatim."
+                    "Call search_material_catalog with the workbook material label/SKU/name and resubmit using the returned material_id verbatim."
                     if exc.code == "unknown_material"
-                    else "Search the warehouse catalog with the workbook warehouse label/code/name and resubmit using the returned warehouse_id verbatim."
+                    else "Call search_warehouse_catalog with the workbook warehouse label/code/name and resubmit using the returned warehouse_id verbatim."
                 )
                 self.tool_trace.append({"tool": name, "status": "rejected_retryable", "error": exc.code})
                 return {"accepted": False, "error": exc.code, "retryable": True, "guidance": guidance}

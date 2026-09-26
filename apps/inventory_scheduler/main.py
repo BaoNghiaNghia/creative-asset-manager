@@ -23,6 +23,9 @@ from app.modules.inventory.daily.scheduler import (
     InventoryDailyScheduler,
     V4_MANUAL_RECOVERY_ERROR_CODES,
 )
+
+# Backward-compatible name used by operational tests and older wrappers.
+_MANUAL_RECOVERY_ERROR_CODES = V4_MANUAL_RECOVERY_ERROR_CODES
 from app.modules.inventory.persistence_model import (
     InventoryDailyCarryForwardModel,
     InventorySettingsModel,
