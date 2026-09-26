@@ -51,3 +51,30 @@ def test_copy_reuses_existing_snapshot_before_creating_another():
     result = client.copy_spreadsheet("source", folder_id="folder", name="Snapshot", tenant_id="tenant-a", business_date="2030-08-08")
     assert result["id"] == "existing-copy"
     assert [method for method, _ in calls] == ["GET"]
+
+
+def test_copy_key_creates_a_distinct_idempotency_namespace():
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if request.method == "GET":
+            assert "cam_inventory_copy_key" in str(request.url)
+            assert "historical-replay" in str(request.url)
+            return httpx.Response(200, json={"files": []})
+        body = __import__("json").loads(request.content)
+        assert body["appProperties"]["cam_inventory_copy_key"] == "historical-replay"
+        return httpx.Response(200, json={"id": "fresh-replay"})
+    client = GoogleSheetsInventoryClient(
+        "token",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    result = client.copy_spreadsheet(
+        "source",
+        folder_id="folder",
+        name="Replay",
+        tenant_id="tenant-a",
+        business_date="2030-08-08",
+        copy_key="historical-replay",
+    )
+    assert result["id"] == "fresh-replay"
+    assert [request.method for request in calls] == ["GET", "POST"]

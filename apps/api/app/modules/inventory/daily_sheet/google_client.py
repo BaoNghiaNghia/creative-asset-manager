@@ -155,16 +155,21 @@ class GoogleSheetsInventoryClient:
             },
         })
 
-    def copy_spreadsheet(self, source_id: str, *, folder_id: str, name: str, tenant_id: str, business_date: str) -> dict[str, Any]:
+    def copy_spreadsheet(self, source_id: str, *, folder_id: str, name: str, tenant_id: str, business_date: str, copy_key: str | None = None) -> dict[str, Any]:
         escaped_tenant = tenant_id.replace("'", "\\'")
         escaped_date = business_date.replace("'", "\\'")
         escaped_source = source_id.replace("'", "\\'")
+        escaped_copy_key = str(copy_key or "").replace("'", "\\'")
         query = (
             f"'{folder_id}' in parents and trashed=false and "
             f"mimeType='{NATIVE_SPREADSHEET_MIME}' and "
             f"appProperties has {{ key='cam_inventory_tenant_id' and value='{escaped_tenant}' }} and "
             f"appProperties has {{ key='cam_inventory_business_date' and value='{escaped_date}' }} and "
             f"appProperties has {{ key='cam_inventory_source_id' and value='{escaped_source}' }}"
+            + (
+                f" and appProperties has {{ key='cam_inventory_copy_key' and value='{escaped_copy_key}' }}"
+                if copy_key else ""
+            )
         )
         found = self._request("GET", f"{self.DRIVE}/files", params={
             "q": query, "fields": "files(id,name,mimeType,modifiedTime,webViewLink,appProperties)",
@@ -182,6 +187,7 @@ class GoogleSheetsInventoryClient:
                 "cam_inventory_business_date": business_date,
                 "cam_inventory_tenant_id": tenant_id,
                 "cam_inventory_source_id": source_id,
+                **({"cam_inventory_copy_key": str(copy_key)} if copy_key else {}),
             },
         })
 

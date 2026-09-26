@@ -975,6 +975,7 @@ class InventoryDailySheetService:
                         ),
                         tenant_id=tenant_id,
                         business_date=business_date.isoformat(),
+                        copy_key=f"historical-replay:{run_id}",
                     )
                     replay_file_id = str(copied["id"])
                     if replay_file_id in {
