@@ -363,7 +363,16 @@ class InventorySharedCarryForwardService:
                 ),
                 connection_id=connection_id,
             )
-            if plan.issues:
+            ignored_reset_issues = [
+                issue
+                for issue in plan.issues
+                if isinstance(issue, dict)
+                and str(issue.get("code") or "").strip().upper() == "NO_RESET_RULE"
+            ]
+            blocking_issues = [
+                issue for issue in plan.issues if issue not in ignored_reset_issues
+            ]
+            if blocking_issues:
                 now = inventory_utcnow()
                 with self.session_factory() as session:
                     row = session.get(InventoryDailyCarryForwardModel, operation.id)
@@ -380,7 +389,7 @@ class InventorySharedCarryForwardService:
                             "preview_blocked_by_issues": True,
                         },
                     }
-                    row.issue_count = len(plan.issues)
+                    row.issue_count = len(blocking_issues)
                     row.status = "review_required"
                     row.started_at = row.started_at or now
                     row.error_code = "carry_forward_plan_has_issues"
@@ -485,11 +494,23 @@ class InventorySharedCarryForwardService:
                     **dict(plan.audit or {}),
                     "manual_recovery": True,
                     "excluded_clear_count": excluded_clear_count,
+                    "ignored_issue_codes": sorted({
+                        str(issue.get("code") or "").strip().upper()
+                        for issue in ignored_reset_issues
+                        if isinstance(issue, dict)
+                    }),
+                    "ignored_issue_count": len(ignored_reset_issues),
                 },
                 "manual_recovery": {
                     "mode": "safe_opening_rows_only",
                     "previewed_at": now.isoformat(),
                     "excluded_clear_count": excluded_clear_count,
+                    "ignored_issue_codes": sorted({
+                        str(issue.get("code") or "").strip().upper()
+                        for issue in ignored_reset_issues
+                        if isinstance(issue, dict)
+                    }),
+                    "ignored_issue_count": len(ignored_reset_issues),
                 },
             }
             with self.session_factory() as session:

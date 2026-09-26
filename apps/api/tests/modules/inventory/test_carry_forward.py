@@ -70,9 +70,15 @@ class Google:
 
 
 class Planner:
-    def __init__(self, rows): self.rows = rows
+    def __init__(self, rows, issues=None):
+        self.rows = rows
+        self.issues = list(issues or [])
     def plan(self, **_kwargs):
-        return CarryForwardPlan(self.rows, [], {"sheetId": 4, "title": "Warehouses", "index": 3})
+        return CarryForwardPlan(
+            self.rows,
+            self.issues,
+            {"sheetId": 4, "title": "Warehouses", "index": 3},
+        )
 
 
 def row(material_id, warehouse_id, source_cell, target_cell, closing, target_before):
@@ -195,6 +201,106 @@ def test_manual_recovery_preview_never_writes_or_clears_and_apply_sets_only_safe
     assert applied["excluded_clear_count"] == 1
     assert google.target_values["B14"] == 50
     assert google.target_values["C14"] == 7
+    assert google.clears == []
+    engine.dispose(); temp.cleanup()
+
+
+
+def test_manual_recovery_ignores_only_no_reset_rule_and_keeps_set_validation():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    service = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner(
+            [row("material-a", "warehouse-a", "H14", "B14", 50, 1)],
+            issues=[{
+                "code": "NO_RESET_RULE",
+                "message": "No explicit rule was found for clearing daily movement inputs.",
+            }],
+        ),
+    )
+
+    preview = service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
+
+    assert preview["status"] == "preview_ready"
+    assert preview["safe_operation_count"] == 1
+    assert preview["write_operation_count"] == 1
+    assert google.writes == []
+    assert google.clears == []
+    with sessions() as session:
+        persisted = session.scalar(
+            select(InventoryDailyCarryForwardModel).where(
+                InventoryDailyCarryForwardModel.target_business_date
+                == date(2030, 8, 10)
+            )
+        )
+        manual = persisted.plan_json["manual_recovery"]
+        assert manual["ignored_issue_codes"] == ["NO_RESET_RULE"]
+        assert manual["ignored_issue_count"] == 1
+        assert persisted.issue_count == 0
+    engine.dispose(); temp.cleanup()
+
+
+def test_manual_recovery_still_blocks_no_reset_rule_when_another_issue_exists():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    service = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner(
+            [row("material-a", "warehouse-a", "H14", "B14", 50, 1)],
+            issues=[
+                {"code": "NO_RESET_RULE", "message": "No clear/reset rule."},
+                {"code": "STRUCTURAL_AMBIGUITY", "message": "Opening mapping is ambiguous."},
+            ],
+        ),
+    )
+
+    try:
+        service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
+        raise AssertionError("non-reset planner issues must block manual recovery")
+    except CarryForwardReviewRequired as exc:
+        assert exc.code == "carry_forward_plan_has_issues"
+
+    assert google.writes == []
+    assert google.clears == []
+    with sessions() as session:
+        persisted = session.scalar(
+            select(InventoryDailyCarryForwardModel).where(
+                InventoryDailyCarryForwardModel.target_business_date
+                == date(2030, 8, 10)
+            )
+        )
+        assert persisted.status == "review_required"
+        assert persisted.issue_count == 1
+        assert [issue["code"] for issue in persisted.plan_json["issues"]] == [
+            "NO_RESET_RULE",
+            "STRUCTURAL_AMBIGUITY",
+        ]
+    engine.dispose(); temp.cleanup()
+
+
+def test_normal_carry_forward_does_not_ignore_no_reset_rule():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    service = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner(
+            [row("material-a", "warehouse-a", "H14", "B14", 50, 1)],
+            issues=[{"code": "NO_RESET_RULE", "message": "No clear/reset rule."}],
+        ),
+    )
+
+    result = service.run("tenant-a", date(2030, 8, 10))
+
+    assert result.status == "review_required"
+    assert result.error_code == "carry_forward_plan_has_issues"
+    assert google.writes == []
     assert google.clears == []
     engine.dispose(); temp.cleanup()
 
