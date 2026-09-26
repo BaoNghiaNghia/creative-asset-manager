@@ -27,9 +27,15 @@ class Resolver:
 
 
 class Response:
-    def __init__(self, status_code: int, payload: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        status_code: int,
+        payload: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         self.status_code = status_code
         self._payload = payload or {}
+        self.headers = headers or {}
 
     def json(self) -> dict[str, Any]:
         return self._payload
@@ -198,3 +204,62 @@ def test_structured_http_errors_are_safe_and_classified(
     assert str(captured.value) == code
     assert "sensitive" not in str(captured.value)
     assert "test-secret" not in str(captured.value)
+
+
+def test_rate_limit_retry_delay_prefers_provider_hint(monkeypatch):
+    resolver = Resolver()
+    gateway = RuntimeInventoryGeminiGateway(resolver)
+    payload = {
+        "error": {
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                    "retryDelay": "37s",
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(
+        "app.modules.inventory.ai.gateway.httpx.post",
+        lambda *_args, **_kwargs: Response(
+            429,
+            payload,
+            headers={"Retry-After": "12"},
+        ),
+    )
+
+    with pytest.raises(InventoryAiGatewayError) as captured:
+        gateway.analyze_structured_text(
+            tenant_id="tenant-a",
+            prompt="structured",
+            schema={"type": "object"},
+            provider="gemini",
+            model="gemini-test",
+        )
+
+    assert captured.value.code == "inventory_gemini_rate_limited"
+    assert captured.value.retry_after_seconds == 37.0
+
+
+def test_rate_limit_retry_delay_is_capped_at_two_minutes(monkeypatch):
+    resolver = Resolver()
+    gateway = RuntimeInventoryGeminiGateway(resolver)
+    monkeypatch.setattr(
+        "app.modules.inventory.ai.gateway.httpx.post",
+        lambda *_args, **_kwargs: Response(
+            429,
+            {"error": {}},
+            headers={"Retry-After": "600"},
+        ),
+    )
+
+    with pytest.raises(InventoryAiGatewayError) as captured:
+        gateway.analyze_structured_text(
+            tenant_id="tenant-a",
+            prompt="structured",
+            schema={"type": "object"},
+            provider="gemini",
+            model="gemini-test",
+        )
+
+    assert captured.value.retry_after_seconds == 120.0

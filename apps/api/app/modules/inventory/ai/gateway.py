@@ -13,11 +13,19 @@ from app.modules.inventory.credentials import InventoryCredentialError, Inventor
 
 
 class InventoryAiGatewayError(RuntimeError):
-    def __init__(self, code: str, *, retryable: bool, provider_status: int | None = None):
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool,
+        provider_status: int | None = None,
+        retry_after_seconds: float | None = None,
+    ):
         super().__init__(code)
         self.code = code
         self.retryable = retryable
         self.provider_status = provider_status
+        self.retry_after_seconds = retry_after_seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +125,10 @@ class RuntimeInventoryGeminiGateway:
                 },
                 timeout=self.timeout_seconds,
             )
-            self._raise_provider_status(response.status_code)
+            self._raise_provider_status(
+                response.status_code,
+                retry_after_seconds=self._provider_retry_after_seconds(response),
+            )
             raw = response.json()
             content = raw["candidates"][0]["content"]
             parts = content.get("parts") or []
@@ -147,7 +158,39 @@ class RuntimeInventoryGeminiGateway:
         }
 
     @staticmethod
-    def _raise_provider_status(status_code: int) -> None:
+    def _provider_retry_after_seconds(response: httpx.Response) -> float | None:
+        delays: list[float] = []
+        headers = getattr(response, "headers", {}) or {}
+        raw_header = headers.get("Retry-After") or headers.get("retry-after")
+        if raw_header:
+            try:
+                delays.append(float(raw_header))
+            except (TypeError, ValueError):
+                pass
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, Mapping):
+            error = payload.get("error")
+            details = error.get("details") if isinstance(error, Mapping) else None
+            if isinstance(details, list):
+                for detail in details:
+                    if not isinstance(detail, Mapping):
+                        continue
+                    retry_delay = detail.get("retryDelay")
+                    if isinstance(retry_delay, str) and retry_delay.endswith("s"):
+                        try:
+                            delays.append(float(retry_delay[:-1]))
+                        except ValueError:
+                            pass
+        valid = [value for value in delays if value > 0]
+        return min(max(valid), 120.0) if valid else None
+
+    @staticmethod
+    def _raise_provider_status(
+        status_code: int, *, retry_after_seconds: float | None = None
+    ) -> None:
         if status_code < 400:
             return
         if status_code == 400:
@@ -161,11 +204,19 @@ class RuntimeInventoryGeminiGateway:
         else:
             code = "inventory_gemini_request_failed"
             retryable = status_code >= 500
-        raise InventoryAiGatewayError(code, retryable=retryable, provider_status=status_code)
+        raise InventoryAiGatewayError(
+            code,
+            retryable=retryable,
+            provider_status=status_code,
+            retry_after_seconds=retry_after_seconds,
+        )
 
     @staticmethod
     def _structured_result(response: httpx.Response) -> Mapping[str, Any]:
-        RuntimeInventoryGeminiGateway._raise_provider_status(response.status_code)
+        RuntimeInventoryGeminiGateway._raise_provider_status(
+            response.status_code,
+            retry_after_seconds=RuntimeInventoryGeminiGateway._provider_retry_after_seconds(response),
+        )
         try:
             raw = response.json()
             text = raw["candidates"][0]["content"]["parts"][0]["text"]

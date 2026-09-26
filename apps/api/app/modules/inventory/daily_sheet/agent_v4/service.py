@@ -248,6 +248,7 @@ class InventoryDailySheetV4Service:
                                         "retry_index": retry_index,
                                         "error_code": exc.code,
                                         "provider_status": getattr(exc, "provider_status", None),
+                                    "retry_after_seconds": getattr(exc, "retry_after_seconds", None),
                                     },
                                 )
                                 raise
@@ -261,15 +262,20 @@ class InventoryDailySheetV4Service:
                                     "retry_index": retry_index,
                                     "error_code": exc.code,
                                     "provider_status": getattr(exc, "provider_status", None),
+                                    "retry_after_seconds": getattr(exc, "retry_after_seconds", None),
                                 },
                             )
                     if turn is not None:
                         break
                     if retry_index < config.agent.tool_call_rate_limit_retries:
-                        time.sleep(
+                        default_backoff = (
                             config.agent.tool_call_retry_backoff_seconds
                             * (retry_index + 1)
                         )
+                        provider_backoff = float(
+                            getattr(last_retryable_error, "retry_after_seconds", 0.0) or 0.0
+                        )
+                        time.sleep(max(default_backoff, min(provider_backoff, 120.0)))
                 if turn is None:
                     assert last_retryable_error is not None
                     raise last_retryable_error

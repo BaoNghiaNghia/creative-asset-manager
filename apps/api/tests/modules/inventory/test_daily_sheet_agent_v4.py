@@ -686,6 +686,20 @@ class RetryableFailoverGateway(ScriptedGateway):
         return super().generate_tool_turn(**kwargs)
 
 
+class RateLimitedGateway:
+    def __init__(self):
+        self.calls = 0
+
+    def generate_tool_turn(self, **_kwargs):
+        self.calls += 1
+        raise InventoryAiGatewayError(
+            "inventory_gemini_rate_limited",
+            retryable=True,
+            provider_status=429,
+            retry_after_seconds=17.0,
+        )
+
+
 def test_real_v4_service_tool_loop_is_shadow_and_does_not_call_legacy_parsers():
     control = SimpleNamespace(
         enabled=True,
@@ -773,6 +787,22 @@ def test_v4_provider_retryable_error_fails_over_to_next_model():
     assert result.status == "shadow"
     assert result.model == "model-b"
     assert gateway.attempted_models[:2] == ["model-a", "model-b"]
+
+
+def test_v4_rate_limit_backoff_respects_provider_retry_delay():
+    gateway = RateLimitedGateway()
+    service = _v4_service_for_models(
+        models=("model-a",),
+        deployment_models=("model-a",),
+        gateway=gateway,
+    )
+    with patch("app.modules.inventory.daily_sheet.agent_v4.service.time.sleep") as sleep:
+        with pytest.raises(InventoryAiGatewayError) as captured:
+            service.run_shadow("tenant-a", date(2030, 8, 9))
+
+    assert captured.value.code == "inventory_gemini_rate_limited"
+    assert gateway.calls == 3
+    assert [call.args[0] for call in sleep.call_args_list] == [17.0, 17.0]
 
 
 def test_v4_runtime_intersects_tenant_models_with_deployment_allowlist():
