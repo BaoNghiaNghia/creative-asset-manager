@@ -248,7 +248,7 @@ class InventoryDailySheetV4Service:
                                         "retry_index": retry_index,
                                         "error_code": exc.code,
                                         "provider_status": getattr(exc, "provider_status", None),
-                                    "retry_after_seconds": getattr(exc, "retry_after_seconds", None),
+                                        "retry_after_seconds": getattr(exc, "retry_after_seconds", None),
                                     },
                                 )
                                 raise

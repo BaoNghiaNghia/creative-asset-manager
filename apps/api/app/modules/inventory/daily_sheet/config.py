@@ -283,7 +283,7 @@ class ToolSheetAgentSourceConfig(DailySheetModel):
 class ToolSheetAgentRuntimeConfig(DailySheetModel):
     apply_mode: Literal["shadow", "review", "auto"] = "shadow"
     allow_auto_evidence_backed_transforms: bool = False
-    max_tool_rounds: int = Field(default=8, ge=1, le=20)
+    max_tool_rounds: int = Field(default=12, ge=1, le=20)
     max_read_calls: int = Field(default=24, ge=1, le=100)
     max_read_cells: int = Field(default=12000, ge=1, le=50000)
     max_edit_operations: int = Field(default=200, ge=1, le=1000)

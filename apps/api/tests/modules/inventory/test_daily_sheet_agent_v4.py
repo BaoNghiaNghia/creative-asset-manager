@@ -207,7 +207,7 @@ def test_v4_config_defaults_shadow_and_has_no_fixed_range():
     )
     assert isinstance(config, GeminiToolSheetAgentConfig)
     assert config.agent.apply_mode == "shadow"
-    assert config.agent.max_tool_rounds == 8
+    assert config.agent.max_tool_rounds == 12
     assert not hasattr(config.source, "range")
 
 
