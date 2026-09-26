@@ -554,6 +554,157 @@ class InventoryDailyScheduler:
                 "stage": "morning_reset",
             }
 
+    def _assert_manual_morning_recovery_allowed(
+        self,
+        tenant_id: str,
+        business_date: date,
+        *,
+        now: datetime,
+    ) -> str:
+        with self.session_factory() as session:
+            settings = session.scalar(
+                select(InventorySettingsModel).where(
+                    InventorySettingsModel.tenant_id == tenant_id
+                )
+            )
+            if (
+                settings is None
+                or not settings.daily_sheet_automation_enabled
+                or not isinstance(settings.daily_sheet_config_json, dict)
+                or settings.daily_sheet_config_json.get("version") != 4
+            ):
+                raise ValueError("inventory_v4_morning_reset_unavailable")
+            local = now.astimezone(
+                ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh")
+            )
+            if business_date != local.date():
+                raise ValueError(
+                    "inventory_morning_reset_recovery_current_day_only"
+                )
+            reset_time = _configured_time(
+                settings.daily_carry_forward_time_local, time(5, 0)
+            )
+            scheduled = datetime.combine(
+                business_date, reset_time, tzinfo=local.tzinfo
+            )
+            if abs((local - scheduled).total_seconds()) <= 3600:
+                raise ValueError(
+                    "inventory_morning_reset_recovery_use_normal_rerun"
+                )
+            previous_business_date = date.fromordinal(
+                business_date.toordinal() - 1
+            )
+            source_snapshot = session.scalar(
+                select(InventoryDailySheetSnapshotModel).where(
+                    InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                    InventoryDailySheetSnapshotModel.business_date
+                    == previous_business_date,
+                    InventoryDailySheetSnapshotModel.status == "completed",
+                    InventoryDailySheetSnapshotModel.gemini_reconcile_status
+                    == "completed",
+                    InventoryDailySheetSnapshotModel.gemini_reconcile_verified_at.is_not(
+                        None
+                    ),
+                    InventoryDailySheetSnapshotModel.gemini_file_id.is_not(None),
+                )
+            )
+            if source_snapshot is None:
+                raise ValueError(
+                    "inventory_morning_reset_recovery_dependency_not_verified"
+                )
+            job = session.scalar(
+                select(InventoryJobModel).where(
+                    InventoryJobModel.tenant_id == tenant_id,
+                    InventoryJobModel.job_type
+                    == V4_SLOT_JOB_TYPES["morning_reset"],
+                    InventoryJobModel.entity_id
+                    == f"{business_date.isoformat()}:morning_reset",
+                )
+            )
+            if job is None:
+                raise ValueError(
+                    "inventory_morning_reset_recovery_not_scheduled"
+                )
+            carry = session.scalar(
+                select(InventoryDailyCarryForwardModel).where(
+                    InventoryDailyCarryForwardModel.tenant_id == tenant_id,
+                    InventoryDailyCarryForwardModel.target_business_date
+                    == business_date,
+                )
+            )
+            if carry is None:
+                raise ValueError(
+                    "inventory_morning_reset_recovery_unavailable"
+                )
+            if carry.status != "completed" and carry.error_code not in {
+                "previous_day_gemini_not_verified",
+                "inventory_morning_reset_manual_recovery_preview_ready",
+                "stale_evidence",
+            }:
+                raise ValueError(
+                    "inventory_morning_reset_recovery_blocked_by_other_error"
+                )
+            return job.id
+
+    def preview_v4_morning_reset_recovery(
+        self,
+        tenant_id: str,
+        business_date: date,
+        now: datetime | None = None,
+    ) -> dict[str, object]:
+        moment = now or datetime.now(timezone.utc)
+        self._assert_manual_morning_recovery_allowed(
+            tenant_id, business_date, now=moment
+        )
+        result = self.carry_forward_service.preview_manual_recovery(
+            tenant_id, business_date
+        )
+        return {
+            **result,
+            "stage": "morning_reset",
+        }
+
+    def apply_v4_morning_reset_recovery(
+        self,
+        tenant_id: str,
+        business_date: date,
+        *,
+        plan_hash: str,
+        now: datetime | None = None,
+    ) -> dict[str, object]:
+        moment = now or datetime.now(timezone.utc)
+        job_id = self._assert_manual_morning_recovery_allowed(
+            tenant_id, business_date, now=moment
+        )
+        result = self.carry_forward_service.apply_manual_recovery(
+            tenant_id,
+            business_date,
+            plan_hash=plan_hash,
+        )
+        if result.get("status") == "completed":
+            with self.session_factory.begin() as session:
+                job = session.get(InventoryJobModel, job_id)
+                if job is not None:
+                    job.status = "completed"
+                    job.completed_at = moment
+                    job.next_attempt_at = moment
+                    job.claimed_by = None
+                    job.claimed_at = None
+                    job.lease_expires_at = None
+                    job.last_error_code = None
+                    job.last_error_message = None
+                    job.payload_json = {
+                        **(job.payload_json or {}),
+                        "recovered_from_durable_state": True,
+                        "manual_recovery_mode": "safe_opening_rows_only",
+                        "manual_recovery_plan_hash": plan_hash,
+                    }
+                    job.updated_at = moment
+        return {
+            **result,
+            "stage": "morning_reset",
+        }
+
     def run_once(self, now: datetime | None = None) -> int:
         moment = now or datetime.now(timezone.utc)
         with self.session_factory() as session:

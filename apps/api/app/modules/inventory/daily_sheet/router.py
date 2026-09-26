@@ -46,6 +46,9 @@ class HistoricalReplayRequest(BaseModel):
     mode: str = Field(default="fresh_copy", pattern=r"^(fresh_copy|existing_copy)$")
     promote: bool = True
 
+class MorningResetRecoveryApplyRequest(BaseModel):
+    plan_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
 class BaselineRequest(BaseModel):
     snapshot_id: str
 class PromptDraftRequest(BaseModel):
@@ -292,6 +295,58 @@ def rerun_morning_reset(business_date: date, principal: CurrentPrincipal = Depen
         return InventoryDailyScheduler(SessionLocal).retry_v4_morning_reset(principal.active_tenant_id, business_date)
     except ValueError as exc:
         raise HTTPException(409, detail={"code": str(exc)}) from exc
+
+@router.post("/lifecycle-history/{business_date}/morning-reset/recovery/preview")
+def preview_morning_reset_recovery(
+    business_date: date,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    try:
+        return InventoryDailyScheduler(SessionLocal).preview_v4_morning_reset_recovery(
+            principal.active_tenant_id,
+            business_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": str(exc), "message": str(exc)}) from exc
+    except Exception as exc:
+        code = str(getattr(exc, "code", type(exc).__name__))
+        metadata = inventory_error_metadata(code)
+        raise HTTPException(
+            409,
+            detail={
+                "code": code,
+                "message": str(exc),
+                "error_category": metadata["category"],
+                "retryable": metadata["retryable"],
+            },
+        ) from exc
+
+@router.post("/lifecycle-history/{business_date}/morning-reset/recovery/apply")
+def apply_morning_reset_recovery(
+    business_date: date,
+    body: MorningResetRecoveryApplyRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    try:
+        return InventoryDailyScheduler(SessionLocal).apply_v4_morning_reset_recovery(
+            principal.active_tenant_id,
+            business_date,
+            plan_hash=body.plan_hash,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": str(exc), "message": str(exc)}) from exc
+    except Exception as exc:
+        code = str(getattr(exc, "code", type(exc).__name__))
+        metadata = inventory_error_metadata(code)
+        raise HTTPException(
+            409,
+            detail={
+                "code": code,
+                "message": str(exc),
+                "error_category": metadata["category"],
+                "retryable": metadata["retryable"],
+            },
+        ) from exc
 @router.post("/discover")
 def discover_workbook(body: DiscoveryRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
     try:

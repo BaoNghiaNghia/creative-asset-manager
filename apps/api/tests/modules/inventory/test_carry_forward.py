@@ -12,6 +12,7 @@ from app.modules.inventory.daily.carry_forward import (
     CARRY_FORWARD_PROMPT,
     CarryForwardPlan,
     CarryForwardReviewRequired,
+    CarryForwardStaleEvidence,
     InventorySharedCarryForwardService,
 )
 from app.modules.inventory.daily.carry_forward_planner import CarryForwardToolHost, function_declarations
@@ -143,6 +144,97 @@ def test_carry_forward_preserves_each_warehouse_and_writes_shared_only():
     assert result.idempotency_key == "inventory-shared-carry-forward:v1:tenant-a:2030-08-10"
     assert google.target_values == {"B14": 50, "B15": 35, "B16": 25}
     assert len(google.writes) == 3
+    engine.dispose(); temp.cleanup()
+
+
+def test_manual_recovery_preview_never_writes_or_clears_and_apply_sets_only_safe_opening_rows():
+    temp, engine, sessions = make_db()
+    google = Google(
+        source_values={"H14": 50},
+        target_values={"B14": 1, "C14": 7},
+    )
+    rows = [
+        row("material-a", "warehouse-a", "H14", "B14", 50, 1),
+        {
+            "type": "clear_cell",
+            "semantic_context": {"role": "daily_movement"},
+            "target": {
+                "spreadsheet_file_id": "shared",
+                "sheet": "Warehouses",
+                "cell": "C14",
+                "evidence_hash": canonical_hash([7]),
+            },
+        },
+    ]
+    service = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner(rows),
+    )
+
+    preview = service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
+
+    assert preview["status"] == "preview_ready"
+    assert preview["safe_operation_count"] == 1
+    assert preview["write_operation_count"] == 1
+    assert preview["excluded_clear_count"] == 1
+    assert google.writes == []
+    assert google.clears == []
+    assert google.target_values["B14"] == 1
+    assert google.target_values["C14"] == 7
+
+    applied = service.apply_manual_recovery(
+        "tenant-a",
+        date(2030, 8, 10),
+        plan_hash=preview["plan_hash"],
+    )
+
+    assert applied["status"] == "completed"
+    assert applied["applied_count"] == 1
+    assert applied["excluded_clear_count"] == 1
+    assert google.target_values["B14"] == 50
+    assert google.target_values["C14"] == 7
+    assert google.clears == []
+    engine.dispose(); temp.cleanup()
+
+
+def test_manual_recovery_apply_rejects_target_drift_after_preview():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    service = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner([
+            row("material-a", "warehouse-a", "H14", "B14", 50, 1)
+        ]),
+    )
+
+    preview = service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
+    google.target_values["B14"] = 9
+
+    try:
+        service.apply_manual_recovery(
+            "tenant-a",
+            date(2030, 8, 10),
+            plan_hash=preview["plan_hash"],
+        )
+        raise AssertionError("stale recovery preview must not apply")
+    except CarryForwardStaleEvidence:
+        pass
+
+    assert google.writes == []
+    assert google.target_values["B14"] == 9
+    with sessions() as session:
+        persisted = session.scalar(
+            select(InventoryDailyCarryForwardModel).where(
+                InventoryDailyCarryForwardModel.target_business_date
+                == date(2030, 8, 10)
+            )
+        )
+        assert persisted.status == "retryable_failure"
+        assert persisted.error_code == "stale_evidence"
     engine.dispose(); temp.cleanup()
 
 

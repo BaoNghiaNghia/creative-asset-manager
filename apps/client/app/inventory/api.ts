@@ -148,6 +148,9 @@ export type InventoryLifecycleInvariant = { code:string; stage:string; message:s
 export type InventoryLifecycleHistoryItem = { business_date:string; overall_status:InventoryLifecycleStageStatus; current_stage:string; stages:InventoryLifecycleStage[]; invariants?:InventoryLifecycleInvariant[]; files:{shared_url:string|null;snapshot_url:string|null;gemini_url:string|null}; updated_at:string|null; action_required:{code:string;stage:string;label:string}|null };
 export type InventoryLifecycleHistoryResponse = {items:InventoryLifecycleHistoryItem[];page:number;page_size:number;total:number;pages:number};
 export type InventoryHistoricalReplayResult = { run_id:string; business_date:string; mode:"fresh_copy"|"existing_copy"; status:string; verification_status:string; promoted:boolean; source_snapshot_file_id:string; previous_gemini_file_id:string|null; replay_gemini_file_id:string; model:string|null; plan_hash:string|null; writes:number; morning_reset_recovery?:{status:string;stage:string;error_code?:string} };
+export type InventoryMorningResetRecoveryOperation = { sheet:string; cell:string; current_value:unknown; desired_value:unknown; source_sheet:string; source_cell:string; material_id:string|null; warehouse_id:string|null; needs_write:boolean };
+export type InventoryMorningResetRecoveryPreview = { status:string; stage:string; business_date:string; plan_hash:string|null; safe_operation_count:number; write_operation_count?:number; excluded_clear_count:number; operations:InventoryMorningResetRecoveryOperation[] };
+export type InventoryMorningResetRecoveryApplyResult = { status:string; stage:string; business_date:string; plan_hash:string|null; applied_count:number; already_correct_count:number; excluded_clear_count:number };
 
 export type InventoryOperationChange = {
   sequence:number;
@@ -229,6 +232,8 @@ export const inventoryLifecycleApi = {
   getHistory:(page=1,pageSize=25)=>request<InventoryLifecycleHistoryResponse>(`/daily-sheet/lifecycle-history?page=${page}&page_size=${pageSize}`),
   getStageDetail:(businessDate:string,stage:string)=>request<InventoryStageDetail>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/stages/${encodeURIComponent(stage)}/detail`),
   rerunMorningReset:(businessDate:string)=>request<{status:string;stage:string}>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/morning-reset/rerun`,{method:"POST"}),
+  previewMorningResetRecovery:(businessDate:string)=>request<InventoryMorningResetRecoveryPreview>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/morning-reset/recovery/preview`,{method:"POST"}),
+  applyMorningResetRecovery:(businessDate:string,planHash:string)=>request<InventoryMorningResetRecoveryApplyResult>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/morning-reset/recovery/apply`,{method:"POST",body:JSON.stringify({plan_hash:planHash})}),
   replayHistoricalGemini:(businessDate:string,mode:"fresh_copy"|"existing_copy"="fresh_copy",promote=true)=>request<InventoryHistoricalReplayResult>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/gemini/replay`,{method:"POST",body:JSON.stringify({mode,promote})}),
 };
 export const inventoryKnowledgeApi = {

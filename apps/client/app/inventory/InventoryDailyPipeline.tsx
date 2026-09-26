@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
-import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult, type InventoryLifecycleHistoryItem, type InventoryLifecycleStage, type InventoryLifecycleStageStatus, type InventoryStageDetail } from "./api";
+import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult, type InventoryLifecycleHistoryItem, type InventoryLifecycleStage, type InventoryLifecycleStageStatus, type InventoryMorningResetRecoveryPreview, type InventoryStageDetail } from "./api";
 
 const labels: Record<string, string> = { morning_reset: "Reset đầu ngày", afternoon_snapshot: "Đang snapshot", evening_reconcile: "Đang đối soát", verified: "Cần xác minh", completed: "Hoàn tất" };
 const symbols: Record<InventoryLifecycleStageStatus, string> = { pending: "○", scheduled: "◌", running: "●", completed: "✓", blocked: "!", review_required: "!", failed: "×", stale: "×" };
@@ -30,9 +30,15 @@ export async function retryFreshHistoricalReplay(
 function Stage({ stage, onClick, onMenu }: { stage: InventoryLifecycleStage; onClick: () => void; onMenu: (event: MouseEvent<HTMLButtonElement>) => void }) {
   return <button type="button" className={`inventory-pipeline-stage ${stage.status}`} onClick={onClick} onContextMenu={onMenu} title={`${stage.label}: ${stage.status}`}><span aria-hidden="true">{symbols[stage.status]}</span><small>{stage.label.replace(" đầu ngày", "")}</small></button>;
 }
+export function isManualRecoveryError(code: string | null | undefined) {
+  return ["inventory_morning_reset_missed_safe_window", "inventory_morning_reset_manual_recovery_preview_ready", "stale_evidence"].includes(code || "");
+}
+
 const errorHints: Record<string, string> = {
   previous_day_gemini_not_verified: "Reset bị chặn vì Gemini của snapshot ngày trước chưa hoàn tất và chưa được xác minh.",
   inventory_morning_reset_missed_safe_window: "Gemini ngày trước đã được xác minh, nhưng cửa sổ Reset an toàn của hôm nay đã qua. Hệ thống sẽ không tự ghi đè workbook đang được sử dụng; cần recovery thủ công có kiểm soát.",
+  inventory_morning_reset_manual_recovery_preview_ready: "Preview recovery đã sẵn sàng. Chỉ các ô Opening/Starting an toàn mới được phép áp dụng; các thao tác clear dữ liệu trong ngày đã bị loại bỏ.",
+  stale_evidence: "Workbook đã thay đổi so với preview. Hãy tạo preview mới trước khi áp dụng recovery.",
   inventory_gemini_transport_error: "Không kết nối được Gemini trong lần xử lý này. Hãy kiểm tra credential và trạng thái provider trước khi chạy lại.",
 };
 const auditSummaryLabels: Record<string, string> = {
@@ -109,7 +115,7 @@ function AuditDisclosure({ businessDate, stage }: { businessDate: string; stage:
     </div> : null}
   </div>;
 }
-function Details({ item, onClose, onReplay, onReset, replaying }: { item: InventoryLifecycleHistoryItem; onClose: () => void; onReplay: (item: InventoryLifecycleHistoryItem, mode: "fresh_copy"|"existing_copy", promote: boolean) => void; onReset: (item: InventoryLifecycleHistoryItem) => void; replaying: boolean }) {
+function Details({ item, onClose, onReplay, onReset, onRecoveryPreview, replaying }: { item: InventoryLifecycleHistoryItem; onClose: () => void; onReplay: (item: InventoryLifecycleHistoryItem, mode: "fresh_copy"|"existing_copy", promote: boolean) => void; onReset: (item: InventoryLifecycleHistoryItem) => void; onRecoveryPreview: (item: InventoryLifecycleHistoryItem) => void; replaying: boolean }) {
   return <aside className="inventory-pipeline-details inventory-pipeline-details--wide" role="dialog" aria-label="Chi tiết và nhật ký tiến trình">
     <header><div><span>NHẬT KÝ VẬN HÀNH</span><h3>{item.business_date}</h3><p>Giai đoạn hiện tại: <b>{labels[item.current_stage] || item.current_stage}</b></p></div><button onClick={onClose} aria-label="Đóng">×</button></header>
     {item.invariants?.length ? <section className="inventory-pipeline-log-error">
@@ -132,10 +138,27 @@ function Details({ item, onClose, onReplay, onReset, replaying }: { item: Invent
         {stage.error_code ? <div className="inventory-pipeline-log-error"><b>Chi tiết lỗi</b><code>{stage.error_code}</code>{stage.error_category ? <p>Nhóm: <b>{stage.error_category}</b> · {stage.retryable ? "Có thể retry" : "Không tự retry"}</p> : null}{message ? <p>{message}</p> : null}</div> : null}
         {stage.run_id ? <p className="inventory-pipeline-run-id">Run: <code>{stage.run_id}</code></p> : null}
         {stage.key === "morning_reset" || stage.key === "evening_reconcile" ? <AuditDisclosure businessDate={item.business_date} stage={stage.key} /> : null}
-        {stage.key === "morning_reset" && stage.status === "failed" ? <div className="inventory-pipeline-detail-actions"><button disabled={replaying} onClick={() => onReset(item)}>Chạy lại Reset</button></div> : null}
+        {stage.key === "morning_reset" && isManualRecoveryError(stage.error_code) ? <div className="inventory-pipeline-detail-actions"><button disabled={replaying} onClick={() => onRecoveryPreview(item)}>Preview recovery an toàn</button></div> : stage.key === "morning_reset" && stage.status === "failed" ? <div className="inventory-pipeline-detail-actions"><button disabled={replaying} onClick={() => onReset(item)}>Chạy lại Reset</button></div> : null}
         {stage.key === "evening_reconcile" && item.files.snapshot_url ? <div className="inventory-pipeline-detail-actions"><button disabled={replaying} onClick={() => onReplay(item, "fresh_copy", true)}>Gemini từ Snapshot sạch</button><button className="secondary" disabled={replaying} onClick={() => onReplay(item, "fresh_copy", false)}>Replay Sandbox</button></div> : null}
       </section>;
     })}</div>
+  </aside>;
+}
+
+function RecoveryPreview({ item, preview, busy, onClose, onApply, onRefresh }: { item: InventoryLifecycleHistoryItem; preview: InventoryMorningResetRecoveryPreview; busy: boolean; onClose: () => void; onApply: () => void; onRefresh: () => void }) {
+  return <aside className="inventory-recovery-preview" role="dialog" aria-modal="true" aria-label="Preview recovery Morning Reset">
+    <header><div><span>MANUAL RECOVERY</span><h3>Preview Reset {item.business_date}</h3><p>Chỉ áp dụng các ô Opening/Starting đã được xác minh từ Gemini ngày trước.</p></div><button onClick={onClose} aria-label="Đóng">×</button></header>
+    <div className="inventory-recovery-summary">
+      <article><span>Ô an toàn</span><strong>{preview.safe_operation_count}</strong></article>
+      <article><span>Cần ghi</span><strong>{preview.write_operation_count ?? preview.operations.filter((operation) => operation.needs_write).length}</strong></article>
+      <article><span>Đã đúng</span><strong>{preview.operations.filter((operation) => !operation.needs_write).length}</strong></article>
+      <article><span>Clear bị loại</span><strong>{preview.excluded_clear_count}</strong></article>
+    </div>
+    <p className="inventory-recovery-warning">Recovery giữa ngày không xóa movement/input hiện tại. Trước khi Apply, backend sẽ đọc lại source, target và formula; nếu workbook đã thay đổi so với preview thì thao tác sẽ bị chặn.</p>
+    <div className="inventory-recovery-table-wrap"><table className="inventory-recovery-table"><thead><tr><th>Đích</th><th>Hiện tại</th><th>Sẽ thành</th><th>Nguồn đã xác minh</th><th>Trạng thái</th></tr></thead><tbody>
+      {preview.operations.map((operation) => <tr key={operation.sheet + ":" + operation.cell}><td><b>{operation.sheet}</b><code>{operation.cell}</code></td><td><code>{auditValue(operation.current_value)}</code></td><td><code>{auditValue(operation.desired_value)}</code></td><td><b>{operation.source_sheet}</b><code>{operation.source_cell}</code>{operation.material_id ? <small>{operation.material_id}</small> : null}{operation.warehouse_id ? <small>{operation.warehouse_id}</small> : null}</td><td><span className={operation.needs_write ? "needs-write" : "already-correct"}>{operation.needs_write ? "Sẽ ghi" : "Đã đúng"}</span></td></tr>)}
+    </tbody></table></div>
+    <footer><button className="secondary" disabled={busy} onClick={onRefresh}>Preview lại</button><button disabled={busy || !preview.plan_hash || preview.safe_operation_count === 0} onClick={onApply}>{busy ? "Đang xử lý…" : "Áp dụng các ô an toàn"}</button></footer>
   </aside>;
 }
 
@@ -143,6 +166,7 @@ export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolea
   const [data, setData] = useState<{ items: InventoryLifecycleHistoryItem[]; page: number; page_size: number; pages: number } | null>(null);
   const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(25); const [loading, setLoading] = useState(true); const [error, setError] = useState(false);
   const [selected, setSelected] = useState<InventoryLifecycleHistoryItem | null>(null); const [menu, setMenu] = useState<MenuState | null>(null); const [notice, setNotice] = useState<string | null>(null); const [replaying, setReplaying] = useState(false);
+  const [recovery, setRecovery] = useState<{ item: InventoryLifecycleHistoryItem; preview: InventoryMorningResetRecoveryPreview } | null>(null);
   const load = useCallback(async () => { setLoading(true); setError(false); try { setData(await inventoryLifecycleApi.getHistory(page, pageSize)); } catch { setError(true); } finally { setLoading(false); } }, [page, pageSize]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { let timer: number | undefined; const arm = () => { if (timer) window.clearInterval(timer); timer = document.visibilityState === "visible" ? window.setInterval(() => void load(), 30000) : undefined; }; arm(); document.addEventListener("visibilitychange", arm); return () => { if (timer) window.clearInterval(timer); document.removeEventListener("visibilitychange", arm); }; }, [load]);
@@ -156,6 +180,34 @@ export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolea
       await load();
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : "Không thể chạy lại Reset.");
+    } finally { setReplaying(false); }
+  };
+  const previewMorningResetRecovery = async (item: InventoryLifecycleHistoryItem) => {
+    setReplaying(true); setNotice(`Đang tạo preview recovery cho ${item.business_date}…`);
+    try {
+      const preview = await inventoryLifecycleApi.previewMorningResetRecovery(item.business_date);
+      setRecovery({ item, preview });
+      setNotice(`Preview recovery: ${preview.safe_operation_count} ô an toàn, ${preview.excluded_clear_count} thao tác clear đã bị loại.`);
+      await load();
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Không thể tạo preview recovery.");
+    } finally { setReplaying(false); }
+  };
+  const applyMorningResetRecovery = async () => {
+    if (!recovery?.preview.plan_hash) return;
+    const writes = recovery.preview.write_operation_count ?? recovery.preview.operations.filter((operation) => operation.needs_write).length;
+    if (!window.confirm(`Áp dụng recovery an toàn cho ${recovery.item.business_date}?\n\n${writes} ô sẽ được ghi. ${recovery.preview.excluded_clear_count} thao tác clear sẽ KHÔNG được thực hiện. Backend sẽ kiểm tra drift lại trước khi ghi.`)) return;
+    setReplaying(true); setNotice(`Đang áp dụng recovery cho ${recovery.item.business_date}…`);
+    try {
+      const result = await inventoryLifecycleApi.applyMorningResetRecovery(recovery.item.business_date, recovery.preview.plan_hash);
+      setNotice(`Recovery hoàn tất: ${result.applied_count} ô đã ghi, ${result.already_correct_count} ô đã đúng; ${result.excluded_clear_count} clear được giữ nguyên.`);
+      setRecovery(null);
+      setSelected(null);
+      await load();
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Không thể áp dụng recovery.");
+      if (cause instanceof InventoryApiError && cause.code === "stale_evidence") setRecovery(null);
+      await load();
     } finally { setReplaying(false); }
   };
   const replayGemini = async (
@@ -226,5 +278,5 @@ export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolea
   };
   if (loading && !data) return <section className="inventory-empty">Đang tải tiến trình Inventory…</section>;
   if (error && !data) return <section className="inventory-empty"><p>Không thể tải tiến trình.</p><button onClick={() => void load()}>Thử lại</button></section>;
-  return <section className={`inventory-pipeline${embedded ? " inventory-pipeline--embedded" : ""}`}><header><div><span>INVENTORY</span><h2>Tiến trình kiểm kho</h2><p>Theo dõi mỗi ngày làm việc từ reset đến xác minh Gemini.</p></div><div className="inventory-pipeline-header-actions">{batchCandidates.length ? <button onClick={() => void replayFailedDays()} disabled={replaying}>{replaying ? "Đang replay…" : `Chạy lại ${batchCandidates.length} ngày lỗi`}</button> : null}<button onClick={() => void load()} disabled={loading || replaying}>{loading ? "Đang làm mới…" : "Làm mới"}</button></div></header>{error ? <p className="inventory-error">Không thể tải dữ liệu mới nhất.</p> : null}{notice ? <p className="inventory-error">{notice}</p> : null}{!data?.items.length ? <div className="inventory-pipeline-empty"><b>Chưa có tiến trình kiểm kho.</b><span>Tiến trình của ngày làm việc sẽ xuất hiện ở đây khi automation bắt đầu.</span></div> : <div className="inventory-pipeline-scroll"><table><thead><tr><th>NGÀY KIỂM</th><th>FILE</th><th>GIAI ĐOẠN HIỆN TẠI</th><th>LUỒNG XỬ LÝ</th><th>CẬP NHẬT</th><th>CẦN XỬ LÝ</th></tr></thead><tbody>{data.items.map((item) => <tr key={item.business_date} onClick={() => setSelected(item)}><td><b>{new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(new Date(`${item.business_date}T00:00:00`))}</b></td><td className="inventory-pipeline-files">{item.files.shared_url ? <a href={item.files.shared_url} target="_blank" rel="noreferrer">Shared ↗</a> : null}{item.files.snapshot_url ? <a href={item.files.snapshot_url} target="_blank" rel="noreferrer">Snapshot ↗</a> : <span>Snapshot: Chưa tạo</span>}{item.files.gemini_url ? <a href={item.files.gemini_url} target="_blank" rel="noreferrer">Gemini ↗</a> : null}</td><td><span className={`inventory-pipeline-chip ${item.overall_status}`}>{labels[item.current_stage] || item.current_stage}</span></td><td><div className="inventory-pipeline-flow">{item.stages.map((stage, index) => <div key={stage.key} className="inventory-pipeline-node"><Stage stage={stage} onClick={() => setSelected(item)} onMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMenu({ item, stage, x: event.clientX, y: event.clientY }); }} />{index < item.stages.length - 1 ? <i className={stage.status === "completed" ? "done" : ""} /> : null}</div>)}</div></td><td>{format(item.updated_at)}</td><td>{item.action_required ? <button className="inventory-pipeline-action" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.action_required.label}</button> : "—"}</td></tr>)}</tbody></table></div>}<footer><label>Số mục mỗi trang <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{[25, 50, 100].map((size) => <option key={size}>{size}</option>)}</select></label><div><button disabled={!data || page === 1} onClick={() => setPage(page - 1)}>Trước</button><b>{data?.page || 1} / {data?.pages || 1}</b><button disabled={!data || page >= (data?.pages || 1)} onClick={() => setPage(page + 1)}>Tiếp</button></div></footer>{menu ? <div role="menu" className="inventory-pipeline-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}><button role="menuitem" onClick={() => { setSelected(menu.item); setMenu(null); }}>Chi tiết</button>{menu.stage.key === "morning_reset" ? <button role="menuitem" disabled={replaying} onClick={() => { const item = menu.item; setMenu(null); void rerunMorningReset(item); }}>Chạy lại Reset</button> : null}{menu.stage.key === "evening_reconcile" ? <><button role="menuitem" disabled={replaying || !menu.item.files.snapshot_url} onClick={() => { const item = menu.item; setMenu(null); void replayGemini(item, "fresh_copy", true); }}>Gemini từ Snapshot sạch</button><button role="menuitem" disabled={replaying || !menu.item.files.snapshot_url} onClick={() => { const item = menu.item; setMenu(null); void replayGemini(item, "fresh_copy", false); }}>Replay Sandbox</button></> : null}</div> : null}{selected ? <Details item={selected} onClose={() => setSelected(null)} onReplay={(item, mode, promote) => void replayGemini(item, mode, promote)} onReset={(item) => void rerunMorningReset(item)} replaying={replaying} /> : null}</section>;
+  return <section className={`inventory-pipeline${embedded ? " inventory-pipeline--embedded" : ""}`}><header><div><span>INVENTORY</span><h2>Tiến trình kiểm kho</h2><p>Theo dõi mỗi ngày làm việc từ reset đến xác minh Gemini.</p></div><div className="inventory-pipeline-header-actions">{batchCandidates.length ? <button onClick={() => void replayFailedDays()} disabled={replaying}>{replaying ? "Đang replay…" : `Chạy lại ${batchCandidates.length} ngày lỗi`}</button> : null}<button onClick={() => void load()} disabled={loading || replaying}>{loading ? "Đang làm mới…" : "Làm mới"}</button></div></header>{error ? <p className="inventory-error">Không thể tải dữ liệu mới nhất.</p> : null}{notice ? <p className="inventory-error">{notice}</p> : null}{!data?.items.length ? <div className="inventory-pipeline-empty"><b>Chưa có tiến trình kiểm kho.</b><span>Tiến trình của ngày làm việc sẽ xuất hiện ở đây khi automation bắt đầu.</span></div> : <div className="inventory-pipeline-scroll"><table><thead><tr><th>NGÀY KIỂM</th><th>FILE</th><th>GIAI ĐOẠN HIỆN TẠI</th><th>LUỒNG XỬ LÝ</th><th>CẬP NHẬT</th><th>CẦN XỬ LÝ</th></tr></thead><tbody>{data.items.map((item) => <tr key={item.business_date} onClick={() => setSelected(item)}><td><b>{new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(new Date(`${item.business_date}T00:00:00`))}</b></td><td className="inventory-pipeline-files">{item.files.shared_url ? <a href={item.files.shared_url} target="_blank" rel="noreferrer">Shared ↗</a> : null}{item.files.snapshot_url ? <a href={item.files.snapshot_url} target="_blank" rel="noreferrer">Snapshot ↗</a> : <span>Snapshot: Chưa tạo</span>}{item.files.gemini_url ? <a href={item.files.gemini_url} target="_blank" rel="noreferrer">Gemini ↗</a> : null}</td><td><span className={`inventory-pipeline-chip ${item.overall_status}`}>{labels[item.current_stage] || item.current_stage}</span></td><td><div className="inventory-pipeline-flow">{item.stages.map((stage, index) => <div key={stage.key} className="inventory-pipeline-node"><Stage stage={stage} onClick={() => setSelected(item)} onMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMenu({ item, stage, x: event.clientX, y: event.clientY }); }} />{index < item.stages.length - 1 ? <i className={stage.status === "completed" ? "done" : ""} /> : null}</div>)}</div></td><td>{format(item.updated_at)}</td><td>{item.action_required ? <button className="inventory-pipeline-action" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.action_required.label}</button> : "—"}</td></tr>)}</tbody></table></div>}<footer><label>Số mục mỗi trang <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{[25, 50, 100].map((size) => <option key={size}>{size}</option>)}</select></label><div><button disabled={!data || page === 1} onClick={() => setPage(page - 1)}>Trước</button><b>{data?.page || 1} / {data?.pages || 1}</b><button disabled={!data || page >= (data?.pages || 1)} onClick={() => setPage(page + 1)}>Tiếp</button></div></footer>{menu ? <div role="menu" className="inventory-pipeline-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}><button role="menuitem" onClick={() => { setSelected(menu.item); setMenu(null); }}>Chi tiết</button>{menu.stage.key === "morning_reset" ? (isManualRecoveryError(menu.stage.error_code) ? <button role="menuitem" disabled={replaying} onClick={() => { const item = menu.item; setMenu(null); void previewMorningResetRecovery(item); }}>Preview recovery an toàn</button> : <button role="menuitem" disabled={replaying} onClick={() => { const item = menu.item; setMenu(null); void rerunMorningReset(item); }}>Chạy lại Reset</button>) : null}{menu.stage.key === "evening_reconcile" ? <><button role="menuitem" disabled={replaying || !menu.item.files.snapshot_url} onClick={() => { const item = menu.item; setMenu(null); void replayGemini(item, "fresh_copy", true); }}>Gemini từ Snapshot sạch</button><button role="menuitem" disabled={replaying || !menu.item.files.snapshot_url} onClick={() => { const item = menu.item; setMenu(null); void replayGemini(item, "fresh_copy", false); }}>Replay Sandbox</button></> : null}</div> : null}{selected ? <Details item={selected} onClose={() => setSelected(null)} onReplay={(item, mode, promote) => void replayGemini(item, mode, promote)} onReset={(item) => void rerunMorningReset(item)} onRecoveryPreview={(item) => void previewMorningResetRecovery(item)} replaying={replaying} /> : null}{recovery ? <RecoveryPreview item={recovery.item} preview={recovery.preview} busy={replaying} onClose={() => setRecovery(null)} onRefresh={() => void previewMorningResetRecovery(recovery.item)} onApply={() => void applyMorningResetRecovery()} /> : null}</section>;
 }

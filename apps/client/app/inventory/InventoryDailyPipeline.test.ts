@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { InventoryApiError, type InventoryHistoricalReplayResult } from "./api";
-import { retryFreshHistoricalReplay } from "./InventoryDailyPipeline";
+import { isManualRecoveryError, retryFreshHistoricalReplay } from "./InventoryDailyPipeline";
 
 const replayResult: InventoryHistoricalReplayResult = {
   run_id: "replay-3",
@@ -16,6 +16,16 @@ const replayResult: InventoryHistoricalReplayResult = {
   plan_hash: "plan",
   writes: 3,
 };
+
+describe("Inventory Morning Reset manual recovery routing", () => {
+  it("routes only missed-window, preview-ready and stale evidence states to manual recovery", () => {
+    expect(isManualRecoveryError("inventory_morning_reset_missed_safe_window")).toBe(true);
+    expect(isManualRecoveryError("inventory_morning_reset_manual_recovery_preview_ready")).toBe(true);
+    expect(isManualRecoveryError("stale_evidence")).toBe(true);
+    expect(isManualRecoveryError("previous_day_gemini_not_verified")).toBe(false);
+    expect(isManualRecoveryError(null)).toBe(false);
+  });
+});
 
 describe("Inventory historical replay retry", () => {
   it("retries retryable fresh-copy failures with bounded backoff and succeeds", async () => {

@@ -2378,6 +2378,10 @@ class InventoryDailySheetService:
                 if attention:
                     if attention.get("error_code") == "inventory_morning_reset_missed_safe_window":
                         action_label = "Cần recovery thủ công"
+                    elif attention.get("error_code") == "inventory_morning_reset_manual_recovery_preview_ready":
+                        action_label = "Preview recovery sẵn sàng"
+                    elif attention.get("error_code") == "stale_evidence" and attention["key"] == "morning_reset":
+                        action_label = "Preview lại recovery"
                     elif attention.get("error_code") == "previous_day_gemini_not_verified":
                         action_label = "Repair Gemini ngày trước"
                     elif attention["key"] == "evening_reconcile":

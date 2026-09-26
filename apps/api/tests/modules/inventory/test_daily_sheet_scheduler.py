@@ -668,6 +668,120 @@ class DailySheetSchedulerTest(unittest.TestCase):
         )
         self.assertEqual([], carry.calls)
 
+    def test_manual_morning_recovery_preview_and_apply_only_after_safe_window(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            settings = session.scalar(
+                select(InventorySettingsModel).where(
+                    InventorySettingsModel.tenant_id == "tenant-a"
+                )
+            )
+            settings.daily_carry_forward_time_local = "05:00"
+            source = session.scalar(
+                select(InventoryDailySheetSnapshotModel).where(
+                    InventoryDailySheetSnapshotModel.business_date
+                    == date(2030, 8, 9)
+                )
+            )
+            source.gemini_reconcile_status = "completed"
+            source.gemini_reconcile_verified_at = datetime.now(timezone.utc)
+            session.add(
+                InventoryDailyCarryForwardModel(
+                    tenant_id="tenant-a",
+                    target_business_date=date(2030, 8, 10),
+                    previous_business_date=date(2030, 8, 9),
+                    idempotency_key="manual-recovery",
+                    status="retryable_failure",
+                    error_code="previous_day_gemini_not_verified",
+                )
+            )
+            session.add(
+                InventoryJobModel(
+                    tenant_id="tenant-a",
+                    job_type="inventory_v5_morning_reset_slot",
+                    entity_type="inventory_v5_scheduler_slot",
+                    entity_id="2030-08-10:morning_reset",
+                    idempotency_key="inventory-v5-slot:tenant-a:2030-08-10:morning_reset",
+                    status="failed",
+                    attempt_count=5,
+                    max_attempts=5,
+                    last_error_code="previous_day_gemini_not_verified",
+                )
+            )
+
+        class Carry:
+            def __init__(self):
+                self.preview_calls = []
+                self.apply_calls = []
+            def preview_manual_recovery(self, tenant_id, business_date):
+                self.preview_calls.append((tenant_id, business_date.isoformat()))
+                return {
+                    "status": "preview_ready",
+                    "business_date": business_date.isoformat(),
+                    "plan_hash": "a" * 64,
+                    "safe_operation_count": 2,
+                    "write_operation_count": 1,
+                    "excluded_clear_count": 3,
+                    "operations": [],
+                }
+            def apply_manual_recovery(self, tenant_id, business_date, *, plan_hash):
+                self.apply_calls.append(
+                    (tenant_id, business_date.isoformat(), plan_hash)
+                )
+                return {
+                    "status": "completed",
+                    "business_date": business_date.isoformat(),
+                    "plan_hash": plan_hash,
+                    "applied_count": 1,
+                    "already_correct_count": 1,
+                    "excluded_clear_count": 3,
+                }
+
+        carry = Carry()
+        scheduler = InventoryDailyScheduler(
+            self.sessions,
+            carry_forward_service=carry,
+        )
+        moment = datetime(2030, 8, 10, 7, 0, tzinfo=timezone.utc)
+
+        preview = scheduler.preview_v4_morning_reset_recovery(
+            "tenant-a", date(2030, 8, 10), moment
+        )
+        self.assertEqual("preview_ready", preview["status"])
+        self.assertEqual(
+            [("tenant-a", "2030-08-10")], carry.preview_calls
+        )
+
+        applied = scheduler.apply_v4_morning_reset_recovery(
+            "tenant-a",
+            date(2030, 8, 10),
+            plan_hash="a" * 64,
+            now=moment,
+        )
+        self.assertEqual("completed", applied["status"])
+        self.assertEqual(
+            [("tenant-a", "2030-08-10", "a" * 64)], carry.apply_calls
+        )
+        with self.sessions() as session:
+            job = session.scalar(
+                select(InventoryJobModel).where(
+                    InventoryJobModel.entity_id == "2030-08-10:morning_reset"
+                )
+            )
+            self.assertEqual("completed", job.status)
+            self.assertTrue(job.payload_json["recovered_from_durable_state"])
+            self.assertEqual(
+                "safe_opening_rows_only",
+                job.payload_json["manual_recovery_mode"],
+            )
+
+        with self.assertRaisesRegex(ValueError, "use_normal_rerun"):
+            scheduler.preview_v4_morning_reset_recovery(
+                "tenant-a",
+                date(2030, 8, 10),
+                datetime(2030, 8, 9, 22, 30, tzinfo=timezone.utc),
+            )
+
     def test_v4_morning_reset_retry_only_runs_within_one_hour(self):
         self._enable_v4()
         with self.sessions.begin() as session:

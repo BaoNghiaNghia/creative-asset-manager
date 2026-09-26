@@ -242,6 +242,59 @@ def test_morning_reset_rerun_requires_control_permission_and_calls_scheduler():
     scheduler.retry_v4_morning_reset.assert_called_once_with("tenant-a", date(2030, 8, 10))
 
 
+
+
+def test_morning_reset_recovery_preview_and_apply_require_control_and_forward_plan_hash():
+    denied = client_for(principal({"inventory.read"}))
+    assert denied.post(
+        "/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/recovery/preview"
+    ).status_code == 403
+
+    allowed = client_for(principal({"inventory.control"}))
+    scheduler = Mock()
+    scheduler.preview_v4_morning_reset_recovery.return_value = {
+        "status": "preview_ready",
+        "stage": "morning_reset",
+        "business_date": "2030-08-10",
+        "plan_hash": "a" * 64,
+        "safe_operation_count": 1,
+        "write_operation_count": 1,
+        "excluded_clear_count": 2,
+        "operations": [],
+    }
+    scheduler.apply_v4_morning_reset_recovery.return_value = {
+        "status": "completed",
+        "stage": "morning_reset",
+        "business_date": "2030-08-10",
+        "plan_hash": "a" * 64,
+        "applied_count": 1,
+        "already_correct_count": 0,
+        "excluded_clear_count": 2,
+    }
+    with patch(
+        "app.modules.inventory.daily_sheet.router.InventoryDailyScheduler",
+        return_value=scheduler,
+    ):
+        preview = allowed.post(
+            "/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/recovery/preview"
+        )
+        applied = allowed.post(
+            "/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/recovery/apply",
+            json={"plan_hash": "a" * 64},
+        )
+
+    assert preview.status_code == 200
+    assert applied.status_code == 200
+    scheduler.preview_v4_morning_reset_recovery.assert_called_once_with(
+        "tenant-a", date(2030, 8, 10)
+    )
+    scheduler.apply_v4_morning_reset_recovery.assert_called_once_with(
+        "tenant-a",
+        date(2030, 8, 10),
+        plan_hash="a" * 64,
+    )
+
+
 def test_stage_detail_requires_read_permission_and_forwards_stage():
     denied = client_for(principal(set()))
     assert denied.get(
