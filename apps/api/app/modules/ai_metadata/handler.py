@@ -159,10 +159,23 @@ class AssetAnalyzeJobHandler:
                 with context.dependencies.session_factory() as session:
                     pipelines = AssetPipelineRepository(session)
                     pipeline = pipelines.get(context.job.tenant_id, pipeline_id, for_update=True)
-                    if pipeline and pipeline.state in {PipelineState.ANALYZING.value, PipelineState.ANALYSIS_PENDING.value}:
-                        if pipeline.state == PipelineState.ANALYSIS_PENDING.value:
-                            pipelines.transition(pipeline, PipelineState.ANALYZING)
-                        pipelines.transition(pipeline, PipelineState.METADATA_READY)
+                    if pipeline and pipeline.state in {
+                        PipelineState.ANALYZING.value,
+                        PipelineState.ANALYSIS_PENDING.value,
+                        PipelineState.PROJECTION_FAILED.value,
+                    }:
+                        if pipeline.state == PipelineState.PROJECTION_FAILED.value:
+                            pipelines.transition(
+                                pipeline, PipelineState.PROJECTION_PENDING
+                            )
+                        else:
+                            if pipeline.state == PipelineState.ANALYSIS_PENDING.value:
+                                pipelines.transition(
+                                    pipeline, PipelineState.ANALYZING
+                                )
+                            pipelines.transition(
+                                pipeline, PipelineState.METADATA_READY
+                            )
                         analysis = AiMetadataRepository(session).get_analysis(analysis_id)
                         pipeline.analysis_id = analysis.id
                         coordinator = AssetPipelineService(pipelines, ProcessingRepository(session))

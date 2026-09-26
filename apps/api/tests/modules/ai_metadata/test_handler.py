@@ -22,6 +22,8 @@ from app.modules.ai_metadata.handler import AssetAnalyzeJobHandler
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.ai_metadata.service import AiAnalysisOutcome
 from app.modules.assets.model import AssetModel
+from app.modules.pipeline.model import AssetPipelineModel
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.storage.model import AssetStorageObjectModel
 
 
@@ -193,6 +195,47 @@ class AssetAnalyzeJobHandlerProviderTest(unittest.TestCase):
             analysis = AiMetadataRepository(session).get_analysis(analysis_id)
             self.assertEqual(analysis.attempt_count, 0)
             self.assertEqual(analysis.status, "pending")
+
+    def test_completed_recovery_requeues_projection_failed_pipeline(self):
+        analysis_id = self._analysis("gemini")
+        registry = AiProviderRegistry()
+        registry.register("gemini", FakeProvider("gemini"))
+        with self.sessions() as session:
+            pipeline = AssetPipelineModel(
+                tenant_id="tenant-a",
+                correlation_id="projection-recovery",
+                origin_type="source_asset",
+                origin_id="source-a",
+                source_asset_id="source-a",
+                asset_id=self.asset_id,
+                analysis_id=analysis_id,
+                content_hash="a" * 64,
+                state="projection_failed",
+                last_error_code="ValueError",
+                last_error_message="no completed analysis is available",
+            )
+            session.add(pipeline)
+            session.commit()
+            pipeline_id = pipeline.id
+
+        context = self._context(analysis_id, registry)
+        context.job.payload["pipeline_id"] = pipeline_id
+        with patch("app.modules.ai_metadata.handler.AiAnalysisService") as service_class:
+            service_class.return_value.analyze = AsyncMock(
+                return_value=AiAnalysisOutcome("completed")
+            )
+            result = AssetAnalyzeJobHandler(Settings())(context)
+
+        self.assertEqual(result.outcome, JobOutcome.COMPLETED)
+        with self.sessions() as session:
+            pipeline = session.get(AssetPipelineModel, pipeline_id)
+            self.assertEqual(pipeline.state, "projection_pending")
+            projection_job = session.query(ProcessingJobModel).filter_by(
+                tenant_id="tenant-a",
+                job_type="search_projection_build",
+                entity_id=pipeline_id,
+            ).one()
+            self.assertIn(projection_job.status, {"pending", "retry"})
 
     def test_failed_managed_storage_is_reported_without_ai_retries(self):
         analysis_id = self._analysis("gemini")
