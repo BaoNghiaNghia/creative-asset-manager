@@ -68,6 +68,7 @@ def _manual_recovery_scan(
         "carry_completed": 0,
         "carry_eligible": 0,
         "other_errors": {},
+        "plan_issue_codes": {},
     }
     with SessionLocal() as session:
         settings_rows = list(session.scalars(select(InventorySettingsModel)))
@@ -96,6 +97,16 @@ def _manual_recovery_scan(
             if carry is None:
                 diagnostics["carry_absent"] = int(diagnostics["carry_absent"]) + 1
                 continue
+            plan_json = carry.plan_json if isinstance(carry.plan_json, dict) else {}
+            plan_issue_codes = diagnostics["plan_issue_codes"]
+            assert isinstance(plan_issue_codes, dict)
+            for issue in list(plan_json.get("issues") or []):
+                code = (
+                    str(issue.get("code") or "unknown")
+                    if isinstance(issue, dict)
+                    else "unknown"
+                )
+                plan_issue_codes[code] = int(plan_issue_codes.get(code, 0)) + 1
             if carry.status == "completed":
                 diagnostics["carry_completed"] = int(diagnostics["carry_completed"]) + 1
                 continue
@@ -134,6 +145,13 @@ def _run_manual_recovery_current_day(
             ) or "none"
         else:
             other_error_summary = "invalid"
+        plan_issue_codes = diagnostics.get("plan_issue_codes") or {}
+        if isinstance(plan_issue_codes, dict):
+            issue_summary = ",".join(
+                f"{code}:{count}" for code, count in sorted(plan_issue_codes.items())
+            ) or "none"
+        else:
+            issue_summary = "invalid"
         print(
             "INVENTORY_MANUAL_RECOVERY status=noop "
             "reason=no_eligible_current_day "
@@ -141,7 +159,8 @@ def _run_manual_recovery_current_day(
             f"carry_absent={diagnostics.get('carry_absent', 0)} "
             f"carry_completed={diagnostics.get('carry_completed', 0)} "
             f"carry_eligible={diagnostics.get('carry_eligible', 0)} "
-            f"other_errors={other_error_summary}"
+            f"other_errors={other_error_summary} "
+            f"plan_issue_codes={issue_summary}"
         )
         return 0
     if len(candidates) != 1:
