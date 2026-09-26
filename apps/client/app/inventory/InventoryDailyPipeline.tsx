@@ -87,7 +87,7 @@ function AuditDisclosure({ businessDate, stage }: { businessDate: string; stage:
     </div> : null}
   </div>;
 }
-function Details({ item, onClose }: { item: InventoryLifecycleHistoryItem; onClose: () => void }) {
+function Details({ item, onClose, onReplay, onReset, replaying }: { item: InventoryLifecycleHistoryItem; onClose: () => void; onReplay: (item: InventoryLifecycleHistoryItem, mode: "fresh_copy"|"existing_copy", promote: boolean) => void; onReset: (item: InventoryLifecycleHistoryItem) => void; replaying: boolean }) {
   return <aside className="inventory-pipeline-details inventory-pipeline-details--wide" role="dialog" aria-label="Chi tiết và nhật ký tiến trình">
     <header><div><span>NHẬT KÝ VẬN HÀNH</span><h3>{item.business_date}</h3><p>Giai đoạn hiện tại: <b>{labels[item.current_stage] || item.current_stage}</b></p></div><button onClick={onClose} aria-label="Đóng">×</button></header>
     <div className="inventory-pipeline-detail-list">{item.stages.map((stage) => {
@@ -102,6 +102,8 @@ function Details({ item, onClose }: { item: InventoryLifecycleHistoryItem; onClo
         {stage.error_code ? <div className="inventory-pipeline-log-error"><b>Chi tiết lỗi</b><code>{stage.error_code}</code>{message ? <p>{message}</p> : null}</div> : null}
         {stage.run_id ? <p className="inventory-pipeline-run-id">Run: <code>{stage.run_id}</code></p> : null}
         {stage.key === "morning_reset" || stage.key === "evening_reconcile" ? <AuditDisclosure businessDate={item.business_date} stage={stage.key} /> : null}
+        {stage.key === "morning_reset" && stage.status === "failed" ? <div className="inventory-pipeline-detail-actions"><button disabled={replaying} onClick={() => onReset(item)}>Chạy lại Reset</button></div> : null}
+        {stage.key === "evening_reconcile" && item.files.snapshot_url ? <div className="inventory-pipeline-detail-actions"><button disabled={replaying} onClick={() => onReplay(item, "fresh_copy", true)}>Gemini từ Snapshot sạch</button><button disabled={replaying || !item.files.gemini_url} onClick={() => onReplay(item, "existing_copy", true)}>Retry file Gemini cũ</button><button className="secondary" disabled={replaying} onClick={() => onReplay(item, "fresh_copy", false)}>Replay Sandbox</button></div> : null}
       </section>;
     })}</div>
   </aside>;
@@ -110,13 +112,75 @@ function Details({ item, onClose }: { item: InventoryLifecycleHistoryItem; onClo
 export function InventoryDailyPipeline({ embedded = false }: { embedded?: boolean }) {
   const [data, setData] = useState<{ items: InventoryLifecycleHistoryItem[]; page: number; page_size: number; pages: number } | null>(null);
   const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(25); const [loading, setLoading] = useState(true); const [error, setError] = useState(false);
-  const [selected, setSelected] = useState<InventoryLifecycleHistoryItem | null>(null); const [menu, setMenu] = useState<MenuState | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const [selected, setSelected] = useState<InventoryLifecycleHistoryItem | null>(null); const [menu, setMenu] = useState<MenuState | null>(null); const [notice, setNotice] = useState<string | null>(null); const [replaying, setReplaying] = useState(false);
   const load = useCallback(async () => { setLoading(true); setError(false); try { setData(await inventoryLifecycleApi.getHistory(page, pageSize)); } catch { setError(true); } finally { setLoading(false); } }, [page, pageSize]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { let timer: number | undefined; const arm = () => { if (timer) window.clearInterval(timer); timer = document.visibilityState === "visible" ? window.setInterval(() => void load(), 30000) : undefined; }; arm(); document.addEventListener("visibilitychange", arm); return () => { if (timer) window.clearInterval(timer); document.removeEventListener("visibilitychange", arm); }; }, [load]);
   useEffect(() => { const close = () => setMenu(null); window.addEventListener("click", close); return () => window.removeEventListener("click", close); }, []);
-  const rerun = async () => { if (!menu) return; const { item, stage } = menu; setMenu(null); if (stage.key !== "morning_reset") { setNotice("Chạy lại hiện chỉ áp dụng cho Reset đầu ngày."); return; } if (!window.confirm(`Chạy lại Reset cho ${item.business_date}? Chỉ khả dụng trong cửa sổ ±1 giờ quanh giờ Reset.`)) return; try { const result = await inventoryLifecycleApi.rerunMorningReset(item.business_date); setNotice(`Reset đầu ngày: ${result.status}.`); await load(); } catch (cause) { setNotice(cause instanceof Error ? cause.message : "Không thể chạy lại Reset."); } };
+  const rerunMorningReset = async (item: InventoryLifecycleHistoryItem) => {
+    if (!window.confirm(`Chạy lại Reset cho ${item.business_date}? Chỉ khả dụng trong cửa sổ ±1 giờ quanh giờ Reset.`)) return;
+    setReplaying(true); setNotice(null);
+    try {
+      const result = await inventoryLifecycleApi.rerunMorningReset(item.business_date);
+      setNotice(`Reset đầu ngày: ${result.status}.`);
+      await load();
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Không thể chạy lại Reset.");
+    } finally { setReplaying(false); }
+  };
+  const replayGemini = async (
+    item: InventoryLifecycleHistoryItem,
+    mode: "fresh_copy" | "existing_copy",
+    promote: boolean,
+  ) => {
+    const description = !promote
+      ? "Replay sandbox từ Snapshot sạch. Kết quả sẽ không thay thế Gemini chính thức."
+      : mode === "fresh_copy"
+        ? "Tạo một Gemini copy mới từ Snapshot bất biến và chỉ promote khi xác minh thành công."
+        : "Chạy lại trực tiếp trên Gemini file cũ. Chỉ nên dùng khi run trước chưa ghi dữ liệu.";
+    if (!window.confirm(`${description}\n\nNgày: ${item.business_date}\nTiếp tục?`)) return;
+    setReplaying(true); setNotice(`Đang chạy lại Gemini cho ${item.business_date}…`);
+    try {
+      const result = await inventoryLifecycleApi.replayHistoricalGemini(item.business_date, mode, promote);
+      setNotice(
+        result.promoted
+          ? `Gemini ${item.business_date} đã xác minh và promote thành công.`
+          : `Replay ${item.business_date} hoàn tất: ${result.status} / ${result.verification_status}. Không thay đổi file chính thức.`
+      );
+      await load();
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Không thể chạy lại Gemini.");
+    } finally { setReplaying(false); }
+  };
+  const batchCandidates = (data?.items || []).filter((item) => {
+    if (!item.files.snapshot_url) return false;
+    const evening = item.stages.find((stage) => stage.key === "evening_reconcile");
+    const verified = item.stages.find((stage) => stage.key === "verified");
+    return evening?.status !== "completed" || verified?.status !== "completed";
+  });
+  const replayFailedDays = async () => {
+    if (!batchCandidates.length || replaying) return;
+    if (!window.confirm(
+      `Chạy lại tuần tự ${batchCandidates.length} ngày lỗi trên trang hiện tại?\n\nMỗi ngày sẽ tạo Gemini copy mới từ Snapshot và chỉ promote khi verify thành công.`
+    )) return;
+    setReplaying(true);
+    let promoted = 0; let notPromoted = 0; let failed = 0;
+    try {
+      for (let index = 0; index < batchCandidates.length; index += 1) {
+        const item = batchCandidates[index];
+        setNotice(`Đang replay ${index + 1}/${batchCandidates.length}: ${item.business_date}…`);
+        try {
+          const result = await inventoryLifecycleApi.replayHistoricalGemini(item.business_date, "fresh_copy", true);
+          if (result.promoted) promoted += 1; else notPromoted += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      setNotice(`Batch replay hoàn tất: ${promoted} promote, ${notPromoted} chưa promote, ${failed} lỗi.`);
+      await load();
+    } finally { setReplaying(false); }
+  };
   if (loading && !data) return <section className="inventory-empty">Đang tải tiến trình Inventory…</section>;
   if (error && !data) return <section className="inventory-empty"><p>Không thể tải tiến trình.</p><button onClick={() => void load()}>Thử lại</button></section>;
-  return <section className={`inventory-pipeline${embedded ? " inventory-pipeline--embedded" : ""}`}><header><div><span>INVENTORY</span><h2>Tiến trình kiểm kho</h2><p>Theo dõi mỗi ngày làm việc từ reset đến xác minh Gemini.</p></div><button onClick={() => void load()} disabled={loading}>{loading ? "Đang làm mới…" : "Làm mới"}</button></header>{error ? <p className="inventory-error">Không thể tải dữ liệu mới nhất.</p> : null}{notice ? <p className="inventory-error">{notice}</p> : null}{!data?.items.length ? <div className="inventory-pipeline-empty"><b>Chưa có tiến trình kiểm kho.</b><span>Tiến trình của ngày làm việc sẽ xuất hiện ở đây khi automation bắt đầu.</span></div> : <div className="inventory-pipeline-scroll"><table><thead><tr><th>NGÀY KIỂM</th><th>FILE</th><th>GIAI ĐOẠN HIỆN TẠI</th><th>LUỒNG XỬ LÝ</th><th>CẬP NHẬT</th><th>CẦN XỬ LÝ</th></tr></thead><tbody>{data.items.map((item) => <tr key={item.business_date} onClick={() => setSelected(item)}><td><b>{new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(new Date(`${item.business_date}T00:00:00`))}</b></td><td className="inventory-pipeline-files">{item.files.shared_url ? <a href={item.files.shared_url} target="_blank" rel="noreferrer">Shared ↗</a> : null}{item.files.snapshot_url ? <a href={item.files.snapshot_url} target="_blank" rel="noreferrer">Snapshot ↗</a> : <span>Snapshot: Chưa tạo</span>}{item.files.gemini_url ? <a href={item.files.gemini_url} target="_blank" rel="noreferrer">Gemini ↗</a> : null}</td><td><span className={`inventory-pipeline-chip ${item.overall_status}`}>{labels[item.current_stage] || item.current_stage}</span></td><td><div className="inventory-pipeline-flow">{item.stages.map((stage, index) => <div key={stage.key} className="inventory-pipeline-node"><Stage stage={stage} onClick={() => setSelected(item)} onMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMenu({ item, stage, x: event.clientX, y: event.clientY }); }} />{index < item.stages.length - 1 ? <i className={stage.status === "completed" ? "done" : ""} /> : null}</div>)}</div></td><td>{format(item.updated_at)}</td><td>{item.action_required ? <button className="inventory-pipeline-action" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.action_required.label}</button> : "—"}</td></tr>)}</tbody></table></div>}<footer><label>Số mục mỗi trang <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{[25, 50, 100].map((size) => <option key={size}>{size}</option>)}</select></label><div><button disabled={!data || page === 1} onClick={() => setPage(page - 1)}>Trước</button><b>{data?.page || 1} / {data?.pages || 1}</b><button disabled={!data || page >= (data?.pages || 1)} onClick={() => setPage(page + 1)}>Tiếp</button></div></footer>{menu ? <div role="menu" className="inventory-pipeline-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}><button role="menuitem" onClick={() => { setSelected(menu.item); setMenu(null); }}>Chi tiết</button><button role="menuitem" onClick={() => void rerun()}>Chạy lại</button></div> : null}{selected ? <Details item={selected} onClose={() => setSelected(null)} /> : null}</section>;
+  return <section className={`inventory-pipeline${embedded ? " inventory-pipeline--embedded" : ""}`}><header><div><span>INVENTORY</span><h2>Tiến trình kiểm kho</h2><p>Theo dõi mỗi ngày làm việc từ reset đến xác minh Gemini.</p></div><div className="inventory-pipeline-header-actions">{batchCandidates.length ? <button onClick={() => void replayFailedDays()} disabled={replaying}>{replaying ? "Đang replay…" : `Chạy lại ${batchCandidates.length} ngày lỗi`}</button> : null}<button onClick={() => void load()} disabled={loading || replaying}>{loading ? "Đang làm mới…" : "Làm mới"}</button></div></header>{error ? <p className="inventory-error">Không thể tải dữ liệu mới nhất.</p> : null}{notice ? <p className="inventory-error">{notice}</p> : null}{!data?.items.length ? <div className="inventory-pipeline-empty"><b>Chưa có tiến trình kiểm kho.</b><span>Tiến trình của ngày làm việc sẽ xuất hiện ở đây khi automation bắt đầu.</span></div> : <div className="inventory-pipeline-scroll"><table><thead><tr><th>NGÀY KIỂM</th><th>FILE</th><th>GIAI ĐOẠN HIỆN TẠI</th><th>LUỒNG XỬ LÝ</th><th>CẬP NHẬT</th><th>CẦN XỬ LÝ</th></tr></thead><tbody>{data.items.map((item) => <tr key={item.business_date} onClick={() => setSelected(item)}><td><b>{new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(new Date(`${item.business_date}T00:00:00`))}</b></td><td className="inventory-pipeline-files">{item.files.shared_url ? <a href={item.files.shared_url} target="_blank" rel="noreferrer">Shared ↗</a> : null}{item.files.snapshot_url ? <a href={item.files.snapshot_url} target="_blank" rel="noreferrer">Snapshot ↗</a> : <span>Snapshot: Chưa tạo</span>}{item.files.gemini_url ? <a href={item.files.gemini_url} target="_blank" rel="noreferrer">Gemini ↗</a> : null}</td><td><span className={`inventory-pipeline-chip ${item.overall_status}`}>{labels[item.current_stage] || item.current_stage}</span></td><td><div className="inventory-pipeline-flow">{item.stages.map((stage, index) => <div key={stage.key} className="inventory-pipeline-node"><Stage stage={stage} onClick={() => setSelected(item)} onMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMenu({ item, stage, x: event.clientX, y: event.clientY }); }} />{index < item.stages.length - 1 ? <i className={stage.status === "completed" ? "done" : ""} /> : null}</div>)}</div></td><td>{format(item.updated_at)}</td><td>{item.action_required ? <button className="inventory-pipeline-action" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.action_required.label}</button> : "—"}</td></tr>)}</tbody></table></div>}<footer><label>Số mục mỗi trang <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{[25, 50, 100].map((size) => <option key={size}>{size}</option>)}</select></label><div><button disabled={!data || page === 1} onClick={() => setPage(page - 1)}>Trước</button><b>{data?.page || 1} / {data?.pages || 1}</b><button disabled={!data || page >= (data?.pages || 1)} onClick={() => setPage(page + 1)}>Tiếp</button></div></footer>{menu ? <div role="menu" className="inventory-pipeline-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}><button role="menuitem" onClick={() => { setSelected(menu.item); setMenu(null); }}>Chi tiết</button>{menu.stage.key === "morning_reset" ? <button role="menuitem" disabled={replaying} onClick={() => { const item = menu.item; setMenu(null); void rerunMorningReset(item); }}>Chạy lại Reset</button> : null}{menu.stage.key === "evening_reconcile" ? <><button role="menuitem" disabled={replaying || !menu.item.files.snapshot_url} onClick={() => { const item = menu.item; setMenu(null); void replayGemini(item, "fresh_copy", true); }}>Gemini từ Snapshot sạch</button><button role="menuitem" disabled={replaying || !menu.item.files.gemini_url} onClick={() => { const item = menu.item; setMenu(null); void replayGemini(item, "existing_copy", true); }}>Retry Gemini file cũ</button><button role="menuitem" disabled={replaying || !menu.item.files.snapshot_url} onClick={() => { const item = menu.item; setMenu(null); void replayGemini(item, "fresh_copy", false); }}>Replay Sandbox</button></> : null}</div> : null}{selected ? <Details item={selected} onClose={() => setSelected(null)} onReplay={(item, mode, promote) => void replayGemini(item, mode, promote)} onReset={(item) => void rerunMorningReset(item)} replaying={replaying} /> : null}</section>;
 }

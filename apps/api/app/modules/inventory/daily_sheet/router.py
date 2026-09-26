@@ -42,6 +42,10 @@ class V4RunRequest(BaseModel):
     business_date: date | None = None
     apply_mode: str = "shadow"
 
+class HistoricalReplayRequest(BaseModel):
+    mode: str = Field(default="fresh_copy", pattern=r"^(fresh_copy|existing_copy)$")
+    promote: bool = True
+
 class BaselineRequest(BaseModel):
     snapshot_id: str
 class PromptDraftRequest(BaseModel):
@@ -401,6 +405,36 @@ def rerun_agent_v4_current(
         elif "not ready" in str(exc).lower():
             code = "daily_gemini_workbook_not_ready"
         raise HTTPException(409, detail={"code": code, "message": str(exc)}) from exc
+
+@router.post("/lifecycle-history/{business_date}/gemini/replay")
+def replay_historical_gemini(
+    business_date: date,
+    body: HistoricalReplayRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    service = _service()
+    try:
+        if not service.is_agent_v4_configured(principal.active_tenant_id):
+            raise HTTPException(
+                409, detail={"code": "gemini_tool_sheet_agent_not_configured"}
+            )
+        return service.replay_agent_v4_historical(
+            principal.active_tenant_id,
+            business_date,
+            mode=body.mode,
+            promote=body.promote,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            409,
+            detail={
+                "code": getattr(exc, "code", type(exc).__name__),
+                "message": str(exc),
+            },
+        ) from exc
+
 
 @router.post("/reconcile/run")
 def run_reconcile(body: RunRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):

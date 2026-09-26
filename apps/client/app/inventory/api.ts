@@ -139,6 +139,7 @@ export type InventoryLifecycleStageStatus = "pending"|"scheduled"|"running"|"com
 export type InventoryLifecycleStage = { key:"morning_reset"|"afternoon_snapshot"|"evening_reconcile"|"verified"; label:string; status:InventoryLifecycleStageStatus; scheduled_time?:string; started_at?:string|null; completed_at?:string|null; error_code?:string|null; error_message?:string|null; run_id?:string|null; plan_hash?:string|null; prompt_version?:string|null; prompt_hash?:string|null };
 export type InventoryLifecycleHistoryItem = { business_date:string; overall_status:InventoryLifecycleStageStatus; current_stage:string; stages:InventoryLifecycleStage[]; files:{shared_url:string|null;snapshot_url:string|null;gemini_url:string|null}; updated_at:string|null; action_required:{code:string;stage:string;label:string}|null };
 export type InventoryLifecycleHistoryResponse = {items:InventoryLifecycleHistoryItem[];page:number;page_size:number;total:number;pages:number};
+export type InventoryHistoricalReplayResult = { run_id:string; business_date:string; mode:"fresh_copy"|"existing_copy"; status:string; verification_status:string; promoted:boolean; source_snapshot_file_id:string; previous_gemini_file_id:string|null; replay_gemini_file_id:string; model:string|null; plan_hash:string|null; writes:number };
 
 export type InventoryOperationChange = {
   sequence:number;
@@ -220,6 +221,7 @@ export const inventoryLifecycleApi = {
   getHistory:(page=1,pageSize=25)=>request<InventoryLifecycleHistoryResponse>(`/daily-sheet/lifecycle-history?page=${page}&page_size=${pageSize}`),
   getStageDetail:(businessDate:string,stage:string)=>request<InventoryStageDetail>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/stages/${encodeURIComponent(stage)}/detail`),
   rerunMorningReset:(businessDate:string)=>request<{status:string;stage:string}>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/morning-reset/rerun`,{method:"POST"}),
+  replayHistoricalGemini:(businessDate:string,mode:"fresh_copy"|"existing_copy"="fresh_copy",promote=true)=>request<InventoryHistoricalReplayResult>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/gemini/replay`,{method:"POST",body:JSON.stringify({mode,promote})}),
 };
 export const inventoryKnowledgeApi = {
   list:(status?:string)=>request<{items:InventoryKnowledgeEntry[]}>(`/daily-sheet/knowledge${status?`?status=${encodeURIComponent(status)}`:""}`),

@@ -112,7 +112,7 @@ def daily_sheet_db():
     for name in (
         "tenants", "external_sources", "oauth_connections", "inventory_settings",
         "inventory_daily_sheet_snapshots", "inventory_daily_sheet_reconciliations",
-        "inventory_daily_carry_forwards",
+        "inventory_daily_carry_forwards", "inventory_prompt_versions",
         "inventory_items", "inventory_item_aliases",
         "inventory_material_external_identities",
         "inventory_material_package_conversions",
@@ -1014,6 +1014,226 @@ def test_v4_snapshot_copies_workbook_beside_source_before_agent_run(daily_sheet_
     )
     assert snapshot_slot.status == "completed"
     assert snapshot_slot.writes == 0
+
+
+def _historical_snapshot(sessions):
+    now = datetime(2030, 8, 9, 23, 50, tzinfo=timezone.utc)
+    with sessions.begin() as session:
+        session.add(
+            InventoryDailySheetSnapshotModel(
+                tenant_id="tenant-a",
+                business_date=date(2030, 8, 9),
+                external_source_id="source-a",
+                source_spreadsheet_file_id="working",
+                archive_folder_id="archive",
+                snapshot_file_id="historical-snapshot",
+                gemini_file_id="old-gemini",
+                status="completed",
+                verified_at=now,
+                reset_completed_at=now,
+                gemini_reconcile_status="failed",
+                gemini_reconcile_error_code="inventory_gemini_request_failed",
+            )
+        )
+        session.add(
+            InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_evening_reconcile_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-09:evening_reconcile",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-09:evening_reconcile",
+                status="failed",
+                attempt_count=5,
+                max_attempts=5,
+                last_error_code="inventory_gemini_request_failed",
+                last_error_message="provider failed",
+                completed_at=now,
+            )
+        )
+
+
+class HistoricalReplayGoogle(FakeGoogle):
+    def __init__(self):
+        super().__init__()
+        self.copy_requests = []
+
+    def drive_file(self, file_id):
+        return {
+            "id": file_id,
+            "name": "Inventory 2030-08-09",
+            "mimeType": NATIVE_SPREADSHEET_MIME,
+            "modifiedTime": self.modified,
+            "parents": ["archive"],
+        }
+
+    def copy_spreadsheet(self, source_id, **kwargs):
+        self.copy_requests.append({"source_id": source_id, **kwargs})
+        return {"id": "replay-gemini"}
+
+    def validate_native_spreadsheet(self, file_id):
+        return {
+            "id": file_id,
+            "name": "Replay",
+            "mimeType": NATIVE_SPREADSHEET_MIME,
+            "modifiedTime": self.modified,
+            "capabilities": {"canEdit": True},
+        }
+
+
+class HistoricalReplayAgent:
+    def __init__(self, *, fail=False, status="completed", verification_status="verified"):
+        self.fail = fail
+        self.status = status
+        self.verification_status = verification_status
+        self.calls = []
+
+    def run(self, tenant_id, business_date, **kwargs):
+        self.calls.append((tenant_id, business_date, kwargs))
+        if self.fail:
+            raise RuntimeError("historical replay failed")
+        return SimpleNamespace(
+            status=self.status,
+            execution={"verification_status": self.verification_status},
+            plan_hash="replay-plan",
+            writes=3,
+            model="gemini-test",
+            knowledge_proposals=(),
+            run_id=kwargs["run_id"],
+        )
+
+
+def test_historical_replay_uses_snapshot_copy_and_promotes_only_verified_result(
+    daily_sheet_db,
+):
+    configure_v4(daily_sheet_db, automation_enabled=True)
+    _historical_snapshot(daily_sheet_db)
+    google = HistoricalReplayGoogle()
+    agent = HistoricalReplayAgent()
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "token",
+        agent_v4_service=agent,
+    )
+
+    result = worker.replay_agent_v4_historical(
+        "tenant-a", date(2030, 8, 9), mode="fresh_copy", promote=True
+    )
+
+    assert result["promoted"] is True
+    assert result["previous_gemini_file_id"] == "old-gemini"
+    assert result["replay_gemini_file_id"] == "replay-gemini"
+    assert google.copy_requests[0]["source_id"] == "historical-snapshot"
+    assert agent.calls[0][2]["context"].runtime_target_file_id == "replay-gemini"
+    assert agent.calls[0][2]["prompt_mode"] == "active_test"
+    with daily_sheet_db() as session:
+        snapshot = session.scalar(select(InventoryDailySheetSnapshotModel))
+        assert snapshot.gemini_file_id == "replay-gemini"
+        assert snapshot.gemini_reconcile_status == "completed"
+        assert snapshot.gemini_reconcile_verified_at is not None
+        job = session.scalar(
+            select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v4_historical_replay"
+            )
+        )
+        assert job.status == "completed"
+        assert job.payload_json["previous_gemini_file_id"] == "old-gemini"
+        assert job.payload_json["previous_slot_error_code"] == "inventory_gemini_request_failed"
+        assert job.payload_json["promoted"] is True
+        slot_job = session.scalar(
+            select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
+            )
+        )
+        assert slot_job.status == "completed"
+        assert slot_job.last_error_code is None
+        assert slot_job.payload_json["recovered_by_historical_replay"] == result["run_id"]
+
+
+def test_historical_replay_failure_keeps_official_gemini_pointer(daily_sheet_db):
+    configure_v4(daily_sheet_db, automation_enabled=True)
+    _historical_snapshot(daily_sheet_db)
+    google = HistoricalReplayGoogle()
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "token",
+        agent_v4_service=HistoricalReplayAgent(fail=True),
+    )
+
+    with pytest.raises(RuntimeError, match="historical replay failed"):
+        worker.replay_agent_v4_historical(
+            "tenant-a", date(2030, 8, 9), mode="fresh_copy", promote=True
+        )
+
+    with daily_sheet_db() as session:
+        snapshot = session.scalar(select(InventoryDailySheetSnapshotModel))
+        assert snapshot.gemini_file_id == "old-gemini"
+        assert snapshot.gemini_reconcile_status == "failed"
+        job = session.scalar(
+            select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v4_historical_replay"
+            )
+        )
+        assert job.status == "failed"
+        assert job.payload_json["replay_gemini_file_id"] == "replay-gemini"
+        assert job.payload_json["promoted"] is False
+        slot_job = session.scalar(
+            select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
+            )
+        )
+        assert slot_job.status == "failed"
+        assert slot_job.last_error_code == "inventory_gemini_request_failed"
+
+
+def test_historical_replay_does_not_promote_unverified_result(daily_sheet_db):
+    configure_v4(daily_sheet_db, automation_enabled=True)
+    _historical_snapshot(daily_sheet_db)
+    google = HistoricalReplayGoogle()
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "token",
+        agent_v4_service=HistoricalReplayAgent(
+            status="review_required", verification_status="not_executed"
+        ),
+    )
+
+    result = worker.replay_agent_v4_historical(
+        "tenant-a", date(2030, 8, 9), mode="fresh_copy", promote=True
+    )
+
+    assert result["promoted"] is False
+    assert result["status"] == "review_required"
+    with daily_sheet_db() as session:
+        snapshot = session.scalar(select(InventoryDailySheetSnapshotModel))
+        assert snapshot.gemini_file_id == "old-gemini"
+        assert snapshot.gemini_reconcile_status == "failed"
+
+
+def test_historical_sandbox_replay_never_promotes_verified_copy(daily_sheet_db):
+    configure_v4(daily_sheet_db, automation_enabled=True)
+    _historical_snapshot(daily_sheet_db)
+    google = HistoricalReplayGoogle()
+    worker = InventoryDailySheetService(
+        daily_sheet_db,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "token",
+        agent_v4_service=HistoricalReplayAgent(),
+    )
+
+    result = worker.replay_agent_v4_historical(
+        "tenant-a", date(2030, 8, 9), mode="fresh_copy", promote=False
+    )
+
+    assert result["status"] == "completed"
+    assert result["verification_status"] == "verified"
+    assert result["promoted"] is False
+    with daily_sheet_db() as session:
+        snapshot = session.scalar(select(InventoryDailySheetSnapshotModel))
+        assert snapshot.gemini_file_id == "old-gemini"
+        assert snapshot.gemini_reconcile_status == "failed"
 
 
 def test_v4_manual_shadow_runs_while_daily_automation_is_disabled(daily_sheet_db):

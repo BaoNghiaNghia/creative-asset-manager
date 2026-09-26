@@ -861,6 +861,304 @@ class InventoryDailySheetService:
                     session.commit()
             raise
 
+    def replay_agent_v4_historical(
+        self,
+        tenant_id: str,
+        business_date: date,
+        *,
+        mode: str = "fresh_copy",
+        promote: bool = True,
+    ) -> dict[str, Any]:
+        """Replay a historical Gemini run without mutating the official day until verified."""
+        if mode not in {"fresh_copy", "existing_copy"}:
+            raise DailySheetConfigurationError("inventory_historical_replay_mode_invalid")
+        context = self._context(tenant_id, require_enabled=False)
+        if not isinstance(context.config, GeminiToolSheetAgentConfig):
+            raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
+
+        from uuid import uuid4
+        from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
+
+        resolved = InventoryPromptResolver(self.session_factory).resolve(
+            tenant_id,
+            "daily_gemini_processing",
+            legacy_goals=list(context.config.agent.business_goal or []),
+        )
+        run_id = str(uuid4())
+        with self.session_factory() as session:
+            self._lock(session, f"inventory-historical-replay:{tenant_id}:{business_date}")
+            snapshot = session.scalar(
+                select(InventoryDailySheetSnapshotModel).where(
+                    InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                    InventoryDailySheetSnapshotModel.business_date == business_date,
+                )
+            )
+            if (
+                snapshot is None
+                or snapshot.status != "completed"
+                or not snapshot.snapshot_file_id
+            ):
+                raise DailySheetConfigurationError("inventory_historical_snapshot_not_ready")
+            active_cutoff = inventory_utcnow() - timedelta(hours=1)
+            active = session.scalar(
+                select(InventoryJobModel.id).where(
+                    InventoryJobModel.tenant_id == tenant_id,
+                    InventoryJobModel.job_type == "inventory_v4_historical_replay",
+                    InventoryJobModel.entity_id == business_date.isoformat(),
+                    InventoryJobModel.status.in_(("pending", "processing", "retry")),
+                    InventoryJobModel.updated_at >= active_cutoff,
+                )
+            )
+            if active:
+                raise DailySheetConfigurationError("inventory_historical_replay_in_progress")
+            previous_gemini_file_id = snapshot.gemini_file_id
+            source_snapshot_file_id = str(snapshot.snapshot_file_id)
+            archive_folder_id = snapshot.archive_folder_id
+            slot_job = session.scalar(
+                select(InventoryJobModel)
+                .where(
+                    InventoryJobModel.tenant_id == tenant_id,
+                    InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot",
+                    InventoryJobModel.entity_id == f"{business_date.isoformat()}:evening_reconcile",
+                )
+                .order_by(InventoryJobModel.created_at.desc())
+                .limit(1)
+            )
+            if mode == "existing_copy" and not previous_gemini_file_id:
+                raise DailySheetConfigurationError("inventory_historical_gemini_copy_not_ready")
+            job = InventoryJobModel(
+                id=run_id,
+                tenant_id=tenant_id,
+                job_type="inventory_v4_historical_replay",
+                entity_type="daily_sheet_snapshot",
+                entity_id=business_date.isoformat(),
+                idempotency_key=(
+                    f"historical-gemini:{tenant_id}:{business_date.isoformat()}:{run_id}"
+                ),
+                status="processing",
+                attempt_count=1,
+                max_attempts=1,
+                payload_json={
+                    "business_date": business_date.isoformat(),
+                    "mode": mode,
+                    "promote_requested": promote,
+                    "source_snapshot_file_id": source_snapshot_file_id,
+                    "previous_gemini_file_id": previous_gemini_file_id,
+                    "previous_slot_job_status": slot_job.status if slot_job else None,
+                    "previous_slot_error_code": slot_job.last_error_code if slot_job else None,
+                    "previous_slot_error_message": slot_job.last_error_message if slot_job else None,
+                    "prompt_source": resolved.source,
+                    "prompt_version": resolved.version,
+                    "prompt_hash": resolved.content_hash,
+                },
+            )
+            session.add(job)
+            session.commit()
+
+        replay_file_id = str(previous_gemini_file_id or "")
+        try:
+            if mode == "fresh_copy":
+                with self.client_factory(self._token(context.connection_id)) as google:
+                    snapshot_meta = google.drive_file(source_snapshot_file_id)
+                    parent_ids = list(snapshot_meta.get("parents") or ())
+                    folder_id = archive_folder_id or (parent_ids[0] if parent_ids else context.archive_root_id)
+                    if not folder_id:
+                        raise DailySheetConfigurationError("inventory_historical_replay_folder_not_ready")
+                    folder_id = str(folder_id)
+                    title = str(snapshot_meta.get("name") or "Inventory snapshot").strip()
+                    copied = google.copy_spreadsheet(
+                        source_snapshot_file_id,
+                        folder_id=folder_id,
+                        name=(
+                            f"{title} - Gemini Replay {business_date.isoformat()}"
+                            f" - {run_id[:8]}"
+                        ),
+                        tenant_id=tenant_id,
+                        business_date=business_date.isoformat(),
+                    )
+                    replay_file_id = str(copied["id"])
+                    if replay_file_id in {
+                        context.configured_source_file_id,
+                        source_snapshot_file_id,
+                        str(previous_gemini_file_id or ""),
+                    }:
+                        raise DailySheetValidationError(
+                            "inventory_historical_replay_copy_conflict"
+                        )
+                    replay_meta = google.validate_native_spreadsheet(replay_file_id)
+                    if (replay_meta.get("capabilities") or {}).get("canEdit") is False:
+                        raise DailySheetValidationError(
+                            "inventory_historical_replay_not_editable"
+                        )
+
+            with self.session_factory() as session:
+                job = session.get(InventoryJobModel, run_id)
+                if job is not None:
+                    job.payload_json = {
+                        **(job.payload_json or {}),
+                        "replay_gemini_file_id": replay_file_id,
+                    }
+                    session.commit()
+
+            runtime = replace(context, runtime_target_file_id=replay_file_id)
+            audit_started_at = inventory_utcnow()
+            audit_stage = "evening_reconcile" if promote else "manual_prompt_test"
+            result = self._agent_v4().run(
+                tenant_id,
+                business_date,
+                slot_kind="evening_reconcile",
+                context=runtime,
+                prompt_mode="active_test",
+                prompt_override=resolved,
+                run_id=run_id,
+            )
+            try:
+                InventoryOperationAuditService(self.session_factory).persist_v4_result(
+                    tenant_id,
+                    business_date,
+                    stage=audit_stage,
+                    result=result,
+                    started_at=audit_started_at,
+                )
+                if getattr(result, "knowledge_proposals", None):
+                    InventoryKnowledgeService(self.session_factory).persist_proposals(
+                        tenant_id,
+                        run_id=run_id,
+                        proposals=[
+                            item.model_dump(mode="json")
+                            if hasattr(item, "model_dump")
+                            else dict(item)
+                            for item in result.knowledge_proposals
+                        ],
+                    )
+            except Exception:
+                logger.exception(
+                    "inventory_historical_replay_audit_persist_failed",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "business_date": business_date.isoformat(),
+                        "run_id": run_id,
+                    },
+                )
+
+            verification_status = str(
+                (getattr(result, "execution", {}) or {}).get(
+                    "verification_status", "unknown"
+                )
+            )
+            verified = (
+                str(getattr(result, "status", "")) == "completed"
+                and verification_status == "verified"
+            )
+            promoted = bool(promote and verified)
+            completed_at = inventory_utcnow()
+            with self.session_factory() as session:
+                job = session.get(InventoryJobModel, run_id)
+                snapshot = session.scalar(
+                    select(InventoryDailySheetSnapshotModel).where(
+                        InventoryDailySheetSnapshotModel.tenant_id == tenant_id,
+                        InventoryDailySheetSnapshotModel.business_date == business_date,
+                    )
+                )
+                if job is not None:
+                    job.status = "completed"
+                    job.completed_at = completed_at
+                    job.payload_json = {
+                        **(job.payload_json or {}),
+                        "result_status": getattr(result, "status", None),
+                        "verification_status": verification_status,
+                        "plan_hash": getattr(result, "plan_hash", None),
+                        "writes": int(getattr(result, "writes", 0) or 0),
+                        "model": getattr(result, "model", None),
+                        "promoted": promoted,
+                    }
+                if promoted and snapshot is not None:
+                    snapshot.gemini_file_id = replay_file_id
+                    snapshot.gemini_prompt_source = resolved.source
+                    snapshot.gemini_prompt_version = resolved.version
+                    snapshot.gemini_prompt_hash = resolved.content_hash
+                    snapshot.gemini_prompt_content = resolved.content
+                    snapshot.gemini_reconcile_status = "completed"
+                    snapshot.gemini_reconcile_run_id = run_id
+                    snapshot.gemini_reconcile_plan_hash = getattr(
+                        result, "plan_hash", None
+                    )
+                    snapshot.gemini_reconcile_started_at = audit_started_at
+                    snapshot.gemini_reconcile_completed_at = completed_at
+                    snapshot.gemini_reconcile_verified_at = completed_at
+                    snapshot.gemini_reconcile_error_code = None
+                    snapshot.gemini_reconcile_error_message = None
+                    slot_job = session.scalar(
+                        select(InventoryJobModel)
+                        .where(
+                            InventoryJobModel.tenant_id == tenant_id,
+                            InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot",
+                            InventoryJobModel.entity_id == f"{business_date.isoformat()}:evening_reconcile",
+                        )
+                        .order_by(InventoryJobModel.created_at.desc())
+                        .limit(1)
+                    )
+                    if slot_job is not None:
+                        slot_job.status = "completed"
+                        slot_job.completed_at = completed_at
+                        slot_job.last_error_code = None
+                        slot_job.last_error_message = None
+                        slot_job.payload_json = {
+                            **(slot_job.payload_json or {}),
+                            "recovered_by_historical_replay": run_id,
+                        }
+                session.commit()
+            return {
+                "run_id": run_id,
+                "business_date": business_date.isoformat(),
+                "mode": mode,
+                "status": str(getattr(result, "status", "unknown")),
+                "verification_status": verification_status,
+                "promoted": promoted,
+                "source_snapshot_file_id": source_snapshot_file_id,
+                "previous_gemini_file_id": previous_gemini_file_id,
+                "replay_gemini_file_id": replay_file_id,
+                "model": getattr(result, "model", None),
+                "plan_hash": getattr(result, "plan_hash", None),
+                "writes": int(getattr(result, "writes", 0) or 0),
+            }
+        except Exception as exc:
+            audit_started_at = locals().get("audit_started_at", inventory_utcnow())
+            try:
+                InventoryOperationAuditService(self.session_factory).persist_failure(
+                    tenant_id,
+                    business_date,
+                    stage=("evening_reconcile" if promote else "manual_prompt_test"),
+                    error=exc,
+                    run_id=run_id,
+                    started_at=audit_started_at,
+                )
+            except Exception:
+                logger.exception(
+                    "inventory_historical_replay_failure_audit_persist_failed",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "business_date": business_date.isoformat(),
+                        "run_id": run_id,
+                    },
+                )
+            with self.session_factory() as session:
+                job = session.get(InventoryJobModel, run_id)
+                if job is not None:
+                    job.status = "failed"
+                    job.completed_at = inventory_utcnow()
+                    job.last_error_code = str(
+                        getattr(exc, "code", type(exc).__name__)
+                    )[:100]
+                    job.last_error_message = str(exc)[:1000]
+                    job.payload_json = {
+                        **(job.payload_json or {}),
+                        "replay_gemini_file_id": replay_file_id or None,
+                        "promoted": False,
+                    }
+                    session.commit()
+            raise
+
     def is_agent_v3_configured(self, tenant_id: str) -> bool:
         context = self._context(tenant_id, require_enabled=False)
         return isinstance(context.config, GeminiSheetAgentConfig)
