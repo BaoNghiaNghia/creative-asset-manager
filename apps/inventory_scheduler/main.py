@@ -37,6 +37,8 @@ _MANUAL_RECOVERY_ERROR_CODES = frozenset({
     "closing_opening_mismatch",
     "unknown_material",
     "unknown_warehouse",
+    "inventory_gemini_rate_limited",
+    "inventory_gemini_transport_error",
 })
 
 

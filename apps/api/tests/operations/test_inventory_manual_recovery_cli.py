@@ -66,6 +66,57 @@ def test_manual_recovery_one_shot_noops_without_candidate(capsys):
     scheduler.apply_v4_morning_reset_recovery.assert_not_called()
 
 
+def test_manual_recovery_retryable_gemini_failure_previews_then_applies(capsys):
+    assert "inventory_gemini_rate_limited" in _MODULE._MANUAL_RECOVERY_ERROR_CODES
+    assert "inventory_gemini_transport_error" in _MODULE._MANUAL_RECOVERY_ERROR_CODES
+    scheduler = Mock()
+    scheduler.preview_v4_morning_reset_recovery.return_value = _preview()
+    scheduler.apply_v4_morning_reset_recovery.return_value = {
+        "status": "completed",
+        "business_date": "2030-08-10",
+        "plan_hash": "a" * 64,
+        "applied_count": 1,
+        "already_correct_count": 1,
+        "excluded_clear_count": 3,
+    }
+    now = datetime(2030, 8, 10, 7, tzinfo=timezone.utc)
+    with patch.object(
+        _MODULE,
+        "_manual_recovery_scan",
+        return_value=([(
+            "tenant-a",
+            date(2030, 8, 10),
+            "inventory_gemini_rate_limited",
+        )], {
+            "v4_tenants": 1,
+            "carry_absent": 0,
+            "carry_completed": 0,
+            "carry_eligible": 1,
+            "other_errors": {},
+            "plan_issue_codes": {"MISSING_CATALOG_ITEMS": 1},
+        }),
+    ):
+        result = _run_manual_recovery_current_day(
+            scheduler,
+            frozenset({"tenant-a"}),
+            now=now,
+        )
+
+    assert result == 0
+    scheduler.preview_v4_morning_reset_recovery.assert_called_once_with(
+        "tenant-a", date(2030, 8, 10), now
+    )
+    scheduler.apply_v4_morning_reset_recovery.assert_called_once_with(
+        "tenant-a",
+        date(2030, 8, 10),
+        plan_hash="a" * 64,
+        now=now,
+    )
+    output = capsys.readouterr().out
+    assert "status=preview_ready" in output
+    assert "status=completed" in output
+
+
 def test_manual_recovery_one_shot_blocks_ambiguous_candidates(capsys):
     scheduler = Mock()
     with patch.object(
