@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import pytest
@@ -14,6 +15,12 @@ class Index:
     def __init__(self,docs): self.docs=docs;self.calls=0;self.asset_ids=None
     async def scan_projection_metadata(self,tenant,*,asset_ids=None):
         self.calls+=1;self.asset_ids=tuple(asset_ids or ());return self.docs
+
+class AsyncExecutor:
+    def __init__(self): self.calls=0
+    def run(self, operation):
+        self.calls+=1
+        return asyncio.run(operation)
 
 def reader(rows):
     def page(_tenant, *, after_asset_id=None, limit=100):
@@ -40,6 +47,21 @@ def test_only_missing_and_stale_are_enqueued_once(monkeypatch):
     assert result.checkpoint_asset_id=="stale" and not result.has_more
     assert {call["asset_id"] for call in calls}=={"missing","stale"} and index.calls==1
     assert set(index.asset_ids)=={"current","missing","stale"}
+
+def test_reconciliation_uses_worker_async_executor_when_supplied(monkeypatch):
+    monkeypatch.setattr(reconciliation,"active_visual_queue_depth",lambda *_args,**_kwargs:0)
+    monkeypatch.setattr(reconciliation,"VisualCoverageResourceReader",lambda _:reader([resource("current")]))
+    index=Index([document("current")])
+    executor=AsyncExecutor()
+    result=reconciliation.VisualSearchReconciliationService(
+        object(),
+        object(),
+        index,
+        settings=object(),
+        async_executor=executor,
+    ).reconcile(tenant_id="tenant-a")
+    assert result.current == 1
+    assert executor.calls == 1
 
 def test_es_failure_enqueues_nothing(monkeypatch):
     monkeypatch.setattr(reconciliation,"active_visual_queue_depth",lambda *_args,**_kwargs:0)

@@ -35,8 +35,22 @@ def _current(document, resource) -> bool:
 
 class VisualSearchReconciliationService:
     """Bounded, tenant-scoped producer for current visual projection work."""
-    def __init__(self, session, processing, index, *, settings):
+    def __init__(
+        self,
+        session,
+        processing,
+        index,
+        *,
+        settings,
+        async_executor=None,
+    ):
         self.session,self.processing,self.index,self.settings=session,processing,index,settings
+        self.async_executor=async_executor
+
+    def _run_async(self, operation):
+        if self.async_executor is None:
+            return asyncio.run(operation)
+        return self.async_executor.run(operation)
 
     def reconcile(self, *, tenant_id: str, max_assets: int=100, after_asset_id: str | None=None) -> VisualReconciliationResult:
         if not 1 <= max_assets <= 1000: raise ValueError("max_assets must be between 1 and 1000")
@@ -61,7 +75,7 @@ class VisualSearchReconciliationService:
             for resource in resources
             if resource.asset_id
         ]
-        documents=asyncio.run(
+        documents=self._run_async(
             self.index.scan_projection_metadata(
                 tenant_id,
                 asset_ids=batch_asset_ids,

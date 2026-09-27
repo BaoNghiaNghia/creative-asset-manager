@@ -39,11 +39,13 @@ class VisualSearchBackfillScheduler:
         settings: Settings,
         index,
         *,
+        async_executor=None,
         logger: logging.Logger | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
         self.index = index
+        self.async_executor = async_executor
         self.logger = logger or logging.getLogger("cam.visual_backfill")
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -145,6 +147,7 @@ class VisualSearchBackfillScheduler:
                 ProcessingRepository(session),
                 self.index,
                 settings=self.settings,
+                async_executor=self.async_executor,
             ).run_slice(
                 tenant_id=tenant_id,
                 run_id=run.id,

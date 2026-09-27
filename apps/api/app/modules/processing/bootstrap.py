@@ -378,6 +378,9 @@ def run_worker(
                 getattr(runtime.dependencies, "resources", {}).get(
                     "visual_index_provider"
                 ),
+                async_executor=getattr(runtime.dependencies, "resources", {}).get(
+                    "async_executor"
+                ),
                 logger=worker_logger,
             )
             visual_backfill_scheduler.start()
