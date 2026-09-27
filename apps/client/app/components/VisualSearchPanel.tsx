@@ -96,10 +96,10 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
   const picker = <input ref={inputRef} type="file" accept="image/*" hidden onChange={event => { uploadFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />;
   if (!reference) return <><section className="visual-search-upload-card" aria-label="Search with an image" onDragOver={event => event.preventDefault()} onDrop={handleDrop} onClick={() => inputRef.current?.click()}><div><b>Search with an image</b><p>Drag and drop an image here, or upload one.</p></div><button type="button" className="visual-primary" onClick={event => { event.stopPropagation(); inputRef.current?.click(); }} disabled={!scope}>Upload image</button></section>{error && <div className="visual-search-error" role="alert"><span>{error}</span></div>}{picker}</>;
   return <section className="visual-search-upload-card visual-search-upload-card--reference" aria-label="Visual search">
+    <button type="button" className="visual-direct-change" onClick={() => inputRef.current?.click()} aria-label="Change image" title="Change image">×</button>
     <div className="visual-direct-workspace">
       <div ref={stageRef} className="visual-direct-stage" onPointerDown={beginNewCrop} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onDoubleClick={() => { cropRef.current = fullCrop; setCrop(fullCrop); onRetry(); }}>
         <img src={preview || ""} alt="" draggable={false} />
-        <button type="button" className="visual-direct-change" onClick={() => inputRef.current?.click()} aria-label="Change image" title="Change image">×</button>
         <div className="visual-direct-crop" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }} onPointerDown={event => begin(event, "move")} role="presentation">
           <i className="visual-direct-handle nw" onPointerDown={event => begin(event, "nw")} /><i className="visual-direct-handle ne" onPointerDown={event => begin(event, "ne")} /><i className="visual-direct-handle sw" onPointerDown={event => begin(event, "sw")} /><i className="visual-direct-handle se" onPointerDown={event => begin(event, "se")} />
         </div>

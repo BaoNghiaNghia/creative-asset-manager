@@ -1689,14 +1689,11 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-workbench > .visual-search-upload-card--reference .visual-direct-workspace { width: 100%; }
 .visual-search-workbench > .visual-search-upload-card--reference .visual-direct-stage { margin-inline: auto; }
 .visual-search-upload-card--reference .visual-direct-change {
-  position: absolute;
-  z-index: 4;
-  top: 10px;
-  right: 10px;
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
+  margin: 0 0 8px auto;
   padding: 0;
   border: 0;
   border-radius: 50%;
