@@ -365,6 +365,11 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 RuntimeError("inventory_gemini_rate_limited")
             )
         )
+        self.assertTrue(
+            InventoryDailyScheduler._retryable_v4_error(
+                RuntimeError("carry_forward_plan_not_submitted")
+            )
+        )
         self.assertFalse(
             InventoryDailyScheduler._retryable_v4_error(
                 RuntimeError("inventory_gemini_auth_or_permission_error")

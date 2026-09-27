@@ -546,6 +546,7 @@ class GeminiCarryForwardPlanner:
             try:
                 for model in models:
                     active_model = model
+                    consecutive_no_tool_turns = 0
                     try:
                         for _round in range(1, 13):
                             rounds += 1
@@ -558,7 +559,23 @@ class GeminiCarryForwardPlanner:
                             )
                             contents.append(dict(turn.content))
                             if not turn.calls:
+                                if host.plan is None and consecutive_no_tool_turns < 2:
+                                    consecutive_no_tool_turns += 1
+                                    contents.append({
+                                        "role": "user",
+                                        "parts": [{
+                                            "text": (
+                                                "No accepted carry-forward plan has been submitted yet. "
+                                                "Do not finish with prose. Continue using the available read-only "
+                                                "tools as needed, then call submit_carry_forward_plan with both "
+                                                "operations and issues. An empty operations array is valid when "
+                                                "the evidence shows that no cell changes are required."
+                                            )
+                                        }],
+                                    })
+                                    continue
                                 break
+                            consecutive_no_tool_turns = 0
                             responses = []
                             for call in turn.calls:
                                 result = host.execute(call.name, call.arguments)

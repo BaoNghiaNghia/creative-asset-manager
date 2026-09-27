@@ -15,8 +15,14 @@ from app.modules.inventory.daily.carry_forward import (
     CarryForwardStaleEvidence,
     InventorySharedCarryForwardService,
 )
-from app.modules.inventory.daily.carry_forward_planner import CarryForwardToolHost, function_declarations
+from app.modules.inventory.ai.gateway import InventoryGeminiToolCall, InventoryGeminiToolTurn
+from app.modules.inventory.daily.carry_forward_planner import (
+    CarryForwardToolHost,
+    GeminiCarryForwardPlanner,
+    function_declarations,
+)
 from app.modules.inventory.daily_sheet.parser import canonical_hash
+from app.modules.inventory.model import InventoryAiControlModel
 from app.modules.inventory.persistence_model import (
     InventoryDailyCarryForwardModel,
     InventoryDailySheetSnapshotModel,
@@ -96,7 +102,7 @@ def make_db():
     temp = tempfile.TemporaryDirectory()
     engine = create_engine(f"sqlite:///{Path(temp.name) / 'carry.db'}")
     event.listen(engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
-    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards", "inventory_prompt_versions", "inventory_items", "inventory_item_aliases", "inventory_locations", "inventory_material_candidates"):
+    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards", "inventory_prompt_versions", "inventory_items", "inventory_item_aliases", "inventory_locations", "inventory_material_candidates", "inventory_ai_controls"):
         Base.metadata.tables[name].create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     with sessions.begin() as session:
@@ -108,6 +114,81 @@ def make_db():
             session.add(InventoryItemModel(id=f"material-{value}", tenant_id="tenant-a", sku=value, name=value, base_unit="unit"))
             session.add(InventoryLocationModel(id=f"warehouse-{value}", tenant_id="tenant-a", code=value, name=value))
     return temp, engine, sessions
+
+
+class NoToolThenSubmitGateway:
+    def __init__(self):
+        self.calls = []
+
+    def generate_tool_turn(self, **kwargs):
+        self.calls.append(list(kwargs["contents"]))
+        if len(self.calls) == 1:
+            return InventoryGeminiToolTurn(
+                content={"role": "model", "parts": [{"text": "No changes are needed."}]},
+                calls=(),
+            )
+        return InventoryGeminiToolTurn(
+            content={
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "submit_carry_forward_plan",
+                        "args": {"operations": [], "issues": []},
+                    }
+                }],
+            },
+            calls=(
+                InventoryGeminiToolCall(
+                    name="submit_carry_forward_plan",
+                    arguments={"operations": [], "issues": []},
+                ),
+            ),
+        )
+
+
+def test_carry_forward_planner_nudges_model_to_submit_after_prose_only_turn():
+    temp, engine, sessions = make_db()
+    with sessions.begin() as session:
+        session.add(InventoryAiControlModel(
+            tenant_id="tenant-a",
+            enabled=True,
+            emergency_stop=False,
+            provider="gemini",
+            allowed_models_json=["Gemini-3.5-Flash-Lite"],
+            max_concurrent=1,
+            min_start_interval_seconds=0,
+            per_run_limit=10,
+        ))
+    gateway = NoToolThenSubmitGateway()
+    planner = GeminiCarryForwardPlanner(
+        sessions,
+        gateway,
+        enabled=True,
+        deployment_allowed_models=("Gemini-3.5-Flash-Lite",),
+        client_factory=lambda _token: Google(),
+        token_resolver=lambda _id: "token",
+    )
+
+    plan = planner.plan(
+        tenant_id="tenant-a",
+        previous_gemini_file_id="gemini",
+        shared_workbook_id="shared",
+        prompt="Build an evidence-backed carry-forward plan.",
+        connection_id="connection",
+    )
+
+    assert plan.rows == []
+    assert plan.issues == []
+    assert plan.audit["tool_rounds"] == 2
+    second_request_text = "\n".join(
+        str(part.get("text") or "")
+        for message in gateway.calls[1]
+        for part in message.get("parts") or []
+        if isinstance(part, dict)
+    )
+    assert "Do not finish with prose" in second_request_text
+    assert "empty operations array is valid" in second_request_text
+    engine.dispose(); temp.cleanup()
 
 
 def test_dependency_failure_is_persisted_before_context_resolution():
