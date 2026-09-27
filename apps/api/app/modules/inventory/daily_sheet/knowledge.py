@@ -499,14 +499,34 @@ class InventoryKnowledgeService:
                     "after": (change.after_json or {}).get("value"),
                     "verification_status": "verified",
                 })
+            support = len(observations)
+            # Historical candidates remain shadow-only until a human explicitly
+            # activates them. Eligibility is advisory and can be revoked by a
+            # later conflicting observation without ever granting write access.
+            outcomes = {
+                _canonical_hash({
+                    "before": (change.before_json or {}).get("value"),
+                    "after": (change.after_json or {}).get("value"),
+                    "source_sheet": change.source_sheet,
+                    "source_cell": change.source_cell,
+                })
+                for change, _audit in observations
+            }
+            conflicts = max(0, len(outcomes) - 1)
+            confidence = min(0.99, max(0.0, 0.5 + (0.1 * support) - (0.2 * conflicts)))
+            eligible_for_activation = support >= max(required_support, 3) and conflicts == 0 and confidence >= 0.8
             structured_rule = {
                 "learner": "verified_operation_history_v1",
+                "mode": "shadow",
                 "sheet": sheet,
                 "operation_type": operation_type,
                 "provenance": provenance or None,
                 "reason": reason,
-                "support": len(observations),
+                "support": support,
+                "conflicts": conflicts,
                 "minimum_support": required_support,
+                "confidence": confidence,
+                "eligible_for_activation": eligible_for_activation,
             }
             canonical = {
                 "kind": "RULE",
@@ -544,7 +564,7 @@ class InventoryKnowledgeService:
                     scope_key=sheet,
                     structured_rule=structured_rule,
                     evidence=evidence,
-                    confidence=min(0.99, 0.5 + (0.1 * len(observations))),
+                    confidence=confidence,
                     status="proposed",
                     source="historical_verified_audit",
                     source_content_hash=content_hash,

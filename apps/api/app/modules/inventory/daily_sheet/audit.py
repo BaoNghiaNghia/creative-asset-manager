@@ -213,7 +213,24 @@ class InventoryOperationAuditService:
                 )
             session.commit()
             audit_id = row.id
-        return self.get_by_id(tenant_id, audit_id)
+        persisted = self.get_by_id(tenant_id, audit_id)
+        if status == "completed" and any(
+            str(item.get("verification_status") or verification_default) == "verified"
+            for item in change_audit
+        ):
+            # Learning is an advisory post-commit side effect. It must never
+            # turn a successfully verified business run into a failure.
+            try:
+                from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
+
+                InventoryKnowledgeService(self.session_factory).learn_from_verified_history(
+                    tenant_id,
+                    limit=1000,
+                    minimum_support=2,
+                )
+            except Exception:
+                pass
+        return persisted
 
     def persist_failure(
         self,

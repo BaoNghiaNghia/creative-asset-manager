@@ -178,6 +178,9 @@ def test_historical_learner_requires_repeated_verified_changes_and_never_activat
     assert learned[0]["status"] == "proposed"
     assert learned[0]["source"] == "historical_verified_audit"
     assert learned[0]["structured_rule"]["support"] == 2
+    assert learned[0]["structured_rule"]["mode"] == "shadow"
+    assert learned[0]["structured_rule"]["eligible_for_activation"] is False
+    assert learned[0]["structured_rule"]["conflicts"] == 0
     assert len(learned[0]["evidence"]) == 2
     assert knowledge.active_snapshot("tenant-a")["count"] == 0
     again = knowledge.learn_from_verified_history("tenant-a")
