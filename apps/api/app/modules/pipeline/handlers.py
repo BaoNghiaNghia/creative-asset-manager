@@ -138,7 +138,11 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
         try:
             session, repository, pipeline = self._load(context)
             try:
-                if pipeline.state not in {PipelineState.DOWNLOAD_PENDING.value, PipelineState.DOWNLOAD_FAILED.value}:
+                if pipeline.state not in {
+                    PipelineState.DOWNLOAD_PENDING.value,
+                    PipelineState.DOWNLOAD_FAILED.value,
+                    PipelineState.DOWNLOADING.value,
+                }:
                     return JobHandlerResult.completed()
                 self._require_supported_google_drive_image(
                     session,
@@ -147,7 +151,8 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
                 )
                 if pipeline.state == PipelineState.DOWNLOAD_FAILED.value:
                     repository.transition(pipeline, PipelineState.DOWNLOAD_PENDING)
-                repository.transition(pipeline, PipelineState.DOWNLOADING)
+                if pipeline.state == PipelineState.DOWNLOAD_PENDING.value:
+                    repository.transition(pipeline, PipelineState.DOWNLOADING)
                 session.commit()
             finally:
                 session.close()
