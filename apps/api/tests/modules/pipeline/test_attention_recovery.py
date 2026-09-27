@@ -371,6 +371,56 @@ def test_projection_failure_retries_only_with_completed_analysis():
         engine.dispose()
 
 
+def test_projection_failure_requeues_unfinished_analysis_before_projection():
+    engine, factory = sessions()
+    try:
+        with factory() as session:
+            pipeline, analysis = seed(
+                session,
+                state="projection_failed",
+                error_code="ValueError",
+                analysis_status="running",
+            )
+            analysis_job = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="asset_analyze",
+                entity_type="asset_pipeline",
+                entity_id=pipeline.id,
+                idempotency_key=f"pipeline:{pipeline.id}:asset_analyze:{analysis.id}",
+                payload_json={"pipeline_id": pipeline.id, "analysis_id": analysis.id},
+                status="failed",
+                last_error_code="gemini_invalid_json",
+            )
+            projection_job = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="search_projection_build",
+                entity_type="asset_pipeline",
+                entity_id=pipeline.id,
+                idempotency_key=f"pipeline:{pipeline.id}:search_projection_build:{analysis.id}:None:None",
+                payload_json={"pipeline_id": pipeline.id, "analysis_id": analysis.id},
+                status="failed",
+                last_error_code="ValueError",
+                last_error_message="no completed analysis is available",
+            )
+            session.add_all([analysis_job, projection_job])
+            session.commit()
+
+            result = PipelineAttentionRecovery(session, settings()).apply("tenant-a")
+            session.commit()
+
+            assert result.projection_jobs == 0
+            assert result.projection_analysis_jobs == 1
+            assert session.get(AssetPipelineModel, pipeline.id).state == "analysis_pending"
+            repaired_analysis = session.get(AssetAiAnalysisModel, analysis.id)
+            assert repaired_analysis.status == "pending"
+            repaired_job = session.get(ProcessingJobModel, analysis_job.id)
+            assert repaired_job.status == "retry"
+            assert repaired_job.payload_json["analysis_content_source"] == "source_asset"
+            assert session.get(ProcessingJobModel, projection_job.id).status == "failed"
+    finally:
+        engine.dispose()
+
+
 def test_apply_requires_source_fallback():
     engine, factory = sessions()
     try:

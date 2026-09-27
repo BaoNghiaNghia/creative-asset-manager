@@ -40,6 +40,7 @@ class PipelineAttentionRecoveryResult:
     storage_pipelines: int = 0
     analysis_jobs: int = 0
     projection_jobs: int = 0
+    projection_analysis_jobs: int = 0
     skipped_missing_identity: int = 0
     skipped_no_profile: int = 0
 
@@ -406,6 +407,39 @@ class PipelineAttentionRecovery:
                 continue
             completed = self._latest_completed_analysis(pipeline)
             if completed is None:
+                analysis = self._analysis_from_job(pipeline, job) or self._analysis_for_pipeline(pipeline)
+                if analysis is None or analysis.status not in {"pending", "running", "failed"}:
+                    continue
+                if not pipeline.asset_id:
+                    pipeline.asset_id = analysis.asset_id
+                if not pipeline.source_asset_id:
+                    continue
+                analysis_job = self._pipeline_job(pipeline, "asset_analyze")
+                if analysis_job is None:
+                    self.coordinator.enqueue(
+                        pipeline,
+                        "asset_analyze",
+                        payload={
+                            "analysis_id": analysis.id,
+                            "analysis_content_source": "source_asset",
+                        },
+                        transition=False,
+                    )
+                    analysis_job = self._pipeline_job(pipeline, "asset_analyze")
+                if analysis_job is None:
+                    continue
+                if pipeline.state == PipelineState.PROJECTION_FAILED.value:
+                    pipeline.state = PipelineState.ANALYSIS_PENDING.value
+                    pipeline.last_error_code = None
+                    pipeline.last_error_message = None
+                    pipeline.failure_retryable = None
+                elif pipeline.state not in {
+                    PipelineState.ANALYSIS_PENDING.value,
+                    PipelineState.ANALYZING.value,
+                }:
+                    continue
+                self._reset_analysis_job(analysis_job, analysis)
+                result.projection_analysis_jobs += 1
                 continue
             pipeline.analysis_id = completed.id
             if pipeline.state == PipelineState.PROJECTION_FAILED.value:
