@@ -10,6 +10,7 @@ from app.modules.image_generation.providers import (
     GEMINI_IMAGE_MODEL,
     GeneratedImageResult,
     PreparedImage,
+    ReferenceImageInput,
     gemini_expansion_prompt,
     gemini_image_size,
 )
@@ -166,6 +167,183 @@ class GeminiSquareImageProvider:
                 "Gemini returned an image with invalid format or dimensions.",
             )
         request_id = response.headers.get("x-request-id") or response.headers.get("x-goog-request-id")
+        return GeneratedImageResult(
+            provider="gemini",
+            model=GEMINI_IMAGE_MODEL,
+            image_bytes=data,
+            mime_type=mime,
+            provider_request_id=request_id,
+        )
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+class GeminiReferenceImageProvider:
+    """Reference-conditioned image composition using Gemini image generation.
+
+    The first inline image is always the durable person reference. Product
+    references follow with explicit textual role labels so the model can keep
+    identity/composition stable while applying the exact product appearance.
+    """
+
+    provider_key = "gemini"
+
+    def __init__(self, *, api_key: str, http_client: httpx.AsyncClient | None = None):
+        self.api_key = api_key.strip()
+        self._client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(180.0))
+        self._owns_client = http_client is None
+
+    @property
+    def available(self) -> bool:
+        return bool(self.api_key)
+
+    async def generate_from_references(
+        self,
+        *,
+        person: PreparedImage,
+        references: list[ReferenceImageInput],
+        prompt: str,
+    ) -> GeneratedImageResult:
+        if not self.available:
+            raise GeminiImageProviderError(
+                "gemini_image_not_configured",
+                "Gemini image generation is not configured.",
+            )
+        if not references:
+            raise GeminiImageProviderError(
+                "gemini_reference_images_required",
+                "At least one product reference image is required.",
+            )
+
+        parts: list[dict] = [
+            {"text": prompt.strip()},
+            {"text": "PERSON REFERENCE — preserve this person's identity, pose, scene, framing, lighting, and expression."},
+            {
+                "inlineData": {
+                    "mimeType": person.mime_type,
+                    "data": base64.b64encode(person.image_bytes).decode("ascii"),
+                }
+            },
+        ]
+        for index, reference in enumerate(references[:10], start=1):
+            parts.extend([
+                {
+                    "text": (
+                        f"PRODUCT REFERENCE {index} — role={reference.role}; "
+                        f"view={reference.label}. Use this only for the product's "
+                        "shape, proportions, materials, colors, logo/embroidery, "
+                        "construction details, and fit."
+                    )
+                },
+                {
+                    "inlineData": {
+                        "mimeType": reference.image.mime_type,
+                        "data": base64.b64encode(reference.image.image_bytes).decode("ascii"),
+                    }
+                },
+            ])
+
+        payload = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"],
+            },
+        }
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{GEMINI_IMAGE_MODEL}:generateContent"
+        )
+        try:
+            response = await self._client.post(
+                url,
+                headers={
+                    "x-goog-api-key": self.api_key,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        except httpx.HTTPError as exc:
+            raise GeminiImageProviderError(
+                "gemini_image_provider_unavailable",
+                "Gemini image generation is temporarily unavailable.",
+                retryable=True,
+            ) from exc
+
+        if response.status_code == 429:
+            raise GeminiImageProviderError(
+                "gemini_image_rate_limited",
+                _safe_google_error_message(
+                    response, "Gemini image generation rate limit reached."
+                ),
+                retryable=True,
+            )
+        if response.status_code >= 500:
+            raise GeminiImageProviderError(
+                "gemini_image_provider_unavailable",
+                "Gemini image generation is temporarily unavailable.",
+                retryable=True,
+            )
+        if response.status_code in {401, 403}:
+            raise GeminiImageProviderError(
+                "gemini_image_auth_failed",
+                "Gemini image credentials were rejected.",
+            )
+        if response.is_error:
+            raise GeminiImageProviderError(
+                "gemini_image_generation_failed",
+                "Gemini rejected the reference-conditioned image request.",
+            )
+
+        try:
+            body = response.json()
+            response_parts = body["candidates"][0]["content"]["parts"]
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise GeminiImageProviderError(
+                "gemini_image_invalid_response",
+                "Gemini returned an invalid image response.",
+            ) from exc
+        image_part = next(
+            (
+                part.get("inlineData") or part.get("inline_data")
+                for part in response_parts
+                if isinstance(part, dict)
+                and (part.get("inlineData") or part.get("inline_data"))
+            ),
+            None,
+        )
+        try:
+            mime = str(image_part["mimeType"]).split(";", 1)[0].lower()
+            data = base64.b64decode(image_part["data"], validate=True)
+        except (TypeError, KeyError, ValueError) as exc:
+            raise GeminiImageProviderError(
+                "gemini_image_invalid_response",
+                "Gemini returned no valid generated image.",
+            ) from exc
+        if mime not in ALLOWED_IMAGE_MIME_TYPES or not data or len(data) > MAX_IMAGE_BYTES:
+            raise GeminiImageProviderError(
+                "gemini_image_invalid_response",
+                "Gemini returned an unsupported generated image.",
+            )
+        try:
+            with Image.open(BytesIO(data)) as image:
+                image.load()
+                actual_mime = Image.MIME.get(image.format or "", "").lower()
+        except Exception as exc:
+            raise GeminiImageProviderError(
+                "gemini_image_invalid_response",
+                "Gemini returned an invalid generated image.",
+            ) from exc
+        if actual_mime != mime:
+            raise GeminiImageProviderError(
+                "gemini_image_invalid_response",
+                "Gemini returned an image with mismatched content type.",
+            )
+
+        request_id = (
+            response.headers.get("x-request-id")
+            or response.headers.get("x-goog-request-id")
+        )
         return GeneratedImageResult(
             provider="gemini",
             model=GEMINI_IMAGE_MODEL,

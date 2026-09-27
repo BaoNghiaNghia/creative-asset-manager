@@ -12,6 +12,8 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.domain.providers.contracts import OpenStoredAssetInput, StorageProviderError
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
+from app.modules.image_generation.service import provider_capability
 from app.modules.realistic_review_ugc.generation import (
     RrugcGenerationFoundation,
     binding_is_generation_ready,
@@ -40,6 +42,7 @@ from app.modules.realistic_review_ugc.schema import (
     GenerationAttemptCreateRequest,
     GenerationAttemptCreatedResponse,
     GenerationAttemptResponse,
+    GenerationCapabilityResponse,
     ImportResponse,
     ProductCreateRequest,
     ProductReferenceResponse,
@@ -211,6 +214,46 @@ def _count_sum(counts: Counter, statuses: set[str]) -> int:
     return sum(int(counts.get(status, 0)) for status in statuses)
 
 
+
+
+def _rrugc_generation_capability(
+    session: Session, tenant_id: str
+) -> GenerationCapabilityResponse:
+    settings = get_settings()
+    image_capability = provider_capability(session, settings, tenant_id)
+    gemini = next(
+        (item for item in image_capability.providers if item.id == "gemini"),
+        None,
+    )
+    storage = build_managed_storage_provider(settings)
+    storage_available = (
+        settings.MANAGED_ASSET_STORAGE_ENABLED
+        and not isinstance(storage, UnconfiguredAssetStorageProvider)
+    )
+    enabled = bool(
+        settings.PROCESSING_JOBS_ENABLED
+        and settings.IMAGE_GENERATION_ENABLED
+        and settings.GEMINI_IMAGE_GENERATION_ENABLED
+        and settings.MANAGED_ASSET_STORAGE_ENABLED
+    )
+    available = bool(enabled and gemini and gemini.available and storage_available)
+    reason = None
+    if not enabled:
+        reason = "Reference-conditioned generation is disabled by production settings."
+    elif gemini is None or not gemini.available:
+        reason = "Gemini image credentials are not configured for this tenant."
+    elif not storage_available:
+        reason = "Managed Drive is unavailable."
+    return GenerationCapabilityResponse(
+        enabled=enabled,
+        available=available,
+        provider="gemini",
+        model=GEMINI_IMAGE_MODEL,
+        operation="reference_conditioned_product_edit",
+        reason=reason,
+    )
+
+
 def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptResponse:
     product = dict(row.product_snapshot_json or {})
     references = list(row.product_reference_snapshot_json or [])
@@ -232,7 +275,20 @@ def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptRe
         worker_skill_version=row.worker_skill_version,
         provider=row.provider,
         provider_model=row.provider_model,
+        provider_request_id=row.provider_request_id,
+        processing_job_id=row.processing_job_id,
         status=row.status,
+        output_content_type=row.output_content_type,
+        output_size_bytes=row.output_size_bytes,
+        output_width=row.output_width,
+        output_height=row.output_height,
+        output_remote_file_id=row.output_remote_file_id,
+        output_web_url=row.output_web_url,
+        last_error_code=row.last_error_code,
+        last_error_message=row.last_error_message,
+        queued_at=row.queued_at,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -534,6 +590,20 @@ def archive_product_reference(
     return _product_reference(row)
 
 
+
+
+
+@router.get(
+    "/generation-capability",
+    response_model=GenerationCapabilityResponse,
+)
+def generation_capability(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    return _rrugc_generation_capability(session, principal.active_tenant_id)
+
+
 @router.get("/campaigns", response_model=list[CampaignResponse])
 def list_campaigns(
     session: Session = Depends(get_db),
@@ -653,6 +723,99 @@ def prepare_generation_attempt(
     return GenerationAttemptCreatedResponse(
         created=created,
         attempt=_generation_attempt(row),
+    )
+
+
+@router.post(
+    "/generation-attempts/{attempt_id}/execute",
+    response_model=GenerationAttemptResponse,
+    status_code=202,
+)
+def execute_generation_attempt(
+    attempt_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    attempt = repository.get_generation_attempt(
+        principal.active_tenant_id, attempt_id
+    )
+    if attempt is None:
+        raise HTTPException(status_code=404, detail="Generation attempt not found")
+    capability = _rrugc_generation_capability(
+        session, principal.active_tenant_id
+    )
+    if not capability.available:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "rrugc_generation_provider_unavailable",
+                "message": capability.reason
+                or "Reference-conditioned generation is unavailable.",
+            },
+        )
+    try:
+        row, _created = RrugcGenerationFoundation(session).enqueue_attempt(
+            attempt=attempt,
+            actor_id=principal.user_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _generation_attempt(row)
+
+
+@router.get("/generation-attempts/{attempt_id}/output")
+async def get_generation_attempt_output(
+    attempt_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    attempt = repository.get_generation_attempt(
+        principal.active_tenant_id, attempt_id
+    )
+    if attempt is None:
+        raise HTTPException(status_code=404, detail="Generation attempt not found")
+    if attempt.status != "completed" or not attempt.output_remote_file_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "rrugc_generation_output_not_ready",
+                "message": "Generated output is not ready.",
+            },
+        )
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "managed_storage_unavailable",
+                "message": "Managed Google Drive is unavailable.",
+            },
+        )
+    try:
+        stream = await storage.open_asset(
+            OpenStoredAssetInput(
+                tenant_id=principal.active_tenant_id,
+                asset_id=f"rrugc-generation:{attempt.id}",
+                remote_file_id=attempt.output_remote_file_id,
+                content_type=attempt.output_content_type,
+                size_bytes=attempt.output_size_bytes,
+            )
+        )
+    except StorageProviderError as exc:
+        raise HTTPException(
+            status_code=503 if exc.retryable else 502,
+            detail={
+                "code": exc.code,
+                "message": "Generated output could not be opened.",
+            },
+        ) from exc
+    return StreamingResponse(
+        stream.body,
+        media_type=attempt.output_content_type or stream.content_type,
+        background=BackgroundTask(stream.close),
+        headers={"Cache-Control": "private, max-age=300"},
     )
 
 

@@ -4,6 +4,7 @@ import type {
   CampaignCreated,
   Candidate,
   GenerationAttempt,
+  GenerationCapability,
   Product,
   ProductCreateRequest,
   ProductReference,
@@ -126,6 +127,24 @@ export const prepareGenerationAttempt = (
       }),
     },
   );
+
+export const getGenerationCapability = (signal?: AbortSignal) =>
+  request<GenerationCapability>(
+    "/api/v1/realistic-review-ugc/generation-capability",
+    { signal },
+  );
+
+export const executeGenerationAttempt = (attemptId: string) =>
+  request<GenerationAttempt>(
+    "/api/v1/realistic-review-ugc/generation-attempts/"
+      + encodeURIComponent(attemptId) + "/execute",
+    { method: "POST", body: "{}" },
+  );
+
+export const generationAttemptOutputUrl = (attemptId: string) =>
+  "/api/v1/realistic-review-ugc/generation-attempts/"
+    + encodeURIComponent(attemptId) + "/output";
+
 
 
 export const listCandidates = (campaignId: string, signal?: AbortSignal) =>

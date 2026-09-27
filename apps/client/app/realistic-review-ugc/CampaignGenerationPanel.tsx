@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   bindCampaignProduct,
+  executeGenerationAttempt,
+  generationAttemptOutputUrl,
+  getGenerationCapability,
   listGenerationAttempts,
   listProducts,
   prepareGenerationAttempt,
 } from "./api";
-import type { Campaign, Candidate, GenerationAttempt, Product } from "./types";
+import type {
+  Campaign,
+  Candidate,
+  GenerationAttempt,
+  GenerationCapability,
+  Product,
+} from "./types";
 
 type Props = {
   campaign: Campaign;
@@ -15,6 +24,7 @@ type Props = {
 };
 
 const durableStatuses = new Set(["drive_ready", "rejected_duplicate"]);
+const activeAttemptStatuses = new Set(["queued", "running"]);
 
 export function CampaignGenerationPanel({
   campaign,
@@ -24,6 +34,7 @@ export function CampaignGenerationPanel({
 }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [attempts, setAttempts] = useState<GenerationAttempt[]>([]);
+  const [capability, setCapability] = useState<GenerationCapability | null>(null);
   const [productId, setProductId] = useState(campaign.product_id || "");
   const [candidateId, setCandidateId] = useState("");
   const [busy, setBusy] = useState("");
@@ -32,6 +43,7 @@ export function CampaignGenerationPanel({
     () => candidates.filter(candidate => durableStatuses.has(candidate.status)),
     [candidates],
   );
+  const hasActiveAttempt = attempts.some(attempt => activeAttemptStatuses.has(attempt.status));
 
   useEffect(() => {
     setProductId(campaign.product_id || "");
@@ -50,16 +62,28 @@ export function CampaignGenerationPanel({
     void Promise.all([
       listProducts(controller.signal),
       listGenerationAttempts(campaign.id, controller.signal),
-    ]).then(([productRows, attemptRows]) => {
+      getGenerationCapability(controller.signal),
+    ]).then(([productRows, attemptRows, generationCapability]) => {
       setProducts(productRows);
       setAttempts(attemptRows);
+      setCapability(generationCapability);
     }).catch(reason => {
       if (!controller.signal.aborted) {
-        onError(reason instanceof Error ? reason.message : "Unable to load generation foundation.");
+        onError(reason instanceof Error ? reason.message : "Unable to load generation workspace.");
       }
     });
     return () => controller.abort();
   }, [campaign.id]);
+
+  useEffect(() => {
+    if (!hasActiveAttempt) return;
+    const timer = window.setInterval(() => {
+      void listGenerationAttempts(campaign.id)
+        .then(setAttempts)
+        .catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [campaign.id, hasActiveAttempt]);
 
   async function bindProduct() {
     if (busy) return;
@@ -78,13 +102,25 @@ export function CampaignGenerationPanel({
 
   async function prepare() {
     if (!candidateId || busy) return;
+    const existingPrepared = attempts.find(
+      attempt => attempt.candidate_id === candidateId && attempt.status === "prepared",
+    );
+    if (existingPrepared) return;
+    const variants = attempts
+      .filter(attempt => attempt.candidate_id === candidateId)
+      .map(attempt => attempt.generation_variant);
+    const nextVariant = Math.max(0, ...variants) + 1;
     setBusy("prepare");
     onError("");
     try {
-      const result = await prepareGenerationAttempt(campaign.id, candidateId);
+      const result = await prepareGenerationAttempt(
+        campaign.id,
+        candidateId,
+        nextVariant,
+      );
       setAttempts(rows => {
-        if (rows.some(row => row.id === result.attempt.id)) return rows;
-        return [result.attempt, ...rows];
+        const without = rows.filter(row => row.id !== result.attempt.id);
+        return [result.attempt, ...without];
       });
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : "Unable to prepare generation.");
@@ -93,23 +129,39 @@ export function CampaignGenerationPanel({
     }
   }
 
-  const selectedProduct = products.find(product => product.id === productId);
-  const latestByCandidate = new Map<string, GenerationAttempt>();
-  for (const attempt of attempts) {
-    if (!latestByCandidate.has(attempt.candidate_id)) {
-      latestByCandidate.set(attempt.candidate_id, attempt);
+  async function execute(attemptId: string) {
+    if (busy || !capability?.available) return;
+    setBusy("execute:" + attemptId);
+    onError("");
+    try {
+      const updated = await executeGenerationAttempt(attemptId);
+      setAttempts(rows => rows.map(row => row.id === updated.id ? updated : row));
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Unable to queue generation.");
+    } finally {
+      setBusy("");
     }
   }
 
   return <section className="rrugc-generation-foundation">
     <div className="rrugc-generation-heading">
       <div>
-        <small>PHASE 6 FOUNDATION</small>
-        <strong>Campaign product + generation provenance</strong>
-        <p>Freeze the exact SKU geometry and product-reference versions before a generation provider is queued.</p>
+        <small>PHASE 6 · WORKER SKILL</small>
+        <strong>Reference-conditioned product generation</strong>
+        <p>Freeze the person, SKU geometry and exact product-reference versions, then run a traceable Gemini multi-reference edit.</p>
       </div>
-      <span className="rrugc-safe-badge">Prepared only</span>
+      <span className={capability?.available ? "rrugc-safe-badge" : "rrugc-safe-badge unavailable"}>
+        {capability == null
+          ? "Checking provider…"
+          : capability.available
+            ? "Gemini multi-reference ready"
+            : "Provider unavailable"}
+      </span>
     </div>
+
+    {capability && !capability.available && <p className="rrugc-generation-note">
+      {capability.reason || "Reference-conditioned generation is unavailable."}
+    </p>}
 
     <div className="rrugc-generation-bind">
       <label>
@@ -171,17 +223,42 @@ export function CampaignGenerationPanel({
 
     <div className="rrugc-generation-attempts">
       <div className="rrugc-generation-attempt-title">
-        <span>Prepared attempts</span>
+        <span>Generation attempts</span>
         <b>{attempts.length}</b>
       </div>
       {attempts.length === 0 ? <p>No generation attempt prepared yet.</p> :
         attempts.slice(0, 8).map(attempt =>
           <article key={attempt.id}>
-            <div><strong>{attempt.product_sku}</strong><small>{attempt.worker_skill_version}</small></div>
+            <div>
+              <strong>{attempt.product_sku}</strong>
+              <small>{attempt.worker_skill_version}</small>
+            </div>
             <span>person {attempt.candidate_id.slice(0, 8)}</span>
-            <span>product rev {attempt.product_revision}</span>
+            <span>rev {attempt.product_revision} · variant {attempt.generation_variant}</span>
             <span>{attempt.reference_count} refs</span>
             <em>{attempt.status}</em>
+            {attempt.status === "prepared" && <button
+              type="button"
+              className="rrugc-attempt-action"
+              disabled={Boolean(busy) || !capability?.available}
+              onClick={() => void execute(attempt.id)}
+            >
+              {busy === "execute:" + attempt.id ? "Queueing…" : "Queue"}
+            </button>}
+            {attempt.status === "completed" && <a
+              className="rrugc-attempt-action"
+              href={generationAttemptOutputUrl(attempt.id)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View output
+            </a>}
+            {attempt.status === "failed" && <small
+              className="rrugc-attempt-error"
+              title={attempt.last_error_message || undefined}
+            >
+              {attempt.last_error_code || "generation_failed"}
+            </small>}
           </article>
         )}
     </div>

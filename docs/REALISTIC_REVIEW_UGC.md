@@ -562,9 +562,9 @@ Inputs:
 
 The first implementation should prefer reference-conditioned generation/inpainting so the original person, background, camera perspective and composition remain stable.
 
-### Phase 6 foundation implementation status
+### Phase 6 implementation status
 
-Campaigns can now bind an active Product Registry SKU. The binding freezes the exact product geometry revision and latest active Product Reference versions into immutable campaign snapshots. If the SKU geometry or active reference set changes later, the campaign is marked stale and must explicitly refresh its product snapshot before new generation work can be prepared.
+Campaigns can bind an active Product Registry SKU. The binding freezes the exact product geometry revision and latest active Product Reference versions into immutable campaign snapshots. If the SKU geometry or active reference set changes later, the campaign is marked stale and must explicitly refresh its product snapshot before new generation work can be prepared.
 
 A generation attempt can be prepared only when:
 
@@ -573,9 +573,11 @@ A generation attempt can be prepared only when:
 - the bound product snapshot contains at least the required front reference;
 - the binding is not stale.
 
-Prepared attempts are persisted in `rrugc_generation_attempts` with exact candidate, product revision, product-reference snapshot, generation variant and Worker Skill version. The idempotency key includes the immutable binding fingerprint, so replaying the same preparation returns the same attempt while refreshing the product binding creates a new traceable attempt.
+Attempts are persisted in `rrugc_generation_attempts` with the exact candidate snapshot, product revision, product-reference snapshot, generation variant and Worker Skill version. The idempotency key includes the immutable binding fingerprint, so replaying the same preparation returns the same attempt while refreshing the product binding creates a new traceable attempt.
 
-This slice intentionally stops at `prepared`. It does not enqueue a generation provider yet. The existing CAM `image_generation` runtime is specialized for square expansion and must not be reused as if it were product-on-person generation. The next Phase 6 slice will add a provider-neutral reference-conditioned generation adapter and then queue execution through the existing Processing Job infrastructure.
+Prepared attempts can now be queued through the existing Processing Job runtime as `rrugc_generate`. Execution uses a dedicated provider-neutral reference-conditioned contract and a Gemini multi-reference adapter; the square-expansion image-generation flow remains separate. The worker loads the immutable person/product references from Managed Drive, sends the person reference first followed by labeled product views, stores the generated image back to Managed Drive, and persists provider request ID, model, output dimensions/hash/storage IDs, timestamps and bounded error state on the attempt.
+
+The operator UI reports provider capability truthfully, polls queued/running attempts, exposes terminal errors, and provides the stored output when generation completes. Retryable provider/storage failures return the attempt to the queue with bounded retries; the final processing attempt is synchronized to terminal `failed` so the UI cannot remain falsely stuck in `queued`.
 
 The worker should preserve, where supported:
 

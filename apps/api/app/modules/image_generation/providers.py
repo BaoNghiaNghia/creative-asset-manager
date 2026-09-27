@@ -37,6 +37,25 @@ class GeneratedImageResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ReferenceImageInput:
+    image: PreparedImage
+    role: str
+    label: str
+
+
+class ReferenceConditionedImageGenerationProvider(Protocol):
+    provider_key: ProviderKey
+
+    async def generate_from_references(
+        self,
+        *,
+        person: PreparedImage,
+        references: list[ReferenceImageInput],
+        prompt: str,
+    ) -> GeneratedImageResult: ...
+
+
+@dataclass(frozen=True, slots=True)
 class DeferredGenerationResult:
     provider: ProviderKey
     provider_job_id: str

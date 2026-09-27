@@ -196,6 +196,15 @@ class GenerationAttemptCreateRequest(BaseModel):
     )
 
 
+class GenerationCapabilityResponse(BaseModel):
+    enabled: bool
+    available: bool
+    provider: Literal["gemini"]
+    model: str
+    operation: Literal["reference_conditioned_product_edit"]
+    reason: str | None = None
+
+
 class GenerationAttemptResponse(BaseModel):
     id: str
     campaign_id: str
@@ -210,7 +219,20 @@ class GenerationAttemptResponse(BaseModel):
     worker_skill_version: str
     provider: str | None
     provider_model: str | None
-    status: Literal["prepared"]
+    provider_request_id: str | None = None
+    processing_job_id: str | None = None
+    status: Literal["prepared", "queued", "running", "completed", "failed"]
+    output_content_type: str | None = None
+    output_size_bytes: int | None = None
+    output_width: int | None = None
+    output_height: int | None = None
+    output_remote_file_id: str | None = None
+    output_web_url: str | None = None
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+    queued_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -242,6 +242,10 @@ class RrugcGenerationAttemptModel(Base):
             "ix_rrugc_generation_candidate",
             "tenant_id", "candidate_id", "created_at",
         ),
+        Index(
+            "ix_rrugc_generation_output_hash",
+            "tenant_id", "output_content_hash",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -252,13 +256,29 @@ class RrugcGenerationAttemptModel(Base):
     product_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     product_snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     product_reference_snapshot_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    candidate_snapshot_json: Mapped[dict | None] = mapped_column(JSON)
     generation_variant: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     worker_skill_version: Mapped[str] = mapped_column(String(128), nullable=False)
     provider: Mapped[str | None] = mapped_column(String(64))
     provider_model: Mapped[str | None] = mapped_column(String(128))
+    provider_request_id: Mapped[str | None] = mapped_column(String(255))
     prompt_text: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="prepared")
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    processing_job_id: Mapped[str | None] = mapped_column(String(36))
+    output_content_hash: Mapped[str | None] = mapped_column(String(64))
+    output_content_type: Mapped[str | None] = mapped_column(String(128))
+    output_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    output_width: Mapped[int | None] = mapped_column(Integer)
+    output_height: Mapped[int | None] = mapped_column(Integer)
+    output_remote_file_id: Mapped[str | None] = mapped_column(String(255))
+    output_remote_folder_id: Mapped[str | None] = mapped_column(String(255))
+    output_web_url: Mapped[str | None] = mapped_column(Text)
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

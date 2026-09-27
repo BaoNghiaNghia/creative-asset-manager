@@ -267,3 +267,25 @@ class RrugcRepository:
             )
             .limit(limit)
         ))
+
+    def get_generation_attempt(
+        self, tenant_id: str, attempt_id: str
+    ) -> RrugcGenerationAttemptModel | None:
+        return self.session.scalar(
+            select(RrugcGenerationAttemptModel).where(
+                RrugcGenerationAttemptModel.tenant_id == tenant_id,
+                RrugcGenerationAttemptModel.id == attempt_id,
+            )
+        )
+
+    def lock_generation_attempt(
+        self, tenant_id: str, attempt_id: str
+    ) -> RrugcGenerationAttemptModel | None:
+        return self.session.scalar(
+            select(RrugcGenerationAttemptModel)
+            .where(
+                RrugcGenerationAttemptModel.tenant_id == tenant_id,
+                RrugcGenerationAttemptModel.id == attempt_id,
+            )
+            .with_for_update()
+        )

@@ -185,6 +185,15 @@ export type ProductUpdateRequest = {
   fit_notes?: string | null;
 };
 
+export type GenerationCapability = {
+  enabled: boolean;
+  available: boolean;
+  provider: "gemini";
+  model: string;
+  operation: "reference_conditioned_product_edit";
+  reason: string | null;
+};
+
 export type GenerationAttempt = {
   id: string;
   campaign_id: string;
@@ -199,7 +208,20 @@ export type GenerationAttempt = {
   worker_skill_version: string;
   provider: string | null;
   provider_model: string | null;
-  status: "prepared";
+  provider_request_id: string | null;
+  processing_job_id: string | null;
+  status: "prepared" | "queued" | "running" | "completed" | "failed";
+  output_content_type: string | null;
+  output_size_bytes: number | null;
+  output_width: number | null;
+  output_height: number | null;
+  output_remote_file_id: string | null;
+  output_web_url: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 };

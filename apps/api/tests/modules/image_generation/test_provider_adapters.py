@@ -6,10 +6,14 @@ import httpx
 import pytest
 from PIL import Image
 
-from app.modules.image_generation.providers import PreparedImage
+from app.modules.image_generation.providers import PreparedImage, ReferenceImageInput
 from app.providers.ai.adobe_firefly import AdobeFireflySquareProvider, FireflyProviderError
 from app.providers.ai.cloudflare_workers_ai import CloudflareImageProviderError, CloudflareSquareImageProvider
-from app.providers.ai.gemini_image import GeminiImageProviderError, GeminiSquareImageProvider
+from app.providers.ai.gemini_image import (
+    GeminiImageProviderError,
+    GeminiReferenceImageProvider,
+    GeminiSquareImageProvider,
+)
 
 
 def png(size: int = 1024) -> bytes:
@@ -216,4 +220,74 @@ def test_gemini_rejects_no_image_and_unsupported_mime():
     for _ in range(2):
         with pytest.raises(GeminiImageProviderError, match="Gemini returned"):
             asyncio.run(provider.generate_square(source=SOURCE, target_size=1024, prompt=None))
+    asyncio.run(client.aclose())
+
+def test_gemini_reference_provider_sends_person_then_multiple_product_references():
+    output = png(64)
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = __import__("json").loads(request.content)
+        seen["body"] = body
+        return httpx.Response(
+            200,
+            headers={"x-goog-request-id": "rrugc-request-1"},
+            json={
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": base64.b64encode(output).decode(),
+                            }
+                        }]
+                    }
+                }]
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = GeminiReferenceImageProvider(api_key="secret", http_client=client)
+    front = PreparedImage(
+        image_bytes=png(20), mime_type="image/png", width=20, height=20
+    )
+    side = PreparedImage(
+        image_bytes=png(24), mime_type="image/png", width=24, height=24
+    )
+    result = asyncio.run(provider.generate_from_references(
+        person=SOURCE,
+        references=[
+            ReferenceImageInput(image=front, role="product", label="front"),
+            ReferenceImageInput(image=side, role="product", label="side"),
+        ],
+        prompt="Preserve the original person and apply the exact cap.",
+    ))
+
+    parts = seen["body"]["contents"][0]["parts"]
+    assert parts[0]["text"].startswith("Preserve the original person")
+    assert "PERSON REFERENCE" in parts[1]["text"]
+    assert parts[2]["inlineData"]["data"] == base64.b64encode(SOURCE.image_bytes).decode()
+    assert "view=front" in parts[3]["text"]
+    assert parts[4]["inlineData"]["data"] == base64.b64encode(front.image_bytes).decode()
+    assert "view=side" in parts[5]["text"]
+    assert parts[6]["inlineData"]["data"] == base64.b64encode(side.image_bytes).decode()
+    assert seen["body"]["generationConfig"]["responseModalities"] == ["TEXT", "IMAGE"]
+    assert result.provider == "gemini"
+    assert result.provider_request_id == "rrugc-request-1"
+    assert result.image_bytes == output
+    asyncio.run(client.aclose())
+
+
+def test_gemini_reference_provider_requires_product_reference():
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(500))
+    )
+    provider = GeminiReferenceImageProvider(api_key="secret", http_client=client)
+    with pytest.raises(GeminiImageProviderError) as raised:
+        asyncio.run(provider.generate_from_references(
+            person=SOURCE,
+            references=[],
+            prompt="test",
+        ))
+    assert raised.value.code == "gemini_reference_images_required"
     asyncio.run(client.aclose())

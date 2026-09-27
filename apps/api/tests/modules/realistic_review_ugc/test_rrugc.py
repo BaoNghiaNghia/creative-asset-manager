@@ -7,6 +7,7 @@ from io import BytesIO
 from threading import Event
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -23,6 +24,7 @@ from app.domain.providers.registry import AiProviderRegistry
 from app.infrastructure.downloader.secure_image import DownloadedImage
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.image_generation.providers import GeneratedImageResult
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.analysis import (
     ReferenceAnalysisDocument,
@@ -30,6 +32,7 @@ from app.modules.realistic_review_ugc.analysis import (
     evaluate_reference,
 )
 from app.modules.realistic_review_ugc.handler import RrugcCandidateAnalyzeJobHandler
+from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
@@ -903,3 +906,229 @@ def test_generation_attempt_requires_bound_product_front_reference(api, database
     )
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "product_reference_incomplete"
+
+def test_rrugc_generation_worker_completes_and_persists_drive_output(database, monkeypatch):
+    output_bytes = _png_bytes(width=96, height=64, value=170)
+
+    class FakeReferenceProvider:
+        def __init__(self, *, api_key):
+            assert api_key == "test-image-key"
+
+        async def generate_from_references(self, *, person, references, prompt):
+            assert person.image_bytes
+            assert [item.label for item in references] == ["front"]
+            assert "Create one photorealistic product-on-person edit" in prompt
+            return GeneratedImageResult(
+                provider="gemini",
+                model="gemini-3.1-flash-image",
+                image_bytes=output_bytes,
+                mime_type="image/png",
+                provider_request_id="provider-request-1",
+            )
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.generation_handler.GeminiReferenceImageProvider",
+        FakeReferenceProvider,
+    )
+    monkeypatch.setattr(
+        RrugcGenerateJobHandler,
+        "_gemini_image_key",
+        lambda self, context, settings: "test-image-key",
+    )
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="worker generation",
+            query="review portrait",
+            target_count=1,
+            max_scroll_batches=1,
+            auto_import=False,
+        )
+        product = RrugcProductModel(
+            tenant_id="tenant-a",
+            sku="CAP-WORKER",
+            name="Worker cap",
+            created_by_user_id="user-a",
+        )
+        session.add(product)
+        session.flush()
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="1" * 64,
+            pin_url="https://www.pinterest.com/pin/6001/",
+            image_url="https://i.pinimg.com/worker-source.jpg",
+            status="drive_ready",
+            remote_file_id="person-file",
+        )
+        session.add(candidate)
+        session.flush()
+        attempt = RrugcGenerationAttemptModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            candidate_id=candidate.id,
+            product_id=product.id,
+            product_revision=1,
+            product_snapshot_json={
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "product_type": "hat",
+                "revision": 1,
+            },
+            product_reference_snapshot_json=[{
+                "id": "ref-front",
+                "view_type": "front",
+                "version": 1,
+                "content_type": "image/png",
+                "remote_file_id": "product-front-file",
+            }],
+            candidate_snapshot_json={
+                "id": candidate.id,
+                "remote_file_id": "person-file",
+            },
+            generation_variant=1,
+            worker_skill_version="worker-hat-v1",
+            provider="gemini",
+            provider_model="gemini-3.1-flash-image",
+            prompt_text=(
+                "Create one photorealistic product-on-person edit and preserve the source person."
+            ),
+            status="queued",
+            idempotency_key="worker-attempt-key",
+            created_by_user_id="user-a",
+        )
+        session.add(attempt)
+        session.commit()
+        attempt_id = attempt.id
+
+    claimed = ClaimedJob(
+        id="job-generate-1",
+        tenant_id="tenant-a",
+        job_type="rrugc_generate",
+        entity_type="rrugc_generation_attempt",
+        entity_id=attempt_id,
+        payload={"generation_attempt_id": attempt_id},
+        attempt_count=1,
+        lease_owner="test-worker",
+        provider_key="gemini",
+    )
+    storage = FakeStorage()
+    context = JobHandlerContext(
+        job=claimed,
+        dependencies=WorkerDependencies(
+            session_factory=database,
+            storage_provider=storage,
+        ),
+        shutdown_requested=Event(),
+        cancellation_requested=Event(),
+        logger=logging.LoggerAdapter(logging.getLogger("rrugc-generation-test"), {}),
+    )
+    settings = SimpleNamespace(
+        IMAGE_GENERATION_ENABLED=True,
+        GEMINI_IMAGE_GENERATION_ENABLED=True,
+        GEMINI_IMAGE_API_KEY="test-image-key",
+    )
+    outcome = RrugcGenerateJobHandler(settings)(context)
+    assert outcome.outcome == JobOutcome.COMPLETED
+    assert storage.payload == output_bytes
+    assert storage.input.asset_id == f"rrugc-generation:{attempt_id}"
+
+    with database() as session:
+        persisted = session.get(RrugcGenerationAttemptModel, attempt_id)
+        assert persisted is not None
+        assert persisted.status == "completed"
+        assert persisted.provider == "gemini"
+        assert persisted.provider_model == "gemini-3.1-flash-image"
+        assert persisted.provider_request_id == "provider-request-1"
+        assert persisted.output_content_type == "image/png"
+        assert persisted.output_width == 96
+        assert persisted.output_height == 64
+        assert persisted.output_remote_file_id == "file-1"
+        assert persisted.output_web_url == "https://drive.google.com/file/d/file-1/view"
+        assert persisted.completed_at is not None
+
+
+def test_rrugc_generation_worker_retryable_provider_error_returns_attempt_to_queue(database, monkeypatch):
+    from app.providers.ai.gemini_image import GeminiImageProviderError
+
+    class FailingReferenceProvider:
+        def __init__(self, *, api_key):
+            pass
+
+        async def generate_from_references(self, *, person, references, prompt):
+            raise GeminiImageProviderError(
+                "gemini_image_provider_unavailable",
+                "temporary provider failure",
+                retryable=True,
+            )
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.generation_handler.GeminiReferenceImageProvider",
+        FailingReferenceProvider,
+    )
+    monkeypatch.setattr(
+        RrugcGenerateJobHandler,
+        "_gemini_image_key",
+        lambda self, context, settings: "test-image-key",
+    )
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="retry generation",
+            query="review portrait", target_count=1, max_scroll_batches=1, auto_import=False,
+        )
+        product = RrugcProductModel(
+            tenant_id="tenant-a", sku="CAP-RETRY", name="Retry cap",
+            created_by_user_id="user-a",
+        )
+        session.add(product); session.flush()
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a", campaign_id=campaign.id, source_key="2" * 64,
+            pin_url="https://www.pinterest.com/pin/6002/",
+            image_url="https://i.pinimg.com/retry-source.jpg", status="drive_ready",
+            remote_file_id="person-file",
+        )
+        session.add(candidate); session.flush()
+        attempt = RrugcGenerationAttemptModel(
+            tenant_id="tenant-a", campaign_id=campaign.id, candidate_id=candidate.id,
+            product_id=product.id, product_revision=1,
+            product_snapshot_json={"id": product.id, "sku": product.sku, "name": product.name, "revision": 1},
+            product_reference_snapshot_json=[{"id": "front", "view_type": "front", "remote_file_id": "front-file"}],
+            candidate_snapshot_json={"id": candidate.id, "remote_file_id": "person-file"},
+            generation_variant=1, worker_skill_version="worker-hat-v1",
+            prompt_text="preserve person", status="queued", idempotency_key="retry-attempt-key",
+            created_by_user_id="user-a",
+        )
+        session.add(attempt); session.commit(); attempt_id=attempt.id
+
+    context = JobHandlerContext(
+        job=ClaimedJob(
+            id="job-generate-retry", tenant_id="tenant-a", job_type="rrugc_generate",
+            entity_type="rrugc_generation_attempt", entity_id=attempt_id,
+            payload={"generation_attempt_id": attempt_id}, attempt_count=1,
+            lease_owner="test-worker", provider_key="gemini",
+        ),
+        dependencies=WorkerDependencies(session_factory=database, storage_provider=FakeStorage()),
+        shutdown_requested=Event(), cancellation_requested=Event(),
+        logger=logging.LoggerAdapter(logging.getLogger("rrugc-generation-retry-test"), {}),
+    )
+    settings = SimpleNamespace(
+        IMAGE_GENERATION_ENABLED=True, GEMINI_IMAGE_GENERATION_ENABLED=True,
+        GEMINI_IMAGE_API_KEY="test-image-key",
+    )
+    outcome = RrugcGenerateJobHandler(settings)(context)
+    assert outcome.outcome == JobOutcome.RETRYABLE_FAILURE
+    assert outcome.error_code == "gemini_image_provider_unavailable"
+    with database() as session:
+        persisted = session.get(RrugcGenerationAttemptModel, attempt_id)
+        assert persisted.status == "queued"
+        assert persisted.last_error_code == "gemini_image_provider_unavailable"
