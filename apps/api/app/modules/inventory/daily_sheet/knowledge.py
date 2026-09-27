@@ -426,6 +426,133 @@ class InventoryKnowledgeService:
             "version": sum(int(item["version"]) for item in entries),
         }
 
+    def learn_from_verified_history(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 1000,
+        minimum_support: int = 2,
+    ) -> list[dict[str, Any]]:
+        """Mine reusable proposals from verified historical mutations.
+
+        Historical observations never become active knowledge automatically.
+        A candidate needs repeated verified support and is persisted as a
+        proposed RULE for explicit review/activation.
+        """
+        from app.modules.inventory.persistence_model import (
+            InventoryOperationAuditModel,
+            InventoryOperationChangeModel,
+        )
+
+        bounded_limit = max(1, min(int(limit), 5000))
+        required_support = max(2, int(minimum_support))
+        with self.session_factory() as session:
+            rows = list(
+                session.execute(
+                    select(InventoryOperationChangeModel, InventoryOperationAuditModel)
+                    .join(
+                        InventoryOperationAuditModel,
+                        InventoryOperationAuditModel.id == InventoryOperationChangeModel.audit_id,
+                    )
+                    .where(
+                        InventoryOperationChangeModel.tenant_id == tenant_id,
+                        InventoryOperationAuditModel.tenant_id == tenant_id,
+                        InventoryOperationAuditModel.status == "completed",
+                        InventoryOperationChangeModel.verification_status == "verified",
+                    )
+                    .order_by(
+                        InventoryOperationAuditModel.business_date.desc(),
+                        InventoryOperationChangeModel.id.desc(),
+                    )
+                    .limit(bounded_limit)
+                )
+            )
+
+        groups: dict[tuple[str, str, str, str], list[tuple[Any, Any]]] = {}
+        for change, audit in rows:
+            reason = str(change.reason or "").strip()
+            provenance = str(change.provenance or "").strip()
+            operation_type = str(change.operation_type or "set_cell").strip()
+            sheet = str(change.sheet or "").strip()
+            if not reason or not sheet:
+                continue
+            key = (sheet, operation_type, provenance, reason)
+            groups.setdefault(key, []).append((change, audit))
+
+        proposals: list[dict[str, Any]] = []
+        for (sheet, operation_type, provenance, reason), observations in sorted(groups.items()):
+            if len(observations) < required_support:
+                continue
+            evidence = []
+            for change, audit in observations[:20]:
+                evidence.append({
+                    "business_date": audit.business_date.isoformat(),
+                    "audit_id": audit.id,
+                    "change_id": change.id,
+                    "sheet": sheet,
+                    "cell": change.cell,
+                    "source_sheet": change.source_sheet,
+                    "source_cell": change.source_cell,
+                    "material_id": change.material_id,
+                    "warehouse_id": change.warehouse_id,
+                    "before": (change.before_json or {}).get("value"),
+                    "after": (change.after_json or {}).get("value"),
+                    "verification_status": "verified",
+                })
+            structured_rule = {
+                "learner": "verified_operation_history_v1",
+                "sheet": sheet,
+                "operation_type": operation_type,
+                "provenance": provenance or None,
+                "reason": reason,
+                "support": len(observations),
+                "minimum_support": required_support,
+            }
+            canonical = {
+                "kind": "RULE",
+                "scope_type": "sheet",
+                "scope_key": sheet,
+                "title": f"Observed verified pattern: {reason}"[:500],
+                "content": (
+                    f"Historical verified Inventory runs repeatedly used {operation_type} "
+                    f"on sheet {sheet!r} for this reason: {reason}"
+                ),
+                "structured_rule": structured_rule,
+                "evidence": evidence,
+            }
+            content_hash = _canonical_hash(canonical)
+            knowledge_key = f"history:{_canonical_hash({'sheet': sheet, 'operation_type': operation_type, 'provenance': provenance, 'reason': reason})[:48]}"
+            with self.session_factory() as session:
+                existing = session.scalar(
+                    select(InventoryKnowledgeEntryModel).where(
+                        InventoryKnowledgeEntryModel.tenant_id == tenant_id,
+                        InventoryKnowledgeEntryModel.knowledge_key == knowledge_key,
+                        InventoryKnowledgeEntryModel.source_content_hash == content_hash,
+                        InventoryKnowledgeEntryModel.status.in_(("proposed", "active")),
+                    )
+                )
+            if existing is not None:
+                proposals.append(_view(existing))
+                continue
+            proposals.append(
+                self.create(
+                    tenant_id,
+                    kind="RULE",
+                    title=canonical["title"],
+                    content=canonical["content"],
+                    scope_type="sheet",
+                    scope_key=sheet,
+                    structured_rule=structured_rule,
+                    evidence=evidence,
+                    confidence=min(0.99, 0.5 + (0.1 * len(observations))),
+                    status="proposed",
+                    source="historical_verified_audit",
+                    source_content_hash=content_hash,
+                    knowledge_key=knowledge_key,
+                )
+            )
+        return proposals
+
     def persist_proposals(
         self,
         tenant_id: str,

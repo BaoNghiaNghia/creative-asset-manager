@@ -147,6 +147,65 @@ def test_gemini_proposals_are_deduplicated_and_never_auto_activated():
     engine.dispose(); temp.cleanup()
 
 
+def test_historical_learner_requires_repeated_verified_changes_and_never_activates():
+    temp, engine, sessions = db()
+    audit_service = InventoryOperationAuditService(sessions)
+    knowledge = InventoryKnowledgeService(sessions)
+
+    def result(run_id, *, verification="verified", reason="carry closing to opening"):
+        return SimpleNamespace(
+            run_id=run_id, status="completed", tool_rounds=1, read_calls=1,
+            read_cells=2, writes=1, plan_hash=(run_id[0] * 64),
+            staged=SimpleNamespace(operations=[1], issues=[], material_actions=[], summary="learn"),
+            assessment={}, tool_trace=[], ranges_read=[], business_prompt_source="default",
+            business_prompt_version="v1", business_prompt_hash="h"*64,
+            knowledge_hash="k"*64, knowledge_version=0, model="gemini-test",
+            execution={"verification_status": verification}, knowledge_proposals=[],
+            change_audit=[{
+                "sheet": "Kho", "cell": "G17", "before": 0, "after": 12,
+                "source_sheet": "Kho", "source_cell": "K17", "material_id": "cotton",
+                "warehouse_id": "wh-1", "operation_type": "set_cell", "reason": reason,
+                "provenance": "exact_copy", "evidence": [],
+                "verification_status": verification,
+            }],
+        )
+
+    audit_service.persist_v4_result("tenant-a", date(2026, 9, 20), stage="evening_reconcile", result=result("a"*64))
+    assert knowledge.learn_from_verified_history("tenant-a") == []
+    audit_service.persist_v4_result("tenant-a", date(2026, 9, 21), stage="evening_reconcile", result=result("b"*64))
+    learned = knowledge.learn_from_verified_history("tenant-a")
+    assert len(learned) == 1
+    assert learned[0]["status"] == "proposed"
+    assert learned[0]["source"] == "historical_verified_audit"
+    assert learned[0]["structured_rule"]["support"] == 2
+    assert len(learned[0]["evidence"]) == 2
+    assert knowledge.active_snapshot("tenant-a")["count"] == 0
+    again = knowledge.learn_from_verified_history("tenant-a")
+    assert again[0]["id"] == learned[0]["id"]
+    engine.dispose(); temp.cleanup()
+
+
+def test_historical_learner_ignores_unverified_changes():
+    temp, engine, sessions = db()
+    service = InventoryOperationAuditService(sessions)
+    for index in range(2):
+        result = SimpleNamespace(
+            run_id=str(index) * 64, status="completed", tool_rounds=1, read_calls=1,
+            read_cells=1, writes=1, plan_hash="p"*64,
+            staged=SimpleNamespace(operations=[1], issues=[], material_actions=[], summary="x"),
+            assessment={}, tool_trace=[], ranges_read=[], business_prompt_source="default",
+            business_prompt_version="v1", business_prompt_hash="h"*64,
+            knowledge_hash="k"*64, knowledge_version=0, model="gemini-test",
+            execution={"verification_status": "unknown"}, knowledge_proposals=[],
+            change_audit=[{"sheet":"Kho","cell":f"G{index+2}","before":0,"after":1,
+                "operation_type":"set_cell","reason":"unverified pattern","provenance":"exact_copy",
+                "evidence":[],"verification_status":"unknown"}],
+        )
+        service.persist_v4_result("tenant-a", date(2026, 9, 20 + index), stage="evening_reconcile", result=result)
+    assert InventoryKnowledgeService(sessions).learn_from_verified_history("tenant-a") == []
+    engine.dispose(); temp.cleanup()
+
+
 def test_operation_audit_persists_before_after_and_provenance():
     temp, engine, sessions = db()
     result = SimpleNamespace(

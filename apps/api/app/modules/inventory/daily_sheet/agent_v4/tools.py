@@ -841,7 +841,7 @@ def function_declarations() -> list[dict[str, Any]]:
         },
         {
             "name": "stage_edits",
-            "description": "Submit the authoritative evidence-backed shadow edit plan after assessment. This never writes Google Sheets.",
+            "description": "Submit the authoritative evidence-backed edit plan after assessment. The host stages first; in auto mode only a ready, mechanically validated plan may be applied and read-back verified. Shadow/review modes never write.",
             "parametersJsonSchema": StagedEdits.model_json_schema(),
         },
     ]
