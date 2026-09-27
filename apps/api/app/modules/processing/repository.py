@@ -176,6 +176,7 @@ class ProcessingRepository:
         worker_role: str = "all",
     ) -> ProcessingJobModel | None:
         claimed_at = now or utcnow()
+        self._repair_exhausted_queued_jobs(claimed_at)
         self._terminalize_exhausted_jobs(claimed_at)
         eligibility = self._job_eligibility(claimed_at)
         lease_expires_at = claimed_at + timedelta(seconds=lease_seconds)
@@ -595,6 +596,29 @@ class ProcessingRepository:
                     OutboxEventModel.lease_expires_at <= now,
                 ),
             ),
+        )
+
+    def _repair_exhausted_queued_jobs(self, now: datetime) -> None:
+        """Give contradictory queued-but-exhausted jobs one final recovery attempt.
+
+        A pending/retry row is an explicit promise that work remains runnable.
+        Legacy recovery paths could preserve that state while leaving
+        attempt_count == max_attempts, making the row visible as queued but
+        permanently ineligible. Grant exactly one attempt; if it fails,
+        fail_job() sees the new maximum and terminalizes it normally.
+        """
+        self.session.execute(
+            update(ProcessingJobModel)
+            .where(
+                ProcessingJobModel.status.in_((JobStatus.PENDING.value, JobStatus.RETRY.value)),
+                ProcessingJobModel.cancellation_requested.is_(False),
+                ProcessingJobModel.next_attempt_at <= now,
+                ProcessingJobModel.attempt_count >= ProcessingJobModel.max_attempts,
+            )
+            .values(
+                max_attempts=ProcessingJobModel.attempt_count + 1,
+                updated_at=now,
+            )
         )
 
     def _terminalize_exhausted_jobs(self, now: datetime) -> None:
